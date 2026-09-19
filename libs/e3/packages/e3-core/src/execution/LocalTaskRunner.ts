@@ -729,56 +729,74 @@ async function runCommand(
   const stderrLog = createLogAppender(
     (data) => storage.logs.append(repo, taskHash, inHash, executionId, 'stderr', data), 'stderr');
 
-  const result = await spawnAndCapture(args, scratchDir, {
-    timeoutMs: options.timeout,
-    signal: options.signal,
-    stdinLifeline,
-    // Runners (`east-node`, `east-c`) are typically installed as project
-    // devDeps and exposed on `node_modules/.bin`. Walk up from BOTH the
-    // repo and process.cwd() — the nearest .bin often lacks the runner
-    // (it's hoisted to the workspace root).
-    extraBins,
-    searchDirs: [path.dirname(repo), process.cwd()],
-    // Tee stdout - use storage.logs.append for log persistence
-    onStdout: (str) => {
-      const appended = stdoutLog.push(str);
-      if (options.onStdout) {
-        options.onStdout(str);
-      }
-      return appended;
-    },
-    // Tee stderr — persist to storage.logs; spawnAndCapture keeps the
-    // in-memory tail that the error message includes on non-zero exit.
-    onStderr: (str) => {
-      const appended = stderrLog.push(str);
-      if (options.onStderr) {
-        options.onStderr(str);
-      }
-      return appended;
-    },
-    // Write running status with actual child PID
-    onSpawned: async (pid) => {
-      const pidStartTime = await getPidStartTime(pid ?? -1);
-      const status: ExecutionStatus = variant('running', {
-        executionId,
-        inputHashes,
-        startedAt: new Date(),
-        pid: BigInt(pid ?? -1),
-        pidStartTime: BigInt(pidStartTime ?? -1),
-        bootId,
-      });
-      await storage.refs.executionWrite(repo, taskHash, inHash, executionId, status);
-      // The owner sidecar: this process, which alone writes the outcome.
-      await storage.refs.executionOwnerWrite?.(repo, taskHash, inHash, executionId, {
-        pid: process.pid,
-        pidStartTime: await getPidStartTime(process.pid),
-        bootId,
-      });
-    },
-  });
-
-  // Wait for any pending log writes to complete
-  await Promise.all([stdoutLog.idle(), stderrLog.idle()]);
+  let result: Awaited<ReturnType<typeof spawnAndCapture>>;
+  try {
+    result = await spawnAndCapture(args, scratchDir, {
+      timeoutMs: options.timeout,
+      signal: options.signal,
+      stdinLifeline,
+      // Runners (`east-node`, `east-c`) are typically installed as project
+      // devDeps and exposed on `node_modules/.bin`. Walk up from BOTH the
+      // repo and process.cwd() — the nearest .bin often lacks the runner
+      // (it's hoisted to the workspace root).
+      extraBins,
+      searchDirs: [path.dirname(repo), process.cwd()],
+      // Tee stdout - use storage.logs.append for log persistence
+      onStdout: (str) => {
+        const appended = stdoutLog.push(str);
+        if (options.onStdout) {
+          options.onStdout(str);
+        }
+        return appended;
+      },
+      // Tee stderr — persist to storage.logs; spawnAndCapture keeps the
+      // in-memory tail that the error message includes on non-zero exit.
+      onStderr: (str) => {
+        const appended = stderrLog.push(str);
+        if (options.onStderr) {
+          options.onStderr(str);
+        }
+        return appended;
+      },
+      // Write running status with actual child PID
+      onSpawned: async (pid) => {
+        const pidStartTime = await getPidStartTime(pid ?? -1);
+        const startedAt = new Date();
+        const status: ExecutionStatus = variant('running', {
+          executionId,
+          inputHashes,
+          startedAt,
+          pid: BigInt(pid ?? -1),
+          pidStartTime: BigInt(pidStartTime ?? -1),
+          bootId,
+        });
+        await storage.refs.executionWrite(repo, taskHash, inHash, executionId, status);
+        // The owner sidecar: this process, which alone writes the outcome.
+        // A `running` record with no owner is never repaired, so one whose
+        // owner cannot be recorded is recorded failed before the spawn fails.
+        try {
+          await storage.refs.executionOwnerWrite?.(repo, taskHash, inHash, executionId, {
+            pid: process.pid,
+            pidStartTime: await getPidStartTime(process.pid),
+            bootId,
+          });
+        } catch (err) {
+          await storage.refs.executionWrite(repo, taskHash, inHash, executionId, variant('error', {
+            executionId,
+            inputHashes,
+            startedAt,
+            completedAt: new Date(),
+            message: `Failed to record the execution's owner: ${err instanceof Error ? err.message : String(err)}`,
+          }));
+          throw err;
+        }
+      },
+    });
+  } finally {
+    // Every chunk the runner wrote is in its log before this returns — or
+    // throws, when the spawn fails after the runner has written.
+    await Promise.all([stdoutLog.idle(), stderrLog.idle()]);
+  }
 
   return {
     exitCode: result.exitCode,

@@ -493,18 +493,14 @@ interface ThrownUnit {
 }
 
 /**
- * Once a pool has drained, rethrows the error of the lowest-index unit that
- * threw — deterministic attribution, as for a unit that failed — after the
- * log lines its units wrote have landed, so nothing the step started outlives
- * it.
+ * The lowest-index unit of a pool that threw: deterministic attribution, as
+ * for a unit that failed.
  *
- * @param thrown - The pool's thrown units, in any order
- * @param logWrites - The logical execution's pending log appends
+ * @param thrown - The pool's thrown units, in any order; at least one
+ * @returns The one with the lowest index
  */
-async function rethrowLowest(thrown: readonly ThrownUnit[], logWrites: Promise<void>): Promise<void> {
-  if (thrown.length === 0) return;
-  await logWrites;
-  throw thrown.reduce((lowest, unit) => (unit.index < lowest.index ? unit : lowest)).error;
+function lowestThrown(thrown: readonly ThrownUnit[]): ThrownUnit {
+  return thrown.reduce((lowest, unit) => (unit.index < lowest.index ? unit : lowest));
 }
 
 /** Where a reduce unit sits in its tree, for progress and the logical log. */
@@ -634,6 +630,22 @@ export async function executeTemplate(
       ? `failed (exit code ${unit.exitCode})${unit.error ? `: ${unit.error}` : ''}`
       : `errored: ${unit.error}`;
     return unit.state === 'failed' ? failedResult(unit.exitCode, `${message} ${detail}`) : errorResult(`${message} ${detail}`);
+  };
+  /**
+   * Units that threw — their executor or cache probe failing, not the units'
+   * own failure — end the logical execution once their pool has drained: it
+   * is recorded `error`, naming the lowest-index unit that threw (its log
+   * lines landing first), and that unit's error is rethrown to the caller.
+   */
+  const thrownUnits = async (thrown: readonly ThrownUnit[], describe: (index: number) => string): Promise<void> => {
+    if (thrown.length === 0) return;
+    const unit = lowestThrown(thrown);
+    try {
+      await errorResult(`${describe(unit.index)} could not run: ${unit.error instanceof Error ? unit.error.message : String(unit.error)}`);
+    } catch {
+      // The record cannot be written either: the unit's own error stands.
+    }
+    throw unit.error;
   };
 
   // ---------------------------------------------------------------------
@@ -809,7 +821,6 @@ export async function executeTemplate(
           }
         });
         await Promise.all(workers);
-        await rethrowLowest(thrown, logWrites);
 
         // The plan is recorded with whatever was carved, whatever happened —
         // an uncarved slice as '' — so a retry reuses the slices it has.
@@ -819,6 +830,7 @@ export async function executeTemplate(
         } catch (err) {
           return errorResult(`Failed to record the partition plan: ${err instanceof Error ? err.message : err}`);
         }
+        await thrownUnits(thrown, (p) => `Partition ${p + 1} of ${partitions}`);
 
         // An aborted run stops here, whatever its units did.
         if (options.signal?.aborted || unitResults.some((r) => r?.cancelled)) {
@@ -935,7 +947,12 @@ export async function executeTemplate(
             }
           });
           await Promise.all(workers);
-          await rethrowLowest(thrown, logWrites);
+          await thrownUnits(thrown, (index) => {
+            const first = units[index]!.run * step.fanIn;
+            return step.label === 'combine'
+              ? `Combine step over partials ${first} and ${first + units[index]!.entries.length - 1}`
+              : `Merge unit ${index + 1} of ${units.length} at level ${level} of ${levels}`;
+          });
 
           if (options.signal?.aborted || unitResults.some((r) => r?.cancelled)) {
             return cancelledResult();
