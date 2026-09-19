@@ -1479,7 +1479,11 @@ bool east_value_equal(EastValue *a, EastValue *b)
     }
 
     case EAST_VAL_FUNCTION:
-        return a->data.function.compiled == b->data.function.compiled;
+        /* Every function is equal to every function, as on TypeScript
+         * (comparison.ts: "Functions are always considered equal") — so
+         * Diff of two closures is `unchanged` on every runtime, not
+         * `replace` here and `unchanged` there (#774). */
+        return true;
 
     case EAST_VAL_PAGED:
         return false; /* both failed to hydrate and are not identical */
@@ -1724,9 +1728,7 @@ int east_value_compare(EastValue *a, EastValue *b)
     }
 
     case EAST_VAL_FUNCTION:
-        if (a->data.function.compiled < b->data.function.compiled) return -1;
-        if (a->data.function.compiled > b->data.function.compiled) return 1;
-        return 0;
+        return 0; /* all functions are equal (see east_value_equal) */
 
     case EAST_VAL_PAGED:
         /* Both failed to hydrate: fall back to identity order. */

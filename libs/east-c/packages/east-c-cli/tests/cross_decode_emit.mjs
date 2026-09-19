@@ -4,16 +4,17 @@
  */
 
 /*
- * Cross-runtime pin for the east-c emit sink (#507, #518): runs the
- * checked-in `--emit` fixtures through a built `east-c` binary, then
- * decodes the emitted blobs with the TypeScript reader (@elaraai/east) —
- * proving the native sink's output is readable, pageable and
+ * Cross-runtime pin for the east-c emit sink and blob merge (#507, #518,
+ * #770): runs the checked-in `--emit` and `merge` fixtures through a built
+ * `east-c` binary, then decodes the written blobs with the TypeScript reader
+ * (@elaraai/east) — proving the native output is readable, pageable and
  * value-identical under another runtime's reader (the compliance-suite
- * philosophy applied to emitted outputs). Includes the order-robust paths:
- * the out-of-order demote→spill→merge output must be canonical under the
- * TS reader and byte-identical to the ordered producer's blob. The ctest
- * gate (test_cli_emit.c) validates the same blobs with east-c's own
- * readers; this script is the other direction.
+ * philosophy applied to emitted outputs). Set/Dict emissions must ascend
+ * (#770): an out-of-order key is the canonical error and the aborted output
+ * carries no index; the merge over sorted partials — whole, and over a key
+ * range — is the canonical dict under the TS reader. The ctest gates
+ * (test_cli_emit.c, test_cli_merge.c) validate the same blobs with east-c's
+ * own readers; this script is the other direction.
  *
  * Usage (after `pnpm install` and building libs/east):
  *
@@ -56,6 +57,12 @@ function runCli(args, env = {}) {
   return result;
 }
 
+function mergeCli(args) {
+  const result = spawnSync(bin, ['merge', ...args], { encoding: 'utf-8' });
+  if (result.error) throw result.error;
+  return result;
+}
+
 try {
   const AT = ArrayType(IntegerType);
   const DT = DictType(IntegerType, StringType);
@@ -92,14 +99,12 @@ try {
     console.log('fold: TS reader OK (running sums)');
   }
 
-  // Dict producer: canonical ascending pairs, keyed content intact. The
-  // blob is kept for the shuffled byte-identity check below.
-  let dictBlob;
+  // Dict producer: canonical ascending pairs, keyed content intact.
   {
     const out = join(scratch, 'dict.beast2');
     const run = runCli([join(fixtures, 'emit_dict.beast2'), '--emit', 'dict', '-o', out]);
     assert.equal(run.status, 0, `dict failed: ${run.stderr}`);
-    dictBlob = new Uint8Array(readFileSync(out));
+    const dictBlob = new Uint8Array(readFileSync(out));
     assert.equal(openBeast2PagesFor(DT)(dictBlob).elementCount, 1000);
     const table = decodeBeast2For(DT)(dictBlob);
     assert.equal(table.size, 1000);
@@ -107,34 +112,50 @@ try {
     console.log('dict: TS reader OK (1000 pairs, indexed)');
   }
 
-  // Out-of-order dict (#518): the sink absorbs the disorder (demote →
-  // spill → merge), reports the transition on stderr, and the output is
-  // the canonical dict under the TS reader.
+  // Out-of-order dict (#770): Set/Dict emissions must ascend — the sink
+  // refuses the second key with the canonical message, in the words the
+  // TypeScript sink uses, and the aborted output reads back as no indexed
+  // blob.
   {
     const out = join(scratch, 'disorder.beast2');
     const run = runCli([join(fixtures, 'emit_dict_disorder.beast2'), '--emit', 'dict', '-o', out]);
-    assert.equal(run.status, 0, `disorder run failed: ${run.stderr}`);
-    assert.match(run.stderr, /left ascending order/);
-    const table = decodeBeast2For(DT)(new Uint8Array(readFileSync(out)));
-    assert.equal(table.size, 2);
-    assert.equal(table.get(1n), 'a');
-    assert.equal(table.get(2n), 'b');
-    console.log('disorder: sink-sorted output OK under the TS reader');
+    assert.equal(run.status, 1, 'disorder run should exit 1');
+    assert.match(run.stderr, /beast2 v5: Dict key emitted out of order: 1 after 2 — Set\/Dict emissions must ascend in East order/);
+    assert.throws(() => openBeast2PagesFor(DT)(new Uint8Array(readFileSync(out))));
+    console.log('disorder: canonical rejection OK');
   }
 
-  // Shuffled dict (#518): the same 1000 pairs as emit_dict emitted in
-  // shuffled order under a tiny run cap — dozens of spill runs must merge
-  // to the byte-identical canonical blob.
+  // The blob merge (#770): three sorted TS-written Dict inputs whose keys
+  // overlap (a = 0..19, b = 10..29, c = {5, 15, 25, 40}) fold under the
+  // concatenating merge, in input order, to the canonical dict under the TS
+  // reader; over the key range [7, 22) only those keys, sought through each
+  // input's fences.
   {
-    const out = join(scratch, 'shuffled.beast2');
-    const run = runCli(
-      [join(fixtures, 'emit_dict_shuffled.beast2'), '--emit', 'dict', '-o', out],
-      { EAST_EMIT_RUN_ELEMENTS: '32' },
-    );
-    assert.equal(run.status, 0, `shuffled run failed: ${run.stderr}`);
-    assert.deepEqual(new Uint8Array(readFileSync(out)), dictBlob,
-      'merged blob must be byte-identical to the ordered producer blob');
-    console.log('shuffled: spill/merge blob byte-identical OK');
+    const inputs = ['a', 'b', 'c'].flatMap((name) => ['-i', join(fixtures, `merge_in_${name}.beast2`)]);
+    const out = join(scratch, 'merged.beast2');
+    const run = mergeCli(['--merge', join(fixtures, 'emit_merge_concat.beast2'), ...inputs, '-o', out]);
+    assert.equal(run.status, 0, `merge failed: ${run.stderr}`);
+    const blob = new Uint8Array(readFileSync(out));
+    assert.equal(openBeast2PagesFor(DT)(blob).elementCount, 31);
+    const table = decodeBeast2For(DT)(blob);
+    assert.equal(table.size, 31);
+    assert.equal(table.get(15n), 'a15b15c15');
+    assert.equal(table.get(40n), 'c40');
+    assert.deepEqual([...table.keys()].slice(0, 3), [0n, 1n, 2n]);
+    console.log('merge: TS reader OK (31 folded pairs, indexed)');
+
+    const ranged = join(scratch, 'merged-range.beast2');
+    const rangedRun = mergeCli([
+      '--merge', join(fixtures, 'emit_merge_concat.beast2'),
+      '--range', join(fixtures, 'merge_range_7_22.beast2'),
+      ...inputs, '-o', ranged,
+    ]);
+    assert.equal(rangedRun.status, 0, `ranged merge failed: ${rangedRun.stderr}`);
+    const rangedTable = decodeBeast2For(DT)(new Uint8Array(readFileSync(ranged)));
+    assert.deepEqual([...rangedTable.keys()], Array.from({ length: 15 }, (_, i) => BigInt(7 + i)));
+    assert.equal(rangedTable.get(15n), 'a15b15c15');
+    assert.equal(rangedTable.get(21n), 'b21');
+    console.log('merge --range: TS reader OK (keys 7..21)');
   }
 
   // Duplicate dict key (#518): the surviving hard error — non-zero exit,

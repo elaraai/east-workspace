@@ -1,7 +1,7 @@
 {
   "version": 2,
   "stats": {
-    "totalEntries": 1167,
+    "totalEntries": 1169,
     "totalFiles": 195,
     "packages": {
       "east": 550,
@@ -10,7 +10,7 @@
       "east-py-datascience": 94,
       "east-ui": 346,
       "e3-ui": 39,
-      "e3": 9,
+      "e3": 11,
       "e3-ui-cli": 7,
       "e3-create": 5
     }
@@ -41716,7 +41716,70 @@
         "import { East, DictType, IntegerType, StringType, StructType } from '@elaraai/east';",
         "import e3 from '@elaraai/e3';"
       ],
-      "source": "const EventType = StructType({ entity: StringType, at: IntegerType });\nconst events = e3.input('events', DictType(IntegerType, EventType));\n\n// Each partition returns a Dict keyed by entity; the same entity may appear in\n// several partitions. `merge` resolves such a key; the orchestrator byte-copies\n// every segment no other partial reaches and decodes only the overlaps. A Set\n// output takes `merge: 'union'`.\nconst latest = e3.partitionTask('latest', {\n  partitions: [events],\n  output: DictType(StringType, EventType),\n  merge: ($, _entity, a, b) => East.greater(a.at, b.at).ifElse(($) => a, ($) => b),\n}, ($, slice) => slice.toDict(\n  ($, event, _id) => event.entity,\n  ($, event, _id) => event,\n  ($, a, b, _entity) => East.greater(a.at, b.at).ifElse(($) => a, ($) => b),\n));",
+      "source": "const EventType = StructType({ entity: StringType, at: IntegerType });\nconst events = e3.input('events', DictType(IntegerType, EventType));\n\n// Each partition returns a Dict keyed by entity; the same entity may appear in\n// several partitions. `merge` resolves such a key: the orchestrator splices the\n// partials no other partial reaches and runs the runner's `merge` command over\n// the overlaps, never decoding a partial itself. A Set output takes\n// `merge: 'union'`.\nconst latest = e3.partitionTask('latest', {\n  partitions: [events],\n  output: DictType(StringType, EventType),\n  merge: ($, _entity, a, b) => East.greater(a.at, b.at).ifElse(($) => a, ($) => b),\n}, ($, slice) => slice.toDict(\n  ($, event, _id) => event.entity,\n  ($, event, _id) => event,\n  ($, a, b, _entity) => East.greater(a.at, b.at).ifElse(($) => a, ($) => b),\n));",
+      "languages": [
+        "typescript"
+      ]
+    },
+    {
+      "id": "e3:static:stream-merge-grouped",
+      "skill": "e3",
+      "package": "e3",
+      "file": "static",
+      "suite": "e3.streamTask",
+      "test": "Fold equal keys that arrive together in one pass — a Set or Dict output is emitted in ascending key order",
+      "keywords": [
+        "e3",
+        "streamTask",
+        "merge",
+        "emit",
+        "ascending",
+        "order",
+        "grouped",
+        "adjacent",
+        "fold",
+        "totals",
+        "Dict",
+        "union",
+        "Set",
+        "one pass"
+      ],
+      "imports": [
+        "import { ArrayType, DictType, FloatType, StringType, StructType } from '@elaraai/east';",
+        "import e3 from '@elaraai/e3';"
+      ],
+      "source": "const PaymentType = StructType({ account: StringType, amount: FloatType });\n// Sorted by account: equal keys arrive together and the accounts ascend.\nconst payments = e3.input('payments', ArrayType(PaymentType));\n\n// A Set or Dict output must be emitted in ascending key order — the runner\n// writes it in one pass, and an out-of-order key fails the task. `merge` folds\n// the equal keys that arrive together; a Set output takes `merge: 'union'`.\n// Keys that collide across the stream, or arrive out of order, are a\n// partitionTask with `merge` (e3:static:partition-rekey).\nconst accountTotals = e3.streamTask('account_totals', {\n  stream: payments,\n  output: DictType(StringType, FloatType),\n  merge: (_$, _account, a, b) => a.add(b),\n}, ($, payments, emit) => {\n  $.for(payments, ($, payment) => {\n    $(emit(payment.account, payment.amount));\n  });\n});",
+      "languages": [
+        "typescript"
+      ]
+    },
+    {
+      "id": "e3:static:partition-rekey",
+      "skill": "e3",
+      "package": "e3",
+      "file": "static",
+      "suite": "e3.partitionTask",
+      "test": "Re-key a huge collection — a producer emits pairs in arrival order, a partitionTask with merge keys them",
+      "keywords": [
+        "e3",
+        "partitionTask",
+        "streamTask",
+        "re-key",
+        "rekey",
+        "shuffle",
+        "pairs",
+        "producer",
+        "ingest",
+        "toDict",
+        "merge",
+        "Dict",
+        "out of order"
+      ],
+      "imports": [
+        "import { East, ArrayType, DictType, IntegerType, StringType, StructType } from '@elaraai/east';",
+        "import e3 from '@elaraai/e3';"
+      ],
+      "source": "const RowType = StructType({ id: StringType, at: IntegerType });\nconst PairType = StructType({ key: StringType, value: RowType });\n\n// An ingest that cannot page in key order emits pairs as they arrive — an\n// Array takes any order; a Dict output would have to ascend.\nconst pairs = e3.streamTask('ingest_pairs', {\n  output: ArrayType(PairType),\n}, ($, emit) => { /* fetch pages, $(emit({ key: row.id, value: row })) each */ });\n\n// The partitionTask re-keys them: each partition builds its slice's Dict\n// (toDict folds the keys that collide inside the slice) and `merge` folds the\n// keys that collide across partitions, on the task's runner.\nconst rows = e3.partitionTask('rows', {\n  partitions: [pairs.output],\n  output: DictType(StringType, RowType),\n  merge: ($, _id, a, b) => East.greater(a.at, b.at).ifElse(($) => a, ($) => b),\n}, ($, slice) => slice.toDict(\n  ($, pair, _i) => pair.key,\n  ($, pair, _i) => pair.value,\n  ($, a, b, _id) => East.greater(a.at, b.at).ifElse(($) => a, ($) => b),\n));",
       "languages": [
         "typescript"
       ]

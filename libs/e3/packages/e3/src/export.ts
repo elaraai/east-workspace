@@ -79,13 +79,14 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
     : (e: CaptureEvent) => options.onEvent!({ kind: 'capture', ...e });
   const partialPath = `${outputPath}.partial`;
 
-  // The task a function_ir dataset belongs to (e3.task lists it first among
-  // the task's inputs), so the dataset's IR links against that task's runner.
+  // The task a function_ir (or a stream task's merge_ir) dataset belongs to
+  // (e3.task lists them first among the task's inputs), so the dataset's IR
+  // links against that task's runner.
   const taskOfFunctionIR = new Map<PackageItem, { name: string; runner: Runner | undefined }>();
   for (const item of pkg.contents) {
     if (item.kind === 'task') {
       for (const input of item.inputs) {
-        if (input.name === 'function_ir') taskOfFunctionIR.set(input, { name: item.name, runner: item.runner });
+        if (input.name === 'function_ir' || input.name === 'merge_ir') taskOfFunctionIR.set(input, { name: item.name, runner: item.runner });
       }
     }
   }

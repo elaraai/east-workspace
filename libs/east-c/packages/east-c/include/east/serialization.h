@@ -167,6 +167,15 @@ ByteBuffer *east_beast2_encode_v5(EastValue *value, EastType *type, int32_t code
 ByteBuffer *east_beast2_encode_paged(EastValue *value, EastType *type, int32_t codec_id,
                                      size_t target_segment_bytes);
 
+// The batch refinement behind the paged encoder: the element count of the
+// next segment, toward `target` bytes of wire per segment, from `body` bytes
+// written over `written` elements — the header left out of `body` — capped at
+// 1,000 elements and at least 1. Every writer of a collection blob sizes its
+// segments with it (the paged encoders here and in TypeScript, the emit sink,
+// the blob merge), so one value segments the same way wherever it is written
+// (issue #770).
+size_t east_beast2_paged_next_batch(size_t target, size_t body, size_t written);
+
 // Streaming v5 writer: each write() encodes one batch (a value of the declared
 // Array/Set/Dict type) as one root segment, so writer memory is O(batch).
 // Output bytes accumulate internally; drain with take() (returns a ByteBuffer

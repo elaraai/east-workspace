@@ -682,12 +682,13 @@ static EastValue *paged_batch(EastValue *value, EastType *type, size_t i, size_t
     return batch;
 }
 
-/* The paged encoder's batch refinement: `body` wire bytes over `written`
- * elements, toward `target` bytes per segment, clamped to the element cap.
- * Non-increasing in `body`, which is what makes a bounded decision exact. */
-static size_t paged_next_batch(size_t target, size_t body, size_t written)
+/* The batch refinement every collection writer shares (serialization.h):
+ * `body` wire bytes over `written` elements, toward `target` bytes per
+ * segment, clamped to the element cap. Non-increasing in `body`, which is
+ * what makes a bounded decision exact. */
+size_t east_beast2_paged_next_batch(size_t target, size_t body, size_t written)
 {
-    double avg = (double)body / (double)written;
+    double avg = written > 0 ? (double)body / (double)written : 1.0;
     if (avg < 1.0) avg = 1.0;
     size_t nb = (size_t)((double)target / avg);
     return nb < 1 ? 1 : nb > B2V5_PAGED_BATCH_DEFAULT ? (size_t)B2V5_PAGED_BATCH_DEFAULT : nb;
@@ -721,12 +722,7 @@ ByteBuffer *east_beast2_encode_paged(EastValue *value, EastType *type, int32_t c
         size_t body = scratch->total_emitted - header;
         east_beast2_writer_free(scratch);
         if (!ok) return NULL;
-        double avg = body > 0 ? (double)body / (double)probe_n : 1.0;
-        if (avg < 1.0) avg = 1.0;
-        size_t by_target = (size_t)((double)target / avg);
-        next_batch = by_target < 1                          ? 1
-                     : by_target > B2V5_PAGED_BATCH_DEFAULT ? (size_t)B2V5_PAGED_BATCH_DEFAULT
-                                                            : by_target;
+        next_batch = east_beast2_paged_next_batch(target, body, probe_n);
     }
 
     Beast2StreamWriter *w = east_beast2_writer_new(type, codec_id, true, true);
@@ -753,12 +749,12 @@ ByteBuffer *east_beast2_encode_paged(EastValue *value, EastType *type, int32_t c
          * bounds ARE the exact decision; otherwise wait for the frames. */
         size_t lo, hi;
         east_beast2_writer_emitted_bounds(w, &lo, &hi);
-        size_t at_lo = paged_next_batch(target, lo - header, written);
-        size_t at_hi = paged_next_batch(target, hi - header, written);
+        size_t at_lo = east_beast2_paged_next_batch(target, lo - header, written);
+        size_t at_hi = east_beast2_paged_next_batch(target, hi - header, written);
         if (at_lo != at_hi) {
             ok = east_beast2_writer_settle(w);
             east_beast2_writer_emitted_bounds(w, &lo, &hi);
-            at_lo = paged_next_batch(target, lo - header, written);
+            at_lo = east_beast2_paged_next_batch(target, lo - header, written);
         }
         next_batch = at_lo;
     }

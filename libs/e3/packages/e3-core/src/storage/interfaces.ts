@@ -15,7 +15,7 @@
  * a StorageBackend, the same code can run locally or in the cloud.
  */
 
-import type { ExecutionStatus, LockState, LockOperation, DataflowRun, DatasetRef } from '@elaraai/e3-types';
+import type { ExecutionOwner, ExecutionStatus, LockState, LockOperation, DataflowRun, DatasetRef } from '@elaraai/e3-types';
 import type { LockHolderInfo } from '../errors.js';
 
 // Re-export lock types for consumers of this module
@@ -403,6 +403,55 @@ export interface RefStore {
    * @returns Latest execution status per inputsHash (order unspecified)
    */
   executionListLatest(repo: string, taskHash: string): Promise<Array<{ inputsHash: string; status: ExecutionStatus }>>;
+
+  /**
+   * Record the orchestrator that launched an execution — the `owner` sidecar
+   * beside its status (issue #770).
+   *
+   * Optional: a backend without it never repairs a stale `running` record,
+   * since the repair acts only where a dead owner is recorded.
+   *
+   * @param repo - Repository identifier
+   * @param taskHash - Task object hash
+   * @param inputsHash - Combined input hashes
+   * @param executionId - Execution ID (UUIDv7)
+   * @param owner - The orchestrator process
+   */
+  executionOwnerWrite?(repo: string, taskHash: string, inputsHash: string, executionId: string, owner: ExecutionOwner): Promise<void>;
+
+  /**
+   * Read the orchestrator that launched an execution.
+   *
+   * @param repo - Repository identifier
+   * @param taskHash - Task object hash
+   * @param inputsHash - Combined input hashes
+   * @param executionId - Execution ID (UUIDv7)
+   * @returns The owner, or null when none is recorded
+   */
+  executionOwnerRead?(repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<ExecutionOwner | null>;
+
+  /**
+   * Point a partitioned execution's `(taskHash, inputsHash)` at its partition
+   * plan object — the `plan` sidecar (issue #770).
+   *
+   * Optional: without it a re-plan or a resume carves its slices again.
+   *
+   * @param repo - Repository identifier
+   * @param taskHash - Task object hash
+   * @param inputsHash - Combined input hashes
+   * @param planHash - Hash of the `PartitionPlan` object
+   */
+  executionPlanWrite?(repo: string, taskHash: string, inputsHash: string, planHash: string): Promise<void>;
+
+  /**
+   * Read the partition plan object a partitioned execution last recorded.
+   *
+   * @param repo - Repository identifier
+   * @param taskHash - Task object hash
+   * @param inputsHash - Combined input hashes
+   * @returns The plan object hash, or null when none is recorded
+   */
+  executionPlanRead?(repo: string, taskHash: string, inputsHash: string): Promise<string | null>;
 
   // -------------------------------------------------------------------------
   // Dataflow Run History

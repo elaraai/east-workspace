@@ -7,7 +7,7 @@
  * e3 repo commands - Repository management
  */
 
-import { resolve } from 'path';
+import { dirname, resolve } from 'path';
 import { rmSync } from 'fs';
 import {
   repoInit,
@@ -225,7 +225,9 @@ export const repoCommand = {
       console.log('');
 
       if (location.type === 'local') {
-        const storage = new LocalStorage();
+        // gc runs repository-level operations (storage.repos), which need the
+        // directory holding the repository — as e3-api-server configures it.
+        const storage = new LocalStorage(dirname(resolve(location.path)));
         const result = await repoGc(storage, location.path, {
           dryRun: options.dryRun,
           minAge,

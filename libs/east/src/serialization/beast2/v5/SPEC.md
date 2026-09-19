@@ -37,6 +37,14 @@ kind 2 (well-known + fb):  varint(id) u64-LE(content_hash) + structural section
   (see `../v4/SPEC.md` — entry grammar, tag bytes, recursion). It stays
   length-prefixed so a decoder-side content-hash skip-cache (issue #417)
   applies to custom types unchanged.
+- The table is **canonical**: one type, one section, on every runtime, and
+  whether the type was built in code or is an `EastTypeValue` read back off
+  the wire (issue #770). The rules — post-order in declaration order, a
+  Recursive wrapper indexed before its body, one entry per distinct entry
+  bytes, wrappers deduplicated up to their naming — are the v4 type table's
+  and are stated there. This is what lets an encoder recognise a well-known
+  schema by content, and what makes a blob's content hash a function of its
+  value alone.
 - The **well-known** forms name a schema by reference so decoders skip
   parsing it. `content_hash` is the FNV-1a 64-bit hash (offset basis
   `0xcbf29ce484222325`, prime `0x100000001b3`) of the schema's structural

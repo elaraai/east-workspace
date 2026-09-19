@@ -45,19 +45,30 @@ function flags(platforms: string[]): string[] {
 }
 
 /**
- * Resolve a {@link RunnerType} value to the argv prefix (the wire-value
- * analogue of the SDK's `runnerToCommand`). Lives in e3-types so both
- * e3-core (local) and the cloud execution kernel import the one resolver.
+ * Resolve a {@link RunnerType} value to the argv prefix of one of its
+ * commands (the wire-value analogue of the SDK's `runnerToCommand`): `run`,
+ * the default — `[<bin>, 'run', -p…]` — or `merge`, the blob merge every
+ * stock runner ships — `[<bin>, 'merge', -p…]`, the fan-in of a partitioned
+ * task's keyed partials (issue #770). Lives in e3-types so both e3-core
+ * (local) and the cloud execution kernel import the one resolver.
  *
  * Variant tags use underscores (`east_node`) mapped to the binary name
- * (`east-node`) here.
+ * (`east-node`) here. A `custom` runner's command is its `run`; it has no
+ * merge command.
+ *
+ * @param r - the runner
+ * @param command - the runner command, `run` by default
+ * @returns the argv prefix
+ * @throws {Error} When `merge` is asked of a custom runner.
  */
-export function runnerToArgv(r: RunnerValue): string[] {
+export function runnerToArgv(r: RunnerValue, command: 'run' | 'merge' = 'run'): string[] {
   switch (r.type) {
-    case 'east_node': return ['east-node', 'run', ...flags(r.value.platforms)];
-    case 'east_py':   return ['east-py',   'run', ...flags(r.value.platforms)];
-    case 'east_c':    return ['east-c',    'run', ...flags(r.value.platforms)];
-    case 'custom':    return [...r.value.command];
+    case 'east_node': return ['east-node', command, ...flags(r.value.platforms)];
+    case 'east_py':   return ['east-py',   command, ...flags(r.value.platforms)];
+    case 'east_c':    return ['east-c',    command, ...flags(r.value.platforms)];
+    case 'custom':
+      if (command !== 'run') throw new Error(`a custom runner has no ${command} command`);
+      return [...r.value.command];
   }
 }
 
@@ -65,10 +76,10 @@ export function runnerToArgv(r: RunnerValue): string[] {
  * Insert the runner's `-v/--verbose` flag into a fully-built argv, for the
  * known runtimes only.
  *
- * All three known runners (`east-node`/`east-py`/`east-c run`) accept `-v`
- * among their options and print timing/perf detail to stderr; a `custom`
- * runner's argv is user-authored, so a flag is never spliced into it. A
- * known-runtime argv always starts `[<bin>, 'run', …]` (see
+ * All three known runners (`east-node`/`east-py`/`east-c`, `run` and `merge`)
+ * accept `-v` among their options and print timing/perf detail to stderr; a
+ * `custom` runner's argv is user-authored, so a flag is never spliced into
+ * it. A known-runtime argv always starts `[<bin>, <command>, …]` (see
  * {@link runnerToArgv} and the SDK's `runnerToCommand`), so `-v` goes at
  * index 2 — ahead of the `-p`/`-i`/`-o` flags and the trailing IR path.
  *
@@ -84,4 +95,25 @@ export function runnerToArgv(r: RunnerValue): string[] {
 export function withRunnerVerbose(runner: RunnerValue, args: string[], verbose?: boolean): string[] {
   if (!verbose || runner.type === 'custom' || args.length < 2) return args;
   return [...args.slice(0, 2), '-v', ...args.slice(2)];
+}
+
+/**
+ * Insert the runner's `--exit-with-parent` flag into a fully-built argv, for
+ * the known runtimes only — the stdin lifeline (issue #770).
+ *
+ * A stock runner given the flag and a stdin pipe its parent never writes to
+ * exits as soon as the pipe reaches end of file: when the parent dies. A
+ * `custom` runner's argv is user-authored, so the flag is never spliced into
+ * it, and it keeps an ignored stdin. Like {@link withRunnerVerbose} the flag
+ * goes at index 2, after `[<bin>, <command>]`, and is a pure runtime toggle
+ * applied just before spawn — never part of the task's `commandIr` or any
+ * hash.
+ *
+ * @param runner - the runner the argv was built for (gates the injection)
+ * @param args - the fully-built argv
+ * @returns the argv, with `--exit-with-parent` inserted for known runtimes
+ */
+export function withRunnerLifeline(runner: RunnerValue, args: string[]): string[] {
+  if (runner.type === 'custom' || args.length < 2) return args;
+  return [...args.slice(0, 2), '--exit-with-parent', ...args.slice(2)];
 }

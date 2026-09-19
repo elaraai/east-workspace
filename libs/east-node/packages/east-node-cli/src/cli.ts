@@ -5,10 +5,12 @@
 
 import { Command } from 'commander';
 import { writeFileSync } from 'node:fs';
+import { Worker } from 'node:worker_threads';
 import { createRequire } from 'module';
 import { EastError } from '@elaraai/east/internal';
 import { loadPlatforms, loadPlatformWithMetadata } from './loader.js';
-import { runProgram } from './runner.js';
+import { runProgram, type RunProgramOptions } from './runner.js';
+import { mergeBlobs } from './merge.js';
 import { writeSnapshot, readSnapshot } from './snapshot.js';
 import { encodeRebuilt, isDirectory, transpile, transpileDir } from './transpile.js';
 import { exportFunctionsFromModule } from './export-functions.js';
@@ -27,25 +29,53 @@ interface RunOptions {
     snapshot?: string;
     fromSnapshot?: string;
     emit?: string;
-    stream?: string;
+    stream?: string[];
+    merge?: string;
+    union?: boolean;
     lazyInputs?: string;
+    exitWithParent?: boolean;
 }
 
+interface MergeOptions {
+    package?: string[];
+    input: string[];
+    output: string;
+    verbose?: boolean;
+    merge?: string;
+    union?: boolean;
+    range?: string;
+    exitWithParent?: boolean;
+}
+
+/** The `--exit-with-parent` flag's help, shared by `run` and `merge`. */
+const EXIT_WITH_PARENT_HELP =
+    'Exit as soon as stdin reaches end of file — for a parent that holds a stdin pipe it never writes to, and takes the runner down with it';
+
 /** Parses the streaming-execution flags into runner options. */
-function streamingOptions(options: RunOptions): { emit?: 'array' | 'set' | 'dict'; streamInput?: number; lazyInputBytes?: number } {
-    const out: { emit?: 'array' | 'set' | 'dict'; streamInput?: number; lazyInputBytes?: number } = {};
+function streamingOptions(options: RunOptions): RunProgramOptions {
+    const out: RunProgramOptions = {};
     if (options.emit !== undefined) {
         if (options.emit !== 'array' && options.emit !== 'set' && options.emit !== 'dict') {
             throw new Error(`--emit must be one of array, set or dict, got '${options.emit}'`);
         }
         out.emit = options.emit;
     }
+    if (options.merge !== undefined) {
+        if (out.emit !== 'dict') throw new Error('--merge applies to --emit dict only');
+        out.merge = options.merge;
+    }
+    if (options.union) {
+        if (out.emit !== 'set') throw new Error('--union applies to --emit set only');
+        out.union = true;
+    }
     if (options.stream !== undefined) {
-        const index = Number(options.stream);
-        if (!Number.isInteger(index) || index < 0) {
-            throw new Error(`--stream must be a non-negative input index, got '${options.stream}'`);
-        }
-        out.streamInput = index;
+        out.streamInputs = options.stream.map((raw) => {
+            const index = Number(raw);
+            if (!Number.isInteger(index) || index < 0) {
+                throw new Error(`--stream must be a non-negative input index, got '${raw}'`);
+            }
+            return index;
+        });
     }
     if (options.lazyInputs !== undefined) {
         const bytes = Number(options.lazyInputs);
@@ -79,12 +109,13 @@ interface ExportFunctionsOptions {
 /**
  * Print `message` to stderr and exit 1 once the write has FLUSHED.
  *
- * Piped stdio is asynchronous on Windows, so `console.error(...)` followed by
- * `process.exit(1)` can truncate the message before a parent process ever
- * reads it — e3 spawns this CLI with stdio pipes and surfaces the stderr tail
- * on failure, and on windows-latest that tail arrived empty. The returned
- * promise never resolves (the process exits from the write callback), so
- * `return fail(...)` ends the caller exactly like the exit it replaces.
+ * A write to `process.stderr` is asynchronous on a POSIX pipe (and on a
+ * Windows terminal), so `console.error(...)` followed by `process.exit(1)` can
+ * end the process before the message is written — and e3 spawns this CLI with
+ * stdio pipes and surfaces the stderr tail on failure. Exiting from the write
+ * callback lets the whole message through. The returned promise never
+ * resolves (the process exits from the write callback), so `return fail(...)`
+ * ends the caller exactly like the exit it replaces.
  */
 function fail(message: string): Promise<never> {
     process.exitCode = 1;
@@ -93,7 +124,53 @@ function fail(message: string): Promise<never> {
     });
 }
 
+/**
+ * The exit-with-parent watcher (issue #770), run on a worker thread: it reads
+ * stdin through a socket on the worker's own event loop, and once stdin ends,
+ * closes or cannot be read it kills the whole process — `process.exit` inside
+ * a worker ends only the worker.
+ *
+ * It never blocks in a read. Process exit joins worker threads, so a worker
+ * blocked in `fs.readSync(0)` keeps the runner from ever exiting: a read that
+ * starts before stdin is non-blocking stays blocked, and on Windows libuv
+ * keeps pipes in blocking mode. An evented read stops with the worker's loop
+ * (on a synchronous Windows pipe libuv cancels its blocking read).
+ */
+const EXIT_WITH_PARENT_WATCHER = `
+const { Socket } = require('node:net');
+const stop = () => process.kill(process.pid, 'SIGKILL');
+try {
+    const stdin = new Socket({ fd: 0, readable: true, writable: false });
+    stdin.on('end', stop);
+    stdin.on('close', stop);
+    stdin.on('error', stop);
+    stdin.resume();
+} catch {
+    stop();
+}
+`;
+
+/**
+ * Exit with the parent (issue #770): with `--exit-with-parent` on the
+ * command line, start the watcher on an unref'd worker thread. A parent
+ * passes the flag only when it gives the runner a stdin pipe it never writes
+ * to, so stdin ends only when that parent is gone. The main thread never
+ * reads `process.stdin`, but it opens it first: on Windows a read pending on
+ * a synchronous pipe holds the pipe's file-object lock, so once the watcher
+ * reads, opening stdin — which the first ESM import of `node:process` does,
+ * the builtin's facade reading every export — would wait for the parent to
+ * go. Opened now, stdin is one stream every later use shares. (e3 hands its
+ * runners an overlapped pipe, whose reads take no such lock; this keeps the
+ * runner whole under any parent.)
+ */
+function startLifeline(options: { exitWithParent?: boolean }): void {
+    if (!options.exitWithParent) return;
+    void process.stdin;
+    new Worker(EXIT_WITH_PARENT_WATCHER, { eval: true }).unref();
+}
+
 async function cmdRun(irFile: string | undefined, options: RunOptions): Promise<void> {
+    startLifeline(options);
     try {
         // --from-snapshot is exclusive with <ir_file>, -i, -p
         if (options.fromSnapshot) {
@@ -170,6 +247,30 @@ async function cmdRun(irFile: string | undefined, options: RunOptions): Promise<
         return fail(err instanceof EastError
             ? `Error: ${err.toString()}`
             : (e.stack ?? `Error: ${e.message ?? String(err)}`));
+    }
+}
+
+/**
+ * `east-node merge` (#770): k sorted Set/Dict blobs of one type into one
+ * canonical blob, in a single pass — the fan-in of a partitioned task's
+ * keyed partials.
+ */
+async function cmdMerge(options: MergeOptions): Promise<void> {
+    startLifeline(options);
+    try {
+        if (options.merge !== undefined && options.union) {
+            return fail('Error: --merge and --union are two folds — give one');
+        }
+        const platformFns = await loadPlatforms(options.package ?? []);
+        mergeBlobs(options.input, options.output, {
+            ...(options.merge !== undefined && { mergePath: options.merge }),
+            ...(options.range !== undefined && { rangePath: options.range }),
+            union: options.union ?? false,
+            platformFns,
+            verbose: options.verbose ?? false,
+        });
+    } catch (err) {
+        return fail(`Error: ${(err as Error).message}`);
     }
 }
 
@@ -275,11 +376,31 @@ export function main(): void {
             'Replay from a .east-snapshot bundle (exclusive with <ir_file>, -i, -p)')
         .option('--emit <kind>',
             "Write the output incrementally from the function's trailing emit parameter (array|set|dict)")
-        .option('--stream <index>',
-            'Feed the given -i input (0-based) lazily, segment-by-segment')
+        .option('--merge <file>',
+            'With --emit dict: fold equal keys with the East function (K, V, V) -> V in <file>, in emission order')
+        .option('--union', 'With --emit set: collapse equal elements')
+        .option('--stream <index...>',
+            'Feed the given -i inputs (0-based) lazily, segment-by-segment (repeatable)')
         .option('--lazy-inputs <bytes>',
             'Open indexed collection inputs at or above this size lazily (0 disables; default 64 MiB)')
+        .option('--exit-with-parent', EXIT_WITH_PARENT_HELP)
         .action(cmdRun);
+
+    program
+        .command('merge')
+        .description('Merge sorted Set or Dict blobs of one type into one, in a single pass: equal keys fold with ' +
+            'the East function (K, V, V) -> V in --merge <file> (Dict), or collapse under --union (Set); without ' +
+            'a fold an equal key is an error. The output is what `run --emit` writes for the same entries emitted ascending')
+        .requiredOption('-i, --input <file...>', 'The input blobs (equal keys fold in this order)')
+        .requiredOption('-o, --output <file>', 'The merged blob')
+        .option('-p, --package <package...>', "Platform packages the --merge function's platform calls need")
+        .option('-v, --verbose', 'Enable verbose output')
+        .option('--merge <file>', 'Dict inputs: fold equal keys with the East function (K, V, V) -> V in <file>, in input order')
+        .option('--union', 'Set inputs: the first of equal elements stands')
+        .option('--range <file>',
+            "Merge only the keys in [from, to): a beast2 blob of Struct{from: Option<K>, to: Option<K>} over the inputs' key type; an absent bound is open")
+        .option('--exit-with-parent', EXIT_WITH_PARENT_HELP)
+        .action(cmdMerge);
 
     program
         .command('transpile')

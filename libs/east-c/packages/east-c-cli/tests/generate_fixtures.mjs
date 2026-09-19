@@ -4,12 +4,13 @@
  */
 
 /*
- * Regenerates the checked-in `--emit` test fixtures: tiny East IR programs
- * (beast2-encoded, source map included) plus one TS-paged-written input blob,
- * shared verbatim by the east-c ctest gate (tests/test_cli_emit.c) and the
- * east-py-cli pytest suite (libs/east-py/packages/east-py-cli/tests/fixtures).
- * Keeping the TS writer as the fixture source makes every native-runner test
- * that READS these blobs a cross-runtime decode of TS-written bytes.
+ * Regenerates the checked-in `--emit` and `merge` test fixtures: tiny East
+ * IR programs (beast2-encoded, source map included) plus TS-paged-written
+ * input blobs, shared verbatim by the east-c ctest gates (tests/test_cli_emit.c,
+ * tests/test_cli_merge.c) and the east-py-cli pytest suite
+ * (libs/east-py/packages/east-py-cli/tests/fixtures). Keeping the TS writer
+ * as the fixture source makes every native-runner test that READS these
+ * blobs a cross-runtime decode of TS-written bytes.
  *
  * Run after building the east package:
  *
@@ -34,7 +35,9 @@ import {
   FunctionType,
   IntegerType,
   NullType,
+  SetType,
   SortedMap,
+  SortedSet,
   StringType,
   StructType,
   compareFor,
@@ -51,46 +54,85 @@ const targets = [
 
 const emitInt = FunctionType([IntegerType], NullType);
 const emitPair = FunctionType([IntegerType, StringType], NullType);
-const NestedT = StructType({
-  label: StringType,
-  items: ArrayType(StructType({ x: IntegerType, y: FloatType })),
-});
-const emitNested = FunctionType([IntegerType, NestedT], NullType);
 
-/** A dict producer whose values are structs of arrays of structs, emitted
- *  in the given key order: the sink encodes an out-of-order emission at
- *  the emit and merges runs of bytes, and its output must be byte-identical
- *  to the ascending producer's. */
-function nestedProducer(keys) {
-  return East.function([emitNested], NullType, ($, emit) => {
-    $.for($.const(keys, ArrayType(IntegerType)), ($, i) => {
-      $(
-        emit(i, {
-          label: East.str`row-${i}`,
-          items: [
-            { x: i, y: 0.5 },
-            { x: i.add(1n), y: 1.5 },
-            { x: i.add(2n), y: 2.5 },
-          ],
-        }),
-      );
+const PairT = StructType({ key: IntegerType, value: StringType });
+
+/** A dict producer emitting the given (key, value) pairs in order. */
+function pairEmitter(pairs) {
+  return East.function([emitPair], NullType, ($, emit) => {
+    $.for($.const(pairs, ArrayType(PairT)), ($, pair) => {
+      $(emit(pair.key, pair.value));
     });
   }).toIR();
 }
 
-/** The 0..count keys in a deterministic Fisher-Yates shuffle (fixed LCG
- *  seed), so the disorder the sink must absorb is stable across fixture
- *  regenerations. */
-function shuffledKeys(count) {
-  const keys = Array.from({ length: count }, (_, i) => BigInt(i));
-  let seed = 12345;
-  const rnd = () => (seed = (seed * 48271) % 2147483647) / 2147483647;
-  for (let i = keys.length - 1; i > 0; i--) {
-    const j = Math.floor(rnd() * (i + 1));
-    [keys[i], keys[j]] = [keys[j], keys[i]];
-  }
-  return keys;
+/** A set producer emitting the given keys in order. */
+function keyEmitter(keys) {
+  return East.function([emitInt], NullType, ($, emit) => {
+    $.for($.const(keys, ArrayType(IntegerType)), ($, key) => {
+      $(emit(key));
+    });
+  }).toIR();
 }
+
+/** The fold contract's emission sequence (#770), as keys: 0..1199 in order
+ *  with adjacent duplicates — every third key twice, and key 999, the last
+ *  entry of a full 1000-element batch, four times. */
+function foldSequence() {
+  const ascending = [];
+  for (let k = 0; k < 1200; k++) {
+    const copies = 1 + (k % 3 === 0 ? 1 : 0) + (k % 1000 === 999 ? 2 : 0);
+    for (let c = 0; c < copies; c++) ascending.push(BigInt(k));
+  }
+  return ascending;
+}
+
+/** A key sequence as dict emissions — each value names its emission — and
+ *  its fold under the concatenating merge, ascending by key. */
+function foldPairs(keys) {
+  const pairs = keys.map((key, i) => ({ key, value: `${i};` }));
+  const folded = new Map();
+  for (const { key, value } of pairs) folded.set(key, (folded.get(key) ?? '') + value);
+  const ascending = [...folded].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  return { pairs, folded: ascending.map(([key, value]) => ({ key, value })) };
+}
+
+/** A key sequence's union: its distinct keys, ascending. */
+function unionKeys(keys) {
+  return [...new Set(keys)].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+}
+
+const foldKeys = foldSequence();
+const ascendingPairs = foldPairs(foldKeys);
+
+/** The blob merge's inputs (#770): three sorted Dicts whose keys overlap —
+ *  a = 0..19, b = 10..29, c = {5, 15, 25, 40} — each value naming its input,
+ *  and their fold under the concatenating merge in input order. */
+const mergeKeys = {
+  a: Array.from({ length: 20 }, (_, k) => k),
+  b: Array.from({ length: 20 }, (_, k) => k + 10),
+  c: [5, 15, 25, 40],
+};
+const IntStringDict = DictType(IntegerType, StringType);
+const intCmp = compareFor(IntegerType);
+function mergeInput(name) {
+  return encodeBeast2PagedFor(IntStringDict, { batchSize: 4 })(
+    new SortedMap(mergeKeys[name].map((k) => [BigInt(k), `${name}${k}`]), intCmp),
+  );
+}
+function mergeSetInput(name) {
+  return encodeBeast2PagedFor(SetType(IntegerType), { batchSize: 4 })(
+    new SortedSet(mergeKeys[name].map((k) => BigInt(k)), intCmp),
+  );
+}
+const mergeFolded = new Map();
+for (const name of ['a', 'b', 'c']) {
+  for (const k of mergeKeys[name]) mergeFolded.set(k, (mergeFolded.get(k) ?? '') + `${name}${k}`);
+}
+const mergeFoldedPairs = [...mergeFolded]
+  .sort(([x], [y]) => x - y)
+  .map(([k, v]) => ({ key: BigInt(k), value: v }));
+const mergeDistinct = unionKeys([...mergeKeys.a, ...mergeKeys.b, ...mergeKeys.c].map((k) => BigInt(k)));
 
 const fixtures = {
   // Producer: no file inputs, 2500 emissions of i*2 through the trailing
@@ -124,9 +166,9 @@ const fixtures = {
     }).toIR(),
   ),
 
-  // Dict producer emitting out of key order on the second emit — since
-  // issue #518 the sink absorbs this (sort-in-the-sink) and the output is
-  // the canonical two-pair dict.
+  // Dict producer emitting out of key order on the second emit — Set/Dict
+  // emissions must ascend in East order (#770): the sink writes one pass,
+  // and this is the out-of-order error naming both keys.
   'emit_dict_disorder.beast2': encodeEastIR(
     East.function([emitPair], NullType, ($, emit) => {
       $(emit(2n, 'b'));
@@ -134,20 +176,7 @@ const fixtures = {
     }).toIR(),
   ),
 
-  // Dict producer emitting the same 1000 pairs as emit_dict in a
-  // deterministically shuffled order — the sink must spill/merge to the
-  // byte-identical canonical blob (issue #518; run tiny
-  // EAST_EMIT_RUN_ELEMENTS to force multiple spill runs).
-  'emit_dict_shuffled.beast2': encodeEastIR(
-    East.function([emitPair], NullType, ($, emit) => {
-      $.for($.const(shuffledKeys(1000), ArrayType(IntegerType)), ($, i) => {
-        $(emit(i, East.str`row-${i}`));
-      });
-    }).toIR(),
-  ),
-
-  // Duplicate key emitted adjacently — a hard error under any emission
-  // order (the `strictly` half of the old contract, which survives #518).
+  // Duplicate key emitted adjacently — a hard error.
   'emit_dict_duplicate.beast2': encodeEastIR(
     East.function([emitPair], NullType, ($, emit) => {
       $(emit(1n, 'a'));
@@ -257,15 +286,54 @@ const fixtures = {
     ),
   ),
 
-  // ---- Encode-at-the-emit pins ----------------------------------------
+  // ---- Folding sinks and the lifeline (#770) ---------------------------
 
-  // 300 nested-value pairs in ascending order, and the same pairs in a
-  // deterministically shuffled order (run under a tiny
-  // EAST_EMIT_RUN_ELEMENTS to force several raw spill runs).
-  'emit_nested.beast2': encodeEastIR(
-    nestedProducer(Array.from({ length: 300 }, (_, i) => BigInt(i))),
+  // The fold contract: the ascending sequence emitted with --merge (dict) or
+  // --union (set), and the fold of that sequence emitted for the flag-less
+  // sink — the two outputs must be byte-identical.
+  'emit_merge_concat.beast2': encodeEastIR(
+    East.function([IntegerType, StringType, StringType], StringType, (_$, _key, acc, value) =>
+      acc.concat(value),
+    ).toIR(),
   ),
-  'emit_nested_shuffled.beast2': encodeEastIR(nestedProducer(shuffledKeys(300))),
+  'emit_merge_ascending.beast2': encodeEastIR(pairEmitter(ascendingPairs.pairs)),
+  'emit_merge_ascending_folded.beast2': encodeEastIR(pairEmitter(ascendingPairs.folded)),
+  'emit_union_ascending.beast2': encodeEastIR(keyEmitter(foldKeys)),
+  'emit_union_ascending_folded.beast2': encodeEastIR(keyEmitter(unionKeys(foldKeys))),
+
+  // ---- The blob merge (#770) --------------------------------------------
+
+  // Sorted inputs written by the TS paged writer in four-entry segments;
+  // `merge --merge` over the three Dicts and `merge --union` over the three
+  // Sets must write exactly the bytes `run --emit` writes for the folded
+  // (respectively distinct) sequence emitted ascending. An empty input, and a
+  // Dict of another type for the mismatch refusal.
+  'merge_in_a.beast2': mergeInput('a'),
+  'merge_in_b.beast2': mergeInput('b'),
+  'merge_in_c.beast2': mergeInput('c'),
+  'merge_expected_dict.beast2': encodeEastIR(pairEmitter(mergeFoldedPairs)),
+  'merge_set_a.beast2': mergeSetInput('a'),
+  'merge_set_b.beast2': mergeSetInput('b'),
+  'merge_set_c.beast2': mergeSetInput('c'),
+  'merge_expected_set.beast2': encodeEastIR(keyEmitter(mergeDistinct)),
+  'merge_empty.beast2': encodeBeast2PagedFor(IntStringDict, { batchSize: 4 })(new SortedMap([], intCmp)),
+  'merge_mismatch.beast2': encodeBeast2PagedFor(DictType(StringType, FloatType), { batchSize: 4 })(
+    new SortedMap([['x', 1.5]], compareFor(StringType)),
+  ),
+
+  // The lifeline: one emission, then a loop that never ends, which only the
+  // exit-with-parent watcher stops. The sink opens the output file before the
+  // body runs, so the file's existence is the gate's sign that the runner is
+  // up and computing.
+  'emit_spin.beast2': encodeEastIR(
+    East.function([emitInt], NullType, ($, emit) => {
+      $(emit(1n));
+      const turns = $.let(0n);
+      $.while(true, ($) => {
+        $.assign(turns, turns.add(1n));
+      });
+    }).toIR(),
+  ),
 };
 
 for (const dir of targets) {

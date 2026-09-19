@@ -1,16 +1,26 @@
 /*
- * BEAST2 v2 Flat Type Table.
+ * BEAST2 Flat Type Table.
  *
- * Encode side: DFS over EastType*, producing a flat array of entries
- * keyed by pointer identity (and a parallel ETV pointer map for fast
- * value-equality matching).  Decode side: parse entries and reconstruct
- * the EastType* array via the east_*_type constructors.
+ * Encode side: a post-order DFS over EastType* producing a flat array of
+ * entries, one per distinct type. The table is CANONICAL — the same rules as
+ * the TypeScript builder (libs/east/src/serialization/beast2/v4/type-table.ts)
+ * so the same type writes the same bytes on every runtime (#770): children
+ * are committed before their parents in declaration order, a Recursive
+ * wrapper takes its index before its body is walked, an entry whose bytes
+ * (tag + params) already exist is never written twice, and two Recursive
+ * wrappers are one entry when east_type_equal says so. Pointer identity is
+ * only a memo over the walk: a type reached again through a recursive
+ * wrapper's body before its own commit, or as a second pointer of equal
+ * structure, lands on the entry already written.
+ *
+ * Decode side: parse entries and reconstruct the EastType* array via the
+ * east_*_type constructors.
  */
 
 #include "internal.h"
 
 /* ================================================================== */
-/*  Beast2 v2 Flat Type Table                                          */
+/*  Beast2 Flat Type Table                                             */
 /* ================================================================== */
 
 void flat_tt_init(Beast2FlatTypeTable *t)
@@ -24,6 +34,13 @@ void flat_tt_init(Beast2FlatTypeTable *t)
     t->etv_map_mask = 63;
     t->etv_map_count = 0;
     t->etv_map = calloc(64, sizeof(Beast2PtrSlot));
+    t->content_map_mask = 63;
+    t->content_map_count = 0;
+    t->content_map = calloc(64, sizeof(Beast2PtrSlot));
+    t->wrappers = NULL;
+    t->wrapper_idx = NULL;
+    t->wrapper_count = 0;
+    t->wrapper_cap = 0;
 }
 
 void flat_tt_free(Beast2FlatTypeTable *t)
@@ -34,6 +51,9 @@ void flat_tt_free(Beast2FlatTypeTable *t)
     free(t->entries);
     free(t->et_map);
     free(t->etv_map);
+    free(t->content_map);
+    free(t->wrappers);
+    free(t->wrapper_idx);
 }
 
 static size_t flat_tt_allocate(Beast2FlatTypeTable *t)
@@ -163,23 +183,103 @@ static void flat_tt_etv_add(Beast2FlatTypeTable *t, EastValue *val, size_t idx)
 }
 
 
+/* ---- Entry-content hash map: (tag, params) → index ---- */
+
+static uintptr_t flat_tt_content_key(uint8_t tag, const uint8_t *params, size_t len)
+{
+    /* The tag seeds the hash; a zero key marks an empty slot. */
+    return (uintptr_t)(hash_byte_range(params, len, (uintptr_t)tag) | 1u);
+}
+
+static void flat_tt_content_grow(Beast2FlatTypeTable *t)
+{
+    int old_cap = t->content_map_mask + 1;
+    int new_cap = old_cap * 2;
+    int new_mask = new_cap - 1;
+    Beast2PtrSlot *new_map = calloc(new_cap, sizeof(Beast2PtrSlot));
+    for (int i = 0; i < old_cap; i++) {
+        if (t->content_map[i].key != 0) {
+            uint32_t h = (uint32_t)t->content_map[i].key & (uint32_t)new_mask;
+            while (new_map[h].key != 0)
+                h = (h + 1) & (uint32_t)new_mask;
+            new_map[h] = t->content_map[i];
+        }
+    }
+    free(t->content_map);
+    t->content_map = new_map;
+    t->content_map_mask = new_mask;
+}
+
+/* The index of the entry with exactly these bytes, or -1. */
+static int flat_tt_content_find(Beast2FlatTypeTable *t, uintptr_t key, uint8_t tag,
+                                const uint8_t *params, size_t len)
+{
+    uint32_t h = (uint32_t)key & (uint32_t)t->content_map_mask;
+    for (;;) {
+        if (t->content_map[h].key == 0) return -1;
+        if (t->content_map[h].key == key) {
+            const Beast2FlatEntry *e = &t->entries[t->content_map[h].idx];
+            if (e->tag == tag && e->params_len == len &&
+                (len == 0 || memcmp(e->params, params, len) == 0))
+                return (int)t->content_map[h].idx;
+        }
+        h = (h + 1) & (uint32_t)t->content_map_mask;
+    }
+}
+
+static void flat_tt_content_add(Beast2FlatTypeTable *t, uintptr_t key, size_t idx)
+{
+    if (t->content_map_count * 10 >= (t->content_map_mask + 1) * 7) flat_tt_content_grow(t);
+    uint32_t h = (uint32_t)key & (uint32_t)t->content_map_mask;
+    while (t->content_map[h].key != 0)
+        h = (h + 1) & (uint32_t)t->content_map_mask;
+    t->content_map[h].key = key;
+    t->content_map[h].idx = idx;
+    t->content_map_count++;
+}
+
+/* ---- Committed Recursive wrappers ---- */
+
+static void flat_tt_wrapper_push(Beast2FlatTypeTable *t, EastType *wrapper, size_t idx)
+{
+    if (t->wrapper_count >= t->wrapper_cap) {
+        size_t new_cap = t->wrapper_cap ? t->wrapper_cap * 2 : 4;
+        t->wrappers = realloc(t->wrappers, new_cap * sizeof(EastType *));
+        t->wrapper_idx = realloc(t->wrapper_idx, new_cap * sizeof(size_t));
+        t->wrapper_cap = new_cap;
+    }
+    t->wrappers[t->wrapper_count] = wrapper;
+    t->wrapper_idx[t->wrapper_count] = idx;
+    t->wrapper_count++;
+}
+
 /* ---- DFS encoder: EastType* → flat table ---- */
 
-/* Commit a new type table entry. Takes ownership of pb (frees it).
- * Generates a canonical ETV for value-equality dedup by the ETV path. */
+/* Commit a type's entry after its children. Takes ownership of pb (frees it).
+ * The same bytes are the same wire node: a type reached before — through a
+ * recursive wrapper's body while this walk was still visiting its children,
+ * or as a distinct pointer of equal structure — lands on the entry already
+ * written, and the pointer maps only ever hold one slot per pointer. */
 static size_t flat_tt_commit(Beast2FlatTypeTable *t, EastType *type, uint8_t tag, ByteBuffer *pb)
 {
+    const uint8_t *params = pb ? pb->data : NULL;
+    size_t params_len = pb ? pb->len : 0;
+    uintptr_t key = flat_tt_content_key(tag, params, params_len);
+    int existing = flat_tt_content_find(t, key, tag, params, params_len);
+    if (existing >= 0) {
+        if (flat_tt_et_find(t, type) < 0) flat_tt_et_add(t, type, (size_t)existing);
+        if (pb) byte_buffer_free(pb);
+        return (size_t)existing;
+    }
     size_t idx = flat_tt_allocate(t);
-    flat_tt_et_add(t, type, idx);
+    if (flat_tt_et_find(t, type) < 0) flat_tt_et_add(t, type, idx);
     t->entries[idx].tag = tag;
     if (pb) {
         t->entries[idx].params = concat_params(pb);
         t->entries[idx].params_len = pb->len;
         byte_buffer_free(pb);
     }
-    /* Generate canonical ETV for this entry. east_type_to_value produces
-     * the same ETV representation that the IR uses for type annotations,
-     * enabling value-equality matching in flat_tt_add_etv. */
+    flat_tt_content_add(t, key, idx);
     return idx;
 }
 
@@ -190,8 +290,17 @@ size_t flat_tt_add_et(Beast2FlatTypeTable *t, EastType *type)
     int existing = flat_tt_et_find(t, type);
     if (existing >= 0) return (size_t)existing;
 
-    /* Recursive: allocate before recursing so self-references find this entry. */
+    /* Recursive: the entry exists only once the body does, so a repeat is
+     * found by comparing types, not bytes — up to the naming of wrappers
+     * (a wrapper's pointer, like its id, is not on the wire). Allocate
+     * before recursing so self-references find this entry. */
     if (type->kind == EAST_TYPE_RECURSIVE) {
+        for (size_t i = 0; i < t->wrapper_count; i++) {
+            if (east_type_equal(t->wrappers[i], type)) {
+                flat_tt_et_add(t, type, t->wrapper_idx[i]);
+                return t->wrapper_idx[i];
+            }
+        }
         size_t idx = flat_tt_allocate(t);
         flat_tt_et_add(t, type, idx);
         size_t inner_idx = flat_tt_add_et(t, type->data.recursive.node);
@@ -200,6 +309,7 @@ size_t flat_tt_add_et(Beast2FlatTypeTable *t, EastType *type)
         t->entries[idx].tag = BEAST2_TAG_RECURSIVE;
         t->entries[idx].params = p;
         t->entries[idx].params_len = len;
+        flat_tt_wrapper_push(t, type, idx);
         return idx;
     }
 

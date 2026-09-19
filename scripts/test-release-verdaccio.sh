@@ -3,9 +3,10 @@
 #
 # Publishes EVERY @elaraai/* npm package (the workspace JS packages via the same
 # scripts/publish-npm.mjs the real release uses, plus the east-c-cli launcher +
-# the host-platform per-platform package), installs them into a throwaway
-# consumer exactly as a user would, and smoke-tests the result — all without
-# touching the real npm registry or needing trusted-publishing / OIDC.
+# the host-platform per-platform package, and on Windows e3-core's job launcher
+# @elaraai/e3-job-win32-x64), installs them into a throwaway consumer exactly
+# as a user would, and smoke-tests the result — all without touching the real
+# npm registry or needing trusted-publishing / OIDC.
 #
 # This is the engine behind the release workflow's `validate` job; running it
 # under `act` exercises the same path locally. Linux-x64 only (the host leg):
@@ -27,6 +28,9 @@ PORT=4873
 HOST="127.0.0.1"
 URL="http://${HOST}:${PORT}"
 VERDACCIO_PID=
+# e3-core's manifest, which step 4 injects the job launcher dependency into as
+# publish-npm does; restored from $WORK on exit.
+E3_CORE_MANIFEST="libs/e3/packages/e3-core/package.json"
 
 cleanup() {
   local rc=$?
@@ -35,6 +39,7 @@ cleanup() {
     echo "── verdaccio.log (tail) ──";    tail -40 "$WORK/verdaccio.log"    2>/dev/null || true
   fi
   [[ -n "$VERDACCIO_PID" ]] && kill "$VERDACCIO_PID" 2>/dev/null || true
+  [[ -f "$WORK/e3-core.package.json" ]] && cp "$WORK/e3-core.package.json" "$REPO_ROOT/$E3_CORE_MANIFEST"
   rm -rf "$WORK"
   exit $rc
 }
@@ -54,6 +59,10 @@ case "$(uname -s)-$(uname -m)" in
   MINGW*-x86_64|MSYS*-x86_64) TARGET=win32-x64; BIN=east-c.exe ;;
   *) echo "::error::Unsupported host: $(uname -s)-$(uname -m)"; exit 1 ;;
 esac
+# e3-core's job launcher is a Windows program: only the win32-x64 leg builds
+# and publishes it.
+JOB_LAUNCHER=
+[ "$TARGET" = "win32-x64" ] && JOB_LAUNCHER=libs/e3/native/e3-job/build/e3-job.exe
 
 # ── 1. Build everything the publish needs ───────────────────────────────────
 if [[ "${SKIP_BUILD:-}" != "1" ]]; then
@@ -77,11 +86,18 @@ if [[ "${SKIP_BUILD:-}" != "1" ]]; then
     else
       cmake .. >/dev/null && cmake --build . -j"$(nproc 2>/dev/null || sysctl -n hw.logicalcpu 2>/dev/null || echo 4)" >/dev/null
     fi )
+  if [ -n "$JOB_LAUNCHER" ]; then
+    log "Building e3-job (cmake, e3-core's Windows job launcher)"
+    make -C libs/e3 job-launcher >/dev/null
+  fi
 else
   log "SKIP_BUILD=1 — reusing existing dist/ + east-c build"
 fi
 test -x "libs/east-c/build/packages/east-c-cli/$BIN" \
   || { echo "::error::east-c binary missing — run without SKIP_BUILD"; exit 1; }
+if [ -n "$JOB_LAUNCHER" ]; then
+  test -f "$JOB_LAUNCHER" || { echo "::error::e3-job.exe missing — run without SKIP_BUILD"; exit 1; }
+fi
 
 # ── 2. Start verdaccio ──────────────────────────────────────────────────────
 # @elaraai/* is served LOCAL-only (no uplink proxy) so installs resolve the
@@ -142,6 +158,17 @@ EOF
 export NPM_CONFIG_USERCONFIG="$NPMRC"
 
 # ── 4. Publish the workspace JS packages (real publish path, local registry) ─
+# As publish-npm does: e3-core's job launcher first (Windows), then e3-core with
+# its optionalDependency on it injected. On the other legs verdaccio has no such
+# package, and the consumer's install must still succeed — as it does for the
+# east-c-cli launcher's other platforms.
+if [ -n "$JOB_LAUNCHER" ]; then
+  log "Publishing @elaraai/e3-job-win32-x64 (e3-core's job launcher)"
+  node scripts/stage-e3-job-package.mjs --exe "$JOB_LAUNCHER" --version "$VERSION" --out "$WORK/e3-job" >/dev/null
+  ( cd "$WORK/e3-job" && npm pack --pack-destination "$WORK" >/dev/null && npm publish "$WORK"/elaraai-e3-job-win32-x64-*.tgz --access public >/dev/null )
+fi
+cp "$E3_CORE_MANIFEST" "$WORK/e3-core.package.json"
+node scripts/inject-e3-job-dep.mjs --version "$VERSION" >/dev/null
 log "Publishing @elaraai/* JS packages to verdaccio"
 node scripts/publish-npm.mjs beta --registry "$URL/"
 
@@ -177,6 +204,7 @@ cat > "$PROJ/package.json" <<EOF
     "@elaraai/east-c-cli": "$VERSION",
     "@elaraai/east-node-cli": "$VERSION",
     "@elaraai/e3-cli": "$VERSION",
+    "@elaraai/e3-core": "$VERSION",
     "@elaraai/e3-ui-cli": "$VERSION",
     "@elaraai/east": "$VERSION",
     "@elaraai/east-node-std": "$VERSION",
@@ -201,5 +229,28 @@ echo -n "  require @elaraai/east: "; ( cd "$PROJ" && node -e "require('@elaraai/
 # Pulls @elaraai/east-diagnostics transitively, so this also proves the
 # workspace:* rewrite + both new packages actually shipped their dist.
 echo -n "  require @elaraai/eslint-plugin-east: "; ( cd "$PROJ" && node -e "require('@elaraai/eslint-plugin-east'); console.log('ok')" )
+if [ -n "$JOB_LAUNCHER" ]; then
+  # e3-core as a user installs it: its optionalDependency brought the job
+  # launcher, and a runner it spawns is the launcher's child — inside its job.
+  cat > "$PROJ/job-launcher-smoke.mjs" <<'SMOKE'
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { spawnAndCapture } from '@elaraai/e3-core';
+
+let launcherPid = null;
+const result = await spawnAndCapture(
+  [process.execPath, '-e', 'process.stdout.write(String(process.ppid))'],
+  mkdtempSync(join(tmpdir(), 'e3-job-smoke-')),
+  { onSpawned: (pid) => { launcherPid = pid; } },
+);
+if (result.exitCode !== 0 || result.stdoutTail !== String(launcherPid)) {
+  console.error(`the runner's parent is not e3's child, the job launcher: ${JSON.stringify({ launcherPid, ...result })}`);
+  process.exit(1);
+}
+console.log('ok');
+SMOKE
+  echo -n "  e3-core runs a runner in its job launcher: "; ( cd "$PROJ" && node job-launcher-smoke.mjs )
+fi
 
 log "PASS — full @elaraai/* release installs + runs from verdaccio (${TARGET})"

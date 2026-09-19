@@ -5,6 +5,7 @@
 
 import { NullType, some, none, variant } from '@elaraai/east';
 import {
+  JobSlots,
   dataflowGetGraph,
   workspaceStatus,
   executionFindCurrent,
@@ -165,14 +166,19 @@ export async function startDataflow(
   storage: StorageBackend,
   repoPath: string,
   workspace: string,
-  options: { concurrency: number; force: boolean; filter?: string; verbose?: boolean }
+  options: { jobs: number; force: boolean; filter?: string; verbose?: boolean }
 ): Promise<Response> {
   try {
     const orchestrator = getOrchestrator(repoPath);
+    if (!Number.isInteger(options.jobs) || options.jobs < 1) {
+      return sendError(NullType, variant('internal', { message: `jobs must be a positive integer, got ${options.jobs}` }));
+    }
 
-    // Start execution via orchestrator (acquires lock internally)
+    // Start execution via orchestrator (acquires lock internally). The run's
+    // jobs budget bounds the runners it spawns, tasks and partition units alike.
     const handle = await orchestrator.start(storage, repoPath, workspace, {
-      concurrency: options.concurrency,
+      concurrency: options.jobs,
+      jobs: new JobSlots(options.jobs),
       force: options.force,
       filter: options.filter,
       verbose: options.verbose,

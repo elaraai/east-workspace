@@ -13,7 +13,7 @@ import { existsSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { East, IntegerType, StringType, StructType, decodeBeast2For, encodeBeast2For, variant, some, none, toEastTypeValue } from '@elaraai/east';
 import e3 from '@elaraai/e3';
-import { WorkspaceStateType, PackageObjectType, TaskObjectType, FunctionObjectType, DataRefType, DatasetRefType, RecordCommitType, MutationObjectType, EnvironmentSpecType } from '@elaraai/e3-types';
+import { WorkspaceStateType, PackageObjectType, TaskObjectType, FunctionObjectType, DataRefType, DatasetRefType, RecordCommitType, MutationObjectType, EnvironmentSpecType, encodePartitionPlan } from '@elaraai/e3-types';
 import type { WorkspaceState, PackageObject, TaskObject } from '@elaraai/e3-types';
 import { repoGc, collectAllRoots, markReachable, sweepBatch } from './storage/local/gc.js';
 import { transferStagingPath } from './storage/local/localHelpers.js';
@@ -451,7 +451,66 @@ describe('gc', () => {
     });
   });
 
+  describe('dataflow locks', () => {
+    it('refuses while a dataflow holds a workspace\'s dataflow lock, releasing the locks it took', async () => {
+      const wsDir = join(testRepoPath, 'workspaces');
+      mkdirSync(wsDir, { recursive: true });
+      writeFileSync(join(wsDir, 'first.beast2'), '');
+      writeFileSync(join(wsDir, 'second.beast2'), '');
+
+      const run = await storage.locks.acquire(testRepoPath, 'second#dataflow', variant('dataflow', null));
+      assert.ok(run, 'the run holds its dataflow lock');
+      try {
+        await assert.rejects(
+          repoGc(storage, testRepoPath, { minAge: 0 }),
+          { message: "gc: a dataflow is running in workspace 'second' — retry when it finishes" },
+        );
+        const first = await storage.locks.acquire(testRepoPath, 'first#dataflow', variant('dataflow', null));
+        assert.ok(first, 'gc released the lock it had taken before refusing');
+        await first.release();
+      } finally {
+        await run.release();
+      }
+
+      await repoGc(storage, testRepoPath, { minAge: 0 });
+      for (const ws of ['first', 'second']) {
+        const lock = await storage.locks.acquire(testRepoPath, `${ws}#dataflow`, variant('dataflow', null));
+        assert.ok(lock, `gc released ${ws}'s dataflow lock`);
+        await lock.release();
+      }
+    });
+  });
+
   describe('workspace refs', () => {
+    it('marks a workspace dataset header-first: retained, never read whole', async () => {
+      const datasetHash = await objectWrite(testRepoPath, encodeBeast2For(StructType({ name: StringType }))({ name: 'y'.repeat(100_000) }));
+      const pkgHash = await objectWrite(testRepoPath, new Uint8Array([77, 88, 99]));
+      const wsDir = join(testRepoPath, 'workspaces');
+      mkdirSync(join(wsDir, 'reader', 'data'), { recursive: true });
+      writeFileSync(join(wsDir, 'reader.beast2'), encodeBeast2For(WorkspaceStateType)({
+        packageName: 'test-pkg',
+        packageVersion: '1.0.0',
+        packageHash: pkgHash,
+        deployedAt: new Date(),
+        currentRunId: none,
+      }));
+      writeFileSync(join(wsDir, 'reader', 'data', 'big.ref'), encodeBeast2For(DatasetRefType)(variant('value', { hash: datasetHash, versions: new Map() })));
+
+      const objects = storage.objects;
+      const read = objects.read.bind(objects);
+      let datasetReads = 0;
+      objects.read = (repo: string, hash: string) => {
+        if (hash === datasetHash) datasetReads++;
+        return read(repo, hash);
+      };
+
+      const result = await repoGc(storage, testRepoPath, { minAge: 0 });
+
+      assert.strictEqual(result.deletedObjects, 0);
+      assert.strictEqual(result.retainedObjects, 2);
+      assert.strictEqual(datasetReads, 0, 'the dataset is classified from its head');
+    });
+
     it('retains objects referenced by workspace state and dataset refs', async () => {
       // Store objects for a dataset value and package
       const valueData = new Uint8Array([44, 55, 66]);
@@ -769,6 +828,104 @@ describe('gc', () => {
 
       assert.strictEqual(reachable.size, 3); // tree1, tree2, shared value
       assert.ok(reachable.has(sharedValueHash));
+    });
+
+    describe('header-first', () => {
+      /** An object map with spies on whole reads and head reads. */
+      const tracedStore = (objects: Map<string, Uint8Array>) => {
+        const wholeReads: string[] = [];
+        const headReads: { hash: string; length: number }[] = [];
+        return {
+          wholeReads,
+          headReads,
+          readObject: async (hash: string) => {
+            wholeReads.push(hash);
+            return objects.get(hash) ?? null;
+          },
+          readHead: async (hash: string, length: number) => {
+            headReads.push({ hash, length });
+            return objects.get(hash)?.subarray(0, length) ?? null;
+          },
+        };
+      };
+
+      it('reads only structural objects whole and marks every other object from its head', async () => {
+        const irHash = 'c'.repeat(64);
+        const taskHash = 'b'.repeat(64);
+        const pkgHash = 'a'.repeat(64);
+        const datasetHash = 'd'.repeat(64);
+        const objects = new Map<string, Uint8Array>([
+          [pkgHash, encodeBeast2For(PackageObjectType)({
+            tasks: new Map([['myTask', taskHash]]),
+            data: { structure: variant('struct', new Map()), refs: new Map() },
+            functions: new Map(),
+            records: new Map(), sources: new Map(),
+          } as PackageObject)],
+          [taskHash, encodeBeast2For(TaskObjectType)({
+            commandIr: irHash,
+            inputs: [[variant('field', 'x')]],
+            output: [variant('field', 'y')],
+            kind: none, metadata: none, runner: variant('custom', { command: [] }), environment: none,
+          } as TaskObject)],
+          // A dataset rooted directly, as a workspace's dataset refs are.
+          [datasetHash, encodeBeast2For(StructType({ name: StringType, count: IntegerType }))({ name: 'x'.repeat(200_000), count: 1n })],
+        ]);
+        const store = tracedStore(objects);
+
+        const reachable = await markReachable(store.readObject, new Set([pkgHash, datasetHash]), { readHead: store.readHead });
+
+        assert.deepStrictEqual([...reachable].sort(), [pkgHash, taskHash, irHash, datasetHash].sort());
+        assert.deepStrictEqual(store.wholeReads.sort(), [pkgHash, taskHash].sort(), 'only the package and the task are read whole');
+        assert.ok(store.headReads.every((read) => read.length === 64 * 1024), 'every type fits the first head probe');
+      });
+
+      it('keeps a partition plan\'s slices and merge ranges reachable', async () => {
+        const planHash = 'e'.repeat(64);
+        const slices = [['1'.repeat(64), '2'.repeat(64)], ['3'.repeat(64), '4'.repeat(64)]];
+        const ranges = ['7'.repeat(64), '8'.repeat(64)];
+        const objects = new Map([[planHash, encodePartitionPlan({
+          partitions: ['5'.repeat(64), '6'.repeat(64)],
+          boundaries: [0n, 3n],
+          splits: [[{ seg: 0n, offset: 0n }, { seg: 1n, offset: 2n }, { seg: 4n, offset: 0n }]],
+          slices,
+          merges: [{ partials: ['a'.repeat(64), 'b'.repeat(64)], ranges }],
+        })]]);
+        const store = tracedStore(objects);
+
+        const reachable = await markReachable(store.readObject, new Set([planHash]), { readHead: store.readHead });
+
+        // Every partition slice and every range blob is marked, without
+        // being read.
+        assert.deepStrictEqual([...reachable].sort(), [planHash, ...slices.flat(), ...ranges].sort());
+        assert.deepStrictEqual(store.wholeReads, [planHash], 'the slices and ranges are marked without being read');
+      });
+
+      it('grows the head while a type section does not fit, and never reads the dataset whole', async () => {
+        const WideType = StructType(Object.fromEntries(
+          Array.from({ length: 4000 }, (_, i) => [`a_field_with_a_rather_long_name_number_${i}`, IntegerType])));
+        const value = Object.fromEntries(Array.from({ length: 4000 }, (_, i) => [`a_field_with_a_rather_long_name_number_${i}`, 0n]));
+        const datasetHash = 'f'.repeat(64);
+        const bytes = encodeBeast2For(WideType)(value);
+        assert.ok(bytes.length > 64 * 1024, 'precondition: the type section outgrows the first probe');
+        const store = tracedStore(new Map([[datasetHash, bytes]]));
+
+        const reachable = await markReachable(store.readObject, new Set([datasetHash]), { readHead: store.readHead });
+
+        assert.ok(reachable.has(datasetHash));
+        assert.deepStrictEqual(store.headReads.map((read) => read.length), [64 * 1024, 1024 * 1024]);
+        assert.deepStrictEqual(store.wholeReads, []);
+      });
+
+      it('treats an object whose head yields no type as a leaf, and a missing one as unreachable', async () => {
+        const junkHash = 'a'.repeat(64);
+        const missingHash = 'b'.repeat(64);
+        const store = tracedStore(new Map([[junkHash, new Uint8Array(100).fill(7)]]));
+
+        const reachable = await markReachable(store.readObject, new Set([junkHash, missingHash]), { readHead: store.readHead });
+
+        assert.deepStrictEqual([...reachable], [junkHash]);
+        assert.deepStrictEqual(store.wholeReads, []);
+      });
     });
 
     it('marks value leaves without reading them', async () => {

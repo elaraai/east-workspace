@@ -8,8 +8,76 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { LocalStorage, executionReadLog } from '@elaraai/e3-core';
-import { DEFAULT_TAIL_LINES, lastLines, parseLines, pipeToEnd, readTail } from './logs.js';
+import { variant } from '@elaraai/east';
+import { LocalStorage, executionReadLog, repoInit } from '@elaraai/e3-core';
+import { DEFAULT_TAIL_LINES, lastLines, logsCommand, parseExecutionRef, parseLines, pipeToEnd, readTail } from './logs.js';
+
+describe('parseExecutionRef', () => {
+  const taskHash = 'a'.repeat(64);
+  const inputsHash = 'b'.repeat(64);
+  const executionId = '01890000-0000-7000-8000-000000000000';
+
+  it('reads <taskHash>/<inputsHash>/<executionId>', () => {
+    assert.deepEqual(parseExecutionRef(`${taskHash}/${inputsHash}/${executionId}`), { taskHash, inputsHash, executionId });
+  });
+
+  it('rejects any other form', () => {
+    for (const bad of [
+      `${taskHash}/${inputsHash}`,
+      `${taskHash}/${inputsHash}/${executionId}/extra`,
+      `${taskHash.slice(1)}/${inputsHash}/${executionId}`,
+      `${taskHash.toUpperCase()}/${inputsHash}/${executionId}`,
+      `${taskHash}/${inputsHash}/`,
+    ]) {
+      assert.throws(() => parseExecutionRef(bad), /Invalid --execution value/, bad);
+    }
+  });
+});
+
+describe('logsCommand --execution', () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'e3-logs-exec-'));
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('shows the logs of the execution the reference names', async () => {
+    const init = repoInit(join(dir, 'repo'));
+    assert.ok(init.success);
+    const repo = init.repoPath;
+    const storage = new LocalStorage();
+    const taskHash = 'c'.repeat(64);
+    const inputsHash = 'd'.repeat(64);
+    const executionId = '01890000-0000-7000-8000-000000000001';
+    await storage.refs.executionWrite(repo, taskHash, inputsHash, executionId, variant('success', {
+      executionId,
+      inputHashes: [],
+      outputHash: 'e'.repeat(64),
+      startedAt: new Date(0),
+      completedAt: new Date(0),
+    }));
+    await storage.logs.append(repo, taskHash, inputsHash, executionId, 'stdout', 'unit says hello\n');
+    await storage.logs.append(repo, taskHash, inputsHash, executionId, 'stderr', 'e3: cancelled: e3 stopped the runner because the run was aborted\n');
+
+    const printed: string[] = [];
+    const log = console.log;
+    console.log = (...args: unknown[]) => { printed.push(args.join(' ')); };
+    try {
+      await logsCommand(repo, undefined, { execution: `${taskHash}/${inputsHash}/${executionId}` });
+    } finally {
+      console.log = log;
+    }
+
+    const output = printed.join('\n');
+    assert.match(output, /^Execution: c{12}\/d{12}\/01890000-000/m);
+    assert.match(output, /=== STDOUT ===\nunit says hello/);
+    assert.match(output, /=== STDERR ===\ne3: cancelled: e3 stopped the runner because the run was aborted/);
+  });
+});
 
 describe('parseLines', () => {
   it('defaults when the flag is absent', () => {

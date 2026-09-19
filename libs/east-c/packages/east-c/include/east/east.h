@@ -31,5 +31,21 @@
 #include "hashmap.h"
 #include "env.h"
 #include "serialization.h"
+#include "emit_sink.h"
+#include "file_map.h"
+#include "merge.h"
+
+/* Exit with the parent (issue #770). Starts a detached watcher thread that
+ * blocks reading stdin and terminates the process with _exit(1) when the
+ * read returns end of file or an error. A runner calls it, before any work
+ * starts, when its command line carries `--exit-with-parent` — a flag a
+ * parent passes only when it gives the runner a stdin pipe it never writes
+ * to, so the read blocks until that parent dies. The watcher touches no East
+ * value, so the single-thread contract above holds. On Windows it reads a
+ * synchronous pipe or an overlapped one; a parent should hand over an
+ * overlapped pipe (as e3 does), because a read pending on a synchronous pipe
+ * holds the pipe's file-object lock and every other operation on stdin in
+ * the process waits for it. */
+void east_exit_with_parent(void);
 
 #endif

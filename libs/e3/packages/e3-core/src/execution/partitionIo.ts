@@ -10,10 +10,11 @@
  * and tail, a carve copies segment-frame ranges, a splice concatenates them
  * under one header and a rebuilt index. This module supplies the IO to match:
  * a {@link PartitionBlob} addresses a stored blob through ranged reads
- * (extents from head + tail, boundary probes as single-segment decodes), and
- * slices/spliced outputs stream to the object store chunk by chunk through
- * {@link spliceChunks} — the orchestrator holds one chunk, one decoded
- * boundary segment, or one edge rebuild at a time, never a whole blob.
+ * (extents from head + tail, fences as bounded prefix probes, boundary
+ * probes as single-segment decodes), and slices/spliced outputs stream to
+ * the object store chunk by chunk through {@link spliceChunks} — the
+ * orchestrator holds one chunk, one decoded boundary segment, or one edge
+ * rebuild at a time, never a whole blob.
  *
  * Backends without `objects.readRange` degrade to one whole read per blob
  * behind the same interface, so the executor has a single code path.
@@ -27,16 +28,54 @@ import {
   spliceBeast2Tail,
   type Beast2Pages,
   type Beast2RangedExtents,
+  type Beast2SyncRangeReader,
 } from '@elaraai/east';
 import type { StorageBackend } from '../storage/interfaces.js';
 
 /** Bytes per range-read → write-stream copy chunk. */
 export const PARTITION_COPY_CHUNK_BYTES = 8 * 1024 * 1024;
 
+/** The decoded segments open {@link PartitionBlob}s hold now, and the most
+ *  they have held at once since the peak was last reset. */
+const decodedSegments = { held: 0, peak: 0 };
+
+/**
+ * The most decoded segments open {@link PartitionBlob}s have held at once
+ * since {@link resetDecodedSegmentPeak} — the orchestrator's memory claim for
+ * partitioned execution, counted for specs.
+ *
+ * @returns The peak number of decoded segments held at once
+ * @internal
+ */
+export function decodedSegmentPeak(): number {
+  return decodedSegments.peak;
+}
+
+/**
+ * Starts a new peak of {@link decodedSegmentPeak} from the segments held now.
+ *
+ * @internal
+ */
+export function resetDecodedSegmentPeak(): void {
+  decodedSegments.peak = decodedSegments.held;
+}
+
 /** The end offset of segment `i`'s frame. */
 function segmentEnd(extents: Beast2RangedExtents, i: number): number {
   return i + 1 < extents.offsets.length ? extents.offsets[i + 1]! : extents.segmentsEnd;
 }
+
+/** A read the prefix pager asked for that no prefetched range covers: the
+ *  async caller fetches it and retries. */
+class PrefetchNeeded extends Error {
+  constructor(readonly offset: number, readonly length: number) {
+    super(`prefetch [${offset}, ${offset + length})`);
+  }
+}
+
+/** The most rounds a fence probe fetches before giving up on a blob whose
+ *  pager keeps asking for more — a frame is read whole well within it. */
+const FENCE_PROBE_ROUNDS = 16;
 
 /**
  * A stored, segmented blob opened for bounded-memory partitioned access.
@@ -49,6 +88,11 @@ export class PartitionBlob {
   /** One-segment probe cache: boundary alignment reads a segment's fence and
    *  then often its keys — decode it once. */
   private probe: { segment: number; pages: Beast2Pages } | null = null;
+  /** The fence prober: a pager over this blob's whole geometry whose
+   *  synchronous reads are served from `prefetched` — the head, the tail and
+   *  the frame prefixes fetched so far — so a fence costs a few kilobytes of
+   *  its segment, never the frame. Built on the first fence probe. */
+  private prefix: { pages: Beast2Pages | undefined; prefetched: { offset: number; bytes: Uint8Array }[] } | null = null;
 
   private constructor(
     private readonly read: (offset: number, length: number) => Promise<Uint8Array>,
@@ -85,18 +129,77 @@ export class PartitionBlob {
     const frames = await this.read(start, segmentEnd(this.extents, segment) - start);
     const mini = carveBeast2Ranged(this.extents, frames, segment, segment + 1);
     const pages = openBeast2PagesFor(this.extents.typeValue)(mini);
+    if (this.probe === null) {
+      decodedSegments.held++;
+      decodedSegments.peak = Math.max(decodedSegments.peak, decodedSegments.held);
+    }
     this.probe = { segment, pages };
     return pages;
   }
 
   /**
-   * Segment `segment`'s fence — its first element (Array/Set) or key (Dict).
+   * Drops the decoded segment this blob holds, if any, and the frame prefixes
+   * its fence prober fetched. A blob stays usable — a later probe decodes or
+   * fetches again — so a caller releases a blob when it is done with it.
+   */
+  release(): void {
+    if (this.probe !== null) {
+      decodedSegments.held--;
+      this.probe = null;
+    }
+    this.prefix = null;
+    this.lastKeyMemo = null;
+  }
+
+  /** The fence prober's state, built on first use: the ranges prefetched so
+   *  far — the head from the extents, then whatever the pager asks for — and
+   *  the pager, constructed once the open's reads have been served. */
+  private prober(): { pages: Beast2Pages | undefined; prefetched: { offset: number; bytes: Uint8Array }[] } {
+    this.prefix ??= { pages: undefined, prefetched: [{ offset: 0, bytes: this.extents.head }] };
+    return this.prefix;
+  }
+
+  /**
+   * Segment `segment`'s fence — its first element (Array/Set) or key (Dict),
+   * decoded from a bounded prefix of its frame (a few kilobytes, grown
+   * fourfold while the first key does not fit), never the frame unless the
+   * key is that wide. A segment already decoded whole answers from it.
    *
    * @param segment - zero-based segment index
    * @returns the decoded fence value
    */
   async fence(segment: number): Promise<unknown> {
+    if (this.probe?.segment === segment) return this.probe.pages.fence(0);
+    const prober = this.prober();
+    for (let round = 0; round < FENCE_PROBE_ROUNDS; round++) {
+      try {
+        if (prober.pages === undefined) {
+          prober.pages = openBeast2PagesFor(this.extents.typeValue)(this.prefixReader());
+        }
+        return prober.pages.fence(segment);
+      } catch (err) {
+        if (!(err instanceof PrefetchNeeded)) throw err;
+        prober.prefetched.push({ offset: err.offset, bytes: await this.read(err.offset, err.length) });
+      }
+    }
+    // The prober kept asking: decode the segment whole instead.
     return (await this.pagesAt(segment)).fence(0);
+  }
+
+  /** The synchronous reader behind the fence prober — see {@link prober}. */
+  private prefixReader(): Beast2SyncRangeReader {
+    const prefetched = this.prober().prefetched;
+    return {
+      size: this.extents.size,
+      read: (offset, length) => {
+        for (const range of prefetched) {
+          if (range.offset <= offset && offset + length <= range.offset + range.bytes.length) {
+            return range.bytes.subarray(offset - range.offset, offset - range.offset + length);
+          }
+        }
+        throw new PrefetchNeeded(offset, length);
+      },
+    };
   }
 
   /**

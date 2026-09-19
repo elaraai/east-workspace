@@ -11,8 +11,9 @@ import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import type { RequestOptions } from '@elaraai/e3-api-client';
+import type { RequestOptions, WorkspaceInfo } from '@elaraai/e3-api-client';
 import {
+  ApiError,
   repoCreate,
   repoRemove,
   packageImport,
@@ -24,6 +25,12 @@ import {
 } from '@elaraai/e3-api-client';
 
 import { createPackageZip } from './fixtures.js';
+
+/**
+ * How long cleanup waits for a cancelled dataflow to release its workspace
+ * before it fails.
+ */
+const UNLOCK_WAIT_MS = 60_000;
 
 /**
  * Configuration for running API compliance tests.
@@ -128,6 +135,35 @@ export async function createTestContext(config: TestConfig): Promise<TestContext
     createdRepo = true;
   }
 
+  /**
+   * Removes a workspace once no run holds it. A cancel answers once the run
+   * is told to stop, not once it has stopped: the run keeps the workspace
+   * locked until it has written its stopped records, and deleting the
+   * repository then would pull the tree out from under those writes. A
+   * workspace still locked when the wait runs out fails the cleanup — and
+   * with it the test that left the run going — and the repository is kept.
+   */
+  const removeWorkspace = async (name: string, opts: RequestOptions): Promise<void> => {
+    const deadline = Date.now() + UNLOCK_WAIT_MS;
+    for (;;) {
+      try {
+        await workspaceRemove(config.baseUrl, repoName, name, opts);
+        return;
+      } catch (err) {
+        if (!(err instanceof ApiError && err.code === 'workspace_locked')) {
+          console.error(`Cleanup: failed to delete workspace '${name}' in repo '${repoName}':`, err);
+          return;
+        }
+        if (Date.now() >= deadline) {
+          throw new Error(
+            `Cleanup: workspace '${name}' in repo '${repoName}' is still locked ${UNLOCK_WAIT_MS / 1000} s after its dataflow was cancelled — the test left a run going`,
+          );
+        }
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+    }
+  };
+
   const context: TestContext = {
     config,
     repoName,
@@ -166,35 +202,34 @@ export async function createTestContext(config: TestConfig): Promise<TestContext
       const token = await config.getToken();
       const opts = { token };
 
-      if (createdRepo) {
-        // Cancel running dataflows and delete all workspaces (required before repo deletion)
-        try {
-          const workspaces = await workspaceList(config.baseUrl, repoName, opts);
+      try {
+        if (createdRepo) {
+          // Cancel running dataflows and delete all workspaces (required before repo deletion)
+          let workspaces: WorkspaceInfo[] = [];
+          try {
+            workspaces = await workspaceList(config.baseUrl, repoName, opts);
+          } catch {
+            // Repo may not exist — ignore list errors
+          }
           for (const ws of workspaces) {
             // Cancel any running dataflow to release workspace lock
             try { await dataflowCancel(config.baseUrl, repoName, ws.name, opts); }
             catch { /* no execution running — ignore */ }
 
-            try {
-              await workspaceRemove(config.baseUrl, repoName, ws.name, opts);
-            } catch (err) {
-              console.error(`Cleanup: failed to delete workspace '${ws.name}' in repo '${repoName}':`, err);
-            }
+            await removeWorkspace(ws.name, opts);
           }
-        } catch {
-          // Repo may not exist — ignore list errors
-        }
 
-        // Delete the repository
-        try {
-          await repoRemove(config.baseUrl, repoName, opts);
-        } catch (err) {
-          console.error(`Cleanup: failed to delete test repo '${repoName}':`, err);
+          // Delete the repository
+          try {
+            await repoRemove(config.baseUrl, repoName, opts);
+          } catch (err) {
+            console.error(`Cleanup: failed to delete test repo '${repoName}':`, err);
+          }
         }
+      } finally {
+        // Clean up temp directory
+        removeTempDir(tempDir);
       }
-
-      // Clean up temp directory
-      removeTempDir(tempDir);
     },
   };
 

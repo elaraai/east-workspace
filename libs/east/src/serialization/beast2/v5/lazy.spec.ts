@@ -25,8 +25,10 @@ import {
   openBeast2LazyFor,
   openBeast2PagesFor,
   isBeast2LazySafe,
+  readBeast2Extents,
   spliceBeast2,
 } from "../index.js";
+import type { Beast2SyncRangeReader } from "../index.js";
 
 const RowType = StructType({ id: IntegerType, name: StringType });
 const TableType = DictType(IntegerType, RowType);
@@ -94,12 +96,14 @@ describe("Beast2 v5 — lazy Dict", () => {
     assert.deepEqual([...lazy], []);
   });
 
-  test("cross-segment order violations surface the canonical error", () => {
+  test("cross-segment order violations surface the eager decoder's error", () => {
     const high = encodeBeast2PagedFor(TableType, PAGED)(makeTable(100, 1000));
     const low = encodeBeast2PagedFor(TableType, PAGED)(makeTable(100, 0));
     const corrupt = spliceBeast2([high, low]);
     const lazy = openBeast2LazyFor(TableType)(corrupt);
-    assert.throws(() => [...lazy], /not disjoint ascending key ranges/);
+    assert.throws(() => [...lazy], {
+      message: "beast2 v5: Dict keys are not strictly ascending in East order — the wire must hold the canonical value (corrupt or pre-contract blob)",
+    });
   });
 
   test("hydration mid-generator keeps the in-flight iterator on the original sequence", () => {
@@ -117,6 +121,80 @@ describe("Beast2 v5 — lazy Dict", () => {
       assert.ok(keys[i - 1]! < keys[i]!, "canonical ascending order throughout");
     }
     assert.equal([...lazy].length, 251, "a new iteration sees the mutation");
+  });
+
+  test("iteration from a key seeks the owning segment through the fences and streams from there", () => {
+    // Rows wide enough that a fence probe (a 4 KiB prefix) is not the whole
+    // frame, so the reads say which segments were decoded and which only
+    // probed.
+    const WideRow = StructType({ id: IntegerType, name: StringType });
+    const WideTable = DictType(IntegerType, WideRow);
+    const entries: [bigint, { id: bigint; name: string }][] = [];
+    for (let i = 0; i < 350; i++) entries.push([BigInt(i), { id: BigInt(i), name: `row-${i}-`.padEnd(200, "x") }]);
+    const value = new SortedMap(entries, compareFor(IntegerType));
+    const blob = encodeBeast2PagedFor(WideTable, { ...PAGED, codec: "none" })(value);
+    const extents = readBeast2Extents(blob);
+    assert.equal(extents.offsets.length, 4);
+    const frame = (i: number): { offset: number; length: number } => ({
+      offset: extents.offsets[i]!,
+      length: (i + 1 < extents.offsets.length ? extents.offsets[i + 1]! : extents.segmentsEnd) - extents.offsets[i]!,
+    });
+    assert.ok(frame(0).length > 8192, "a frame is wider than a fence probe");
+
+    const reads: { offset: number; length: number }[] = [];
+    const reader: Beast2SyncRangeReader = {
+      size: blob.length,
+      read(offset, length) {
+        reads.push({ offset, length });
+        return blob.subarray(offset, offset + length);
+      },
+    };
+    // The decoded values are SortedMaps (range iteration is theirs), typed
+    // as Maps by the decoder's signature.
+    const sorted = (value: unknown): SortedMap<bigint, { id: bigint; name: string }> => value as SortedMap<bigint, { id: bigint; name: string }>;
+    const eager = sorted(decodeBeast2For(WideTable)(blob));
+    const lazy = sorted(openBeast2LazyFor(WideTable)(reader));
+
+    // From a key inside segment 2: the same entries as the eager value's
+    // range iteration, segments 2 and 3 decoded, segments 0 and 1 only
+    // probed for their fences.
+    reads.length = 0;
+    assert.deepEqual([...lazy.entries(250n)], [...eager.entries(250n)]);
+    assert.equal([...lazy.keys(250n)].length, 100);
+    const decodedWhole = (i: number): boolean => reads.some((r) => r.offset === frame(i).offset && r.length === frame(i).length);
+    assert.ok(decodedWhole(2) && decodedWhole(3), "the owning segment and the ones after it are read whole");
+    assert.ok(!decodedWhole(0) && !decodedWhole(1), "the segments before the key are only probed");
+    assert.ok(reads.every((r) => r.length <= 4096 || r.offset >= frame(2).offset), "no read before the owning segment exceeds a fence probe");
+    assert.equal(lazy.size, 350, "the value did not hydrate");
+
+    // A second seek on the same value keeps the verified fences: no fence
+    // is probed again, and only the owning segment is read.
+    reads.length = 0;
+    assert.deepEqual([...lazy.entries(320n)], [...eager.entries(320n)]);
+    assert.ok(reads.length > 0 && reads.every((r) => r.length > 4096), "no read of a later seek is a fence probe");
+    assert.ok(decodedWhole(3) && !decodedWhole(2), "only the owning segment is read");
+
+    // Every kind of key: absent between two keys, exactly a fence, the last
+    // key, before the first, after the last.
+    const absentTable = new SortedMap(entries.filter(([k]) => k % 2n === 0n), compareFor(IntegerType));
+    const absentBlob = encodeBeast2PagedFor(WideTable, PAGED)(absentTable);
+    const absentEager = sorted(decodeBeast2For(WideTable)(absentBlob));
+    const absentLazy = sorted(openBeast2LazyFor(WideTable)(absentBlob));
+    for (const key of [251n, 200n, 348n, -5n, 10_000n, 0n]) {
+      assert.deepEqual([...absentLazy.entries(key)], [...absentEager.entries(key)], `entries from ${key}`);
+      assert.deepEqual([...absentLazy.keys(key)], [...absentEager.keys(key)], `keys from ${key}`);
+      assert.deepEqual([...absentLazy.values(key)], [...absentEager.values(key)], `values from ${key}`);
+    }
+    assert.deepEqual([...sorted(openBeast2LazyFor(WideTable)(encodeBeast2PagedFor(WideTable, PAGED)(makeTable(0) as never))).entries(5n)], []);
+  });
+
+  test("iteration from a key refuses a blob whose fences do not ascend, in the eager decoder's words", () => {
+    const high = encodeBeast2PagedFor(TableType, PAGED)(makeTable(100, 1000));
+    const low = encodeBeast2PagedFor(TableType, PAGED)(makeTable(100, 0));
+    const lazy = openBeast2LazyFor(TableType)(spliceBeast2([high, low])) as SortedMap<bigint, { id: bigint; name: string }>;
+    assert.throws(() => [...lazy.entries(1050n)], {
+      message: "beast2 v5: Dict keys are not strictly ascending in East order — the wire must hold the canonical value (corrupt or pre-contract blob)",
+    });
   });
 });
 
@@ -143,6 +221,25 @@ describe("Beast2 v5 — lazy Set", () => {
     assert.equal(lazy.minKey(), "tag-0000");
     assert.equal(lazy.maxKey(), "tag-0299");
     assert.deepEqual([...lazy].slice(0, 2), ["tag-0000", "tag-0001"]);
+  });
+
+  test("iteration from an element seeks the owning segment without hydrating", () => {
+    const value = makeTags(300);
+    const blob = encodeBeast2PagedFor(Tags, PAGED)(value);
+    const eager = decodeBeast2For(Tags)(blob) as SortedSet<string>;
+    const lazy = openBeast2LazyFor(Tags)(blob) as SortedSet<string>;
+    for (const from of ["tag-0250", "tag-0250x", "tag-0100", "tag-0299", "a", "z"]) {
+      assert.deepEqual([...lazy.keys(from)], [...eager.keys(from)], `keys from ${from}`);
+      assert.deepEqual([...lazy.entries(from)], [...eager.entries(from)], `entries from ${from}`);
+    }
+    assert.equal(lazy.size, 300);
+    const corrupt = openBeast2LazyFor(Tags)(spliceBeast2([
+      encodeBeast2PagedFor(Tags, PAGED)(new SortedSet(["z-1", "z-2"], compareFor(StringType))),
+      blob,
+    ])) as SortedSet<string>;
+    assert.throws(() => [...corrupt.keys("tag-0100")], {
+      message: "beast2 v5: Set elements are not strictly ascending in East order — the wire must hold the canonical value (corrupt or pre-contract blob)",
+    });
   });
 
   test("set algebra hydrates transparently", () => {

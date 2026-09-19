@@ -44,7 +44,9 @@ const TEXT_VERSION_FILES = [
 // on npm). They get injected at publish time via
 // scripts/inject-east-c-platform-deps.mjs, pinned to the canonical version.
 // So nothing to verify here — the lack of optionalDependencies in the source
-// package.json is the correct state.
+// package.json is the correct state. The same holds for e3-core's
+// optionalDependency on its Windows job launcher, @elaraai/e3-job-win32-x64,
+// injected by scripts/inject-e3-job-dep.mjs.
 
 const PYPROJECTS = [
   'libs/east-py/packages/east-py/pyproject.toml',

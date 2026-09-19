@@ -9,18 +9,32 @@ target_compile_definitions(east-c-cli PRIVATE
     EAST_RUNTIME_VERSION="${EAST_VERSION}"
 )
 
-# CLI --emit gate (issue #507): spawns the built east-c binary over the
-# checked-in IR fixtures in tests/fixtures and byte-validates the emitted
-# blobs (decode, index present, canonical error text on an out-of-order dict
-# emit). Runs in the ASan tree too (leak-check's ctest pass), where the
-# spawned CLI is instrumented — the harness fails on any sanitizer report in
-# the child's stderr, covering the emit sink's error path (freed without
-# finish).
+# CLI --emit gate (issues #507, #518, #770): spawns the built east-c binary
+# over the checked-in IR fixtures in tests/fixtures and byte-validates the
+# emitted blobs (decode, index present, canonical error text on a duplicate
+# or out-of-order key), the --merge/--union fold contract over ascending
+# emissions, and the --exit-with-parent stdin lifeline. Runs in the ASan
+# tree too (leak-check's ctest pass), where the spawned CLI is instrumented —
+# the harness fails on any sanitizer report in the child's stderr, covering
+# the emit sink's error path (freed without finish).
 add_executable(test_cli_emit tests/test_cli_emit.c)
 target_link_libraries(test_cli_emit east-c)
 add_test(NAME cli_emit COMMAND test_cli_emit $<TARGET_FILE:east-c-cli>
          ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures)
 set_tests_properties(cli_emit PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+
+# CLI merge gate (issue #770): spawns the binary over checked-in sorted
+# Dict/Set blobs (written by the TS paged writer) and pins the blob merge —
+# `merge --merge` and `merge --union` write exactly the bytes `run --emit`
+# writes for the folded sequence emitted ascending, the -v account, and the
+# refusals: a duplicate without a fold, an input of another type, an Array
+# input, a fold of the wrong signature, --merge on a Set, --union on a Dict,
+# an input whose keys descend. Runs in the ASan tree too.
+add_executable(test_cli_merge tests/test_cli_merge.c)
+target_link_libraries(test_cli_merge east-c)
+add_test(NAME cli_merge COMMAND test_cli_merge $<TARGET_FILE:east-c-cli>
+         ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures)
+set_tests_properties(cli_merge PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 
 # CLI lazy paged-input gate (#516): spawns the binary with
 # EAST_LAZY_INPUT_BYTES=1 over checked-in fixtures and pins the lazy

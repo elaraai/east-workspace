@@ -26,44 +26,26 @@ static _Thread_local EastType *s_patch_type = NULL;
 static _Thread_local EastType *s_result_patch_type = NULL;
 
 /* ================================================================== */
-/*  Recursive type tracking                                            */
+/*  Recursive types                                                    */
 /* ================================================================== */
 
-#define MAX_REC_DEPTH 32
-static _Thread_local EastType *rec_stack[MAX_REC_DEPTH];
-static _Thread_local int rec_depth = 0;
-
-static bool in_rec_stack(EastType *t)
-{
-    for (int i = 0; i < rec_depth; i++)
-        if (rec_stack[i] == t) return true;
-    return false;
-}
-
-/* Resolve type, unwrapping one level of recursion if not yet seen.
- * Returns the effective type to dispatch on.
- * Sets *replace_only = true if this is a recursive self-reference. */
+/* A recursive type is replace-only: its patch is `unchanged` or
+ * `replace {before, after}` of the whole recursive value, at the wrapper and
+ * at every reference back to it. That is the patch type every runtime
+ * declares (PatchType in libs/east/src/patch/type_of_patch.ts and east-py's
+ * types.py) and what the TypeScript runtime computes, so the values built
+ * here conform to the type the IR carries on every runtime. (This runtime
+ * used to unwrap a wrapper on its first encounter and patch its body
+ * structurally, producing a `patch` case the declared type does not have —
+ * TypeScript could not apply such a patch, and east-py refused to decode it;
+ * #774.)
+ *
+ * Returns the type to dispatch on and sets *replace_only for a recursive
+ * type (or a missing one). */
 static EastType *resolve_type(EastType *t, bool *replace_only)
 {
-    *replace_only = false;
-    if (!t) {
-        *replace_only = true;
-        return t;
-    }
-    if (t->kind != EAST_TYPE_RECURSIVE) return t;
-    if (in_rec_stack(t)) {
-        *replace_only = true;
-        return t;
-    }
-    /* First encounter of this recursive wrapper — unwrap */
-    if (rec_depth < MAX_REC_DEPTH) rec_stack[rec_depth++] = t;
-    return t->data.recursive.node ? t->data.recursive.node : t;
-}
-
-static void pop_rec_if_pushed(EastType *t)
-{
-    if (t && t->kind == EAST_TYPE_RECURSIVE && rec_depth > 0 && rec_stack[rec_depth - 1] == t)
-        rec_depth--;
+    *replace_only = !t || t->kind == EAST_TYPE_RECURSIVE;
+    return t;
 }
 
 /* ================================================================== */
@@ -181,11 +163,31 @@ static size_t compute_lcs(EastValue **a, size_t na, EastValue **b, size_t nb, si
     return lcs_len;
 }
 
+/* One `{key, offset, operation}` entry of an Array patch (consumes `op`). */
+static void push_array_op(EastValue *ops, int64_t key, EastValue *op)
+{
+    const char *fn[] = {"key", "offset", "operation"};
+    EastValue *fv[] = {east_integer(key), east_integer(0), op};
+    EastValue *entry = east_struct_new(fn, fv, 3, NULL);
+    east_array_push(ops, entry);
+    east_value_release(fv[0]);
+    east_value_release(fv[1]);
+    east_value_release(op);
+    east_value_release(entry);
+}
+
+/* Mirrors the TypeScript reference (diff.ts): between two LCS matches, the
+ * i-th deleted element is paired with the i-th inserted one as a single
+ * `update` carrying the inner diff — the running length is unchanged by a
+ * pair, so the delete/insert counts stay frozen across it — and only the
+ * excess deletes and inserts are emitted as such. (This runtime used to emit
+ * every delete and insert separately: the same values after apply, but a
+ * different patch value from TypeScript's; #774.) */
 static EastValue *diff_array(EastValue *before, EastValue *after, EastType *type)
 {
-    (void)type;
     if (east_value_equal(before, after)) return mk_unchanged();
 
+    EastType *elem_type = type->data.element;
     size_t na = before->data.array.len;
     size_t nb = after->data.array.len;
     EastValue **a = before->data.array.items;
@@ -203,42 +205,40 @@ static EastValue *diff_array(EastValue *before, EastValue *after, EastType *type
         size_t match_a = (li < lcs_len) ? lcs_a[li] : na;
         size_t match_b = (li < lcs_len) ? lcs_b[li] : nb;
 
-        /* Deletes before this match */
+        /* Paired delete + insert before this match → one update in place */
+        size_t n_del = match_a - ai;
+        size_t n_ins = match_b - bi;
+        size_t pairs = n_del < n_ins ? n_del : n_ins;
+        for (size_t i = 0; i < pairs; i++) {
+            int64_t key = (int64_t)(ai + i) - delete_count + insert_count;
+            EastValue *inner = do_diff(a[ai + i], b[bi + i], elem_type);
+            EastValue *op = east_variant_new("update", inner, NULL);
+            east_value_release(inner);
+            push_array_op(ops, key, op);
+        }
+        ai += pairs;
+        bi += pairs;
+
+        /* Excess deletes before this match */
         while (ai < match_a) {
             int64_t key = (int64_t)ai - delete_count + insert_count;
             EastValue *del_val = a[ai];
             east_value_retain(del_val);
             EastValue *op = east_variant_new("delete", del_val, NULL);
             east_value_release(del_val);
-
-            const char *fn[] = {"key", "offset", "operation"};
-            EastValue *fv[] = {east_integer(key), east_integer(0), op};
-            EastValue *entry = east_struct_new(fn, fv, 3, NULL);
-            east_array_push(ops, entry);
-            east_value_release(fv[0]);
-            east_value_release(fv[1]);
-            east_value_release(op);
-            east_value_release(entry);
+            push_array_op(ops, key, op);
             delete_count++;
             ai++;
         }
 
-        /* Inserts before this match */
+        /* Excess inserts before this match */
         while (bi < match_b) {
             int64_t key = (int64_t)bi;
             EastValue *ins_val = b[bi];
             east_value_retain(ins_val);
             EastValue *op = east_variant_new("insert", ins_val, NULL);
             east_value_release(ins_val);
-
-            const char *fn[] = {"key", "offset", "operation"};
-            EastValue *fv[] = {east_integer(key), east_integer(0), op};
-            EastValue *entry = east_struct_new(fn, fv, 3, NULL);
-            east_array_push(ops, entry);
-            east_value_release(fv[0]);
-            east_value_release(fv[1]);
-            east_value_release(op);
-            east_value_release(entry);
+            push_array_op(ops, key, op);
             insert_count++;
             bi++;
         }
@@ -510,7 +510,6 @@ static EastValue *do_diff(EastValue *before, EastValue *after, EastType *type)
         break;
     }
 
-    pop_rec_if_pushed(type);
     return result;
 }
 
@@ -778,7 +777,6 @@ static EastValue *do_apply(EastValue *base, EastValue *patch, EastType *type)
         }
     }
 
-    pop_rec_if_pushed(type);
     return result;
 }
 
@@ -1101,7 +1099,6 @@ static EastValue *do_compose(EastValue *first, EastValue *second, EastType *type
                 break;
             }
         }
-        pop_rec_if_pushed(type);
         return result;
     }
 
@@ -1321,7 +1318,6 @@ static EastValue *do_invert(EastValue *patch, EastType *type)
         }
     }
 
-    pop_rec_if_pushed(type);
     return result;
 }
 
@@ -1401,7 +1397,6 @@ static void retype_patch(EastValue *v, EastType *type)
 static EastValue *patch_diff_impl(EastValue **args, size_t n)
 {
     (void)n;
-    rec_depth = 0;
     EastValue *result = do_diff(args[0], args[1], s_patch_type);
     if (result && s_result_patch_type) retype_patch(result, s_result_patch_type);
     return result;
@@ -1410,14 +1405,12 @@ static EastValue *patch_diff_impl(EastValue **args, size_t n)
 static EastValue *patch_apply_impl(EastValue **args, size_t n)
 {
     (void)n;
-    rec_depth = 0;
     return do_apply(args[0], args[1], s_patch_type);
 }
 
 static EastValue *patch_compose_impl(EastValue **args, size_t n)
 {
     (void)n;
-    rec_depth = 0;
     EastValue *result = do_compose(args[0], args[1], s_patch_type);
     if (result && s_result_patch_type) retype_patch(result, s_result_patch_type);
     return result;
@@ -1426,7 +1419,6 @@ static EastValue *patch_compose_impl(EastValue **args, size_t n)
 static EastValue *patch_invert_impl(EastValue **args, size_t n)
 {
     (void)n;
-    rec_depth = 0;
     EastValue *result = do_invert(args[0], s_patch_type);
     if (result && s_result_patch_type) retype_patch(result, s_result_patch_type);
     return result;

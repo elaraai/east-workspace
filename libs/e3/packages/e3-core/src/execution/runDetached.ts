@@ -18,7 +18,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { tmpdir } from 'os';
 import { randomBytes } from 'crypto';
-import { withRunnerVerbose, type RunnerValue } from '@elaraai/e3-types';
+import { withRunnerLifeline, withRunnerVerbose, type RunnerValue } from '@elaraai/e3-types';
 import {
   marshalBytesToDir,
   buildRunnerArgv,
@@ -104,11 +104,16 @@ export async function runDetached(
 
     const argPaths = await marshalBytesToDir(scratchDir, spec.args);
     const outputPath = path.join(scratchDir, 'output.beast2');
-    const args = withRunnerVerbose(
+    // A stock runner exits with this process: the stdin lifeline pipe below
+    // and `--exit-with-parent` on its command line; a custom command is left
+    // alone.
+    const stdinLifeline = spec.runner.type !== 'custom';
+    let args = withRunnerVerbose(
       spec.runner,
       buildRunnerArgv(spec.runner, argPaths, outputPath, bodyIrPath),
       options.verbose,
     );
+    if (stdinLifeline) args = withRunnerLifeline(spec.runner, args);
 
     const searchDirs = options.runnerSearchDir
       ? [options.runnerSearchDir, process.cwd()]
@@ -120,6 +125,7 @@ export async function runDetached(
       maxLogBytes: spec.limits.maxLogBytes,
       searchDirs,
       extraBins: options.extraBins,
+      stdinLifeline,
     });
 
     const streams = {
@@ -131,6 +137,13 @@ export async function runDetached(
 
     if (result.timedOut) {
       return { kind: 'timed_out', ms: spec.limits.timeoutMs, ...streams };
+    }
+
+    // Stopped because the call was aborted: failed with exit code -1 however
+    // the stop ended the runner — Node's kill leaves a signal, taskkill (on
+    // Windows without the job launcher) exit code 1.
+    if (result.stoppedByE3) {
+      return { kind: 'failed', exitCode: -1, ...streams };
     }
 
     if (result.exitCode !== 0) {

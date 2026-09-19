@@ -122,10 +122,10 @@ describe('streamTask through taskExecute', () => {
     await assertFoldOutput(result.outputHash!);
   });
 
-  it('an out-of-order dict emit succeeds and stores the canonical output (#518)', async () => {
-    // The sink absorbs out-of-order emission (demote → spill → merge), so
-    // a re-keying producer is an ordinary success whose stored output is
-    // the canonical dict.
+  it('an out-of-order dict emit fails the task with the ascending contract\'s error (#770)', async () => {
+    // Set/Dict emissions must ascend in East order: the runner's sink writes
+    // one pass and never buffers, so a key below the previous one fails the
+    // execution, and the runner's message rides the result.
     const rekey = streamTask('rekey_dict', {
       output: DictType(IntegerType, StringType),
       runner: { runtime: 'east-node', platforms: ['@elaraai/east-node-std'] },
@@ -136,12 +136,8 @@ describe('streamTask through taskExecute', () => {
     const { taskHash, fnIrHash } = await writeTask(rekey);
 
     const result = await taskExecute(storage, repo, taskHash, [fnIrHash]);
-    assert.equal(result.state, 'success', result.error ?? '');
-    const output = await storage.objects.read(repo, result.outputHash!);
-    const decoded = decodeBeast2For(DictType(IntegerType, StringType))(output);
-    assert.equal(decoded.size, 2);
-    assert.equal(decoded.get(1n), 'a');
-    assert.equal(decoded.get(2n), 'b');
+    assert.equal(result.state, 'failed');
+    assert.match(result.error ?? '', /beast2 v5: Dict key emitted out of order: 1 after 2 — Set\/Dict emissions must ascend in East order/);
   });
 
   it('runs the fold on the east-py runner and its emitted blob decodes under the TS reader',
