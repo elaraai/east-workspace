@@ -469,6 +469,41 @@ describe('the stdin lifeline (#770)', () => {
     removeTempDir(dir);
   });
 
+  it('a runner reads it on a thread of its own and keeps full use of its stdin meanwhile', async () => {
+    // A runner's watcher reads the lifeline on a worker thread for as long as
+    // the runner runs; two seconds in, the main thread opens stdin, as a
+    // runner's first ESM import of `node:process` does (the builtin's facade
+    // reads every export). On Windows a read pending on a synchronous pipe
+    // holds the pipe's file-object lock, and that open waited for it forever;
+    // the lifeline is an overlapped pipe, whose reads take no such lock.
+    const script = [
+      "const { Worker } = require('node:worker_threads');",
+      'new Worker(`',
+      "  const stdin = new (require('node:net').Socket)({ fd: 0, readable: true, writable: false });",
+      "  stdin.on('error', () => {});",
+      '  stdin.resume();',
+      '`, { eval: true }).unref();',
+      "setTimeout(() => { process.stdin; process.stdout.write('stdin opened'); }, 2000);",
+    ].join('\n');
+    let pid: number | null = null;
+    const run = spawnAndCapture([process.execPath, '-e', script], dir, {
+      stdinLifeline: true,
+      onSpawned: (spawned) => {
+        pid = spawned;
+      },
+    });
+    try {
+      // A bounded wait: the open either returns or waits for this process.
+      const result = await Promise.race([run, new Promise<null>((resolve) => setTimeout(() => resolve(null), 30_000).unref())]);
+      assert.ok(result !== null, 'opening stdin waited on the lifeline read');
+      assert.equal(result.exitCode, 0, result.stderrTail);
+      assert.equal(result.stdoutTail, 'stdin opened');
+    } finally {
+      if (pid !== null && alive(pid)) process.kill(pid, 'SIGKILL');
+      await run;
+    }
+  });
+
   it('a stock runner spawned with it exits once the e3 process that spawned it is killed', async () => {
     // e3 dies without warning while a stock runner spins in its body. On
     // POSIX the kill never reaches the runner, which leads its own process

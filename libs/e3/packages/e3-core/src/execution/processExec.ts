@@ -422,8 +422,10 @@ export interface SpawnAndCaptureOptions {
   /** Gives the child a stdin pipe this process never writes to — the
    *  lifeline a stock runner spawned with `--exit-with-parent` (spliced into
    *  the argv by `withRunnerLifeline`) reads until end of file, so it exits
-   *  when the pipe closes: when this process dies. The pipe is destroyed once
-   *  the child has closed. Without it stdin is ignored. */
+   *  when the pipe closes: when this process dies. On Windows the pipe is
+   *  overlapped, so the runner keeps full use of its stdin while that read
+   *  is pending. The pipe is destroyed once the child has closed. Without it
+   *  stdin is ignored. */
   stdinLifeline?: boolean;
   /** Executable dirs prepended to the child PATH ahead of everything else —
    *  a materialized execution environment's bin dir (materializeEnvironment)
@@ -551,7 +553,15 @@ export async function spawnAndCapture(
     // removed, so a child that outlives a killed parent would hold the
     // repo/project dir open and block its cleanup (EBUSY).
     cwd: scratchDir,
-    stdio: [options.stdinLifeline ? 'pipe' : 'ignore', 'pipe', 'pipe'],
+    // The lifeline is an overlapped pipe ('overlapped' is 'pipe' off
+    // Windows). A runner reads it on a thread of its own for as long as it
+    // runs, and on Windows a read pending on a synchronous pipe holds the
+    // pipe's file-object lock, so every other operation on stdin in the
+    // runner would wait for it — until e3 is gone. Opening process.stdin is
+    // one: east-node's first ESM import of `node:process` does it (the
+    // builtin's facade reads every export) and never returned. An overlapped
+    // read takes no such lock.
+    stdio: [options.stdinLifeline ? 'overlapped' : 'ignore', 'pipe', 'pipe'],
     // A process group of its own on POSIX, so a stop reaches the whole tree.
     // Never on Windows: a detached child starts with no console, so a console
     // runner it starts — beneath the job launcher, or beneath cmd.exe running
