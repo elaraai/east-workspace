@@ -347,6 +347,13 @@ export class LocalRepoStore implements RepoStore {
     const roots: string[] = [];
     const entries = await this.refs.executionList(repo);
     for (const { taskHash, inputsHash } of entries) {
+      // A partitioned execution's plan. It is the only reference to the
+      // slices it carved and the key ranges it planned, and it lives in a
+      // sidecar no other scan reads — unrooted, the sweep takes the plan and
+      // everything it records, and the next run re-plans and re-carves from
+      // scratch. gc walks the plan itself (see isPartitionPlanShape).
+      const planHash = await this.refs.executionPlanRead?.(repo, taskHash, inputsHash);
+      if (planHash && /^[a-f0-9]{64}$/.test(planHash)) roots.push(planHash);
       const ids = await this.refs.executionListIds(repo, taskHash, inputsHash);
       for (const executionId of ids) {
         const status = await this.refs.executionGet(repo, taskHash, inputsHash, executionId);

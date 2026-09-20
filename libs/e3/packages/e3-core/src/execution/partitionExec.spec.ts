@@ -1038,6 +1038,30 @@ describe('partitionTaskExecute', () => {
     assert.equal(rerun.outputHash, tableHash);
   });
 
+  it('gc keeps a partitioned execution\'s plan, and the slices it recorded', async () => {
+    // The plan is the only reference to the slices it carved and the key
+    // ranges it planned, and it lives in a sidecar no other root scan reads.
+    // Unrooted, the first `e3 repo gc` took the plan and everything it
+    // records — leaving the sidecar pointing at a deleted object, so every
+    // later run re-planned and re-carved from scratch.
+    const fnIrHash = await createDummyFnIr();
+    const taskHash = await createPartitionTask({ copyIndex: 1, partitions: 1, targetPartitionBytes: 1 });
+    const tableHash = await storage.objects.write(repo, encodeBeast2PagedFor(TableType, { batchSize: 100 })(makeTable(1000)));
+    const result = await taskExecute(storage, repo, taskHash, [fnIrHash, tableHash]);
+    assert.equal(result.state, 'success', result.error ?? '');
+
+    const planHash = await storage.refs.executionPlanRead!(repo, taskHash, result.inputsHash);
+    assert.ok(planHash, 'the run recorded a plan sidecar');
+    const plan = decodePartitionPlan(await storage.objects.read(repo, planHash!));
+    const carved = plan.slices.flat().filter((hash) => hash !== '');
+    assert.ok(carved.length > 0, 'the run carved slices into the plan');
+
+    await repoGc(new LocalStorage(dirname(repo)), repo, { minAge: 0 });
+
+    await storage.objects.read(repo, planHash!); // throws if the sweep took it
+    for (const slice of carved) await storage.objects.read(repo, slice);
+  });
+
   it('spliceChunks refuses non-self-contained parts', async () => {
     // A cross-segment-aliasing shard would splice into a blob whose REFs
     // resolve into the PREVIOUS shard's containers — in range, silently
