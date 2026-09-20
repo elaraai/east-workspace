@@ -20,7 +20,8 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { tmpdir } from 'os';
-import { decodeBeast2, isEastDict, readBeast2Type, variant, type EastTypeValue } from '@elaraai/east';
+import { decodeBeast2, isEastDict, readBeast2Type, toEastTypeValue, variant, type EastTypeValue } from '@elaraai/east';
+import { PartitionPlanType } from '@elaraai/e3-types';
 import type { RepoStore, GcObjectEntry, GcRootScanResult, LockHandle, StorageBackend } from '../interfaces.js';
 import { transferStagingDir } from './localHelpers.js';
 import { sweepScratchDirs } from '../../execution/scratch.js';
@@ -306,17 +307,37 @@ function isRecordCommitShape(type: any): boolean {
     && names.has('args') && names.has('actor') && names.has('at');
 }
 
+/** `PartitionPlanType`'s field names, in wire order, read from the type
+ *  itself rather than written out here: every plan shape a repository can
+ *  hold is a PREFIX of this list, because beast2 encodes struct fields
+ *  positionally and the plan only ever grows by appending LAST. */
+const PARTITION_PLAN_FIELDS: readonly string[] =
+  (toEastTypeValue(PartitionPlanType).value as { name: string }[]).map(f => f.name);
+
+/** The fields every plan has carried, from the first vintage on: the ones a
+ *  prefix must reach before it is a plan rather than an unrelated struct. */
+const PARTITION_PLAN_MIN_FIELDS = 4;
+
 /**
- * Check if a decoded EastTypeValue represents a PartitionPlan.
- * PartitionPlan is a Struct with exactly the fields partitions, boundaries,
- * splits, slices — and, since the fan-in ran per key range, merges.
+ * Check if a decoded EastTypeValue represents a PartitionPlan — of any
+ * vintage: a struct that agrees with {@link PARTITION_PLAN_FIELDS} on their
+ * common prefix, which must reach {@link PARTITION_PLAN_MIN_FIELDS}.
+ *
+ * Both directions matter, and both lose objects when they are wrong. A plan
+ * SHORTER than this build's type is one an older e3 recorded; a plan LONGER
+ * is one a newer e3 recorded in a repository this build is sweeping. Either
+ * way an unrecognised plan is treated as a leaf, its children are never
+ * extracted, and the sweep deletes the carved slices and range blobs it is
+ * the only reference to. Reading the names off the type keeps the two from
+ * drifting when a field is appended; `gc.spec.ts` pins the order they must
+ * be appended in.
  */
 function isPartitionPlanShape(type: any): boolean {
   if (type.type !== 'Struct') return false;
-  const names = new Set((type.value as { name: string }[]).map(f => f.name));
-  const merges = names.has('merges') ? 1 : 0;
-  return names.size === 4 + merges
-    && names.has('partitions') && names.has('boundaries') && names.has('splits') && names.has('slices');
+  const names = (type.value as { name: string }[]).map(f => f.name);
+  const common = Math.min(names.length, PARTITION_PLAN_FIELDS.length);
+  if (common < PARTITION_PLAN_MIN_FIELDS) return false;
+  return PARTITION_PLAN_FIELDS.slice(0, common).every((name, i) => name === names[i]);
 }
 
 /**

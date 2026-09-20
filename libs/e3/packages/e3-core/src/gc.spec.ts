@@ -11,9 +11,9 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
 import { existsSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
-import { East, IntegerType, StringType, StructType, decodeBeast2For, encodeBeast2For, variant, some, none, toEastTypeValue } from '@elaraai/east';
+import { East, IntegerType, StringType, StructType, decodeBeast2For, encodeBeast2For, fromEastTypeValue, variant, some, none, toEastTypeValue } from '@elaraai/east';
 import e3 from '@elaraai/e3';
-import { WorkspaceStateType, PackageObjectType, TaskObjectType, FunctionObjectType, DataRefType, DatasetRefType, RecordCommitType, MutationObjectType, EnvironmentSpecType, encodePartitionPlan } from '@elaraai/e3-types';
+import { WorkspaceStateType, PackageObjectType, TaskObjectType, FunctionObjectType, DataRefType, DatasetRefType, RecordCommitType, MutationObjectType, EnvironmentSpecType, PartitionPlanType, encodePartitionPlan } from '@elaraai/e3-types';
 import type { WorkspaceState, PackageObject, TaskObject } from '@elaraai/e3-types';
 import { repoGc, collectAllRoots, markReachable, sweepBatch } from './storage/local/gc.js';
 import { transferStagingPath } from './storage/local/localHelpers.js';
@@ -898,6 +898,48 @@ describe('gc', () => {
         // being read.
         assert.deepStrictEqual([...reachable].sort(), [planHash, ...slices.flat(), ...ranges].sort());
         assert.deepStrictEqual(store.wholeReads, [planHash], 'the slices and ranges are marked without being read');
+      });
+
+      it('keeps the plan reachable once the plan type has grown a field', async () => {
+        // gc classifies a plan by matching a PREFIX of PartitionPlanType's
+        // fields, so appending one — the migration this type is designed for
+        // — must keep gc marking the plan's slices and ranges. Getting this
+        // wrong loses them silently: an unrecognised plan is a leaf, its
+        // children are never extracted, and the sweep deletes them.
+        const planFields = (toEastTypeValue(PartitionPlanType).value as { name: string; type: unknown }[]);
+        const grown = fromEastTypeValue(variant('Struct', [
+          ...planFields,
+          { name: 'a_field_appended_later', type: toEastTypeValue(IntegerType) },
+        ]) as never);
+        const planHash = 'e'.repeat(64);
+        const slices = [['1'.repeat(64), '2'.repeat(64)]];
+        const ranges = ['7'.repeat(64)];
+        const objects = new Map([[planHash, encodeBeast2For(grown as never)({
+          partitions: ['5'.repeat(64)],
+          boundaries: [0n],
+          splits: [[{ seg: 0n, offset: 0n }, { seg: 4n, offset: 0n }]],
+          slices,
+          merges: [{ partials: ['a'.repeat(64)], ranges }],
+          a_field_appended_later: 0n,
+        } as never)]]);
+        const store = tracedStore(objects);
+
+        const reachable = await markReachable(store.readObject, new Set([planHash]), { readHead: store.readHead });
+
+        assert.deepStrictEqual([...reachable].sort(), [planHash, ...slices.flat(), ...ranges].sort());
+      });
+
+      it('pins gc\'s plan prefix to PartitionPlanType\'s field order', () => {
+        // The prefix match above only holds while the plan grows by APPENDING.
+        // A field inserted or reordered would make older plans stop matching,
+        // and gc would quietly stop marking their slices and ranges — so pin
+        // the fields every vintage carries to the front, in order.
+        const fields = (toEastTypeValue(PartitionPlanType).value as { name: string }[]).map((f) => f.name);
+        assert.deepStrictEqual(
+          fields.slice(0, 4),
+          ['partitions', 'boundaries', 'splits', 'slices'],
+          'a plan field must be APPENDED, never inserted or reordered — see isPartitionPlanShape',
+        );
       });
 
       it('grows the head while a type section does not fit, and never reads the dataset whole', async () => {
