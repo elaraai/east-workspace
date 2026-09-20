@@ -475,6 +475,13 @@ typedef enum {
     EMIT_DICT = EAST_EMIT_DICT,
 } EmitKind;
 
+/* The kind as the flag spells it — the sibling runners name it in their
+ * arity message, so this one does too. */
+static const char *emit_kind_name(EmitKind kind)
+{
+    return kind == EMIT_DICT ? "dict" : kind == EMIT_SET ? "set" : "array";
+}
+
 static EastValue *load_ir_with_map(const char *path, EastSourceMap **map_out);
 
 /* The compiled --merge function and the IR it was compiled from, freed after
@@ -602,8 +609,9 @@ static EastEmitSink *emit_sink_open(EmitKind kind, EastType *emit_param_type,
     size_t arity = emit_param_type->data.function.num_inputs;
     size_t expected = kind == EMIT_DICT ? 2 : 1;
     if (arity != expected) {
-        fprintf(stderr, "Error: --emit expects an emit parameter taking %zu argument(s), got %zu\n",
-                expected, arity);
+        fprintf(stderr,
+                "Error: --emit %s expects an emit parameter taking %zu argument(s), got %zu\n",
+                emit_kind_name(kind), expected, arity);
         return NULL;
     }
     EastType **ins = emit_param_type->data.function.inputs;
@@ -1775,6 +1783,12 @@ static int cli_main(void *arg)
         }
         if (!output_file) {
             fprintf(stderr, "Error: merge requires -o FILE\n");
+            return 1;
+        }
+        /* The merged blob is a beast2 stream, exactly as `run --emit` writes
+         * one — so the same rule, in the same words, on every runner. */
+        if (detect_format(output_file) != FMT_BEAST2) {
+            fprintf(stderr, "Error: merge requires a .beast2 output file (-o)\n");
             return 1;
         }
         if (merge_path && union_mode) {

@@ -442,17 +442,6 @@ def test_merge_writes_the_fold_byte_identical_to_the_ascending_sink(tmp_path):
     assert table[15] == "a15b15c15" and table[40] == "c40"
 
 
-def test_merge_writes_wherever_the_output_points(tmp_path):
-    # east-c and east-node write the merged blob to whatever `-o` names, so a
-    # python-side rule about the path's extension would make east-py refuse a
-    # command the other two runners accept. Same bytes, either name.
-    named = tmp_path / "merged.beast2"
-    plain = tmp_path / "merged.bin"
-    assert merge_blobs(MERGE_INPUTS, [], named, merge=MERGE_CONCAT)["entries"] == 31
-    assert merge_blobs(MERGE_INPUTS, [], plain, merge=MERGE_CONCAT)["entries"] == 31
-    assert plain.read_bytes() == named.read_bytes()
-
-
 def test_merge_unions_set_inputs_byte_identical_to_the_ascending_sink(tmp_path):
     expected = tmp_path / "expected.beast2"
     run_program(FIXTURES / "merge_expected_set.beast2", [], [], [], expected, emit="set")
@@ -619,6 +608,44 @@ def test_the_merge_command_names_a_missing_input_as_the_other_runners_do(tmp_pat
     assert proc.returncode == 1
     assert f"Error: merge: input 0 ({missing}): cannot open the file" in proc.stderr
     assert "Input file not found" not in proc.stderr
+
+
+def test_the_merge_command_refuses_its_arguments_as_the_other_runners_do(tmp_path):
+    # One sentence per condition, identical on east-c, east-node and east-py:
+    # the three runners are interchangeable, so a task that names one of them
+    # must fail the same way on any of them.
+    def merge(*args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [sys.executable, "-m", "east_py_cli", "merge", *args],
+            capture_output=True, text=True,
+        )
+
+    out = str(tmp_path / "m.beast2")
+    first = str(MERGE_INPUTS[0])
+    for args, message in [
+        ((), "Error: merge requires at least one -i input"),
+        (("-o", out), "Error: merge requires at least one -i input"),
+        (("-i", first), "Error: merge requires -o FILE"),
+        (("-i", first, "-o", out, "--merge", str(MERGE_CONCAT), "--union"),
+         "Error: --merge and --union are two folds — give one"),
+        (("-i", first, "-o", str(tmp_path / "m.bin")),
+         "Error: merge requires a .beast2 output file (-o)"),
+    ]:
+        proc = merge(*args)
+        assert proc.returncode == 1, proc.stderr
+        assert proc.stderr.splitlines()[0] == message, proc.stderr
+
+
+def test_the_run_command_refuses_a_bad_emit_kind_in_the_other_runners_words(tmp_path):
+    # argparse `choices` would answer with a usage dump; east-c and east-node
+    # name the kind they were given.
+    proc = subprocess.run(
+        [sys.executable, "-m", "east_py_cli", "run", str(FIXTURES / "emit_dict.beast2"),
+         "--emit", "bag", "-o", str(tmp_path / "o.beast2")],
+        capture_output=True, text=True,
+    )
+    assert proc.returncode == 1
+    assert proc.stderr.splitlines()[0] == "Error: --emit must be one of array, set or dict, got 'bag'"
 
 
 def test_the_merge_command_prints_its_account(tmp_path):

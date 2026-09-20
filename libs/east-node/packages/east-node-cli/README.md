@@ -57,7 +57,7 @@ lazily, one decoded segment at a time:
 # Emit a Dict (or array / set) through the trailing parameter, feeding
 # inputs 0 and 1 lazily from indexed beast2 blobs
 east-node run ./task.beast2 -p @elaraai/east-node-std \
-    -i rows.beast2 -i more.beast2 --stream 0 1 \
+    -i rows.beast2 -i more.beast2 --stream 0 --stream 1 \
     --emit dict -o out.beast2 -v
 ```
 
@@ -201,8 +201,8 @@ Options:
   --merge <file>             With --emit dict: fold equal keys with the East function
                              (K, V, V) -> V in <file>, in emission order
   --union                    With --emit set: collapse equal elements
-  --stream <index...>        Feed the given -i inputs (0-based) lazily, segment by
-                             segment (repeatable)
+  --stream <index>           Feed the given -i input (0-based) lazily, segment by
+                             segment (can be repeated)
   --exit-with-parent         Exit as soon as stdin reaches end of file — for a parent
                              that holds a stdin pipe it never writes to
   -h, --help                 Display help

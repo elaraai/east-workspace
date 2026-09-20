@@ -36,6 +36,22 @@ export function formatFileSize(path: string): string {
 }
 
 /** Streaming-execution options accepted by {@link runProgram}. */
+/**
+ * A refusal of the command line itself — a flag combination, an output
+ * destination, a function shape the flags do not fit.
+ *
+ * These are the user's errors, not the program's, and east-c and east-py
+ * answer them with one sentence on stderr. Marking them lets the CLI do the
+ * same instead of printing the JS stack it prints for an error thrown from
+ * East or from a platform function, where the frames are the diagnosis.
+ */
+export class UsageError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = 'UsageError';
+    }
+}
+
 export interface RunProgramOptions {
     /** Enable verbose timing/memory output on stderr. */
     verbose?: boolean;
@@ -100,10 +116,10 @@ export async function runProgram(
     const t0 = now();
 
     if (opts.merge !== undefined && opts.emit !== 'dict') {
-        throw new Error('--merge applies to --emit dict only');
+        throw new UsageError('--merge applies to --emit dict only');
     }
     if (opts.union && opts.emit !== 'set') {
-        throw new Error('--union applies to --emit set only');
+        throw new UsageError('--union applies to --emit set only');
     }
 
     // Load as an EastIR bundle so source_map travels with the IR and error
@@ -121,23 +137,27 @@ export async function runProgram(
     // has no trailing parameter to be it — the shaped emit error, not a
     // negative arity count.
     if (opts.emit !== undefined && inputTypes.length === 0) {
-        throw new Error(`--emit requires the function's trailing parameter to be the emit capability (a function type), but the function takes no parameters`);
+        throw new UsageError(`--emit requires the function's trailing parameter to be the emit capability (a function type)`);
     }
     const fileParamCount = opts.emit !== undefined ? inputTypes.length - 1 : inputTypes.length;
     if (inputPaths.length !== fileParamCount) {
-        throw new Error(
-            `Function expects ${fileParamCount} input(s), but ${inputPaths.length} input file(s) provided`,
+        // east-c / east-py parity, down to the signature line: one sentence
+        // for one condition, whichever runner the task declares.
+        const signature = `(${(inputTypes as EastTypeValue[]).map((t) => printTypeValue(t)).join(', ')}) -> ` +
+            `${outputType !== null ? printTypeValue(outputType) : '?'}`;
+        throw new UsageError(
+            `Function expects ${fileParamCount} inputs, got ${inputPaths.length}\nSignature: ${signature}`,
         );
     }
     if (opts.emit !== undefined && (outputPath === undefined || extname(outputPath).toLowerCase() !== '.beast2')) {
         // east-c / east-py parity: the emitted blob is a beast2 stream, so
         // any other output extension is refused up front.
-        throw new Error(`--emit requires a .beast2 output file (-o)`);
+        throw new UsageError(`--emit requires a .beast2 output file (-o)`);
     }
     const streamInputs = opts.streamInputs ?? [];
     for (const index of streamInputs) {
         if (index < 0 || index >= inputPaths.length) {
-            throw new Error(`--stream index ${index} out of range (${inputPaths.length} inputs)`);
+            throw new UsageError(`--stream index ${index} out of range (${inputPaths.length} inputs)`);
         }
     }
 
@@ -340,18 +360,18 @@ function disorderMessage(kind: 'set' | 'dict', printKey: (v: unknown) => string,
  */
 function createEmitSink(kind: EmitKind, emitParamType: EastTypeValue, outputPath: string, fold: EmitFoldOptions): EmitSink {
     if (emitParamType.type !== 'Function') {
-        throw new Error(`--emit requires the function's trailing parameter to be the emit capability (a function type), got ${emitParamType.type}`);
+        throw new UsageError(`--emit requires the function's trailing parameter to be the emit capability (a function type)`);
     }
     const emitInputs = (emitParamType as any).value.inputs as EastTypeValue[];
     const expectedArity = kind === 'dict' ? 2 : 1;
     if (emitInputs.length !== expectedArity) {
-        throw new Error(`--emit ${kind} expects an emit parameter taking ${expectedArity} argument(s), got ${emitInputs.length}`);
+        throw new UsageError(`--emit ${kind} expects an emit parameter taking ${expectedArity} argument(s), got ${emitInputs.length}`);
     }
     if (fold.mergePath !== undefined && kind !== 'dict') {
-        throw new Error('--merge applies to --emit dict only');
+        throw new UsageError('--merge applies to --emit dict only');
     }
     if (fold.union && kind !== 'set') {
-        throw new Error('--union applies to --emit set only');
+        throw new UsageError('--union applies to --emit set only');
     }
     const merge = fold.mergePath !== undefined
         ? loadMergeFunction(fold.mergePath, emitInputs[0]!, emitInputs[1]!, fold.platformFns, 'the emit parameter')

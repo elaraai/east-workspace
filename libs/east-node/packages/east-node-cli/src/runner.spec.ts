@@ -330,10 +330,17 @@ describe('runner streaming execution', () => {
   });
 
   it('refuses --emit on a zero-parameter function with the emit-capability error', async () => {
-    const fn = East.function([], IntegerType, (_$) => 1n);
+    // The one sentence east-c and east-py give for the same shape — a
+    // zero-parameter function has no trailing parameter to be the capability,
+    // and so does one whose trailing parameter is not a function.
+    const message = "--emit requires the function's trailing parameter to be the emit capability (a function type)";
     await assert.rejects(
-      runProgram(writeIr(fn), [], [], [], join(tempDir, 'out.beast2'), { emit: 'array' }),
-      /trailing parameter to be the emit capability[\s\S]*takes no parameters/,
+      runProgram(writeIr(East.function([], IntegerType, (_$) => 1n)), [], [], [], join(tempDir, 'out.beast2'), { emit: 'array' }),
+      { message },
+    );
+    await assert.rejects(
+      runProgram(writeIr(East.function([IntegerType], IntegerType, (_$, n) => n)), [], [], [], join(tempDir, 'out.beast2'), { emit: 'array' }),
+      { message },
     );
   });
 
@@ -695,6 +702,50 @@ describe('folding emit, the blob merge and the stdin lifeline (#770)', () => {
     const both = spawnSync(process.execPath, [bin, 'merge', '--merge', writeConcat(), '--union', '-i', inputs[0]!, '-o', join(tempDir, 'both.beast2')], { encoding: 'utf8' });
     assert.equal(both.status, 1);
     assert.ok(both.stderr.includes('Error: --merge and --union are two folds — give one'), both.stderr);
+  });
+
+  it('the merge command refuses its arguments in the other runners\' words', () => {
+    // One sentence per condition, identical on east-c, east-node and east-py:
+    // the three runners are interchangeable, so a task that names one of them
+    // must fail the same way on any of them. One line, no JS stack — a
+    // refusal of the command line is the user's error, not the program's.
+    const bin = fileURLToPath(new URL('../bin/east-node.mjs', import.meta.url));
+    const out = join(tempDir, 'args.beast2');
+    const input = writeDictInput('a');
+    const cases: [string[], string][] = [
+      [[], 'Error: merge requires at least one -i input'],
+      [['-o', out], 'Error: merge requires at least one -i input'],
+      [['-i', input], 'Error: merge requires -o FILE'],
+      [['-i', input, '-o', out, '--merge', writeConcat(), '--union'],
+        'Error: --merge and --union are two folds — give one'],
+      [['-i', input, '-o', join(tempDir, 'args.bin')],
+        'Error: merge requires a .beast2 output file (-o)'],
+    ];
+    for (const [args, message] of cases) {
+      const result = spawnSync(process.execPath, [bin, 'merge', ...args], { encoding: 'utf8' });
+      assert.equal(result.status, 1, result.stderr);
+      assert.deepEqual(result.stderr.trimEnd().split('\n'), [message]);
+    }
+  });
+
+  it('a repeated flag takes one value, so it never swallows the ir file', () => {
+    // `--stream <index...>` (and `-i`/`-p` variadic) ate the positional that
+    // followed, so `run --stream 0 program.beast2` reported its IR file
+    // missing — while east-c and east-py, whose flags take one value and
+    // repeat, accepted the same line. Every runner README documents the
+    // repeated form.
+    const bin = fileURLToPath(new URL('../bin/east-node.mjs', import.meta.url));
+    const irPath = writeIr('streamed.beast2', pairEmitter([{ key: 1n, value: 'a' }]));
+    const stdDir = fileURLToPath(new URL('../../east-node-std', import.meta.url));
+    const result = spawnSync(process.execPath,
+      [bin, 'run', '--stream', '0', irPath, '-p', '@elaraai/east-node-std',
+       '--emit', 'dict', '-o', join(tempDir, 'streamed-out.beast2')],
+      { env: { ...process.env, E3_RUNNER_SEARCH_DIRS: stdDir }, encoding: 'utf8' });
+    // The IR file was parsed as the positional — the run gets as far as the
+    // stream index, and refuses it in the words east-c uses.
+    assert.ok(!result.stderr.includes('Missing <ir_file>'), result.stderr);
+    assert.deepEqual(result.stderr.trimEnd().split('\n'),
+      ['Error: --stream index 0 out of range (0 inputs)']);
   });
 
   // ---- The stdin lifeline -----------------------------------------------

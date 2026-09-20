@@ -112,7 +112,9 @@ class _EmitSink:
         from east import ArrayType, DictType, SetType
         from east.serialization._beast2_eastc import _EmitSinkCore
 
-        if Path(output_file).suffix.lower() not in (".beast2", ".beast"):
+        # `.beast2` only, as east-c and east-node require: the sink writes a
+        # beast2 stream, and the message has always said so.
+        if Path(output_file).suffix.lower() != ".beast2":
             raise ValueError("--emit requires a .beast2 output file (-o)")
         if getattr(emit_param_type, "type", None) not in ("Function", "AsyncFunction"):
             raise ValueError(
@@ -236,7 +238,7 @@ def run_program(
     sink = None
     if emit is not None:
         if output_file is None:
-            raise ValueError("--emit requires an output file (-o)")
+            raise ValueError("--emit requires a .beast2 output file (-o)")
         # The --merge function compiles with the run's platforms, exactly like
         # the main IR; the sink borrows its native function.
         merge_fn = _compile_ir_file(Path(merge), platform_fns)[0] if merge is not None else None

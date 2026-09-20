@@ -302,6 +302,24 @@ static void test_refusals(const char *bin, const char *fixtures)
     rc = run_cli(cmd, "merge_err_both.txt");
     CHECK(rc == 1, "both folds: expected exit 1, got %d", rc);
     check_stderr_contains("merge_err_both.txt", "--merge and --union are two folds");
+
+    /* The merged blob is a beast2 stream, exactly as `run --emit` writes one:
+     * the same rule, in the same words, on east-c, east-node and east-py. */
+    snprintf(cmd, sizeof(cmd), "\"%s\" merge -i \"%s/merge_in_a.beast2\" -o merge_out.bin", bin,
+             fixtures);
+    rc = run_cli(cmd, "merge_err_ext.txt");
+    CHECK(rc == 1, "non-beast2 output: expected exit 1, got %d", rc);
+    check_stderr_contains("merge_err_ext.txt", "merge requires a .beast2 output file (-o)");
+
+    snprintf(cmd, sizeof(cmd), "\"%s\" merge -o merge_out_none.beast2", bin);
+    rc = run_cli(cmd, "merge_err_noinput.txt");
+    CHECK(rc == 1, "no input: expected exit 1, got %d", rc);
+    check_stderr_contains("merge_err_noinput.txt", "merge requires at least one -i input");
+
+    snprintf(cmd, sizeof(cmd), "\"%s\" merge -i \"%s/merge_in_a.beast2\"", bin, fixtures);
+    rc = run_cli(cmd, "merge_err_nooutput.txt");
+    CHECK(rc == 1, "no output: expected exit 1, got %d", rc);
+    check_stderr_contains("merge_err_nooutput.txt", "merge requires -o FILE");
 }
 
 static void test_empty_inputs(const char *bin, const char *fixtures)

@@ -125,8 +125,10 @@ def create_parser() -> argparse.ArgumentParser:
         help="Replay from a .east-snapshot bundle (exclusive with ir_file, -i, -p)",
     )
     run_parser.add_argument(
+        # Not argparse `choices`: that answers a bad kind with a usage dump,
+        # where east-c and east-node name the kind they got. Checked in
+        # cmd_run instead, in their words.
         "--emit",
-        choices=("array", "set", "dict"),
         metavar="KIND",
         help="Write the output incrementally from the function's trailing emit "
         "parameter (array|set|dict)",
@@ -170,12 +172,14 @@ def create_parser() -> argparse.ArgumentParser:
         "-p", "--package", action="append", default=[], metavar="PACKAGE",
         help="Platform package the --merge function's platform calls need (can be repeated)",
     )
+    # Not argparse `required`: that answers a missing one with a usage dump,
+    # where east-c and east-node name what is missing. Checked in cmd_merge.
     merge_parser.add_argument(
-        "-i", "--input", action="append", default=[], type=Path, metavar="FILE", required=True,
+        "-i", "--input", action="append", default=[], type=Path, metavar="FILE",
         help="An input blob (can be repeated; equal keys fold in this order)",
     )
     merge_parser.add_argument(
-        "-o", "--output", type=Path, metavar="FILE", required=True, help="The merged blob",
+        "-o", "--output", type=Path, metavar="FILE", help="The merged blob",
     )
     merge_parser.add_argument(
         "-v", "--verbose", action="store_true", help="Enable verbose output",
@@ -327,6 +331,10 @@ def cmd_run(args: argparse.Namespace) -> int:
                 print(f"Error: Input file not found: {input_file}", file=sys.stderr)
                 return 1
 
+        if args.emit is not None and args.emit not in ("array", "set", "dict"):
+            print(f"Error: --emit must be one of array, set or dict, got '{args.emit}'",
+                  file=sys.stderr)
+            return 1
         if getattr(args, "merge", None) is not None and getattr(args, "emit", None) != "dict":
             print("Error: --merge applies to --emit dict only", file=sys.stderr)
             return 1
@@ -411,9 +419,18 @@ def cmd_merge(args: argparse.Namespace) -> int:
 
     # No existence pre-check: the merge names a missing input itself, in the
     # words east-c and east-node use (`merge: input <n> (<path>): cannot open
-    # the file`).
+    # the file`). The rules below are theirs too, word for word.
+    if not args.input:
+        print("Error: merge requires at least one -i input", file=sys.stderr)
+        return 1
+    if args.output is None:
+        print("Error: merge requires -o FILE", file=sys.stderr)
+        return 1
     if args.merge is not None and args.union:
         print("Error: --merge and --union are two folds — give one", file=sys.stderr)
+        return 1
+    if args.output.suffix.lower() != ".beast2":
+        print("Error: merge requires a .beast2 output file (-o)", file=sys.stderr)
         return 1
 
     platform_fns = []

@@ -5,11 +5,12 @@
 
 import { Command } from 'commander';
 import { writeFileSync } from 'node:fs';
+import { extname } from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { createRequire } from 'module';
 import { EastError } from '@elaraai/east/internal';
 import { loadPlatforms, loadPlatformWithMetadata } from './loader.js';
-import { runProgram, type RunProgramOptions } from './runner.js';
+import { runProgram, UsageError, type RunProgramOptions } from './runner.js';
 import { mergeBlobs } from './merge.js';
 import { writeSnapshot, readSnapshot } from './snapshot.js';
 import { encodeRebuilt, isDirectory, transpile, transpileDir } from './transpile.js';
@@ -39,12 +40,25 @@ interface RunOptions {
 interface MergeOptions {
     package?: string[];
     input: string[];
-    output: string;
+    output?: string;
     verbose?: boolean;
     merge?: string;
     union?: boolean;
     range?: string;
     exitWithParent?: boolean;
+}
+
+/**
+ * Collects a repeated option's values.
+ *
+ * Every repeatable flag takes ONE value and is given again for the next —
+ * `-i a -i b`, `--stream 0 --stream 1` — which is the grammar east-c and
+ * east-py accept and all three READMEs document. Commander's variadic form
+ * (`<file...>`) would also swallow the following positional, so
+ * `run --stream 0 program.beast2` lost its IR file and reported it missing.
+ */
+function collect(value: string, previous: string[]): string[] {
+    return [...previous, value];
 }
 
 /** The `--exit-with-parent` flag's help, shared by `run` and `merge`. */
@@ -56,23 +70,23 @@ function streamingOptions(options: RunOptions): RunProgramOptions {
     const out: RunProgramOptions = {};
     if (options.emit !== undefined) {
         if (options.emit !== 'array' && options.emit !== 'set' && options.emit !== 'dict') {
-            throw new Error(`--emit must be one of array, set or dict, got '${options.emit}'`);
+            throw new UsageError(`--emit must be one of array, set or dict, got '${options.emit}'`);
         }
         out.emit = options.emit;
     }
     if (options.merge !== undefined) {
-        if (out.emit !== 'dict') throw new Error('--merge applies to --emit dict only');
+        if (out.emit !== 'dict') throw new UsageError('--merge applies to --emit dict only');
         out.merge = options.merge;
     }
     if (options.union) {
-        if (out.emit !== 'set') throw new Error('--union applies to --emit set only');
+        if (out.emit !== 'set') throw new UsageError('--union applies to --emit set only');
         out.union = true;
     }
     if (options.stream !== undefined) {
         out.streamInputs = options.stream.map((raw) => {
             const index = Number(raw);
             if (!Number.isInteger(index) || index < 0) {
-                throw new Error(`--stream must be a non-negative input index, got '${raw}'`);
+                throw new UsageError(`--stream must be a non-negative input index, got '${raw}'`);
             }
             return index;
         });
@@ -80,7 +94,7 @@ function streamingOptions(options: RunOptions): RunProgramOptions {
     if (options.lazyInputs !== undefined) {
         const bytes = Number(options.lazyInputs);
         if (!Number.isFinite(bytes) || bytes < 0) {
-            throw new Error(`--lazy-inputs must be a byte threshold (0 disables), got '${options.lazyInputs}'`);
+            throw new UsageError(`--lazy-inputs must be a byte threshold (0 disables), got '${options.lazyInputs}'`);
         }
         out.lazyInputBytes = bytes;
     }
@@ -244,6 +258,10 @@ async function cmdRun(irFile: string | undefined, options: RunOptions): Promise<
         // threw + the East call site), and the message alone drops them. The
         // stack already begins with `Error: <message>`, so don't re-prefix.
         const e = err as Error;
+        // A refusal of the command line is the user's error: one sentence, as
+        // east-c and east-py give it. A stack belongs only to an error thrown
+        // from East or a platform function, where the frames ARE the answer.
+        if (err instanceof UsageError) return fail(`Error: ${e.message}`);
         return fail(err instanceof EastError
             ? `Error: ${err.toString()}`
             : (e.stack ?? `Error: ${e.message ?? String(err)}`));
@@ -258,8 +276,20 @@ async function cmdRun(irFile: string | undefined, options: RunOptions): Promise<
 async function cmdMerge(options: MergeOptions): Promise<void> {
     startLifeline(options);
     try {
+        // The same rules, in the same words, as east-c and east-py: a merge
+        // needs at least one input, an output, one fold at most, and writes a
+        // beast2 stream exactly as `run --emit` does.
+        if (options.input.length === 0) {
+            return fail('Error: merge requires at least one -i input');
+        }
+        if (options.output === undefined) {
+            return fail('Error: merge requires -o FILE');
+        }
         if (options.merge !== undefined && options.union) {
             return fail('Error: --merge and --union are two folds — give one');
+        }
+        if (extname(options.output).toLowerCase() !== '.beast2') {
+            return fail('Error: merge requires a .beast2 output file (-o)');
         }
         const platformFns = await loadPlatforms(options.package ?? []);
         mergeBlobs(options.input, options.output, {
@@ -367,8 +397,8 @@ export function main(): void {
         .command('run')
         .description('Run an East IR program')
         .argument('[ir_file]', 'Path to IR file (.beast2, .beast, .east, or .json)')
-        .option('-p, --package <package...>', 'Platform packages to load (can be repeated)')
-        .option('-i, --input <file...>', 'Input data files (order matches function parameters)')
+        .option('-p, --package <package>', 'Platform package to load (can be repeated)', collect, [])
+        .option('-i, --input <file>', 'Input data file (can be repeated, order matches function parameters)', collect, [])
         .option('-o, --output <file>', 'Output file path for result')
         .option('-v, --verbose', 'Enable verbose output')
         .option('--snapshot <path>', 'Write a .east-snapshot bundle (IR + inputs + manifest)')
@@ -379,8 +409,8 @@ export function main(): void {
         .option('--merge <file>',
             'With --emit dict: fold equal keys with the East function (K, V, V) -> V in <file>, in emission order')
         .option('--union', 'With --emit set: collapse equal elements')
-        .option('--stream <index...>',
-            'Feed the given -i inputs (0-based) lazily, segment-by-segment (repeatable)')
+        .option('--stream <index>',
+            'Feed the given -i input (0-based) lazily, segment-by-segment (can be repeated)', collect, [])
         .option('--lazy-inputs <bytes>',
             'Open indexed collection inputs at or above this size lazily (0 disables; default 64 MiB)')
         .option('--exit-with-parent', EXIT_WITH_PARENT_HELP)
@@ -391,9 +421,9 @@ export function main(): void {
         .description('Merge sorted Set or Dict blobs of one type into one, in a single pass: equal keys fold with ' +
             'the East function (K, V, V) -> V in --merge <file> (Dict), or collapse under --union (Set); without ' +
             'a fold an equal key is an error. The output is what `run --emit` writes for the same entries emitted ascending')
-        .requiredOption('-i, --input <file...>', 'The input blobs (equal keys fold in this order)')
-        .requiredOption('-o, --output <file>', 'The merged blob')
-        .option('-p, --package <package...>', "Platform packages the --merge function's platform calls need")
+        .option('-i, --input <file>', 'An input blob (can be repeated; equal keys fold in this order)', collect, [])
+        .option('-o, --output <file>', 'The merged blob')
+        .option('-p, --package <package>', "Platform package the --merge function's platform calls need (can be repeated)", collect, [])
         .option('-v, --verbose', 'Enable verbose output')
         .option('--merge <file>', 'Dict inputs: fold equal keys with the East function (K, V, V) -> V in <file>, in input order')
         .option('--union', 'Set inputs: the first of equal elements stands')
@@ -457,7 +487,7 @@ export function main(): void {
     program
         .command('version')
         .description('Show version information')
-        .option('-p, --package <package...>', 'Platform packages to check')
+        .option('-p, --package <package>', 'Platform package to check (can be repeated)', collect, [])
         .action(cmdVersion);
 
     program.parse();
