@@ -404,14 +404,17 @@ def merge_blobs(
     elements; without a fold an equal key is an error. ``range`` names a
     beast2 blob of ``Struct{from: Option<K>, to: Option<K>}`` over the inputs'
     key type: only the keys in ``[from, to)`` merge, an absent bound open.
+    The output is written wherever ``output_file`` points, whatever its name,
+    exactly as east-c and east-node write it.
     Returns the account ``{"inputs", "entries", "folds"}``; raises ValueError
     with the merge's message and leaves the output unfinalised.
     """
     from east.serialization._beast2_eastc import _merge_blobs
 
     t0 = perf_counter()
-    if Path(output_file).suffix.lower() not in (".beast2", ".beast"):
-        raise ValueError("merge requires a .beast2 output file (-o)")
+    # No precondition on the output path's name: the merge IS east-c's, and
+    # east-c and east-node write the blob wherever `-o` points. A python-side
+    # rule here would refuse a command the other two runners accept.
     # The fold compiles with the run's platforms, exactly like a program; the
     # merge checks its signature against the inputs' key and value types.
     merge_fn = _compile_ir_file(Path(merge), platform_fns)[0] if merge is not None else None

@@ -442,6 +442,17 @@ def test_merge_writes_the_fold_byte_identical_to_the_ascending_sink(tmp_path):
     assert table[15] == "a15b15c15" and table[40] == "c40"
 
 
+def test_merge_writes_wherever_the_output_points(tmp_path):
+    # east-c and east-node write the merged blob to whatever `-o` names, so a
+    # python-side rule about the path's extension would make east-py refuse a
+    # command the other two runners accept. Same bytes, either name.
+    named = tmp_path / "merged.beast2"
+    plain = tmp_path / "merged.bin"
+    assert merge_blobs(MERGE_INPUTS, [], named, merge=MERGE_CONCAT)["entries"] == 31
+    assert merge_blobs(MERGE_INPUTS, [], plain, merge=MERGE_CONCAT)["entries"] == 31
+    assert plain.read_bytes() == named.read_bytes()
+
+
 def test_merge_unions_set_inputs_byte_identical_to_the_ascending_sink(tmp_path):
     expected = tmp_path / "expected.beast2"
     run_program(FIXTURES / "merge_expected_set.beast2", [], [], [], expected, emit="set")
