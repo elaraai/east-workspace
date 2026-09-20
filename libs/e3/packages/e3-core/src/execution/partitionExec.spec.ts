@@ -1051,6 +1051,28 @@ describe('partitionTaskExecute', () => {
     assert.match(result.error ?? '', /projected segment fences are not monotone/);
   });
 
+  it('errors when the primary\'s own projected partition boundaries descend', async () => {
+    // The same wire-level defense, for the primary — and for the case that
+    // has no secondary to catch it: a `by` reading a field that is not the
+    // key's leading one passes the shape check (it reads a field of the
+    // parameter), but its projection runs against the primary's canonical
+    // order, so the boundary values descend. The split searches only resume
+    // forward, and with no secondary nothing else would notice, so this must
+    // fail loudly rather than carve on boundaries that partition nothing.
+    const BA = StructType({ b: IntegerType, a: IntegerType });
+    const entries: [{ b: bigint; a: bigint }, string][] =
+      Array.from({ length: 12 }, (_, i) => [{ b: BigInt(i), a: BigInt(11 - i) }, `p-${i}`]);
+    const tableHash = await storage.objects.write(
+      repo, encodeBeast2PagedFor(DictType(BA, StringType), { batchSize: 2 })(new SortedMap(entries, compareFor(BA))));
+    const fnIrHash = await createDummyFnIr();
+    const byFn = East.function([BA], IntegerType, (_$, key) => key.a);
+    const taskHash = await createPartitionTask({ copyIndex: 1, partitions: 1, targetPartitionBytes: 1, by: encodeEastIR(byFn.toIR()) });
+
+    const result = await taskExecute(storage, repo, taskHash, [fnIrHash, tableHash]);
+    assert.equal(result.state, 'error');
+    assert.match(result.error ?? '', /projected partition boundaries are not monotone/);
+  });
+
   it('aligns boundaries on a `by` field read without compiling the projection', async () => {
     const GroupKeyType = StructType({ group: IntegerType, id: IntegerType });
     // 1000 rows in 100-row segments, 150 rows per group: a group straddles

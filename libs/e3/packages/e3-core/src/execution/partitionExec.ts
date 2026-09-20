@@ -117,7 +117,8 @@ export interface PlanRequest {
  * @throws {Error} With the logical execution's error message: an input that
  *   is not a segmented, indexed collection; a `by` projection that does not
  *   decode or is not a leading-prefix key read; a boundary probe that fails;
- *   a secondary whose projected fences do not ascend.
+ *   a primary whose projected partition boundaries, or a secondary whose
+ *   projected fences, do not ascend.
  */
 export async function planPartitions(
   storage: StorageBackend,
@@ -249,9 +250,27 @@ export async function planPartitions(
   let secondary: PartitionBlob | null = null;
   try {
     // Boundary values, in projection space, at each internal boundary.
+    //
+    // They carry the same soundness condition the secondaries are checked
+    // against below, and for the same reason: the primary's fences ascend in
+    // its OWN canonical order, so a projection that follows that order leaves
+    // the bounds ascending. A descending bound means the effective projection
+    // does not follow the primary's key order — the split searches below only
+    // resume forward and cannot go back, and a task with no secondary at all
+    // would carve on boundaries that do not partition the key space — so it
+    // must fail loudly, not mis-assign rows with a success status.
     const bounds: unknown[] = [];
+    let prevBoundSeg = 0;
     for (let p = 1; p < partitions; p++) {
-      bounds.push(projOf(await primary.fence(boundaries[p]!)));
+      const bound = projOf(await primary.fence(boundaries[p]!));
+      if (bounds.length > 0 && cmpOf(bounds[bounds.length - 1], bound) > 0) {
+        throw new Error(
+          `partitioned dataset's projected partition boundaries are not monotone (segment ${prevBoundSeg} descends to ${boundaries[p]!}) — ` +
+          `the boundary projection must follow every partitioned dataset's own key order`
+        );
+      }
+      bounds.push(bound);
+      prevBoundSeg = boundaries[p]!;
     }
 
     for (const hash of request.secondaries) {
