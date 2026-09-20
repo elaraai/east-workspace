@@ -39,6 +39,31 @@ export const PARTITION_COPY_CHUNK_BYTES = 8 * 1024 * 1024;
  *  they have held at once since the peak was last reset. */
 const decodedSegments = { held: 0, peak: 0 };
 
+/** The most frame prefixes one blob's fence prober has held at once since
+ *  {@link resetPrefetchedRangePeak}. */
+const prefetchedRanges = { peak: 0 };
+
+/**
+ * The most frame prefixes a single {@link PartitionBlob}'s fence prober has
+ * held at once since {@link resetPrefetchedRangePeak} — bounded by
+ * construction, counted for specs.
+ *
+ * @returns The peak number of prefetched ranges held by one prober
+ * @internal
+ */
+export function prefetchedRangePeak(): number {
+  return prefetchedRanges.peak;
+}
+
+/**
+ * Starts a new peak of {@link prefetchedRangePeak}.
+ *
+ * @internal
+ */
+export function resetPrefetchedRangePeak(): void {
+  prefetchedRanges.peak = 0;
+}
+
 /**
  * The most decoded segments open {@link PartitionBlob}s have held at once
  * since {@link resetDecodedSegmentPeak} — the orchestrator's memory claim for
@@ -76,6 +101,16 @@ class PrefetchNeeded extends Error {
 /** The most rounds a fence probe fetches before giving up on a blob whose
  *  pager keeps asking for more — a frame is read whole well within it. */
 const FENCE_PROBE_ROUNDS = 16;
+
+/** Frame prefixes a blob's fence prober keeps, beyond the blob's head.
+ *
+ *  Probing walks segments in order, so the recent prefixes are the ones a
+ *  retry needs; a dropped range is fetched again, which costs one read and
+ *  never correctness. Unbounded — as this was — a pass over every fence of a
+ *  blob retained a prefix per segment and scanned them all on every read, so
+ *  a large co-partitioned secondary cost O(segments) memory and O(segments²)
+ *  comparisons in the module whose whole claim is one segment at a time. */
+const FENCE_PREFIX_RANGES = 8;
 
 /**
  * A stored, segmented blob opened for bounded-memory partitioned access.
@@ -180,6 +215,10 @@ export class PartitionBlob {
       } catch (err) {
         if (!(err instanceof PrefetchNeeded)) throw err;
         prober.prefetched.push({ offset: err.offset, bytes: await this.read(err.offset, err.length) });
+        // The head at index 0 always stays — every probe reads the header
+        // sections through it; the frame prefixes behind it are a small FIFO.
+        while (prober.prefetched.length > FENCE_PREFIX_RANGES + 1) prober.prefetched.splice(1, 1);
+        prefetchedRanges.peak = Math.max(prefetchedRanges.peak, prober.prefetched.length);
       }
     }
     // The prober kept asking: decode the segment whole instead.

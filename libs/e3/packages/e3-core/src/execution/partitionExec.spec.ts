@@ -44,7 +44,7 @@ import { collectNodeModulesBins, taskExecute, taskExecuteBody, type ExecuteOptio
 import { JobSlots } from './jobs.js';
 import { carvePartitionSlices, partitionTaskExecute, spliceBlobs, type PartitionUnitExecutor } from './partitionExec.js';
 import { MERGE_TREE_FANIN, partitionAssemblyStats } from './steps.js';
-import { bufferPart, spliceChunks } from './partitionIo.js';
+import { PartitionBlob, bufferPart, decodedSegmentPeak, prefetchedRangePeak, resetDecodedSegmentPeak, resetPrefetchedRangePeak, spliceChunks } from './partitionIo.js';
 import { getBootId, getPidStartTime } from './processHelpers.js';
 import { inputsHash } from '../executions.js';
 import { uuidv7 } from '../uuid.js';
@@ -1060,6 +1060,46 @@ describe('partitionTaskExecute', () => {
 
     await storage.objects.read(repo, planHash!); // throws if the sweep took it
     for (const slice of carved) await storage.objects.read(repo, slice);
+  });
+
+  it('probing every fence of a many-segment blob keeps a bounded prefix cache', async () => {
+    // planPartitions walks every fence of each co-partitioned secondary. The
+    // prober used to retain the frame prefix of every segment it probed and
+    // scan them all on each read — O(segments) memory and O(segments²)
+    // comparisons, in the module whose claim is one segment at a time.
+    const segments = 200;
+    // Rows wide enough that one DEFLATED segment outgrows a fence probe, so
+    // each probe needs its own range — with narrow or compressible rows a
+    // single probe covers dozens of segments and nothing accumulates.
+    let seed = 1;
+    const noise = (n: number): string => {
+      let out = '';
+      for (let i = 0; i < n; i++) {
+        seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+        out += String.fromCharCode(33 + (seed % 90));
+      }
+      return out;
+    };
+    const wide = new SortedMap(
+      Array.from({ length: segments * 5 }, (_, i) =>
+        [BigInt(i), { id: BigInt(i), name: noise(4096) }] as [bigint, { id: bigint; name: string }]),
+      compareFor(IntegerType));
+    const hash = await storage.objects.write(repo, encodeBeast2PagedFor(TableType, { batchSize: 5 })(wide));
+    const blob = await PartitionBlob.open(storage, repo, hash);
+    resetPrefetchedRangePeak();
+    resetDecodedSegmentPeak();
+    try {
+      assert.equal(blob.extents.offsets.length, segments);
+      for (let i = 0; i < segments; i++) {
+        assert.equal(await blob.fence(i), BigInt(i * 5), `fence ${i} survives eviction`);
+      }
+      // Unbounded this peaked at 196 of the 200 segments; the head plus a
+      // small FIFO of frame prefixes is all a sequential walk needs.
+      assert.ok(prefetchedRangePeak() <= 9, `prefix cache stayed bounded, peaked at ${prefetchedRangePeak()}`);
+      assert.equal(decodedSegmentPeak(), 0, 'no fence fell back to a whole-segment decode');
+    } finally {
+      blob.release();
+    }
   });
 
   it('spliceChunks refuses non-self-contained parts', async () => {
