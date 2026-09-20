@@ -85,11 +85,12 @@ export interface MergeBlobsStats {
     folds: number;
 }
 
-/** One input: its current entry (`null` once exhausted) and how to advance. */
+/** One input: its current entry (`null` once exhausted) and how to advance.
+ *  Closing is the opened input's ({@link OpenedInput.close}) — one owner of
+ *  the descriptor, so a started input can never close it a second time. */
 interface MergeInput {
     head: { key: unknown; value: unknown } | null;
     advance: () => void;
-    close: () => void;
 }
 
 /** The keys a merge covers: `[from, to)`, a bound `undefined` when open —
@@ -220,7 +221,6 @@ function openInput(path: string, index: number, expected: EastTypeValue | null):
                     }
                     input.head = { key, value };
                 },
-                close: () => closeSync(fd),
             };
             return input;
         },

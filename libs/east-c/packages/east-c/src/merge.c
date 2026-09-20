@@ -506,20 +506,17 @@ static EastValue *merge_fold(Merge *m, EastValue *key, EastValue *acc, EastValue
 
 /* Commits the held entry of a folding merge: its bytes as copied, or — when
  * a fold ran — the key and the folded value re-encoded into `held`. */
-static bool merge_commit_held(Merge *m, ByteBuffer *held, size_t key_len, EastValue *key,
-                              EastValue **acc)
+static bool merge_commit_held(Merge *m, ByteBuffer *held, EastValue *key, EastValue **acc)
 {
     if (*acc) {
         held->len = 0;
         east_beast2_entry_begin(m->encoder);
         bool ok = east_beast2_entry_encode(m->encoder, held, key, m->key_type);
-        key_len = held->len;
         ok = ok && east_beast2_entry_encode(m->encoder, held, *acc, m->value_type);
         east_value_release(*acc);
         *acc = NULL;
         if (!ok) return false;
     }
-    (void)key_len;
     return merge_put(m, key, held->data, held->len);
 }
 
@@ -588,7 +585,7 @@ static bool merge_sources(Merge *m, MergeCursor *cur, size_t n)
                 /* A greater key: the held entry is final — commit it, then
                  * hold this one. */
                 if (held_key) {
-                    ok = merge_commit_held(m, held, held_key_len, held_key, &held_acc);
+                    ok = merge_commit_held(m, held, held_key, &held_acc);
                     east_value_release(held_key);
                     held_key = NULL;
                 }
@@ -607,7 +604,7 @@ static bool merge_sources(Merge *m, MergeCursor *cur, size_t n)
         if (ok && !c->key) heap[0] = heap[--live];
         if (ok && live > 0) heap_sift_down(heap, live, 0, cur);
     }
-    if (ok && held_key) ok = merge_commit_held(m, held, held_key_len, held_key, &held_acc);
+    if (ok && held_key) ok = merge_commit_held(m, held, held_key, &held_acc);
     if (held_key) east_value_release(held_key);
     if (held_acc) east_value_release(held_acc);
     if (held) byte_buffer_free(held);
