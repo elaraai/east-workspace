@@ -48,52 +48,16 @@ function orderError(kind: "Set" | "Dict"): Error {
   return new Error(`beast2 v5: ${kind === "Dict" ? "Dict keys" : "Set elements"} are not strictly ascending in East order — the wire must hold the canonical value (corrupt or pre-contract blob)`);
 }
 
-/** The verified fences of every pager a lazy value has sought through: a
- *  pager's fences are probed and checked once, not once per seek, so a body
- *  that iterates from a key many times pays the probes once. */
-const verifiedFences = new WeakMap<Beast2Pages, unknown[]>();
-
-/**
- * The segment a range iteration from `from` starts in: the greatest segment
- * whose fence is at most `from`, or the first when `from` precedes every
- * fence. The fences are probed (a bounded prefix of each frame) and checked
- * to ascend strictly first — in the eager decoders' words, since a fence
- * that does not ascend is a key that does not ascend — so a corrupt blob is
- * refused before the search can land anywhere; once verified they are kept
- * for the pager's later seeks.
- */
-function seekSegment<K>(pages: Beast2Pages, cmp: (a: K, b: K) => number, kind: "Set" | "Dict", from: K): number {
-  const n = pages.segmentCount;
-  if (n === 0) return 0;
-  let fences = verifiedFences.get(pages) as K[] | undefined;
-  if (fences === undefined) {
-    fences = new Array(n);
-    for (let i = 0; i < n; i++) {
-      fences[i] = pages.fence(i) as K;
-      if (i > 0 && cmp(fences[i - 1]!, fences[i]!) >= 0) throw orderError(kind);
-    }
-    verifiedFences.set(pages, fences);
-  }
-  if (cmp(from, fences[0]!) < 0) return 0;
-  let lo = 0;
-  let hi = n - 1;
-  while (lo < hi) {
-    const mid = (lo + hi + 1) >> 1;
-    if (cmp(fences[mid]!, from) <= 0) lo = mid;
-    else hi = mid - 1;
-  }
-  return lo;
-}
-
 /** Streams a Dict blob's entries segment by segment in canonical order,
  *  validating the cross-segment ascent the eager decoder enforces — from the
- *  first key, or from `from` (its owning segment is sought through the
- *  fences and the keys before it skipped; East values are never
- *  `undefined`, which means no lower bound). */
+ *  first key, or from `from`, whose owning segment the pager seeks through
+ *  its verified fences (every fence probed and checked to ascend, once per
+ *  pager, exactly as a keyed read does) with the keys before it skipped.
+ *  East values are never `undefined`, which here means no lower bound. */
 function* lazyDictEntries<K, V>(pages: Beast2Pages, cmp: (a: K, b: K) => number, from?: K): Generator<[K, V]> {
   let prev: K | undefined;
   let has = false;
-  const start = from === undefined ? 0 : seekSegment(pages, cmp, "Dict", from);
+  const start = from === undefined ? 0 : pages.segmentFor(from as never);
   for (let i = start; i < pages.segmentCount; i++) {
     const segment = pages.segment(i) as Map<K, V>;
     for (const [k, v] of segment) {
@@ -112,7 +76,7 @@ function* lazyDictEntries<K, V>(pages: Beast2Pages, cmp: (a: K, b: K) => number,
 function* lazySetKeys<K>(pages: Beast2Pages, cmp: (a: K, b: K) => number, from?: K): Generator<K> {
   let prev: K | undefined;
   let has = false;
-  const start = from === undefined ? 0 : seekSegment(pages, cmp, "Set", from);
+  const start = from === undefined ? 0 : pages.segmentFor(from as never);
   for (let i = start; i < pages.segmentCount; i++) {
     const segment = pages.segment(i) as Set<K>;
     for (const k of segment) {

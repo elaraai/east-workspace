@@ -188,13 +188,19 @@ describe("Beast2 v5 — lazy Dict", () => {
     assert.deepEqual([...sorted(openBeast2LazyFor(WideTable)(encodeBeast2PagedFor(WideTable, PAGED)(makeTable(0) as never))).entries(5n)], []);
   });
 
-  test("iteration from a key refuses a blob whose fences do not ascend, in the eager decoder's words", () => {
+  test("iteration from a key refuses a blob whose fences do not ascend, in the words every keyed read uses", () => {
+    // The seek goes through the pager's own verified fences, so a fence
+    // violation reads the same here as from `get`, from `slice`, and from
+    // east-c — one sentence per condition, whatever path reaches it.
     const high = encodeBeast2PagedFor(TableType, PAGED)(makeTable(100, 1000));
     const low = encodeBeast2PagedFor(TableType, PAGED)(makeTable(100, 0));
-    const lazy = openBeast2LazyFor(TableType)(spliceBeast2([high, low])) as SortedMap<bigint, { id: bigint; name: string }>;
-    assert.throws(() => [...lazy.entries(1050n)], {
-      message: "beast2 v5: Dict keys are not strictly ascending in East order — the wire must hold the canonical value (corrupt or pre-contract blob)",
-    });
+    const blob = spliceBeast2([high, low]);
+    const lazy = openBeast2LazyFor(TableType)(blob) as SortedMap<bigint, { id: bigint; name: string }>;
+    const fenceError = {
+      message: "beast2 v5: segments 0 and 1 are not disjoint ascending key ranges — the wire must hold the canonical value (corrupt or pre-contract blob)",
+    };
+    assert.throws(() => [...lazy.entries(1050n)], fenceError);
+    assert.throws(() => openBeast2PagesFor(TableType)(blob).get(1050n), fenceError, "the keyed read says the same");
   });
 });
 
@@ -238,7 +244,7 @@ describe("Beast2 v5 — lazy Set", () => {
       blob,
     ])) as SortedSet<string>;
     assert.throws(() => [...corrupt.keys("tag-0100")], {
-      message: "beast2 v5: Set elements are not strictly ascending in East order — the wire must hold the canonical value (corrupt or pre-contract blob)",
+      message: "beast2 v5: segments 0 and 1 are not disjoint ascending element ranges — the wire must hold the canonical value (corrupt or pre-contract blob)",
     });
   });
 

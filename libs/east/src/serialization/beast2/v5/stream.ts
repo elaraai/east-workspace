@@ -1147,6 +1147,41 @@ export class Beast2Pages<T extends EastType = EastType> {
   }
 
   /**
+   * The segment a canonical-order scan from `key` starts in (Set/Dict roots
+   * only): the greatest segment whose fence is at most `key`, or segment 0
+   * when `key` precedes every fence.
+   *
+   * Segments are disjoint ascending ranges, so this is the only segment that
+   * can hold `key` and the first that can hold anything at or above it — it
+   * is what {@link get} looks up in, and where a range iteration from a lower
+   * bound begins. The fences are probed and verified to ascend strictly on
+   * first use and kept thereafter, so a blob that violates the canonical-order
+   * contract is refused before the search can land anywhere rather than
+   * mis-addressing rows.
+   *
+   * @param key - the Set element or Dict key to seek to
+   * @returns the zero-based segment index
+   * @throws {Error} When the root is an Array, the blob is not
+   *   self-contained, or its segment fences do not ascend.
+   */
+  segmentFor(
+    key: ValueTypeOf<T> extends Map<infer K, any> ? K : ValueTypeOf<T> extends Set<infer E> ? E : never,
+  ): number {
+    if (this.kind === "Array") {
+      throw new Error(`beast2 v5: segmentFor() addresses Set and Dict roots; this blob holds Array — use slice()`);
+    }
+    const fences = this.verifyFences();
+    if (fences.length === 0 || this.orderCmp!(key, fences[0]) < 0) return 0;
+    let lo = 0, hi = fences.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (this.orderCmp!(fences[mid], key) <= 0) lo = mid;
+      else hi = mid - 1;
+    }
+    return lo;
+  }
+
+  /**
    * Looks up one Set element or Dict value by key (Set/Dict roots only):
    * binary-searches the verified segment fences for the only segment whose
    * range can hold the key, decodes it, and scans for an East-equal match.
@@ -1165,17 +1200,10 @@ export class Beast2Pages<T extends EastType = EastType> {
     }
     if (this.elementCount === 0) return undefined;
     const fences = this.verifyFences();
-    // Greatest segment whose fence is <= key; a key below every fence is
-    // below the collection's minimum.
-    let lo = 0, hi = fences.length - 1;
+    // A key below every fence is below the collection's minimum.
     if (this.orderCmp!(key, fences[0]) < 0) return undefined;
-    while (lo < hi) {
-      const mid = (lo + hi + 1) >> 1;
-      if (this.orderCmp!(fences[mid], key) <= 0) lo = mid;
-      else hi = mid - 1;
-    }
     const order: SegmentOrder = { prev: undefined, has: false };
-    const segment = this.decodeDisjoint(lo, order, fences, true);
+    const segment = this.decodeDisjoint(this.segmentFor(key), order, fences, true);
     if (this.kind === "Set") {
       for (const item of segment as Set<any>) {
         if (this.orderCmp!(item, key) === 0) return item;
