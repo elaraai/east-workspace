@@ -65,13 +65,20 @@ export interface SweepScratchOptions {
   minAge: number;
 }
 
-/** Whether a process with `pid` exists — signal 0 sends nothing. */
+/** Whether a process with `pid` exists — signal 0 sends nothing.
+ *
+ *  EPERM is an existence answer, not a denial of one: the process is there,
+ *  it just is not ours to signal (another user's orchestrator, or a reused
+ *  pid). Reading it as "gone" would delete a live execution's staged inputs
+ *  and its output. A pid below 1 is no process — and POSIX would read 0 and
+ *  -1 as this process group and every process. */
 function processExists(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid < 1) return false;
   try {
     process.kill(pid, 0);
     return true;
-  } catch {
-    return false;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === 'EPERM';
   }
 }
 
@@ -106,8 +113,15 @@ export async function sweepScratchDirs(options: SweepScratchOptions): Promise<nu
     const pid = Number(fields[2]);
     const startTime = await getPidStartTime(pid);
     if (fields.length === 5) {
-      // <task8>-<in8>-<pid>-<pidStartTime>-<ms>
-      ownerGone = startTime !== 0 ? startTime !== Number(fields[3]) : !processExists(pid);
+      // <task8>-<in8>-<pid>-<pidStartTime>-<ms>. Both start times must be
+      // known for the comparison to mean anything: the writer records 0 where
+      // its own platform could not answer, and comparing that against a start
+      // time this sweeper CAN resolve says "gone" about a live owner. With
+      // either unknown, existence decides, as it does for the older form.
+      const recorded = Number(fields[3]);
+      ownerGone = startTime !== 0 && recorded !== 0
+        ? startTime !== recorded
+        : !processExists(pid);
     } else if (fields.length === 4) {
       // <task8>-<in8>-<pid>-<ms>: with no start time, a reused pid cannot be
       // told apart, so the directory must also be old.

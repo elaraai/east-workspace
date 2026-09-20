@@ -76,6 +76,23 @@ describe('scratch directories', () => {
       startTimes ? 'a pid now running with another start time is not the owner' : 'with no start time, a live pid is the owner');
   });
 
+  it('keeps a live owner\'s directory when its recorded start time is unknown', async () => {
+    // The writer records 0 where its own platform could not answer (a `ps`
+    // that failed, a /proc it could not open). Comparing that against a start
+    // time the sweeper CAN resolve says "gone" about an owner that is very
+    // much alive — and the sweep would take its staged inputs and its output
+    // out from under it. With either side unknown, existence decides.
+    const live = path.join(root, `e3-exec-aaaaaaaa-bbbbbbbb-${process.pid}-0-${Date.now()}`);
+    mkdirSync(live);
+    const dead = path.join(root, `e3-exec-cccccccc-dddddddd-${deadPid()}-0-${Date.now()}`);
+    mkdirSync(dead);
+
+    await sweepScratchDirs({ minAge: 0 });
+
+    assert.ok(existsSync(live), 'the live owner\'s directory stays');
+    assert.ok(!existsSync(dead), 'the exited owner\'s directory goes');
+  });
+
   it('removes nothing when there is no scratch root', async () => {
     process.env.E3_SCRATCH_DIR = path.join(root, 'absent');
     assert.equal(await sweepScratchDirs({ minAge: 0 }), 0);
