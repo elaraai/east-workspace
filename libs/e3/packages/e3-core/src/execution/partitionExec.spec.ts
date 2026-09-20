@@ -779,6 +779,34 @@ describe('partitionTaskExecute', () => {
     assert.equal(units.length, 11);
   });
 
+  it('fails the map step when a unit reports success without an output', async () => {
+    // The unit executor is a seam — a mock here, a remote kernel in a cloud
+    // deployment — so a result that claims success while carrying no output
+    // is reachable. The reduce step already refused one; the map step took
+    // the hash on trust, which put a null into the partial list and surfaced
+    // far downstream, if at all.
+    const fnIrHash = await createDummyFnIr();
+    const taskHash = await createPartitionTask({ copyIndex: 1, partitions: 1, targetPartitionBytes: 1 });
+    const tableHash = await storage.objects.write(repo, encodeBeast2PagedFor(TableType, { batchSize: 100 })(makeTable(1000)));
+    const task = decodeTaskObject(await storage.objects.read(repo, taskHash));
+
+    let unit = 0;
+    const executeUnit: PartitionUnitExecutor = async (unitTaskHash, unitTask, unitInputs, unitOptions) => {
+      const ids = { inHash: inputsHash(unitInputs), executionId: uuidv7(), startTime: Date.now() };
+      const result = await taskExecuteBody(storage, repo, unitTaskHash, unitTask, unitInputs, ids, unitOptions);
+      // The second partition succeeds, having written nothing.
+      return ++unit === 2 ? { ...result, outputHash: null } : result;
+    };
+
+    const inputs = [fnIrHash, tableHash];
+    const result = await partitionTaskExecute(
+      storage, repo, taskHash, task, inputs,
+      { inHash: inputsHash(inputs), executionId: uuidv7(), startTime: Date.now() }, { jobs: new JobSlots(1) }, executeUnit);
+
+    assert.equal(result.state, 'error');
+    assert.match(result.error ?? '', /^Partition 2 of 10 reported success without writing an output$/);
+  });
+
   it('spliceBlobs splices stored blobs in order, and refuses keys that do not ascend', async () => {
     const encode = encodeBeast2PagedFor(TableType, { batchSize: 100 });
     const lowHash = await storage.objects.write(repo, encode(makeTable(250)));

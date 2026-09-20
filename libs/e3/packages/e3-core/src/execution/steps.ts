@@ -628,7 +628,12 @@ export async function executeTemplate(
   const unitResult = async (message: string, unit: ExecutionResult): Promise<ExecutionResult> => {
     const detail = unit.state === 'failed'
       ? `failed (exit code ${unit.exitCode})${unit.error ? `: ${unit.error}` : ''}`
-      : `errored: ${unit.error}`;
+      // A unit reaching here in the success state is one that wrote no
+      // output — an executor's broken promise, not a failure it reported —
+      // so it is named for what it is rather than as `errored: undefined`.
+      : unit.state === 'success'
+        ? 'reported success without writing an output'
+        : `errored: ${unit.error}`;
     return unit.state === 'failed' ? failedResult(unit.exitCode, `${message} ${detail}`) : errorResult(`${message} ${detail}`);
   };
   /**
@@ -839,8 +844,9 @@ export async function executeTemplate(
         // Attribute failure deterministically: the LOWEST-index failed
         // partition among the completed results, not whichever failing worker
         // settled first. A partition whose carve failed has no result, and
-        // counts at its index.
-        const failedPartition = unitResults.findIndex((r) => r !== undefined && r.state !== 'success');
+        // counts at its index; one that reports success without an output
+        // counts as failed too, so the hashes below never carry a null.
+        const failedPartition = unitResults.findIndex((r) => r !== undefined && (r.state !== 'success' || r.outputHash === null));
         const failedCarve = carveFailures.findIndex((message) => message !== undefined);
         if (failedCarve >= 0 && (failedPartition < 0 || failedCarve < failedPartition)) {
           return errorResult(`Failed to carve partition slices: ${carveFailures[failedCarve]}`);
