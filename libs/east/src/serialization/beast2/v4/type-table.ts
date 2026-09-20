@@ -265,7 +265,16 @@ export class TypeTableBuilder {
     // The wrapper's entry exists only once its body does, so a repeat is found
     // by comparing types, not bytes — up to the naming of wrappers.
     for (const w of this.wrappers) {
-      if (isTypeValueEqual(w.etv, etv)) return w.idx;
+      if (isTypeValueEqual(w.etv, etv)) {
+        // Bind THIS id to the shared entry too. One recursive type reaches a
+        // table under different wrapper ids — an interned type id in this
+        // process, a table index off the wire — and the id is a runtime
+        // artefact that is never written. Binding only the first wrapper's
+        // would leave a later bare `ref` under the second id bound by no
+        // wrapper, which is an encode failure, not a naming difference.
+        this.byWrapperId.set(id, w.idx);
+        return w.idx;
+      }
     }
     // Take the index before the body so its self-references resolve.
     const idx = this.entries.length;
