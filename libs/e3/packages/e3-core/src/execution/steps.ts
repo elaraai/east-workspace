@@ -752,12 +752,12 @@ export async function executeTemplate(
           }));
           await storage.refs.executionOwnerWrite?.(repo, taskHash, inHash, executionId, { pid: process.pid, pidStartTime, bootId });
         }
-        // The plan is stored before anything is carved from it.
-        try {
-          await storage.objects.write(repo, encodePartitionPlan(planned.plan));
-        } catch (err) {
-          return errorResult(`Failed to record the partition plan: ${err instanceof Error ? err.message : err}`);
-        }
+        // Nothing is written here. The plan object is written by recordPlan,
+        // once the map step knows what it carved and can point the `plan`
+        // sidecar at it; storing a slice-less plan first only orphaned an
+        // object nothing named, and pointing the sidecar at it early would
+        // destroy the previous run's recorded slices before the map step
+        // reads them.
         results.push({ kind: 'plan', plan: planned.plan, partitions: planned.partitions });
         break;
       }

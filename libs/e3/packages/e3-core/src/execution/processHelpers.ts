@@ -60,12 +60,21 @@ export async function getPidStartTime(pid: number): Promise<number> {
 /**
  * Check if a process is still alive based on stored identification.
  * Falls back to process.kill(pid, 0) when /proc is unavailable (macOS, Windows).
+ *
+ * A pid below 1 is never a process — see the guard's comment.
  */
 export async function isProcessAlive(
   pid: number,
   pidStartTime: number,
   bootId: string
 ): Promise<boolean> {
+  // No process has a pid below 1, and the fallback below must never be
+  // reached with one: POSIX reads `kill(-1, 0)` as "every process I may
+  // signal" and `kill(0, 0)` as this process group, both of which answer
+  // "alive" — so a record written for a spawn that produced no pid (`-1`)
+  // would be reported running forever and never repaired.
+  if (!Number.isInteger(pid) || pid < 1) return false;
+
   const currentBootId = await getBootId();
 
   // Only use boot ID comparison when both sides have real values
