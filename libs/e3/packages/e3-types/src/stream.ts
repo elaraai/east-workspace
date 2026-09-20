@@ -10,7 +10,7 @@
  * at export time and carried in the package like any other command IR.
  */
 
-import { ArrayType, East, EastIR, IntegerType, StringType } from '@elaraai/east';
+import { ArrayType, East, EastIR, StringType } from '@elaraai/east';
 import { runnerToArgv, type RunnerValue } from './runner.js';
 
 /**
@@ -63,31 +63,29 @@ export interface StreamCommandSpec {
  * ```
  */
 export function streamCommandIr(runner: RunnerValue, spec: StreamCommandSpec): EastIR<[string[], string], string[]> {
-  // The command's build-time shape: the flags every execution carries, the
-  // wire inputs passed as `--merge` (the merge IR, in function mode), the
-  // stream flags, and the wire index of the first -i input.
   const prefix = [
     ...runnerToArgv(runner),
     '--emit', spec.emit,
     ...(spec.merge === 'union' ? ['--union'] : []),
   ];
-  const mergeInputs = spec.merge === 'function' ? [1n] : [];
-  const streamFlags = spec.stream === 'first' ? ['--stream', '0'] : [];
-  const firstInput = BigInt(1 + mergeInputs.length);
+  // The merge mode and the streamed input are known here, so the flags they
+  // add are emitted by branching at build time — only the merge IR's PATH is
+  // a run-time value, and only the -i inputs need a loop.
+  const mergeInput = spec.merge === 'function' ? 1n : null;
+  const firstInput = mergeInput === null ? 1n : 2n;
   const command = East.function(
     [ArrayType(StringType), StringType],
     ArrayType(StringType),
     ($, input_paths, output_path) => {
       const argv = $.let(prefix, ArrayType(StringType));
-      const merges = $.const(mergeInputs, ArrayType(IntegerType));
-      $.for(merges, ($, input) => {
+      if (mergeInput !== null) {
         $(argv.pushLast('--merge'));
-        $(argv.pushLast(input_paths.get(input)));
-      });
-      const streams = $.const(streamFlags, ArrayType(StringType));
-      $.for(streams, ($, flag) => {
-        $(argv.pushLast(flag));
-      });
+        $(argv.pushLast(input_paths.get(mergeInput)));
+      }
+      if (spec.stream === 'first') {
+        $(argv.pushLast('--stream'));
+        $(argv.pushLast('0'));
+      }
       const i = $.let(firstInput);
       $.while(East.less(i, input_paths.size()), $ => {
         $(argv.pushLast('-i'));
@@ -143,19 +141,18 @@ export function mergeCommandIr(runner: RunnerValue, mode: 'function' | 'union'):
     ...runnerToArgv(runner, 'merge'),
     ...(mode === 'union' ? ['--union'] : []),
   ];
-  const mergeInputs = mode === 'function' ? [0n] : [];
-  const rangeInput = BigInt(mergeInputs.length);
+  const mergeInput = mode === 'function' ? 0n : null;
+  const rangeInput = mergeInput === null ? 0n : 1n;
   const firstInput = rangeInput + 1n;
   const command = East.function(
     [ArrayType(StringType), StringType],
     ArrayType(StringType),
     ($, input_paths, output_path) => {
       const argv = $.let(prefix, ArrayType(StringType));
-      const merges = $.const(mergeInputs, ArrayType(IntegerType));
-      $.for(merges, ($, input) => {
+      if (mergeInput !== null) {
         $(argv.pushLast('--merge'));
-        $(argv.pushLast(input_paths.get(input)));
-      });
+        $(argv.pushLast(input_paths.get(mergeInput)));
+      }
       $(argv.pushLast('--range'));
       $(argv.pushLast(input_paths.get(rangeInput)));
       const i = $.let(firstInput);
