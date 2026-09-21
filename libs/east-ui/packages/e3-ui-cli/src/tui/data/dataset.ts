@@ -183,6 +183,8 @@ export function createDatasetLoader(deps: DatasetLoaderDeps): DatasetLoader {
     const inflight = new Map<string, Set<number>>();
     /** Per page key: when a failed page may be asked for again. */
     const retryAt = new Map<string, number>();
+    /** Per dataset: the pump already scheduled for a hold, and when for. */
+    const retryPump = new Map<string, { at: number; timer: ReturnType<typeof setTimeout> }>();
     const datasetKey = (ws: string, path: string): string => `${ws}\n${path}`;
     const keyOf = (ws: string, path: string, hash: string, page: number | 'whole'): string => `${ws}\n${path}\n${hash}\n${page}`;
     const current = (ws: string, path: string): DatasetData | undefined => store.getState().data.dataset[ws]?.[path];
@@ -262,10 +264,9 @@ export function createDatasetLoader(deps: DatasetLoaderDeps): DatasetLoader {
         } else if (d?.mode.kind === 'paged' && d.hash === hash) {
             deps.log?.(`dataset ${ws}${path} page ${page} failed: ${describeError(err)}`);
             // A failing server is not hammered: the page waits out the hold,
-            // then the window's next move or the hold's end asks again.
+            // then the window's next move or the hold's end asks again. The
+            // pump below re-arms for the hold, so the wait cannot be lost.
             retryAt.set(keyOf(ws, path, hash, page), clock() + retryAfterMs);
-            const timer = setTimeout(() => pump(ws, path), retryAfterMs);
-            timer.unref?.();
         } else {
             deps.log?.(`dataset ${ws}${path} first page failed: ${describeError(err)}`);
             setMode(ws, path, hash, { kind: 'error', message: describeError(err) });
@@ -346,13 +347,44 @@ export function createDatasetLoader(deps: DatasetLoaderDeps): DatasetLoader {
         if (api === null || w === undefined || d === undefined || d.hash !== w.hash || d.type === null || d.mode.kind !== 'paged') return;
         const running = inflightOf(ws, path, w.hash);
         const now = clock();
+        let soonestHold = Infinity;
         for (const page of wantedMissing(w, d.mode)) {
             if (running.size >= MAX_INFLIGHT) break;
             if (running.has(page)) continue;
             const hold = retryAt.get(keyOf(ws, path, w.hash, page));
-            if (hold !== undefined && hold > now) continue;
+            if (hold !== undefined && hold > now) {
+                soonestHold = Math.min(soonestHold, hold);
+                continue;
+            }
             void loadPage(api, ws, path, w.hash, d.type, d.mode, page);
         }
+        // A page held back is asked for again when its hold ends — by THIS
+        // pump, which is the only thing that will. Scheduling the wait where
+        // the failure happened was not enough: `setTimeout` counts on libuv's
+        // monotonic clock and the hold is stamped from `Date.now`, so a timer
+        // that fires a millisecond before the wall clock agrees found the page
+        // still held, skipped it, and left nothing to ask again — the page
+        // stranded until the window next moved. Re-arming here closes that,
+        // whatever the two clocks think of each other.
+        if (soonestHold !== Infinity) armRetryPump(ws, path, soonestHold, now);
+    };
+
+    /** Schedules the pump that ends the soonest hold, keeping one timer per
+     *  dataset: an earlier wait replaces a later one, a later one is already
+     *  covered. */
+    const armRetryPump = (ws: string, path: string, at: number, now: number): void => {
+        const key = datasetKey(ws, path);
+        const pending = retryPump.get(key);
+        if (pending !== undefined) {
+            if (pending.at <= at) return;
+            clearTimeout(pending.timer);
+        }
+        const timer = setTimeout(() => {
+            retryPump.delete(key);
+            pump(ws, path);
+        }, Math.max(1, at - now));
+        timer.unref?.();
+        retryPump.set(key, { at, timer });
     };
 
     /** A server that reports no row geometry: one window of the head tells the totals, and its rows seed page 0. */
@@ -472,6 +504,8 @@ export function createDatasetLoader(deps: DatasetLoaderDeps): DatasetLoader {
             windows.clear();
             inflight.clear();
             retryAt.clear();
+            for (const { timer } of retryPump.values()) clearTimeout(timer);
+            retryPump.clear();
         },
     };
     return loader;

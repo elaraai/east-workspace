@@ -245,6 +245,49 @@ describe('dataset loader', () => {
         assert.equal(pageCalls(api).length - before, 2);
     });
 
+    test('a hold that ends before the wall clock agrees is still asked again', async () => {
+        // `setTimeout` counts on libuv's monotonic clock while the hold is
+        // stamped from `Date.now`, so a retry timer can fire a hair before the
+        // wall clock agrees the hold is over. The pump then found the page
+        // still held, skipped it, and — since the failure had scheduled the
+        // only timer — left nothing to ask again: the page stranded in
+        // `loading` until the window next moved. In CI that read as "the
+        // window never settled", about one run in a few dozen.
+        //
+        // Here the clock is held behind the timer so the race is certain
+        // rather than occasional.
+        const api = fakeRepo();
+        const store = createStore(initialState({ columns: 120, rows: 36 }, '/x'));
+        store.dispatch({ type: 'session', session });
+        let now = 1_700_000_000_000;
+        const loader = createDatasetLoader({ store, api: () => api, retryAfterMs: 5, now: () => now });
+        const { type, value } = dictOf(5_000);
+        api.task('main', { name: 'forecast', status: ready, inputs: [], dependsOn: [], output: { type, value } });
+        await loader.tick('main', FORECAST);
+        await quiet(store, 'main', FORECAST);
+
+        api.failWith = new ApiError('internal', { message: 'disk on fire' });
+        loader.needRows('main', FORECAST, 3_000, 3_100);
+        await settle();
+        await settle();
+        assert.deepEqual(paged(store.getState().data.dataset['main']![FORECAST]).loading, [6], 'the page is held');
+
+        // Real time passes — the timers fire — while the clock says the hold
+        // still holds. Nothing may load, and nothing may give up either.
+        api.failWith = null;
+        await new Promise(resolve => setTimeout(resolve, 40));
+        await settle();
+        assert.deepEqual(paged(store.getState().data.dataset['main']![FORECAST]).loading, [6],
+            'still held while the clock has not reached the hold');
+
+        // The clock catches up: the re-armed pump asks again on its own, with
+        // no window move to prompt it.
+        now += 1_000;
+        await quiet(store, 'main', FORECAST);
+        assert.ok(paged(store.getState().data.dataset['main']![FORECAST]).pages.has(6),
+            'the hold ended and the page was asked for again');
+    });
+
     test('no value yet → unset; the paged key search goes to the server; a hash mismatch refetches the status', async () => {
         const { api, store, loader } = setup();
         api.task('main', { name: 'dashboard', status: variant('ready', null), inputs: [], dependsOn: [] });
