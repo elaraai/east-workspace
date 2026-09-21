@@ -1,6 +1,6 @@
 {
   "name": "@elaraai/east-ui-components",
-  "version": "1.0.78",
+  "version": "1.0.79",
   "description": "React components for rendering East UI types with Chakra UI",
   "type": "module",
   "main": "./dist/index.cjs",
