@@ -323,6 +323,23 @@ describe("ValueTree paged row model", () => {
         const far = pruneRetainedPages(pages, 1000, 1001, 3);
         assert.deepEqual([...far.keys()], [11, 12, 20]);
     });
+
+    test("pruneRetainedPages never drops a page the window covers", () => {
+        // The cap bounds what is held AROUND the window. Dropping a page the
+        // view is about to draw only makes the host fetch it again — and the
+        // fetch lands, prunes it out once more and asks again, a loop that
+        // never settles and pins the CPU with one page stuck as a
+        // placeholder. Byte-sized pages make a window wider than the cap
+        // reachable: wide rows give short pages, and a window spans several.
+        const wide = new Map<number, string>(
+            [0, 1, 2, 3, 4, 5, 6, 7, 9].map((p) => [p, `p${p}`] as [number, string]));
+        const kept = pruneRetainedPages(wide, 0, 7, 6);
+        assert.deepEqual([...kept.keys()], [0, 1, 2, 3, 4, 5, 6, 7],
+            "the window is kept whole; only the page outside it goes");
+        // A window that is itself the whole set changes nothing (no re-render).
+        const window = new Map<number, string>([[3, "c"], [4, "d"], [5, "e"]]);
+        assert.equal(pruneRetainedPages(window, 3, 5, 1), window);
+    });
 });
 
 describe("ValueTree key search", () => {
