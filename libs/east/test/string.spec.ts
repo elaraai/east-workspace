@@ -1095,6 +1095,7 @@ await describe("String", (test) => {
     
     assert.examples(test, {
         stringParseJson: ex.stringParseJson,
+        stringParseJsonDateTime: ex.stringParseJsonDateTime,
     });
 
     test("JSON parse", $ => {

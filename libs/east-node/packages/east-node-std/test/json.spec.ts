@@ -456,6 +456,7 @@ describeEast("Json platform functions", (test) => {
         jsonReadText: ex.jsonReadText,
         jsonReadObjectAsEntries: ex.jsonReadObjectAsEntries,
         jsonReadOptional: ex.jsonReadOptional,
+        jsonReadTimestamps: ex.jsonReadTimestamps,
     });
 
     test("open of a missing path throws", $ => {

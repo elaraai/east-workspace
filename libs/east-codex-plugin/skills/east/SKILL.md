@@ -234,11 +234,12 @@ Task → What do you need?
         │   └─ Export yours for python → East.exportFunctions(pkg, version, { name: fn }) + East.encodeFunctionManifest · `east-node export-functions built.js -o pkg.functions.beast2 -p <platform-pkg>` · East.linkImports(fn, manifests) to link in-process
         ├─ A JSON contract for a type (publish what a producer must send) → jsonSchemaFor(T, { draft })
         │   — a plain function like compareFor, at BUILD time; emits 2020-12 (default), draft-07 or openapi-3.0,
-        │   describing East JSON strictly (Integer as a quoted i64, DateTime as +00:00, Blob as lowercase hex,
-        │   an Option as null or its payload)
+        │   describing East JSON strictly (Integer as a quoted i64, DateTime as `format: "date-time"` — any RFC 3339
+        │   date-time, read as UTC —, Blob as lowercase hex, an Option as null or its payload)
         │   └─ and back, from a vendored schema → typeFromJsonSchema(schema) — throws, naming the keyword and its
         │       RFC 6901 pointer, on what East cannot express (allOf, not, if/then/else, anyOf, an open record, …);
-        │       `nullable: true`, `["string", "null"]` and a `oneOf` of null and one schema read as an Option
+        │       a `format: "date-time"` string reads as a DateTime; `nullable: true`, `["string", "null"]` and a
+        │       `oneOf` of null and one schema read as an Option
         ├─ Data, INSIDE an East function → East.Blob.encodeBeast(value, 'v2'), blob.decodeBeast(type, 'v2')
         │   ├─ A huge collection blob → blob.openBeast(T): frozen, pager-backed — keyed reads and $.for decode ONE segment; identical on the east-node, east-c and east-py runtimes
         │   │   (East.Blob.encodeBeast writes NO paging index, so paged blobs come from encodeBeast2PagedFor / Beast2Writer / a runner's collection output)
@@ -555,7 +556,7 @@ const T = typeFromJsonSchema(JSON.parse(readFileSync("partner.schema.json", "utf
 | **JSON Schema** |
 | `jsonSchemaFor(type: EastType, options?: { draft }): JsonSchema` | The schema describing `type`'s East-JSON encoding. `draft` is `"2020-12"` (default), `"draft-07"` or `"openapi-3.0"` — a consumer's validator pins one. Throws on `Never`, `Function`, `AsyncFunction` | `jsonSchemaFor(ArrayType(RowType))` |
 | `typeFromJsonSchema(schema: JsonSchema): EastType` | The East type a schema describes. Throws `JsonSchemaUnsupportedError`, carrying the RFC 6901 pointer, on a keyword East cannot express | `typeFromJsonSchema(vendored)` |
-| `EAST_JSON_PATTERNS` | The exact lexical forms East JSON's scalars take (`integer`, `datetime`, `blob`, `floatSpecials`), so a reader enforces precisely what the schema describes | `new RegExp(EAST_JSON_PATTERNS.integer)` |
+| `EAST_JSON_PATTERNS` | The exact lexical forms East JSON's scalars take (`integer`, `blob`, `floatSpecials`), so a reader enforces precisely what the schema describes. A DateTime has none: its form is `format: "date-time"` | `new RegExp(EAST_JSON_PATTERNS.integer)` |
 
 - **An `Option<T>` is `null` or `T`'s own encoding** wherever `T` can never
   itself encode as `null`: `none` prints as `null`, `some("x")` as `"x"`,
@@ -571,23 +572,33 @@ const T = typeFromJsonSchema(JSON.parse(readFileSync("partner.schema.json", "utf
   `x-east-type: "Option"`. The tagged object under a flat Option is refused
   by the payload's own decoder
   (`expected string, got {"type":"none","value":null}`).
-- **It describes what the ENCODER emits, not what the decoder tolerates.** The
-  two differ: `parseJson` accepts anything `BigInt()` swallows (`"0x10"`,
-  `" 7 "`, `"007"`), a `Z` suffix or any offset on a timestamp, and uppercase
-  hex. None of those appear in the contract, so a producer that validates
-  cannot send something the strict reader then rejects.
+- **A `DateTime` is `format: "date-time"` — any RFC 3339 date-time, on the way
+  in.** Every decoder, `parseJson` and the strict reader alike, on every
+  runtime, reads exactly that: `Z` or any offset (the instant is UTC), a `t` or
+  `z` in either case, any number of fractional digits (past the millisecond
+  dropped, never rounded), and a leap second as the Unix time its fields add
+  up to (`1998-12-31T23:59:60.5Z` is `1999-01-01T00:00:00.500Z`).
+  `printJson` writes one form of it — UTC, three fractional digits, `+00:00`.
+  The instant must fall in years 0001–9999, the range every runtime holds; that
+  is the one thing the format cannot say, refused with its own message.
+- **For the other scalars it describes what the ENCODER emits.** An `Integer`
+  is a quoted decimal in i64 range and a `Blob` lowercase hex, by pattern —
+  `parseJson` also takes uppercase hex, which the contract does not — so a
+  producer that validates cannot send something the strict reader then
+  rejects.
 - **The document is deterministic and identical across languages.** Key order,
   `$defs` names (first-encounter order, never type ids) and variant case order
   are fixed by the type — east-py's `json_schema_for` emits the same bytes.
 - **Annotations make the inverse exact.** `x-east-type` is what lets
-  `typeFromJsonSchema` tell `DateTime` from a `String` with `format:
-  date-time`, `Set` from `Array`, `Dict` from an array of two-property
-  objects, and a flat `Option` from any other `oneOf`. A foreign schema
-  without them still converts, under a documented structural mapping that
-  does not promise to round-trip: OpenAPI 3.0's `nullable: true` beside a
-  type, JSON Schema's own `{"type": ["string", "null"]}`, and a `oneOf` of
-  null and one other schema, read as `Option<String>` — East JSON writes a
-  `none` whose payload cannot be null as `null`, so the nulls such a
+  `typeFromJsonSchema` tell `Set` from `Array`, `Dict` from an array of
+  two-property objects, and a flat `Option` from any other `oneOf`. A foreign
+  schema without them still converts, under a documented structural mapping
+  that does not promise to round-trip. `{"type": "string", "format":
+  "date-time"}` reads as `DateTime`, since every decoder reads any RFC 3339
+  date-time; any other `format` is a `String`. OpenAPI 3.0's `nullable: true`
+  beside a type, JSON Schema's own `{"type": ["string", "null"]}`, and a
+  `oneOf` of null and one other schema, read as `Option<String>` — East JSON
+  writes a `none` whose payload cannot be null as `null`, so the nulls such a
   contract permits are exactly what the reader accepts (a type that already
   admits null is left as it is, however the document spells it).
 - **Recursion binds one `RecursiveType` per cycle group.** Definitions that
@@ -597,10 +608,10 @@ const T = typeFromJsonSchema(JSON.parse(readFileSync("partner.schema.json", "utf
   it. Three definitions that each reference the other two need two binders
   and are refused, naming them. Reachability decides what recurses, never the
   order the references appear in.
-- **The patterns are portable.** `datetime` spans years 0001–9999, the range
-  every runtime represents, and every pattern spells digits as `[0-9]`, so a
+- **The patterns are portable.** Every pattern spells digits as `[0-9]`, so a
   python validator (where `\d` matches any Unicode digit) and a JavaScript one
-  accept the same strings.
+  accept the same strings — and a DateTime's digits are ASCII too, RFC 3339's
+  `DIGIT`.
 - To READ a document larger than memory under this contract, use `Json.open` /
   `Json.next` from **east-node-std** (and its `east-py-std` / `east-c-std`
   twins).
