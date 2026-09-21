@@ -102,6 +102,17 @@ jobs:
           fi
           cmake --build build -j
 
+      # These binaries are built on the CI image but have to LOAD on older
+      # ones — the published Docker tier is node:22-slim (Debian bookworm,
+      # glibc 2.36). A unit that defines _GNU_SOURCE also gets _ISOC2X_SOURCE,
+      # and glibc 2.38+ then rebinds sscanf/strtol to their __isoc23_* twins,
+      # lifting the whole binary's floor with no build-time sign of it. That
+      # shipped v1.0.77 and v1.0.78 with no Docker images at all. Hold the
+      # floor here, where the offending symbol still has a name.
+      - name: glibc floor (Linux)
+        if: runner.os == 'Linux'
+        run: node scripts/check-glibc-floor.mjs libs/east-c/build/packages/east-c-cli/east-c
+
       # The ctest gates (value layout/footprint, recursive-type lifecycle,
       # type-to-value interning, beast2 hardening). They need no exported IR,
       # so they run before the artifacts land — and on every OS, since the
