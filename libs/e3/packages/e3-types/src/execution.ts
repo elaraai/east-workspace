@@ -97,3 +97,21 @@ export const ExecutionStatusType = VariantType({
 });
 
 export type ExecutionStatus = ValueTypeOf<typeof ExecutionStatusType>;
+
+/**
+ * The orchestrator process that launched an execution (issue #770).
+ *
+ * @remarks
+ * Written beside the execution's `running` status as the `owner` sidecar. A
+ * `running` record whose runner is gone is repaired only when its owner is
+ * gone too: a live owner may be between the runner's exit and the record's
+ * write, hashing the output.
+ */
+export interface ExecutionOwner {
+  /** Process ID of the orchestrator */
+  pid: number;
+  /** Orchestrator start time in jiffies since boot (from /proc/<pid>/stat field 22) */
+  pidStartTime: number;
+  /** System boot ID (from /proc/sys/kernel/random/boot_id) */
+  bootId: string;
+}

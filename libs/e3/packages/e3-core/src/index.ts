@@ -39,11 +39,13 @@ export {
 // Garbage collection
 export {
   repoGc,
+  TASKS_LOCK,
   collectAllRoots,
   markReachable,
   sweepBatch,
   type GcOptions,
   type GcResult,
+  type MarkReachableOptions,
   type SweepBatchResult,
 } from './storage/local/gc.js';
 

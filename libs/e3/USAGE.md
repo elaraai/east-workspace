@@ -234,8 +234,8 @@ the partitioned input(s) into key-range slices (deterministically, from the
 dataset's segment index and the `targetPartitionBytes` knob), runs the body
 once per partition as an ordinary content-addressed execution — parallel,
 and memoized per partition — and assembles the one output dataset: shards
-splice in partition order, keyed partials merge segment by segment when
-`merge` is given, or partials fold pairwise when `combine` is given. The
+splice in partition order, keyed partials merge by key on the task's runner
+when `merge` is given, or partials fold pairwise when `combine` is given. The
 dataflow graph sees one task with one output, exactly like `e3.task`.
 
 ```typescript
@@ -262,11 +262,13 @@ const totals = e3.partitionTask('totals', {
   },
 }, ($, slice) => /* aggregate the slice */ ...);
 
-// Keyed partials that may share keys: `merge` resolves a key present in two
-// partials. The orchestrator walks the partials' segments in key order,
-// byte-copies every segment no other partial reaches, and decodes only the
-// overlaps — no runner-side fold, so an append re-runs the changed partitions
-// plus the merge. A Set output takes `merge: 'union'`.
+// Keyed partials that may share keys: `merge` folds a key present in two
+// partials (it must be associative). The task's runner merges the partials
+// whose key ranges overlap with its `merge` command — one pass over sorted
+// partials, as a tree of merge executions — and the results splice with the
+// partials no other reaches; the orchestrator never decodes them. Every merge
+// unit is cached, so an append re-runs the changed partitions plus the merges
+// they reach. A Set output takes `merge: 'union'`.
 const latest = e3.partitionTask('latest', {
   partitions: [events],
   output: DictType(StringType, EventType),
@@ -285,6 +287,21 @@ disjointly in partition order — key-preserving and monotone re-keying
 transforms qualify; anything else fails at splice naming the offending
 partitions, and is what `merge` is for. `merge` and `combine` are mutually
 exclusive, and `merge` is refused on an Array output.
+
+A `merge` function takes the key and two values, typed as the output's own key
+and value, and must be associative: a key's values may fold in any grouping,
+though never out of partition order. It runs on the task's runner through its
+`merge` command, so it needs a stock runtime — the `custom` runtime is refused
+— of this release: an older runner has no `merge` command. The merge command
+is built at export and carried in the package. A large output is merged in
+parallel: the partials that overlap are cut into key ranges of about
+`targetPartitionBytes`, each merged by its own unit, which reads just that
+range of every partial (the runner's `merge --range`; nothing is copied or
+re-encoded to make a range). The ranges are planned from the partials alone,
+so the output is a deterministic function of the inputs — the same hash on
+every machine, whatever `--jobs` — and the merge units' results are stored
+like any execution output, which is what lets a re-run re-merge only what
+changed.
 
 Memoization is append-friendly: appends and tail-localized changes leave
 earlier slices byte-identical, so their executions are served from the
@@ -322,14 +339,71 @@ const balances = e3.streamTask('balances', {
 ```
 
 `emit(key, value)` writes one Dict entry, `emit(element)` one Array/Set
-element — in any order. Ascending Set/Dict emission streams straight to
-the output file, and out-of-order emission is sorted by the runner's sink
-(bounded-memory spill/merge, reported on stderr when it engages) before
-the output is finalized, so the stored dataset is always the canonical
-collection and a re-keying producer can emit rows as it reads them.
-Duplicate Dict keys / Set elements are a runtime error. Omit `stream` for
-a producer task whose body loops over platform-function sources (paginated
-APIs, database cursors) and emits.
+element. An Array output stores its elements in emission order. A Set or
+Dict output must be emitted in ascending key order (East's total order): the
+runner writes the output in one pass, segment by segment, with one open batch
+in memory whatever the output's size, and an out-of-order key fails the task
+with the same message on every runtime — `beast2 v5: Dict key emitted out of
+order: 1 after 2 — Set/Dict emissions must ascend in East order`. Duplicate
+Dict keys / Set elements are a runtime error unless `merge` folds them. Omit
+`stream` for a producer task whose body loops over platform-function sources
+(paginated APIs, database cursors) and emits.
+
+With `merge`, equal keys that arrive together fold instead of failing: a Dict
+output takes a function of the key and two values, and adjacent equal keys
+fold left in emission order; a Set output takes `'union'`, and adjacent equal
+elements collapse to the first. The ascending contract stands — `merge` is
+for a stream whose equal keys are grouped — and the stored dataset is exactly
+what the folded emissions would write. Keys that collide across the stream,
+or arrive out of order, are a `partitionTask` with `merge`:
+
+```typescript
+import { ArrayType, DictType, FloatType, IntegerType, StringType, StructType } from '@elaraai/east';
+
+// (a) Grouped input, one pass: payments sorted by account fold to per-account
+//     totals — equal keys arrive together, and the accounts ascend.
+const payments = e3.input('payments', ArrayType(PaymentType));   // sorted by account
+const accountTotals = e3.streamTask('account_totals', {
+  stream: payments,
+  output: DictType(StringType, FloatType),
+  merge: (_$, _account, a, b) => a.add(b),
+}, ($, payments, emit) => {
+  $.for(payments, ($, payment) => {
+    $(emit(payment.account, payment.amount));
+  });
+});
+
+// (b) A re-key — the output key is not the input's order — is a partitionTask:
+//     each partition builds its slice's Dict (toDict folds the keys that
+//     collide inside the slice) and `merge` folds the keys that collide across
+//     partitions, on the task's runner.
+const sales = e3.input('sales', DictType(SaleKeyType, SaleType));
+const bySku = e3.partitionTask('by_sku', {
+  partitions: [sales],
+  output: DictType(StringType, IntegerType),
+  merge: (_$, _sku, a, b) => a.add(b),
+}, ($, slice) => slice.toDict(
+  ($, _sale, key) => key.sku,
+  ($, sale, _key) => sale.qty,
+  ($, a, b, _sku) => a.add(b),
+));
+
+// (c) An ingest that cannot page in key order emits pairs in arrival order,
+//     and a partitionTask over the pairs re-keys them.
+const PairType = StructType({ key: StringType, value: RowType });
+const pairs = e3.streamTask('ingest_pairs', {
+  output: ArrayType(PairType),
+}, ($, emit) => { /* fetch pages, $(emit({ key: row.id, value: row })) each */ });
+const rows = e3.partitionTask('rows', {
+  partitions: [pairs.output],
+  output: DictType(StringType, RowType),
+  merge: ($, _id, a, b) => East.greater(a.at, b.at).ifElse(($) => a, ($) => b),
+}, ($, slice) => slice.toDict(
+  ($, pair, _i) => pair.key,
+  ($, pair, _i) => pair.value,
+  ($, a, b, _id) => East.greater(a.at, b.at).ifElse(($) => a, ($) => b),
+));
+```
 
 ### `e3.customTask(name, inputs, outputType, command)`
 
@@ -483,19 +557,39 @@ e3 task logs <repo> <ws.task>                    # Last 200 lines of a task's lo
 e3 task logs <repo> <ws.task> -n 50              # Last 50 lines
 e3 task logs <repo> <ws.task> --all              # The whole log, however large
 e3 task logs <repo> <ws.task> --follow           # Tail, then stream live output
+e3 task logs <repo> <ws.task> --execution <taskHash>/<inputsHash>/<executionId>   # One execution's own log (local repositories)
 ```
 
 Logs are shown from the end, since that is where a failure lands. When earlier
 output was left out, a notice says so and how to get it; `--all` pages through
 the whole log rather than holding it in memory. `--follow` picks up from the
 current end of the log, so live output starts immediately regardless of how much
-backlog there is.
+backlog there is. A partitioned task's log is the orchestrator's account of its
+units — the partitions and merge units, each an execution of its own, named by
+`<taskHash>/<inputsHash>/<executionId>` in the `[PART]` / `[MERGE]` /
+`[COMBINE]` lines — and `--execution` shows one unit's own runner output.
 
 ### Dataflow Commands
 
 ```bash
-e3 dataflow run <repo> <ws> [--filter <pattern>] [--concurrency <n>] [--force] [-v]
+e3 dataflow run <repo> <ws> [--filter <pattern>] [-j <n>] [--force] [-v]
 ```
+
+`-j` / `--jobs <n>` is the run's one budget of parallelism: the runner processes
+e3 keeps in flight at once, across the dataflow's tasks and the partitions and
+merge units of its partitioned tasks alike (every runner takes one slot, first
+come first served, whatever launched it). It defaults to the CPUs available to
+e3 — its affinity mask, capped by a cgroup quota — or to `E3_JOBS` when set. The
+older `--concurrency` and `--partition-concurrency` are accepted as deprecated
+aliases of the same budget.
+
+A local run gives every execution a scratch directory — its inputs are marshalled
+there and its output written there before it is stored — under `E3_SCRATCH_DIR`,
+or the system temp directory when that is unset. A temp directory on tmpfs holds
+an output in memory until it is stored, so a run with large outputs wants
+`E3_SCRATCH_DIR` on a disk with room for them. Each directory is named after its
+execution and the process that owns it; one left behind by a process that died
+is removed by the next `e3 dataflow run` or `e3 repo gc`.
 
 `-v` / `--verbose` forwards `-v` to each task's runner so it prints a timing/perf
 block (load, compile, execute, output, total + peak RSS) to the task's logs
@@ -543,10 +637,10 @@ repository byte-for-byte unchanged.
 ### Watch / Live Development
 
 ```bash
-e3 watch <source.ts> <repo> <ws> [--start] [--abort-on-change]
+e3 watch <source.ts> <repo> <ws> [--start] [-j <n>] [--abort-on-change]
 ```
 
-The source file is the first argument — that's the thing you're editing, the rest is plumbing.
+The source file is the first argument — that's the thing you're editing, the rest is plumbing. `-j` is the jobs budget of the runs `--start` launches, as for `e3 dataflow run`.
 
 **Cancellation:** Press Ctrl-C in a running `e3 dataflow run` to abort it. In watch mode, `--abort-on-change` cancels in-flight runs when files change.
 
@@ -759,7 +853,9 @@ Tasks are cached by content hash. A task only re-runs when:
 - Its East function IR changes
 - Any of its input values change
 
-Changing one task doesn't invalidate unrelated tasks. Use `--force` to bypass cache:
+Changing one task doesn't invalidate unrelated tasks. A `partitionTask` is
+also cached per partition and, with `merge`, per merge unit (the runner's
+`merge` command over a group of partials). Use `--force` to bypass cache:
 
 ```bash
 e3 dataflow run . dev --force

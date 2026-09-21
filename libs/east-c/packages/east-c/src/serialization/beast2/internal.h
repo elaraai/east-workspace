@@ -199,7 +199,7 @@ typedef struct {
     Beast2FlatEntry *entries;
     size_t count;
     size_t capacity;
-    /* EastType* → index hash map (pointer identity, for ET path) */
+    /* EastType* → index hash map (pointer identity, a memo over the walk) */
     Beast2PtrSlot *et_map;
     int et_map_mask;
     int et_map_count;
@@ -207,6 +207,17 @@ typedef struct {
     Beast2PtrSlot *etv_map;
     int etv_map_mask;
     int etv_map_count;
+    /* Entry bytes (tag + params) → index: the same bytes are the same wire
+     * node, so a type reached twice is one entry (#770). key = hash | 1. */
+    Beast2PtrSlot *content_map;
+    int content_map_mask;
+    int content_map_count;
+    /* Committed Recursive wrappers: two wrappers structurally equal under
+     * east_type_equal are one entry, whatever their pointers. */
+    EastType **wrappers;
+    size_t *wrapper_idx;
+    size_t wrapper_count;
+    size_t wrapper_cap;
 } Beast2FlatTypeTable;
 
 typedef struct {

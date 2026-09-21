@@ -256,7 +256,8 @@ export type DatasetMode =
     | { kind: 'unset' }
     | { kind: 'null' }
     | { kind: 'inline'; root: ValueTreeNodeValue; value: unknown }
-    | { kind: 'paged'; totalRows: number; totalBytes: number; pages: ReadonlyMap<number, readonly ValueTreePagedRow[]>; loading: readonly number[] }
+    /** A collection shown page by page: `pageSize` root rows per page (chosen from the blob's bytes per row), the loaded pages, and the wanted pages not loaded yet. */
+    | { kind: 'paged'; pageSize: number; totalRows: number; totalBytes: number; pages: ReadonlyMap<number, readonly ValueTreePagedRow[]>; loading: readonly number[] }
     | { kind: 'too-large' }
     | { kind: 'not-indexed'; loadable: boolean }
     | { kind: 'error'; message: string };

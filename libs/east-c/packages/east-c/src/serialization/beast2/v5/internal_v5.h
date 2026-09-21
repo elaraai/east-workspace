@@ -151,21 +151,30 @@ void b2v5_write_index_footer(ByteBuffer *buf, size_t index_offset, const size_t 
 /* ================================================================== */
 
 typedef struct {
-    /* Identity map: EastValue* → definition index. Containers with
-     * ref_count == 1 at encode time cannot recur in the walk and are never
-     * inserted (refcount-1 elision); the definition counter still counts
-     * them so decoder numbering matches. */
+    /* Identity map: EastValue* → definition index. A container with
+     * ref_count == 1 at encode time, reached through unshared inline values
+     * only, cannot recur in the walk and is never inserted (refcount-1
+     * elision); the definition counter still counts it so decoder numbering
+     * matches. */
     Beast2PtrSlot *map;
     int map_mask;
     int map_count;
     size_t def_count;        /* definitions so far (counter) */
     size_t segment_base_def; /* definitions before the current root segment */
     bool cross_segment_ref;  /* some REF reached below segment_base_def */
-    bool self_contained;     /* forbids inline source-map growth */
-    EastSourceMap *sm;       /* stream source map (borrowed; adopted from the
-                                first function value carrying one) */
-    size_t sm_emitted;       /* stacks on the wire, incl. the empty sentinel */
-    bool failed;             /* an error has been posted */
+    /* Set while encoding inside a struct, variant or function value that
+     * holds more than one reference. Those values have no wire identity —
+     * they are encoded inline, again at every reference — so a container
+     * they own with ref_count == 1 can still be met twice in the walk and
+     * must be tracked. Cleared inside every container: a container is either
+     * tracked (a REF on the next visit, its content never walked again) or
+     * itself provably reached once. */
+    bool shared_inline;
+    bool self_contained; /* forbids inline source-map growth */
+    EastSourceMap *sm;   /* stream source map (borrowed; adopted from the
+                            first function value carrying one) */
+    size_t sm_emitted;   /* stacks on the wire, incl. the empty sentinel */
+    bool failed;         /* an error has been posted */
 } B2V5EncodeCtx;
 
 void b2v5_enc_ctx_init(B2V5EncodeCtx *ctx, EastSourceMap *header_sm, bool self_contained);

@@ -46,6 +46,7 @@ export {
   decodeTaskObject,
   TASK_KIND_PARTITION,
   TASK_KIND_STREAM,
+  TASK_KIND_MERGE,
   PartitionTaskMetadataType,
   type PartitionTaskMetadata,
   encodePartitionTaskMetadata,
@@ -54,7 +55,25 @@ export {
   type StreamTaskMetadata,
   encodeStreamTaskMetadata,
   decodeStreamTaskMetadata,
+  PartitionPlanType,
+  MergeRangePlanType,
+  type PartitionPlan,
+  type MergeRangePlan,
+  encodePartitionPlan,
+  decodePartitionPlan,
+  type ProjectionShape,
+  partitionProjectionShape,
+  projectedKeyType,
+  projectKey,
 } from './task.js';
+
+// Stream and merge commands
+export {
+  type StreamMergeMode,
+  type StreamCommandSpec,
+  streamCommandIr,
+  mergeCommandIr,
+} from './stream.js';
 
 // Execution environments
 export {
@@ -101,6 +120,7 @@ export {
   type RunnerValue,
   runnerToArgv,
   withRunnerVerbose,
+  withRunnerLifeline,
 } from './runner.js';
 
 // Function objects
@@ -163,6 +183,7 @@ export {
 export {
   ExecutionStatusType,
   type ExecutionStatus,
+  type ExecutionOwner,
 } from './execution.js';
 
 // Lock state

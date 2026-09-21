@@ -19,8 +19,9 @@ import {
   objectRead,
   taskExecute,
   LocalStorage,
+  TASKS_LOCK,
 } from '@elaraai/e3-core';
-import { decodeBeast2 } from '@elaraai/east';
+import { decodeBeast2, variant } from '@elaraai/east';
 import { resolveRepo, parsePackageSpec, formatError, exitError, shortHash } from '../utils.js';
 
 /**
@@ -103,12 +104,23 @@ export async function runCommand(
       console.log(`  Input: ${inputPath} -> ${shortHash(hash)}`);
     }
 
-    // Execute the task
+    // Execute the task, holding the repository's task lock shared for the
+    // duration: gc takes it exclusively, so a sweep never runs while this
+    // execution's unrooted objects (carved slices, unit outputs) exist.
+    const lock = await storage.locks.acquire(repoPath, TASKS_LOCK, variant('dataflow', null), { mode: 'shared' });
+    if (lock === null) {
+      exitError('run: a garbage collection is running in this repository — retry when it finishes');
+    }
     const startTime = Date.now();
-    const result = await taskExecute(storage, repoPath, taskHash, inputHashes, {
-      force: options.force,
-      verbose: options.verbose,
-    });
+    let result: Awaited<ReturnType<typeof taskExecute>>;
+    try {
+      result = await taskExecute(storage, repoPath, taskHash, inputHashes, {
+        force: options.force,
+        verbose: options.verbose,
+      });
+    } finally {
+      await lock.release();
+    }
 
     const elapsed = Date.now() - startTime;
 

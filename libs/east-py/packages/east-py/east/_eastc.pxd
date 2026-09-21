@@ -649,6 +649,69 @@ cdef extern from "east/compiler.h":
     const EastSourceMap *east_get_source_map()
 
 
+# ─── east.h ──────────────────────────────────────────────────────────────
+
+cdef extern from "east/east.h":
+    # Exit with the parent (#770): a detached C thread blocks reading stdin
+    # and _exit(1)s at end of file or an error — started by a runner whose
+    # command line carries --exit-with-parent.
+    void east_exit_with_parent()
+
+
+# ─── emit_sink.h ─────────────────────────────────────────────────────────
+# The streaming emit sink behind `run --emit` (#507, #518, #770), shared with
+# the east-c CLI. Struct fields declared `bint` are C `bool` in the header;
+# they are assigned and read by value, which the C compiler converts.
+
+cdef extern from "east/emit_sink.h":
+    ctypedef enum EastEmitKind:
+        EAST_EMIT_ARRAY
+        EAST_EMIT_SET
+        EAST_EMIT_DICT
+
+    ctypedef struct EastEmitSinkConfig:
+        EastEmitKind kind
+        EastType *out_type
+        const char *output_path
+        EastCompiledFn *merge_fn
+        bint union_mode
+
+    ctypedef struct EastEmitSinkStats:
+        size_t emitted
+
+    ctypedef struct EastEmitSink:
+        pass
+
+    EastEmitSink *east_emit_sink_new(const EastEmitSinkConfig *cfg)
+    EastValue *east_emit_sink_function(EastEmitSink *sink, EastType *fn_type)
+    bint east_emit_sink_finish(EastEmitSink *sink)
+    void east_emit_sink_stats(const EastEmitSink *sink, EastEmitSinkStats *out)
+    void east_emit_sink_free(EastEmitSink *sink)
+
+
+# ─── merge.h ─────────────────────────────────────────────────────────────
+# The blob merge behind `merge` (#770), shared with the east-c CLI: k sorted
+# Set/Dict blobs of one type in, one canonical blob out, in a single pass.
+# `input_paths` is `const char *const *` in the header; the C compiler
+# accepts the `const char **` this declaration assigns.
+
+cdef extern from "east/merge.h":
+    ctypedef struct EastMergeConfig:
+        const char **input_paths
+        size_t num_inputs
+        const char *output_path
+        EastCompiledFn *merge_fn
+        bint union_mode
+        const char *range_path
+
+    ctypedef struct EastMergeStats:
+        size_t inputs
+        size_t entries
+        size_t folds
+
+    bint east_merge_blobs(const EastMergeConfig *cfg, EastMergeStats *stats_out)
+
+
 # ─── type_of_type.h ─────────────────────────────────────────────────────
 
 cdef extern from "east/ir_normalize.h":

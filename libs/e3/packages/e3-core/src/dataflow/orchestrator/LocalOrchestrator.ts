@@ -122,6 +122,9 @@ interface RunningExecution {
   externalLock: boolean;
   options: OrchestratorStartOptions;
   aborted: boolean;
+  /** The run's abort: fired by the caller's signal or by cancel(), and passed
+   *  to every task execution, so a cancelled run stops its running tasks */
+  abortController: AbortController;
   /** Set when a yield checkpoint has been taken — suppresses further persists */
   yielded: boolean;
   /**
@@ -376,6 +379,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       externalLock: init.externalLock,
       options,
       aborted: false,
+      abortController: new AbortController(),
       yielded: false,
       runningTasks: new Map(),
       mutex: new AsyncMutex(),
@@ -389,10 +393,14 @@ export class LocalOrchestrator implements DataflowOrchestrator {
     const key = this.executionKey(repo, workspace, executionId);
     this.executions.set(key, execution);
 
-    // Listen for abort signal to persist cancellation immediately.
-    if (options.signal) {
+    // Listen for abort signal to persist cancellation immediately. The run's
+    // own abort follows it.
+    if (options.signal?.aborted) {
+      execution.abortController.abort();
+    } else if (options.signal) {
       const onAbort = () => {
         execution.aborted = true;
+        execution.abortController.abort();
         if (this.stateStore) {
           void this.stateStore.updateStatus(
             repo,
@@ -453,6 +461,8 @@ export class LocalOrchestrator implements DataflowOrchestrator {
     }
 
     execution.aborted = true;
+    // Stops the running tasks too.
+    execution.abortController.abort();
 
     if (this.stateStore) {
       await this.stateStore.updateStatus(
@@ -531,9 +541,9 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         await storage.refs.dataflowRunWrite(repo, state.workspace, initialRun);
       }
 
-      // Check for abort signal from options
+      // Check for the run's abort (the caller's signal or cancel())
       const checkAborted = () => {
-        if (options.signal?.aborted && !execution.aborted) {
+        if (execution.abortController.signal.aborted && !execution.aborted) {
           execution.aborted = true;
         }
         return execution.aborted;
@@ -741,6 +751,20 @@ export class LocalOrchestrator implements DataflowOrchestrator {
 
                 // Detect input changes after task completion
                 await this.handleInputChanges(storage, state, options, structure);
+              } else if (result.cancelled) {
+                // e3 stopped the task because the run was aborted — not the
+                // task's failure. It goes back to pending, as a stale result
+                // does, with no event (the event wire is frozen), and the run
+                // ends through the abort path as cancelled.
+                const ts = state.tasks.get(taskName) as Mutable<TaskState> | undefined;
+                if (ts) ts.status = 'pending';
+
+                options.onTaskComplete?.({
+                  name: taskName,
+                  cached: false,
+                  state: 'cancelled',
+                  duration: result.duration,
+                });
               } else {
                 hasFailure = true;
 
@@ -1089,6 +1113,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
     executionId?: string;
     exitCode?: number;
     error?: string;
+    cancelled?: boolean;
     duration: number;
   }> {
     const { options } = execution;
@@ -1099,10 +1124,11 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       // only the target, so a launched dependency still honours its own cache.
       force: stepTaskForced(execution.state, taskName),
       verbose: options.verbose,
-      signal: options.signal,
+      signal: execution.abortController.signal,
       onStdout: options.onStdout ? (data) => options.onStdout!(taskName, data) : undefined,
       onStderr: options.onStderr ? (data) => options.onStderr!(taskName, data) : undefined,
       partitionConcurrency: options.partitionConcurrency,
+      jobs: options.jobs,
       // Forward partition progress to the caller's callback ONLY. It is
       // deliberately not persisted as execution events: ExecutionEventType
       // is a frozen beast2 wire (appending cases breaks released readers —
@@ -1124,6 +1150,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         executionId: result.executionId,
         exitCode: result.exitCode,
         error: result.error,
+        cancelled: result.cancelled,
         duration: Date.now() - startTime,
       };
     } else {
@@ -1135,6 +1162,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         executionId: result.executionId,
         exitCode: result.exitCode ?? undefined,
         error: result.error ?? undefined,
+        cancelled: result.cancelled,
         duration: Date.now() - startTime,
       };
     }

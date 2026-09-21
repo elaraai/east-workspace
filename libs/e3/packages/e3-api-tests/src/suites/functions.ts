@@ -135,12 +135,7 @@ export function functionTests(setup: TestSetup<TestContext>): void {
         opts
       );
       assert.equal(result.outcome.type, 'failed');
-      // The decode failure's diagnostic lands on stderr on POSIX; on Windows
-      // the runner's .cmd shim doesn't reliably propagate it (no pre-existing
-      // Windows test asserts stderr CONTENT, only exit codes — same here).
-      if (process.platform !== 'win32') {
-        assert.ok(result.stderr.length > 0, 'expected a runtime diagnostic on stderr');
-      }
+      assert.ok(result.stderr.length > 0, 'expected a runtime diagnostic on stderr');
     });
 
     it('a result over maxResultBytes fails closed with too_large', async (t) => {

@@ -402,94 +402,6 @@ static bool writer_accept_keys(Beast2StreamWriter *w, EastValue *first, EastValu
     return true;
 }
 
-bool east_beast2_writer_write_raw(Beast2StreamWriter *w, const uint8_t *entries, size_t len,
-                                  size_t n, EastValue *first_key, EastValue *last_key)
-{
-    if (!w || (!entries && len > 0)) return false;
-    if (w->finished || w->failed) {
-        east_builtin_error("beast2 v5: write() after finish()");
-        return false;
-    }
-    if (n == 0) return true;
-    if (!writer_accept_keys(w, first_key, last_key)) return false;
-
-    /* The entries were encoded under their own aliasing scopes, so this
-     * segment defines nothing the encoder's own scope must know about —
-     * but the scope is reset all the same, exactly as a value write does. */
-    b2v5_enc_ctx_begin_segment(&w->ctx);
-
-    ByteBuffer *logical = byte_buffer_new(len + 16);
-    if (!logical) return false;
-    write_varint(logical, (uint64_t)n);
-    byte_buffer_write_bytes(logical, entries, len);
-    return writer_push_segment(w, logical, n); /* takes ownership */
-}
-
-/* ================================================================== */
-/*  Per-entry encoder / decoder                                        */
-/* ================================================================== */
-
-struct Beast2EntryEncoder {
-    B2V5EncodeCtx ctx;
-};
-
-Beast2EntryEncoder *east_beast2_entry_encoder_new(void)
-{
-    if (!east_type_type) east_type_of_type_init();
-    Beast2EntryEncoder *e = calloc(1, sizeof(*e));
-    if (!e) return NULL;
-    b2v5_enc_ctx_init(&e->ctx, NULL, true);
-    return e;
-}
-
-void east_beast2_entry_begin(Beast2EntryEncoder *e)
-{
-    if (!e) return;
-    b2v5_enc_ctx_begin_segment(&e->ctx);
-    e->ctx.failed = false;
-}
-
-bool east_beast2_entry_encode(Beast2EntryEncoder *e, ByteBuffer *out, EastValue *value,
-                              EastType *type)
-{
-    if (!e || !out || !value || !type) return false;
-    b2v5_encode_value(out, value, type, &e->ctx);
-    return !e->ctx.failed;
-}
-
-void east_beast2_entry_encoder_free(Beast2EntryEncoder *e)
-{
-    if (!e) return;
-    b2v5_enc_ctx_free(&e->ctx);
-    free(e);
-}
-
-EastValue *east_beast2_entry_decode(const uint8_t *data, size_t len, EastType *type)
-{
-    if (!data || !type) return NULL;
-    if (!east_type_type) east_type_of_type_init();
-    B2V5DecodeCtx ctx;
-    b2v5_dec_ctx_init(&ctx, NULL);
-    size_t offset = 0;
-    EastValue *v = b2v5_decode_value(data, len, &offset, type, &ctx);
-    b2v5_dec_ctx_free(&ctx);
-    if (v && offset != len) {
-        east_value_release(v);
-        east_builtin_error("beast2 v5: trailing bytes after the entry");
-        return NULL;
-    }
-    if (!v) {
-        char *specific = east_builtin_get_error();
-        if (specific) {
-            east_builtin_error(specific);
-            free(specific);
-        } else {
-            east_builtin_error("beast2 v5: malformed entry");
-        }
-    }
-    return v;
-}
-
 bool east_beast2_writer_write(Beast2StreamWriter *w, EastValue *batch)
 {
     if (!w || !batch) return false;
@@ -682,12 +594,13 @@ static EastValue *paged_batch(EastValue *value, EastType *type, size_t i, size_t
     return batch;
 }
 
-/* The paged encoder's batch refinement: `body` wire bytes over `written`
- * elements, toward `target` bytes per segment, clamped to the element cap.
- * Non-increasing in `body`, which is what makes a bounded decision exact. */
-static size_t paged_next_batch(size_t target, size_t body, size_t written)
+/* The batch refinement every collection writer shares (serialization.h):
+ * `body` wire bytes over `written` elements, toward `target` bytes per
+ * segment, clamped to the element cap. Non-increasing in `body`, which is
+ * what makes a bounded decision exact. */
+size_t east_beast2_paged_next_batch(size_t target, size_t body, size_t written)
 {
-    double avg = (double)body / (double)written;
+    double avg = written > 0 ? (double)body / (double)written : 1.0;
     if (avg < 1.0) avg = 1.0;
     size_t nb = (size_t)((double)target / avg);
     return nb < 1 ? 1 : nb > B2V5_PAGED_BATCH_DEFAULT ? (size_t)B2V5_PAGED_BATCH_DEFAULT : nb;
@@ -721,12 +634,7 @@ ByteBuffer *east_beast2_encode_paged(EastValue *value, EastType *type, int32_t c
         size_t body = scratch->total_emitted - header;
         east_beast2_writer_free(scratch);
         if (!ok) return NULL;
-        double avg = body > 0 ? (double)body / (double)probe_n : 1.0;
-        if (avg < 1.0) avg = 1.0;
-        size_t by_target = (size_t)((double)target / avg);
-        next_batch = by_target < 1                          ? 1
-                     : by_target > B2V5_PAGED_BATCH_DEFAULT ? (size_t)B2V5_PAGED_BATCH_DEFAULT
-                                                            : by_target;
+        next_batch = east_beast2_paged_next_batch(target, body, probe_n);
     }
 
     Beast2StreamWriter *w = east_beast2_writer_new(type, codec_id, true, true);
@@ -753,12 +661,12 @@ ByteBuffer *east_beast2_encode_paged(EastValue *value, EastType *type, int32_t c
          * bounds ARE the exact decision; otherwise wait for the frames. */
         size_t lo, hi;
         east_beast2_writer_emitted_bounds(w, &lo, &hi);
-        size_t at_lo = paged_next_batch(target, lo - header, written);
-        size_t at_hi = paged_next_batch(target, hi - header, written);
+        size_t at_lo = east_beast2_paged_next_batch(target, lo - header, written);
+        size_t at_hi = east_beast2_paged_next_batch(target, hi - header, written);
         if (at_lo != at_hi) {
             ok = east_beast2_writer_settle(w);
             east_beast2_writer_emitted_bounds(w, &lo, &hi);
-            at_lo = paged_next_batch(target, lo - header, written);
+            at_lo = east_beast2_paged_next_batch(target, lo - header, written);
         }
         next_batch = at_lo;
     }

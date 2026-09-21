@@ -10,7 +10,7 @@
  * One shared server, per-test context for full isolation and concurrency.
  */
 
-import { describe, after } from 'node:test';
+import { describe, before, after } from 'node:test';
 import { mkdirSync, writeFileSync, rmSync, mkdtempSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -25,7 +25,8 @@ import {
   type TestContext,
 } from '@elaraai/e3-api-tests';
 
-// Shared server (lazy-initialized, one per test run)
+// Shared server, one per test run: started by the suite's `before` hook, and
+// awaited by every test's setup
 let server: Server;
 let baseUrl: string;
 let credentialsPath: string;
@@ -80,6 +81,12 @@ const setup: TestSetup<TestContext> = async (t) => {
 };
 
 describe('API compliance', { timeout: 600_000, concurrency: false }, () => {
+  // node:test charges asynchronous activity to the test or hook whose async
+  // context created it, and everything the server does descends from its
+  // start: started here, what a request leaves running is reported against
+  // this hook rather than against whichever test happened to run first.
+  before(() => getServerConfig());
+
   after(async () => {
     await server?.stop();
     try {

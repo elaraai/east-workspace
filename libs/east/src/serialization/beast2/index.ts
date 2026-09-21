@@ -51,6 +51,7 @@ export {
   encodeBeast2PagedFor,
   type Beast2PagedEncodeOptions,
   BEAST2_PAGED_BATCH_DEFAULT,
+  BEAST2_PAGED_PROBE_BATCH,
   BEAST2_PAGED_TARGET_BYTES_DEFAULT,
   iterBeast2SegmentsFor,
   Beast2Pages,

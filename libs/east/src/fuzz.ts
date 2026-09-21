@@ -7,6 +7,7 @@
 
 import {
   type EastType,
+  type RecursiveTypeMarker,
   type ValueTypeOf,
   NullType,
   BooleanType,
@@ -34,8 +35,11 @@ import { compareFor } from "./comparison.js";
 import { isVariant, variant } from "./containers/variant.js";
 import { printType } from "./types.js";
 import { printFor } from "./serialization/east.js";
-import { toEastTypeValue, type EastTypeValue } from "./type_of_type.js";
+import { toEastTypeValue, EastTypeType, EastTypeValueType, type EastTypeValue } from "./type_of_type.js";
 import { ref } from "./containers/ref.js";
+import { BufferWriter } from "./serialization/binary-utils.js";
+import { writeTypeSection } from "./serialization/beast2/v5/type-section.js";
+import { fnv1a64 } from "./serialization/beast2/shared.js";
 
 /** Deterministic PRNG state (mulberry32). The fuzz output is a cross-runtime
  * REPLAY corpus: east-c and east-py compliance and the eager-replay pins all
@@ -77,6 +81,41 @@ function randomPrimitiveType(): EastType {
   return BlobType;
 }
 
+/** Options for {@link randomType}. */
+export interface RandomTypeOptions {
+  /** Recursive types at the top level (default `true`). */
+  includeRecursive?: boolean;
+  /** Function types (default `true`). */
+  includeFunctions?: boolean;
+  /**
+   * Recursion below the top level (default `false`): a closed recursive type
+   * as a field, element or case at any depth; a recursive type shared by
+   * several fields of one struct (so `Array<T>` may be reached before `T`,
+   * the shape whose beast2 type table was not canonical — #770); and
+   * recursive bodies drawn at random rather than from the fixed patterns of
+   * {@link randomRecursiveType}, nested recursive types included — bare and
+   * through the container their own bodies recurse through (#773).
+   */
+  nestedRecursive?: boolean;
+  /**
+   * `EastTypeType` as a leaf (default `false`): a type whose values are type
+   * values — the shape every IR annotation and every e3 dataset type
+   * travels as. Values are random values of that variant, generated like any
+   * other recursive variant's.
+   */
+  includeTypeValues?: boolean;
+}
+
+/** The options a child position inherits: no top-level-only kinds. */
+function childOptions(options: RandomTypeOptions): RandomTypeOptions {
+  return {
+    includeRecursive: false,
+    includeFunctions: false,
+    nestedRecursive: options.nestedRecursive ?? false,
+    includeTypeValues: options.includeTypeValues ?? false,
+  };
+}
+
 /**
  * Generates a random East type for fuzz testing.
  *
@@ -92,13 +131,19 @@ function randomPrimitiveType(): EastType {
  * - Structs have 0-4 random fields
  * - Variants have 1-3 random cases, with 30% chance of {@link OptionType}
  * - Recursive types include linked lists, trees, and option-wrapped patterns
+ *   (and, with `nestedRecursive`, random bodies, nested and shared recursion)
  * - Function types have 0-3 arguments with random input/output types
+ *
+ * The random stream is consumed identically whatever the options, except by
+ * the branches an option enables, so an existing corpus keeps its shapes when
+ * a new option stays off.
  */
 export function randomType(
   depth: number = 0,
-  options: { includeRecursive?: boolean; includeFunctions?: boolean } = {}
+  options: RandomTypeOptions = {}
 ): EastType {
-  const { includeRecursive = true, includeFunctions = true } = options;
+  const { includeRecursive = true, includeFunctions = true, nestedRecursive = false, includeTypeValues = false } = options;
+  const child = childOptions(options);
 
   // Limit nesting to avoid stack overflow and keep tests fast
   const maxDepth = 3;
@@ -107,6 +152,7 @@ export function randomType(
   const primitiveWeight = depth >= maxDepth ? 0.9 : 0.5;
 
   if (random() < primitiveWeight) {
+    if (includeTypeValues && random() < 0.15) return EastTypeType;
     return randomPrimitiveType();
   }
 
@@ -114,37 +160,38 @@ export function randomType(
   let totalWeight = 7; // Array, Set, Dict, Struct, Variant, Vector, Matrix
   if (includeRecursive && depth === 0) totalWeight += 1; // Recursive only at top level
   if (includeFunctions) totalWeight += 1;
+  const nestedWeight = nestedRecursive ? (depth === 0 ? 2 : 1) : 0; // closed leaf (+ shared struct at the top)
 
-  const r = random() * totalWeight;
+  const r = random() * (totalWeight + nestedWeight);
 
   if (r < 1) {
     // Array
-    return ArrayType(randomType(depth + 1, { includeRecursive: false, includeFunctions: false }));
+    return ArrayType(randomType(depth + 1, child));
   } else if (r < 2) {
     // Set (keys must be immutable)
     return SetType(StringType);
   } else if (r < 3) {
     // Dict (keys must be immutable)
-    return DictType(StringType, randomType(depth + 1, { includeRecursive: false, includeFunctions: false }));
+    return DictType(StringType, randomType(depth + 1, child));
   } else if (r < 4) {
     // Struct with 0-4 fields
     const fieldCount = Math.floor(random() * 5);
     const fields: Record<string, EastType> = {};
     for (let i = 0; i < fieldCount; i++) {
-      fields[`field${i}`] = randomType(depth + 1, { includeRecursive: false, includeFunctions: false });
+      fields[`field${i}`] = randomType(depth + 1, child);
     }
     return StructType(fields);
   } else if (r < 5) {
     // Variant
     if (random() < 0.3) {
       // Option type (common variant pattern)
-      return OptionType(randomType(depth + 1, { includeRecursive: false, includeFunctions: false }));
+      return OptionType(randomType(depth + 1, child));
     } else {
       // Custom variant with 1-3 cases
       const caseCount = 1 + Math.floor(random() * 3);
       const cases: Record<string, EastType> = {};
       for (let i = 0; i < caseCount; i++) {
-        cases[`case${i}`] = randomType(depth + 1, { includeRecursive: false, includeFunctions: false });
+        cases[`case${i}`] = randomType(depth + 1, child);
       }
       return VariantType(cases);
     }
@@ -157,17 +204,28 @@ export function randomType(
     const elemTypes = [FloatType, IntegerType, BooleanType];
     return MatrixType(elemTypes[Math.floor(random() * elemTypes.length)]!);
   } else if (r < 8 && includeRecursive && depth === 0) {
-    // Recursive type - only at top level to avoid nested recursion complexity
-    return randomRecursiveType();
-  } else {
+    // Recursive type at the top level
+    return randomRecursiveType({ randomBody: nestedRecursive });
+  } else if (r < totalWeight && includeFunctions) {
     // Function type
     return randomFunctionType();
+  } else if (r < totalWeight + 1) {
+    // A closed recursive type as a leaf below the top level
+    return randomRecursiveType({ randomBody: true });
+  } else {
+    // One recursive type shared by several fields
+    return randomSharedRecursiveType();
   }
 }
 
 /**
  * Generates a random recursive type pattern.
  *
+ * @param options - `randomBody` (default `false`) draws the body at random
+ *   half of the time instead of from the fixed patterns below: a struct or
+ *   variant whose self-references sit under Array, Option, Dict, Ref or a
+ *   struct, with a nested closed recursive type or a type value as a leaf
+ *   now and then, and always with a terminating path.
  * @returns A randomly generated {@link RecursiveType}
  *
  * @remarks
@@ -178,7 +236,10 @@ export function randomType(
  * - Binary tree: `rec t. <leaf: T, node: (left: t, right: t)>`
  * - Nested variant: `rec t. <a: T, b: (inner: t)>`
  */
-export function randomRecursiveType(): EastType {
+export function randomRecursiveType(options: { randomBody?: boolean } = {}): EastType {
+  if (options.randomBody && random() < 0.5) {
+    return RecursiveType((self) => randomRecursiveBody(self));
+  }
   const innerType = randomPrimitiveType();
   const pattern = Math.floor(random() * 5);
 
@@ -229,6 +290,103 @@ export function randomRecursiveType(): EastType {
         })
       );
   }
+}
+
+/** A leaf of a random recursive body: a primitive, a small non-recursive
+ *  compound, and — unless the leaf must terminate the value — a nested
+ *  closed recursive type or a type value now and then. */
+function randomRecursiveLeaf(terminal: boolean): EastType {
+  const r = random();
+  if (r < 0.45) return randomPrimitiveType();
+  if (r < 0.55) return ArrayType(randomPrimitiveType());
+  if (r < 0.67 || terminal) return StructType({ id: IntegerType, label: StringType });
+  if (r < 0.92) return randomNestedRecursiveLeaf(); // nested recursion, SCC size 1
+  return EastTypeType;
+}
+
+/**
+ * A nested closed recursive type as a leaf of an enclosing wrapper's body:
+ * bare, or reached through the container its own body recurses through —
+ * `Array<T>` beside `T`'s `children: Array<self>`, `Option<T>` beside
+ * `next: Option<self>`, `Dict<String, T>` beside `children: Dict<String,
+ * self>`. In a canonical type table that container is one entry inside and
+ * outside the wrapper, and a reader walking the enclosing wrapper's body
+ * meets it before the nested wrapper it names — the shape east-ui's
+ * `TreeView.nodes` has and the #771 reader rejected (#773).
+ */
+function randomNestedRecursiveLeaf(): EastType {
+  const r = random();
+  if (r < 0.25) return randomRecursiveType();
+  if (r < 0.5) return randomRecursiveType({ randomBody: true });
+  const value = randomPrimitiveType();
+  if (r < 0.7) return ArrayType(RecursiveType((self) => StructType({ value, children: ArrayType(self) })));
+  if (r < 0.85) return OptionType(RecursiveType((self) => StructType({ value, next: OptionType(self) })));
+  return DictType(StringType, RecursiveType((self) => StructType({ value, children: DictType(StringType, self) })));
+}
+
+/**
+ * A random body for a recursive type: a struct whose self-references sit
+ * under Array, Option or Dict (all of which can be empty), or a variant with
+ * at least one case that does not recurse. Either way every value has a
+ * finite spelling, so {@link randomValueFor} terminates.
+ */
+function randomRecursiveBody(self: RecursiveTypeMarker): EastType {
+  const viaContainer = (): EastType => {
+    const r = random();
+    if (r < 0.4) return ArrayType(self);
+    if (r < 0.7) return OptionType(self);
+    if (r < 0.85) return DictType(StringType, self);
+    return ArrayType(StructType({ key: StringType, node: self }));
+  };
+  if (random() < 0.5) {
+    // Struct body: 1-3 fields, at least one recursing through a container.
+    const fieldCount = 1 + Math.floor(random() * 3);
+    const recursing = Math.floor(random() * fieldCount);
+    const fields: Record<string, EastType> = {};
+    for (let i = 0; i < fieldCount; i++) {
+      fields[`f${i}`] = i === recursing || random() < 0.3 ? viaContainer() : randomRecursiveLeaf(false);
+    }
+    return StructType(fields);
+  }
+  // Variant body: 2-4 cases, the first terminal, the rest recursing directly
+  // or through a struct, a Ref, or a container.
+  const caseCount = 2 + Math.floor(random() * 3);
+  const cases: Record<string, EastType | RecursiveTypeMarker> = {};
+  cases["end"] = randomRecursiveLeaf(true);
+  for (let i = 1; i < caseCount; i++) {
+    const r = random();
+    cases[`c${i}`] = r < 0.25 ? self
+      : r < 0.45 ? StructType({ left: self, right: self })
+      : r < 0.6 ? RefType(self)
+      : r < 0.8 ? viaContainer()
+      : randomRecursiveLeaf(false);
+  }
+  return VariantType(cases);
+}
+
+/**
+ * A struct that names one recursive type from several fields — bare, under
+ * Array, Option and Dict — in random order, so the type may be reached first
+ * through a container and only then itself; half of the time the struct is
+ * itself the body of an enclosing recursive type, so a reader walking that
+ * body top-down meets the container before the wrapper it names (#773).
+ *
+ * @returns A {@link StructType} over one random {@link RecursiveType}, or a
+ *   {@link RecursiveType} whose body is that struct
+ */
+export function randomSharedRecursiveType(): EastType {
+  const rec = randomRecursiveType({ randomBody: true });
+  const shapes: EastType[] = [rec, ArrayType(rec), OptionType(rec), DictType(StringType, rec), ArrayType(ArrayType(rec))];
+  // Fisher–Yates over the deterministic stream, then take 2-4 of them.
+  for (let i = shapes.length - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1));
+    [shapes[i], shapes[j]] = [shapes[j]!, shapes[i]!];
+  }
+  const fieldCount = 2 + Math.floor(random() * 3);
+  const fields: Record<string, EastType> = {};
+  for (let i = 0; i < fieldCount; i++) fields[`f${i}`] = shapes[i]!;
+  if (random() < 0.5) return StructType(fields);
+  return RecursiveType((self) => StructType({ ...fields, next: OptionType(self) }));
 }
 
 /**
@@ -580,6 +738,13 @@ function randomValueForRecursive(
   return () => selfGenerator(0);
 }
 
+/** Options for {@link randomValueFor}. */
+export interface RandomValueOptions {
+  /** Depth at which containers empty out and variants take a terminal case
+   *  (default 5). A replay corpus keeps this low so many types fit. */
+  maxDepth?: number;
+}
+
 /**
  * Creates a function that generates random values of a given type.
  *
@@ -598,16 +763,20 @@ function randomValueForRecursive(
  * - Variants randomly select one of their cases
  * - Recursive types generate finite values with depth limiting
  */
-export function randomValueFor(type: EastTypeValue): () => any;
-export function randomValueFor<T extends EastType>(type: T): () => ValueTypeOf<T>;
-export function randomValueFor(type: EastTypeValue | EastType): () => any {
+export function randomValueFor(type: EastTypeValue, options?: RandomValueOptions): () => any;
+export function randomValueFor<T extends EastType>(type: T, options?: RandomValueOptions): () => ValueTypeOf<T>;
+export function randomValueFor(type: EastTypeValue | EastType, options: RandomValueOptions = {}): () => any {
   const ctx: RecursiveValueContext = {
     generators: new Map(),
-    maxDepth: 5, // Limit recursion depth to avoid huge values
+    maxDepth: options.maxDepth ?? 5, // Limit recursion depth to avoid huge values
   };
 
   // Check if this is an EastType (not yet converted)
   if (!isVariant(type)) {
+    if (type === EastTypeType) {
+      const gen = buildValueGenerator(EastTypeValueType, ctx);
+      return () => gen(0);
+    }
     // Handle RecursiveType specially before conversion
     if (type.type === "Recursive") {
       return randomValueForRecursive(type.node, ctx);
@@ -662,10 +831,10 @@ export async function fuzzerTest(
   fn: (type: EastType) => (value: any) => Promise<void>,
   n_types: number = 100,
   n_samples: number = 10,
-  options: { includeRecursive?: boolean; includeFunctions?: boolean } = {}
+  options: RandomTypeOptions = {}
 ): Promise<boolean> {
   // Default: include recursive types but NOT functions (can't generate values for functions)
-  const { includeRecursive = true, includeFunctions = false } = options;
+  const { includeRecursive = true, includeFunctions = false, nestedRecursive = false, includeTypeValues = false } = options;
 
   let n_type_success = 0;
   let n_type_fail = 0;
@@ -679,7 +848,7 @@ export async function fuzzerTest(
     let type: EastType;
     let attempts = 0;
     while (true) {
-      type = randomType(0, { includeRecursive, includeFunctions });
+      type = randomType(0, { includeRecursive, includeFunctions, nestedRecursive, includeTypeValues });
       const typeStr = printType(type);
       if (!type_cache.has(typeStr)) {
         type_cache.add(typeStr);
@@ -723,4 +892,90 @@ export async function fuzzerTest(
   } else {
     return true;
   }
+}
+
+
+/**
+ * A short, process-independent name for a type: the FNV-1a-64 hash of its
+ * canonical beast2 type section (#770), as 16 hex digits. `printType` embeds
+ * the ids of recursive types, which depend on what a process built first, so
+ * it cannot name a case in a corpus replayed elsewhere.
+ *
+ * @param type - the type to name
+ * @returns 16 hex digits, equal for structurally equal types
+ */
+export function typeFingerprint(type: EastType): string {
+  const writer = new BufferWriter();
+  writeTypeSection(type, writer);
+  return fnv1a64(writer.toUint8Array()).toString(16).padStart(16, "0");
+}
+
+/** One generated type with sample values of it — a replay-corpus case. */
+export interface FuzzValueCase<T extends EastType = EastType> {
+  /** The randomly generated East type */
+  type: T;
+  /** `printType(type)`, unique within one generation */
+  typeName: string;
+  /** {@link typeFingerprint} of the type — stable across processes */
+  fingerprint: string;
+  /** Sample values of `type` */
+  values: ValueTypeOf<T>[];
+}
+
+/** Options for {@link generateFuzzValues}. */
+export interface FuzzValuesOptions extends RandomTypeOptions {
+  /** Number of distinct types to generate (default 50) */
+  numTypes?: number;
+  /** Number of sample values per type (default 3) */
+  numSamples?: number;
+  /** Depth at which sample values stop nesting (default 5; see
+   *  {@link RandomValueOptions}) */
+  valueDepth?: number;
+  /** Seed for the deterministic random stream (default `0xea57`). The cases
+   *  form a cross-runtime replay corpus, so generation must reproduce across
+   *  exports — mint a fresh corpus by bumping the seed deliberately. */
+  seed?: number;
+}
+
+/**
+ * Generates distinct random types with sample values of each, for suites
+ * that replay one corpus on every runtime. Types whose values cannot be
+ * generated within the depth limit are skipped; generation stops after
+ * three attempts per requested type.
+ *
+ * @param options - how many types and samples, the seed, and the type kinds
+ * @returns the generated cases, in generation order
+ */
+export function generateFuzzValues(options: FuzzValuesOptions = {}): FuzzValueCase[] {
+  const { numTypes = 50, numSamples = 3, seed = 0xea57, valueDepth = 5, ...typeOptions } = options;
+  seedFuzz(seed);
+  const cases: FuzzValueCase[] = [];
+  const seen = new Set<string>();
+  const maxAttempts = numTypes * 3;
+  for (let attempts = 0; cases.length < numTypes && attempts < maxAttempts; attempts++) {
+    const type = randomType(0, typeOptions);
+    const typeName = printType(type);
+    if (seen.has(typeName)) continue;
+    const generate = randomValueFor(type, { maxDepth: valueDepth });
+    const values: any[] = [];
+    try {
+      for (let j = 0; j < numSamples; j++) {
+        let value: any;
+        let retries = 0;
+        for (;;) {
+          try { value = generate(); break; }
+          catch (e) {
+            if (!(e as Error).message?.includes("max recursion depth") || ++retries >= 20) throw e;
+          }
+        }
+        values.push(value);
+      }
+    } catch (e) {
+      if ((e as Error).message?.includes("max recursion depth")) continue;
+      throw e;
+    }
+    seen.add(typeName);
+    cases.push({ type, typeName, fingerprint: typeFingerprint(type), values });
+  }
+  return cases;
 }

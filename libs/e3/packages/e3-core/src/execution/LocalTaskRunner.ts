@@ -15,17 +15,18 @@
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { tmpdir } from 'os';
 import { variant } from '@elaraai/east';
-import { type ExecutionStatus, type PartitionProgress, type TaskObject, decodeTaskObject, withRunnerVerbose, TASK_KIND_PARTITION } from '@elaraai/e3-types';
+import { type ExecutionStatus, type PartitionProgress, type TaskObject, decodeTaskObject, withRunnerLifeline, withRunnerVerbose, TASK_KIND_PARTITION } from '@elaraai/e3-types';
 import { inputsHash, evaluateCommandIr } from '../executions.js';
 import { uuidv7 } from '../uuid.js';
 import type { StorageBackend } from '../storage/interfaces.js';
 import type { TaskRunner, TaskExecuteOptions, TaskResult } from './interfaces.js';
-import { getBootId, getPidStartTime } from './processHelpers.js';
+import { getBootId, getPidStartTime, isProcessAlive } from './processHelpers.js';
 import { adoptOutputFile, marshalInputsToDir, spawnAndCapture } from './processExec.js';
 import { materializeEnvironment } from './environment.js';
 import { runDetached, type DetachedSpec, type DetachedResult, type DetachedRunOptions } from './runDetached.js';
+import { executionScratchDir } from './scratch.js';
+import type { JobSlots, ReleaseSlot } from './jobs.js';
 
 // Re-exported from processExec.js (where the implementation moved) for
 // backwards compatibility — exported for testing, not public API.
@@ -49,9 +50,16 @@ export interface ExecuteOptions {
   onStdout?: (data: string) => void;
   /** Stream stderr callback */
   onStderr?: (data: string) => void;
-  /** Maximum concurrent per-partition executions of a partitioned task
-   *  (default: 4). Runtime-only: never affects hashes or caching. */
+  /** The most units of a partitioned task in flight at once — its pool
+   *  width. Defaults to the jobs budget's capacity, else 4. Runtime-only:
+   *  never affects hashes or caching. */
   partitionConcurrency?: number;
+  /** The run's jobs budget: a runner spawns only while its execution holds
+   *  one of the slots, and a partitioned task's units take slots like any
+   *  execution, so the budget bounds the runner processes of the whole run.
+   *  Runtime-only, and never seen by a remote backend. Absent, spawns are
+   *  not budgeted. */
+  jobs?: JobSlots;
   /** Called as each unit of a partitioned task (slice execution or combine
    *  step) starts and completes. Runtime-only progress reporting. */
   onPartitionProgress?: (progress: PartitionProgress) => void;
@@ -77,6 +85,10 @@ export interface ExecutionResult {
   duration: number;
   /** Error message on failure */
   error: string | null;
+  /** True when e3 stopped the execution because the run was aborted — an
+   *  `error` whose message starts `cancelled:`, which is not the task's own
+   *  failure */
+  cancelled: boolean;
 }
 
 /**
@@ -101,6 +113,7 @@ export class LocalTaskRunner implements TaskRunner {
       onStdout: options?.onStdout,
       onStderr: options?.onStderr,
       partitionConcurrency: options?.partitionConcurrency,
+      jobs: options?.jobs,
       onPartitionProgress: options?.onPartitionProgress,
     });
 
@@ -110,6 +123,9 @@ export class LocalTaskRunner implements TaskRunner {
       cached: result.cached,
       executionId: result.executionId,
     };
+    if (result.cancelled) {
+      taskResult.cancelled = true;
+    }
 
     if (result.state === 'success' && result.outputHash) {
       taskResult.outputHash = result.outputHash;
@@ -204,46 +220,111 @@ export async function taskExecute(
       exitCode: null,
       duration: Date.now() - startTime,
       error: `Failed to read task object: ${err}`,
+      cancelled: false,
     };
   }
 
-  // Partitioned tasks fan out below this point: carve the partitioned
-  // input(s), run each slice through the standard path as its own
-  // content-addressed execution, and splice/combine the shards. Loaded
-  // lazily — partitionExec imports back into this module for the standard
-  // per-slice path.
+  // Partitioned tasks are a template of steps below this point (steps.ts):
+  // plan the partitions, run each slice as its own content-addressed
+  // execution, and reduce or splice the partials. Every unit that misses the
+  // cache runs the standard body in this process under fresh ids; the byte
+  // hooks are the local storage layer's. Loaded lazily — the interpreter
+  // imports back into this module for the cache probe and the standard body.
   if (task.kind.type === 'some' && task.kind.value === TASK_KIND_PARTITION) {
-    const { partitionTaskExecute } = await import('./partitionExec.js');
-    return partitionTaskExecute(storage, repo, taskHash, task, inputHashes, { inHash, executionId, startTime }, options);
+    const { executeTemplate } = await import('./steps.js');
+    return executeTemplate(
+      storage, repo, taskHash, task, inputHashes, { inHash, executionId, startTime }, options,
+      {
+        executeUnit: (unitTaskHash, unitTask, unitInputs, unitOptions) => taskExecuteBody(
+          storage, repo, unitTaskHash, unitTask, unitInputs,
+          { inHash: inputsHash(unitInputs), executionId: uuidv7(), startTime: Date.now() },
+          unitOptions,
+        ),
+      },
+    );
   }
 
   return taskExecuteBody(storage, repo, taskHash, task, inputHashes, { inHash, executionId, startTime }, options);
 }
 
-/** Probes the execution cache for a successful prior execution. */
-async function probeExecutionCache(
+/**
+ * Probes the execution cache for a successful prior execution.
+ *
+ * A latest record still `running` whose runner and orchestrator have both
+ * exited is first rewritten as an `interrupted:` error (see
+ * {@link repairInterruptedExecution}), so it no longer reads as live.
+ *
+ * Exported for the partition executor, which probes every unit of a
+ * partitioned task before running it.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param taskHash - Hash of the task object
+ * @param inHash - Combined inputs hash
+ * @returns The cached result, or `null` when no successful execution exists
+ *
+ * @internal
+ */
+export async function probeExecutionCache(
   storage: StorageBackend,
   repo: string,
   taskHash: string,
   inHash: string
 ): Promise<ExecutionResult | null> {
-  const existingOutput = await storage.refs.executionGetLatestOutput(repo, taskHash, inHash);
-  if (existingOutput !== null) {
-    const status = await storage.refs.executionGetLatest(repo, taskHash, inHash);
-    if (status && status.type === 'success') {
-      return {
-        inputsHash: inHash,
-        executionId: status.value.executionId,
-        cached: true,
-        state: 'success',
-        outputHash: existingOutput,
-        exitCode: 0,
-        duration: 0,
-        error: null,
-      };
-    }
+  const status = await storage.refs.executionGetLatest(repo, taskHash, inHash);
+  if (status?.type === 'running') {
+    await repairInterruptedExecution(storage, repo, taskHash, inHash, status.value);
+    return null;
   }
-  return null;
+  if (status?.type !== 'success') {
+    return null;
+  }
+  const existingOutput = await storage.refs.executionGetLatestOutput(repo, taskHash, inHash);
+  if (existingOutput === null) {
+    return null;
+  }
+  return {
+    inputsHash: inHash,
+    executionId: status.value.executionId,
+    cached: true,
+    state: 'success',
+    outputHash: existingOutput,
+    exitCode: 0,
+    duration: 0,
+    error: null,
+    cancelled: false,
+  };
+}
+
+/**
+ * Rewrites a `running` record as `error` when its execution can no longer
+ * finish: the runner has exited and so has the orchestrator recorded as its
+ * owner, so nothing will ever write its outcome.
+ *
+ * A live owner means the orchestrator is between the runner's exit and the
+ * record's write (it hashes the output there), so the record is left alone;
+ * so is a record with no owner sidecar.
+ */
+async function repairInterruptedExecution(
+  storage: StorageBackend,
+  repo: string,
+  taskHash: string,
+  inHash: string,
+  running: Extract<ExecutionStatus, { type: 'running' }>['value']
+): Promise<void> {
+  const pid = Number(running.pid);
+  if (await isProcessAlive(pid, Number(running.pidStartTime), running.bootId)) return;
+  const owner = await storage.refs.executionOwnerRead?.(repo, taskHash, inHash, running.executionId) ?? null;
+  if (owner === null) return;
+  if (await isProcessAlive(owner.pid, owner.pidStartTime, owner.bootId)) return;
+  const status: ExecutionStatus = variant('error', {
+    executionId: running.executionId,
+    inputHashes: running.inputHashes,
+    startedAt: running.startedAt,
+    completedAt: new Date(),
+    message: `interrupted: the orchestrator exited before this execution finished (runner pid ${pid})`,
+  });
+  await storage.refs.executionWrite(repo, taskHash, inHash, running.executionId, status);
 }
 
 /** The identity of one execution attempt, computed by {@link taskExecute}
@@ -257,39 +338,10 @@ export interface ExecutionIds {
   startTime: number;
 }
 
-/**
- * Executes one content-addressed execution of an already-decoded task
- * through the standard marshal → spawn → store path, with the ordinary
- * cache probe.
- *
- * Partition fan-out uses this for its per-slice and combine executions —
- * dispatching through {@link taskExecute} would re-enter the partition path
- * on the same task object.
- *
- * @internal
- */
-export async function taskExecuteStandard(
-  storage: StorageBackend,
-  repo: string,
-  taskHash: string,
-  task: TaskObject,
-  inputHashes: string[],
-  options: ExecuteOptions = {}
-): Promise<ExecutionResult> {
-  const inHash = inputsHash(inputHashes);
-  const startTime = Date.now();
-  if (!options.force) {
-    const cached = await probeExecutionCache(storage, repo, taskHash, inHash);
-    if (cached !== null) return cached;
-  }
-  const executionId = uuidv7();
-  return taskExecuteBody(storage, repo, taskHash, task, inputHashes, { inHash, executionId, startTime }, options);
-}
-
 /** The standard execution body: scratch dir, input marshalling, command IR
  *  evaluation, spawn, and verbatim output store. Exported for the partition
- *  path's single-partition short-circuit, which runs the body once under the
- *  LOGICAL execution identity (the whole input is the one slice). @internal */
+ *  template's unit executor, which runs it once per unit under fresh ids.
+ *  @internal */
 export async function taskExecuteBody(
   storage: StorageBackend,
   repo: string,
@@ -301,13 +353,11 @@ export async function taskExecuteBody(
 ): Promise<ExecutionResult> {
   const { inHash, executionId, startTime } = ids;
 
-  // Step 4: Create scratch directory
-  // Include PID to prevent collisions when multiple e3 processes run the same
-  // task concurrently (e.g., same task in different workspaces at same millisecond)
-  const scratchDir = path.join(
-    tmpdir(),
-    `e3-exec-${taskHash.slice(0, 8)}-${inHash.slice(0, 8)}-${process.pid}-${Date.now()}`
-  );
+  // Step 4: Create scratch directory under E3_SCRATCH_DIR (or the temp dir),
+  // named after the execution and this process — its pid and start time — so
+  // concurrent e3 processes never collide and a directory this process leaves
+  // behind if it dies is swept once it is gone (execution/scratch.ts).
+  const scratchDir = await executionScratchDir(taskHash, inHash);
   await fs.mkdir(scratchDir, { recursive: true });
 
   try {
@@ -355,6 +405,7 @@ export async function taskExecuteBody(
         exitCode: null,
         duration: Date.now() - startTime,
         error: `Failed to evaluate command IR: ${err}`,
+        cancelled: false,
       };
     }
 
@@ -377,6 +428,7 @@ export async function taskExecuteBody(
         exitCode: null,
         duration: Date.now() - startTime,
         error: 'Command IR produced empty command',
+        cancelled: false,
       };
     }
 
@@ -385,6 +437,12 @@ export async function taskExecuteBody(
     // is applied AFTER the cache decision and never touches commandIr/hashes, so
     // `-v` changes only what a task that actually spawns prints — not caching.
     args = withRunnerVerbose(task.runner, args, options.verbose);
+    // Step 6.45: the stdin lifeline. A stock runner is spawned with a stdin
+    // pipe this process never writes to and `--exit-with-parent` on its
+    // command line, so it exits if this process dies; both are spliced here,
+    // after the cache decision, and never touch commandIr or any hash.
+    const stdinLifeline = task.runner.type !== 'custom';
+    if (stdinLifeline) args = withRunnerLifeline(task.runner, args);
 
     // Step 6.5: Materialize the task's declared execution environment (warm
     // cache hit after first use); its bin dir is prepended to the child PATH.
@@ -412,27 +470,94 @@ export async function taskExecuteBody(
           exitCode: null,
           duration: Date.now() - startTime,
           error: message,
+          cancelled: false,
         };
       }
     }
 
+    /** Records an execution e3 stopped (`error`) or a signal ended
+     *  (`failed`, exit code -1), appending `e3: <cause>` to its stderr log.
+     *  Returned awaited: a promise returned unawaited from inside the `try`
+     *  gets no handler until the `finally` has removed the scratch directory,
+     *  so a record that cannot be written would be an unhandled rejection —
+     *  which ends the process — rather than this execution's failure. */
+    const stoppedResult = async (state: 'error' | 'failed', cause: string, cancelled: boolean): Promise<ExecutionResult> => {
+      try {
+        await storage.logs.append(repo, taskHash, inHash, executionId, 'stderr', `e3: ${cause}\n`);
+      } catch (err) {
+        console.warn(`Failed to append stderr log: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      const status: ExecutionStatus = state === 'error'
+        ? variant('error', {
+          executionId,
+          inputHashes,
+          startedAt: new Date(startTime),
+          completedAt: new Date(),
+          message: cause,
+        })
+        : variant('failed', {
+          executionId,
+          inputHashes,
+          startedAt: new Date(startTime),
+          completedAt: new Date(),
+          exitCode: -1n,
+        });
+      await storage.refs.executionWrite(repo, taskHash, inHash, executionId, status);
+      return {
+        inputsHash: inHash,
+        executionId,
+        cached: false,
+        state,
+        outputHash: null,
+        exitCode: state === 'failed' ? -1 : null,
+        duration: Date.now() - startTime,
+        error: state === 'failed' ? `e3: ${cause}` : cause,
+        cancelled,
+      };
+    };
+
     // Step 7: Get boot ID for crash detection
     const bootId = await getBootId();
 
-    // Step 8: Execute command
-    const result = await runCommand(
-      storage,
-      repo,
-      taskHash,
-      inHash,
-      executionId,
-      args,
-      inputHashes,
-      bootId,
-      scratchDir,
-      options,
-      envBins
-    );
+    // Step 7.5: the run's jobs budget. The runner spawns only once this
+    // execution holds a slot — a partitioned task's units queue here beside
+    // the dataflow's other tasks, first come first served — and an execution
+    // the run aborts while it waits never spawns: it is recorded cancelled,
+    // with no `running` record ever written.
+    let releaseSlot: ReleaseSlot | undefined;
+    if (options.jobs !== undefined) {
+      try {
+        releaseSlot = await options.jobs.acquire(options.signal);
+      } catch (err) {
+        if (options.signal?.aborted) {
+          return await stoppedResult('error', 'cancelled: e3 did not start the runner because the run was aborted', true);
+        }
+        throw err;
+      }
+    }
+
+    // Step 8: Execute command, with the lifeline pipe for a stock runner; a
+    // custom command keeps an ignored stdin. The slot is held until the
+    // runner has exited.
+    let result: Awaited<ReturnType<typeof runCommand>>;
+    try {
+      result = await runCommand(
+        storage,
+        repo,
+        taskHash,
+        inHash,
+        executionId,
+        args,
+        inputHashes,
+        bootId,
+        scratchDir,
+        options,
+        envBins,
+        stdinLifeline
+      );
+    } finally {
+      releaseSlot?.();
+    }
 
     // Step 9: Handle result
     if (result.exitCode === 0) {
@@ -462,6 +587,7 @@ export async function taskExecuteBody(
           exitCode: 0,
           duration: Date.now() - startTime,
           error: null,
+          cancelled: false,
         };
       } catch (err) {
         // Output file missing or unreadable
@@ -483,30 +609,44 @@ export async function taskExecuteBody(
           exitCode: 0,
           duration: Date.now() - startTime,
           error: `Failed to read output: ${err}`,
+          cancelled: false,
         };
       }
-    } else {
-      // Failed - write failed status
-      const status: ExecutionStatus = variant('failed', {
-        executionId,
-        inputHashes,
-        startedAt: new Date(startTime),
-        completedAt: new Date(),
-        exitCode: BigInt(result?.exitCode ?? -1),
-      });
-      await storage.refs.executionWrite(repo, taskHash, inHash, executionId, status);
-
-      return {
-        inputsHash: inHash,
-        executionId,
-        cached: false,
-        state: 'failed',
-        outputHash: null,
-        exitCode: result.exitCode,
-        duration: Date.now() - startTime,
-        error: result.error,
-      };
     }
+
+    // e3 stopped the runner, or a signal ended it: the record names the
+    // cause, and so does the last line of the execution's stderr log.
+    if (result.stoppedByE3 && options.signal?.aborted) {
+      return await stoppedResult('error', 'cancelled: e3 stopped the runner because the run was aborted', true);
+    }
+    if (result.timedOut) {
+      return await stoppedResult('error', `timed out: e3 stopped the runner after ${options.timeout} ms`, false);
+    }
+    if (result.exitCode === null && result.signal !== null) {
+      return await stoppedResult('failed', `runner killed by ${result.signal}`, false);
+    }
+
+    // Failed - write failed status
+    const status: ExecutionStatus = variant('failed', {
+      executionId,
+      inputHashes,
+      startedAt: new Date(startTime),
+      completedAt: new Date(),
+      exitCode: BigInt(result?.exitCode ?? -1),
+    });
+    await storage.refs.executionWrite(repo, taskHash, inHash, executionId, status);
+
+    return {
+      inputsHash: inHash,
+      executionId,
+      cached: false,
+      state: 'failed',
+      outputHash: null,
+      exitCode: result.exitCode,
+      duration: Date.now() - startTime,
+      error: result.error,
+      cancelled: false,
+    };
   } finally {
     // Cleanup scratch directory
     try {
@@ -517,12 +657,58 @@ export async function taskExecuteBody(
   }
 }
 
+/** One stream's appends to an execution's log. */
+interface LogAppender {
+  /** Queues a chunk; resolves once the append that holds it has settled. */
+  push(data: string): Promise<void>;
+  /** Resolves once every queued chunk has been appended. */
+  idle(): Promise<void>;
+}
+
+/**
+ * Appends one stream's output to an execution's log with at most one append
+ * in flight: the chunks that arrive while an append runs are queued, and the
+ * next append writes them all at once.
+ *
+ * @param append - Appends data to the stream's log
+ * @param stream - The stream, for the warning a failed append prints
+ * @returns The appender
+ */
+function createLogAppender(append: (data: string) => Promise<void>, stream: 'stdout' | 'stderr'): LogAppender {
+  let queue: { data: string; settle: () => void }[] = [];
+  let draining: Promise<void> | null = null;
+  const drain = async (): Promise<void> => {
+    while (queue.length > 0) {
+      const batch = queue;
+      queue = [];
+      try {
+        await append(batch.map((chunk) => chunk.data).join(''));
+      } catch (err) {
+        console.warn(`Failed to append ${stream} log: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      for (const chunk of batch) chunk.settle();
+    }
+    draining = null;
+  };
+  return {
+    push: (data) => new Promise<void>((resolve) => {
+      queue.push({ data, settle: resolve });
+      draining ??= drain();
+    }),
+    idle: () => draining ?? Promise.resolve(),
+  };
+}
+
 /**
  * Run a command and capture output.
  *
  * Composes the persistence-free `spawnAndCapture` (processExec.ts) with the
  * tracked path's storage writes: `storage.logs.append` for both streams and
  * the `running` execution status (with pid) once the child has spawned.
+ *
+ * Each stream's appends run one at a time and the chunks that queue behind one
+ * are coalesced; a chunk counts as pending until its append settles, so a
+ * runner that writes faster than the log is appended blocks on its pipe.
  */
 async function runCommand(
   storage: StorageBackend,
@@ -535,65 +721,88 @@ async function runCommand(
   bootId: string,
   scratchDir: string,
   options: ExecuteOptions,
-  extraBins: string[] = []
-): Promise<{ exitCode: number | null; error: string | null }> {
-  // Use promise chains to ensure sequential log writes without overlapping
-  let stdoutWriteChain = Promise.resolve();
-  let stderrWriteChain = Promise.resolve();
+  extraBins: string[] = [],
+  stdinLifeline = false
+): Promise<{ exitCode: number | null; signal: NodeJS.Signals | null; stoppedByE3: boolean; timedOut: boolean; error: string | null }> {
+  const stdoutLog = createLogAppender(
+    (data) => storage.logs.append(repo, taskHash, inHash, executionId, 'stdout', data), 'stdout');
+  const stderrLog = createLogAppender(
+    (data) => storage.logs.append(repo, taskHash, inHash, executionId, 'stderr', data), 'stderr');
 
-  const result = await spawnAndCapture(args, scratchDir, {
-    timeoutMs: options.timeout,
-    signal: options.signal,
-    // Runners (`east-node`, `east-c`) are typically installed as project
-    // devDeps and exposed on `node_modules/.bin`. Walk up from BOTH the
-    // repo and process.cwd() — the nearest .bin often lacks the runner
-    // (it's hoisted to the workspace root).
-    extraBins,
-    searchDirs: [path.dirname(repo), process.cwd()],
-    // Tee stdout - use storage.logs.append for log persistence
-    onStdout: (str) => {
-      stdoutWriteChain = stdoutWriteChain.then(async () => {
-        try {
-          await storage.logs.append(repo, taskHash, inHash, executionId, 'stdout', str);
-        } catch (err) {
-          console.warn(`Failed to append stdout log: ${err instanceof Error ? err.message : String(err)}`);
+  let result: Awaited<ReturnType<typeof spawnAndCapture>>;
+  try {
+    result = await spawnAndCapture(args, scratchDir, {
+      timeoutMs: options.timeout,
+      signal: options.signal,
+      stdinLifeline,
+      // Runners (`east-node`, `east-c`) are typically installed as project
+      // devDeps and exposed on `node_modules/.bin`. Walk up from BOTH the
+      // repo and process.cwd() — the nearest .bin often lacks the runner
+      // (it's hoisted to the workspace root).
+      extraBins,
+      searchDirs: [path.dirname(repo), process.cwd()],
+      // Tee stdout - use storage.logs.append for log persistence
+      onStdout: (str) => {
+        const appended = stdoutLog.push(str);
+        if (options.onStdout) {
+          options.onStdout(str);
         }
-      });
-      if (options.onStdout) {
-        options.onStdout(str);
-      }
-    },
-    // Tee stderr — persist to storage.logs; spawnAndCapture keeps the
-    // in-memory tail that the error message includes on non-zero exit.
-    onStderr: (str) => {
-      stderrWriteChain = stderrWriteChain.then(async () => {
-        try {
-          await storage.logs.append(repo, taskHash, inHash, executionId, 'stderr', str);
-        } catch (err) {
-          console.warn(`Failed to append stderr log: ${err instanceof Error ? err.message : String(err)}`);
+        return appended;
+      },
+      // Tee stderr — persist to storage.logs; spawnAndCapture keeps the
+      // in-memory tail that the error message includes on non-zero exit.
+      onStderr: (str) => {
+        const appended = stderrLog.push(str);
+        if (options.onStderr) {
+          options.onStderr(str);
         }
-      });
-      if (options.onStderr) {
-        options.onStderr(str);
-      }
-    },
-    // Write running status with actual child PID
-    onSpawned: async (pid) => {
-      const pidStartTime = await getPidStartTime(pid ?? -1);
-      const status: ExecutionStatus = variant('running', {
-        executionId,
-        inputHashes,
-        startedAt: new Date(),
-        pid: BigInt(pid ?? -1),
-        pidStartTime: BigInt(pidStartTime ?? -1),
-        bootId,
-      });
-      await storage.refs.executionWrite(repo, taskHash, inHash, executionId, status);
-    },
-  });
+        return appended;
+      },
+      // Write running status with actual child PID
+      onSpawned: async (pid) => {
+        const pidStartTime = await getPidStartTime(pid ?? -1);
+        const startedAt = new Date();
+        const status: ExecutionStatus = variant('running', {
+          executionId,
+          inputHashes,
+          startedAt,
+          pid: BigInt(pid ?? -1),
+          pidStartTime: BigInt(pidStartTime ?? -1),
+          bootId,
+        });
+        await storage.refs.executionWrite(repo, taskHash, inHash, executionId, status);
+        // The owner sidecar: this process, which alone writes the outcome.
+        // A `running` record with no owner is never repaired, so one whose
+        // owner cannot be recorded is recorded failed before the spawn fails.
+        try {
+          await storage.refs.executionOwnerWrite?.(repo, taskHash, inHash, executionId, {
+            pid: process.pid,
+            pidStartTime: await getPidStartTime(process.pid),
+            bootId,
+          });
+        } catch (err) {
+          await storage.refs.executionWrite(repo, taskHash, inHash, executionId, variant('error', {
+            executionId,
+            inputHashes,
+            startedAt,
+            completedAt: new Date(),
+            message: `Failed to record the execution's owner: ${err instanceof Error ? err.message : String(err)}`,
+          }));
+          throw err;
+        }
+      },
+    });
+  } finally {
+    // Every chunk the runner wrote is in its log before this returns — or
+    // throws, when the spawn fails after the runner has written.
+    await Promise.all([stdoutLog.idle(), stderrLog.idle()]);
+  }
 
-  // Wait for any pending log writes to complete
-  await Promise.all([stdoutWriteChain, stderrWriteChain]);
-
-  return { exitCode: result.exitCode, error: result.error };
+  return {
+    exitCode: result.exitCode,
+    signal: result.signal,
+    stoppedByE3: result.stoppedByE3,
+    timedOut: result.timedOut,
+    error: result.error,
+  };
 }

@@ -10,18 +10,27 @@ by ``libs/east-c/packages/east-c-cli/tests/generate_fixtures.mjs`` and mirror
 the same programs. ``events.beast2`` is written by the TS paged writer, which
 makes the stream-fold case a cross-runtime decode of TS-writer bytes.
 
-These cases exercise the whole seam end to end: ``_EmitSink`` (batching, the
-order-robust spill/merge path and its duplicate-key check — issue #518 —
-and output validation), the native accumulator function value that carries
-the sink's ``emit`` into the compiled body (issue #560 phase 2), and
-``Beast2FileWriter`` finalization (terminator + index + footer). The last
-case drives the sink from python instead of from a compiled program — the
-harness route that issue #592 closed.
+These cases exercise the whole seam end to end: ``_EmitSink`` (output
+validation) over east-c's library sink (batching, the ascending check and its
+duplicate-key and out-of-order errors — issues #518, #770 — and finalization:
+terminator + index + footer), and the native function value that carries the
+sink's ``emit`` into the compiled body (issue #560 phase 2). One case drives
+the sink from python instead of from a compiled program — the harness route
+that issue #592 closed.
+
+The issue #770 gates pin the folding sink (``--merge`` / ``--union`` write the
+bytes the flag-less sink writes for the folded sequence, over ascending
+emissions only), the blob merge behind ``east-py merge`` (``merge_blobs``:
+byte-identical to the sink over the fold, the account, the refusals, and the
+key range ``--range`` seeks each input to) and the ``--exit-with-parent``
+stdin lifeline.
 """
 
 import os
+import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -33,17 +42,19 @@ from east import (
     FunctionType,
     IntegerType,
     NullType,
+    SetType,
     StringType,
     platform_function,
 )
 from east.runtime.errors import EastError
 from east.serialization.beast2 import (
     decode_beast2_with_header_for,
+    encode_beast2_v5_for,
     open_beast2_pages_for,
     read_beast2_index,
 )
 
-from east_py_cli.runner import _EmitSink, _peak_rss_kb, run_program
+from east_py_cli.runner import _EmitSink, _peak_rss_kb, merge_blobs, run_program
 
 FIXTURES = Path(__file__).parent / "fixtures"
 INT_ARRAY = ArrayType(IntegerType)
@@ -77,7 +88,7 @@ def test_stream_fold_reads_ts_written_input(tmp_path):
         [FIXTURES / "events.beast2"],
         out,
         emit="array",
-        stream_input=0,
+        stream_inputs=[0],
     )
 
     sums = list(decode_beast2_with_header_for(INT_ARRAY)(out.read_bytes()))
@@ -200,33 +211,17 @@ def test_dict_emit_decodes_with_index(tmp_path):
     assert table[42] == "row-42"
 
 
-def test_dict_emit_accepts_out_of_order_keys(tmp_path, capsys):
-    # Since issue #518 the sink absorbs out-of-order emission (demote →
-    # spill → merge) instead of erroring; the output is the canonical dict
-    # and the transition is reported on stderr.
+def test_dict_emit_rejects_out_of_order_keys(tmp_path, capfd):
+    # Set/Dict emissions must ascend in East order (#770): the sink writes
+    # one pass and never buffers, so a key below the previous one is the
+    # error — in the same words on every runner — and nothing is reported
+    # on stderr on the way there.
     out = tmp_path / "out.beast2"
-    run_program(FIXTURES / "emit_dict_disorder.beast2", [], [], [], out, emit="dict")
-
-    blob = out.read_bytes()
-    assert read_beast2_index(INT_STR_DICT, blob) is not None
-    table = decode_beast2_with_header_for(INT_STR_DICT)(blob)
-    assert dict(table.items()) == {1: "a", 2: "b"}
-    assert "left ascending order" in capsys.readouterr().err
-
-
-def test_dict_emit_shuffled_spills_and_merges_byte_identical(tmp_path, monkeypatch):
-    # The shuffled fixture emits the same 1000 pairs as emit_dict; a tiny
-    # run cap forces spill runs, and the merged blob must be byte-identical
-    # to the ordered producer's, with the runs cleaned up (issue #518).
-    ordered = tmp_path / "ordered.beast2"
-    run_program(FIXTURES / "emit_dict.beast2", [], [], [], ordered, emit="dict")
-
-    shuffled = tmp_path / "shuffled.beast2"
-    monkeypatch.setenv("EAST_EMIT_RUN_ELEMENTS", "32")
-    run_program(FIXTURES / "emit_dict_shuffled.beast2", [], [], [], shuffled, emit="dict")
-
-    assert shuffled.read_bytes() == ordered.read_bytes()
-    assert not list(tmp_path.glob("shuffled.beast2.run*"))
+    expected = ("beast2 v5: Dict key emitted out of order: 1 after 2 — Set/Dict emissions "
+                "must ascend in East order")
+    with pytest.raises(EastError, match=f"^{re.escape(expected)}$"):
+        run_program(FIXTURES / "emit_dict_disorder.beast2", [], [], [], out, emit="dict")
+    assert capfd.readouterr().err == ""
 
 
 def test_dict_emit_duplicate_key_raises(tmp_path):
@@ -262,7 +257,7 @@ def test_stream_index_rejected_on_a_zero_input_program(tmp_path):
     with pytest.raises(ValueError, match=r"--stream index 0 out of range \(0 inputs\)"):
         run_program(
             FIXTURES / "emit_producer.beast2", [], [], [], tmp_path / "out.beast2",
-            emit="array", stream_input=0,
+            emit="array", stream_inputs=[0],
         )
 
 
@@ -356,3 +351,340 @@ def test_snapshot_capture_refuses_streaming_flags(tmp_path, capsys):
     assert cmd_run(args) == 1
     assert "--snapshot does not capture --emit/--stream" in capsys.readouterr().err
     assert not (tmp_path / "snap.east-snapshot").exists()
+
+
+MERGE_CONCAT = FIXTURES / "emit_merge_concat.beast2"
+
+
+@pytest.mark.parametrize("program", ["emit_merge_ascending", "emit_union_ascending"])
+def test_folding_sink_writes_the_folded_sequence_byte_for_byte(tmp_path, program):
+    # Issue #770: with --merge (dict) or --union (set) the sink folds adjacent
+    # equal keys in emission order, and the output is byte-identical to what
+    # the flag-less sink writes for the folded sequence — key 999 folding
+    # into a full batch's last entry included.
+    kind = "dict" if program.startswith("emit_merge") else "set"
+    expected = tmp_path / "expected.beast2"
+    run_program(FIXTURES / f"{program}_folded.beast2", [], [], [], expected, emit=kind)
+
+    folded = tmp_path / "folded.beast2"
+    run_program(
+        FIXTURES / f"{program}.beast2", [], [], [], folded, emit=kind,
+        merge=MERGE_CONCAT if kind == "dict" else None, union=kind == "set",
+    )
+    assert folded.read_bytes() == expected.read_bytes()
+
+
+def test_a_fold_does_not_admit_out_of_order_keys(tmp_path):
+    # The folds are over ADJACENT equal keys: an out-of-order key is the
+    # same error under --merge as without it.
+    with pytest.raises(EastError, match="Dict key emitted out of order: 1 after 2"):
+        run_program(
+            FIXTURES / "emit_dict_disorder.beast2", [], [], [], tmp_path / "out.beast2",
+            emit="dict", merge=MERGE_CONCAT,
+        )
+
+
+def test_a_runner_given_the_stdin_lifeline_exits_once_stdin_closes(tmp_path):
+    # Issue #770 gate (c): with --exit-with-parent and a stdin pipe nobody
+    # writes, the runner exits once that pipe closes — through east-c's
+    # native watcher, which runs while the body holds the GIL. The sink
+    # opens the output file before the body runs, so the file's existence
+    # is the sign the runner is up and computing (the body loops forever
+    # after one emission).
+    out = tmp_path / "spin.beast2"
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "east_py_cli", "run", "--exit-with-parent",
+         str(FIXTURES / "emit_spin.beast2"), "--emit", "set", "-o", str(out)],
+        stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+    )
+    try:
+        # Bounded liveness waits: the interpreter's start-up, then the watcher.
+        deadline = time.monotonic() + 60
+        while not out.exists():
+            assert proc.poll() is None, proc.stderr.read().decode(errors="replace")
+            assert time.monotonic() < deadline, "the runner did not open its output in 60 s"
+            time.sleep(0.05)
+        assert proc.stdin is not None and proc.stderr is not None
+        proc.stdin.close()  # the lifeline closes
+        try:
+            returncode = proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            pytest.fail("the runner outlived its closed stdin by 10 s")
+        stderr = proc.stderr.read()
+        # The watcher's exit, not an error's: exit 1 with nothing reported.
+        assert returncode == 1
+        assert b"Error" not in stderr, stderr.decode(errors="replace")
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+        proc.wait()
+
+
+# ---- The blob merge behind `east-py merge` (#770) ---------------------------
+
+MERGE_INPUTS = [FIXTURES / f"merge_in_{name}.beast2" for name in "abc"]
+MERGE_SETS = [FIXTURES / f"merge_set_{name}.beast2" for name in "abc"]
+
+
+def test_merge_writes_the_fold_byte_identical_to_the_ascending_sink(tmp_path):
+    # Three sorted Dict inputs with overlapping keys (a = 0..19, b = 10..29,
+    # c = {5, 15, 25, 40}) fold in input order under the concatenating merge,
+    # and the blob is exactly what `run --emit dict` writes for the folded
+    # sequence emitted ascending.
+    expected = tmp_path / "expected.beast2"
+    run_program(FIXTURES / "merge_expected_dict.beast2", [], [], [], expected, emit="dict")
+    out = tmp_path / "merged.beast2"
+    assert merge_blobs(MERGE_INPUTS, [], out, merge=MERGE_CONCAT) == {
+        "inputs": 3, "entries": 31, "folds": 13,
+    }
+    assert out.read_bytes() == expected.read_bytes()
+    table = decode_beast2_with_header_for(INT_STR_DICT)(out.read_bytes())
+    assert table[15] == "a15b15c15" and table[40] == "c40"
+
+
+def test_merge_unions_set_inputs_byte_identical_to_the_ascending_sink(tmp_path):
+    expected = tmp_path / "expected.beast2"
+    run_program(FIXTURES / "merge_expected_set.beast2", [], [], [], expected, emit="set")
+    out = tmp_path / "union.beast2"
+    assert merge_blobs(MERGE_SETS, [], out, union=True) == {"inputs": 3, "entries": 31, "folds": 13}
+    assert out.read_bytes() == expected.read_bytes()
+    assert read_beast2_index(SetType(IntegerType), out.read_bytes())[1] == 31
+
+
+def test_merge_without_a_fold_refuses_a_shared_key(tmp_path):
+    out = tmp_path / "dup.beast2"
+    with pytest.raises(ValueError, match="^beast2 v5: duplicate Dict key emitted: 10 — Dict keys "
+                                         "must be unique$"):
+        merge_blobs(MERGE_INPUTS[:2], [], out)
+    # The aborted output is left unfinalised: not an indexed blob.
+    with pytest.raises((ValueError, RuntimeError)):
+        open_beast2_pages_for(INT_STR_DICT)(out.read_bytes())
+
+
+def test_merge_names_the_input_of_another_type(tmp_path):
+    other = FIXTURES / "merge_mismatch.beast2"
+    with pytest.raises(ValueError, match=re.escape(f"merge: input 1 ({other}) has type ")):
+        merge_blobs([MERGE_INPUTS[0], other], [], tmp_path / "x.beast2", merge=MERGE_CONCAT)
+
+
+def test_merge_refuses_an_array_input_and_a_descending_one(tmp_path):
+    with pytest.raises(ValueError, match="^merge: inputs must be Set or Dict blobs, got Array"):
+        merge_blobs([FIXTURES / "events.beast2"], [], tmp_path / "array.beast2")
+    # paged_corrupt.beast2 splices a high key range before a low one: the
+    # reader's canonical-order error, prefixed with the input — the same
+    # sentence east-c and east-node give.
+    corrupt = FIXTURES / "paged_corrupt.beast2"
+    expected = (f"merge: input 0 ({corrupt}): beast2 v5: Dict keys are not strictly ascending in "
+                "East order — the wire must hold the canonical value (corrupt or pre-contract blob)")
+    with pytest.raises(ValueError, match=f"^{re.escape(expected)}$"):
+        merge_blobs([corrupt], [], tmp_path / "descending.beast2")
+
+
+def test_merge_names_a_fold_of_the_wrong_signature(tmp_path):
+    # emit_fold.beast2 is (Array<Integer>, emit) -> Null: not a fold.
+    with pytest.raises(ValueError, match=re.escape(
+            "--merge: expected a function (K, V, V) -> V matching the inputs (K = ")):
+        merge_blobs(MERGE_INPUTS[:1], [], tmp_path / "wrong.beast2", merge=FIXTURES / "emit_fold.beast2")
+
+
+def test_merge_folds_apply_to_their_own_kind(tmp_path):
+    with pytest.raises(ValueError, match="^--merge applies to Dict inputs only$"):
+        merge_blobs(MERGE_SETS[:1], [], tmp_path / "m.beast2", merge=MERGE_CONCAT)
+    with pytest.raises(ValueError, match="^--union applies to Set inputs only$"):
+        merge_blobs(MERGE_INPUTS[:1], [], tmp_path / "u.beast2", union=True)
+
+
+def test_an_empty_input_contributes_nothing(tmp_path):
+    with_empty = tmp_path / "with_empty.beast2"
+    merge_blobs([FIXTURES / "merge_empty.beast2", MERGE_INPUTS[0]], [], with_empty, merge=MERGE_CONCAT)
+    alone = tmp_path / "alone.beast2"
+    merge_blobs(MERGE_INPUTS[:1], [], alone)
+    assert with_empty.read_bytes() == alone.read_bytes()
+    assert read_beast2_index(INT_STR_DICT, alone.read_bytes())[1] == 20
+    empty = tmp_path / "empty.beast2"
+    merge_blobs([FIXTURES / "merge_empty.beast2"], [], empty)
+    assert read_beast2_index(INT_STR_DICT, empty.read_bytes())[1] == 0
+
+
+MERGE_RANGE = {name: FIXTURES / f"merge_range_{name}.beast2" for name in ("7_22", "open", "to_12", "from_25", "30_39", "mismatch")}
+
+
+def test_merge_over_a_key_range_writes_the_ranges_entries_byte_identical_to_the_sink(tmp_path):
+    # [7, 22): 7 is the last key of a's second segment, 22 the first of b's
+    # fourth — the fold's entries in the range, byte-identical to the control
+    # that emits them ascending; the union over the Set twins likewise.
+    expected = tmp_path / "expected.beast2"
+    run_program(FIXTURES / "merge_expected_dict_7_22.beast2", [], [], [], expected, emit="dict")
+    out = tmp_path / "range.beast2"
+    assert merge_blobs(MERGE_INPUTS, [], out, merge=MERGE_CONCAT, range=MERGE_RANGE["7_22"]) == {
+        "inputs": 3, "entries": 15, "folds": 11,
+    }
+    assert out.read_bytes() == expected.read_bytes()
+    table = decode_beast2_with_header_for(INT_STR_DICT)(out.read_bytes())
+    assert table[15] == "a15b15c15" and 6 not in table and 22 not in table
+
+    expected_set = tmp_path / "expected_set.beast2"
+    run_program(FIXTURES / "merge_expected_set_7_22.beast2", [], [], [], expected_set, emit="set")
+    union = tmp_path / "range_union.beast2"
+    assert merge_blobs(MERGE_SETS, [], union, union=True, range=MERGE_RANGE["7_22"]) == {
+        "inputs": 3, "entries": 15, "folds": 11,
+    }
+    assert union.read_bytes() == expected_set.read_bytes()
+
+
+def test_merge_ranges_open_on_a_side_and_empty(tmp_path):
+    whole = tmp_path / "whole.beast2"
+    merge_blobs(MERGE_INPUTS, [], whole, merge=MERGE_CONCAT)
+    open_range = tmp_path / "open.beast2"
+    merge_blobs(MERGE_INPUTS, [], open_range, merge=MERGE_CONCAT, range=MERGE_RANGE["open"])
+    assert open_range.read_bytes() == whole.read_bytes()
+
+    to_12 = tmp_path / "to_12.beast2"
+    assert merge_blobs(MERGE_INPUTS, [], to_12, merge=MERGE_CONCAT, range=MERGE_RANGE["to_12"]) == {
+        "inputs": 3, "entries": 12, "folds": 3,
+    }
+    table = decode_beast2_with_header_for(INT_STR_DICT)(to_12.read_bytes())
+    assert table[5] == "a5c5" and table[11] == "a11b11" and 12 not in table
+
+    from_25 = tmp_path / "from_25.beast2"
+    assert merge_blobs(MERGE_INPUTS, [], from_25, merge=MERGE_CONCAT, range=MERGE_RANGE["from_25"]) == {
+        "inputs": 3, "entries": 6, "folds": 1,
+    }
+    table = decode_beast2_with_header_for(INT_STR_DICT)(from_25.read_bytes())
+    assert table[25] == "b25c25" and table[40] == "c40" and 24 not in table
+
+    empty = tmp_path / "empty.beast2"
+    assert merge_blobs(MERGE_INPUTS, [], empty, merge=MERGE_CONCAT, range=MERGE_RANGE["30_39"]) == {
+        "inputs": 3, "entries": 0, "folds": 0,
+    }
+    assert read_beast2_index(INT_STR_DICT, empty.read_bytes())[1] == 0
+
+
+def test_merge_refuses_bounds_of_another_key_type_and_a_missing_range_file(tmp_path):
+    mismatch = MERGE_RANGE["mismatch"]
+    with pytest.raises(ValueError, match=re.escape(f"merge: --range ({mismatch}) has type ")):
+        merge_blobs(MERGE_INPUTS, [], tmp_path / "m.beast2", merge=MERGE_CONCAT, range=mismatch)
+    with pytest.raises(ValueError, match=re.escape(" (bounds over the inputs' key type)")):
+        merge_blobs(MERGE_INPUTS, [], tmp_path / "m2.beast2", merge=MERGE_CONCAT, range=mismatch)
+    missing = tmp_path / "missing.beast2"
+    with pytest.raises(ValueError, match=f"^{re.escape(f'merge: --range ({missing}): cannot open the file')}$"):
+        merge_blobs(MERGE_INPUTS, [], tmp_path / "m3.beast2", merge=MERGE_CONCAT, range=missing)
+
+
+def test_merge_refuses_a_file_that_is_not_a_blob_in_the_readers_words(tmp_path):
+    # An empty file or a file without the magic, as an input or as the range,
+    # is refused in the reader's own words — the sentence east-c and east-node
+    # give for the same bytes.
+    empty = tmp_path / "empty.beast2"
+    empty.write_bytes(b"")
+    text = tmp_path / "text.beast2"
+    text.write_bytes(b"not a blob")
+    short = "Data too short for Beast2 format: 0 bytes"
+    magic = "Invalid Beast2 magic at offset 0: expected 0x89, got 0x6e"
+    with pytest.raises(ValueError, match=f"^{re.escape(f'merge: input 0 ({empty}): {short}')}$"):
+        merge_blobs([empty], [], tmp_path / "e.beast2")
+    with pytest.raises(ValueError, match=f"^{re.escape(f'merge: input 1 ({text}): {magic}')}$"):
+        merge_blobs([MERGE_INPUTS[0], text], [], tmp_path / "t.beast2", merge=MERGE_CONCAT)
+    with pytest.raises(ValueError, match=f"^{re.escape(f'merge: --range ({empty}): {short}')}$"):
+        merge_blobs(MERGE_INPUTS, [], tmp_path / "re.beast2", merge=MERGE_CONCAT, range=empty)
+    with pytest.raises(ValueError, match=f"^{re.escape(f'merge: --range ({text}): {magic}')}$"):
+        merge_blobs(MERGE_INPUTS, [], tmp_path / "rt.beast2", merge=MERGE_CONCAT, range=text)
+    # A blob without the paging index — a whole-value encode, not what a runner
+    # writes — is refused in the reader's words too.
+    whole = tmp_path / "whole.beast2"
+    whole.write_bytes(encode_beast2_v5_for(INT_STR_DICT)(EastDict(IntegerType, StringType, {1: "a"})))
+    no_index = ("beast2 v5: blob carries no index — ranged reads need one (write with the index "
+                "enabled, the default)")
+    with pytest.raises(ValueError, match=f"^{re.escape(f'merge: input 0 ({whole}): {no_index}')}$"):
+        merge_blobs([whole], [], tmp_path / "w.beast2")
+
+
+def test_the_merge_command_names_a_missing_input_as_the_other_runners_do(tmp_path):
+    missing = tmp_path / "missing.beast2"
+    proc = subprocess.run(
+        [sys.executable, "-m", "east_py_cli", "merge", "-i", str(missing), "-o", str(tmp_path / "m.beast2")],
+        capture_output=True, text=True,
+    )
+    assert proc.returncode == 1
+    assert f"Error: merge: input 0 ({missing}): cannot open the file" in proc.stderr
+    assert "Input file not found" not in proc.stderr
+
+
+def test_merge_keeps_a_container_two_entries_share(tmp_path):
+    """Two entries of one segment whose values share a container: the writer
+    scopes beast2 aliasing per SEGMENT, so the second occurrence is a REF and
+    a merge of this input alone writes its bytes back exactly. east-py binds
+    east-c's merge, which encoded each entry under its own scope and wrote
+    the shared value twice — a different blob and a different hash for one
+    value, and east-py disagreeing with east-node."""
+    aliased = FIXTURES / "merge_aliased.beast2"
+    out = tmp_path / "aliased.beast2"
+    assert merge_blobs([aliased], [], out) == {"inputs": 1, "entries": 2, "folds": 0}
+    assert out.read_bytes() == aliased.read_bytes()
+
+
+def test_the_merge_command_refuses_its_arguments_as_the_other_runners_do(tmp_path):
+    # One sentence per condition, identical on east-c, east-node and east-py:
+    # the three runners are interchangeable, so a task that names one of them
+    # must fail the same way on any of them.
+    def merge(*args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [sys.executable, "-m", "east_py_cli", "merge", *args],
+            capture_output=True, text=True,
+        )
+
+    out = str(tmp_path / "m.beast2")
+    first = str(MERGE_INPUTS[0])
+    for args, message in [
+        ((), "Error: merge requires at least one -i input"),
+        (("-o", out), "Error: merge requires at least one -i input"),
+        (("-i", first), "Error: merge requires -o FILE"),
+        (("-i", first, "-o", out, "--merge", str(MERGE_CONCAT), "--union"),
+         "Error: --merge and --union are two folds — give one"),
+        (("-i", first, "-o", str(tmp_path / "m.bin")),
+         "Error: merge requires a .beast2 output file (-o)"),
+    ]:
+        proc = merge(*args)
+        assert proc.returncode == 1, proc.stderr
+        assert proc.stderr.splitlines()[0] == message, proc.stderr
+
+
+def test_the_run_command_refuses_a_bad_emit_kind_in_the_other_runners_words(tmp_path):
+    # argparse `choices` would answer with a usage dump; east-c and east-node
+    # name the kind they were given.
+    proc = subprocess.run(
+        [sys.executable, "-m", "east_py_cli", "run", str(FIXTURES / "emit_dict.beast2"),
+         "--emit", "bag", "-o", str(tmp_path / "o.beast2")],
+        capture_output=True, text=True,
+    )
+    assert proc.returncode == 1
+    assert proc.stderr.splitlines()[0] == "Error: --emit must be one of array, set or dict, got 'bag'"
+
+
+def test_the_merge_command_prints_its_account(tmp_path):
+    out = tmp_path / "merged.beast2"
+    proc = subprocess.run(
+        [sys.executable, "-m", "east_py_cli", "merge", "--merge", str(MERGE_CONCAT),
+         *(arg for path in MERGE_INPUTS for arg in ("-i", str(path))), "-o", str(out), "-v"],
+        capture_output=True, text=True,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert "merge: 3 input(s), 31 entries, 13 fold(s)" in proc.stderr
+    assert read_beast2_index(INT_STR_DICT, out.read_bytes())[1] == 31
+
+    both = subprocess.run(
+        [sys.executable, "-m", "east_py_cli", "merge", "--merge", str(MERGE_CONCAT), "--union",
+         "-i", str(MERGE_INPUTS[0]), "-o", str(tmp_path / "both.beast2")],
+        capture_output=True, text=True,
+    )
+    assert both.returncode == 1
+    assert "Error: --merge and --union are two folds — give one" in both.stderr
+
+    ranged = subprocess.run(
+        [sys.executable, "-m", "east_py_cli", "merge", "--merge", str(MERGE_CONCAT), "--range",
+         str(MERGE_RANGE["7_22"]), *(arg for path in MERGE_INPUTS for arg in ("-i", str(path))),
+         "-o", str(tmp_path / "ranged.beast2"), "-v"],
+        capture_output=True, text=True,
+    )
+    assert ranged.returncode == 0, ranged.stderr
+    assert "merge: 3 input(s), 15 entries, 11 fold(s)" in ranged.stderr

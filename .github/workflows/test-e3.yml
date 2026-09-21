@@ -74,6 +74,16 @@ jobs:
       - name: Install Node.js dependencies
         run: pnpm install
 
+      # e3-core runs each runner on Windows through its job launcher, which a
+      # published install carries as the optional dependency
+      # @elaraai/e3-job-win32-x64. In this checkout it is built and staged into
+      # the workspace node_modules instead (in the MSVC environment set up
+      # above); e3-core's tests fail on Windows without it.
+      - name: Install the job launcher (Windows)
+        if: runner.os == 'Windows'
+        working-directory: libs/e3
+        run: make install-job
+
       - name: Build east (dependency)
         working-directory: libs/east
         run: make build

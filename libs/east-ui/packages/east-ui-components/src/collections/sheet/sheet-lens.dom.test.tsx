@@ -287,7 +287,15 @@ describe("the paged arm's key search (§3.13)", () => {
         expect(search).toBeTruthy();
         const input = search.querySelector("input") as HTMLInputElement;
         // Typed a key at a time (the control debounces into one prefix query): J10230 … J10239.
-        await userEvent.type(input, "J1023", { delay: 10 });
+        // Each keystroke is confirmed before the next: the combobox input is
+        // controlled, so a re-render that lands late leaves userEvent appending
+        // to a stale value, which swallows a character (a loaded CI runner typed
+        // "J123", which matches nothing).
+        for (const key of "J1023") {
+            const typed = input.value + key;
+            await userEvent.type(input, key);
+            await waitFor(() => expect(input.value).toBe(typed));
+        }
         await waitFor(() => expect(search.textContent).toMatch(/10 matches/), { timeout: 5_000 });
         fireEvent.keyDown(input, { key: "Enter" });
         await waitFor(() => expect(cellOf(container, "J10230", "activity").hasAttribute("data-selected")).toBe(true), { timeout: 5_000 });

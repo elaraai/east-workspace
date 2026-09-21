@@ -123,6 +123,14 @@ function typeValueOf(type: EastType | EastTypeValue): EastTypeValue {
     return isVariant(type) ? (type as EastTypeValue) : toEastTypeValue(type as EastType);
 }
 
+/** The root rows of a stored collection, or null for any other root. */
+function countOf(stored: Stored): number | null {
+    if (stored.type.type === 'Array') return (stored.value as unknown[]).length;
+    if (stored.type.type === 'Dict') return (stored.value as Map<unknown, unknown>).size;
+    if (stored.type.type === 'Set') return (stored.value as Set<unknown>).size;
+    return null;
+}
+
 /** Options for {@link FakeApi.run}: how the scripted dataflow plays out. */
 export interface FakeRunScript {
     /** Events emitted in order, each after `stepMs` (default 0 — all at once). */
@@ -145,6 +153,10 @@ export class FakeApi implements Api {
     latencyMs = 0;
     /** When set, every call rejects with it (simulates an unreachable server). */
     failWith: Error | null = null;
+    /** What the server's byte budget does to wide rows: no page window carries more than this many rows (null = as asked). */
+    pageRowCap: number | null = null;
+    /** Whether the status reports the stored geometry (`rows` / `segments`), as the real server does for an indexed collection. */
+    geometry = false;
     /** The bound repository. */
     repo = 'default';
     /** The identity `whoami` would print. */
@@ -385,15 +397,16 @@ export class FakeApi implements Api {
             if (input === undefined && task === undefined) throw new ApiError('dataset_not_found', { workspace: ws, path: dotted });
             const declared = input?.type ?? task?.output?.type;
             const type = stored?.type ?? (declared !== undefined ? typeValueOf(declared) : toEastTypeValue({ type: 'Null' } as EastType));
+            const rows = this.geometry && stored !== undefined ? countOf(stored) : null;
             return {
                 path: dotted,
                 type,
                 refType: stored === undefined ? 'unassigned' : 'value',
                 hash: stored !== undefined ? some(stored.hash) : none,
                 size: stored !== undefined ? some(BigInt(stored.bytes.length)) : none,
-                // The fake does not model stored geometry.
-                segments: none,
-                rows: none,
+                // One segment stands in for the stored geometry when it is modelled at all.
+                segments: rows !== null ? some(1n) : none,
+                rows: rows !== null ? some(BigInt(rows)) : none,
             };
         });
     }
@@ -433,7 +446,8 @@ export class FakeApi implements Api {
                 throw new ApiError('dataset_not_pageable', 'not a collection');
             }
             const offset = Math.max(0, Math.min(window.offset, elements.length));
-            const slice = elements.slice(offset, offset + window.limit);
+            const limit = this.pageRowCap === null ? window.limit : Math.min(window.limit, Math.max(1, this.pageRowCap));
+            const slice = elements.slice(offset, offset + limit);
             const data = encodeBeast2For(t)(build(slice) as never);
             return {
                 data,
@@ -608,6 +622,29 @@ export function dictOf(n: number): { type: EastType; value: Map<string, { store:
     const stores = ['Bakery', 'Deli', 'Produce'];
     for (let i = 0; i < n; i++) {
         value.set(`k${String(i).padStart(4, '0')}`, { store: stores[i % 3]!, day: new Date(Date.UTC(2025, 8, 1 + (i % 28))), units: BigInt(1000 + (i * 37) % 400) });
+    }
+    return { type, value };
+}
+
+/**
+ * A Dict<String, Struct> of `n` rows each carrying a `note` of `noteChars`
+ * incompressible characters — the wide rows a byte-sized page shortens.
+ */
+export function wideDictOf(n: number, noteChars: number): { type: EastType; value: Map<string, { store: string; units: bigint; note: string }> } {
+    const { DictType, StringType, StructType, IntegerType } = eastTypes();
+    const type = DictType(StringType, StructType({ store: StringType, units: IntegerType, note: StringType }));
+    const value = new Map<string, { store: string; units: bigint; note: string }>();
+    const stores = ['Bakery', 'Deli', 'Produce'];
+    const alphabet = 'abcdefghijklmnopqrstuvwxyz0123456789';
+    let seed = 0x2545f491;
+    const next = (): number => {
+        seed = (Math.imul(seed, 1103515245) + 12345) >>> 0;
+        return (seed >>> 16) % alphabet.length;
+    };
+    for (let i = 0; i < n; i++) {
+        let note = '';
+        for (let j = 0; j < noteChars; j++) note += alphabet[next()];
+        value.set(`k${String(i).padStart(5, '0')}`, { store: stores[i % 3]!, units: BigInt(1000 + (i * 37) % 400), note });
     }
     return { type, value };
 }

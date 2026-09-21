@@ -35,7 +35,7 @@ import type { Controller } from '../../controller.js';
 import type { ParsedCommand } from '../../input/commands.js';
 import type { KeyAction } from '../../input/keymap.js';
 import { layoutOf } from '../../model/index.js';
-import { PAGE_SIZE, treeModel, viewDataset, type TreeModel } from '../../model/tree.js';
+import { treeModel, viewDataset, type TreeModel } from '../../model/tree.js';
 import type { Glyphs } from '../../render/glyphs.js';
 import { labelWidth, scrollIntoView } from '../../render/layout.js';
 import { formatInt, formatSize, padEnd, percent } from '../../render/text.js';
@@ -101,6 +101,7 @@ export function renderTreeRows(model: TreeModel, tree: TreeUi, loading: readonly
     const top = Math.max(0, Math.min(tree.top, Math.max(0, model.total - visible)));
     const lines: Line[] = [];
     const noted = new Set<number>();
+    const pageSize = model.paged === null ? 1 : model.paged.paging.pageSize;
     for (let i = top; i < top + visible; i++) {
         const at = model.at(i);
         if (at === null) {
@@ -109,7 +110,7 @@ export function renderTreeRows(model: TreeModel, tree: TreeUi, loading: readonly
         }
         const selected = i === tree.sel;
         if (at.kind === 'placeholder') {
-            const page = Math.floor(at.globalRow / PAGE_SIZE);
+            const page = Math.floor(at.globalRow / pageSize);
             let note = '';
             if (loading.includes(page) && !noted.has(page)) {
                 noted.add(page);
@@ -286,7 +287,7 @@ function jumpToRoot(controller: Controller, ctx: TreeContext, model: TreeModel, 
 async function jumpToEnd(controller: Controller, first: TreeContext, firstModel: TreeModel): Promise<void> {
     if (firstModel.paged !== null) {
         const lastRoot = Math.max(0, firstModel.rootCount - 1);
-        controller.deps.feeds.datasets.needRows(first.ws, first.path, Math.max(0, lastRoot - PAGE_SIZE), lastRoot + 1);
+        controller.deps.feeds.datasets.needRows(first.ws, first.path, Math.max(0, lastRoot - firstModel.paged.paging.pageSize), lastRoot + 1);
         const deadline = Date.now() + JUMP_WAIT_MS;
         for (;;) {
             const ctx = treeContext(controller.state());

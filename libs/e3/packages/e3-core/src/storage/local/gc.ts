@@ -20,9 +20,11 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { tmpdir } from 'os';
-import { decodeBeast2, isEastDict } from '@elaraai/east';
-import type { RepoStore, GcObjectEntry, GcRootScanResult, StorageBackend } from '../interfaces.js';
+import { decodeBeast2, isEastDict, readBeast2Type, toEastTypeValue, variant, type EastTypeValue } from '@elaraai/east';
+import { PartitionPlanType } from '@elaraai/e3-types';
+import type { RepoStore, GcObjectEntry, GcRootScanResult, LockHandle, StorageBackend } from '../interfaces.js';
 import { transferStagingDir } from './localHelpers.js';
+import { sweepScratchDirs } from '../../execution/scratch.js';
 
 /**
  * Options for garbage collection
@@ -103,6 +105,24 @@ export async function collectAllRoots(store: RepoStore, repo: string): Promise<S
   return roots;
 }
 
+/** Head read sizes the header-first mark tries, in order — the sequence
+ *  `readBeast2HeaderType` uses. */
+const HEAD_PROBE_BYTES = [64 * 1024, 1024 * 1024, 16 * 1024 * 1024];
+
+/**
+ * Options for {@link markReachable}.
+ */
+export interface MarkReachableOptions {
+  /**
+   * Reads the first `length` bytes of an object (fewer when the object is
+   * shorter), or returns null when it does not exist. With it the mark is
+   * header-first: an object's type is read from its head, and only an object
+   * of a structural shape — one that names other objects — is read whole;
+   * every other object is marked without being read.
+   */
+  readHead?: (hash: string, length: number) => Promise<Uint8Array | null>;
+}
+
 /**
  * Trace the object graph from roots using iterative DFS with schema-aware traversal.
  *
@@ -110,13 +130,21 @@ export async function collectAllRoots(store: RepoStore, repo: string): Promise<S
  * hashes based on the detected object type (Package, Task, or Tree). Objects
  * known to be leaves (values, IR blobs) are marked reachable without reading.
  *
+ * With `options.readHead`, a root or child whose kind is not known in advance
+ * is classified by its header first: 64 KiB of head, growing to 1 MiB and then
+ * 16 MiB while its type section does not fit. Only a structural shape is read
+ * whole; a dataset, whatever its size, is marked without being read, and so is
+ * an object whose head yields no type.
+ *
  * @param readObject - Function to read an object by hash (returns null if missing)
  * @param roots - Set of root hashes to start from
+ * @param options - Header-first classification
  * @returns Set of all reachable hashes
  */
 export async function markReachable(
   readObject: (hash: string) => Promise<Uint8Array | null>,
-  roots: Set<string>
+  roots: Set<string>,
+  options: MarkReachableOptions = {}
 ): Promise<Set<string>> {
   const reachable = new Set<string>();
   const stack = [...roots];
@@ -124,6 +152,15 @@ export async function markReachable(
   while (stack.length > 0) {
     const hash = stack.pop()!;
     if (reachable.has(hash)) continue;
+
+    if (options.readHead) {
+      const type = await readHeadType(options.readHead, hash);
+      if (type === 'missing') continue;
+      if (type === null || !isStructuralShape(type)) {
+        reachable.add(hash); // a leaf: marked without being read
+        continue;
+      }
+    }
 
     const data = await readObject(hash);
     if (!data) continue;
@@ -149,6 +186,30 @@ export async function markReachable(
   }
 
   return reachable;
+}
+
+/**
+ * The root type an object's header declares, read through growing head
+ * probes; `null` when no probe yields one (not beast2, or a malformed or
+ * implausibly large type section — a leaf), or `'missing'` when the object
+ * does not exist.
+ */
+async function readHeadType(
+  readHead: (hash: string, length: number) => Promise<Uint8Array | null>,
+  hash: string
+): Promise<EastTypeValue | null | 'missing'> {
+  for (const probe of HEAD_PROBE_BYTES) {
+    const head = await readHead(hash, probe);
+    if (head === null) return 'missing';
+    try {
+      return readBeast2Type(head);
+    } catch {
+      // A short head fails like a malformed one: grow, unless this head was
+      // already the whole object.
+      if (head.length < probe) return null;
+    }
+  }
+  return null;
 }
 
 // =============================================================================
@@ -246,6 +307,39 @@ function isRecordCommitShape(type: any): boolean {
     && names.has('args') && names.has('actor') && names.has('at');
 }
 
+/** `PartitionPlanType`'s field names, in wire order, read from the type
+ *  itself rather than written out here: every plan shape a repository can
+ *  hold is a PREFIX of this list, because beast2 encodes struct fields
+ *  positionally and the plan only ever grows by appending LAST. */
+const PARTITION_PLAN_FIELDS: readonly string[] =
+  (toEastTypeValue(PartitionPlanType).value as { name: string }[]).map(f => f.name);
+
+/** The fields every plan has carried, from the first vintage on: the ones a
+ *  prefix must reach before it is a plan rather than an unrelated struct. */
+const PARTITION_PLAN_MIN_FIELDS = 4;
+
+/**
+ * Check if a decoded EastTypeValue represents a PartitionPlan — of any
+ * vintage: a struct that agrees with {@link PARTITION_PLAN_FIELDS} on their
+ * common prefix, which must reach {@link PARTITION_PLAN_MIN_FIELDS}.
+ *
+ * Both directions matter, and both lose objects when they are wrong. A plan
+ * SHORTER than this build's type is one an older e3 recorded; a plan LONGER
+ * is one a newer e3 recorded in a repository this build is sweeping. Either
+ * way an unrecognised plan is treated as a leaf, its children are never
+ * extracted, and the sweep deletes the carved slices and range blobs it is
+ * the only reference to. Reading the names off the type keeps the two from
+ * drifting when a field is appended; `gc.spec.ts` pins the order they must
+ * be appended in.
+ */
+function isPartitionPlanShape(type: any): boolean {
+  if (type.type !== 'Struct') return false;
+  const names = (type.value as { name: string }[]).map(f => f.name);
+  const common = Math.min(names.length, PARTITION_PLAN_FIELDS.length);
+  if (common < PARTITION_PLAN_MIN_FIELDS) return false;
+  return PARTITION_PLAN_FIELDS.slice(0, common).every((name, i) => name === names[i]);
+}
+
 /**
  * Check if a field type is a DataRef (Variant with cases: unassigned, null, value, tree).
  */
@@ -264,6 +358,17 @@ function isTreeObjectShape(type: any): boolean {
   if (type.type !== 'Struct') return false;
   const fields = type.value as { name: string; type: any }[];
   return fields.length > 0 && fields.every(f => isDataRefFieldType(f.type));
+}
+
+/**
+ * Whether an object of this type names other objects, so the mark must read
+ * it whole: every shape {@link extractChildren} traverses.
+ */
+function isStructuralShape(type: EastTypeValue): boolean {
+  const t = type as any;
+  return isPackageObjectShape(t) || isTaskObjectShape(t) || isFunctionObjectShape(t)
+    || isRecordObjectShape(t) || isMutationObjectShape(t) || isEnvironmentSpecShape(t)
+    || isRecordCommitShape(t) || isPartitionPlanShape(t) || isTreeObjectShape(t);
 }
 
 /**
@@ -380,6 +485,19 @@ function extractChildren(
     return children;
   }
 
+  if (isPartitionPlanShape(t)) {
+    // Partition slices are leaves; '' marks a slice the run never carved,
+    // which is no object. A merged component's range blobs are leaves too.
+    const plan = value as { slices: string[][]; merges?: { ranges: string[] }[] };
+    for (const slices of plan.slices) {
+      for (const slice of slices) if (slice !== '') children.push({ hash: slice, isLeaf: true });
+    }
+    for (const merge of plan.merges ?? []) {
+      for (const range of merge.ranges) children.push({ hash: range, isLeaf: true });
+    }
+    return children;
+  }
+
   if (isTreeObjectShape(t)) {
     const tree = value as Record<string, { type: string; value: any }>;
     for (const ref of Object.values(tree)) {
@@ -440,19 +558,64 @@ export function sweepBatch(
 // =============================================================================
 
 /**
+ * The lock an ad-hoc task run (`e3 run`) holds shared for its duration and
+ * gc takes exclusive, so the two never overlap: a run outside any workspace
+ * has no dataflow lock, yet writes objects it has not rooted (carved slices,
+ * unit outputs) that a concurrent sweep would delete.
+ */
+export const TASKS_LOCK = '#tasks';
+
+/**
  * Run garbage collection on an e3 repository.
  *
  * Works with any StorageBackend — no instanceof checks.
+ *
+ * gc holds the {@link TASKS_LOCK} exclusively and every workspace's dataflow
+ * lock from before the mark until the sweep is done, so it never overlaps an
+ * ad-hoc task run or a dataflow run: the objects a run writes before it roots
+ * them (carved slices, unit outputs) need no rooting. Marking is header-first
+ * when the object store serves ranged reads, so a dataset is never read
+ * whole.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
  * @param options - GC options
  * @returns GC result with statistics
+ * @throws {Error} When a task is running in the repository, or a dataflow is
+ *   running in one of its workspaces.
  */
 export async function repoGc(
   storage: StorageBackend,
   repo: string,
   options: GcOptions = {}
+): Promise<GcResult> {
+  const locks: LockHandle[] = [];
+  try {
+    const tasks = await storage.locks.acquire(repo, TASKS_LOCK, variant('dataflow', null));
+    if (tasks === null) {
+      throw new Error('gc: a task is running — retry when it finishes');
+    }
+    locks.push(tasks);
+    for (const ws of await storage.refs.workspaceList(repo)) {
+      const lock = await storage.locks.acquire(repo, `${ws}#dataflow`, variant('dataflow', null));
+      if (lock === null) {
+        throw new Error(`gc: a dataflow is running in workspace '${ws}' — retry when it finishes`);
+      }
+      locks.push(lock);
+    }
+    return await collectGarbage(storage, repo, options);
+  } finally {
+    for (const lock of locks) {
+      await lock.release();
+    }
+  }
+}
+
+/** The mark and sweep of {@link repoGc}, run under its locks. */
+async function collectGarbage(
+  storage: StorageBackend,
+  repo: string,
+  options: GcOptions
 ): Promise<GcResult> {
   const minAge = options.minAge ?? 60000;
   const dryRun = options.dryRun ?? false;
@@ -460,7 +623,7 @@ export async function repoGc(
   // Step 1: Collect all root hashes
   const roots = await collectAllRoots(storage.repos, repo);
 
-  // Step 2: Mark all reachable objects
+  // Step 2: Mark all reachable objects, header-first where ranged reads exist
   const readObject = async (hash: string): Promise<Uint8Array | null> => {
     try {
       return await storage.objects.read(repo, hash);
@@ -468,7 +631,17 @@ export async function repoGc(
       return null;
     }
   };
-  const reachable = await markReachable(readObject, roots);
+  const readRange = storage.objects.readRange?.bind(storage.objects);
+  const readHead = readRange
+    ? async (hash: string, length: number): Promise<Uint8Array | null> => {
+      try {
+        return await readRange(repo, hash, 0, length);
+      } catch {
+        return null;
+      }
+    }
+    : undefined;
+  const reachable = await markReachable(readObject, roots, { readHead });
 
   // Step 3: Scan and sweep objects
   let totalDeleted = 0;
@@ -525,6 +698,16 @@ export async function repoGc(
     partialSkippedYoung += transferResult.skippedYoung;
   } catch {
     // Not a fatal error
+  }
+
+  // Step 6: Remove the scratch directories of executions whose orchestrator
+  // has exited (local-only concern)
+  if (!dryRun) {
+    try {
+      await sweepScratchDirs({ minAge });
+    } catch {
+      // Not a fatal error
+    }
   }
 
   return {

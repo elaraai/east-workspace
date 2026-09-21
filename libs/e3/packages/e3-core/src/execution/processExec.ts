@@ -16,8 +16,11 @@
 import * as fs from 'fs/promises';
 import { createReadStream, existsSync } from 'fs';
 import * as path from 'path';
+import { StringDecoder } from 'string_decoder';
+import type { Readable } from 'stream';
 import crossSpawn from 'cross-spawn';
-import { spawn as nodeSpawn } from 'child_process';
+import { spawn as nodeSpawn, type ChildProcess, type SpawnOptions } from 'child_process';
+import { createRequire } from 'module';
 import { runnerToArgv, type RunnerValue } from '@elaraai/e3-types';
 import type { StorageBackend } from '../storage/interfaces.js';
 
@@ -230,6 +233,170 @@ export function buildRunnerArgv(
   ];
 }
 
+/** How long a child e3 stopped is read after it has exited, before its pipes
+ *  are closed from this side (see spawnAndCapture). */
+const STOP_DRAIN_MS = 5_000;
+
+/** The per-platform package carrying the Windows job launcher. */
+const JOB_LAUNCHER_PACKAGE = '@elaraai/e3-job-win32-x64';
+
+let jobLauncherPath: string | null | undefined;
+
+/**
+ * The Windows job launcher, `e3-job.exe`: the path of the one this install
+ * carries, or null — off Windows, and on a Windows install without it.
+ *
+ * @remarks
+ * Windows has no process group a signal can address. Its container for "a
+ * process and everything it starts" is the Job Object, which Node cannot
+ * create, so e3 runs each runner in one through this small native launcher
+ * (libs/e3/native/e3-job): it joins a new job that allows no breakaway and
+ * ends every member when its last handle closes, starts the runner in it, and
+ * exits with the runner's exit code; e3 stops the runner by ending the
+ * launcher. It ships in its own per-platform package, an optional dependency
+ * of e3-core; an install without it (optional dependencies omitted, or a
+ * platform it is not built for) runs runners directly, and a stop ends only
+ * what `taskkill /T` can find.
+ *
+ * @returns The launcher's path, or null
+ * @internal
+ */
+export function jobLauncher(): string | null {
+  if (jobLauncherPath === undefined) {
+    jobLauncherPath = null;
+    if (process.platform === 'win32') {
+      try {
+        jobLauncherPath = createRequire(import.meta.url).resolve(`${JOB_LAUNCHER_PACKAGE}/e3-job.exe`);
+      } catch {
+        process.emitWarning(
+          `the Windows job launcher (${JOB_LAUNCHER_PACKAGE}) is not installed: runners run without a job object, ` +
+          'and stopping one ends only the processes taskkill /T can find — install e3-core with its optional dependencies',
+          { code: 'E3_NO_JOB_LAUNCHER' },
+        );
+      }
+    }
+  }
+  return jobLauncherPath;
+}
+
+/**
+ * Quotes one argument into a Windows command line exactly as libuv does
+ * (`quote_cmd_arg`, src/win/process.c), so a command line built here is the
+ * one Node would have built to spawn the same argv.
+ *
+ * @param arg - The argument
+ * @returns The argument, quoted and escaped where it needs to be
+ * @internal
+ */
+export function quoteWindowsArgument(arg: string): string {
+  if (arg.length === 0) return '""';
+  if (!/[ \t"]/.test(arg)) return arg;
+  if (!/["\\]/.test(arg)) return `"${arg}"`;
+  // Walking backwards a UTF-16 unit at a time, as libuv does, backslashes
+  // before a quote — or before the closing quote at the end — are doubled,
+  // and each quote is escaped.
+  const units: string[] = [];
+  let quoteFollows = true;
+  for (let i = arg.length - 1; i >= 0; i--) {
+    const c = arg[i]!;
+    units.push(c);
+    if (quoteFollows && c === '\\') {
+      units.push('\\');
+    } else if (c === '"') {
+      quoteFollows = true;
+      units.push('\\');
+    } else {
+      quoteFollows = false;
+    }
+  }
+  return `"${units.reverse().join('')}"`;
+}
+
+/** A command as cross-spawn would spawn it. */
+interface ParsedCommand {
+  command: string;
+  args: string[];
+  options: SpawnOptions;
+  /** The resolved path of the program, when it was found. */
+  file?: string;
+}
+
+/** cross-spawn's parse of a command (`_parse`), which execa relies on too. */
+const parseCommand = (crossSpawn as unknown as {
+  _parse: (command: string, args: string[], options: SpawnOptions) => ParsedCommand;
+})._parse;
+
+/**
+ * Spawns a command on Windows inside a job object, through the job launcher.
+ *
+ * @remarks
+ * The command is parsed exactly as a direct spawn parses it — cross-spawn's
+ * parse, which runs a `.cmd` shim through cmd.exe with its own escaping, and
+ * a script with a shebang through the interpreter it names — and the program
+ * that parse runs is found the way cross-spawn finds a command. The launcher
+ * is given that program's path and the very command line Node would have
+ * built to spawn the parse, which it hands to CreateProcessW unchanged. A
+ * command that cannot be found is not launched: the direct spawn reports it
+ * as usual (cross-spawn turns cmd.exe's "not recognized" into ENOENT).
+ *
+ * @param launcher - The job launcher's path
+ * @param cmd - The command
+ * @param args - Its arguments
+ * @param options - The spawn options
+ * @returns The launcher's process, or null when the command is not found
+ */
+function spawnInJob(launcher: string, cmd: string, args: string[], options: SpawnOptions): ChildProcess | null {
+  const parsed = parseCommand(cmd, args, options);
+  if (parsed.file === undefined) return null;
+  // The program the parse runs — the command itself, the interpreter its
+  // shebang names, or cmd.exe for a shim — which Node would look up by name.
+  const application = parseCommand(parsed.command, [], parsed.options).file;
+  if (application === undefined) return null;
+  const verbatim = parsed.options.windowsVerbatimArguments === true;
+  const commandLine = [parsed.command, ...parsed.args].map((arg) => (verbatim ? arg : quoteWindowsArgument(arg))).join(' ');
+  return nodeSpawn(launcher, [`"${application}"`, commandLine], {
+    ...parsed.options,
+    // The launcher's own command line is built here, so Node must pass it as is.
+    windowsVerbatimArguments: true,
+    argv0: `"${launcher}"`,
+  });
+}
+
+/**
+ * Ends a process and every process it started, on Windows, when it was not
+ * started in a job object.
+ *
+ * @remarks
+ * Without the job launcher (see {@link jobLauncher}) there is no container to
+ * close: `taskkill /T /F` ends the process and every descendant it finds by
+ * parent pid. It misses a program whose parent has exited — Git Bash's exec
+ * leaves each program it runs so — and such a program runs on until it ends
+ * by itself. taskkill runs by absolute path, so no PATH entry can stand in for
+ * it, and only while the child lives: after it exits its pid may name another
+ * process. When taskkill cannot run or fails, the child is killed directly.
+ *
+ * @param child - The direct child, running
+ */
+function killProcessTree(child: ChildProcess): void {
+  const lastResort = (): void => {
+    try {
+      child.kill('SIGKILL');
+    } catch {
+      // Already exited
+    }
+  };
+  try {
+    const taskkill = nodeSpawn(path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'taskkill.exe'),
+      ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
+    taskkill.on('error', lastResort);
+    taskkill.on('exit', (code) => {
+      if (code !== 0 && child.exitCode === null && child.signalCode === null) lastResort();
+    });
+  } catch {
+    lastResort();
+  }
+}
+
 /**
  * Options for {@link spawnAndCapture}.
  */
@@ -239,12 +406,27 @@ export interface SpawnAndCaptureOptions {
   timeoutMs?: number;
   /** AbortSignal for cancellation (kills the process group). */
   signal?: AbortSignal;
-  /** Streaming stdout callback (called per chunk, before tail capture). */
-  onStdout?: (data: string) => void;
-  /** Streaming stderr callback (called per chunk, before tail capture). */
-  onStderr?: (data: string) => void;
+  /** Streaming stdout callback, called per chunk of whole characters after
+   *  tail capture. A returned promise keeps the chunk's bytes pending until it
+   *  settles (see {@link maxPendingBytes}). */
+  onStdout?: (data: string) => void | Promise<void>;
+  /** Streaming stderr callback, as {@link onStdout}. */
+  onStderr?: (data: string) => void | Promise<void>;
   /** Per-stream in-memory tail cap in bytes (default 64 KiB). */
   maxLogBytes?: number;
+  /** Per stream, the bytes handed to its callback whose promises have not
+   *  settled above which the stream is paused (default 1 MiB); it resumes once
+   *  they fall to half. A child writing faster than the callback settles then
+   *  blocks on its pipe. */
+  maxPendingBytes?: number;
+  /** Gives the child a stdin pipe this process never writes to — the
+   *  lifeline a stock runner spawned with `--exit-with-parent` (spliced into
+   *  the argv by `withRunnerLifeline`) reads until end of file, so it exits
+   *  when the pipe closes: when this process dies. On Windows the pipe is
+   *  overlapped, so the runner keeps full use of its stdin while that read
+   *  is pending. The pipe is destroyed once the child has closed. Without it
+   *  stdin is ignored. */
+  stdinLifeline?: boolean;
   /** Executable dirs prepended to the child PATH ahead of everything else —
    *  a materialized execution environment's bin dir (materializeEnvironment)
    *  must beat both the project venv and node_modules/.bin. */
@@ -253,7 +435,9 @@ export interface SpawnAndCaptureOptions {
    *  PATH so runner CLIs resolve (deduped, nearest first). */
   searchDirs?: string[];
   /** Called once the child has spawned, with its pid (or null). The tracked
-   *  path uses this to write the `running` execution status. */
+   *  path uses this to write the `running` execution status. When it throws,
+   *  the child is stopped and waited for, and the spawn rejects with its
+   *  error. */
   onSpawned?: (pid: number | null) => void | Promise<void>;
 }
 
@@ -263,10 +447,15 @@ export interface SpawnAndCaptureOptions {
 export interface SpawnAndCaptureResult {
   /** Process exit code (null if killed by signal or spawn failed) */
   exitCode: number | null;
+  /** The signal that ended the process, when one did (null otherwise) */
+  signal: NodeJS.Signals | null;
   /** Spawn-failure / non-zero-exit description (null on success) */
   error: string | null;
   /** True if the timeout fired and killed the process group */
   timedOut: boolean;
+  /** True if this process killed the process group — because the abort
+   *  signal fired or the timeout expired */
+  stoppedByE3: boolean;
   /** Bounded tail of stdout (per maxLogBytes) */
   stdoutTail: string;
   /** Bounded tail of stderr (per maxLogBytes) */
@@ -282,17 +471,32 @@ export interface SpawnAndCaptureResult {
  * LocalTaskRunner minus every storage write.
  *
  * Keeps: cross-spawn/nodeSpawn selection, node_modules/.bin PATH
- * augmentation, `detached: true` process-group management, stdout/stderr
- * listeners (streaming callbacks + bounded in-memory tails), process-group
- * kill, timeout + AbortSignal wiring.
+ * augmentation, process-group management on POSIX, stdout/stderr listeners
+ * (streaming callbacks of whole characters with backpressure + bounded
+ * in-memory tails), process-tree kill, timeout + AbortSignal wiring, and the
+ * optional stdin lifeline pipe a runner spawned with `--exit-with-parent`
+ * reads, so it exits with this process.
  *
  * Process Lifecycle Management
  * ============================
- * We use detached: true to create a new process group, allowing us to kill
- * the entire process tree by signaling the negative PID (process group
- * leader). Process groups are flat, not hierarchical — a task that calls
- * setsid() escapes the kill; that is a known, accepted limitation (see the
- * discussion that used to live in runCommand).
+ * On POSIX we use detached: true to create a new process group, allowing us
+ * to kill the entire process tree by signaling the negative PID (process
+ * group leader). Process groups are flat, not hierarchical — a task that
+ * calls setsid() escapes the kill; that is a known, accepted limitation (see
+ * the discussion that used to live in runCommand). Windows has no process
+ * group a signal can address: there the child is the job launcher (see
+ * {@link jobLauncher}), which runs the command in a job object nothing it
+ * starts can leave, and a stop ends the launcher, which ends the job and
+ * every process in it. The job ends the same way when this process dies, as
+ * Node ends its direct children with it, and when the command exits, so on
+ * Windows nothing a runner starts outlives it. Without the launcher a stop
+ * ends what {@link killProcessTree} finds, and when this process dies only
+ * the direct child ends with it — a stock runner beneath a `.cmd` shim exits
+ * through its lifeline instead. The child is never detached on Windows (see
+ * the spawn options for why it must not be). On every platform a stop
+ * finishes even when a process it could not reach holds the child's output
+ * open: once the child has exited, e3 reads on for STOP_DRAIN_MS and then
+ * closes the pipes itself.
  */
 export async function spawnAndCapture(
   args: string[],
@@ -303,8 +507,10 @@ export async function spawnAndCapture(
   if (!cmd) {
     return {
       exitCode: null,
+      signal: null,
       error: 'Empty command',
       timedOut: false,
+      stoppedByE3: false,
       stdoutTail: '',
       stderrTail: '',
       stdoutTruncated: false,
@@ -344,11 +550,28 @@ export async function spawnAndCapture(
     // address inputs/outputs by absolute path and resolve their runner via
     // PATH, so cwd isn't part of the contract — and inheriting the
     // caller's cwd pins it. On Windows a live process's cwd can't be
-    // removed, so a `detached` child that outlives a killed parent would
-    // hold the repo/project dir open and block its cleanup (EBUSY).
+    // removed, so a child that outlives a killed parent would hold the
+    // repo/project dir open and block its cleanup (EBUSY).
     cwd: scratchDir,
-    stdio: ['ignore', 'pipe', 'pipe'],
-    detached: true,
+    // The lifeline is an overlapped pipe ('overlapped' is 'pipe' off
+    // Windows). A runner reads it on a thread of its own for as long as it
+    // runs, and on Windows a read pending on a synchronous pipe holds the
+    // pipe's file-object lock, so every other operation on stdin in the
+    // runner would wait for it — until e3 is gone. Opening process.stdin is
+    // one: east-node's first ESM import of `node:process` does it (the
+    // builtin's facade reads every export) and never returned. An overlapped
+    // read takes no such lock.
+    stdio: [options.stdinLifeline ? 'overlapped' : 'ignore', 'pipe', 'pipe'],
+    // A process group of its own on POSIX, so a stop reaches the whole tree.
+    // Never on Windows: a detached child starts with no console, so a console
+    // runner it starts — beneath the job launcher, or beneath cmd.exe running
+    // a `.cmd` shim (node for east-node) — is given a new console, and its
+    // stdin, stdout and stderr are that console instead of these pipes: its
+    // output never reaches e3, and the lifeline watcher, reading a console
+    // rather than a pipe, ends the runner as it starts (exit code 1, no
+    // stderr). Not detached, the child shares no console with e3 either: with
+    // no stdio inherited, `windowsHide` gives it a hidden console of its own.
+    detached: process.platform !== 'win32',
     windowsHide: true,
   };
   const pathSep = process.platform === 'win32' ? ';' : ':';
@@ -368,62 +591,147 @@ export async function spawnAndCapture(
   if (searchDirs.length > 0) {
     spawnOpts.env.E3_RUNNER_SEARCH_DIRS = [...new Set(searchDirs)].join(pathSep);
   }
-  const child = spawn(cmd, cmdArgs, spawnOpts);
+  // On Windows each runner runs in a job object, through the job launcher,
+  // when this install carries it.
+  const launcher = jobLauncher();
+  const inJob = launcher === null ? null : spawnInJob(launcher, cmd, cmdArgs, spawnOpts);
+  const child = inJob ?? spawn(cmd, cmdArgs, spawnOpts);
 
   // Set up event listeners IMMEDIATELY before any async work to avoid
   // missing events if the process completes quickly. Capture bounded tails
   // of both streams so callers get a useful diagnostic without ballooning
   // memory on chatty processes.
   const tailBytes = options.maxLogBytes ?? 64 * 1024;
+  const maxPendingBytes = options.maxPendingBytes ?? 1024 * 1024;
   let stdoutTail = '';
   let stderrTail = '';
   let stdoutTruncated = false;
   let stderrTruncated = false;
   let timedOut = false;
+  let stoppedByE3 = false;
 
-  const resultPromise = new Promise<{ exitCode: number | null; error: string | null }>((resolve) => {
+  // The lifeline pipe is never written to; an error on it (the child closing
+  // its end) is not this process's concern.
+  child.stdin?.on('error', () => {});
+
+  const resultPromise = new Promise<{ exitCode: number | null; signal: NodeJS.Signals | null; error: string | null }>((resolve) => {
     child.on('error', (err) => {
-      resolve({ exitCode: null, error: `Failed to spawn: ${err.message}` });
+      resolve({ exitCode: null, signal: null, error: `Failed to spawn: ${err.message}` });
     });
 
-    child.on('close', (code) => {
+    child.on('close', (code, signal) => {
+      child.stdin?.destroy();
       if (code === 0) {
-        resolve({ exitCode: code, error: null });
+        resolve({ exitCode: code, signal, error: null });
       } else {
         const tail = stderrTail.trim();
         const detail = tail ? `\nstderr:\n${tail}` : '';
-        resolve({ exitCode: code, error: `Exit code: ${code}${detail}` });
+        resolve({ exitCode: code, signal, error: `Exit code: ${code}${detail}` });
       }
     });
   });
 
-  child.stdout?.on('data', (data: Buffer) => {
-    const str = data.toString('utf-8');
+  // Each stream is decoded as whole characters and handed to its callback;
+  // while more than `maxPendingBytes` handed over have not settled, the
+  // stream is paused, so the child blocks on its pipe.
+  const capture = (
+    stream: Readable | null,
+    record: (data: string) => void,
+    callback: ((data: string) => void | Promise<void>) | undefined,
+  ): void => {
+    if (!stream) return;
+    const decoder = new StringDecoder('utf8');
+    let pending = 0;
+    let paused = false;
+    const deliver = (data: string): void => {
+      if (data === '') return;
+      record(data);
+      const settled = callback?.(data);
+      if (!settled) return;
+      const bytes = Buffer.byteLength(data, 'utf8');
+      pending += bytes;
+      if (!paused && pending > maxPendingBytes) {
+        paused = true;
+        stream.pause();
+      }
+      const release = (): void => {
+        pending -= bytes;
+        if (paused && pending <= maxPendingBytes / 2) {
+          paused = false;
+          stream.resume();
+        }
+      };
+      void settled.then(release, release);
+    };
+    stream.on('data', (chunk: Buffer) => deliver(decoder.write(chunk)));
+    stream.on('end', () => deliver(decoder.end()));
+  };
+
+  capture(child.stdout, (str) => {
     const combined = stdoutTail + str;
     if (combined.length > tailBytes) stdoutTruncated = true;
     stdoutTail = combined.slice(-tailBytes);
-    if (options.onStdout) options.onStdout(str);
-  });
+  }, options.onStdout);
 
-  child.stderr?.on('data', (data: Buffer) => {
-    const str = data.toString('utf-8');
+  capture(child.stderr, (str) => {
     const combined = stderrTail + str;
     if (combined.length > tailBytes) stderrTruncated = true;
     stderrTail = combined.slice(-tailBytes);
-    if (options.onStderr) options.onStderr(str);
-  });
+  }, options.onStderr);
 
-  // Helper to kill the entire process group (child and all its descendants).
-  // With detached: true, child.pid is the process group leader, so killing
-  // -child.pid sends the signal to all processes in that group.
+  // Helper to kill the entire process tree (child and all its descendants),
+  // once. POSIX: detached, child.pid is the process group leader, so killing
+  // -child.pid sends the signal to all processes in that group — which the
+  // group keeps, even once its leader has exited, while any member lives.
+  // Windows: the child is the job launcher, and ending it closes its job,
+  // which ends every process in it; without the launcher, taskkill /T ends
+  // what it finds. Only while the child lives: once it has exited its job has
+  // closed, and its pid may name another process.
+  let groupKilled = false;
   const killProcessGroup = () => {
-    if (child.pid) {
-      try {
-        process.kill(-child.pid, 'SIGKILL');
-      } catch {
-        // Process may have already exited
+    if (groupKilled || !child.pid) return;
+    groupKilled = true;
+    if (process.platform === 'win32') {
+      if (child.exitCode !== null || child.signalCode !== null) return;
+      if (inJob === null) {
+        killProcessTree(child);
+        return;
       }
+      try {
+        child.kill('SIGKILL');
+      } catch {
+        // Already exited
+      }
+      return;
     }
+    try {
+      process.kill(-child.pid, 'SIGKILL');
+    } catch {
+      // Process may have already exited
+    }
+  };
+  // Once the child e3 stopped has exited, its output is read for
+  // STOP_DRAIN_MS more, and then the pipes are closed from this side: a
+  // process the stop could not reach — one that left the process group, or
+  // on Windows one taskkill could not find when there is no job launcher —
+  // would otherwise hold them open, and the stop would never finish. (Go's
+  // exec.Cmd.WaitDelay bounds the same wait.)
+  let drainTimer: NodeJS.Timeout | undefined;
+  const drainAfterStop = (): void => {
+    if (drainTimer !== undefined) return;
+    drainTimer = setTimeout(() => {
+      child.stdout?.destroy();
+      child.stderr?.destroy();
+    }, STOP_DRAIN_MS);
+  };
+  child.on('exit', () => {
+    if (stoppedByE3) drainAfterStop();
+  });
+  // The kills this process decides on, as opposed to any other signal.
+  const stopProcessGroup = () => {
+    stoppedByE3 = true;
+    if (child.exitCode !== null || child.signalCode !== null) drainAfterStop();
+    killProcessGroup();
   };
 
   // Handle timeout
@@ -431,7 +739,7 @@ export async function spawnAndCapture(
   if (options.timeoutMs) {
     timeoutId = setTimeout(() => {
       timedOut = true;
-      killProcessGroup();
+      stopProcessGroup();
     }, options.timeoutMs);
   }
 
@@ -439,31 +747,43 @@ export async function spawnAndCapture(
   if (options.signal) {
     if (options.signal.aborted) {
       // Already aborted before we started
-      killProcessGroup();
+      stopProcessGroup();
     } else {
-      options.signal.addEventListener('abort', killProcessGroup, { once: true });
+      options.signal.addEventListener('abort', stopProcessGroup, { once: true });
     }
   }
 
   // Notify the caller of the spawned pid (tracked path writes its
-  // `running` status here).
+  // `running` status here). A caller that cannot record the runner fails
+  // the spawn, and the runner is stopped and waited for first, so it is never
+  // left running with nothing tracking it.
+  let spawnedFailure: { error: unknown } | null = null;
   if (options.onSpawned) {
-    await options.onSpawned(child.pid ?? null);
+    try {
+      await options.onSpawned(child.pid ?? null);
+    } catch (error) {
+      spawnedFailure = { error };
+      stopProcessGroup();
+    }
   }
 
   // Wait for process to complete
   const result = await resultPromise;
 
   // Cleanup
+  if (drainTimer) clearTimeout(drainTimer);
   if (timeoutId) clearTimeout(timeoutId);
   if (options.signal) {
-    options.signal.removeEventListener('abort', killProcessGroup);
+    options.signal.removeEventListener('abort', stopProcessGroup);
   }
+  if (spawnedFailure !== null) throw spawnedFailure.error;
 
   return {
     exitCode: result.exitCode,
+    signal: result.signal,
     error: result.error,
     timedOut,
+    stoppedByE3,
     stdoutTail,
     stderrTail,
     stdoutTruncated,

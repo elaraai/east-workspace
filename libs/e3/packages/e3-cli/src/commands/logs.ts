@@ -12,6 +12,8 @@
  *   e3 logs . ws.taskName -n 50     # Show the last 50 lines
  *   e3 logs . ws.taskName --all     # Show the whole log
  *   e3 logs . ws.taskName --follow  # Follow log output
+ *   e3 logs . --execution <taskHash>/<inputsHash>/<executionId>
+ *                                   # One execution's logs, e.g. a partition unit
  */
 
 import {
@@ -53,6 +55,30 @@ const MAX_TAIL_BYTES = 8 * 1024 * 1024;
  */
 function abbrev(hash: string): string {
   return hash.slice(0, HASH_DISPLAY_WIDTH);
+}
+
+/** One execution, as `--execution` names it. */
+export interface ExecutionRef {
+  taskHash: string;
+  inputsHash: string;
+  executionId: string;
+}
+
+/**
+ * Parse an `--execution` reference: `<taskHash>/<inputsHash>/<executionId>`,
+ * the ids a partitioned task's log names each of its units by.
+ *
+ * @param ref - The option value
+ * @returns The execution's ids
+ * @throws {Error} If the value does not have that form
+ */
+export function parseExecutionRef(ref: string): ExecutionRef {
+  const parts = ref.split('/');
+  const hash = /^[0-9a-f]{64}$/;
+  if (parts.length !== 3 || !hash.test(parts[0]!) || !hash.test(parts[1]!) || parts[2]!.length === 0) {
+    throw new Error(`Invalid --execution value: ${ref} (expected <taskHash>/<inputsHash>/<executionId>)`);
+  }
+  return { taskHash: parts[0]!, inputsHash: parts[1]!, executionId: parts[2]! };
 }
 
 /**
@@ -431,12 +457,13 @@ function toLogData(chunk: Awaited<ReturnType<typeof taskLogsRemote>>): LogData {
 }
 
 /**
- * View execution logs for workspace tasks.
+ * View execution logs for workspace tasks, or — with `execution` — the logs
+ * of one execution named by its ids, such as a unit of a partitioned task.
  */
 export async function logsCommand(
   repoArg: string,
   pathSpec?: string,
-  options: { follow?: boolean; lines?: string | number; all?: boolean } = {}
+  options: { follow?: boolean; lines?: string | number; all?: boolean; execution?: string } = {}
 ): Promise<void> {
   try {
     const location = await parseRepoLocation(repoArg);
@@ -445,6 +472,27 @@ export async function logsCommand(
       all: options.all ?? false,
       lines: parseLines(options.lines),
     };
+
+    if (options.execution !== undefined) {
+      const { taskHash, inputsHash, executionId } = parseExecutionRef(options.execution);
+      if (location.type !== 'local') {
+        exitError('--execution reads the execution logs of a local repository');
+      }
+      const storage = new LocalStorage();
+      if (await storage.refs.executionGet(location.path, taskHash, inputsHash, executionId) === null) {
+        exitError(`No execution found: ${options.execution}`);
+      }
+
+      console.log(`Execution: ${abbrev(taskHash)}/${abbrev(inputsHash)}/${abbrev(executionId)}`);
+      console.log('');
+
+      await displayLogs(
+        (stream, offset, limit) =>
+          executionReadLog(storage, location.path, taskHash, inputsHash, executionId, stream, { offset, limit }),
+        display
+      );
+      return;
+    }
 
     if (!pathSpec) {
       exitError('Usage: e3 logs <repo> <ws> or e3 logs <repo> <ws.taskName>');

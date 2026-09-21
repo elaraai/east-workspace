@@ -167,6 +167,15 @@ ByteBuffer *east_beast2_encode_v5(EastValue *value, EastType *type, int32_t code
 ByteBuffer *east_beast2_encode_paged(EastValue *value, EastType *type, int32_t codec_id,
                                      size_t target_segment_bytes);
 
+// The batch refinement behind the paged encoder: the element count of the
+// next segment, toward `target` bytes of wire per segment, from `body` bytes
+// written over `written` elements — the header left out of `body` — capped at
+// 1,000 elements and at least 1. Every writer of a collection blob sizes its
+// segments with it (the paged encoders here and in TypeScript, the emit sink,
+// the blob merge), so one value segments the same way wherever it is written
+// (issue #770).
+size_t east_beast2_paged_next_batch(size_t target, size_t body, size_t written);
+
 // Streaming v5 writer: each write() encodes one batch (a value of the declared
 // Array/Set/Dict type) as one root segment, so writer memory is O(batch).
 // Output bytes accumulate internally; drain with take() (returns a ByteBuffer
@@ -177,30 +186,6 @@ typedef struct Beast2StreamWriter Beast2StreamWriter;
 Beast2StreamWriter *east_beast2_writer_new(EastType *type, int32_t codec_id, bool self_contained,
                                            bool with_index);
 bool east_beast2_writer_write(Beast2StreamWriter *w, EastValue *batch);
-// One root segment from PRE-ENCODED entries: `entries` holds `n` elements'
-// logical bytes back to back (a Dict pair is its key's bytes then its
-// value's), each produced by the entry encoder below, so a sink that
-// encoded emissions as they arrived can frame them without ever holding
-// the values. Set/Dict streams give the segment's first and last keys for
-// the ascent check (NULL for Array); the index bookkeeping is write()'s.
-bool east_beast2_writer_write_raw(Beast2StreamWriter *w, const uint8_t *entries, size_t len,
-                                  size_t n, EastValue *first_key, EastValue *last_key);
-
-// Per-entry encoder: the logical bytes of one value as a self-contained
-// segment holds them. begin() opens a new aliasing scope — a container
-// shared between two entries encodes as two NEW copies, never a REF across
-// them — so any concatenation of entries is a valid self-contained segment
-// for write_raw. encode() appends to `out` and returns false with the
-// message via east_builtin_get_error.
-typedef struct Beast2EntryEncoder Beast2EntryEncoder;
-Beast2EntryEncoder *east_beast2_entry_encoder_new(void);
-void east_beast2_entry_begin(Beast2EntryEncoder *e);
-bool east_beast2_entry_encode(Beast2EntryEncoder *e, ByteBuffer *out, EastValue *value,
-                              EastType *type);
-void east_beast2_entry_encoder_free(Beast2EntryEncoder *e);
-// Decodes exactly one entry's bytes (the encoder's output for one value) as
-// `type`; a retained value, or NULL with the message posted.
-EastValue *east_beast2_entry_decode(const uint8_t *data, size_t len, EastType *type);
 ByteBuffer *east_beast2_writer_take(Beast2StreamWriter *w);
 bool east_beast2_writer_finish(Beast2StreamWriter *w);
 void east_beast2_writer_free(Beast2StreamWriter *w);

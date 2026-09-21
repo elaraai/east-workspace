@@ -26,6 +26,7 @@ import {
 } from '@elaraai/e3-types';
 import { dataflowExecute } from './dataflow.js';
 import { LocalOrchestrator } from './dataflow/orchestrator/LocalOrchestrator.js';
+import type { ExecutionHandle, TaskCompletedCallback } from './dataflow/orchestrator/interfaces.js';
 import { InMemoryStateStore } from './dataflow/state-store/InMemoryStateStore.js';
 import { datasetWrite } from './trees.js';
 import { objectWrite } from './storage/local/LocalObjectStore.js';
@@ -537,6 +538,88 @@ describe('dataflow orchestration with MockTaskRunner', () => {
       // No tasks should have been executed since signal was pre-aborted
       const calls = mockRunner.getCalls();
       assert.strictEqual(calls.length, 0, 'No tasks should execute when signal is pre-aborted');
+    });
+
+    /** A one-task workspace whose task the mock runner can hold open. */
+    async function deployOneTask(): Promise<string> {
+      const structure: Structure = {
+        type: 'struct',
+        value: new Map([
+          ['input', { type: 'value', value: { type: StringType, writable: true } }],
+          ['output', { type: 'value', value: { type: StringType, writable: true } }],
+        ]),
+      } as unknown as Structure;
+      const inputPath: TreePath = [variant('field', 'input')];
+      const outputPath: TreePath = [variant('field', 'output')];
+      const taskHashes = await createPackageWithTasks(
+        testRepo,
+        [{ name: 'task', command: ['echo'], inputs: [inputPath], output: outputPath }],
+        structure,
+      );
+      await workspaceDeploy(storage, testRepo, 'test-ws', 'test', '1.0.0');
+      await workspaceSetDataset(storage, testRepo, 'test-ws', inputPath, 'test', StringType);
+      return taskHashes.get('task')!;
+    }
+
+    /** What a runner returns for a task e3 stopped because the run was aborted. */
+    const cancelledResult = {
+      state: 'error' as const,
+      cached: false,
+      error: 'cancelled: e3 stopped the runner because the run was aborted',
+      cancelled: true,
+    };
+
+    it('cancel() aborts the signal a running task was given; the task ends cancelled, not failed', async () => {
+      const taskHash = await deployOneTask();
+      const stateStore = new InMemoryStateStore();
+      const orchestrator = new LocalOrchestrator(stateStore);
+
+      let handle!: ExecutionHandle;
+      let taskSignalAborted: boolean | undefined;
+      mockRunner.setResult(taskHash, async () => {
+        const signal = mockRunner.getCalls()[0]!.options!.signal!;
+        await orchestrator.cancel(handle);
+        taskSignalAborted = signal.aborted;
+        return cancelledResult;
+      });
+
+      const completed: TaskCompletedCallback[] = [];
+      handle = await orchestrator.start(storage, testRepo, 'test-ws', {
+        runner: mockRunner,
+        onTaskComplete: (result) => completed.push(result),
+      });
+
+      const { DataflowAbortedError } = await import('./errors.js');
+      await assert.rejects(orchestrator.wait(handle), (err: Error) => err instanceof DataflowAbortedError);
+
+      assert.strictEqual(taskSignalAborted, true, 'cancel() must stop the running task, not only the loop');
+      assert.deepStrictEqual(completed.map((c) => [c.name, c.state]), [['task', 'cancelled']]);
+      const final = await stateStore.read(testRepo, 'test-ws', handle.id);
+      assert.strictEqual(final!.status, 'cancelled');
+      assert.strictEqual(final!.tasks.get('task')!.status, 'pending');
+      assert.strictEqual(final!.failed, 0n);
+      assert.ok(!final!.events.some((event) => event.type === 'task_failed'), 'a cancelled task adds no failure event');
+    });
+
+    it('the caller\'s signal aborts the signal a running task was given', async () => {
+      const taskHash = await deployOneTask();
+      const controller = new AbortController();
+
+      let taskSignalAborted: boolean | undefined;
+      mockRunner.setResult(taskHash, () => {
+        controller.abort();
+        taskSignalAborted = mockRunner.getCalls()[0]!.options!.signal!.aborted;
+        return cancelledResult;
+      });
+
+      const { DataflowAbortedError } = await import('./errors.js');
+      await assert.rejects(
+        dataflowExecute(storage, testRepo, 'test-ws', { runner: mockRunner, signal: controller.signal }),
+        (err: Error) => err instanceof DataflowAbortedError,
+      );
+      assert.strictEqual(taskSignalAborted, true);
+      const run = await storage.refs.dataflowRunGetLatest(testRepo, 'test-ws');
+      assert.strictEqual(run?.status.type, 'cancelled');
     });
   });
 

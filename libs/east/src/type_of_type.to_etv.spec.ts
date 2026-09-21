@@ -5,7 +5,8 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { toEastTypeValue, EastTypeValueType, isTypeValueEqual } from "./type_of_type.js";
+import { toEastTypeValue, EastTypeValueType, isTypeValueEqual, type EastTypeValue } from "./type_of_type.js";
+import { variant } from "./containers/variant.js";
 import { equalFor } from "./comparison.js";
 import {
   NullType, BooleanType, IntegerType, FloatType, StringType, DateTimeType, BlobType,
@@ -237,6 +238,87 @@ describe("toEastTypeValue", () => {
       const list1 = RecursiveType(self => VariantType({ nil: NullType, cons: StructType({ head: IntegerType, tail: self }) }));
       const list2 = RecursiveType(self => VariantType({ nil: NullType, cons: StructType({ head: IntegerType, tail: self }) }));
       assert.ok(typeEqual(toEastTypeValue(list1), toEastTypeValue(list2)));
+    });
+  });
+
+  // =========================================================================
+  // Alpha-equivalence — wrapper ids are runtime artefacts (type ids here,
+  // table indices off the wire), so recursive types compare up to naming
+  // =========================================================================
+
+  describe("isTypeValueEqual up to wrapper naming (#770)", () => {
+    // A hand-spelled recursive type value, as a decoder produces it: the
+    // wrapper's id is whatever the wire said, never this process's type id.
+    const list = (id: bigint) => variant("Recursive", variant("wrapper", {
+      id,
+      inner: variant("Variant", [
+        { name: "cons", type: variant("Struct", [
+          { name: "head", type: variant("Integer", null) },
+          { name: "tail", type: variant("Recursive", variant("ref", id)) },
+        ]) },
+        { name: "nil", type: variant("Null", null) },
+      ]),
+    })) as EastTypeValue;
+
+    it("two wrappers of one structure with different ids are equal", () => {
+      assert.ok(isTypeValueEqual(list(3n), list(11n)));
+      assert.ok(isTypeValueEqual(list(11n), list(3n)));
+    });
+
+    it("a decoded wrapper equals the type it was built from", () => {
+      const ListType = RecursiveType(self => VariantType({
+        nil: NullType,
+        cons: StructType({ head: IntegerType, tail: self }),
+      }));
+      assert.ok(isTypeValueEqual(toEastTypeValue(ListType), list(0n)));
+      assert.ok(isTypeValueEqual(list(0n), toEastTypeValue(ListType)));
+    });
+
+    it("bodies that differ are not equal, whatever the ids", () => {
+      // (One id names one type within a type value — a wrapper's id is only
+      // ever compared against another id, never re-derived from its body —
+      // so a differing body gets an id of its own here.)
+      const other = variant("Recursive", variant("wrapper", {
+        id: 7n,
+        inner: variant("Variant", [
+          { name: "cons", type: variant("Struct", [
+            { name: "head", type: variant("String", null) },
+            { name: "tail", type: variant("Recursive", variant("ref", 7n)) },
+          ]) },
+          { name: "nil", type: variant("Null", null) },
+        ]),
+      })) as EastTypeValue;
+      assert.ok(!isTypeValueEqual(list(3n), other), "head types differ");
+      assert.ok(!isTypeValueEqual(other, list(11n)));
+    });
+
+    it("refs are equal only to their own wrapper's scope", () => {
+      const refA = variant("Recursive", variant("ref", 3n)) as EastTypeValue;
+      const refB = variant("Recursive", variant("ref", 11n)) as EastTypeValue;
+      assert.ok(isTypeValueEqual(refA, variant("Recursive", variant("ref", 3n)) as EastTypeValue));
+      assert.ok(!isTypeValueEqual(refA, refB), "unpaired refs of different ids are different scopes");
+      assert.ok(isTypeValueEqual(refA, list(3n)), "a ref equals its wrapper");
+      assert.ok(!isTypeValueEqual(refB, list(3n)));
+    });
+
+    it("nested wrappers pair up scope by scope", () => {
+      const tree = (outer: bigint, inner: bigint) => variant("Recursive", variant("wrapper", {
+        id: outer,
+        inner: variant("Struct", [
+          { name: "items", type: list(inner) },
+          { name: "kids", type: variant("Array", variant("Recursive", variant("ref", outer))) },
+        ]),
+      })) as EastTypeValue;
+      assert.ok(isTypeValueEqual(tree(1n, 2n), tree(20n, 10n)));
+      // Swapping which wrapper a ref names changes the type.
+      const crossed = variant("Recursive", variant("wrapper", {
+        id: 5n,
+        inner: variant("Struct", [
+          { name: "items", type: list(2n) },
+          { name: "kids", type: variant("Array", variant("Recursive", variant("ref", 2n))) },
+        ]),
+      })) as EastTypeValue;
+      assert.ok(!isTypeValueEqual(tree(1n, 2n), crossed));
     });
   });
 

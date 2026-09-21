@@ -786,6 +786,281 @@ static void v5_gate(void)
     east_type_release(arr_str);
 }
 
+/* ---- 7. Canonical type sections — one type, one section, everywhere (#770) ---- */
+
+/* A varint at *offset (the section's own varints are small). */
+static uint64_t test_varint(const uint8_t *data, size_t len, size_t *offset)
+{
+    uint64_t value = 0;
+    int shift = 0;
+    while (*offset < len) {
+        uint8_t byte = data[(*offset)++];
+        value |= (uint64_t)(byte & 0x7f) << shift;
+        if (!(byte & 0x80)) break;
+        shift += 7;
+    }
+    return value;
+}
+
+/* The v5 type section of an encoded blob, as hex (caller frees). */
+static char *type_section_hex(const ByteBuffer *b)
+{
+    if (!b || b->len < 10) return NULL;
+    size_t offset = 8;
+    uint64_t kind = test_varint(b->data, b->len, &offset);
+    if (kind == 0) {
+        size_t section_len = (size_t)test_varint(b->data, b->len, &offset);
+        offset += section_len;
+    } else {
+        test_varint(b->data, b->len, &offset); /* the well-known id */
+        offset += 8;
+    }
+    if (offset > b->len) return NULL;
+    char *hex = malloc((offset - 8) * 2 + 1);
+    for (size_t i = 8; i < offset; i++)
+        sprintf(hex + 2 * (i - 8), "%02x", b->data[i]);
+    hex[(offset - 8) * 2] = '\0';
+    return hex;
+}
+
+/* A type as a value that crossed the wire — what a runner holds. */
+static EastType *carried_type(EastType *type)
+{
+    EastValue *tv = east_type_to_value(type);
+    EastType *t = east_type_from_value(tv);
+    east_value_release(tv);
+    return t;
+}
+
+static void canonical_type_section_check(const char *name, EastType *type, EastValue *value,
+                                         const char *expected_hex)
+{
+    /* Built in code. */
+    ByteBuffer *b = east_beast2_encode_v5(value, type, EAST_BEAST2_CODEC_NONE, false);
+    char *hex = type_section_hex(b);
+    if (!hex || strcmp(hex, expected_hex) != 0) {
+        printf("FAIL: %s: built type section differs from the cross-runtime pin\n  got:      %s\n  "
+               "expected: %s\n",
+               name, hex ? hex : "(null)", expected_hex);
+        failures++;
+    }
+    free(hex);
+
+    /* Carried as a value: the same bytes, from a different pointer graph. */
+    EastType *carried = carried_type(type);
+    ByteBuffer *c = east_beast2_encode_v5(value, carried, EAST_BEAST2_CODEC_NONE, false);
+    char *chex = type_section_hex(c);
+    if (!chex || strcmp(chex, expected_hex) != 0) {
+        printf(
+            "FAIL: %s: carried type section differs from the cross-runtime pin\n  got:      %s\n",
+            name, chex ? chex : "(null)");
+        failures++;
+    }
+    free(chex);
+    if (c) byte_buffer_free(c);
+
+    /* The section decodes to the type it names: header = magic + section +
+     * empty source map. */
+    if (b) {
+        size_t hex_len = strlen(expected_hex) / 2;
+        uint8_t *hdr = malloc(8 + hex_len + 2);
+        memcpy(hdr, b->data, 8);
+        hex_to_bytes(expected_hex, hdr + 8, hex_len);
+        hdr[8 + hex_len] = 0x01;
+        hdr[8 + hex_len + 1] = 0x00;
+        EastType *t = east_beast2_extract_type(hdr, 8 + hex_len + 2);
+        if (!t || !east_type_equal(t, type)) {
+            printf("FAIL: %s: the pinned section does not decode to the type\n", name);
+            failures++;
+        }
+        if (t) east_type_release(t);
+        free(hdr);
+        /* And the blob round-trips through the self-describing decoder. */
+        EastValue *back = east_beast2_decode_auto(b->data, b->len);
+        if (!back || east_value_compare(back, value) != 0) {
+            printf("FAIL: %s: self-describing decode of the canonical blob\n", name);
+            failures++;
+        }
+        if (back) east_value_release(back);
+        byte_buffer_free(b);
+    }
+    east_type_release(carried);
+}
+
+static void canonical_type_sections_gate(void)
+{
+    printf("---- 7. canonical type sections (#770) ----\n");
+    /* The SAME sections are pinned in libs/east's v5/index.spec.ts and
+     * east-py's test_beast2_v5.py. */
+
+    /* Dict<Integer, Struct{count: Integer, text: String}> */
+    {
+        const char *fn[2] = {"count", "text"};
+        EastType *ft[2] = {&east_integer_type, &east_string_type};
+        EastType *row = east_struct_type(fn, ft, 2);
+        EastType *t = east_dict_type(&east_integer_type, row);
+        EastValue *k = east_integer(1);
+        EastValue *cnt = east_integer(2);
+        EastValue *txt = east_string("x");
+        EastValue *fv[2] = {cnt, txt};
+        EastValue *rv = east_struct_new(fn, fv, 2, row);
+        EastValue *d = east_dict_new(&east_integer_type, row);
+        east_dict_set(d, k, rv);
+        canonical_type_section_check("Dict<Integer, Struct{count, text}>", t, d,
+                                     "001603040201090205636f756e74000474657874010b0002");
+        east_value_release(d);
+        east_value_release(rv);
+        east_value_release(txt);
+        east_value_release(cnt);
+        east_value_release(k);
+    }
+
+    /* Dict<String, String> */
+    {
+        EastType *t = east_dict_type(&east_string_type, &east_string_type);
+        EastValue *k = east_string("a");
+        EastValue *v = east_string("b");
+        EastValue *d = east_dict_new(&east_string_type, &east_string_type);
+        east_dict_set(d, k, v);
+        canonical_type_section_check("Dict<String, String>", t, d, "00060102010b0000");
+        east_value_release(d);
+        east_value_release(v);
+        east_value_release(k);
+    }
+
+    /* Struct{left: Tree, right: Tree}, Tree = Recursive(Struct{value: Integer, children:
+     * Array<self>}) */
+    {
+        EastType *tree = east_recursive_type_new();
+        const char *fn[2] = {"value", "children"};
+        EastType *ft[2] = {&east_integer_type, east_array_type(tree)};
+        EastType *node = east_struct_type(fn, ft, 2);
+        east_recursive_type_set(tree, node);
+        tree = east_recursive_type_intern(tree);
+        const char *sn[2] = {"left", "right"};
+        EastType *st[2] = {tree, tree};
+        EastType *t = east_struct_type(sn, st, 2);
+        EastValue *lv = east_integer(1);
+        EastValue *lc = east_array_new(tree);
+        EastValue *lf[2] = {lv, lc};
+        EastValue *left = east_struct_new(fn, lf, 2, node);
+        EastValue *rv = east_integer(2);
+        EastValue *rc = east_array_new(tree);
+        EastValue *rf[2] = {rv, rc};
+        EastValue *right = east_struct_new(fn, rf, 2, node);
+        EastValue *sv[2] = {left, right};
+        EastValue *s = east_struct_new(sn, sv, 2, t);
+        canonical_type_section_check("Struct{left: Tree, right: Tree}", t, s,
+                                     "002904051203020a0009020576616c756501086368696c6472656e0209020"
+                                     "46c6566740005726967687400");
+        east_value_release(s);
+        east_value_release(right);
+        east_value_release(rc);
+        east_value_release(rv);
+        east_value_release(left);
+        east_value_release(lc);
+        east_value_release(lv);
+    }
+
+    /* Struct{b: EastTypeType, a: Array<EastTypeType>} and
+     * Struct{a: Array<EastTypeType>, b: EastTypeType, c: Array<EastTypeType>}:
+     * Array<EastTypeType> is EastTypeType's own `inputs` inside its body and
+     * a field outside it — one entry either way. */
+    {
+        EastType *tt = east_type_type;
+        EastType *tt_arr = east_array_type(tt);
+        EastValue *iv = east_type_to_value(&east_integer_type);
+        EastValue *arr = east_array_new(tt);
+        east_array_push(arr, iv);
+
+        const char *fn2[2] = {"b", "a"};
+        EastType *ft2[2] = {tt, tt_arr};
+        EastType *t2 = east_struct_type(fn2, ft2, 2);
+        EastValue *fv2[2] = {iv, arr};
+        EastValue *s2 = east_struct_new(fn2, fv2, 2, t2);
+        canonical_type_section_check(
+            "Struct{b: EastTypeType, a: Array<EastTypeType>}", t2, s2,
+            "00fa010c0d120b0a00090206696e7075747301066f757470757400000902036b6579000576616c75650002"
+            "09020269640505696e6e65720008020372656605077772617070657206010902046e616d650804747970"
+            "65000a090813054172726179000d4173796e6346756e6374696f6e0204426c6f620307426f6f6c65616e03"
+            "084461746554696d650304446963740405466c6f6174030846756e6374696f6e0207496e746567657203"
+            "064d617472697800054e6576657203044e756c6c030952656375727369766507035265660003536574"
+            "0006537472696e6703065374727563740a0756617269616e740a06566563746f72000902016200016101");
+        east_value_release(s2);
+
+        const char *fn3[3] = {"a", "b", "c"};
+        EastType *ft3[3] = {tt_arr, tt, tt_arr};
+        EastType *t3 = east_struct_type(fn3, ft3, 3);
+        EastValue *fv3[3] = {arr, iv, arr};
+        EastValue *s3 = east_struct_new(fn3, fv3, 3, t3);
+        canonical_type_section_check(
+            "Struct{a: Array<EastTypeType>, b: EastTypeType, c: Array<EastTypeType>}", t3, s3,
+            "00fd010c0d120b0a00090206696e7075747301066f757470757400000902036b6579000576616c75650002"
+            "09020269640505696e6e65720008020372656605077772617070657206010902046e616d650804747970"
+            "65000a090813054172726179000d4173796e6346756e6374696f6e0204426c6f620307426f6f6c65616e03"
+            "084461746554696d650304446963740405466c6f6174030846756e6374696f6e0207496e746567657203"
+            "064d617472697800054e6576657203044e756c6c030952656375727369766507035265660003536574"
+            "0006537472696e6703065374727563740a0756617269616e740a06566563746f720009030161010162"
+            "00016301");
+        east_value_release(s3);
+        east_value_release(arr);
+        east_value_release(iv);
+    }
+
+    /* Outer = Recursive(Struct{nodes: Array<Inner>, next: Array<self>}),
+     * Inner = Recursive(Struct{children: Array<self>}): the nested wrapper is
+     * reached through the container its own body recurses through, so that
+     * container is one entry inside and outside the wrapper — the shape of
+     * east-ui's TreeView, which the TypeScript reader used to refuse (#773). */
+    {
+        EastType *inner = east_recursive_type_new();
+        const char *in_fn[1] = {"children"};
+        EastType *in_ft[1] = {east_array_type(inner)};
+        EastType *in_node = east_struct_type(in_fn, in_ft, 1);
+        east_recursive_type_set(inner, in_node);
+        inner = east_recursive_type_intern(inner);
+        EastType *outer = east_recursive_type_new();
+        const char *out_fn[2] = {"nodes", "next"};
+        EastType *out_ft[2] = {east_array_type(inner), east_array_type(outer)};
+        EastType *out_node = east_struct_type(out_fn, out_ft, 2);
+        east_recursive_type_set(outer, out_node);
+        outer = east_recursive_type_intern(outer);
+
+        EastValue *leaf_children = east_array_new(inner);
+        EastValue *leaf_fv[1] = {leaf_children};
+        EastValue *leaf = east_struct_new(in_fn, leaf_fv, 1, in_node);
+        EastValue *nodes = east_array_new(inner);
+        east_array_push(nodes, leaf);
+        EastValue *next = east_array_new(outer);
+        EastValue *out_fv[2] = {nodes, next};
+        EastValue *v = east_struct_new(out_fn, out_fv, 2, out_node);
+        canonical_type_section_check(
+            "Recursive(Struct{nodes: Array<Inner>, next: Array<self>})", outer, v,
+            "00250006120512030a010901086368696c6472656e020a000902056e6f64657302046e65787404");
+        east_value_release(v);
+        east_value_release(next);
+        east_value_release(nodes);
+        east_value_release(leaf);
+        east_value_release(leaf_children);
+    }
+
+    /* A carried well-known schema is still written as its well-known section. */
+    {
+        EastType *carried = carried_type(east_type_type);
+        EastValue *tv = east_type_to_value(&east_integer_type);
+        ByteBuffer *b = east_beast2_encode_v5(tv, carried, EAST_BEAST2_CODEC_NONE, false);
+        if (!b || b->len < 10 || b->data[8] != 0x01 || b->data[9] != 0x02) {
+            printf("FAIL: a carried EastTypeValueType did not write the well-known section\n");
+            failures++;
+        }
+        if (b) byte_buffer_free(b);
+        east_value_release(tv);
+        east_type_release(carried);
+    }
+
+    if (failures == 0) printf("  [+] canonical type sections match the cross-runtime pins\n");
+}
+
 int main(void)
 {
     east_type_of_type_init();
@@ -1064,6 +1339,7 @@ int main(void)
     }
 
     v5_gate();
+    canonical_type_sections_gate();
 
     byte_buffer_free(deep_buf);
     byte_buffer_free(mixed_buf);

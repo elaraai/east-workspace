@@ -712,11 +712,19 @@ export function pagedRowAt(flat: PagedFlat, paging: ValueTreePaging, flatIdx: nu
  * the window itself and then the nearest pages up to the retention cap.
  * Returns the SAME map (no re-render) while under the cap.
  *
+ * @remarks
+ * The window is never dropped, so the cap bounds what is held AROUND it: a
+ * window wider than `max` pages retains exactly the window. Evicting a page
+ * the view is about to draw only makes the host fetch it again, and the
+ * fetch lands, prunes it out once more and asks again — a loop that never
+ * settles. A byte-sized page makes this reachable: wide rows give short
+ * pages, and enough short pages to span a window is more than the cap.
+ *
  * @typeParam T - The page payload
  * @param pages - The loaded pages by index
  * @param firstPage - First page of the visible window
  * @param lastPage - Last page of the visible window
- * @param max - Retention cap
+ * @param max - Retention cap for the pages outside the window
  * @returns The retained pages (the input map when nothing was dropped)
  */
 export function pruneRetainedPages<T>(
@@ -726,10 +734,17 @@ export function pruneRetainedPages<T>(
     max: number,
 ): ReadonlyMap<number, T> {
     if (pages.size <= max) return pages;
-    const distance = (p: number): number => (p < firstPage ? firstPage - p : p > lastPage ? p - lastPage : 0);
-    const keep = [...pages.keys()].sort((a, b) => distance(a) - distance(b) || a - b).slice(0, max);
+    const inWindow = (p: number): boolean => p >= firstPage && p <= lastPage;
+    const outside = [...pages.keys()].filter((p) => !inWindow(p));
+    const room = Math.max(0, max - (pages.size - outside.length));
+    if (outside.length <= room) return pages;
+    const distance = (p: number): number => (p < firstPage ? firstPage - p : p - lastPage);
+    const keep = new Set([...pages.keys()].filter(inWindow));
+    for (const p of outside.sort((a, b) => distance(a) - distance(b) || a - b).slice(0, room)) {
+        keep.add(p);
+    }
     const kept = new Map<number, T>();
-    for (const p of keep.sort((a, b) => a - b)) {
+    for (const p of [...keep].sort((a, b) => a - b)) {
         kept.set(p, pages.get(p)!);
     }
     return kept;

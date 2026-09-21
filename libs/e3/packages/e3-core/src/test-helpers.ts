@@ -8,6 +8,7 @@
  * Provides utilities for setting up and tearing down test repositories
  */
 
+import { spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -25,12 +26,43 @@ export function createTempDir(): string {
   return mkdtempSync(join(tmpdir(), 'e3-test-'));
 }
 
+/** Sleeps without yielding: a teardown has no turn of the loop to give. */
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
 /**
- * Removes a temporary directory and all its contents
+ * Removes a temporary directory and all its contents.
+ *
+ * @remarks
+ * Windows holds a directory that is any live process's working directory,
+ * and releases it on its own schedule once that process goes. A suite that
+ * runs a child with the directory as its cwd — which every spawn gate here
+ * does — therefore races the kernel at teardown and gets
+ * `EBUSY: resource busy or locked, rmdir`.
+ *
+ * `rmSync`'s own `maxRetries` does not cover it: Node's `rimrafSync` enters
+ * its retry loop only for `ENOTEMPTY`/`EEXIST`/`EPERM`, and an `EBUSY` from
+ * the top-level `rmdir` is rethrown at once. So the wait is here.
+ *
+ * A directory that is still held after all that is left where it is, for the
+ * OS to sweep, rather than failing a suite whose assertions have already
+ * passed: nothing is being tested about whether a temp directory can be
+ * deleted. Every other platform unlinks on the first attempt.
+ *
  * @param dir Path to directory to remove
  */
 export function removeTempDir(dir: string): void {
-  rmSync(dir, { recursive: true, force: true });
+  for (let attempt = 0; attempt < 20; attempt++) {
+    try {
+      rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+      return;
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code !== 'EBUSY' && code !== 'ENOTEMPTY' && code !== 'EPERM') throw err;
+      sleepSync(50);
+    }
+  }
 }
 
 /**
@@ -52,6 +84,61 @@ export function createTestRepo(): string {
  */
 export function removeTestRepo(repoPath: string): void {
   removeTempDir(repoPath);
+}
+
+/**
+ * The pid of a process that has certainly exited.
+ *
+ * @remarks
+ * Spawning and reaping a process that does nothing leaves its pid free — the
+ * one reliable way to name a dead process on every platform. A made-up pid
+ * can be in use, and a fabricated start time is not a substitute either:
+ * `getPidStartTime` answers 0 wherever the platform cannot tell (Windows),
+ * so an "impossible" start time reads the same as a live process's unknown
+ * one and the liveness check falls through to the pid's existence.
+ *
+ * @returns A pid whose process has exited
+ */
+export function deadPid(): number {
+  return spawnSync(process.execPath, ['-e', '']).pid!;
+}
+
+/**
+ * A live process and every process beneath it, the process first.
+ *
+ * @remarks
+ * The pid e3 records for a runner is its direct child's, and on Windows that
+ * is not the runner: cross-spawn runs a pnpm `.cmd` shim through cmd.exe, and
+ * the runner is cmd.exe's child. cmd.exe dies with the job object e3's
+ * children are placed in whatever the runner does, so an assertion that a
+ * runner exited must follow the whole tree. The tree is read from `ps` on
+ * POSIX and from `Win32_Process` on Windows, while the process lives. Windows
+ * keeps an exited parent's pid as a child's parent, and reuses pids, so there
+ * a process is only taken as a child when it was created after its parent.
+ *
+ * @param pid - The root of the tree
+ * @returns The pids of the tree, the root first
+ */
+export function processTree(pid: number): number[] {
+  const listing = process.platform === 'win32'
+    ? spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+      'Get-CimInstance Win32_Process | ForEach-Object { "$($_.ProcessId) $($_.ParentProcessId) $(if ($_.CreationDate) { $_.CreationDate.ToFileTimeUtc() } else { 0 })" }'],
+      { encoding: 'utf8' })
+    : spawnSync('ps', ['-A', '-o', 'pid=,ppid='], { encoding: 'utf8' });
+  if (listing.status !== 0) throw new Error(`listing processes failed: ${listing.error?.message ?? listing.stderr}`);
+  const processes = listing.stdout.split(/\r?\n/).flatMap((line) => {
+    const [child, parent, created] = line.trim().split(/\s+/).map(Number);
+    return child && parent !== undefined && child !== parent ? [{ child, parent, created: created ?? 0 }] : [];
+  });
+  const created = new Map(processes.map((p) => [p.child, p.created]));
+  const children = new Map<number, number[]>();
+  for (const p of processes) {
+    if (p.created < (created.get(p.parent) ?? 0)) continue;
+    children.set(p.parent, [...(children.get(p.parent) ?? []), p.child]);
+  }
+  const tree = [pid];
+  for (let i = 0; i < tree.length; i++) tree.push(...(children.get(tree[i]!) ?? []));
+  return tree;
 }
 
 /**

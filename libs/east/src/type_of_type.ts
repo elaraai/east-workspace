@@ -345,15 +345,31 @@ function fromImpl(t: EastTypeValue, ctx: Map<bigint, EastType>): EastType {
  *
  * @remarks
  * This is the {@link EastTypeValue} version of {@link isTypeEqual}.
-*/
+ *
+ * Recursive types compare up to the naming of their wrappers. A wrapper's
+ * `id` is a runtime artefact — a type id in the process that built the type,
+ * a table index for a type read back off the wire — and is not part of the
+ * type, so `wrapper({id: a, inner: A})` equals `wrapper({id: b, inner: B})`
+ * when `A` equals `B` with `ref(a)` standing for `ref(b)`. Within one scope
+ * `ref(N)` equals `ref(N)` and `wrapper({id: N})`: the same recursive type
+ * seen from inside and from outside its wrapper.
+ */
 const isTypeValueEqualCache = new Map<number, Map<number, boolean>>();
 
-/**
- * Check structural equality of two EastTypeValues.
- * Handles Recursive ref/wrapper equivalence: ref(N) and wrapper({id=N, inner})
- * denote the same recursive type when N matches.
- */
+/** One pair of wrappers an equality in progress has entered: a `ref` of the
+ *  left id corresponds to a `ref` of the right id. */
+type WrapperPair = readonly [left: bigint, right: bigint];
+
 export function isTypeValueEqual(t1: EastTypeValue, t2: EastTypeValue): boolean {
+  return typeValueEqual(t1, t2, []);
+}
+
+/** The id a `Recursive` payload names — the wrapper's own id, or a ref's. */
+function recursiveId(payload: variant<"ref", bigint> | variant<"wrapper", { id: bigint; inner: any }>): bigint {
+  return payload.type === "ref" ? payload.value : payload.value.id;
+}
+
+function typeValueEqual(t1: EastTypeValue, t2: EastTypeValue, env: WrapperPair[]): boolean {
   // Fast path: reference equality
   if (t1 === t2) return true;
 
@@ -362,54 +378,58 @@ export function isTypeValueEqual(t1: EastTypeValue, t2: EastTypeValue): boolean 
   const tid2 = getTypeId(t2);
   if (tid1 !== undefined && tid1 === tid2) return true;
 
-  // Recursive ref/wrapper equivalence: ref(N) and wrapper({id=N, inner})
-  // denote the same recursive type when ids match.
+  // Recursive ref/wrapper equivalence: ref(N) and wrapper({id: N, inner})
+  // denote the same recursive type when the ids match, or when the ids are a
+  // pair of wrappers this comparison has already entered (alpha-equivalence).
   if (t1.type === "Recursive" && t2.type === "Recursive") {
-    const v1 = t1.value as any;
-    const v2 = t2.value as any;
-    const id1 = v1.type === "ref" ? v1.value : v1.type === "wrapper" ? v1.value.id : undefined;
-    const id2 = v2.type === "ref" ? v2.value : v2.type === "wrapper" ? v2.value.id : undefined;
-    if (id1 !== undefined && id2 !== undefined && id1 === id2) return true;
+    const id1 = recursiveId(t1.value);
+    const id2 = recursiveId(t2.value);
+    if (id1 === id2) return true;
+    for (const [left, right] of env) {
+      if (left === id1 && right === id2) return true;
+    }
   }
 
-  // Check cache
+  // Check cache. Stamped values carry this process's type ids, under which
+  // structurally equal recursive types share one id, so their answer does not
+  // depend on `env`.
   if (tid1 !== undefined && tid2 !== undefined) {
     const innerCache = isTypeValueEqualCache.get(tid1);
     if (innerCache) {
       const cached = innerCache.get(tid2);
       if (cached !== undefined) return cached;
     }
-    const result = isTypeValueEqualImpl(t1, t2);
+    const result = typeValueEqualImpl(t1, t2, env);
     let cache = isTypeValueEqualCache.get(tid1);
     if (!cache) { cache = new Map(); isTypeValueEqualCache.set(tid1, cache); }
     cache.set(tid2, result);
     return result;
   }
 
-  return isTypeValueEqualImpl(t1, t2);
+  return typeValueEqualImpl(t1, t2, env);
 }
 
-/** Structural comparison that uses isTypeValueEqual for children (handles ref/wrapper). */
-function isTypeValueEqualImpl(t1: EastTypeValue, t2: EastTypeValue): boolean {
+/** Structural comparison that uses typeValueEqual for children (handles ref/wrapper). */
+function typeValueEqualImpl(t1: EastTypeValue, t2: EastTypeValue, env: WrapperPair[]): boolean {
   if (t1.type !== t2.type) return false;
   switch (t1.type) {
     case "Never": case "Null": case "Boolean": case "Integer":
     case "Float": case "String": case "DateTime": case "Blob":
       return true;
     case "Ref": case "Array": case "Vector": case "Matrix":
-      return isTypeValueEqual(t1.value, (t2 as any).value);
+      return typeValueEqual(t1.value, (t2 as any).value, env);
     case "Set":
-      return isTypeValueEqual(t1.value, (t2 as any).value);
+      return typeValueEqual(t1.value, (t2 as any).value, env);
     case "Dict":
-      return isTypeValueEqual(t1.value.key, (t2 as any).value.key) &&
-             isTypeValueEqual(t1.value.value, (t2 as any).value.value);
+      return typeValueEqual(t1.value.key, (t2 as any).value.key, env) &&
+             typeValueEqual(t1.value.value, (t2 as any).value.value, env);
     case "Struct": {
       const f1 = t1.value as { name: string; type: EastTypeValue }[];
       const f2 = (t2 as any).value as { name: string; type: EastTypeValue }[];
       if (f1.length !== f2.length) return false;
       for (let i = 0; i < f1.length; i++) {
         if (f1[i]!.name !== f2[i]!.name) return false;
-        if (!isTypeValueEqual(f1[i]!.type, f2[i]!.type)) return false;
+        if (!typeValueEqual(f1[i]!.type, f2[i]!.type, env)) return false;
       }
       return true;
     }
@@ -419,7 +439,7 @@ function isTypeValueEqualImpl(t1: EastTypeValue, t2: EastTypeValue): boolean {
       if (c1.length !== c2.length) return false;
       for (let i = 0; i < c1.length; i++) {
         if (c1[i]!.name !== c2[i]!.name) return false;
-        if (!isTypeValueEqual(c1[i]!.type, c2[i]!.type)) return false;
+        if (!typeValueEqual(c1[i]!.type, c2[i]!.type, env)) return false;
       }
       return true;
     }
@@ -428,33 +448,24 @@ function isTypeValueEqualImpl(t1: EastTypeValue, t2: EastTypeValue): boolean {
       const fn2 = (t2 as any).value as { inputs: EastTypeValue[]; output: EastTypeValue };
       if (fn1.inputs.length !== fn2.inputs.length) return false;
       for (let i = 0; i < fn1.inputs.length; i++) {
-        if (!isTypeValueEqual(fn1.inputs[i]!, fn2.inputs[i]!)) return false;
+        if (!typeValueEqual(fn1.inputs[i]!, fn2.inputs[i]!, env)) return false;
       }
-      return isTypeValueEqual(fn1.output, fn2.output);
+      return typeValueEqual(fn1.output, fn2.output, env);
     }
     case "Recursive": {
-      const v1 = t1.value as any;
-      const v2 = (t2 as any).value as any;
-      const id1 = v1.type === "ref" ? v1.value : v1.type === "wrapper" ? v1.value.id : undefined;
-      const id2 = v2.type === "ref" ? v2.value : v2.type === "wrapper" ? v2.value.id : undefined;
-      // Same id → same recursive type (fast path, works within one process)
-      if (id1 !== undefined && id2 !== undefined && id1 === id2) return true;
-      // Both refs with different ids → different recursive scopes
-      if (v1.type === "ref" && v2.type === "ref") return false;
-      // Both wrappers with different ids: structural comparison (alpha-equivalence).
-      // Types from different processes have different ids for the same structure.
-      // Pre-seed cache so inner ref(id1) ≡ ref(id2) during recursion.
+      const v1 = t1.value;
+      const v2 = (t2 as any).value as typeof v1;
+      // Same or paired ids were answered by typeValueEqual. Two wrappers
+      // with different ids are equal when their bodies are, with each body's
+      // refs standing for its own wrapper; a ref and a wrapper of different
+      // ids, or two refs of different ids, are different scopes.
       if (v1.type === "wrapper" && v2.type === "wrapper") {
-        const refT1 = { type: "Recursive" as const, value: { type: "ref" as const, value: id1 } } as EastTypeValue;
-        const refT2 = { type: "Recursive" as const, value: { type: "ref" as const, value: id2 } } as EastTypeValue;
-        const refTid1 = getTypeId(refT1);
-        const refTid2 = getTypeId(refT2);
-        if (refTid1 !== undefined && refTid2 !== undefined) {
-          let c = isTypeValueEqualCache.get(refTid1);
-          if (!c) { c = new Map(); isTypeValueEqualCache.set(refTid1, c); }
-          c.set(refTid2, true);
+        env.push([v1.value.id, v2.value.id]);
+        try {
+          return typeValueEqual(v1.value.inner, v2.value.inner, env);
+        } finally {
+          env.pop();
         }
-        return isTypeValueEqual(v1.value.inner, v2.value.inner);
       }
       return false;
     }

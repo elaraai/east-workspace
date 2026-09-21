@@ -68,8 +68,14 @@ e3 task logs <repo> <ws.task> [-n <lines>] [--all] [--follow]   # Tail / page / 
 ## Dataflow
 
 ```bash
-e3 dataflow run <repo> <ws> [--filter <p>] [--concurrency <n>] [--force]
+e3 dataflow run <repo> <ws> [--filter <p>] [-j <n>] [--force]
 ```
+
+`-j` / `--jobs <n>` is the run's one parallelism budget — the runner processes in
+flight at once, across tasks and the units of partitioned tasks — defaulting to
+the CPUs available to e3 or `E3_JOBS`; `--concurrency` and
+`--partition-concurrency` survive as deprecated aliases. Its design is in
+`e3-execution.md` ("The jobs budget").
 
 After a successful run, output paths are printed in flat form so the user can read them without re-discovering the structure:
 
@@ -91,7 +97,7 @@ Task spec separator is `.`, matching the dotted path convention everywhere else 
 ## Watch
 
 ```bash
-e3 watch <source.ts> <repo> <ws> [--start] [--abort-on-change]
+e3 watch <source.ts> <repo> <ws> [--start] [-j <n>] [--abort-on-change]
 ```
 
 The source file is the first argument — the thing the user is editing leads.

@@ -17,7 +17,7 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert';
 import { variant } from '@elaraai/east';
-import { runnerToArgv, withRunnerVerbose, type RunnerValue } from './runner.js';
+import { runnerToArgv, withRunnerLifeline, withRunnerVerbose, type RunnerValue } from './runner.js';
 
 /** A realistic fully-built argv: runner prefix + the `-i`/`-o`/`<ir>` suffix. */
 function fullArgv(runner: RunnerValue): string[] {
@@ -72,5 +72,60 @@ describe('withRunnerVerbose', () => {
     const runner = variant('east_node', { platforms: [] });
     assert.deepStrictEqual(withRunnerVerbose(runner, ['east-node'], true), ['east-node']);
     assert.deepStrictEqual(withRunnerVerbose(runner, [], true), []);
+  });
+
+  it('inserts -v after the merge subcommand too', () => {
+    const runner = variant('east_c', { platforms: ['east-c-std'] });
+    const args = [...runnerToArgv(runner, 'merge'), '--union', '-i', 'p0.beast2', '-o', 'out.beast2'];
+    assert.deepStrictEqual(withRunnerVerbose(runner, args, true).slice(0, 3), ['east-c', 'merge', '-v']);
+  });
+});
+
+describe('runnerToArgv', () => {
+  for (const [tag, runner, bin] of KNOWN) {
+    it(`resolves the run and merge commands of ${tag}`, () => {
+      assert.deepStrictEqual(runnerToArgv(runner).slice(0, 2), [bin, 'run']);
+      assert.deepStrictEqual(runnerToArgv(runner, 'run'), runnerToArgv(runner));
+      const merge = runnerToArgv(runner, 'merge');
+      assert.deepStrictEqual(merge.slice(0, 2), [bin, 'merge']);
+      // The platform flags follow either command unchanged.
+      assert.deepStrictEqual(merge.slice(2), runnerToArgv(runner).slice(2));
+    });
+  }
+
+  it('resolves a custom runner to its own command, and has no merge command for it', () => {
+    const runner: RunnerValue = variant('custom', { command: ['uv', 'run', 'east-py', 'run'] });
+    assert.deepStrictEqual(runnerToArgv(runner), ['uv', 'run', 'east-py', 'run']);
+    assert.throws(() => runnerToArgv(runner, 'merge'), { message: 'a custom runner has no merge command' });
+  });
+});
+
+describe('withRunnerLifeline', () => {
+  for (const [tag, runner, bin] of KNOWN) {
+    it(`inserts --exit-with-parent after the subcommand for ${tag}, on run and merge`, () => {
+      const args = fullArgv(runner);
+      const out = withRunnerLifeline(runner, args);
+      assert.deepStrictEqual(out.slice(0, 3), [bin, 'run', '--exit-with-parent']);
+      assert.deepStrictEqual(out.slice(3), args.slice(2));
+      const merge = [...runnerToArgv(runner, 'merge'), '--union', '-i', 'p0.beast2', '-o', 'out.beast2'];
+      assert.deepStrictEqual(withRunnerLifeline(runner, merge).slice(0, 3), [bin, 'merge', '--exit-with-parent']);
+      // Composed with -v, both sit ahead of the flags, in either order.
+      assert.deepStrictEqual(withRunnerVerbose(runner, withRunnerLifeline(runner, args), true).slice(0, 4), [bin, 'run', '-v', '--exit-with-parent']);
+    });
+  }
+
+  it('never splices the flag into a custom runner, which keeps an ignored stdin', () => {
+    const runner: RunnerValue = variant('custom', { command: ['uv', 'run', 'east-py', 'run'] });
+    const args = fullArgv(runner);
+    assert.deepStrictEqual(withRunnerLifeline(runner, args), args);
+  });
+
+  it('is a no-op on a degenerate argv and does not mutate its input', () => {
+    const runner = variant('east_c', { platforms: [] });
+    assert.deepStrictEqual(withRunnerLifeline(runner, ['east-c']), ['east-c']);
+    const args = fullArgv(runner);
+    const before = [...args];
+    withRunnerLifeline(runner, args);
+    assert.deepStrictEqual(args, before);
   });
 });

@@ -27,7 +27,7 @@
  */
 
 import { createRequire } from 'node:module';
-import { Command } from 'commander';
+import { Command, Option } from 'commander';
 
 const require = createRequire(import.meta.url);
 const packageJson = require('../../package.json') as { version: string };
@@ -264,10 +264,11 @@ program
     new Command('logs')
       .description('View logs for a task')
       .argument('[repo]', 'Repository path or URL (default: $E3_REPO or .)')
-      .argument('<path>', 'Task path (<ws>.<task>)')
+      .argument('[path]', 'Task path (<ws>.<task>)')
       .option('-n, --lines <n>', `Show the last <n> lines (default: ${DEFAULT_TAIL_LINES})`)
       .option('--all', 'Show the whole log instead of the last lines')
       .option('--follow', 'Follow log output')
+      .option('--execution <ref>', "View one execution's logs by <taskHash>/<inputsHash>/<executionId>, as a partitioned task's log names its units (local repositories)")
       .action(withDefaultRepo(logsCommand))
   );
 
@@ -283,8 +284,9 @@ program
       .argument('[repo]', 'Repository path or URL (default: $E3_REPO or .)')
       .argument('<ws>', 'Workspace name')
       .option('--filter <pattern>', 'Only run tasks matching pattern')
-      .option('--concurrency <n>', 'Max concurrent tasks', '4')
-      .option('--partition-concurrency <n>', 'Max concurrent partition slices/combine steps within a partitioned task (local runs)', '4')
+      .option('-j, --jobs <n>', 'Runner processes to keep in flight across the run — tasks and the units of partitioned tasks alike (default: the CPUs available to e3, or $E3_JOBS)')
+      .addOption(new Option('--concurrency <n>', 'Deprecated: use --jobs').hideHelp())
+      .addOption(new Option('--partition-concurrency <n>', 'Deprecated: use --jobs').hideHelp())
       .option('--force', 'Force re-execution even if cached')
       .option('-v, --verbose', "Pass -v to each task's runner (timing/perf to stderr)")
       .action(withDefaultRepo(startCommand))
@@ -370,7 +372,8 @@ program
   .argument('<repo>', 'Repository path or URL')
   .argument('<workspace>', 'Workspace name')
   .option('--start', 'Execute dataflow after each deploy')
-  .option('--concurrency <n>', 'Max concurrent tasks when using --start', '4')
+  .option('-j, --jobs <n>', 'Runner processes to keep in flight when using --start (default: the CPUs available to e3, or $E3_JOBS)')
+  .addOption(new Option('--concurrency <n>', 'Deprecated: use --jobs').hideHelp())
   .option('--abort-on-change', 'Abort running execution when file changes')
   .option('--functions <path...>', 'Function manifests (east-py / east-node export-functions) for East.importFunction packages built elsewhere; a package of this uv or npm workspace is exported and linked by itself')
   .action(watchCommand);

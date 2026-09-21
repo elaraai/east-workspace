@@ -1,7 +1,8 @@
 // Shared "is this @elaraai/* version already on the npm registry" check.
 // Used by publish-npm.mjs (per-package idempotency on partial-failure retry)
-// and by bootstrap-east-c-npm.mjs (refuse to re-publish a name+version that
-// already exists, since the first-publish must be a brand-new name).
+// and by bootstrap-east-c-npm.mjs and bootstrap-e3-job-npm.mjs (refuse to
+// re-publish a name+version that already exists, since the first-publish must
+// be a brand-new name).
 
 import { spawnSync } from 'node:child_process';
 

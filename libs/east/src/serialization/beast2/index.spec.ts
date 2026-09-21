@@ -18,6 +18,7 @@ import {
   type EastType,
 } from "../../types.js";
 import { toEastTypeValue, EastTypeValueType } from "../../type_of_type.js";
+import { TypeTableBuilder } from "./v4/type-table.js";
 import { IRType } from "../../ir.js";
 import { equalFor } from "../../comparison.js";
 import { East, variant, ref, some, none } from "../../index.js";
@@ -810,6 +811,24 @@ describe("Beast2 — canonical type table", () => {
       c: RecursiveType(self => VariantType({ nil: NullType, next: self })),
     });
     assertCanonical(EastTypeValueType as unknown as EastType, toEastTypeValue(T), "EastTypeValueType");
+  });
+
+  test("a deduplicated wrapper binds every id that named it", () => {
+    // One recursive type reaches a table under two wrapper ids — an interned
+    // type id for a type built here, a table index for one read off the wire.
+    // The ids are runtime artefacts and are never written, so the wrappers
+    // dedup to one entry; binding only the first id left a later bare `ref`
+    // under the second — which is what a mutable container over the
+    // self-reference adds — bound by no wrapper, failing the whole encode.
+    const wrapper = (id: bigint) =>
+      variant("Recursive", variant("wrapper", { id, inner: variant("Integer", null) })) as never;
+    const selfRef = (id: bigint) => variant("Recursive", variant("ref", id)) as never;
+
+    const builder = new TypeTableBuilder();
+    const first = builder.add(wrapper(42n));
+    assert.equal(builder.add(wrapper(7n)), first, "structurally equal wrappers are one entry");
+    assert.equal(builder.add(selfRef(42n)), first);
+    assert.equal(builder.add(selfRef(7n)), first, "the deduplicated wrapper's id resolves too");
   });
 
   test("one table index yields one shared object", () => {

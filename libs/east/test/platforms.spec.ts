@@ -174,7 +174,7 @@ export function describeEast(
             const wrapperJSON = exportToJSON(wrapperValue);
 
             const filename = join(outputDir, `${suiteName.replace(/[^a-zA-Z0-9]/g, '_')}.json`);
-            writeFileSync(filename, JSON.stringify(wrapperJSON, null, 2));
+            writeFileSync(filename, JSON.stringify(wrapperJSON)); // compact: readers parse JSON, and indentation was ~90% of a deep IR's bytes (#774); this file's line numbers are pinned in beast2 source-map fixtures, so keep edits to one line
             if (process.env.EAST_QUIET !== '1') {
                 console.log(`[+] Exported test IR: ${filename}`);
             }

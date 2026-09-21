@@ -17,10 +17,12 @@ of the cause-chain walk, and three all-but-identical impure-callback refusals.
 Each section keeps its issue's repro and its reason.
 """
 
+import itertools
+
 import pytest
 from east._eastc_bridge import c_function_value_type
 from east.runtime._compiler_eastc import diff_ir
-from east.serialization._beast2_eastc import _EmitAccumCore
+from east.serialization._beast2_eastc import _EmitSinkCore
 
 from east import (
     ArrayType,
@@ -33,6 +35,7 @@ from east import (
     IntegerType,
     NullType,
     OptionType,
+    SetType,
     StringType,
     StructType,
     VariantType,
@@ -47,6 +50,7 @@ from east.expression import ExpressionError
 from east.ir.builders import ir_function, ir_platform, ir_variable
 from east.runtime.compiler import compile_from_value
 from east.runtime.errors import EastError, NonRetraceableCallError
+from east.serialization.beast2 import decode_beast2_with_header_for
 
 ROW = StructType([("k", StringType), ("v", FloatType)])
 KEY_ROW = StructType([("k", StringType)])
@@ -79,19 +83,33 @@ def _bound_sink(base: float = 10.0):
                   lambda _b, key, v, b: v + b).bind(base)
 
 
-def _accum(kind: str = "dict", emit_types=(StringType, FloatType)):
-    """A live emit accumulator with inert boundary callbacks — the batch
-    limits are far above every case here, so nothing crosses one."""
-    return _EmitAccumCore({"array": 0, "set": 1, "dict": 2}[kind],
-                          list(emit_types), 1 << 20, 1 << 20,
-                          lambda: None, lambda: None, lambda: None)
+_sink_files = itertools.count()
 
 
-def _drive(name, kind, emit_types, body):
+def _sink(tmp_path, kind: str = "dict", emit_types=(StringType, FloatType)):
+    """A live emit sink — the streamTask runner's, east-c's library sink —
+    writing to a fresh file under ``tmp_path``. Returns ``(sink, path)``."""
+    path = tmp_path / f"emit-{next(_sink_files)}.beast2"
+    return _EmitSinkCore({"array": 0, "set": 1, "dict": 2}[kind], list(emit_types), path), path
+
+
+def _written(sink, path, kind: str = "dict", emit_types=(StringType, FloatType)):
+    """Finish the sink and decode what it wrote: ``(elements,)`` for an
+    array or set sink, ``(keys, values)`` for a dict sink."""
+    sink.finish()
+    blob = path.read_bytes()
+    if kind == "dict":
+        pairs = list(decode_beast2_with_header_for(DictType(*emit_types))(blob).items())
+        return [k for k, _ in pairs], [v for _, v in pairs]
+    out_t = SetType(emit_types[0]) if kind == "set" else ArrayType(emit_types[0])
+    return (list(decode_beast2_with_header_for(out_t)(blob)),)
+
+
+def _drive(tmp_path, name, kind, emit_types, body):
     """Run ``body(emit)`` through a compiled Platform wrapper with a live
-    accumulator emit — the streamTask runner topology — and return the
-    drained batch parts."""
-    core = _accum(kind, emit_types)
+    sink emit — the streamTask runner topology — and return what the sink
+    wrote."""
+    sink, path = _sink(tmp_path, kind, emit_types)
     emit_t = FunctionType(list(emit_types), NullType)
     platform = [{
         "name": name, "inputs": [emit_t], "output": NullType,
@@ -100,8 +118,8 @@ def _drive(name, kind, emit_types, body):
     wrapper = ir_function(
         FunctionType([emit_t], NullType), [], [ir_variable(emit_t, "emit")],
         ir_platform(NullType, name, [ir_variable(emit_t, "emit")]))
-    compile_from_value(wrapper, platform)(core.function_value(list(emit_types)))
-    return core.take_batch()
+    compile_from_value(wrapper, platform)(sink.function_value())
+    return _written(sink, path, kind, emit_types)
 
 
 def _assert_named_cause(call, cause_type=NonRetraceableCallError):
@@ -716,48 +734,48 @@ class TestForEachDelivers:
     tuple threw it away before it reached the IR: the loop compiled to a null
     body and every emitting task "succeeded" with a zero-row output."""
 
-    def test_array_for_each_delivers_every_row(self):
+    def test_array_for_each_delivers_every_row(self, tmp_path):
         def body(emit):
             _rows().for_each(lambda _b, r: emit(r["k"]))
 
-        (elems,) = _drive("regr565.array", "array", [StringType], body)
+        (elems,) = _drive(tmp_path, "regr565.array", "array", [StringType], body)
         assert list(elems) == ["a", "b", "c"]
 
-    def test_array_for_each_with_index_delivers(self):
+    def test_array_for_each_with_index_delivers(self, tmp_path):
         # the arity-2 wrapper branch
         def body(emit):
             _rows().for_each(lambda _b, r, i: emit(r["k"]))
 
-        (elems,) = _drive("regr565.array2", "array", [StringType], body)
+        (elems,) = _drive(tmp_path, "regr565.array2", "array", [StringType], body)
         assert list(elems) == ["a", "b", "c"]
 
-    def test_dict_kind_emit_delivers_pairs(self):
+    def test_dict_kind_emit_delivers_pairs(self, tmp_path):
         def body(emit):
             _rows().for_each(lambda _b, r: emit(r["k"], r["v"]))
 
-        keys, values = _drive("regr565.dict", "dict", [StringType, FloatType], body)
+        keys, values = _drive(tmp_path, "regr565.dict", "dict", [StringType, FloatType], body)
         assert list(keys) == ["a", "b", "c"]
         assert list(values) == [1.0, 2.0, 3.0]
 
-    def test_set_for_each_delivers(self):
+    def test_set_for_each_delivers(self, tmp_path):
         from east import EastSet
 
         def body(emit):
             EastSet(StringType, ["x", "y"]).for_each(lambda _b, e: emit(e))
 
-        (elems,) = _drive("regr565.set", "array", [StringType], body)
+        (elems,) = _drive(tmp_path, "regr565.set", "array", [StringType], body)
         assert sorted(elems) == ["x", "y"]
 
-    def test_dict_for_each_delivers(self):
+    def test_dict_for_each_delivers(self, tmp_path):
         def body(emit):
             EastDict(StringType, FloatType, {"p": 1.0, "q": 2.0}).for_each(
                 lambda _b, v, k: emit(k, v))
 
-        keys, values = _drive("regr565.dfe", "dict", [StringType, FloatType], body)
+        keys, values = _drive(tmp_path, "regr565.dfe", "dict", [StringType, FloatType], body)
         assert list(keys) == ["p", "q"]
         assert list(values) == [1.0, 2.0]
 
-    def test_for_each_matches_map_delivery(self):
+    def test_for_each_matches_map_delivery(self, tmp_path):
         # map always delivered (its call IS the returned expression); the fix
         # makes for_each equivalent for effect.
         def via_map(emit):
@@ -766,8 +784,8 @@ class TestForEachDelivers:
         def via_for_each(emit):
             _rows().for_each(lambda _b, r: emit(r["k"]))
 
-        (m,) = _drive("regr565.viamap", "array", [StringType], via_map)
-        (f,) = _drive("regr565.viafe", "array", [StringType], via_for_each)
+        (m,) = _drive(tmp_path, "regr565.viamap", "array", [StringType], via_map)
+        (f,) = _drive(tmp_path, "regr565.viafe", "array", [StringType], via_for_each)
         assert list(m) == list(f) == ["a", "b", "c"]
 
 
@@ -779,14 +797,14 @@ class TestNonNullCallback:
         add = East.function([FloatType, FloatType], FloatType, lambda _b, a, b: a + b).bind(1.0)
         _rows().for_each(lambda _b, r: add(r["v"]))  # must not raise
 
-    def test_non_null_body_before_an_emit_still_delivers_elsewhere(self):
+    def test_non_null_body_before_an_emit_still_delivers_elsewhere(self, tmp_path):
         add = East.function([FloatType, FloatType], FloatType, lambda _b, a, b: a + b).bind(1.0)
 
         def body(emit):
             _rows().for_each(lambda _b, r: add(r["v"]))
             _rows().for_each(lambda _b, r: emit(r["k"]))
 
-        (elems,) = _drive("regr565.mixed", "array", [StringType], body)
+        (elems,) = _drive(tmp_path, "regr565.mixed", "array", [StringType], body)
         assert list(elems) == ["a", "b", "c"]
 
 
@@ -800,7 +818,7 @@ class TestPythonEffectBoundary:
             seen.append(r["k"])
         assert seen == ["a", "b", "c"]
 
-    def test_python_emit_wrapper_delivers_through_an_explicit_loop(self):
+    def test_python_emit_wrapper_delivers_through_an_explicit_loop(self, tmp_path):
         # the tests/drivers shape: python work around emit — the explicit
         # loop is the boundary, and emit called on plain values marshals one
         # row through the C path per call.
@@ -811,7 +829,7 @@ class TestPythonEffectBoundary:
                 emit(r["k"])
             assert order == ["a", "b", "c"]
 
-        (elems,) = _drive("regr565.pywrap", "array", [StringType], body)
+        (elems,) = _drive(tmp_path, "regr565.pywrap", "array", [StringType], body)
         assert list(elems) == ["a", "b", "c"]
 
 
@@ -833,38 +851,41 @@ class TestIrPlatformBuilder:
 
 
 class TestTheSinkIsACallWrapper:
-    """``_EmitAccumCore.function_value()`` used to return a bare hold: it
+    """The emit sink's ``function_value()`` used to return a bare hold: it
     carried ``_east_c_handle`` so the bridge could pass it *as a value* (all
     the runner needs), but it had no ``__call__``. A harness invoking a
     ``@platform_function`` DIRECTLY from python gets the sink handed to the
     body as-is, so a capturable emit callback captured, called the hold, and
     died with ``'_EmitFnHold' object is not callable``."""
 
-    def test_the_function_value_is_callable(self):
-        assert callable(_accum().function_value([StringType, FloatType]))
+    def test_the_function_value_is_callable(self, tmp_path):
+        sink, _path = _sink(tmp_path)
+        assert callable(sink.function_value())
 
-    def test_it_still_carries_the_conversion_fast_path_handle(self):
+    def test_it_still_carries_the_conversion_fast_path_handle(self, tmp_path):
         # `_east_c_handle` is what lets the capture reference it and what
         # `_py_function_to_c` passes straight through — the value path (the
         # runner's own) must be untouched by the wrapper change.
-        emit = _accum().function_value([StringType, FloatType])
+        sink, _path = _sink(tmp_path)
+        emit = sink.function_value()
         assert getattr(emit, "_east_c_handle", None) is not None
 
-    def test_the_declared_signature_still_answers(self):
+    def test_the_declared_signature_still_answers(self, tmp_path):
         # Signature introspection gates `bind` and `is_value_of` on function
         # values, whose contents cannot be inspected any other way.
-        emit = _accum().function_value([StringType, FloatType])
+        sink, _path = _sink(tmp_path)
+        emit = sink.function_value()
         assert c_function_value_type(emit._east_c_handle) == EMIT_T
         assert is_value_of(emit, EMIT_T)
 
 
 class TestPythonDrivenBodyCaptures:
-    def test_a_pure_emit_callback_runs_with_zero_python_per_row(self):
+    def test_a_pure_emit_callback_runs_with_zero_python_per_row(self, tmp_path):
         # THE issue: the harness shape — a @platform_function invoked directly
         # from python, handed the sink as its emit capability. The callback
         # captures; the emit call lowers to a native IR Call and the sink
         # rides as a hidden bound parameter, so no python runs per row.
-        core = _accum()
+        sink, path = _sink(tmp_path)
 
         @platform_function(inputs=[DictType(StringType, FloatType), EMIT_T],
                            output=NullType, name="regr592.double_all")
@@ -873,84 +894,84 @@ class TestPythonDrivenBodyCaptures:
 
         rows = EastDict(StringType, FloatType,
                         {f"k{i}": float(i) for i in range(5)})
-        double_all(rows, core.function_value([StringType, FloatType]))
+        double_all(rows, sink.function_value())
 
-        keys, values = core.take_batch()
+        keys, values = _written(sink, path)
         assert list(keys) == [f"k{i}" for i in range(5)]
         assert list(values) == [2.0 * i for i in range(5)]
 
-    def test_a_plain_captured_callback_delivers_every_row(self):
+    def test_a_plain_captured_callback_delivers_every_row(self, tmp_path):
         # The same capture without the platform-function wrapper: the sink
         # is an ordinary closure capture of the callback.
-        core = _accum()
-        emit = core.function_value([StringType, FloatType])
+        sink, path = _sink(tmp_path)
+        emit = sink.function_value()
         _rows().for_each(lambda _b, r: emit(r["k"], r["v"]))
 
-        keys, values = core.take_batch()
+        keys, values = _written(sink, path)
         assert list(keys) == ["a", "b", "c"]
         assert list(values) == [1.0, 2.0, 3.0]
 
-    def test_one_sink_called_at_two_sites_binds_once_and_delivers_both(self):
+    def test_one_sink_called_at_two_sites_binds_once_and_delivers_both(self, tmp_path):
         # The registry dedupes the callee by its C function-value pointer, so
         # two captured loops over one sink bind one hidden parameter each and
         # both sets of rows land.
-        core = _accum("array", (StringType,))
-        emit = core.function_value([StringType])
+        sink, path = _sink(tmp_path, "array", (StringType,))
+        emit = sink.function_value()
         _rows().for_each(lambda _b, r: emit(r["k"]))
         _rows().for_each(lambda _b, r: emit(r["k"]))
 
-        (elems,) = core.take_batch()
+        (elems,) = _written(sink, path, "array", (StringType,))
         assert list(elems) == ["a", "b", "c", "a", "b", "c"]
 
-    def test_the_value_path_is_unchanged(self):
+    def test_the_value_path_is_unchanged(self, tmp_path):
         # The runner's own topology: the wrapper is passed as a VALUE to a
         # compiled body's FunctionType parameter (never called from python).
-        core = _accum()
-        emit = core.function_value([StringType, FloatType])
+        sink, path = _sink(tmp_path)
+        emit = sink.function_value()
         project = East.function([ROW, EMIT_T], NullType,
                                 lambda _b, r, e: e(r["k"], r["v"])).bind(emit)
         _rows().map(project)
 
-        keys, _values = core.take_batch()
+        keys, _values = _written(sink, path)
         assert list(keys) == ["a", "b", "c"]
 
 
 class TestSinkPythonBoundaryCall:
-    def test_calling_it_marshals_one_row_through_the_c_path(self):
-        core = _accum()
-        emit = core.function_value([StringType, FloatType])
+    def test_calling_it_marshals_one_row_through_the_c_path(self, tmp_path):
+        sink, path = _sink(tmp_path)
+        emit = sink.function_value()
         emit("a", 1.0)
         emit("b", 2.0)
 
-        assert core.emitted == 2
-        keys, values = core.take_batch()
+        assert sink.stats()["emitted"] == 2
+        keys, values = _written(sink, path)
         assert list(keys) == ["a", "b"] and list(values) == [1.0, 2.0]
 
-    def test_it_is_the_same_acceptance_path_as_the_core_entry(self):
-        # Same rows, same C accept — so the duplicate-key refusal (and its
+    def test_it_is_the_same_acceptance_path_as_the_core_entry(self, tmp_path):
+        # Same rows, same C entry — so the duplicate-key refusal (and its
         # message) reaches a python caller through either door.
-        core = _accum()
-        emit = core.function_value([StringType, FloatType])
+        sink, _path = _sink(tmp_path)
+        emit = sink.function_value()
         emit("a", 1.0)
         with pytest.raises(EastError, match='duplicate Dict key emitted: "a"'):
             emit("a", 2.0)
 
-    def test_it_keeps_the_accumulator_alive_on_its_own(self):
-        # The wrapper is the only python reference left, and the accumulator
-        # survives behind the C value's userdata retain — a runner or harness
-        # may hand `function_value()` on and drop the core.
+    def test_it_keeps_the_sink_alive_on_its_own(self, tmp_path):
+        # The wrapper is the only python reference left, and the sink
+        # survives behind the C value's reference to its owner — a runner or
+        # harness may hand `function_value()` on and drop the sink.
         import gc
 
-        emit = _accum().function_value([StringType, FloatType])
+        emit = _sink(tmp_path)[0].function_value()
         gc.collect()
         for i in range(1000):
-            emit(f"k{i:04d}", float(i))  # a freed core would not answer here
+            emit(f"k{i:04d}", float(i))  # a freed sink would not answer here
 
 
 class TestSinkStrictBoundary:
-    def test_an_impure_callback_is_refused_up_front(self):
-        core = _accum()
-        emit = core.function_value([StringType, FloatType])
+    def test_an_impure_callback_is_refused_up_front(self, tmp_path):
+        sink, path = _sink(tmp_path)
+        emit = sink.function_value()
         order: list[str] = []
         with pytest.raises(ExpressionError, match="captured automatically"):
             _rows().for_each(lambda _b, r: (order.append(r["k"]), emit(r["k"], r["v"]))[1])
@@ -960,13 +981,13 @@ class TestSinkStrictBoundary:
             emit(r["k"], r["v"])
 
         assert order == ["a", "b", "c"]
-        keys, _values = core.take_batch()
+        keys, _values = _written(sink, path)
         assert list(keys) == ["a", "b", "c"]
 
-    def test_an_arity_mismatched_call_on_the_sink_names_its_cause(self):
+    def test_an_arity_mismatched_call_on_the_sink_names_its_cause(self, tmp_path):
         # The foreign-function-value callee (not a bound function): lowering
         # declines the arity mismatch, the capture then raises (#625) with
         # NonRetraceableCallError in the cause chain (#558 C) — instead of the
         # old per-element fallback surfacing the sink's own runtime refusal.
-        emit = _accum().function_value([StringType, FloatType])
+        emit = _sink(tmp_path)[0].function_value()
         _assert_named_cause(lambda: _rows().for_each(lambda _b, r: emit(r["k"])))
