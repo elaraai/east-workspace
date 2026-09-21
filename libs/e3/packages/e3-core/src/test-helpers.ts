@@ -27,11 +27,20 @@ export function createTempDir(): string {
 }
 
 /**
- * Removes a temporary directory and all its contents
+ * Removes a temporary directory and all its contents.
+ *
+ * @remarks
+ * Retried, because Windows releases a dead process's handles on its own
+ * schedule: a suite that kills a runner and then removes the directory it
+ * was staged in hits `EBUSY: resource busy or locked, rmdir` while the
+ * kernel still holds the last handle. `maxRetries`/`retryDelay` are Node's
+ * documented remedy for exactly that (and for `ENOTEMPTY`), and they cost
+ * nothing where the first unlink succeeds — which is every other platform.
+ *
  * @param dir Path to directory to remove
  */
 export function removeTempDir(dir: string): void {
-  rmSync(dir, { recursive: true, force: true });
+  rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
 }
 
 /**
