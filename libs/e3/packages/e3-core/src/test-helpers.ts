@@ -26,21 +26,43 @@ export function createTempDir(): string {
   return mkdtempSync(join(tmpdir(), 'e3-test-'));
 }
 
+/** Sleeps without yielding: a teardown has no turn of the loop to give. */
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
 /**
  * Removes a temporary directory and all its contents.
  *
  * @remarks
- * Retried, because Windows releases a dead process's handles on its own
- * schedule: a suite that kills a runner and then removes the directory it
- * was staged in hits `EBUSY: resource busy or locked, rmdir` while the
- * kernel still holds the last handle. `maxRetries`/`retryDelay` are Node's
- * documented remedy for exactly that (and for `ENOTEMPTY`), and they cost
- * nothing where the first unlink succeeds — which is every other platform.
+ * Windows holds a directory that is any live process's working directory,
+ * and releases it on its own schedule once that process goes. A suite that
+ * runs a child with the directory as its cwd — which every spawn gate here
+ * does — therefore races the kernel at teardown and gets
+ * `EBUSY: resource busy or locked, rmdir`.
+ *
+ * `rmSync`'s own `maxRetries` does not cover it: Node's `rimrafSync` enters
+ * its retry loop only for `ENOTEMPTY`/`EEXIST`/`EPERM`, and an `EBUSY` from
+ * the top-level `rmdir` is rethrown at once. So the wait is here.
+ *
+ * A directory that is still held after all that is left where it is, for the
+ * OS to sweep, rather than failing a suite whose assertions have already
+ * passed: nothing is being tested about whether a temp directory can be
+ * deleted. Every other platform unlinks on the first attempt.
  *
  * @param dir Path to directory to remove
  */
 export function removeTempDir(dir: string): void {
-  rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
+  for (let attempt = 0; attempt < 20; attempt++) {
+    try {
+      rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+      return;
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code !== 'EBUSY' && code !== 'ENOTEMPTY' && code !== 'EPERM') throw err;
+      sleepSync(50);
+    }
+  }
 }
 
 /**
