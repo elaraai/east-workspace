@@ -473,7 +473,9 @@ static bool merge_append(Merge *m, EastValue *key, EastValue *value)
         east_set_insert(m->batch, key);
     m->batch_count++;
     m->stats.entries++;
-    return true;
+    /* The opening probe sizes the first segment from what these entries
+     * weigh, as the paged encoder and the sink do. */
+    return emit_writer_probe(&m->out, &m->batch, &m->batch_count);
 }
 
 /* acc = merge(key, acc, value). Consumes `acc` and `value`; returns the result

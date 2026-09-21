@@ -18,7 +18,7 @@
  */
 
 import { closeSync, openSync, writeSync } from 'fs';
-import { Beast2Writer, BEAST2_PAGED_BATCH_DEFAULT, BEAST2_PAGED_TARGET_BYTES_DEFAULT } from '@elaraai/east';
+import { Beast2Writer, BEAST2_PAGED_BATCH_DEFAULT, BEAST2_PAGED_PROBE_BATCH, BEAST2_PAGED_TARGET_BYTES_DEFAULT } from '@elaraai/east';
 import type { EastTypeValue } from '@elaraai/east/internal';
 
 /** Writes all of `bytes` to `fd` — `writeSync` may write fewer bytes than
@@ -44,6 +44,7 @@ export class EmitFileWriter {
     private batch: unknown[] = [];
     private written = 0;
     private nextBatch = BEAST2_PAGED_BATCH_DEFAULT;
+    private probed = false;
 
     /**
      * Opens `path` for writing and emits the blob's header.
@@ -52,7 +53,7 @@ export class EmitFileWriter {
      * @param outType - the collection's wire type
      * @param path - the output file
      */
-    constructor(private readonly kind: EmitKind, outType: EastTypeValue, path: string) {
+    constructor(private readonly kind: EmitKind, private readonly outType: EastTypeValue, path: string) {
         this.fd = openSync(path, 'w');
         // Frames deflate on worker threads (#763); the refinement below reads
         // the emitted bytes through the writer's bounds.
@@ -72,6 +73,39 @@ export class EmitFileWriter {
     push(entry: unknown): void {
         if (this.batch.length >= this.nextBatch) this.flush();
         this.batch.push(entry);
+        this.probe();
+    }
+
+    /**
+     * Seeds the batch size from a throwaway encode of the first entries, as
+     * `encodeBeast2PagedFor` does — the same probe, over the same count, so
+     * one value segments the same whether it was returned or emitted.
+     *
+     * Opening at the element cap instead made the first segment as many
+     * elements as the cap whatever they weighed: for rows above the target's
+     * share that is one oversized segment and every later boundary shifted,
+     * so the same Dict written both ways hashed differently. The probed
+     * entries are then drained through the refined size, exactly as the
+     * paged encoder pumps its own probe.
+     */
+    private probe(): void {
+        if (this.probed || this.batch.length < BEAST2_PAGED_PROBE_BATCH) return;
+        this.probed = true;
+        let scratchBytes = 0;
+        const scratch = new Beast2Writer(this.outType, (bytes) => { scratchBytes += bytes.length; });
+        const scratchHeader = scratchBytes;
+        scratch.write(this.toValue(this.batch) as never);
+        const avg = Math.max(1, (scratchBytes - scratchHeader) / this.batch.length);
+        this.nextBatch = Math.max(1, Math.min(BEAST2_PAGED_BATCH_DEFAULT, Math.floor(BEAST2_PAGED_TARGET_BYTES_DEFAULT / avg)));
+        if (this.nextBatch >= this.batch.length) return;
+        // Wider than one probe batch: the entries held so far go out in
+        // refined-size segments, which is what the paged encoder writes.
+        const buffered = this.batch;
+        this.batch = [];
+        for (const item of buffered) {
+            if (this.batch.length >= this.nextBatch) this.flush();
+            this.batch.push(item);
+        }
     }
 
     /**

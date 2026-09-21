@@ -470,8 +470,12 @@ export const BEAST2_PAGED_BATCH_DEFAULT = 1_000;
 export const BEAST2_PAGED_TARGET_BYTES_DEFAULT = 2 * 1024 * 1024;
 
 /** The probe batch that seeds the byte-adaptive batching — small, so one
- *  pathologically wide first batch cannot blow past the target unmeasured. */
-const PAGED_PROBE_BATCH = 16;
+ *  pathologically wide first batch cannot blow past the target unmeasured.
+ *  Exported so every writer of a collection blob seeds the same way: an
+ *  emit sink that opened at the element cap instead segmented a wide-rowed
+ *  value differently from this encoder, giving one value two hashes. */
+export const BEAST2_PAGED_PROBE_BATCH = 16;
+const PAGED_PROBE_BATCH = BEAST2_PAGED_PROBE_BATCH;
 
 /** Options accepted by {@link encodeBeast2PagedFor}. */
 export type Beast2PagedEncodeOptions = {

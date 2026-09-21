@@ -49,9 +49,39 @@ static void emit_writer_refine(EmitWriter *w, size_t n)
     w->next_batch = at_lo;
 }
 
+/* An empty batch of `type`'s collection kind. */
+static EastValue *emit_batch_new(EastType *type)
+{
+    switch (type->kind) {
+    case EAST_TYPE_ARRAY:
+        return east_array_new(type->data.element);
+    case EAST_TYPE_SET:
+        return east_set_new(type->data.element);
+    default:
+        return east_dict_new(type->data.dict.key, type->data.dict.value);
+    }
+}
+
+/* Appends element `i` of `from` to `to`. */
+static void emit_batch_append_at(EastType *type, EastValue *to, EastValue *from, size_t i)
+{
+    switch (type->kind) {
+    case EAST_TYPE_ARRAY:
+        east_array_push(to, from->data.array.items[i]);
+        break;
+    case EAST_TYPE_SET:
+        east_set_insert(to, east_set_at(from, i));
+        break;
+    default:
+        east_dict_set(to, east_dict_key_at(from, i), east_dict_val_at(from, i));
+        break;
+    }
+}
+
 bool emit_writer_open(EmitWriter *w, EastType *type, const char *path)
 {
     memset(w, 0, sizeof(*w));
+    w->type = type;
     w->out = fopen(path, "wb");
     if (!w->out) {
         char msg[1024];
@@ -83,6 +113,65 @@ bool emit_writer_write(EmitWriter *w, EastValue *batch, size_t n)
     if (!east_beast2_writer_write(w->writer, batch)) return false;
     if (!emit_writer_drain(w)) return false;
     emit_writer_refine(w, n);
+    return true;
+}
+
+bool emit_writer_probe(EmitWriter *w, EastValue **batch, size_t *count)
+{
+    if (w->probed || *count < EMIT_PROBE_BATCH) return true;
+    w->probed = true;
+
+    /* A throwaway encode of what is held measures the average wire size of an
+     * element, exactly as east_beast2_encode_paged's probe does. Serial: the
+     * bounds coincide, and the measurement is the same either way. */
+    Beast2StreamWriter *scratch =
+        east_beast2_writer_new(w->type, EAST_BEAST2_CODEC_DEFLATE, true, true);
+    if (!scratch) {
+        east_builtin_error("emit: out of memory");
+        return false;
+    }
+    size_t lo = 0, hi = 0;
+    east_beast2_writer_emitted_bounds(scratch, &lo, &hi);
+    size_t header = lo;
+    bool ok = east_beast2_writer_write(scratch, *batch);
+    east_beast2_writer_emitted_bounds(scratch, &lo, &hi);
+    size_t body = lo - header;
+    east_beast2_writer_free(scratch);
+    if (!ok) return false;
+    w->next_batch = east_beast2_paged_next_batch(EMIT_TARGET_BYTES, body, *count);
+    if (w->next_batch >= *count) return true;
+
+    /* Elements wider than one segment's share: what is held goes out in
+     * refined-size segments, which is what the paged encoder writes for the
+     * same elements — it pumps its own probe through the refined size too. */
+    EastValue *held = *batch;
+    size_t n = *count;
+    EastValue *acc = emit_batch_new(w->type);
+    size_t acc_n = 0;
+    if (!acc) {
+        east_builtin_error("emit: out of memory");
+        return false;
+    }
+    for (size_t i = 0; i < n; i++) {
+        if (acc_n >= w->next_batch) {
+            ok = emit_writer_write(w, acc, acc_n);
+            east_value_release(acc);
+            acc = ok ? emit_batch_new(w->type) : NULL;
+            acc_n = 0;
+            if (!acc) {
+                if (ok) east_builtin_error("emit: out of memory");
+                east_value_release(held);
+                *batch = NULL;
+                *count = 0;
+                return false;
+            }
+        }
+        emit_batch_append_at(w->type, acc, held, i);
+        acc_n++;
+    }
+    east_value_release(held);
+    *batch = acc;
+    *count = acc_n;
     return true;
 }
 

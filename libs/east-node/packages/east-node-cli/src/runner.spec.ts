@@ -35,6 +35,7 @@ import {
   decodeBeast2For,
   encodeBeast2For,
   encodeBeast2PagedFor,
+  toEastTypeValue,
   encodeEastIR,
   none,
   openBeast2PagesFor,
@@ -44,6 +45,7 @@ import {
 
 import { runProgram, lazyThreshold } from './runner.js';
 import { mergeBlobs } from './merge.js';
+import { EmitFileWriter } from './emit-writer.js';
 
 /** Runs `run` with console.error captured; returns what it printed. */
 async function stderrOf(run: () => Promise<unknown>): Promise<string> {
@@ -702,6 +704,41 @@ describe('folding emit, the blob merge and the stdin lifeline (#770)', () => {
     const both = spawnSync(process.execPath, [bin, 'merge', '--merge', writeConcat(), '--union', '-i', inputs[0]!, '-o', join(tempDir, 'both.beast2')], { encoding: 'utf8' });
     assert.equal(both.status, 1);
     assert.ok(both.stderr.includes('Error: --merge and --union are two folds — give one'), both.stderr);
+  });
+
+  it('the emit writer segments a value exactly as the paged encoder does', () => {
+    // One value segments the same wherever it is written (#770): a task that
+    // RETURNS a collection writes it through encodeBeast2PagedFor, one that
+    // emits or merges writes it through this writer, and a content-addressed
+    // store must see one blob. The writer opened at the element cap where the
+    // encoder probes its first entries, so rows above a segment's share got
+    // one oversized first segment and every later boundary shifted.
+    //
+    // Incompressible rows, from a deterministic LCG: deflate shrinks anything
+    // patterned back under the byte target, and then every batch is the cap
+    // and the two agree no matter what.
+    let seed = 12345;
+    const noise = (chars: number): string => {
+      const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+      let out = '';
+      for (let i = 0; i < chars; i++) {
+        seed = (seed * 48271) % 2147483647;
+        out += alphabet[(seed >> 8) & 63];
+      }
+      return out;
+    };
+    for (const width of [4_000, 200_000]) {
+      seed = 12345;
+      const rows: [bigint, string][] = Array.from({ length: 60 }, (_, i) => [BigInt(i), noise(width)]);
+      const value = new SortedMap(rows, compareFor(IntegerType));
+      const paged = encodeBeast2PagedFor(DT)(value);
+      const path = join(tempDir, `segments-${width}.beast2`);
+      const writer = new EmitFileWriter('dict', toEastTypeValue(DT), path);
+      for (const [key, text] of rows) writer.push([key, text]);
+      writer.finishClose();
+      assert.deepEqual(new Uint8Array(readFileSync(path)), paged,
+        `a ${width}-char row segments the same emitted as returned`);
+    }
   });
 
   it('a container two entries share stays one NEW and one REF', () => {

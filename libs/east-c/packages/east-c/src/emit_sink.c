@@ -150,6 +150,11 @@ static EvalResult emit_invoke(EastCompiledFn *self, EastValue **args, size_t n_a
     }
     s->batch_count++;
     s->emitted++;
+    /* The opening probe sizes the first segment from what these entries
+     * weigh, as the paged encoder does; it is a no-op after the first. */
+    if (!emit_writer_probe(&s->out, &s->batch, &s->batch_count)) {
+        return eval_error("emit: failed to write output segment");
+    }
     return eval_ok(east_null());
 }
 

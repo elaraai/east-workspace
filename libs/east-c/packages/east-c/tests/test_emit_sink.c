@@ -163,6 +163,34 @@ static bool emit_wide_rows(const char *path, size_t k)
     return ok;
 }
 
+/* The value emit_wide_rows emits, built directly: the same rows in the same
+ * order from the same LCG, so the two encodings below are of ONE value. */
+static EastValue *build_wide_dict(EastType *row_type, size_t k)
+{
+    EastValue *dict = east_dict_new(&east_integer_type, row_type);
+    if (!dict) return NULL;
+    uint32_t seed = 12345;
+    for (size_t i = 0; i < ROWS; i++) {
+        EastValue *key = east_integer((int64_t)i);
+        EastValue *row = noise_row(row_type, ROW_CHARS + (i < k ? 1u : 0u), &seed);
+        east_dict_set(dict, key, row);
+        east_value_release(key);
+        east_value_release(row);
+    }
+    return dict;
+}
+
+/* The sink's file must be byte-identical to what the paged encoder writes for
+ * the same value: one value segments the same wherever it is written (#770).
+ *
+ * That is the whole contract, and it subsumes the two ways the segmentation
+ * drifts apart. The sink opened at the element cap where the encoder probes
+ * its first entries, so a wide-rowed value got one oversized first segment
+ * and every later boundary shifted; and the refinement must average over the
+ * BODY alone, so the `k` sweep walks first-segment sizes until it finds one
+ * where including the header would choose a different second batch. Either
+ * drift gives one value two encodings — and two hashes in a content-addressed
+ * store. */
 static void test_segmentation(void)
 {
     const char *path = "emit_sink_gate_segments.beast2";
@@ -174,35 +202,103 @@ static void test_segmentation(void)
         uint8_t *data = read_file(path, &len);
         CHECK(data != NULL, "segmentation: no output written");
         if (!data) return;
+
+        /* The k this sweep looks for: one whose first segment makes the two
+         * refinements disagree, so the comparison below is what holds the
+         * header out of the average. */
+        bool separates = false;
         Beast2SpliceExtents *e = east_beast2_splice_extents(data, len);
-        CHECK(e != NULL, "segmentation: the output carries no extents");
-        if (!e) {
-            free(data);
-            return;
-        }
-        CHECK(e->segment_count >= 2 && e->counts[0] == FIRST_BATCH,
-              "segmentation: expected a full first batch of %d and a second segment, got %zu "
-              "segments (first %zu)",
-              FIRST_BATCH, e->segment_count, e->segment_count > 0 ? e->counts[0] : 0);
-        if (e->segment_count >= 2) {
+        if (e && e->segment_count >= 2) {
             size_t seg0 = e->offsets[1] - e->offsets[0];
-            size_t header = e->prefix_end;
-            size_t excluded = east_beast2_paged_next_batch(target, seg0, FIRST_BATCH);
-            size_t included = east_beast2_paged_next_batch(target, seg0 + header, FIRST_BATCH);
-            if (excluded != included) {
-                pinned = true;
-                CHECK(
-                    e->counts[1] == excluded,
-                    "segmentation: with %zu B in the first segment and a %zu B header, the second "
-                    "segment holds %zu entries; the refinement over the body alone says %zu, over "
-                    "the body and the header %zu (k = %zu)",
-                    seg0, header, e->counts[1], excluded, included, k);
-            }
+            size_t counted = e->counts[0];
+            separates = east_beast2_paged_next_batch(target, seg0, counted) !=
+                        east_beast2_paged_next_batch(target, seg0 + e->prefix_end, counted);
         }
-        east_beast2_splice_extents_free(e);
+        if (e) east_beast2_splice_extents_free(e);
+
+        /* Encoding 2100 wide rows again is the expensive half, so it runs on
+         * the first shape and on the discriminating one — the two that decide
+         * the contract — not on all 144 of the sweep. */
+        if (k == 0 || (separates && !pinned)) {
+            EastType *row_type = wide_row_type();
+            EastType *dict_type = east_dict_type(&east_integer_type, row_type);
+            EastValue *value = build_wide_dict(row_type, k);
+            ByteBuffer *paged =
+                value ? east_beast2_encode_paged(value, dict_type, EAST_BEAST2_CODEC_DEFLATE, 0)
+                      : NULL;
+            CHECK(paged != NULL, "segmentation: the paged encode failed (k = %zu)", k);
+            if (paged) {
+                CHECK(paged->len == len && memcmp(paged->data, data, len) == 0,
+                      "segmentation: the sink wrote %zu bytes where the paged encoder writes %zu "
+                      "for the same value (k = %zu) — one value must segment the same wherever it "
+                      "is written",
+                      len, paged->len, k);
+                byte_buffer_free(paged);
+            }
+            if (value) east_value_release(value);
+        }
+        if (separates) pinned = true;
         free(data);
     }
     CHECK(pinned, "segmentation: no first-segment size separated the two refinements");
+    remove(path);
+}
+
+/* Elements so wide that the probe sizes a segment BELOW the probe's own
+ * count: the entries already held must go out in refined-size segments, as
+ * the paged encoder pumps its probe through the refined size. Without that
+ * drain the first segment would be the 16 the probe measured. */
+static void test_segmentation_below_probe(void)
+{
+    const char *path = "emit_sink_gate_huge.beast2";
+    const size_t chars = 300000; /* ~300 KB a row: 2 MiB / row < EMIT_PROBE_BATCH */
+    const size_t rows = 40;
+    EastType *row_type = wide_row_type();
+    EastType *dict_type = east_dict_type(&east_integer_type, row_type);
+    EastType *fn_inputs[2] = {&east_integer_type, row_type};
+    EastType *fn_type = east_function_type(fn_inputs, 2, &east_null_type);
+    EastEmitSinkConfig cfg = {.kind = EAST_EMIT_DICT, .out_type = dict_type, .output_path = path};
+    EastEmitSink *sink = east_emit_sink_new(&cfg);
+    CHECK(sink != NULL, "below-probe: the sink did not open");
+    if (!sink) return;
+    EastValue *fn = east_emit_sink_function(sink, fn_type);
+    EastValue *expected = east_dict_new(&east_integer_type, row_type);
+    uint32_t seed = 999;
+    bool ok = fn != NULL && expected != NULL;
+    for (size_t i = 0; i < rows && ok; i++) {
+        EastValue *key = east_integer((int64_t)i);
+        EastValue *row = noise_row(row_type, chars, &seed);
+        EastValue *args[2] = {key, row};
+        char *err = emit(fn, args, 2);
+        CHECK(err == NULL, "below-probe: emit %zu failed: %s", i, err ? err : "");
+        ok = err == NULL;
+        free(err);
+        if (ok) east_dict_set(expected, key, row);
+        east_value_release(key);
+        east_value_release(row);
+    }
+    if (ok) {
+        ok = east_emit_sink_finish(sink);
+        CHECK(ok, "below-probe: finish failed");
+    }
+    east_value_release(fn);
+    east_emit_sink_free(sink);
+    if (ok) {
+        size_t len = 0;
+        uint8_t *data = read_file(path, &len);
+        ByteBuffer *paged =
+            east_beast2_encode_paged(expected, dict_type, EAST_BEAST2_CODEC_DEFLATE, 0);
+        CHECK(data != NULL && paged != NULL, "below-probe: no output to compare");
+        if (data && paged) {
+            CHECK(paged->len == len && memcmp(paged->data, data, len) == 0,
+                  "below-probe: the sink wrote %zu bytes where the paged encoder writes %zu for "
+                  "the same value — the probed entries must drain at the refined size",
+                  len, paged->len);
+        }
+        if (paged) byte_buffer_free(paged);
+        free(data);
+    }
+    if (expected) east_value_release(expected);
     remove(path);
 }
 
@@ -414,6 +510,7 @@ int main(void)
     east_set_thread_context(platform, builtins);
 
     test_segmentation();
+    test_segmentation_below_probe();
     test_folds();
     test_errors();
 

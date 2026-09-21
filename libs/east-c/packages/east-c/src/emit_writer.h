@@ -21,16 +21,21 @@
 #include <stdint.h>
 #include <stdio.h>
 
-/* The element cap and the byte target of one segment. */
+/* The element cap, the byte target of one segment, and the elements the
+ * opening probe measures — the paged encoder's three, so the segmentation
+ * matches it element for element. */
 #define EMIT_BATCH_CAP 1000
 #define EMIT_TARGET_BYTES (2u * 1024u * 1024u)
+#define EMIT_PROBE_BATCH 16
 
 typedef struct {
     FILE *out;
     Beast2StreamWriter *writer;
+    EastType *type;          /* borrowed: the output collection type */
     size_t header;           /* the writer's emitted total at creation: the header's bytes */
     size_t written_elements; /* elements in the segments written so far */
     size_t next_batch;       /* elements the next segment should hold */
+    bool probed;             /* the opening probe has sized next_batch */
 } EmitWriter;
 
 /* Opens `path` for writing and a writer of `type` on it. False with the
@@ -41,6 +46,16 @@ bool emit_writer_open(EmitWriter *w, EastType *type, const char *path);
  * elements, drained to the file; refines the next batch. False with the
  * message posted. */
 bool emit_writer_write(EmitWriter *w, EastValue *batch, size_t n);
+
+/* Seeds the batch size from a throwaway encode of the first EMIT_PROBE_BATCH
+ * entries — the probe the paged encoder runs, over the same count, so one
+ * value segments the same whether it was returned or emitted. Call it after
+ * each append; it does nothing until the batch reaches the probe count, and
+ * nothing thereafter. When the probe sizes segments below what is already
+ * held, those entries go out in refined-size segments and `*batch`/`*count`
+ * are replaced with the remainder (which always keeps the last entry, so a
+ * fold still lands in the open batch). False with the message posted. */
+bool emit_writer_probe(EmitWriter *w, EastValue **batch, size_t *count);
 
 /* The terminator and index, the last bytes to the file, and the close. False
  * with the message posted; the file is then unfinalised. */
