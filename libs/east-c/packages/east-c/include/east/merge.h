@@ -8,10 +8,16 @@
  * collections, as every runner writes them — and one canonical blob out, in
  * a single pass: every input is read segment by segment through a mapping,
  * a heap over the inputs' current entries yields keys in East order, and the
- * output is written through the same segment writer as `run --emit`, so the
- * file is byte-identical to what that sink writes for the same entries
- * emitted ascending. Memory is one decoded segment per input plus one output
- * segment; no temporary file is ever written.
+ * merged entries are written as VALUES through the very call `run --emit`
+ * writes its batches through (emit_writer_write), so the file is
+ * byte-identical to what that sink writes for the same entries emitted
+ * ascending — including the beast2 aliasing, which is scoped per output
+ * segment there and so is scoped per output segment here. Writing
+ * pre-encoded entries instead, each under its own scope, wrote a container
+ * two entries of one segment share as two copies: a different blob, a
+ * different hash, and a merge that disagreed with its own sink. Memory is
+ * one decoded segment per input plus one open batch; no temporary file is
+ * ever written.
  *
  * Equal keys across inputs fold in input order: with a merge function (Dict
  * inputs) `acc = merge(key, acc, value)`; in union mode (Set inputs) the

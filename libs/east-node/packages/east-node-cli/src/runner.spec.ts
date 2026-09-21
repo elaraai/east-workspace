@@ -704,6 +704,26 @@ describe('folding emit, the blob merge and the stdin lifeline (#770)', () => {
     assert.ok(both.stderr.includes('Error: --merge and --union are two folds — give one'), both.stderr);
   });
 
+  it('a container two entries share stays one NEW and one REF', () => {
+    // The writer scopes beast2 aliasing per SEGMENT, so a container two
+    // entries of one segment share is written once and referenced. A merge
+    // of such an input alone must write its bytes back exactly, because the
+    // merge writes through the same writer `run --emit` does. east-c encoded
+    // each entry under its own scope and wrote the shared value twice — a
+    // bigger blob and a different hash for one value, and the two runners
+    // disagreeing; the same fixture is `merge_aliased.beast2` in east-c's
+    // and east-py's suites.
+    const VT = StructType({ tags: ArrayType(StringType) });
+    const shared = ['x', 'y', 'zzzzzzzzzzzzzzzzzzzz'];
+    const inputPath = join(tempDir, 'aliased.beast2');
+    writeFileSync(inputPath, encodeBeast2PagedFor(DictType(IntegerType, VT), { batchSize: 10 })(
+      new SortedMap([[1n, { tags: shared }], [2n, { tags: shared }]], compareFor(IntegerType))));
+
+    const outputPath = join(tempDir, 'aliased-merged.beast2');
+    assert.deepEqual(mergeBlobs([inputPath], outputPath), { inputs: 1, entries: 2, folds: 0 });
+    assert.deepEqual(new Uint8Array(readFileSync(outputPath)), new Uint8Array(readFileSync(inputPath)));
+  });
+
   it('the merge command refuses its arguments in the other runners\' words', () => {
     // One sentence per condition, identical on east-c, east-node and east-py:
     // the three runners are interchangeable, so a task that names one of them

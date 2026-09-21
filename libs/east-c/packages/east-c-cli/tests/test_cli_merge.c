@@ -194,6 +194,26 @@ static void test_dict_merge(const char *bin, const char *fixtures)
     free(data);
 }
 
+/* A merge scopes beast2 aliasing per OUTPUT SEGMENT, as the emit sink does —
+ * so a container two entries of one segment share is written once and
+ * referenced, and merging such an input alone writes its bytes back exactly.
+ * Encoding each entry under its own scope instead wrote the shared value
+ * twice: a bigger blob, a different hash, and east-c disagreeing with its own
+ * `run --emit` and with east-node for the same entries. */
+static void test_aliased_entries(const char *bin, const char *fixtures)
+{
+    char cmd[4096];
+    char input[4200];
+    snprintf(input, sizeof(input), "%s/merge_aliased.beast2", fixtures);
+    snprintf(cmd, sizeof(cmd), "\"%s\" merge -i \"%s\" -o merge_out_aliased.beast2", bin, input);
+    int rc = run_cli(cmd, "merge_err_aliased.txt");
+    CHECK(rc == 0, "aliased merge: expected exit 0, got %d", rc);
+    if (rc != 0) return;
+    CHECK(
+        same_bytes(input, "merge_out_aliased.beast2"),
+        "aliased merge: the shared container must stay one NEW and one REF, as the sink writes it");
+}
+
 static void test_set_union(const char *bin, const char *fixtures)
 {
     char cmd[4096];
@@ -588,6 +608,7 @@ int main(int argc, char **argv)
     east_type_of_type_init();
 
     test_dict_merge(argv[1], argv[2]);
+    test_aliased_entries(argv[1], argv[2]);
     test_set_union(argv[1], argv[2]);
     test_duplicate(argv[1], argv[2]);
     test_refusals(argv[1], argv[2]);

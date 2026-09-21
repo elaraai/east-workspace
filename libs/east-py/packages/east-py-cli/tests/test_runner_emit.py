@@ -610,6 +610,19 @@ def test_the_merge_command_names_a_missing_input_as_the_other_runners_do(tmp_pat
     assert "Input file not found" not in proc.stderr
 
 
+def test_merge_keeps_a_container_two_entries_share(tmp_path):
+    """Two entries of one segment whose values share a container: the writer
+    scopes beast2 aliasing per SEGMENT, so the second occurrence is a REF and
+    a merge of this input alone writes its bytes back exactly. east-py binds
+    east-c's merge, which encoded each entry under its own scope and wrote
+    the shared value twice — a different blob and a different hash for one
+    value, and east-py disagreeing with east-node."""
+    aliased = FIXTURES / "merge_aliased.beast2"
+    out = tmp_path / "aliased.beast2"
+    assert merge_blobs([aliased], [], out) == {"inputs": 1, "entries": 2, "folds": 0}
+    assert out.read_bytes() == aliased.read_bytes()
+
+
 def test_the_merge_command_refuses_its_arguments_as_the_other_runners_do(tmp_path):
     # One sentence per condition, identical on east-c, east-node and east-py:
     # the three runners are interchangeable, so a task that names one of them

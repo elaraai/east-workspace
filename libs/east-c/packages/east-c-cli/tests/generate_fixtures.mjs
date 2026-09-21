@@ -316,6 +316,19 @@ const fixtures = {
   'merge_set_b.beast2': mergeSetInput('b'),
   'merge_set_c.beast2': mergeSetInput('c'),
   'merge_expected_set.beast2': encodeEastIR(keyEmitter(mergeDistinct)),
+  // Two entries of ONE segment whose values share a container. The paged
+  // writer scopes beast2 aliasing per SEGMENT, so the second occurrence is a
+  // REF, not a second copy — and a merge of this input alone must write
+  // exactly these bytes back, because the merge writes through the emit
+  // sink's own writer and scopes aliasing the same way. east-c used to
+  // encode each entry in its own scope and wrote the shared array twice,
+  // disagreeing with its own sink and with east-node.
+  'merge_aliased.beast2': encodeBeast2PagedFor(
+    DictType(IntegerType, StructType({ tags: ArrayType(StringType) })), { batchSize: 10 })(
+    (() => {
+      const shared = ['x', 'y', 'zzzzzzzzzzzzzzzzzzzz'];
+      return new SortedMap([[1n, { tags: shared }], [2n, { tags: shared }]], intCmp);
+    })()),
   'merge_empty.beast2': encodeBeast2PagedFor(IntStringDict, { batchSize: 4 })(new SortedMap([], intCmp)),
   'merge_mismatch.beast2': encodeBeast2PagedFor(DictType(StringType, FloatType), { batchSize: 4 })(
     new SortedMap([['x', 1.5]], compareFor(StringType)),

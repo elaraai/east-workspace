@@ -86,17 +86,6 @@ bool emit_writer_write(EmitWriter *w, EastValue *batch, size_t n)
     return true;
 }
 
-bool emit_writer_write_raw(EmitWriter *w, const uint8_t *entries, size_t len, size_t n,
-                           EastValue *first_key, EastValue *last_key)
-{
-    if (n == 0) return true;
-    if (!east_beast2_writer_write_raw(w->writer, entries, len, n, first_key, last_key))
-        return false;
-    if (!emit_writer_drain(w)) return false;
-    emit_writer_refine(w, n);
-    return true;
-}
-
 bool emit_writer_finish(EmitWriter *w)
 {
     bool ok = east_beast2_writer_finish(w->writer);

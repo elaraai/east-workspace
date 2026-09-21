@@ -105,9 +105,8 @@ typedef struct {
     bool done;                   /* ranged: the upper bound, or the last segment, was reached */
     EastValue *segment;          /* owned; NULL when exhausted */
     size_t idx, seg_len;
-    ByteBuffer *enc; /* the current entry re-encoded: the key's bytes, then the value's */
-    EastValue *key;  /* owned; NULL once the input is exhausted */
-    size_t key_len, val_len;
+    EastValue *key;   /* owned; NULL once the input is exhausted */
+    EastValue *value; /* owned; Dict inputs only */
 } MergeCursor;
 
 typedef struct {
@@ -115,31 +114,30 @@ typedef struct {
     EastTypeKind kind;
     EastType *key_type;
     EastType *value_type; /* Dict inputs; NULL for a Set */
-    Beast2EntryEncoder *encoder;
     EastCompiledFn *merge_fn;
     bool union_mode;
     EastValue *from, *to; /* owned; the key range's bounds, NULL when open */
     EmitWriter out;
-    ByteBuffer *seg; /* the open output segment: its entries' bytes */
-    size_t seg_count;
-    EastValue *seg_first, *seg_last; /* owned: the open segment's first and last keys */
+    EastValue *batch; /* owned accumulator of the collection kind — the sink's */
+    size_t batch_count;
     EastMergeStats stats;
 } Merge;
 
-static void cursor_drop_key(MergeCursor *c)
+static void cursor_drop_entry(MergeCursor *c)
 {
     if (c->key) east_value_release(c->key);
+    if (c->value) east_value_release(c->value);
     c->key = NULL;
+    c->value = NULL;
 }
 
 static void cursor_close(MergeCursor *c)
 {
-    cursor_drop_key(c);
+    cursor_drop_entry(c);
     if (c->segment) east_value_release(c->segment);
     if (c->reader) east_beast2_reader_free(c->reader);
     if (c->pages) east_beast2_pages_free(c->pages);
     b2v5_order_check_dispose(&c->order);
-    if (c->enc) byte_buffer_free(c->enc);
     if (c->data) input_release_mapping(c->map_ctx, c->data, c->len);
     memset(c, 0, sizeof(*c));
 }
@@ -209,14 +207,16 @@ static bool cursor_load_segment(Merge *m, MergeCursor *c, size_t index)
     }
 }
 
-/* Advances a cursor to its next entry within the merge's key range,
- * re-encoding it into c->enc so the merge copies bytes uniformly. Returns
- * false with the message posted. The reader holds each input to the
- * canonical order: a key that does not ascend is its error, prefixed with
- * the input, in the same words on every runtime. */
+/* Advances a cursor to its next entry within the merge's key range, holding
+ * the decoded key and value — the merge writes VALUES through the emit
+ * sink's own writer, so the output is what the sink writes for the same
+ * entries, aliasing and all. Returns false with the message posted. The
+ * reader holds each input to the canonical order: a key that does not ascend
+ * is its error, prefixed with the input, in the same words on every
+ * runtime. */
 static bool cursor_advance(Merge *m, MergeCursor *c, size_t index)
 {
-    cursor_drop_key(c);
+    cursor_drop_entry(c);
     for (;;) {
         if (c->segment && c->idx + 1 < c->seg_len) {
             c->idx++;
@@ -241,21 +241,10 @@ static bool cursor_advance(Merge *m, MergeCursor *c, size_t index)
             c->done = true;
             return true;
         }
-        c->enc->len = 0;
-        east_beast2_entry_begin(m->encoder);
-        if (!east_beast2_entry_encode(m->encoder, c->enc, key, m->key_type)) {
-            merge_input_error(index, c->path);
-            return false;
-        }
-        c->key_len = c->enc->len;
-        c->val_len = 0;
         if (m->kind == EAST_TYPE_DICT) {
-            if (!east_beast2_entry_encode(m->encoder, c->enc, east_dict_val_at(c->segment, c->idx),
-                                          m->value_type)) {
-                merge_input_error(index, c->path);
-                return false;
-            }
-            c->val_len = c->enc->len - c->key_len;
+            EastValue *value = east_dict_val_at(c->segment, c->idx); /* borrowed */
+            east_value_retain(value);
+            c->value = value;
         }
         east_value_retain(key);
         c->key = key;
@@ -355,11 +344,6 @@ static bool cursor_open(Merge *m, MergeCursor *c, size_t index, const char *path
         merge_posted_error(who, "cannot be read");
         return false;
     }
-    c->enc = byte_buffer_new(256);
-    if (!c->enc) {
-        merge_input_error(index, path);
-        return false;
-    }
     if (m->from || m->to) {
         c->pages = east_beast2_pages_new(c->data, c->len, m->type);
         if (!c->pages) {
@@ -454,35 +438,42 @@ static void heap_sift_down(size_t *heap, size_t n, size_t i, const MergeCursor *
     }
 }
 
-/* Frames the entries accumulated in the open segment as one output segment. */
-static bool merge_flush(Merge *m)
+/* An empty batch of the inputs' collection kind. */
+static EastValue *merge_new_batch(Merge *m)
 {
-    if (m->seg_count == 0) return true;
-    bool ok = emit_writer_write_raw(&m->out, m->seg->data, m->seg->len, m->seg_count, m->seg_first,
-                                    m->seg_last);
-    m->seg->len = 0;
-    m->seg_count = 0;
-    if (m->seg_first) east_value_release(m->seg_first);
-    if (m->seg_last) east_value_release(m->seg_last);
-    m->seg_first = m->seg_last = NULL;
-    return ok;
+    return m->kind == EAST_TYPE_DICT ? east_dict_new(m->key_type, m->value_type)
+                                     : east_set_new(m->key_type);
 }
 
-/* Writes one merged entry into the open segment, which goes out once it
- * holds the batch. */
-static bool merge_put(Merge *m, EastValue *key, const uint8_t *bytes, size_t len)
+/* Writes the open batch as one output segment, through the writer the emit
+ * sink writes through. */
+static bool merge_flush(Merge *m)
 {
-    if (len > 0) byte_buffer_write_bytes(m->seg, bytes, len);
-    if (!m->seg_first) {
-        m->seg_first = key;
-        east_value_retain(key);
+    if (m->batch_count == 0) return true;
+    if (!emit_writer_write(&m->out, m->batch, m->batch_count)) return false;
+    east_value_release(m->batch);
+    m->batch = merge_new_batch(m);
+    m->batch_count = 0;
+    if (!m->batch) {
+        east_builtin_error("merge: out of memory");
+        return false;
     }
-    if (m->seg_last) east_value_release(m->seg_last);
-    m->seg_last = key;
-    east_value_retain(key);
-    m->seg_count++;
+    return true;
+}
+
+/* Appends one merged entry to the open batch, under the sink's flush rule:
+ * a full batch goes out only now that an entry which will not fold into it
+ * has arrived, so the batch's last entry is always still open for a fold. */
+static bool merge_append(Merge *m, EastValue *key, EastValue *value)
+{
+    if (m->batch_count >= m->out.next_batch && !merge_flush(m)) return false;
+    if (m->kind == EAST_TYPE_DICT)
+        east_dict_set(m->batch, key, value);
+    else
+        east_set_insert(m->batch, key);
+    m->batch_count++;
     m->stats.entries++;
-    return m->seg_count < m->out.next_batch || merge_flush(m);
+    return true;
 }
 
 /* acc = merge(key, acc, value). Consumes `acc` and `value`; returns the result
@@ -504,28 +495,16 @@ static EastValue *merge_fold(Merge *m, EastValue *key, EastValue *acc, EastValue
     return out;
 }
 
-/* Commits the held entry of a folding merge: its bytes as copied, or — when
- * a fold ran — the key and the folded value re-encoded into `held`. */
-static bool merge_commit_held(Merge *m, ByteBuffer *held, EastValue *key, EastValue **acc)
-{
-    if (*acc) {
-        held->len = 0;
-        east_beast2_entry_begin(m->encoder);
-        bool ok = east_beast2_entry_encode(m->encoder, held, key, m->key_type);
-        ok = ok && east_beast2_entry_encode(m->encoder, held, *acc, m->value_type);
-        east_value_release(*acc);
-        *acc = NULL;
-        if (!ok) return false;
-    }
-    return merge_put(m, key, held->data, held->len);
-}
-
 /* Merges the open cursors: a binary min-heap ordered by (key, input index),
- * so equal keys leave in input order. Keys are decoded; bytes are copied.
- * Equal keys fold — a merge function holds the current key's entry back
- * until a greater key arrives, its bytes untouched unless a second equal key
- * makes it fold, and then re-encoded from the folded value; union keeps the
- * first — or, without a fold, are the duplicate error. */
+ * so equal keys leave in input order. Entries are decoded values, appended to
+ * the open batch and encoded by the emit sink's own writer — one aliasing
+ * scope per output segment, so a container two entries of one segment share
+ * is written once and referenced, exactly as `run --emit` writes it.
+ *
+ * Equal keys fold in place: the flush rule keeps the previous entry in the
+ * open batch, so `acc = merge(key, acc, value)` replaces it there, as the
+ * sink's fold does. Union keeps the first; without a fold an equal key is
+ * the duplicate error. */
 static bool merge_sources(Merge *m, MergeCursor *cur, size_t n)
 {
     size_t *heap = malloc((n > 0 ? n : 1) * sizeof(size_t));
@@ -536,12 +515,8 @@ static bool merge_sources(Merge *m, MergeCursor *cur, size_t n)
     for (size_t i = live / 2; i-- > 0;)
         heap_sift_down(heap, live, i, cur);
 
-    ByteBuffer *held = m->merge_fn ? byte_buffer_new(256) : NULL;
-    size_t held_key_len = 0;
-    EastValue *held_key = NULL; /* owned */
-    EastValue *held_acc = NULL; /* owned: the folded value, once a fold ran */
     EastValue *prev_key = NULL; /* owned */
-    bool ok = !m->merge_fn || held != NULL;
+    bool ok = true;
     while (ok && live > 0) {
         size_t index = heap[0];
         MergeCursor *c = &cur[index];
@@ -559,55 +534,35 @@ static bool merge_sources(Merge *m, MergeCursor *cur, size_t n)
             }
             m->stats.folds++;
             if (m->merge_fn) {
-                if (!held_acc) {
-                    held_acc = east_beast2_entry_decode(held->data + held_key_len,
-                                                        held->len - held_key_len, m->value_type);
-                }
-                EastValue *v = held_acc ? east_beast2_entry_decode(c->enc->data + c->key_len,
-                                                                   c->val_len, m->value_type)
-                                        : NULL;
-                if (!v) {
+                /* The previous entry is still in the open batch — the flush
+                 * rule guarantees it — so the fold lands in place. */
+                EastValue *acc = east_dict_get(m->batch, key); /* borrowed */
+                if (!acc) {
+                    east_builtin_error("merge: the folded key is missing from the batch");
                     ok = false;
                     break;
                 }
-                held_acc = merge_fold(m, key, held_acc, v);
-                if (!held_acc) {
+                east_value_retain(acc);
+                east_value_retain(c->value);
+                EastValue *folded = merge_fold(m, key, acc, c->value);
+                if (!folded) {
                     ok = false;
                     break;
                 }
+                east_dict_set(m->batch, key, folded);
+                east_value_release(folded);
             }
             /* Union: the first element stands; the equal one is dropped. */
         } else {
             east_value_retain(key);
             if (prev_key) east_value_release(prev_key);
             prev_key = key;
-            if (m->merge_fn) {
-                /* A greater key: the held entry is final — commit it, then
-                 * hold this one. */
-                if (held_key) {
-                    ok = merge_commit_held(m, held, held_key, &held_acc);
-                    east_value_release(held_key);
-                    held_key = NULL;
-                }
-                if (ok) {
-                    held->len = 0;
-                    byte_buffer_write_bytes(held, c->enc->data, c->key_len + c->val_len);
-                    held_key_len = c->key_len;
-                    held_key = key;
-                    east_value_retain(key);
-                }
-            } else {
-                ok = merge_put(m, key, c->enc->data, c->key_len + c->val_len);
-            }
+            ok = merge_append(m, key, c->value);
         }
         if (ok) ok = cursor_advance(m, c, index);
         if (ok && !c->key) heap[0] = heap[--live];
         if (ok && live > 0) heap_sift_down(heap, live, 0, cur);
     }
-    if (ok && held_key) ok = merge_commit_held(m, held, held_key, &held_acc);
-    if (held_key) east_value_release(held_key);
-    if (held_acc) east_value_release(held_acc);
-    if (held) byte_buffer_free(held);
     if (prev_key) east_value_release(prev_key);
     free(heap);
     return ok;
@@ -692,10 +647,9 @@ bool east_merge_blobs(const EastMergeConfig *cfg, EastMergeStats *stats_out)
         return false;
     }
 
-    m.encoder = east_beast2_entry_encoder_new();
-    m.seg = byte_buffer_new(1 << 16);
+    m.batch = merge_new_batch(&m);
     MergeCursor *cur = calloc(cfg->num_inputs, sizeof(MergeCursor));
-    bool ok = m.encoder && m.seg && cur;
+    bool ok = m.batch && cur;
     if (!ok) east_builtin_error("merge: out of memory");
     if (ok && cfg->range_path) ok = merge_read_range(&m, cfg->range_path);
     size_t opened = 0;
@@ -715,12 +669,9 @@ bool east_merge_blobs(const EastMergeConfig *cfg, EastMergeStats *stats_out)
     for (size_t i = 0; i < opened; i++)
         cursor_close(&cur[i]);
     free(cur);
-    if (m.seg_first) east_value_release(m.seg_first);
-    if (m.seg_last) east_value_release(m.seg_last);
+    if (m.batch) east_value_release(m.batch);
     if (m.from) east_value_release(m.from);
     if (m.to) east_value_release(m.to);
-    if (m.seg) byte_buffer_free(m.seg);
-    if (m.encoder) east_beast2_entry_encoder_free(m.encoder);
     east_type_release(type);
     if (ok && stats_out) {
         m.stats.inputs = cfg->num_inputs;

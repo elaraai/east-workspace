@@ -42,11 +42,6 @@ bool emit_writer_open(EmitWriter *w, EastType *type, const char *path);
  * message posted. */
 bool emit_writer_write(EmitWriter *w, EastValue *batch, size_t n);
 
-/* One segment from `n` pre-encoded entries (see east_beast2_writer_write_raw),
- * drained to the file; refines the next batch. False with the message posted. */
-bool emit_writer_write_raw(EmitWriter *w, const uint8_t *entries, size_t len, size_t n,
-                           EastValue *first_key, EastValue *last_key);
-
 /* The terminator and index, the last bytes to the file, and the close. False
  * with the message posted; the file is then unfinalised. */
 bool emit_writer_finish(EmitWriter *w);
