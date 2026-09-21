@@ -50,8 +50,8 @@ int east_cpu_count(void)
 #include <sched.h>
 
 /* Defined in cgroup_quota.c, which is deliberately NOT a _GNU_SOURCE unit:
- * the sscanf() it needs would bind to __isoc23_sscanf@GLIBC_2.38 here and lift
- * the whole binary's glibc floor above the Docker tier's. See its header. */
+ * the sscanf() it needs would bind to __isoc23_sscanf@GLIBC_2.38 here and
+ * raise the whole binary's glibc floor. See its header. */
 long east_cgroup_cpu_quota_at(const char *proc_self_cgroup, const char *cgroup_mount);
 
 #endif /* __linux__ */

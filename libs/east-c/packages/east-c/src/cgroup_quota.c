@@ -1,16 +1,13 @@
 /*
  * The cgroup v2 CPU quota that caps east_cpu_count() (issue #763).
  *
- * This lives in its own translation unit deliberately. cpu_count.c must define
- * _GNU_SOURCE for sched_getaffinity()/CPU_COUNT(), and _GNU_SOURCE turns on
- * _ISOC2X_SOURCE: from glibc 2.38 on, that redirects sscanf() to
- * __isoc23_sscanf@GLIBC_2.38, which raises the minimum glibc of the WHOLE
- * linked binary to 2.38. east-c's Linux binaries are built on the CI image and
- * have to run on older ones — the published Docker tier is node:22-slim, i.e.
- * Debian bookworm at glibc 2.36 — so the scanf/strtol family has to stay out
- * of every _GNU_SOURCE unit. Parsing cpu.max next to the affinity call is what
- * shipped v1.0.77 and v1.0.78 with no Docker images at all; the floor is now
- * held by scripts/check-glibc-floor.mjs.
+ * Its own translation unit, deliberately, and it must never define
+ * _GNU_SOURCE. cpu_count.c needs _GNU_SOURCE for sched_getaffinity() /
+ * CPU_COUNT(), and _GNU_SOURCE turns on _ISOC2X_SOURCE: from glibc 2.38 that
+ * redirects sscanf() to __isoc23_sscanf@GLIBC_2.38, which raises the minimum
+ * glibc of the WHOLE linked binary. Keep the scanf/strtol family out of every
+ * _GNU_SOURCE unit. The floor the released binaries are held to, and why, is
+ * in scripts/check-glibc-floor.mjs (#775).
  */
 
 #ifdef __linux__
