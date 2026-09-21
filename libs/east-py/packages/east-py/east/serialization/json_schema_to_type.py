@@ -293,11 +293,15 @@ def type_from_json_schema(schema: JsonSchema) -> EastType:
             system cannot express, naming the keyword and its RFC 6901 pointer.
 
     A document emitted by ``json_schema_for`` carries ``x-east-type``
-    annotations and inverts exactly — JSON Schema alone cannot tell ``DateTime``
-    from a ``String`` with ``format: date-time``, ``Set`` from ``Array``, or
-    ``Dict`` from an array of two-property objects. A foreign document without
-    those annotations still converts, under a documented structural mapping,
-    but does not promise to round-trip.
+    annotations and inverts exactly — JSON Schema alone cannot tell ``Set``
+    from ``Array``, or ``Dict`` from an array of two-property objects. A
+    foreign document without those annotations still converts, under a
+    documented structural mapping, but does not promise to round-trip.
+
+    ``{"type": "string", "format": "date-time"}`` reads as ``DateTime``: every
+    East decoder reads any RFC 3339 date-time, so the timestamps such a contract
+    permits are what the reader accepts — as UTC instants at millisecond
+    precision, in years 0001-9999. Any other ``format`` is still a ``String``.
 
     OpenAPI 3.0's ``nullable: true`` beside a type, JSON Schema's own
     ``{"type": ["string", "null"]}``, and a ``oneOf`` of null and one other
@@ -405,7 +409,9 @@ def _build_typed(node: JsonSchema, ctx: _Context, path: list[str]) -> EastType: 
     if kind == "boolean":
         return BooleanType
     if kind == "string":
-        return StringType
+        # The format json_schema_for gives a DateTime, and the one every East
+        # decoder reads, so a foreign timestamp arrives as the instant it is.
+        return DateTimeType if node.get("format") == "date-time" else StringType
     if kind == "number":
         return FloatType
     if kind == "integer":

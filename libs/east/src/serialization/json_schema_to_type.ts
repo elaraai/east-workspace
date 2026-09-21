@@ -194,22 +194,27 @@ interface Context {
  * runs at build time, so nothing it rejects can reach a runtime.
  *
  * A document emitted by {@link jsonSchemaFor} carries `x-east-type`
- * annotations and inverts exactly — JSON Schema alone cannot tell `DateTime`
- * from a `String` with `format: date-time`, `Set` from `Array`, or `Dict`
- * from an array of two-property objects. A foreign document without those
- * annotations still converts, under the structural mapping below, but does
- * not promise to round-trip:
+ * annotations and inverts exactly — JSON Schema alone cannot tell `Set` from
+ * `Array`, or `Dict` from an array of two-property objects. A foreign document
+ * without those annotations still converts, under the structural mapping
+ * below, but does not promise to round-trip:
  *
  * | schema | East type |
  * |---|---|
  * | `{"type":"null"}`, or OpenAPI 3.0's `nullable` + `enum: [null]` | `Null` |
  * | `{"type":"boolean"}` | `Boolean` |
  * | `{"type":"string"}` | `String` |
+ * | `{"type":"string","format":"date-time"}` | `DateTime` |
  * | `{"type":"number"}`, `{"type":"integer"}` | `Float`, `Integer` |
  * | `{"type":"array","items":X}` | `Array<X>` |
  * | a closed object with `required` covering every property | `Struct` |
  * | `oneOf` of objects tagged by a constant `type` | `Variant` |
  * | `nullable: true` beside a type, `{"type":["string","null"]}`, or a `oneOf` of null and one other schema | `Option<String>` |
+ *
+ * A `date-time` string reads as a `DateTime` because every East decoder reads
+ * any RFC 3339 date-time, so the timestamps such a contract permits are what
+ * the reader accepts — as UTC instants at millisecond precision, in years
+ * 0001–9999. Any other `format` is still a `String`.
  *
  * The last row reads as an Option because East JSON writes a `none` whose
  * payload cannot itself be null as `null`, so the nulls such a contract
@@ -420,7 +425,9 @@ function buildTyped(node: JsonSchema, ctx: Context, path: string[]): EastType {
   switch (type) {
     case "null": return NullType;
     case "boolean": return BooleanType;
-    case "string": return StringType;
+    // The format jsonSchemaFor gives a DateTime, and the one every East
+    // decoder reads, so a foreign timestamp arrives as the instant it is.
+    case "string": return node["format"] === "date-time" ? DateTimeType : StringType;
     case "number": return FloatType;
     case "integer": return IntegerType;
     case "array": return ArrayType(buildItems(node, ctx, path));
