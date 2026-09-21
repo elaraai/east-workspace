@@ -5,7 +5,6 @@
 
 import { describe, it, before, after, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, readdirSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
@@ -18,7 +17,7 @@ import { getBootId, getPidStartTime } from './processHelpers.js';
 import { uuidv7 } from '../uuid.js';
 import { objectWrite } from '../storage/local/LocalObjectStore.js';
 import { LocalStorage } from '../storage/local/index.js';
-import { createTestRepo, removeTestRepo } from '../test-helpers.js';
+import { createTestRepo, deadPid, removeTestRepo } from '../test-helpers.js';
 import type { StorageBackend } from '../storage/interfaces.js';
 
 describe('collectNodeModulesBins', () => {
@@ -262,12 +261,6 @@ describe('stopped executions', () => {
   describe('interrupted-execution repair', () => {
     const taskHash = 'a'.repeat(64);
     const inHash = 'b'.repeat(64);
-
-    /** The pid of a process that has exited. */
-    function deadPid(): number {
-      const child = spawnSync(process.execPath, ['-e', '']);
-      return child.pid!;
-    }
 
     async function writeRunning(runner: { pid: number; pidStartTime: number }, owner: ExecutionOwner | null): Promise<string> {
       const executionId = uuidv7();

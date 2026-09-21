@@ -117,8 +117,8 @@ export interface PlanRequest {
  * @throws {Error} With the logical execution's error message: an input that
  *   is not a segmented, indexed collection; a `by` projection that does not
  *   decode or is not a leading-prefix key read; a boundary probe that fails;
- *   a primary whose projected partition boundaries, or a secondary whose
- *   projected fences, do not ascend.
+ *   a co-partitioned primary whose projected partition boundaries, or a
+ *   secondary whose projected fences, do not ascend.
  */
 export async function planPartitions(
   storage: StorageBackend,
@@ -249,28 +249,36 @@ export async function planPartitions(
   // segment beside the primary.
   let secondary: PartitionBlob | null = null;
   try {
-    // Boundary values, in projection space, at each internal boundary.
+    // Boundary values, in projection space, at each internal boundary — what
+    // each secondary's split points are searched for. Only the secondaries
+    // need them, so a lone partitioned input probes no boundary fence at all.
     //
-    // They carry the same soundness condition the secondaries are checked
-    // against below, and for the same reason: the primary's fences ascend in
-    // its OWN canonical order, so a projection that follows that order leaves
-    // the bounds ascending. A descending bound means the effective projection
-    // does not follow the primary's key order — the split searches below only
-    // resume forward and cannot go back, and a task with no secondary at all
-    // would carve on boundaries that do not partition the key space — so it
-    // must fail loudly, not mis-assign rows with a success status.
+    // Where they ARE needed they carry the same soundness condition the
+    // secondaries are checked against below: a Set/Dict primary's fences
+    // ascend in its OWN canonical order, so a projection that follows that
+    // order leaves the bounds ascending, and a descending bound means the
+    // effective projection does not follow the primary's key order — which
+    // the forward-only split searches below cannot survive, since they resume
+    // from the segment the previous bound landed in and never go back.
+    //
+    // An ARRAY root has no canonical order — its elements sit where the value
+    // put them — so there is nothing for its fences to ascend in and nothing
+    // to check. (An Array primary cannot have secondaries anyway: the SDK
+    // restricts co-partitioning to Dict/Set roots sharing a key space.)
     const bounds: unknown[] = [];
-    let prevBoundSeg = 0;
-    for (let p = 1; p < partitions; p++) {
-      const bound = projOf(await primary.fence(boundaries[p]!));
-      if (bounds.length > 0 && cmpOf(bounds[bounds.length - 1], bound) > 0) {
-        throw new Error(
-          `partitioned dataset's projected partition boundaries are not monotone (segment ${prevBoundSeg} descends to ${boundaries[p]!}) — ` +
-          `the boundary projection must follow every partitioned dataset's own key order`
-        );
+    if (request.secondaries.length > 0) {
+      let prevBoundSeg = 0;
+      for (let p = 1; p < partitions; p++) {
+        const bound = projOf(await primary.fence(boundaries[p]!));
+        if (rootKind !== 'Array' && bounds.length > 0 && cmpOf(bounds[bounds.length - 1], bound) > 0) {
+          throw new Error(
+            `partitioned dataset's projected partition boundaries are not monotone (segment ${prevBoundSeg} descends to ${boundaries[p]!}) — ` +
+            `the boundary projection must follow every partitioned dataset's own key order`
+          );
+        }
+        bounds.push(bound);
+        prevBoundSeg = boundaries[p]!;
       }
-      bounds.push(bound);
-      prevBoundSeg = boundaries[p]!;
     }
 
     for (const hash of request.secondaries) {

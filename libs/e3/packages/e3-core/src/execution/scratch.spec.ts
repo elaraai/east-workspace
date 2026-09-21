@@ -10,12 +10,12 @@
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { executionScratchDir, scratchRoot, sweepScratchDirs } from './scratch.js';
 import { getPidStartTime } from './processHelpers.js';
+import { deadPid } from '../test-helpers.js';
 
 describe('scratch directories', () => {
   let root: string;
@@ -32,9 +32,6 @@ describe('scratch directories', () => {
     else process.env.E3_SCRATCH_DIR = previous;
     rmSync(root, { recursive: true, force: true });
   });
-
-  /** The pid of a process that has exited. */
-  const deadPid = (): number => spawnSync(process.execPath, ['-e', '']).pid!;
 
   it('names an execution\'s directory under E3_SCRATCH_DIR after the execution and this process', async () => {
     assert.equal(scratchRoot(), root);

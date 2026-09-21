@@ -56,6 +56,23 @@ export function removeTestRepo(repoPath: string): void {
 }
 
 /**
+ * The pid of a process that has certainly exited.
+ *
+ * @remarks
+ * Spawning and reaping a process that does nothing leaves its pid free — the
+ * one reliable way to name a dead process on every platform. A made-up pid
+ * can be in use, and a fabricated start time is not a substitute either:
+ * `getPidStartTime` answers 0 wherever the platform cannot tell (Windows),
+ * so an "impossible" start time reads the same as a live process's unknown
+ * one and the liveness check falls through to the pid's existence.
+ *
+ * @returns A pid whose process has exited
+ */
+export function deadPid(): number {
+  return spawnSync(process.execPath, ['-e', '']).pid!;
+}
+
+/**
  * A live process and every process beneath it, the process first.
  *
  * @remarks
