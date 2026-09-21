@@ -5,9 +5,11 @@
 """The strict streaming JSON reader — the python half of the contract boundary.
 
 The invariant these pin: the reader accepts exactly the documents
-``json_schema_for(T)`` describes. The schema states what the ENCODER emits, so
-the encoder's own output is the accept corpus and the historic decoder's
-tolerances are the reject corpus. The cross-runtime replay of the TypeScript
+``json_schema_for(T)`` describes. The schema states what the ENCODER emits for
+every scalar but DateTime, whose schema is RFC 3339's ``date-time``, so the
+encoder's own output and the RFC 3339 forms are the accept corpus, and the
+historic decoder's tolerances and non-RFC 3339 text the reject corpus. The
+cross-runtime replay of the TypeScript
 suite (``test_compliance.py --ir-dir /tmp/east-node-std``) covers the East-level
 behaviour; these cover the bridge — that python holds the bytes and the handle
 correctly, and that east-c's strictness is what reaches a python caller.
@@ -126,8 +128,9 @@ def test_everything_the_encoder_emits_reads_back():
         assert repr(got["ratio"]) == repr(want["ratio"])
 
 
-# Each is a payload the historic decoder tolerates and the published contract
-# does not. int() and the old decoder swallow every integer spelling here.
+# Each is a payload the published contract excludes: what the historic decoder
+# tolerates (int() and the old decoder swallow every integer spelling here), and
+# a DateTime that is not an RFC 3339 date-time or falls outside years 0001-9999.
 @pytest.mark.parametrize(
     ("typ", "text", "why"),
     [
@@ -141,12 +144,15 @@ def test_everything_the_encoder_emits_reads_back():
         (INT_STRUCT, '{"v":7}', "a bare JSON number"),
         (INT_STRUCT, '{"v":"9223372036854775808"}', "past the i64 ceiling"),
         (INT_STRUCT, '{"v":"18446744073709551615"}', "an unsigned 64-bit id"),
-        (DATE_STRUCT, '{"v":"2022-06-29T13:43:00.123Z"}', "a Z suffix"),
-        (DATE_STRUCT, '{"v":"2022-06-29T13:43:00.123+05:00"}', "a numeric offset"),
-        (DATE_STRUCT, '{"v":"2022-06-29T13:43:00+00:00"}', "no milliseconds"),
         (DATE_STRUCT, '{"v":"2026-02-30T00:00:00.000+00:00"}', "a day February lacks"),
         (DATE_STRUCT, '{"v":"2026-04-31T00:00:00.000+00:00"}', "a day April lacks"),
         (DATE_STRUCT, '{"v":"2025-02-29T00:00:00.000+00:00"}', "Feb 29 in a common year"),
+        (DATE_STRUCT, '{"v":"0000-01-01T00:00:00Z"}', "year 0, which python cannot hold"),
+        (DATE_STRUCT, '{"v":"9999-12-31T23:59:59-00:01"}', "an offset past year 9999"),
+        (DATE_STRUCT, '{"v":"2022-06-29 13:43:00Z"}', "a space for the T"),
+        (DATE_STRUCT, '{"v":"2022-06-29T13:43:00.123"}', "no offset"),
+        (DATE_STRUCT, '{"v":"2022-06-29T13:43:00+0530"}', "a colon-less offset"),
+        (DATE_STRUCT, '{"v":"1998-12-31T23:58:60Z"}', "a leap second off 23:59 UTC"),
         (BLOB_STRUCT, '{"v":"0xDEADBEEF"}', "uppercase hex"),
         (BLOB_STRUCT, '{"v":"0x123"}', "an odd digit count"),
         (BLOB_STRUCT, '{"v":"deadbeef"}', "no 0x prefix"),
@@ -173,6 +179,33 @@ def test_joins_an_escaped_surrogate_pair():
 
 def test_accepts_a_leap_day():
     assert accepts(DATE_STRUCT, '{"v":"2024-02-29T00:00:00.000+00:00"}')
+
+
+@pytest.mark.parametrize(
+    ("text", "want"),
+    [
+        ("2022-06-29T13:43:00.123+00:00", (2022, 6, 29, 13, 43, 0, 123000)),
+        ("2022-06-29T13:43:00.123Z", (2022, 6, 29, 13, 43, 0, 123000)),
+        ("2022-06-29T18:43:00.123+05:00", (2022, 6, 29, 13, 43, 0, 123000)),
+        ("2022-06-29T13:43:00Z", (2022, 6, 29, 13, 43, 0, 0)),
+        ("2022-06-29T13:43:00.123456Z", (2022, 6, 29, 13, 43, 0, 123000)),
+        ("2022-06-29t13:43:00.123z", (2022, 6, 29, 13, 43, 0, 123000)),
+        ("1998-12-31T23:59:60.5Z", (1999, 1, 1, 0, 0, 0, 500000)),
+        ("0001-01-01T00:00:00Z", (1, 1, 1, 0, 0, 0, 0)),
+        ("9999-12-31T23:59:59.999999Z", (9999, 12, 31, 23, 59, 59, 999000)),
+    ],
+)
+def test_reads_any_rfc3339_date_time_as_the_utc_instant_it_names(text, want):
+    """What the schema's ``format: "date-time"`` admits, east-c reads for python.
+
+    ``Z`` or any offset, a lowercase ``t``, any number of fractional digits --
+    past the millisecond dropped, which is python's ``datetime`` precision
+    rounded down -- and a leap second as the Unix time its fields add up to.
+    The lowercase ``t`` once read as midnight.
+    """
+    from datetime import UTC, datetime
+
+    assert read(DATE_STRUCT, json.dumps({"v": text}))["v"] == datetime(*want, tzinfo=UTC)
 
 
 def test_accepts_object_fields_in_any_order():
@@ -374,8 +407,14 @@ def refusal(typ, text) -> str:
         ),
         (
             DATE_STRUCT,
-            '{"v":"2022-06-29T13:43:00.123Z"}',
-            '/v: "2022-06-29T13:43:00.123Z" is not East JSON\'s UTC date-time form',
+            '{"v":"2022-06-29 13:43:00Z"}',
+            '/v: "2022-06-29 13:43:00Z" is not an RFC 3339 date-time',
+        ),
+        (
+            DATE_STRUCT,
+            '{"v":"0000-01-01T00:00:00Z"}',
+            '/v: "0000-01-01T00:00:00Z" is outside DateTime\'s range, '
+            "0001-01-01T00:00:00.000Z to 9999-12-31T23:59:59.999Z",
         ),
         (STRING_STRUCT, '{"v":"a\\qb"}', '/v: invalid escape "\\q"'),
         (STRING_STRUCT, '{"v":"a\x01b"}', "/v: unescaped control character U+0001 in string"),

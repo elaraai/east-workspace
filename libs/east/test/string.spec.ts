@@ -1319,7 +1319,7 @@ await describe("String", (test) => {
         // DateTime - missing timezone
         $(assert.throws(
             East.value("\"2024-01-15T10:30:00.123\"").parseJson(DateTimeType),
-            /Error occurred because expected ISO 8601 date string with timezone/
+            /Error occurred because expected RFC 3339 date-time string \(e\.g\. "2022-06-29T13:43:00\.123Z" or "2022-06-29T13:43:00\.123\+05:00"\), got "2024-01-15T10:30:00\.123" \(line 1, col 1\) while parsing value of type "\.DateTime"/
         ));
         // DateTime - invalid date value
         $(assert.throws(
