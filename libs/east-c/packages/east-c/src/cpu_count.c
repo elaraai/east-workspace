@@ -44,67 +44,16 @@ int east_cpu_count(void)
 
 #else /* !_WIN32 */
 
-#include <limits.h>
-#include <stdio.h>
-#include <string.h>
 #include <unistd.h>
 
 #ifdef __linux__
 #include <sched.h>
 
-/* The tightest cgroup v2 CPU quota, in whole CPUs (at least 1), over the
- * cgroup `proc_self_cgroup` names and each of its ancestors under
- * `cgroup_mount`; 0 when none of them sets one. The paths are parameters so the
- * test can point this at a fabricated tree; production passes
- * /proc/self/cgroup and /sys/fs/cgroup. */
-long east_cgroup_cpu_quota_at(const char *proc_self_cgroup, const char *cgroup_mount)
-{
-    char line[PATH_MAX];
-    FILE *self = fopen(proc_self_cgroup, "r");
-    if (!self) return 0;
-    bool read = fgets(line, sizeof line, self) != NULL;
-    fclose(self);
-    /* The unified hierarchy is the single entry "0::/<path>". */
-    if (!read || strncmp(line, "0::/", 4) != 0) return 0;
-    line[strcspn(line, "\n")] = '\0';
+/* Defined in cgroup_quota.c, which is deliberately NOT a _GNU_SOURCE unit:
+ * the sscanf() it needs would bind to __isoc23_sscanf@GLIBC_2.38 here and lift
+ * the whole binary's glibc floor above the Docker tier's. See its header. */
+long east_cgroup_cpu_quota_at(const char *proc_self_cgroup, const char *cgroup_mount);
 
-    char dir[PATH_MAX];
-    int written = snprintf(dir, sizeof dir, "%s%s", cgroup_mount, line + 3);
-    if (written < 0 || (size_t)written >= sizeof dir) return 0;
-    size_t mount_len = strlen(cgroup_mount);
-
-    long tightest = 0;
-    for (;;) {
-        size_t len = strlen(dir);
-        while (len > mount_len && dir[len - 1] == '/')
-            dir[--len] = '\0';
-
-        char file[PATH_MAX];
-        written = snprintf(file, sizeof file, "%s/cpu.max", dir);
-        if (written > 0 && (size_t)written < sizeof file) {
-            FILE *max = fopen(file, "r");
-            if (max) {
-                char buf[64];
-                long long quota = 0;
-                long long period = 0;
-                /* "max <period>" is no limit; "<quota> <period>" is quota/period CPUs. */
-                if (fgets(buf, sizeof buf, max) && strncmp(buf, "max", 3) != 0 &&
-                    sscanf(buf, "%lld %lld", &quota, &period) == 2 && quota > 0 && period > 0) {
-                    long cpus = (long)(quota / period);
-                    if (cpus < 1) cpus = 1;
-                    if (tightest == 0 || cpus < tightest) tightest = cpus;
-                }
-                fclose(max);
-            }
-        }
-
-        if (len <= mount_len) break;
-        char *slash = strrchr(dir + mount_len, '/');
-        if (!slash) break;
-        *slash = '\0';
-    }
-    return tightest;
-}
 #endif /* __linux__ */
 
 int east_cpu_count(void)
