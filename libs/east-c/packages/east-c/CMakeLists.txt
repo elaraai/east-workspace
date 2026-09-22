@@ -48,6 +48,7 @@ set(EAST_C_SOURCES
     src/serialization/beast2/v5/deflate.c
     src/serialization/beast2/v5/codec.c
     src/serialization/beast2/v5/container.c
+    src/serialization/beast2/v5/boundary.c
     src/serialization/beast2/v5/stream.c
     src/serialization/beast2/v5/project.c
     src/serialization/csv.c
@@ -323,6 +324,11 @@ add_test(NAME deflate_equivalence COMMAND test_deflate_equivalence)
 add_executable(test_beast2_hardening tests/test_beast2_hardening.c)
 target_link_libraries(test_beast2_hardening east-c)
 add_test(NAME beast2_hardening COMMAND test_beast2_hardening)
+
+# The content-defined segment boundary, pinned against the TypeScript encoder
+add_executable(test_beast2_boundary tests/test_beast2_boundary.c)
+target_link_libraries(test_beast2_boundary east-c)
+add_test(NAME beast2_boundary COMMAND test_beast2_boundary)
 
 # Beast2 v5 column-projection gate (issue #599): plan validation (subset by
 # name, Dict-key/Set-element/variant-case/function-skip refusals with errors

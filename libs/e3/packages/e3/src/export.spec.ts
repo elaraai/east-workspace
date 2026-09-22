@@ -10,8 +10,8 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import yazl from 'yazl';
 import yauzl from 'yauzl';
-import { East, DictType, IntegerType, StringType, beast2HasIndex, decodeBeast2For, encodeBeast2For, encodeBeast2PagedFor, openBeast2PagesFor, variant } from '@elaraai/east';
-import { PackageObjectType, DatasetRefType, EnvironmentSpecType, decodePackageObject, decodeTaskObject, decodeFunctionObject } from '@elaraai/e3-types';
+import { East, DictType, IntegerType, StringType, SEGMENT_RULE_KEYED, beast2HasIndex, decodeBeast2For, encodeBeast2For, encodeBeast2PagedFor, openBeast2PagesFor, variant } from '@elaraai/east';
+import { PackageObjectType, DatasetRefType, EnvironmentSpecType, decodeCollectionManifest, decodePackageObject, decodeTaskObject, decodeFunctionObject, manifestElementCount } from '@elaraai/e3-types';
 import { addObject, export_ } from './export.js';
 import { package_ } from './package.js';
 import { task } from './task.js';
@@ -350,24 +350,41 @@ describe('collection defaults export PAGEABLE', () => {
     return blob;
   }
 
-  it('a collection default carries a segment index — the store path\'s invariant, at export', async () => {
-    // `datasetWrite` states it: collection roots are ALWAYS stored segmented
-    // with a trailing index, at every size. The export path encoded them flat,
-    // so a freshly DEPLOYED input could not be paged at all until something
-    // wrote it — `dataset_not_indexed`, with no whole-decode fallback.
+  it('a collection default is exported in the segment-object layout — the store path\'s invariant, at export', async () => {
+    // `datasetWrite` states it: collection roots are ALWAYS stored as segment
+    // objects under a manifest, at every size. The export path encoded them
+    // flat, so a freshly DEPLOYED input could not be paged at all until
+    // something wrote it — `dataset_not_indexed`, with no whole-decode
+    // fallback.
+    const type = DictType(StringType, IntegerType);
     const rows = new Map<string, bigint>();
     for (let i = 0; i < 40; i++) rows.set(`u${String(i).padStart(3, '0')}`, BigInt(i));
-    const units = input('units', DictType(StringType, IntegerType), variant('value', rows));
+    const units = input('units', type, variant('value', rows));
     const zipPath = path.join(tempDir, 'paged.zip');
     await export_(package_('paged-pkg', '1.0.0', units), zipPath);
 
-    const blob = blobOf(await readZip(zipPath), 'data/inputs/units.ref');
-    assert.ok(beast2HasIndex(blob), 'collection default must be exported with a segment index');
+    const entries = await readZip(zipPath);
+    const manifest = decodeCollectionManifest(blobOf(entries, 'data/inputs/units.ref'));
+    assert.strictEqual(manifest.rule, SEGMENT_RULE_KEYED);
+    assert.strictEqual(manifestElementCount(manifest), 40);
+    assert.ok(manifest.entries.length >= 1);
 
-    // ...and it must actually open for paged reads, reporting the true total.
-    const pages = openBeast2PagesFor(DictType(StringType, IntegerType))(blob);
-    assert.strictEqual(pages.elementCount, 40);
-    assert.ok(pages.segmentCount >= 1);
+    // ...and every segment it names must be in the bundle and open for paged
+    // reads: a manifest whose segments did not travel imports a dataset with
+    // no contents.
+    const objectOf = (hash: string): Buffer => {
+      const bytes = entries.get(`objects/${hash.slice(0, 2)}/${hash.slice(2)}.beast2`);
+      assert.ok(bytes, `missing object ${hash}`);
+      return bytes;
+    };
+    objectOf(manifest.header);
+    let total = 0;
+    for (const entry of manifest.entries) {
+      const pages = openBeast2PagesFor(type)(objectOf(entry.hash));
+      assert.ok(beast2HasIndex(objectOf(entry.hash)), 'a segment object must carry its own index');
+      total += pages.elementCount;
+    }
+    assert.strictEqual(total, 40);
   });
 
   it('a scalar default stays unsegmented — only collection roots are paged', async () => {

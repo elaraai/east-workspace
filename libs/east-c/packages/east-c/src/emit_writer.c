@@ -34,6 +34,9 @@ static bool emit_writer_drain(EmitWriter *w)
 static void emit_writer_refine(EmitWriter *w, size_t n)
 {
     w->written_elements += n;
+    /* A keyed output's boundaries come from the keys, so there is nothing to
+     * refine — and nothing for the writer's emitted bytes to settle. */
+    if (w->cutter.key_type) return;
     size_t lo, hi;
     east_beast2_writer_emitted_bounds(w->writer, &lo, &hi);
     size_t at_lo =
@@ -89,6 +92,11 @@ bool emit_writer_open(EmitWriter *w, EastType *type, const char *path)
         east_builtin_error(msg);
         return false;
     }
+    if (!b2v5_cutter_init(&w->cutter, type)) {
+        fclose(w->out);
+        w->out = NULL;
+        return false;
+    }
     w->writer = east_beast2_writer_new(type, EAST_BEAST2_CODEC_DEFLATE, true, true);
     if (!w->writer) {
         fclose(w->out);
@@ -116,9 +124,15 @@ bool emit_writer_write(EmitWriter *w, EastValue *batch, size_t n)
     return true;
 }
 
+bool emit_writer_starts_segment(EmitWriter *w, EastValue *key, size_t batch_count)
+{
+    if (w->cutter.key_type) return b2v5_cutter_starts_segment(&w->cutter, key);
+    return batch_count >= w->next_batch;
+}
+
 bool emit_writer_probe(EmitWriter *w, EastValue **batch, size_t *count)
 {
-    if (w->probed || *count < EMIT_PROBE_BATCH) return true;
+    if (w->cutter.key_type || w->probed || *count < EMIT_PROBE_BATCH) return true;
     w->probed = true;
 
     /* A throwaway encode of what is held measures the average wire size of an
@@ -189,5 +203,6 @@ void emit_writer_close(EmitWriter *w)
 {
     if (w->out) fclose(w->out);
     if (w->writer) east_beast2_writer_free(w->writer);
+    b2v5_cutter_free(&w->cutter);
     memset(w, 0, sizeof(*w));
 }

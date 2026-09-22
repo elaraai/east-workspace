@@ -466,7 +466,7 @@ static bool merge_flush(Merge *m)
  * has arrived, so the batch's last entry is always still open for a fold. */
 static bool merge_append(Merge *m, EastValue *key, EastValue *value)
 {
-    if (m->batch_count >= m->out.next_batch && !merge_flush(m)) return false;
+    if (emit_writer_starts_segment(&m->out, key, m->batch_count) && !merge_flush(m)) return false;
     if (m->kind == EAST_TYPE_DICT)
         east_dict_set(m->batch, key, value);
     else

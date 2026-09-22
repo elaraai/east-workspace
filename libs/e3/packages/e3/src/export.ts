@@ -270,7 +270,11 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
           const owner = taskOfFunctionIR.get(item);
           valueData = encodeEastIR(link(inline, owner ? `task "${owner.name}"` : `dataset "${refPath}"`, owner?.runner));
         } else {
-          valueData = encodeDatasetBlob(item.type, inline);
+          // A collection root ships as segment objects plus the manifest
+          // naming them, exactly as the store's own door writes one, so a
+          // deployed input is in the layout before anything writes it.
+          valueData = await encodeDatasetBlob(item.type, inline,
+            (bytes) => Promise.resolve(addObject(zipfile, Buffer.from(bytes))));
         }
         const valueHash = addObject(zipfile, Buffer.from(valueData));
         datasetRef = variant('value', { hash: valueHash, versions: new Map() });

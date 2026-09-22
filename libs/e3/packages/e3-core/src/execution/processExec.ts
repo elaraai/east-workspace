@@ -22,6 +22,7 @@ import crossSpawn from 'cross-spawn';
 import { spawn as nodeSpawn, type ChildProcess, type SpawnOptions } from 'child_process';
 import { createRequire } from 'module';
 import { runnerToArgv, type RunnerValue } from '@elaraai/e3-types';
+import { DatasetSegments, readManifest } from '../dataset-open.js';
 import type { StorageBackend } from '../storage/interfaces.js';
 
 // On Windows, pnpm's workspace bins are `.cmd` / `.ps1` files, not real
@@ -113,6 +114,10 @@ const MARSHAL_CHUNK_BYTES = 4 * 1024 * 1024;
  * execution over a 2 GB input, for bytes the runner then opened lazily
  * anyway.
  *
+ * An input stored as a segment manifest is spliced into the staged file a
+ * segment at a time — the runners read one blob, so the layout is resolved
+ * here. Peak memory is one segment either way.
+ *
  * @param storage - Storage backend
  * @param repo - Repository identifier
  * @param scratchDir - The execution's scratch directory
@@ -134,7 +139,15 @@ export async function marshalInputsToDir(
   for (let i = 0; i < inputHashes.length; i++) {
     const inputPath = path.join(scratchDir, `input-${i}.beast2`);
     const hash = inputHashes[i]!;
-    if (materialize) {
+    if (await readManifest(storage, repo, hash) !== null) {
+      const segments = await DatasetSegments.open(storage, repo, hash);
+      const handle = await fs.open(inputPath, 'w');
+      try {
+        for await (const chunk of segments.splice()) await handle.write(chunk);
+      } finally {
+        await handle.close();
+      }
+    } else if (materialize) {
       await materialize.call(storage.objects, repo, hash, inputPath, { link });
     } else if (readRange) {
       const { size } = await storage.objects.stat(repo, hash);

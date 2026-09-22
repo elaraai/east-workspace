@@ -8,17 +8,20 @@
  *
  * Entries arrive one at a time and go out as segments of a streaming beast2
  * writer on the output file: header at open, terminator and index at the
- * finish, so every finished file is a complete canonical blob. Batches are
- * re-sized byte-adaptively toward the paged-encode segment target from what
- * the writer has actually emitted — the refinement `encodeBeast2PagedFor`
- * applies, so a file written here segments exactly as that encoder segments
- * the same value. Both commands write through this one class, which is what
- * makes a merge's output byte-identical to the sink's for the same entries.
- * Memory is one open batch whatever the output's size.
+ * finish, so every finished file is a complete canonical blob. Where the
+ * segments fall is `encodeBeast2PagedFor`'s decision, taken here on the same
+ * terms, so a file written here segments exactly as that encoder segments the
+ * same value: a Set or Dict is cut by the content-defined boundary rule, which
+ * depends only on the keys and so agrees with every other writer of the value
+ * on every runtime; an Array, which has no key to hash, is batched
+ * byte-adaptively toward the segment target from what the writer has actually
+ * emitted. Both commands write through this one class, which is what makes a
+ * merge's output byte-identical to the sink's for the same entries. Memory is
+ * one open batch whatever the output's size.
  */
 
 import { closeSync, openSync, writeSync } from 'fs';
-import { Beast2Writer, BEAST2_PAGED_BATCH_DEFAULT, BEAST2_PAGED_PROBE_BATCH, BEAST2_PAGED_TARGET_BYTES_DEFAULT } from '@elaraai/east';
+import { Beast2Writer, BEAST2_PAGED_BATCH_DEFAULT, BEAST2_PAGED_PROBE_BATCH, BEAST2_PAGED_TARGET_BYTES_DEFAULT, SegmentCutter, segmentKeyTypeOf } from '@elaraai/east';
 import type { EastTypeValue } from '@elaraai/east/internal';
 
 /** Writes all of `bytes` to `fd` — `writeSync` may write fewer bytes than
@@ -45,6 +48,9 @@ export class EmitFileWriter {
     private written = 0;
     private nextBatch = BEAST2_PAGED_BATCH_DEFAULT;
     private probed = false;
+    /** The content-defined boundary for a Set or Dict output; `null` for an
+     *  Array, which is batched by bytes. */
+    private readonly cutter: SegmentCutter | null;
 
     /**
      * Opens `path` for writing and emits the blob's header.
@@ -54,6 +60,8 @@ export class EmitFileWriter {
      * @param path - the output file
      */
     constructor(private readonly kind: EmitKind, private readonly outType: EastTypeValue, path: string) {
+        const keyType = segmentKeyTypeOf(outType);
+        this.cutter = keyType === null ? null : new SegmentCutter(keyType);
         this.fd = openSync(path, 'w');
         // Frames deflate on worker threads (#763); the refinement below reads
         // the emitted bytes through the writer's bounds.
@@ -64,13 +72,25 @@ export class EmitFileWriter {
     }
 
     /**
-     * Appends `entry` under the flush rule: a full batch goes out only now
+     * Appends `entry` under the flush rule: the open batch goes out only now
      * that an entry which will not fold into it has arrived, so the batch's
      * last entry is always still open for a fold.
+     *
+     * A keyed output flushes when the arriving key starts a new segment under
+     * the content rule; an Array flushes when the open batch reaches the
+     * byte-adaptive size. An entry that folds into the last one never reaches
+     * here, so the cutter sees each distinct key exactly once — which is what
+     * makes this cut the same as the paged encoder's over the same value.
      *
      * @param entry - the element, or the `[key, value]` pair
      */
     push(entry: unknown): void {
+        if (this.cutter !== null) {
+            const key = this.kind === 'dict' ? (entry as [unknown, unknown])[0] : entry;
+            if (this.cutter.startsSegment(key)) this.flush();
+            this.batch.push(entry);
+            return;
+        }
         if (this.batch.length >= this.nextBatch) this.flush();
         this.batch.push(entry);
         this.probe();
@@ -137,7 +157,9 @@ export class EmitFileWriter {
         this.writer.write(this.toValue(this.batch) as never);
         this.written += this.batch.length;
         this.batch = [];
-        this.nextBatch = this.refineNext();
+        // A keyed output's boundaries come from the keys, so there is nothing
+        // to refine — and nothing for the writer's emitted bytes to settle.
+        if (this.cutter === null) this.nextBatch = this.refineNext();
     }
 
     private toValue(items: unknown[]): unknown {

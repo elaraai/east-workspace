@@ -30,6 +30,7 @@ import {
   type Beast2RangedExtents,
   type Beast2SyncRangeReader,
 } from '@elaraai/east';
+import { readDatasetWhole, readManifest } from '../dataset-open.js';
 import type { StorageBackend } from '../storage/interfaces.js';
 
 /** Bytes per range-read → write-stream copy chunk. */
@@ -138,6 +139,12 @@ export class PartitionBlob {
   /**
    * Opens a stored blob for partitioned access.
    *
+   * @remarks
+   * A dataset stored as a segment manifest is spliced first: the carve and
+   * splice geometry addresses one blob's byte layout, and a partition slice is
+   * a byte range of it. Bounded by the value's size, which is what a backend
+   * without ranged reads has always paid here.
+   *
    * @param storage - Storage backend
    * @param repo - Repository identifier
    * @param hash - The blob's content hash
@@ -145,6 +152,12 @@ export class PartitionBlob {
    * @throws {Error} When the blob is not a segmented, indexed v5 collection.
    */
   static async open(storage: StorageBackend, repo: string, hash: string): Promise<PartitionBlob> {
+    if (await readManifest(storage, repo, hash) !== null) {
+      const data = await readDatasetWhole(storage, repo, hash);
+      const read = (offset: number, length: number): Promise<Uint8Array> =>
+        Promise.resolve(data.subarray(offset, offset + length));
+      return new PartitionBlob(read, await readBeast2ExtentsRanged({ size: data.length, read }));
+    }
     const readRange = storage.objects.readRange?.bind(storage.objects);
     if (readRange) {
       const { size } = await storage.objects.stat(repo, hash);

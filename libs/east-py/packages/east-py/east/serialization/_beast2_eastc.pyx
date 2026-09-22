@@ -349,6 +349,91 @@ cpdef bytes _encode_beast2_v5(object py_type, object value, object codec, bint w
     return result
 
 
+cpdef bytes _encode_beast2_fence(object py_type, object value):
+    """The canonical bare encoding of one value — a segment's fence, and what
+    the boundary rule hashes. east-c's own encoder, so the bytes are the ones
+    every runtime agrees on."""
+    _ensure_eastc_runtime()
+    cdef _eastc.EastType* c_type = py_type_to_c(py_type)
+    cdef _eastc.EastValue* c_val
+    cdef _eastc.ByteBuffer* buf
+
+    try:
+        c_val = py_value_to_c(value, c_type)
+    except:
+        _eastc.east_type_release(c_type)
+        raise
+
+    buf = _eastc.east_beast2_encode_fence(c_val, c_type)
+    _eastc.east_value_release(c_val)
+    if buf == NULL:
+        _eastc.east_type_release(c_type)
+        _consume_eastc_error("east-c beast2 fence encode returned NULL")
+
+    cdef bytes result = buf.data[:buf.len]
+    _eastc.byte_buffer_free(buf)
+    _eastc.east_type_release(c_type)
+    return result
+
+
+cpdef list _segment_starts(object py_type, object value):
+    """The element indices at which a Set or Dict's segments begin, excluding
+    0 — the whole segmentation in one east-c call, so the paged encoder stays
+    free of per-element python."""
+    _ensure_eastc_runtime()
+    cdef _eastc.EastType* c_type = py_type_to_c(py_type)
+    cdef _eastc.EastValue* c_val
+    cdef size_t* out = NULL
+    cdef size_t cap = 0
+    cdef size_t found = 0
+    cdef size_t i
+
+    try:
+        c_val = py_value_to_c(value, c_type)
+    except:
+        _eastc.east_type_release(c_type)
+        raise
+
+    # A segment holds at least SEGMENT_MIN_COUNT elements, so this can never
+    # be short (the +2 covers the first partial segment and a rounding).
+    cap = len(value) // 256 + 2
+    out = <size_t*>malloc(cap * sizeof(size_t))
+    if out == NULL:
+        _eastc.east_value_release(c_val)
+        _eastc.east_type_release(c_type)
+        raise MemoryError("out of memory computing segment starts")
+
+    found = _eastc.east_beast2_segment_starts(c_val, c_type, out, cap)
+    _eastc.east_value_release(c_val)
+    _eastc.east_type_release(c_type)
+    if found == <size_t>-1:
+        free(out)
+        _consume_eastc_error("east-c segment-start computation failed")
+
+    cdef list result = [out[i] for i in range(found)]
+    free(out)
+    return result
+
+
+cpdef bint _is_segment_boundary_key(bytes fence):
+    """Whether a key's canonical bytes start a content-defined segment,
+    ignoring the count bounds: the rule's hash test alone."""
+    _ensure_eastc_runtime()
+    if len(fence) == 0:
+        return _eastc.east_beast2_segment_boundary_key(NULL, 0)
+    cdef const uint8_t* data = <const uint8_t*><char*>fence
+    return _eastc.east_beast2_segment_boundary_key(data, len(fence))
+
+
+cpdef unsigned long long _fnv1a64(bytes data):
+    """The 64-bit FNV-1a hash the boundary rule is built on."""
+    _ensure_eastc_runtime()
+    if len(data) == 0:
+        return _eastc.east_beast2_fnv1a64(NULL, 0)
+    cdef const uint8_t* p = <const uint8_t*><char*>data
+    return _eastc.east_beast2_fnv1a64(p, len(data))
+
+
 cdef class _Beast2WriterCore:
     """Thin wrapper over east-c's streaming v5 writer. The Python-facing
     Beast2Writer in east.serialization.beast2 owns the output stream and

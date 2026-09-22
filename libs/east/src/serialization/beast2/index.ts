@@ -53,6 +53,8 @@ export {
   BEAST2_PAGED_BATCH_DEFAULT,
   BEAST2_PAGED_PROBE_BATCH,
   BEAST2_PAGED_TARGET_BYTES_DEFAULT,
+  type Beast2SegmentBoundary,
+  usesContentBoundary,
   iterBeast2SegmentsFor,
   Beast2Pages,
   openBeast2PagesFor,
@@ -75,6 +77,21 @@ export {
   spliceBeast2Tail,
 } from "./v5/geometry.js";
 export { openBeast2LazyFor, isBeast2LazySafe, type Beast2LazySafeOptions } from "./v5/lazy.js";
+export {
+  SEGMENT_MIN_COUNT,
+  SEGMENT_TARGET_COUNT,
+  SEGMENT_MAX_COUNT,
+  SEGMENT_RULE_KEYED,
+  SEGMENT_RULE_POSITIONAL,
+  SegmentCutter,
+  fnv1a64,
+  isSegmentBoundaryKey,
+  isContentCut,
+  segmentRuleFor,
+  segmentKeyTypeOf,
+  encodeBeast2FenceFor,
+  decodeBeast2FenceFor,
+} from "./v5/boundary.js";
 import { readIndex, MAGIC_BYTES_V5 } from "./v5/codec.js";
 import type { Beast2SyncRangeReader } from "./v5/range.js";
 

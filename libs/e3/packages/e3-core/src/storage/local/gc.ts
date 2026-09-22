@@ -21,7 +21,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { tmpdir } from 'os';
 import { decodeBeast2, isEastDict, readBeast2Type, toEastTypeValue, variant, type EastTypeValue } from '@elaraai/east';
-import { PartitionPlanType } from '@elaraai/e3-types';
+import { COLLECTION_MANIFEST_KIND, PartitionPlanType, isCollectionManifestType } from '@elaraai/e3-types';
 import type { RepoStore, GcObjectEntry, GcRootScanResult, LockHandle, StorageBackend } from '../interfaces.js';
 import { transferStagingDir } from './localHelpers.js';
 import { sweepScratchDirs } from '../../execution/scratch.js';
@@ -124,11 +124,40 @@ export interface MarkReachableOptions {
 }
 
 /**
+ * How a child hash found inside an object must be treated.
+ */
+export type GcChildKind =
+  /** Marked reachable without ever being read — an IR blob, an args tuple, a
+   *  segment object. Nothing inside it names another object. */
+  | 'leaf'
+  /** Read and traversed: it names other objects, and one that cannot be read
+   *  keeps nothing alive. */
+  | 'node'
+  /**
+   * A dataset value: marked reachable **unconditionally**, so a ref whose
+   * object is missing or unreadable is never swept out from under itself, and
+   * traversed only where the header-first classifier can tell a collection
+   * manifest — which names segment objects — from a plain value.
+   *
+   * @remarks
+   * Both halves matter. Marking blind is what keeps a partially transferred
+   * repository sound; not reading a plain value is what keeps a sweep from
+   * decoding every dataset in the store. Without `readHead` a value is marked
+   * and left alone, which is exactly the behaviour that predates the segment
+   * layout — so a store that cannot serve a head read must not hold manifests.
+   * Every backend here serves ranged reads, and `repoGc` passes `readHead`
+   * whenever one does.
+   */
+  | 'value';
+
+/**
  * Trace the object graph from roots using iterative DFS with schema-aware traversal.
  *
  * Decodes each object using BEAST2 self-describing format and extracts child
- * hashes based on the detected object type (Package, Task, or Tree). Objects
- * known to be leaves (values, IR blobs) are marked reachable without reading.
+ * hashes based on the detected object type (Package, Task, Tree, or collection
+ * manifest). Objects known to be leaves (IR blobs, segment objects) are marked
+ * reachable without reading; see {@link GcChildKind} for how a dataset value is
+ * treated.
  *
  * With `options.readHead`, a root or child whose kind is not known in advance
  * is classified by its header first: 64 KiB of head, growing to 1 MiB and then
@@ -147,11 +176,16 @@ export async function markReachable(
   options: MarkReachableOptions = {}
 ): Promise<Set<string>> {
   const reachable = new Set<string>();
+  // Marking and visiting are separate: a dataset value is marked the moment
+  // its ref names it, and may still be visited afterwards to find the segment
+  // objects a manifest names.
+  const visited = new Set<string>();
   const stack = [...roots];
 
   while (stack.length > 0) {
     const hash = stack.pop()!;
-    if (reachable.has(hash)) continue;
+    if (visited.has(hash)) continue;
+    visited.add(hash);
 
     if (options.readHead) {
       const type = await readHeadType(options.readHead, hash);
@@ -167,7 +201,7 @@ export async function markReachable(
     reachable.add(hash);
 
     // Schema-aware child extraction
-    let children: { hash: string; isLeaf: boolean }[];
+    let children: { hash: string; kind: GcChildKind }[];
     try {
       const decoded = decodeBeast2(Buffer.from(data));
       children = extractChildren(decoded.type, decoded.value);
@@ -176,12 +210,16 @@ export async function markReachable(
     }
 
     for (const child of children) {
-      if (reachable.has(child.hash)) continue;
-      if (child.isLeaf) {
+      if (child.kind === 'leaf') {
         reachable.add(child.hash); // Mark without reading
-      } else {
-        stack.push(child.hash);
+        continue;
       }
+      if (child.kind === 'value') {
+        reachable.add(child.hash);
+        if (options.readHead) stack.push(child.hash);
+        continue;
+      }
+      if (!visited.has(child.hash)) stack.push(child.hash);
     }
   }
 
@@ -294,6 +332,19 @@ function isMutationObjectShape(type: any): boolean {
 }
 
 /**
+ * Check if a decoded EastTypeValue represents a CollectionManifest — the
+ * object a collection dataset's ref points at, naming its segment objects.
+ *
+ * Exact field set, as every recognizer here is: a record's state is an
+ * arbitrary user struct flowing through the same dispatch. `kind` is checked
+ * when the children are extracted, so a struct of this shape carrying another
+ * tag is a leaf rather than a mis-traversed manifest.
+ */
+function isCollectionManifestShape(type: any): boolean {
+  return isCollectionManifestType(type as EastTypeValue);
+}
+
+/**
  * Check if a decoded EastTypeValue represents a RecordCommit.
  * RecordCommit is a Struct with fields: parent, state, mutation, args, actor, at.
  */
@@ -368,42 +419,47 @@ function isStructuralShape(type: EastTypeValue): boolean {
   const t = type as any;
   return isPackageObjectShape(t) || isTaskObjectShape(t) || isFunctionObjectShape(t)
     || isRecordObjectShape(t) || isMutationObjectShape(t) || isEnvironmentSpecShape(t)
-    || isRecordCommitShape(t) || isPartitionPlanShape(t) || isTreeObjectShape(t);
+    || isRecordCommitShape(t) || isPartitionPlanShape(t) || isTreeObjectShape(t)
+    || isCollectionManifestShape(t);
 }
 
 /**
  * Extract child hashes from a decoded BEAST2 object based on its type.
- * Returns children with isLeaf flag to avoid reading leaf objects.
+ * Returns each child with the {@link GcChildKind} that decides whether it is
+ * marked, read, or both.
  */
 function extractChildren(
   type: unknown,
   value: unknown
-): { hash: string; isLeaf: boolean }[] {
+): { hash: string; kind: GcChildKind }[] {
   const t = type as any;
-  const children: { hash: string; isLeaf: boolean }[] = [];
+  const children: { hash: string; kind: GcChildKind }[] = [];
 
   if (isPackageObjectShape(t)) {
     const pkg = value as { tasks: Map<string, string>; data: { structure: unknown; refs?: Map<string, { type: string; value: any }> }; functions?: Map<string, string>; records?: Map<string, string> };
     for (const taskHash of pkg.tasks.values()) {
-      children.push({ hash: taskHash, isLeaf: false });
+      children.push({ hash: taskHash, kind: 'node' });
     }
     // Function objects (absent on pre-`functions` packages)
     if (isEastDict(pkg.functions)) {
       for (const fnHash of pkg.functions.values()) {
-        children.push({ hash: fnHash, isLeaf: false });
+        children.push({ hash: fnHash, kind: 'node' });
       }
     }
     // Record objects (absent on pre-`records` packages)
     if (isEastDict(pkg.records)) {
       for (const recHash of pkg.records.values()) {
-        children.push({ hash: recHash, isLeaf: false });
+        children.push({ hash: recHash, kind: 'node' });
       }
     }
-    // Extract value hashes from inline per-dataset refs
+    // Extract value hashes from inline per-dataset refs. A collection's value
+    // is a manifest naming other objects, so the ref's root is a `value`: it
+    // is marked whatever happens to it, and walked only far enough to find
+    // the segments it names.
     if (isEastDict(pkg.data.refs)) {
       for (const ref of pkg.data.refs.values()) {
         if (ref.type === 'value' && typeof ref.value?.hash === 'string') {
-          children.push({ hash: ref.value.hash, isLeaf: true });
+          children.push({ hash: ref.value.hash, kind: 'value' });
         }
       }
     }
@@ -412,18 +468,18 @@ function extractChildren(
 
   if (isTaskObjectShape(t)) {
     const task = value as { commandIr: string; environment?: { type: string; value: string } };
-    children.push({ hash: task.commandIr, isLeaf: true }); // IR is a leaf
+    children.push({ hash: task.commandIr, kind: 'leaf' }); // IR is a leaf
     if (task.environment?.type === 'some') {
-      children.push({ hash: task.environment.value, isLeaf: false }); // walk the spec's blobs
+      children.push({ hash: task.environment.value, kind: 'node' }); // walk the spec's blobs
     }
     return children;
   }
 
   if (isFunctionObjectShape(t)) {
     const fn = value as { bodyIr: string; environment?: { type: string; value: string } };
-    children.push({ hash: fn.bodyIr, isLeaf: true }); // IR is a leaf
+    children.push({ hash: fn.bodyIr, kind: 'leaf' }); // IR is a leaf
     if (fn.environment?.type === 'some') {
-      children.push({ hash: fn.environment.value, isLeaf: false }); // walk the spec's blobs
+      children.push({ hash: fn.environment.value, kind: 'node' }); // walk the spec's blobs
     }
     return children;
   }
@@ -431,14 +487,14 @@ function extractChildren(
   if (isRecordObjectShape(t)) {
     const rec = value as { mutations: Map<string, string> };
     for (const mutHash of rec.mutations.values()) {
-      children.push({ hash: mutHash, isLeaf: false });
+      children.push({ hash: mutHash, kind: 'node' });
     }
     return children;
   }
 
   if (isMutationObjectShape(t)) {
     const mut = value as { bodyIr: string };
-    children.push({ hash: mut.bodyIr, isLeaf: true }); // IR is a leaf
+    children.push({ hash: mut.bodyIr, kind: 'leaf' }); // IR is a leaf
     return children;
   }
 
@@ -446,26 +502,41 @@ function extractChildren(
     const spec = value as { type: string; value: Record<string, unknown> };
     if (spec.type === 'python') {
       const env = spec.value as { pyproject: string; lock: string; sdists: { filename: string; hash: string }[] };
-      children.push({ hash: env.pyproject, isLeaf: true }, { hash: env.lock, isLeaf: true });
-      for (const sdist of env.sdists) children.push({ hash: sdist.hash, isLeaf: true });
+      children.push({ hash: env.pyproject, kind: 'leaf' }, { hash: env.lock, kind: 'leaf' });
+      for (const sdist of env.sdists) children.push({ hash: sdist.hash, kind: 'leaf' });
     } else if (spec.type === 'node') {
       const env = spec.value as { packageJson: string; lock: string; tarballs: string[] };
-      children.push({ hash: env.packageJson, isLeaf: true }, { hash: env.lock, isLeaf: true });
-      for (const tarball of env.tarballs) children.push({ hash: tarball, isLeaf: true });
+      children.push({ hash: env.packageJson, kind: 'leaf' }, { hash: env.lock, kind: 'leaf' });
+      for (const tarball of env.tarballs) children.push({ hash: tarball, kind: 'leaf' });
     } else if (spec.type === 'tools') {
       const env = spec.value as { files: { path: string; hash: string }[] };
-      for (const file of env.files) children.push({ hash: file.hash, isLeaf: true });
+      for (const file of env.files) children.push({ hash: file.hash, kind: 'leaf' });
     } else if (spec.type === 'workspace_node') {
       const env = spec.value as {
         packageJson: string; lock: string;
         config: { type: string; value: string };
         members: { path: string; name: string; tarball: string }[];
       };
-      children.push({ hash: env.packageJson, isLeaf: true }, { hash: env.lock, isLeaf: true });
-      if (env.config?.type === 'some') children.push({ hash: env.config.value, isLeaf: true });
-      for (const member of env.members) children.push({ hash: member.tarball, isLeaf: true });
+      children.push({ hash: env.packageJson, kind: 'leaf' }, { hash: env.lock, kind: 'leaf' });
+      if (env.config?.type === 'some') children.push({ hash: env.config.value, kind: 'leaf' });
+      for (const member of env.members) children.push({ hash: member.tarball, kind: 'leaf' });
     }
     // image: no object-store references
+    return children;
+  }
+
+  if (isCollectionManifestShape(t)) {
+    const manifest = value as { kind: string; level: bigint; header: string; entries: { hash: string }[] };
+    if (manifest.kind !== COLLECTION_MANIFEST_KIND) return children; // a look-alike user struct
+    // The header bytes every segment is written under — what makes a splice
+    // possible, and the one object an empty collection still names.
+    children.push({ hash: manifest.header, kind: 'leaf' });
+    // Level 0 entries are segment objects (leaves); above it they are child
+    // manifests, which name objects of their own.
+    const entriesAreLeaves = manifest.level === 0n;
+    for (const entry of manifest.entries) {
+      children.push({ hash: entry.hash, kind: entriesAreLeaves ? 'leaf' : 'node' });
+    }
     return children;
   }
 
@@ -475,25 +546,28 @@ function extractChildren(
       state: string;
       args: { type: string; value: string };
     };
-    children.push({ hash: commit.state, isLeaf: true }); // state blob is a leaf
+    // The state may be a manifest naming segment objects, so it is marked and
+    // then classified; a plain value blob is never read.
+    children.push({ hash: commit.state, kind: 'value' });
     if (commit.parent.type === 'some') {
-      children.push({ hash: commit.parent.value, isLeaf: false }); // walk the chain
+      children.push({ hash: commit.parent.value, kind: 'node' }); // walk the chain
     }
     if (commit.args.type === 'some') {
-      children.push({ hash: commit.args.value, isLeaf: true }); // args tuple is a leaf
+      children.push({ hash: commit.args.value, kind: 'leaf' }); // args tuple is a leaf
     }
     return children;
   }
 
   if (isPartitionPlanShape(t)) {
-    // Partition slices are leaves; '' marks a slice the run never carved,
-    // which is no object. A merged component's range blobs are leaves too.
+    // A partition slice is a dataset value; '' marks a slice the run never
+    // carved, which is no object. A merged component's range blobs are values
+    // too — either may be a manifest naming segment objects.
     const plan = value as { slices: string[][]; merges?: { ranges: string[] }[] };
     for (const slices of plan.slices) {
-      for (const slice of slices) if (slice !== '') children.push({ hash: slice, isLeaf: true });
+      for (const slice of slices) if (slice !== '') children.push({ hash: slice, kind: 'value' });
     }
     for (const merge of plan.merges ?? []) {
-      for (const range of merge.ranges) children.push({ hash: range, isLeaf: true });
+      for (const range of merge.ranges) children.push({ hash: range, kind: 'value' });
     }
     return children;
   }
@@ -502,9 +576,9 @@ function extractChildren(
     const tree = value as Record<string, { type: string; value: any }>;
     for (const ref of Object.values(tree)) {
       if (ref.type === 'tree') {
-        children.push({ hash: ref.value as string, isLeaf: false }); // subtree needs traversal
+        children.push({ hash: ref.value as string, kind: 'node' }); // subtree needs traversal
       } else if (ref.type === 'value') {
-        children.push({ hash: ref.value as string, isLeaf: true }); // value is a leaf
+        children.push({ hash: ref.value as string, kind: 'value' }); // may be a manifest
       }
       // 'unassigned' and 'null': no hash to follow
     }

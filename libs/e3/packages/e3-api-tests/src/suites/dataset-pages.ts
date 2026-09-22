@@ -8,8 +8,11 @@
  *
  * Element windows are exact for every collection kind — Array in stream
  * order, Set/Dict in the canonical East key order, which v5 blobs hold on
- * the wire (sorted, disjoint segments). Collection datasets are stored
- * segmented + indexed at every size, so segment addressing always works.
+ * the wire (sorted, disjoint segments). Collection datasets are stored as
+ * segment objects under a manifest at every size, so segment addressing
+ * always works — and, for a Set or Dict, the boundaries are a pure function
+ * of the value, which is what the layout tests at the end of this suite hold
+ * the server to.
  */
 
 import { describe, it } from 'node:test';
@@ -32,6 +35,7 @@ import {
   packageImport,
   workspaceCreate,
   workspaceDeploy,
+  datasetGet,
   datasetGetPage,
   datasetGetStatus,
   datasetSet,
@@ -192,6 +196,81 @@ export function datasetPageTests(setup: TestSetup<TestContext>): void {
       assert.equal(seg.totalExact, true);
     });
 
+    it('a dict segments the same whatever history produced it', async (t) => {
+      const ctx = await withTablePackage(t);
+      const opts = await ctx.opts();
+
+      // The property the segment-object layout rests on: the boundaries of a
+      // Set or Dict come from its keys, so two equal values are stored as the
+      // same segment objects under the same manifest — whatever was written
+      // before them. Without it a state shares nothing with its predecessor
+      // and every write costs the whole value again.
+      const entries = Array.from({ length: 3000 }, (_, i) => [`k${String(i).padStart(5, '0')}`, BigInt(i)] as [string, bigint]);
+      const ascending = new Map(entries);
+      const descending = new Map([...entries].reverse());
+
+      await datasetSet(ctx.config.baseUrl, ctx.repoName, 'pages-ws', lookupPath, encodeBeast2For(LookupType)(ascending), opts);
+      const first = await datasetGetStatus(ctx.config.baseUrl, ctx.repoName, 'pages-ws', lookupPath, opts);
+
+      // A different value in between, so nothing can be answered from a cache
+      // of the last write.
+      await datasetSet(ctx.config.baseUrl, ctx.repoName, 'pages-ws', lookupPath,
+        encodeBeast2For(LookupType)(new Map(entries.slice(0, 500))), opts);
+      await datasetSet(ctx.config.baseUrl, ctx.repoName, 'pages-ws', lookupPath, encodeBeast2For(LookupType)(descending), opts);
+      const second = await datasetGetStatus(ctx.config.baseUrl, ctx.repoName, 'pages-ws', lookupPath, opts);
+
+      assert.equal(second.hash.type, 'some');
+      assert.deepEqual(second.hash, first.hash, 'equal values must be stored identically');
+      assert.deepEqual(second.segments, first.segments);
+      assert.deepEqual(second.size, first.size);
+    });
+
+    it('a one-row change re-cuts one segment and leaves the rest', async (t) => {
+      const ctx = await withTablePackage(t);
+      const opts = await ctx.opts();
+
+      const entries = Array.from({ length: 3000 }, (_, i) => [`k${String(i).padStart(5, '0')}`, BigInt(i)] as [string, bigint]);
+      await datasetSet(ctx.config.baseUrl, ctx.repoName, 'pages-ws', lookupPath, encodeBeast2For(LookupType)(entries.reduce((m, [k, v]) => m.set(k, v), new Map<string, bigint>())), opts);
+      const before = await datasetGetStatus(ctx.config.baseUrl, ctx.repoName, 'pages-ws', lookupPath, opts);
+      assert.equal(before.segments.type, 'some');
+
+      const edited = new Map(entries);
+      edited.set('k01500', 999999n);
+      await datasetSet(ctx.config.baseUrl, ctx.repoName, 'pages-ws', lookupPath, encodeBeast2For(LookupType)(edited), opts);
+      const after = await datasetGetStatus(ctx.config.baseUrl, ctx.repoName, 'pages-ws', lookupPath, opts);
+
+      assert.notDeepEqual(after.hash, before.hash, 'the value changed, so its address must');
+      assert.deepEqual(after.segments, before.segments,
+        'one changed row must not move a boundary — only the segment holding it is re-cut');
+
+      // ...and the change is visible where it was made, with its neighbours
+      // untouched.
+      const page = await datasetGetPage(ctx.config.baseUrl, ctx.repoName, 'pages-ws', lookupPath, { offset: 1499, limit: 3 }, opts);
+      const decoded = decodeBeast2For(LookupType)(page.data) as Map<string, bigint>;
+      assert.deepEqual([...decoded.entries()], [['k01499', 1499n], ['k01500', 999999n], ['k01501', 1501n]]);
+    });
+
+    it('a whole read of a manifest-backed dataset decodes to the value it was given', async (t) => {
+      const ctx = await withTablePackage(t);
+      const opts = await ctx.opts();
+
+      // The manifest round trip: the segments splice back into one blob that
+      // decodes equal to the whole encode of the same value.
+      const entries = Array.from({ length: 3000 }, (_, i) => [`k${String(i).padStart(5, '0')}`, BigInt(i)] as [string, bigint]);
+      const lookup = new Map(entries);
+      await datasetSet(ctx.config.baseUrl, ctx.repoName, 'pages-ws', lookupPath, encodeBeast2For(LookupType)(lookup), opts);
+
+      const whole = await datasetGet(ctx.config.baseUrl, ctx.repoName, 'pages-ws', lookupPath, opts);
+      const decoded = decodeBeast2For(LookupType)(whole.data) as Map<string, bigint>;
+      assert.equal(decoded.size, 3000);
+      assert.deepEqual([...decoded.entries()], entries);
+
+      const status = await datasetGetStatus(ctx.config.baseUrl, ctx.repoName, 'pages-ws', lookupPath, opts);
+      assert.equal(status.rows.type, 'some');
+      assert.equal(status.rows.type === 'some' ? status.rows.value : 0n, 3000n,
+        'the status geometry comes from the manifest, with nothing decoded');
+    });
+
     it('non-collection datasets and bad windows are refused', async (t) => {
       const ctx = await withTablePackage(t);
       const opts = await ctx.opts();
@@ -229,7 +308,9 @@ export function datasetPageTests(setup: TestSetup<TestContext>): void {
       assert.ok(equalFor(RowsType)(decodeBeast2For(RowsType)(page.data), rows.slice(0, 10)));
       assert.equal(page.hash, hash);
       // The page is self-describing about the WHOLE dataset: totalBytes is
-      // the stored blob's size (what status reports), not the page's own.
+      // what the value costs in the store — every segment object plus the
+      // manifest naming them, the same number status reports — not the page's
+      // own bytes.
       assert.equal(BigInt(page.totalBytes), status.size.type === 'some' ? status.size.value : -1n);
       assert.ok(page.totalBytes > page.data.length, 'whole-blob bytes exceed one page');
 

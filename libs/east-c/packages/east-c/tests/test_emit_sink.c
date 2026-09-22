@@ -183,64 +183,42 @@ static EastValue *build_wide_dict(EastType *row_type, size_t k)
 /* The sink's file must be byte-identical to what the paged encoder writes for
  * the same value: one value segments the same wherever it is written (#770).
  *
- * That is the whole contract, and it subsumes the two ways the segmentation
- * drifts apart. The sink opened at the element cap where the encoder probes
- * its first entries, so a wide-rowed value got one oversized first segment
- * and every later boundary shifted; and the refinement must average over the
- * BODY alone, so the `k` sweep walks first-segment sizes until it finds one
- * where including the header would choose a different second batch. Either
- * drift gives one value two encodings — and two hashes in a content-addressed
- * store. */
+ * That is the whole contract. The `k` sweep varies the width of the leading
+ * rows, which is what used to move the boundaries: the sink opened at the
+ * element cap where the encoder probed its first entries, and the refinement
+ * had to average over the BODY alone or a different second batch followed.
+ * Under the content-defined rule a keyed output's boundaries come from its
+ * keys, so none of those can move them — which is the point, and what the
+ * sweep now asserts row-width by row-width. The Array path still refines from
+ * emitted bytes; `test_beast2_frame_pool` holds that one to its serial
+ * oracle. */
 static void test_segmentation(void)
 {
     const char *path = "emit_sink_gate_segments.beast2";
-    const size_t target = 2u * 1024u * 1024u;
-    bool pinned = false;
-    for (size_t k = 0; k <= FIRST_BATCH && !pinned; k += 7) {
+    for (size_t k = 0; k <= FIRST_BATCH; k += 7) {
         if (!emit_wide_rows(path, k)) return;
         size_t len = 0;
         uint8_t *data = read_file(path, &len);
         CHECK(data != NULL, "segmentation: no output written");
         if (!data) return;
 
-        /* The k this sweep looks for: one whose first segment makes the two
-         * refinements disagree, so the comparison below is what holds the
-         * header out of the average. */
-        bool separates = false;
-        Beast2SpliceExtents *e = east_beast2_splice_extents(data, len);
-        if (e && e->segment_count >= 2) {
-            size_t seg0 = e->offsets[1] - e->offsets[0];
-            size_t counted = e->counts[0];
-            separates = east_beast2_paged_next_batch(target, seg0, counted) !=
-                        east_beast2_paged_next_batch(target, seg0 + e->prefix_end, counted);
+        EastType *row_type = wide_row_type();
+        EastType *dict_type = east_dict_type(&east_integer_type, row_type);
+        EastValue *value = build_wide_dict(row_type, k);
+        ByteBuffer *paged =
+            value ? east_beast2_encode_paged(value, dict_type, EAST_BEAST2_CODEC_DEFLATE, 0) : NULL;
+        CHECK(paged != NULL, "segmentation: the paged encode failed (k = %zu)", k);
+        if (paged) {
+            CHECK(paged->len == len && memcmp(paged->data, data, len) == 0,
+                  "segmentation: the sink wrote %zu bytes where the paged encoder writes %zu "
+                  "for the same value (k = %zu) — one value must segment the same wherever it "
+                  "is written",
+                  len, paged->len, k);
+            byte_buffer_free(paged);
         }
-        if (e) east_beast2_splice_extents_free(e);
-
-        /* Encoding 2100 wide rows again is the expensive half, so it runs on
-         * the first shape and on the discriminating one — the two that decide
-         * the contract — not on all 144 of the sweep. */
-        if (k == 0 || (separates && !pinned)) {
-            EastType *row_type = wide_row_type();
-            EastType *dict_type = east_dict_type(&east_integer_type, row_type);
-            EastValue *value = build_wide_dict(row_type, k);
-            ByteBuffer *paged =
-                value ? east_beast2_encode_paged(value, dict_type, EAST_BEAST2_CODEC_DEFLATE, 0)
-                      : NULL;
-            CHECK(paged != NULL, "segmentation: the paged encode failed (k = %zu)", k);
-            if (paged) {
-                CHECK(paged->len == len && memcmp(paged->data, data, len) == 0,
-                      "segmentation: the sink wrote %zu bytes where the paged encoder writes %zu "
-                      "for the same value (k = %zu) — one value must segment the same wherever it "
-                      "is written",
-                      len, paged->len, k);
-                byte_buffer_free(paged);
-            }
-            if (value) east_value_release(value);
-        }
-        if (separates) pinned = true;
+        if (value) east_value_release(value);
         free(data);
     }
-    CHECK(pinned, "segmentation: no first-segment size separated the two refinements");
     remove(path);
 }
 

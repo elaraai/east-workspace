@@ -27,6 +27,7 @@ import type { PackageObject, WorkspaceState, TaskObject, FunctionObject, Dataset
 import { objectAdoptFile } from './dataset-adopt.js';
 import { packageResolve, packageRead } from './packages.js';
 import { writeRefsFromPackage, refPathToKeypath } from './dataset-refs.js';
+import { readManifest } from './dataset-open.js';
 import { workspaceSetDatasetByHash } from './trees.js';
 import {
   WorkspaceNotFoundError,
@@ -794,9 +795,17 @@ export async function workspaceExport(
     const refData = refEncoder(ref);
     zipfile.addBuffer(Buffer.from(refData), `data/${refPath}.ref`, { mtime: DETERMINISTIC_MTIME });
 
-    // Add the value object if present
+    // Add the value object if present. A collection held as a segment
+    // manifest is many objects — the manifest, its header, and every segment
+    // — and an export that carried only the manifest would import a dataset
+    // whose segments are absent.
     if (ref.type === 'value') {
       await addObject(ref.value.hash);
+      const manifest = await readManifest(storage, repo, ref.value.hash);
+      if (manifest !== null) {
+        await addObject(manifest.header);
+        for (const entry of manifest.entries) await addObject(entry.hash);
+      }
     }
   }
 

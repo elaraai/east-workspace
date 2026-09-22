@@ -218,6 +218,21 @@ BEAST2_PAGED_TARGET_BYTES_DEFAULT = 2 * 1024 * 1024
 #: TypeScript ``encodeBeast2PagedFor`` constants).
 _PAGED_PROBE_BATCH = 16
 
+#: Fewest elements (pairs for a Dict) a content-defined segment may hold, the
+#: expected size, and the most it may hold. Mirrors east-c's
+#: ``EAST_BEAST2_SEGMENT_*`` and TypeScript's ``SEGMENT_*`` — the rule is wire
+#: state, so a change to one is a change to all three and to the rule id a
+#: segment manifest records.
+SEGMENT_MIN_COUNT = 256
+SEGMENT_TARGET_COUNT = 1024
+SEGMENT_MAX_COUNT = 4096
+
+#: The boundary-rule ids stamped into a segment manifest: the content rule for
+#: Set and Dict roots, the byte-adaptive batching for Array roots, which have
+#: no key to hash.
+SEGMENT_RULE_KEYED = "cdc/fnv1a64/256-1024-4096/1"
+SEGMENT_RULE_POSITIONAL = "pos/1000-2MiB/1"
+
 
 def encode_beast2_paged_for(collection_type, *, batch_size: int | None = None,
                             target_segment_bytes: int | None = None,
@@ -233,8 +248,19 @@ def encode_beast2_paged_for(collection_type, *, batch_size: int | None = None,
     from real output as segments flush. Deterministic per value. Re-batching
     slices the collection natively (eager containers are btrees), so no
     per-element python runs.
+
+    A Set or Dict with neither ``batch_size`` nor ``target_segment_bytes``
+    named — the default, and what every writer of a dataset uses — is cut by
+    the **content-defined boundary rule** instead: a segment starts at the
+    element whose key hashes into a pinned pattern, within pinned element
+    bounds. Nothing about the writer enters that decision, so this runtime,
+    east-c and TypeScript cut one value at the same keys — which is what makes
+    two equal values share their segment objects, and a one-row edit re-cut
+    exactly one. Naming either option asks for a geometry of your own and takes
+    the byte-adaptive path.
     """
     kind = _check_segmented(collection_type)
+    content_boundary = kind != "Array" and batch_size is None and target_segment_bytes is None
     batch_cap = max(1, int(batch_size if batch_size is not None else BEAST2_PAGED_BATCH_DEFAULT))
     target = max(1, int(target_segment_bytes if target_segment_bytes is not None
                         else BEAST2_PAGED_TARGET_BYTES_DEFAULT))
@@ -265,6 +291,9 @@ def encode_beast2_paged_for(collection_type, *, batch_size: int | None = None,
                 rebuilt: Any = EastDict(kt, vt)
                 rebuilt.update_many(keys.slice(i, j), values.slice(i, j))
                 return rebuilt
+
+        if content_boundary:
+            return _encode_content_cut(collection_type, value, n, chunk, codec)
 
         # Probe: a throwaway scratch encode of the first few elements
         # measures the average wire size and seeds the batch size.
@@ -306,6 +335,33 @@ def encode_beast2_paged_for(collection_type, *, batch_size: int | None = None,
         return buf.getvalue()
 
     return encode
+
+
+def _encode_content_cut(collection_type, value, n: int, chunk, codec: str) -> bytes:
+    """One collection value as a v5 blob cut by the content-defined rule.
+
+    Whether a segment starts depends only on the keys since the last boundary,
+    so there is no probe, no byte measurement and no refinement — and every
+    runtime's encode of this value lands on the same segments.
+    """
+    import io
+
+    from east.serialization._beast2_eastc import _segment_starts
+
+    # One east-c call decides the whole segmentation, so the loop below is
+    # O(segments) of python over natively sliced batches — not O(elements).
+    starts = _segment_starts(collection_type, value) if n > 0 else []
+
+    buf = io.BytesIO()
+    writer = Beast2Writer(collection_type, buf, codec=codec, parallel=True)
+    start = 0
+    for at in starts:
+        writer.write(chunk(start, at))
+        start = at
+    if start < n:
+        writer.write(chunk(start, n))
+    writer.close()
+    return buf.getvalue()
 
 
 def iter_beast2_segments_for(collection_type, options: Beast2DecodeOptions | None = None):
@@ -3788,6 +3844,11 @@ __all__ = [
     "encode_beast2_v5_for",
     "encode_beast2_segments_for",
     "encode_beast2_paged_for",
+    "SEGMENT_MIN_COUNT",
+    "SEGMENT_TARGET_COUNT",
+    "SEGMENT_MAX_COUNT",
+    "SEGMENT_RULE_KEYED",
+    "SEGMENT_RULE_POSITIONAL",
     "iter_beast2_segments_for",
     "read_beast2_index",
     "read_beast2_type",

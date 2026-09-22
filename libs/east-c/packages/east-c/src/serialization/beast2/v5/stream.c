@@ -620,6 +620,44 @@ ByteBuffer *east_beast2_encode_paged(EastValue *value, EastType *type, int32_t c
                : type->kind == EAST_TYPE_SET ? value->data.set.len
                                              : value->data.dict.len;
 
+    /* A Set or Dict is cut by the content rule: whether a segment starts
+     * depends only on the keys since the last boundary, so there is no probe,
+     * no byte measurement and no refinement — and every runtime's encode of
+     * this value lands on the same segments. A caller that names a byte target
+     * is asking for a geometry of its own and gets the positional path, as the
+     * TypeScript encoder's `targetSegmentBytes` does. */
+    if (type->kind != EAST_TYPE_ARRAY && target_segment_bytes == 0) {
+        B2V5Cutter cut;
+        if (!b2v5_cutter_init(&cut, type)) return NULL;
+        Beast2StreamWriter *kw = east_beast2_writer_new(type, codec_id, true, true);
+        if (!kw) {
+            b2v5_cutter_free(&cut);
+            return NULL;
+        }
+        east_beast2_writer_set_parallel(kw, true);
+        bool kok = true;
+        size_t start = 0;
+        for (size_t k = 0; k < n && kok; k++) {
+            EastValue *key =
+                type->kind == EAST_TYPE_SET ? east_set_at(value, k) : east_dict_key_at(value, k);
+            if (!b2v5_cutter_starts_segment(&cut, key)) continue;
+            EastValue *batch = paged_batch(value, type, start, k);
+            kok = batch && east_beast2_writer_write(kw, batch);
+            if (batch) east_value_release(batch);
+            start = k;
+        }
+        if (kok && start < n) {
+            EastValue *batch = paged_batch(value, type, start, n);
+            kok = batch && east_beast2_writer_write(kw, batch);
+            if (batch) east_value_release(batch);
+        }
+        if (kok) kok = east_beast2_writer_finish(kw);
+        ByteBuffer *kout = kok ? east_beast2_writer_take(kw) : NULL;
+        east_beast2_writer_free(kw);
+        b2v5_cutter_free(&cut);
+        return kout;
+    }
+
     /* Probe: a throwaway scratch encode of the first few elements measures
      * the average wire size and seeds the batch size. */
     size_t next_batch = B2V5_PAGED_BATCH_DEFAULT;

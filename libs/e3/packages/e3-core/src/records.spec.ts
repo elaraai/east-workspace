@@ -13,9 +13,10 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { East, IntegerType, StringType, encodeBeast2For, decodeBeast2For, toEastTypeValue, ArrayType, BlobType, DictType, StructType, openBeast2PagesFor, variant, type ValueTypeOf } from '@elaraai/east';
+import { East, IntegerType, StringType, encodeBeast2For, decodeBeast2For, toEastTypeValue, ArrayType, BlobType, DictType, StructType, variant, type ValueTypeOf } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import type { Structure, TreePath } from '@elaraai/e3-types';
+import { DatasetSegments } from './dataset-open.js';
 import { recordMutate, recordHistory, recordCompact, recordDescribe } from './records.js';
 import { runDetached } from './execution/runDetached.js';
 import { repoGc } from './storage/local/gc.js';
@@ -603,15 +604,16 @@ describe('frozen reducer state (#539)', () => {
   });
 
   it('a keyed-touch reducer over lazily-served frozen state commits (addendum fixture)', async () => {
-    // Seed a 2500-row state through the real runner: collection outputs are
-    // written segmented + indexed, so the committed state object is pageable.
+    // Seed a 2500-row state through the real runner: a collection state goes
+    // into the store as segment objects under a manifest, so it is pageable
+    // and a later one-row commit shares every segment it did not touch.
     const seeded = await recordMutate(storage, realRunner, repo, ws, 'kv', 'seed', [], { actor: 'cli:test' });
     assert.strictEqual(seeded.kind, 'committed', `seed committed: ${JSON.stringify(seeded)}`);
     const ref = await storage.datasets.read(repo, ws, 'records/kv');
     assert.ok(ref && ref.type === 'value');
-    const pages = openBeast2PagesFor(StateT)(await storage.objects.read(repo, ref.value.hash));
-    assert.ok(pages.segmentCount >= 2, `state is multi-segment (${pages.segmentCount})`);
-    assert.strictEqual(pages.elementCount, 2500);
+    const segments = await DatasetSegments.open(storage, repo, ref.value.hash);
+    assert.ok(segments.segmentCount >= 2, `state is multi-segment (${segments.segmentCount})`);
+    assert.strictEqual(segments.elementCount, 2500);
 
     // The nested-container element shape is exactly what the frozen gate
     // admits (unfrozen it would force a whole decode) — so with a 1-byte

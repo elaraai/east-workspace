@@ -3,7 +3,7 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
-import { NullType, ArrayType, StringType, compareFor, decodeBeast2, encodeBeast2For, openBeast2PagesFor, parseFor, readBeast2ExtentsRanged, carveBeast2Ranged, some, none, variant, toEastTypeValue, isVariant, type Beast2Pages, type Beast2RangedExtents, type EastTypeValue } from '@elaraai/east';
+import { NullType, ArrayType, StringType, compareFor, decodeBeast2, encodeBeast2For, openBeast2PagesFor, parseFor, some, none, variant, toEastTypeValue, isVariant, type EastTypeValue } from '@elaraai/east';
 import type { TreePath } from '@elaraai/e3-types';
 import {
   workspaceListTree,
@@ -11,6 +11,9 @@ import {
   workspaceGetDatasetStatus,
   workspaceSetDataset,
   workspaceGetTree,
+  readDatasetWhole,
+  readManifest,
+  DatasetSegments,
   type TreeNode,
 } from '@elaraai/e3-core';
 import { BEAST2_CONTENT_TYPE, type StorageBackend, type TransferBackend } from '@elaraai/e3-core';
@@ -77,6 +80,22 @@ export async function getDataset(
       });
     }
 
+    // A collection held as a segment manifest is many objects, so the
+    // transfer backend — which serves ONE object by hash — cannot hand the
+    // client a value. Splice it here instead; the download redirect stays for
+    // objects that are the value.
+    if (await readManifest(storage, repoPath, hash) !== null) {
+      const data = await readDatasetWhole(storage, repoPath, hash);
+      return new Response(data, {
+        status: 200,
+        headers: {
+          'Content-Type': BEAST2_CONTENT_TYPE,
+          'Content-Length': String(data.byteLength),
+          'X-Content-SHA256': hash,
+        },
+      });
+    }
+
     // When serving via API with a transfer backend, check size to decide whether to redirect
     if (transferBackend && repo && requestUrl) {
       const { size } = await storage.objects.stat(repoPath, hash);
@@ -133,73 +152,78 @@ export const PAGE_BYTE_BUDGET_DEFAULT = 4 * 1024 * 1024;
  *  any blob size. */
 export const PAGE_READ_MAX_BYTES_DEFAULT = 512 * 1024 * 1024;
 
-/** Ranged extents cached per content hash. Page requests are hash-pinned
- *  immutable, so entries never invalidate — the LRU only bounds memory.
- *  Each entry holds the parsed index (offsets/counts/cumulative) plus the
- *  header bytes windows are assembled under — O(segmentCount) memory, so
- *  the cache is bounded by RETAINED BYTES, not entry count: 64 entries of a
- *  500k-segment blob would otherwise pin hundreds of MB. */
-interface CachedRangedExtents {
-  extents: Beast2RangedExtents;
-  /** Prefix sums of `extents.counts`, for offset→segment addressing. */
-  cumulative: number[];
-  /** Segment fences (first key of segment) probed so far by key search —
-   *  filled lazily, O(log segments) per query, so repeated type-ahead
-   *  queries stop re-reading segment frames. Keys are small scalars, so
-   *  their bytes are left out of the entry's `bytes` estimate. */
-  fences: Map<number, unknown>;
-  /** Approximate retained bytes (index arrays + header bytes). */
+/** Opened datasets cached per repository and content hash. Page requests are
+ *  hash-pinned immutable, so entries never invalidate — the LRU only bounds
+ *  memory. An entry holds the segment geometry (counts, prefix sums, and the
+ *  fences a manifest carries or a bisect has probed), which is O(segments), so
+ *  the cache is bounded by RETAINED BYTES rather than entry count: 64 entries
+ *  of a 500k-segment dataset would otherwise pin hundreds of MB. */
+interface CachedSegments {
+  segments: DatasetSegments;
+  /** Approximate retained bytes (the geometry arrays, and a manifest's fences). */
   bytes: number;
 }
 
-const EXTENTS_CACHE_MAX_ENTRIES = 64;
+const SEGMENTS_CACHE_MAX_ENTRIES = 64;
 /** Cap on the cache's total retained bytes. The newest entry always stays
  *  (serving the request needs it regardless), so one giant index can still
  *  be held — but never alongside others. */
-const EXTENTS_CACHE_MAX_BYTES = 16 * 1024 * 1024;
-const extentsCache = new Map<string, CachedRangedExtents>();
-let extentsCacheBytes = 0;
+const SEGMENTS_CACHE_MAX_BYTES = 16 * 1024 * 1024;
+const segmentsCache = new Map<string, CachedSegments>();
+let segmentsCacheBytes = 0;
 
 /** Evicts oldest entries until the count and byte budgets hold, always
  *  keeping at least the newest entry. */
-function evictExtents(): void {
+function evictSegments(): void {
   while (
-    extentsCache.size > 1 &&
-    (extentsCache.size > EXTENTS_CACHE_MAX_ENTRIES || extentsCacheBytes > EXTENTS_CACHE_MAX_BYTES)
+    segmentsCache.size > 1 &&
+    (segmentsCache.size > SEGMENTS_CACHE_MAX_ENTRIES || segmentsCacheBytes > SEGMENTS_CACHE_MAX_BYTES)
   ) {
-    const oldest = extentsCache.keys().next().value!;
-    extentsCacheBytes -= extentsCache.get(oldest)!.bytes;
-    extentsCache.delete(oldest);
+    const oldest = segmentsCache.keys().next().value!;
+    segmentsCacheBytes -= segmentsCache.get(oldest)!.bytes;
+    segmentsCache.delete(oldest);
   }
 }
 
-/** Fetches (or reuses) a blob's ranged extents, LRU-cached per hash and
- *  bounded by retained bytes. */
-async function cachedRangedExtents(
+/** Identifies a storage backend for the cache key — lazily, and without
+ *  keeping it alive. */
+const storageIds = new WeakMap<object, number>();
+let nextStorageId = 0;
+
+/** Opens (or reuses) a stored collection, LRU-cached per backend, repository
+ *  and content hash, and bounded by retained bytes.
+ *
+ *  All three key parts are load-bearing. An opened dataset holds the backend
+ *  it reads segment objects through, and a manifest names objects that exist
+ *  in the repository it was read from and nowhere else — so two backends, or
+ *  two repositories, that happen to hold the same bytes under the same name
+ *  must not share an entry. */
+async function cachedSegments(
+  storage: StorageBackend,
+  repoPath: string,
   hash: string,
   size: number,
-  readRange: (offset: number, length: number) => Promise<Uint8Array>,
-): Promise<CachedRangedExtents> {
-  const cached = extentsCache.get(hash);
+): Promise<DatasetSegments> {
+  let backendId = storageIds.get(storage);
+  if (backendId === undefined) {
+    backendId = nextStorageId++;
+    storageIds.set(storage, backendId);
+  }
+  const key = `${backendId}\u0000${repoPath}\u0000${hash}`;
+  const cached = segmentsCache.get(key);
   if (cached) {
-    extentsCache.delete(hash);
-    extentsCache.set(hash, cached); // refresh recency
-    return cached;
+    segmentsCache.delete(key);
+    segmentsCache.set(key, cached); // refresh recency
+    return cached.segments;
   }
-  const extents = await readBeast2ExtentsRanged({ size, read: readRange });
-  const cumulative: number[] = new Array(extents.counts.length);
-  let running = 0;
-  for (let i = 0; i < extents.counts.length; i++) {
-    running += extents.counts[i]!;
-    cumulative[i] = running;
-  }
-  // offsets + counts + cumulative at 8 bytes per element, plus the header.
-  const bytes = extents.head.byteLength + 24 * extents.counts.length;
-  const entry: CachedRangedExtents = { extents, cumulative, fences: new Map(), bytes };
-  extentsCache.set(hash, entry);
-  extentsCacheBytes += bytes;
-  evictExtents();
-  return entry;
+  const segments = await DatasetSegments.open(storage, repoPath, hash, size);
+  // counts + prefix sums at 8 bytes each, plus a manifest's stored fences.
+  let bytes = 16 * segments.segmentCount;
+  for (const entry of segments.manifest?.entries ?? []) bytes += entry.fence.byteLength + 80;
+  segmentsCache.set(key, { segments, bytes });
+  segmentsCacheBytes += bytes;
+  evictSegments();
+  return segments;
 }
 
 /** Window addressing for {@link getDatasetPage}: an element window
@@ -217,6 +241,12 @@ export interface DatasetPageWindow {
    *  caches sound. */
   hash?: string;
 }
+
+/** What a caller is told when a dataset object is neither a segment manifest
+ *  nor a pageable blob: something wrote it outside the encoder door, and no
+ *  read path can repair it — re-writing the dataset produces the layout. */
+const NOT_INDEXED_MESSAGE =
+  'Dataset carries no pageable segment index — re-write the dataset (re-run the producing task, or set the value again) to store it in the indexed form.';
 
 function pageError(type: string, message: string, status: 400 | 404 | 409 = 400, headers?: Record<string, string>): Response {
   return new Response(JSON.stringify({ error: { type, message } }), {
@@ -304,28 +334,56 @@ export async function getDatasetPage(
       return pageError('bad_request', `offset must be a non-negative integer and limit a positive integer, got offset=${offset} limit=${requestedLimit}`);
     }
 
-    const statSize = status.size ?? (await storage.objects.stat(repoPath, status.hash)).size;
+    const objectSize = status.size ?? (await storage.objects.stat(repoPath, status.hash)).size;
+    // Without ranged reads a bare blob is buffered whole per request, so the
+    // absolute cap protects the server process. A dataset stored as a segment
+    // manifest is never buffered whole — its object IS the index, and a window
+    // reads only the segment objects it touches — so no cap applies to one.
+    if (!storage.objects.readRange && objectSize > readMaxBytes && await readManifest(storage, repoPath, status.hash, objectSize) === null) {
+      return pageError('dataset_too_large',
+        `Dataset is ${Math.round(objectSize / 1024 / 1024)} MB — beyond the ${Math.round(readMaxBytes / 1024 / 1024)} MB paging cap. Download it instead.`);
+    }
+
+    let segments: DatasetSegments;
+    try {
+      segments = await cachedSegments(storage, repoPath, status.hash, objectSize);
+    } catch (err) {
+      // Only the reader's own shape refusals mean "not indexed" — a blob
+      // predating the stored-segmented contract (or injected raw). Anything
+      // else (storage I/O, missing object) is a real failure and must surface
+      // as one, not masquerade as a re-write suggestion.
+      const message = err instanceof Error ? err.message : String(err);
+      if (!/^(beast2 v5:|collection manifest:|Data too short for Beast2|Invalid Beast2)/.test(message)) {
+        throw err;
+      }
+      return pageError('dataset_not_indexed', NOT_INDEXED_MESSAGE);
+    }
+
+    const segmentCount = segments.segmentCount;
+    const totalElements = segments.elementCount;
+    const totalBytes = segments.bytes;
+    const cumulative = segments.cumulative;
 
     // The byte budget turns the requested element limit into an effective one
-    // using the blob's average element size, so pages stay bounded even for
+    // using the dataset's average element size, so pages stay bounded even for
     // very wide rows.
-    const effectiveLimit = (totalElements: number): number => {
-      const avgBytes = totalElements > 0 ? statSize / totalElements : 1;
+    const effectiveLimit = (): number => {
+      const avgBytes = totalElements > 0 ? totalBytes / totalElements : 1;
       const byBudget = Math.max(1, Math.floor(byteBudget / Math.max(1, avgBytes)));
       return Math.max(1, Math.min(requestedLimit, PAGE_MAX_LIMIT, byBudget));
     };
 
-    const pageHeaders = (totalElements: number, segmentCount: number, pageOffset: number, pageCount: number): Record<string, string> => ({
+    const pageHeaders = (pageOffset: number, pageCount: number): Record<string, string> => ({
       'Content-Type': BEAST2_CONTENT_TYPE,
       // Hash-pinned windows are content-addressed: same URL ⇒ same bytes,
       // forever — cacheable at any layer with no invalidation. Unpinned
       // windows track the mutable current value and must not be cached.
       'Cache-Control': window.hash !== undefined ? 'public, max-age=31536000, immutable' : 'no-store',
       'X-Content-SHA256': status.hash!,
-      // The stored blob's full byte size — the page endpoint is then
+      // The value's full stored byte size — the page endpoint is then
       // self-describing (no separate status call needed for the header
       // line); Content-Length remains the page's own bytes.
-      'X-Total-Bytes': String(statSize),
+      'X-Total-Bytes': String(totalBytes),
       'X-Total-Elements': String(totalElements),
       // Always exact: Array counts index stream order, and v5 Set/Dict
       // segments are disjoint ranges of the canonical value.
@@ -335,152 +393,50 @@ export async function getDatasetPage(
       'X-Page-Count': String(pageCount),
     });
 
-    // Ranged path: backends with `objects.readRange` never buffer the blob.
-    // The tail (index) and head (header sections) are read once per content
-    // hash and cached; each window then reads only the byte ranges of the
-    // segments it touches — per-request memory is O(window) at any blob
-    // size, so no cap applies (#513).
-    const readRange = storage.objects.readRange?.bind(storage.objects);
-    if (readRange) {
-      let cached: CachedRangedExtents;
-      try {
-        cached = await cachedRangedExtents(status.hash, statSize,
-          (offset, length) => readRange(repoPath, status.hash!, offset, length));
-      } catch (err) {
-        // Only the reader's own blob-shape refusals mean "not indexed" — a
-        // blob predating the stored-segmented contract (or injected raw).
-        // Anything else (storage I/O, missing object) is a real failure and
-        // must surface as one, not masquerade as a re-write suggestion.
-        const message = err instanceof Error ? err.message : String(err);
-        if (!/^(beast2 v5:|Data too short for Beast2|Invalid Beast2)/.test(message)) {
-          throw err;
-        }
-        return pageError('dataset_not_indexed',
-          'Dataset blob carries no pageable segment index — re-write the dataset (re-run the producing task, or set the value again) to store it in the indexed form.');
+    // The touched segment span [from, to) and the window placement.
+    let from: number;
+    let to: number;
+    let limit = 0;
+    if (segmentMode) {
+      const seg = window.segment!;
+      if (seg >= segmentCount) {
+        return pageError('bad_request', `segment ${seg} out of range (${segmentCount} segments)`);
       }
-      const { extents, cumulative } = cached;
-      if (!extents.selfContained) {
-        return pageError('dataset_not_indexed',
-          'Dataset blob carries no pageable segment index — re-write the dataset (re-run the producing task, or set the value again) to store it in the indexed form.');
-      }
-      const segmentCount = extents.offsets.length;
-      const totalElements = extents.elementCount;
-
-      // The touched segment span [from, to) and the window placement.
-      let from: number;
-      let to: number;
-      let limit = 0;
-      if (segmentMode) {
-        const seg = window.segment!;
-        if (seg >= segmentCount) {
-          return pageError('bad_request', `segment ${seg} out of range (${segmentCount} segments)`);
-        }
-        from = seg;
-        to = seg + 1;
+      from = seg;
+      to = seg + 1;
+    } else {
+      limit = effectiveLimit();
+      if (offset >= totalElements) {
+        from = 0;
+        to = 0; // empty window past the end
       } else {
-        limit = effectiveLimit(totalElements);
-        if (offset >= totalElements) {
-          from = 0;
-          to = 0; // empty window past the end
-        } else {
-          from = 0;
-          while (cumulative[from]! <= offset) from++;
-          const lastRow = Math.min(offset + limit, totalElements) - 1;
-          to = from;
-          while (cumulative[to]! <= lastRow) to++;
-          to++;
-        }
+        from = 0;
+        while (cumulative[from]! <= offset) from++;
+        const lastRow = Math.min(offset + limit, totalElements) - 1;
+        to = from;
+        while (cumulative[to]! <= lastRow) to++;
+        to++;
       }
-
-      const spanStart = to > from ? extents.offsets[from]! : 0;
-      const spanEnd = to > from
-        ? (to < segmentCount ? extents.offsets[to]! : extents.segmentsEnd)
-        : 0;
-      const frames = to > from
-        ? await readRange(repoPath, status.hash, spanStart, spanEnd - spanStart)
-        : new Uint8Array(0);
-      const windowBlob = carveBeast2Ranged(extents, frames, from, to);
-      const pages = openBeast2PagesFor(typeValue)(windowBlob);
-
-      let windowValue: unknown;
-      let pageOffset: number;
-      let pageCount: number;
-      if (segmentMode) {
-        try {
-          windowValue = pages.segment(0);
-        } catch (err) {
-          return pageError('dataset_not_segmented', err instanceof Error ? err.message : String(err));
-        }
-        pageCount = extents.counts[from]!;
-        pageOffset = from === 0 ? 0 : cumulative[from - 1]!;
-      } else {
-        const base = from > 0 ? cumulative[from - 1]! : 0;
-        try {
-          windowValue = pages.slice(to > from ? offset - base : 0, limit);
-        } catch (err) {
-          return pageError('dataset_not_canonical', err instanceof Error ? err.message : String(err));
-        }
-        pageCount = kind === 'Array'
-          ? (windowValue as unknown[]).length
-          : (windowValue as Set<unknown> | Map<unknown, unknown>).size;
-        pageOffset = offset;
-      }
-
-      const body = encodeBeast2For(typeValue)(windowValue);
-      return new Response(body, {
-        status: 200,
-        headers: {
-          ...pageHeaders(totalElements, segmentCount, pageOffset, pageCount),
-          'Content-Length': String(body.byteLength),
-        },
-      });
     }
 
-    // Fallback path (no ranged reads): the whole blob is buffered per
-    // request, so the absolute cap protects the server process itself.
-    if (statSize > readMaxBytes) {
-      return pageError('dataset_too_large',
-        `Dataset is ${Math.round(statSize / 1024 / 1024)} MB — beyond the ${Math.round(readMaxBytes / 1024 / 1024)} MB paging cap. Download it instead.`);
-    }
-
-    const data = await storage.objects.read(repoPath, status.hash);
-    let pages: Beast2Pages | null = null;
-    try {
-      pages = openBeast2PagesFor(typeValue)(data);
-    } catch {
-      pages = null; // No index/footer — every existing whole-value blob.
-    }
+    const windowBlob = await segments.span(from, to);
+    const pages = openBeast2PagesFor(typeValue)(windowBlob);
 
     let windowValue: unknown;
-    let totalElements: number;
     let pageOffset: number;
     let pageCount: number;
-
     if (segmentMode) {
-      if (!pages) {
-        return pageError('dataset_not_segmented', 'Blob carries no segment index — address it with offset/limit instead');
-      }
-      const seg = window.segment!;
-      if (seg >= pages.segmentCount) {
-        return pageError('bad_request', `segment ${seg} out of range (${pages.segmentCount} segments)`);
-      }
       try {
-        windowValue = pages.segment(seg);
+        windowValue = pages.segment(0);
       } catch (err) {
         return pageError('dataset_not_segmented', err instanceof Error ? err.message : String(err));
       }
-      totalElements = pages.elementCount;
-      pageCount = pages.counts[seg]!;
-      pageOffset = 0;
-      for (let i = 0; i < seg; i++) pageOffset += pages.counts[i]!;
-    } else if (pages !== null && pages.selfContained) {
-      // The indexed path, every collection kind: Array windows address
-      // stream order, Set/Dict windows the canonical key order (fences are
-      // verified on first access; a non-canonical blob is corrupt).
-      totalElements = pages.elementCount;
-      const limit = effectiveLimit(totalElements);
+      pageCount = segments.counts[from]!;
+      pageOffset = from === 0 ? 0 : cumulative[from - 1]!;
+    } else {
+      const base = from > 0 ? cumulative[from - 1]! : 0;
       try {
-        windowValue = pages.slice(offset, limit);
+        windowValue = pages.slice(to > from ? offset - base : 0, limit);
       } catch (err) {
         return pageError('dataset_not_canonical', err instanceof Error ? err.message : String(err));
       }
@@ -488,20 +444,13 @@ export async function getDatasetPage(
         ? (windowValue as unknown[]).length
         : (windowValue as Set<unknown> | Map<unknown, unknown>).size;
       pageOffset = offset;
-    } else {
-      // Collection datasets are stored segmented + indexed by every writer
-      // at every size; a blob without a pageable index predates that
-      // contract (or was injected raw) and is refused rather than
-      // whole-decoded — re-writing the dataset produces the indexed form.
-      return pageError('dataset_not_indexed',
-        'Dataset blob carries no pageable segment index — re-write the dataset (re-run the producing task, or set the value again) to store it in the indexed form.');
     }
 
     const body = encodeBeast2For(typeValue)(windowValue);
     return new Response(body, {
       status: 200,
       headers: {
-        ...pageHeaders(totalElements, pages ? pages.segmentCount : 0, pageOffset, pageCount),
+        ...pageHeaders(pageOffset, pageCount),
         'Content-Length': String(body.byteLength),
       },
     });
@@ -636,88 +585,34 @@ export async function findDatasetKey(
     }
     const cmp = compareFor(keyTypeValue);
 
-    const statSize = status.size ?? (await storage.objects.stat(repoPath, status.hash)).size;
-    const notIndexed = (): Response => pageError('dataset_not_indexed',
-      'Dataset blob carries no pageable segment index — re-write the dataset (re-run the producing task, or set the value again) to store it in the indexed form.');
-
-    // Both data paths resolve to the same fence-search surface: the segment
-    // geometry plus a fence probe and a one-segment key iterator.
-    let segmentCount: number;
-    let elementCount: number;
-    let cumulative: readonly number[];
-    let fenceAt: (i: number) => Promise<unknown>;
-    let keysAt: (i: number) => Promise<Iterable<unknown>>;
-
-    const readRange = storage.objects.readRange?.bind(storage.objects);
-    if (readRange) {
-      // Ranged path: extents (and previously probed fences) are cached per
-      // content hash; each probe reads exactly one segment's frame bytes.
-      let cached: CachedRangedExtents;
-      try {
-        cached = await cachedRangedExtents(status.hash, statSize,
-          (offset, length) => readRange(repoPath, status.hash!, offset, length));
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        if (!/^(beast2 v5:|Data too short for Beast2|Invalid Beast2)/.test(message)) {
-          throw err;
-        }
-        return notIndexed();
-      }
-      const { extents } = cached;
-      if (!extents.selfContained) {
-        return notIndexed();
-      }
-      segmentCount = extents.offsets.length;
-      elementCount = extents.elementCount;
-      cumulative = cached.cumulative;
-      const segmentBlob = async (i: number): Promise<Uint8Array> => {
-        const start = extents.offsets[i]!;
-        const end = i + 1 < segmentCount ? extents.offsets[i + 1]! : extents.segmentsEnd;
-        const frames = await readRange(repoPath, status.hash!, start, end - start);
-        return carveBeast2Ranged(extents, frames, i, i + 1);
-      };
-      fenceAt = async (i) => {
-        if (cached.fences.has(i)) return cached.fences.get(i);
-        const fence = openBeast2PagesFor(typeValue)(await segmentBlob(i)).fence(0);
-        cached.fences.set(i, fence);
-        return fence;
-      };
-      keysAt = async (i) => {
-        const segment = openBeast2PagesFor(typeValue)(await segmentBlob(i)).segment(0);
-        return kind === 'Set' ? segment as Set<unknown> : (segment as Map<unknown, unknown>).keys();
-      };
-    } else {
-      // Fallback path (no ranged reads): buffer the blob whole under the
-      // same cap as paging; fences are then bounded in-memory probes.
-      if (statSize > readMaxBytes) {
-        return pageError('dataset_too_large',
-          `Dataset is ${Math.round(statSize / 1024 / 1024)} MB — beyond the ${Math.round(readMaxBytes / 1024 / 1024)} MB paging cap. Download it instead.`);
-      }
-      const data = await storage.objects.read(repoPath, status.hash);
-      let pages: Beast2Pages;
-      try {
-        pages = openBeast2PagesFor(typeValue)(data);
-      } catch {
-        return notIndexed();
-      }
-      if (!pages.selfContained) {
-        return notIndexed();
-      }
-      segmentCount = pages.segmentCount;
-      elementCount = pages.elementCount;
-      const sums: number[] = new Array(pages.counts.length);
-      let running = 0;
-      for (let i = 0; i < pages.counts.length; i++) {
-        running += pages.counts[i]!;
-        sums[i] = running;
-      }
-      cumulative = sums;
-      fenceAt = (i) => Promise.resolve(pages.fence(i));
-      keysAt = (i) => {
-        const segment = pages.segment(i);
-        return Promise.resolve(kind === 'Set' ? segment as Set<unknown> : (segment as Map<unknown, unknown>).keys());
-      };
+    const objectSize = status.size ?? (await storage.objects.stat(repoPath, status.hash)).size;
+    if (!storage.objects.readRange && objectSize > readMaxBytes && await readManifest(storage, repoPath, status.hash, objectSize) === null) {
+      return pageError('dataset_too_large',
+        `Dataset is ${Math.round(objectSize / 1024 / 1024)} MB — beyond the ${Math.round(readMaxBytes / 1024 / 1024)} MB paging cap. Download it instead.`);
     }
+
+    let segments: DatasetSegments;
+    try {
+      segments = await cachedSegments(storage, repoPath, status.hash, objectSize);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (!/^(beast2 v5:|collection manifest:|Data too short for Beast2|Invalid Beast2)/.test(message)) {
+        throw err;
+      }
+      return pageError('dataset_not_indexed', NOT_INDEXED_MESSAGE);
+    }
+
+    // The fence-search surface: the segment geometry, a fence probe, and a
+    // one-segment key iterator. A manifest answers every fence from its own
+    // entries, so a bisect over one reads no frames at all.
+    const segmentCount = segments.segmentCount;
+    const elementCount = segments.elementCount;
+    const cumulative = segments.cumulative;
+    const fenceAt = (i: number): Promise<unknown> => segments.fence(i);
+    const keysAt = async (i: number): Promise<Iterable<unknown>> => {
+      const segment = openBeast2PagesFor(typeValue)(await segments.segment(i)).segment(0);
+      return kind === 'Set' ? segment as Set<unknown> : (segment as Map<unknown, unknown>).keys();
+    };
 
     // First row whose key satisfies a monotone predicate (false… then
     // true… over the canonical key order), plus that row's key. Fences
@@ -909,7 +804,12 @@ export async function getDatasetStatus(
       type: typeValue,
       refType: result.refType,
       hash: result.hash ? some(result.hash) : none,
-      size: result.size !== null ? some(BigInt(result.size)) : none,
+      // What the dataset costs in the store. For a collection held as a
+      // segment manifest that is the segments plus the manifest; the manifest
+      // object alone is a few dozen bytes per segment whatever the value
+      // weighs, and reporting that would say a 10 MiB dataset is 12 KiB.
+      size: result.storedBytes != null ? some(BigInt(result.storedBytes))
+        : result.size !== null ? some(BigInt(result.size)) : none,
       segments: result.segments != null ? some(BigInt(result.segments)) : none,
       rows: result.rows != null ? some(BigInt(result.rows)) : none,
     };

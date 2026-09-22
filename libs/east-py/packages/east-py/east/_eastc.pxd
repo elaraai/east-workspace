@@ -438,6 +438,16 @@ cdef extern from "east/serialization.h":
     bint east_beast2_writer_finish(Beast2StreamWriter *w)
     void east_beast2_writer_free(Beast2StreamWriter *w)
     void east_beast2_writer_set_parallel(Beast2StreamWriter *w, bint parallel)
+
+    # The content-defined segment boundary (beast2/v5/boundary.c): where a Set
+    # or Dict's segments begin. Bound here rather than reimplemented, so this
+    # runtime, east-c and TypeScript cut one value at the same keys — the
+    # property the segment-object layout rests on.
+    uint64_t east_beast2_fnv1a64(const uint8_t *bytes, size_t length)
+    bint east_beast2_segment_boundary_key(const uint8_t *bytes, size_t length)
+    ByteBuffer *east_beast2_encode_fence(EastValue *value, EastType *type)
+    size_t east_beast2_segment_starts(EastValue *collection, EastType *type, size_t *out,
+                                      size_t out_cap)
     void east_beast2_writer_emitted_bounds(Beast2StreamWriter *w, size_t *lo, size_t *hi)
     bint east_beast2_writer_settle(Beast2StreamWriter *w)
 

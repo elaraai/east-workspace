@@ -216,7 +216,25 @@ export {
 export {
   isCollectionRoot,
   encodeDatasetBlob,
+  cutDatasetBlob,
+  type SegmentSink,
 } from './dataset-blob.js';
+
+// The segment-object layout: a collection dataset is a manifest naming
+// standalone segment objects, and the manifest is what the ref points at
+export {
+  COLLECTION_MANIFEST_KIND,
+  CollectionManifestType,
+  CollectionManifestEntryType,
+  type CollectionManifest,
+  type CollectionManifestEntry,
+  isCollectionManifestType,
+  isCollectionManifest,
+  encodeCollectionManifest,
+  decodeCollectionManifest,
+  manifestElementCount,
+  manifestByteSize,
+} from './collection-manifest.js';
 
 // The ONE declared-type-vs-wire-type check, shared by every door a value
 // enters a dataset through (the export, the set, the adopt, the API)

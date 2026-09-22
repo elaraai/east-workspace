@@ -132,9 +132,9 @@ static EvalResult emit_invoke(EastCompiledFn *self, EastValue **args, size_t n_a
         if (s->last_key) east_value_release(s->last_key);
         s->last_key = key;
     }
-    /* The flush rule: a full batch goes out only now that an element which
+    /* The flush rule: the open batch goes out only now that an element which
      * will not fold into it has arrived. */
-    if (s->batch_count >= s->out.next_batch && !emit_flush(s)) {
+    if (emit_writer_starts_segment(&s->out, args[0], s->batch_count) && !emit_flush(s)) {
         return eval_error("emit: failed to write output segment");
     }
     switch (s->kind) {

@@ -164,6 +164,10 @@ ByteBuffer *east_beast2_encode_v5(EastValue *value, EastType *type, int32_t code
 // output (0 = the 2 MiB default), seeded by a small probe and refined per
 // flush — so wide rows still yield right-sized segments. Deterministic per
 // value. Returns NULL on failure (message via east_builtin_get_error).
+// Segments a Set or Dict by the pinned content-defined boundary rule, and an
+// Array by the byte-adaptive batching, when `target_segment_bytes` is 0 (the
+// default every writer uses). A non-zero target asks for a geometry of the
+// caller's own and takes the byte-adaptive path for every root.
 ByteBuffer *east_beast2_encode_paged(EastValue *value, EastType *type, int32_t codec_id,
                                      size_t target_segment_bytes);
 
@@ -175,6 +179,40 @@ ByteBuffer *east_beast2_encode_paged(EastValue *value, EastType *type, int32_t c
 // the blob merge), so one value segments the same way wherever it is written
 // (issue #770).
 size_t east_beast2_paged_next_batch(size_t target, size_t body, size_t written);
+
+// The content-defined segment boundary's pinned bounds, in elements (pairs
+// for a Dict). Bounds are counts and never bytes: the only byte count a writer
+// knows as it cuts is the compressed one, and deflate output is not
+// byte-identical across zlib builds, so a byte bound could not be part of a
+// rule three runtimes must agree on.
+#define EAST_BEAST2_SEGMENT_MIN_COUNT 256
+#define EAST_BEAST2_SEGMENT_TARGET_COUNT 1024
+#define EAST_BEAST2_SEGMENT_MAX_COUNT 4096
+
+// The 64-bit FNV-1a hash of `bytes` — the key hash the content-defined
+// segment boundary rule is built on, pinned identically in every runtime.
+uint64_t east_beast2_fnv1a64(const uint8_t *bytes, size_t len);
+
+// The canonical bare encoding of one value: its v5 value bytes with no
+// container, header or index around them, encoded against a fresh context so
+// no container REF can fire and the bytes depend on the value alone. This is
+// what a segment fence holds and what the boundary rule hashes. Returns NULL
+// with the message posted; the caller frees the buffer.
+ByteBuffer *east_beast2_encode_fence(EastValue *value, EastType *type);
+
+// The element indices at which a Set or Dict's segments begin under the
+// content rule, excluding 0, in ascending order — the whole segmentation of
+// one value in one call, so a caller need not reach into the rule per element.
+// Writes at most `out_cap` of them and returns how many there are; a caller
+// sizing `out` at `count / EAST_BEAST2_SEGMENT_MIN_COUNT + 1` can never be
+// short. Returns SIZE_MAX with the message posted on a non-keyed root, or when
+// `out` was given and too small.
+size_t east_beast2_segment_starts(EastValue *collection, EastType *type, size_t *out,
+                                  size_t out_cap);
+
+// Whether a key's canonical bare encoding starts a content-defined segment,
+// ignoring the count bounds: the rule's hash test alone.
+bool east_beast2_segment_boundary_key(const uint8_t *bytes, size_t len);
 
 // Streaming v5 writer: each write() encodes one batch (a value of the declared
 // Array/Set/Dict type) as one root segment, so writer memory is O(batch).

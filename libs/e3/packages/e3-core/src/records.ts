@@ -22,6 +22,7 @@ import {
   decodePackageObject,
   type RecordCommit,
 } from '@elaraai/e3-types';
+import { adoptDatasetBlob, readDatasetWhole } from './dataset-open.js';
 import { workspaceGetPackage } from './workspaces.js';
 import { refPathToKeypath } from './dataset-refs.js';
 import { DatasetRefConflictError, WorkspaceLockError } from './errors.js';
@@ -249,7 +250,10 @@ export async function recordMutate(
       const runLimits = hardDeadline !== undefined
         ? { ...limits, timeoutMs: Math.max(1, Math.min(limits.timeoutMs, hardDeadline - Date.now())) }
         : limits;
-      const stateBytes = await storage.objects.read(repo, existing.ref.value.hash);
+      // The reducer takes a value, not a layout: a state held as a segment
+      // manifest is spliced back into one blob for it, exactly as a task
+      // input is staged.
+      const stateBytes = await readDatasetWhole(storage, repo, existing.ref.value.hash);
       const result = await runner.runDetached(
         { bodyIr, args: [stateBytes, ...args], runner: mutObj.runner, limits: runLimits },
         { signal: opts.signal, verbose: opts.verbose },
@@ -258,7 +262,7 @@ export async function recordMutate(
 
       // Objects written before the conditional ref swing are invisible until the
       // ref references them; a conflict simply orphans them for GC.
-      const newStateHash = await storage.objects.write(repo, result.value);
+      const newStateHash = await adoptDatasetBlob(storage, repo, result.value);
       const argsHash = args.length > 0
         ? await storage.objects.write(repo, encodeArgsTuple(args))
         : undefined;

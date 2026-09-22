@@ -5,13 +5,15 @@
  * Two things must hold, and this gate holds the writer to both:
  *
  *   - BYTES. A pooled encode is byte-identical to a serial one — the index,
- *     every frame, and above all the SEGMENTATION, which the paged encoder
- *     refines from the bytes emitted so far. A pooled writer only knows those
- *     bytes within bounds while frames are in flight; it decides at both
+ *     every frame, and above all the SEGMENTATION. For an ARRAY root that is
+ *     refined from the bytes emitted so far, and a pooled writer only knows
+ *     those bytes within bounds while frames are in flight; it decides at both
  *     bounds and waits when they disagree. The oracle below is the serial
  *     algorithm, re-run through a writer that never pools, at byte targets
  *     that pin the element cap AND at targets small enough that the
- *     refinement is live on every batch.
+ *     refinement is live on every batch. For a keyed root the boundaries come
+ *     from the keys, so the oracle runs the content rule instead and the byte
+ *     target changes nothing — which is itself asserted.
  *   - MEMORY. At most two frames per worker are ever in flight — the ring
  *     bound that keeps a writer's resident size O(threads x segment).
  *
@@ -126,13 +128,53 @@ static size_t oracle_next(size_t target, size_t body, size_t written)
     return nb < 1 ? 1 : nb > ORACLE_BATCH_CAP ? (size_t)ORACLE_BATCH_CAP : nb;
 }
 
-/* The serial paged encode, exactly as east_beast2_encode_paged ran before
- * #763: a probe, then batches refined from the bytes actually emitted. The
- * writer here never pools, so take() after each write is the exact total. */
+static EastType *b2v5_oracle_key_type(EastType *type);
+static ByteBuffer *oracle_encode_keyed(EastValue *value, EastType *type, size_t n);
+
+/* Whether element `k` of a keyed collection starts a new segment under the
+ * content rule — the oracle's own copy of it, built from the public fence
+ * encoder and hash so a drift in the library's cutter shows up here. */
+static bool oracle_starts_segment(EastValue *value, EastType *type, size_t k, size_t *open_count)
+{
+    if (*open_count >= EAST_BEAST2_SEGMENT_MAX_COUNT) {
+        *open_count = 1;
+        return true;
+    }
+    if (*open_count < EAST_BEAST2_SEGMENT_MIN_COUNT) {
+        (*open_count)++;
+        return false;
+    }
+    EastValue *key =
+        type->kind == EAST_TYPE_SET ? east_set_at(value, k) : east_dict_key_at(value, k);
+    ByteBuffer *fence = east_beast2_encode_fence(key, b2v5_oracle_key_type(type));
+    bool boundary = fence && east_beast2_segment_boundary_key(fence->data, fence->len);
+    if (fence) byte_buffer_free(fence);
+    if (!boundary) {
+        (*open_count)++;
+        return false;
+    }
+    *open_count = 1;
+    return true;
+}
+
+/* The key (Dict) or element (Set) type, for the oracle's fence encode. */
+static EastType *b2v5_oracle_key_type(EastType *type)
+{
+    return type->kind == EAST_TYPE_SET ? type->data.element : type->data.dict.key;
+}
+
+/* The serial paged encode. A keyed root follows the content rule; an Array
+ * follows the pre-#763 byte-adaptive algorithm — a probe, then batches refined
+ * from the bytes actually emitted. The writer here never pools, so take()
+ * after each write is the exact total. */
 static ByteBuffer *oracle_encode(EastValue *value, EastType *type, size_t target)
 {
+    bool keyed = type->kind != EAST_TYPE_ARRAY;
     size_t n = type->kind == EAST_TYPE_ARRAY ? value->data.array.len : value->data.dict.len;
     size_t next = ORACLE_BATCH_CAP;
+    /* Mirrors the encoder's own dispatch: the content rule when no byte
+     * target is named, the byte-adaptive path when one is. */
+    if (keyed && target == 0) return oracle_encode_keyed(value, type, n);
     size_t probe_n = n < ORACLE_PROBE ? n : ORACLE_PROBE;
     if (probe_n > 0) {
         Beast2StreamWriter *scratch =
@@ -184,6 +226,48 @@ static ByteBuffer *oracle_encode(EastValue *value, EastType *type, size_t target
     return out;
 }
 
+/* The serial content-rule encode of a keyed collection. */
+static ByteBuffer *oracle_encode_keyed(EastValue *value, EastType *type, size_t n)
+{
+    Beast2StreamWriter *w = east_beast2_writer_new(type, EAST_BEAST2_CODEC_DEFLATE, true, true);
+    ByteBuffer *out = byte_buffer_new(1 << 16);
+    ByteBuffer *head = east_beast2_writer_take(w);
+    byte_buffer_write_bytes(out, head->data, head->len);
+    byte_buffer_free(head);
+    size_t open_count = 0;
+    size_t start = 0;
+    for (size_t k = 0; k < n; k++) {
+        if (!oracle_starts_segment(value, type, k, &open_count)) continue;
+        EastValue *batch = slice_batch(value, type, start, k);
+        east_beast2_writer_write(w, batch);
+        east_value_release(batch);
+        ByteBuffer *chunk = east_beast2_writer_take(w);
+        if (chunk) {
+            byte_buffer_write_bytes(out, chunk->data, chunk->len);
+            byte_buffer_free(chunk);
+        }
+        start = k;
+    }
+    if (start < n) {
+        EastValue *batch = slice_batch(value, type, start, n);
+        east_beast2_writer_write(w, batch);
+        east_value_release(batch);
+        ByteBuffer *chunk = east_beast2_writer_take(w);
+        if (chunk) {
+            byte_buffer_write_bytes(out, chunk->data, chunk->len);
+            byte_buffer_free(chunk);
+        }
+    }
+    east_beast2_writer_finish(w);
+    ByteBuffer *tail = east_beast2_writer_take(w);
+    if (tail) {
+        byte_buffer_write_bytes(out, tail->data, tail->len);
+        byte_buffer_free(tail);
+    }
+    east_beast2_writer_free(w);
+    return out;
+}
+
 static void check_identical(const char *name, EastValue *value, EastType *type, size_t target)
 {
     ByteBuffer *pooled = east_beast2_encode_paged(value, type, EAST_BEAST2_CODEC_DEFLATE, target);
@@ -223,6 +307,10 @@ static void test_paged_bytes_identical(void)
 
     EastType *dt = east_dict_type(&east_integer_type, &east_string_type);
     EastValue *dict = make_dict(20000, 0xd1c7);
+    /* Target 0 is the production default and takes the content rule, whose
+     * boundaries cannot move with thread timing at all; the rest ask for a
+     * byte geometry and exercise the refinement on a keyed root too. */
+    check_identical("Dict<Integer, String>", dict, dt, 0);
     for (size_t t = 0; t < sizeof targets / sizeof targets[0]; t++)
         check_identical("Dict<Integer, String>", dict, dt, targets[t]);
     east_value_release(dict);

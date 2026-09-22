@@ -11,11 +11,12 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
 import { existsSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
-import { East, IntegerType, StringType, StructType, decodeBeast2For, encodeBeast2For, fromEastTypeValue, variant, some, none, toEastTypeValue } from '@elaraai/east';
+import { East, DictType, IntegerType, StringType, StructType, SEGMENT_RULE_KEYED, decodeBeast2For, encodeBeast2For, fromEastTypeValue, variant, some, none, toEastTypeValue } from '@elaraai/east';
 import e3 from '@elaraai/e3';
-import { WorkspaceStateType, PackageObjectType, TaskObjectType, FunctionObjectType, DataRefType, DatasetRefType, RecordCommitType, MutationObjectType, EnvironmentSpecType, PartitionPlanType, encodePartitionPlan } from '@elaraai/e3-types';
+import { WorkspaceStateType, PackageObjectType, TaskObjectType, FunctionObjectType, DataRefType, DatasetRefType, RecordCommitType, MutationObjectType, EnvironmentSpecType, PartitionPlanType, COLLECTION_MANIFEST_KIND, encodeCollectionManifest, decodeCollectionManifest, encodePartitionPlan } from '@elaraai/e3-types';
 import type { WorkspaceState, PackageObject, TaskObject } from '@elaraai/e3-types';
 import { repoGc, collectAllRoots, markReachable, sweepBatch } from './storage/local/gc.js';
+import { readDatasetWhole } from './dataset-open.js';
 import { transferStagingPath } from './storage/local/localHelpers.js';
 import { objectWrite, objectRead } from './storage/local/LocalObjectStore.js';
 import { packageImport, packageRemove, packageRead } from './packages.js';
@@ -1083,6 +1084,98 @@ describe('gc', () => {
 
       const reachable = await markReachable(trace(objects), new Set([root]));
       assert.ok(reachable.has(BODY), 'a real mutation must keep its bodyIr reachable');
+    });
+  });
+
+  describe('the collection manifest recognizer', () => {
+    const trace = (objects: Map<string, Uint8Array>) =>
+      async (h: string): Promise<Uint8Array | null> => objects.get(h) ?? null;
+    const HEADER = 'f'.repeat(64);
+
+    /** A manifest naming `n` segment objects — the shape a collection dataset
+     *  ref points at. */
+    const manifestOf = (level: bigint, n: number): Uint8Array =>
+      encodeCollectionManifest({
+        kind: COLLECTION_MANIFEST_KIND,
+        level,
+        type: toEastTypeValue(DictType(StringType, IntegerType)),
+        rule: SEGMENT_RULE_KEYED,
+        header: HEADER,
+        entries: Array.from({ length: n }, (_, i) => ({
+          hash: String(i).repeat(64).slice(0, 64),
+          fence: new Uint8Array([i]),
+          count: 1000n,
+          bytes: 50_000n,
+        })),
+      });
+
+    it('keeps every segment and the header reachable from a manifest', async () => {
+      const root = 'manifest'.padEnd(64, '0');
+      const objects = new Map([[root, manifestOf(0n, 3)]]);
+
+      const reachable = await markReachable(trace(objects), new Set([root]));
+      assert.ok(reachable.has(root));
+      assert.ok(reachable.has(HEADER), 'the header bytes every segment is written under must survive');
+      for (let i = 0; i < 3; i++) {
+        assert.ok(reachable.has(String(i).repeat(64).slice(0, 64)), `segment ${i} must survive`);
+      }
+    });
+
+    it('walks a level-1 manifest\'s children rather than marking them', async () => {
+      // Above level 0 an entry is a child manifest, which names objects of
+      // its own: marking it without reading would sweep the segments below.
+      const root = 'level-one'.padEnd(64, '0');
+      const child = '0'.repeat(64);
+      const objects = new Map([[root, manifestOf(1n, 1)], [child, manifestOf(0n, 2)]]);
+
+      const reachable = await markReachable(trace(objects), new Set([root]));
+      assert.ok(reachable.has(child));
+      assert.ok(reachable.has('1'.repeat(64)), 'a grandchild segment must survive');
+    });
+
+    it('treats a same-shaped struct with another kind as a leaf', async () => {
+      const root = 'not-a-manifest'.padEnd(64, '0');
+      const objects = new Map([[root, encodeCollectionManifest({
+        kind: '$something-else',
+        level: 0n,
+        type: toEastTypeValue(DictType(StringType, IntegerType)),
+        rule: SEGMENT_RULE_KEYED,
+        header: HEADER,
+        entries: [{ hash: '0'.repeat(64), fence: new Uint8Array(), count: 1n, bytes: 1n }],
+      })]]);
+
+      const reachable = await markReachable(trace(objects), new Set([root]));
+      assert.ok(reachable.has(root));
+      assert.ok(!reachable.has(HEADER), 'an object carrying another kind must not be traversed as segments');
+    });
+
+    it('survives a real gc: a collection dataset keeps every segment it names', async () => {
+      const type = DictType(StringType, IntegerType);
+      const rows = new Map<string, bigint>();
+      for (let i = 0; i < 20_000; i++) rows.set(`k${String(i).padStart(7, '0')}`, BigInt(i));
+
+      const pkg = e3.package('gc-manifest', '1.0.0',
+        e3.input('rows', type, variant('value', rows)));
+      const zipPath = join(tempDir, 'gc-manifest.zip');
+      await e3.export(pkg, zipPath);
+      await packageImport(storage, testRepoPath, zipPath);
+
+      const pkgObject = await packageRead(storage, testRepoPath, 'gc-manifest', '1.0.0');
+      const ref = pkgObject.data.refs.get('inputs/rows');
+      assert.ok(ref && ref.type === 'value');
+      const hash = ref.type === 'value' ? ref.value.hash : '';
+      const manifest = decodeCollectionManifest(await storage.objects.read(testRepoPath, hash));
+      assert.ok(manifest.entries.length > 1, 'a 20k-row dict must hold more than one segment');
+
+      const result = await repoGc(storage, testRepoPath, { minAge: 0 });
+      assert.strictEqual(result.deletedObjects, 0);
+
+      // Every object the manifest names must still be readable, and the value
+      // must still decode — a sweep that took a segment would show up here.
+      await storage.objects.read(testRepoPath, manifest.header);
+      for (const entry of manifest.entries) await storage.objects.read(testRepoPath, entry.hash);
+      const whole = decodeBeast2For(type)(await readDatasetWhole(storage, testRepoPath, hash)) as Map<string, bigint>;
+      assert.strictEqual(whole.size, 20_000);
     });
   });
 });

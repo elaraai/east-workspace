@@ -120,6 +120,15 @@ export {
   type TreeObject,
 } from './trees.js';
 
+// The opener door: how every reader reaches a stored collection dataset,
+// whether it is a segment manifest or a bare segmented blob
+export {
+  DatasetSegments,
+  readManifest,
+  readDatasetWhole,
+  cutDatasetIntoStore,
+} from './dataset-open.js';
+
 // Taking an existing file into a workspace as a dataset value (#765)
 export {
   datasetAdoptFile,

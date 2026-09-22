@@ -31,7 +31,8 @@ import {
   type EastType,
   type EastTypeValue,
 } from '@elaraai/east';
-import { DataRefType, WorkspaceStateType, checkDatasetType, datasetAddress, decodePackageObject, encodeDatasetBlob, isCollectionRoot, type DataRef, type DatasetRef, type Structure, type TreePath, type VersionVector } from '@elaraai/e3-types';
+import { DataRefType, WorkspaceStateType, checkDatasetType, datasetAddress, decodePackageObject, encodeDatasetBlob, isCollectionRoot, manifestByteSize, manifestElementCount, type DataRef, type DatasetRef, type Structure, type TreePath, type VersionVector } from '@elaraai/e3-types';
+import { readDatasetWhole, readManifest } from './dataset-open.js';
 import { packageRead } from './packages.js';
 import {
   WorkspaceNotFoundError,
@@ -126,7 +127,9 @@ export async function treeWrite(
  * Read and decode a dataset value from the object store.
  *
  * The .beast2 format includes type information in the header, so values
- * can be decoded without knowing the schema in advance.
+ * can be decoded without knowing the schema in advance. A collection stored
+ * as a segment manifest is spliced back into one blob first, so the decoded
+ * value is the same whichever layout it was written in.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
@@ -139,7 +142,7 @@ export async function datasetRead(
   repo: string,
   hash: string
 ): Promise<{ type: EastType; value: unknown }> {
-  const data = await storage.objects.read(repo, hash);
+  const data = await readDatasetWhole(storage, repo, hash);
   const result = decodeBeast2(Buffer.from(data));
   return { type: result.type as EastType, value: result.value };
 }
@@ -154,17 +157,17 @@ export { isCollectionRoot };
 /**
  * Encode and write a dataset value to the object store.
  *
- * Collection-rooted values are ALWAYS stored segmented with a trailing index
- * (byte-adaptive segments via `encodeBeast2PagedFor`), at every size — one
- * uniform encoding per logical value, and the paged read API decodes only
- * the segments a window touches. Non-collection roots keep the whole-value
- * encode.
+ * Collection-rooted values go in as segment objects under a content-defined
+ * boundary rule plus a manifest naming them, at every size — so the paged read
+ * API decodes only the segments a window touches, and a write that changes one
+ * row stores one new segment while the rest deduplicate by hash against what is
+ * already there. Non-collection roots keep the whole-value encode.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
  * @param value - The value to encode
  * @param type - The East type for encoding (EastType or EastTypeValue)
- * @returns Hash of the written dataset value
+ * @returns Hash of the written dataset object — the manifest, for a collection
  */
 export async function datasetWrite(
   storage: StorageBackend,
@@ -172,7 +175,8 @@ export async function datasetWrite(
   value: unknown,
   type: EastType | EastTypeValue
 ): Promise<string> {
-  return storage.objects.write(repo, encodeDatasetBlob(type, value));
+  const data = await encodeDatasetBlob(type, value, (bytes) => storage.objects.write(repo, bytes));
+  return storage.objects.write(repo, data);
 }
 
 // =============================================================================
@@ -601,6 +605,12 @@ export interface DatasetStatusResult {
   /** Element count (pairs for a Dict) of a stored collection, from the same
    *  index — so a re-pointed input is inspectable without decoding it. */
   rows?: number | null;
+  /** Bytes the VALUE occupies in the store. For a collection held as a
+   *  segment manifest that is the segments plus the manifest, which `size` —
+   *  the dataset object's own bytes — is not: a manifest is a few dozen bytes
+   *  per segment whatever the value weighs. `null` when the geometry was not
+   *  asked for or could not be read. */
+  storedBytes?: number | null;
 }
 
 /** Options for {@link workspaceGetDatasetStatus}. */
@@ -649,25 +659,27 @@ export async function workspaceGetDatasetStatus(
   const ref = await storage.datasets.read(repo, ws, leaf.refPath);
 
   if (!ref || ref.type === 'unassigned') {
-    return { refType: 'unassigned', hash: null, datasetType, size: null, segments: null, rows: null };
+    return { refType: 'unassigned', hash: null, datasetType, size: null, segments: null, rows: null, storedBytes: null };
   }
 
   if (ref.type === 'null') {
-    return { refType: 'null', hash: null, datasetType, size: 0, segments: null, rows: null };
+    return { refType: 'null', hash: null, datasetType, size: 0, segments: null, rows: null, storedBytes: null };
   }
+
 
   // value ref - get size from object store
   const { size } = await storage.objects.stat(repo, ref.value.hash);
   const geometry = options.geometry
     ? await datasetGeometry(storage, repo, ref.value.hash, datasetType, size)
-    : { segments: null, rows: null };
+    : { segments: null, rows: null, storedBytes: null };
   return { refType: 'value', hash: ref.value.hash, datasetType, size, ...geometry };
 }
 
 /**
- * Segment and element counts of a stored collection, from its trailing index.
+ * Segment and element counts of a stored collection.
  *
- * Two ranged reads (the tail, then the head); never the blob. A backend
+ * One small object read for a manifest, which carries both; two ranged reads
+ * (the tail, then the head) for a bare blob — never the value. A backend
  * without {@link ObjectStore.readRange}, a non-collection root, or a blob
  * whose index cannot be read reports `null` rather than failing a status
  * call — the geometry is a convenience on top of the hash and the size.
@@ -678,17 +690,26 @@ async function datasetGeometry(
   hash: string,
   datasetType: EastTypeValue,
   size: number
-): Promise<{ segments: number | null; rows: number | null }> {
-  const readRange = storage.objects.readRange;
-  if (!readRange || !isCollectionRoot(datasetType)) return { segments: null, rows: null };
+): Promise<{ segments: number | null; rows: number | null; storedBytes: number | null }> {
+  if (!isCollectionRoot(datasetType)) return { segments: null, rows: null, storedBytes: null };
   try {
+    const manifest = await readManifest(storage, repo, hash, size);
+    if (manifest !== null) {
+      return {
+        segments: manifest.entries.length,
+        rows: manifestElementCount(manifest),
+        storedBytes: manifestByteSize(manifest) + size,
+      };
+    }
+    const readRange = storage.objects.readRange;
+    if (!readRange) return { segments: null, rows: null, storedBytes: null };
     const extents = await readBeast2ExtentsRanged({
       size,
       read: (offset, length) => readRange.call(storage.objects, repo, hash, offset, length),
     });
-    return { segments: extents.offsets.length, rows: extents.elementCount };
+    return { segments: extents.offsets.length, rows: extents.elementCount, storedBytes: size };
   } catch {
-    return { segments: null, rows: null };
+    return { segments: null, rows: null, storedBytes: null };
   }
 }
 

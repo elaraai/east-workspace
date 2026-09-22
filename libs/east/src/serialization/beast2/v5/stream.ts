@@ -49,6 +49,7 @@ import {
   type Beast2Index,
 } from "./codec.js";
 import { type Beast2SyncRangeReader, TAG_OR_TERMINATOR_FRAME, bytesReader, isBeast2SyncRangeReader, readExact, readU64LE, readBeast2ExtentsSync } from "./range.js";
+import { SegmentCutter, segmentKeyTypeOf } from "./boundary.js";
 
 /** The collection kinds a v5 stream can hold at the root. */
 type SegmentedKind = "Array" | "Set" | "Dict";
@@ -477,20 +478,53 @@ export const BEAST2_PAGED_TARGET_BYTES_DEFAULT = 2 * 1024 * 1024;
 export const BEAST2_PAGED_PROBE_BATCH = 16;
 const PAGED_PROBE_BATCH = BEAST2_PAGED_PROBE_BATCH;
 
+/** How {@link encodeBeast2PagedFor} decides where a segment ends. */
+export type Beast2SegmentBoundary =
+  /** Content-defined: the pinned key-hash rule of {@link SegmentCutter}, so
+   *  segmentation is a pure function of the value and all three runtimes cut
+   *  the same value at the same keys. Set/Dict roots only. */
+  | "content"
+  /** Byte-adaptive: an element cap refined toward a wire-byte target from the
+   *  bytes actually emitted. Deterministic for one writer; not across them. */
+  | "positional";
+
 /** Options accepted by {@link encodeBeast2PagedFor}. */
 export type Beast2PagedEncodeOptions = {
   /** Element (pair for Dict roots) cap per segment. Defaults to
-   *  {@link BEAST2_PAGED_BATCH_DEFAULT}. */
+   *  {@link BEAST2_PAGED_BATCH_DEFAULT}. Positional boundaries only; setting
+   *  it selects them for a Set/Dict root that would otherwise be cut by the
+   *  content rule. */
   batchSize?: number;
   /** Wire-byte target per segment — batches shrink below `batchSize` when
    *  measured element size would exceed it. Defaults to
-   *  {@link BEAST2_PAGED_TARGET_BYTES_DEFAULT}. */
+   *  {@link BEAST2_PAGED_TARGET_BYTES_DEFAULT}. Positional boundaries only,
+   *  and selects them exactly as `batchSize` does. */
   targetSegmentBytes?: number;
+  /** Where segments end. Defaults to `"content"` for Set/Dict roots — unless
+   *  `batchSize` or `targetSegmentBytes` names a positional geometry — and is
+   *  always `"positional"` for Array roots, which carry no key to hash. */
+  boundary?: Beast2SegmentBoundary;
   /** Per-frame codec. Defaults to `"deflate"`. */
   codec?: Beast2Codec;
   /** Source map for function values in the stream, written to the header. */
   sourceMap?: SourceMap | null;
 };
+
+/**
+ * Whether a paged encode of `typeValue` under `options` cuts its segments by
+ * the content-defined rule — the one segmentation that is a pure function of
+ * the value, and so the one a segment manifest can stamp its keyed rule id
+ * on.
+ *
+ * @param typeValue - the root collection type
+ * @param options - the paged-encode options
+ * @returns whether the content rule applies
+ */
+export function usesContentBoundary(typeValue: EastTypeValue, options?: Beast2PagedEncodeOptions): boolean {
+  if (typeValue.type === "Array") return false;
+  if (options?.boundary !== undefined) return options.boundary === "content";
+  return options?.batchSize === undefined && options?.targetSegmentBytes === undefined;
+}
 
 /**
  * Builds a curried paged encoder: `encode(value)` writes one whole collection
@@ -521,6 +555,9 @@ export function encodeBeast2PagedFor<T extends EastType>(type: T | EastTypeValue
     ...(options?.sourceMap !== undefined && { sourceMap: options.sourceMap }),
   };
 
+  const contentBoundary = usesContentBoundary(typeValue, options);
+  const keyType = contentBoundary ? segmentKeyTypeOf(typeValue) : null;
+
   return (value) => {
     const makeBatch: (items: unknown[]) => ValueTypeOf<EastType> =
       kind === "Array" ? (items) => items as ValueTypeOf<EastType>
@@ -538,6 +575,34 @@ export function encodeBeast2PagedFor<T extends EastType>(type: T | EastTypeValue
             ? (value as Iterable<unknown>)
             : [...(value as Set<unknown>)].sort(cmp!))
         : (value as Iterable<unknown>);
+
+    if (keyType !== null) {
+      // Content-defined batching: whether a segment ends depends only on the
+      // keys since the last boundary, so there is no probe, no byte
+      // measurement and no refinement — and a runner's encode of this value
+      // lands on the same segments as this one.
+      const chunks: Uint8Array[] = [];
+      let total = 0;
+      const writer = new Beast2Writer(typeValue, (b) => { chunks.push(b); total += b.length; }, { ...writerOptions, parallel: true });
+      const cutter = new SegmentCutter(keyType);
+      let batch: unknown[] = [];
+      for (const item of iterable) {
+        if (cutter.startsSegment(kind === "Dict" ? (item as [unknown, unknown])[0] : item)) {
+          writer.write(makeBatch(batch) as never);
+          batch = [];
+        }
+        batch.push(item);
+      }
+      if (batch.length > 0) writer.write(makeBatch(batch) as never);
+      writer.finish();
+      const out = new Uint8Array(total);
+      let pos = 0;
+      for (const c of chunks) {
+        out.set(c, pos);
+        pos += c.length;
+      }
+      return out;
+    }
 
     // Byte-adaptive batching: a throwaway scratch encode of the first few
     // elements measures the average wire size, and batches then target
