@@ -282,9 +282,10 @@ export function pagedSeekKey(
 /**
  * The decoded East {@link SeekQueryType} value as e3's wire query.
  *
- * The two are deliberately the same three shapes, so this is a re-tagging
- * rather than a translation: `.east` literals stay text, and the East option on
- * the `fields` arm becomes an absent property (`exactOptionalPropertyTypes`).
+ * The two are deliberately the same shapes, so this is a re-tagging rather
+ * than a translation: `.east` literals stay text, and the East option on the
+ * `fields` arm, like an open end of a `range`, becomes an absent property
+ * (`exactOptionalPropertyTypes`).
  */
 export function toFindQuery(query: unknown, selector: PagedSelector = NO_INDEX): DatasetFindQuery {
     const q = query as { type: string; value: unknown };
@@ -293,13 +294,16 @@ export function toFindQuery(query: unknown, selector: PagedSelector = NO_INDEX):
     if (q.type === "prefix") return { prefix: q.value as string, ...scope };
     if (q.type === "range") {
         // A half-open bound on a leading prefix of the FLATTENED key — an
-        // empty side is an open end, which the wire says by omitting it.
+        // empty side is an open end, which the wire says by omitting it. Open
+        // at both ends it names no run, and a server refuses it with an error
+        // the retry gate would keep re-asking, so it is refused here instead.
         const r = q.value as { from: string[]; to: string[] };
-        return {
-            ...(r.from.length > 0 && { from: [...r.from] }),
-            ...(r.to.length > 0 && { to: [...r.to] }),
-            ...scope,
-        };
+        const from = [...r.from];
+        const to = [...r.to];
+        if (from.length === 0 && to.length === 0) {
+            throw new Error("Data.bindPaged: a range seek names no end — give it a `from`, a `to`, or both");
+        }
+        return from.length === 0 ? { to, ...scope } : to.length === 0 ? { from, ...scope } : { from, to, ...scope };
     }
     const f = q.value as { values: string[]; prefix: { type: string; value: unknown } };
     const fields = [...f.values];

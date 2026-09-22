@@ -402,7 +402,30 @@ describe("ValueTree key search", () => {
         assert.deepEqual(parseKeyInput(EntryKey, "late, 3..ok"),
             { kind: "query", query: { from: ['"late"', "3"], to: ['"ok"'] } });
         assert.deepEqual(parseKeyInput(MachineKey, "press, x.."),
-            { kind: "hint", hint: "Range is from..to over machine: String, shift: Integer" });
+            { kind: "hint", hint: 'Range is from..to over machine: String, shift: Integer — quote text that holds ".."' });
+    });
+
+    test("parseKeyInput answers a range open at both ends with the hint, never a query", () => {
+        // `..` alone names no run. Sent, it is a query every server refuses and
+        // a Plan's seek cannot even shape — so it stays in the search box.
+        for (const text of ["..", " .. "]) {
+            assert.deepEqual(parseKeyInput(StringKey, text),
+                { kind: "hint", hint: 'Range is from..to over key: String — quote text that holds ".."' }, JSON.stringify(text));
+            assert.equal(parseKeyInput(EntryKey, text).kind, "hint", JSON.stringify(text));
+        }
+    });
+
+    test("parseKeyInput takes quoting as the escape: a quoted value is exact, and its `..` is text", () => {
+        // A String key can hold the operator. Quoted, it is part of the value,
+        // so a path-like key stays findable; bare, it is still a range.
+        assert.deepEqual(parseKeyInput(StringKey, '"../config"'), { kind: "query", query: { key: '"../config"' } });
+        assert.deepEqual(parseKeyInput(StringKey, ' "a\\"b" '), { kind: "query", query: { key: '"a\\"b"' } });
+        assert.deepEqual(parseKeyInput(StringKey, "../config"), { kind: "query", query: { to: ['"/config"'] } });
+        assert.deepEqual(parseKeyInput(EntryKey, "late, 3..ok"),
+            { kind: "query", query: { from: ['"late"', "3"], to: ['"ok"'] } });
+        assert.deepEqual(parseKeyInput(MachineKey, '"a..b", 2'), { kind: "query", query: { fields: ['"a..b"', "2"] } });
+        // A quote not yet closed is no literal: its text is a prefix, quote and all.
+        assert.deepEqual(parseKeyInput(StringKey, '"../con'), { kind: "query", query: { prefix: '"../con' } });
     });
 
     test("keyRangePredicates bound a range over a nested key, with open ends", () => {
@@ -414,10 +437,13 @@ describe("ValueTree key search", () => {
         const window = keyRangePredicates(EntryKey, { from: ['"late"', "2"], to: ['"ok"'] })!;
         assert.deepEqual(keys.map(window.lower), [false, true, true]);
         assert.deepEqual(keys.map(window.upper), [false, false, true]);
-        // Both ends open: every row is in the range.
-        const open = keyRangePredicates(EntryKey, {})!;
-        assert.deepEqual(keys.map(open.lower), [true, true, true]);
-        assert.deepEqual(keys.map(open.upper), [false, false, false]);
+        // One end open: `from` alone runs to the last row, `to` alone from the first.
+        const tail = keyRangePredicates(EntryKey, { from: ['"late"', "2"] })!;
+        assert.deepEqual(keys.map(tail.lower), [false, true, true]);
+        assert.deepEqual(keys.map(tail.upper), [false, false, false]);
+        const head = keyRangePredicates(EntryKey, { to: ['"ok"'] })!;
+        assert.deepEqual(keys.map(head.lower), [true, true, true]);
+        assert.deepEqual(keys.map(head.upper), [false, false, true]);
         // A bound the key cannot take matches nothing rather than throwing.
         assert.deepEqual(keys.map(keyRangePredicates(EntryKey, { from: ["not-a-literal"] })!.lower), [false, false, false]);
     });

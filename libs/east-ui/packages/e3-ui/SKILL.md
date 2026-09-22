@@ -185,7 +185,10 @@ touches the index's segments and none of the record's.
 
 `.seek` takes a `from..to` range as well as a key or prefix, bounding a leading
 prefix of the key's flattened fields — `late, 3..ok` over a `{status, due}`
-index key — which is what a time window or a status band asks for.
+index key — which is what a time window or a status band asks for. A range
+names at least one end; open at both it names no run, and the seek refuses it.
+In the search box quoting is the escape: a quoted value is exact, and a `..`
+inside it is text, so `"../config"` finds that key rather than a range.
 
 ### `Func.bind(fn)`
 

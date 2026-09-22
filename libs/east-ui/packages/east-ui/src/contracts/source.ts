@@ -79,19 +79,20 @@ export type SeekRangeType = typeof SeekRangeType;
  * A key query, in the one form every key-ordered source understands.
  *
  * @remarks
- * Three shapes, because a key is not always one string: an exact whole-key
- * literal, a String prefix, or — for STRUCT keys — exact leading fields with an
- * optional prefix continuing into the next String field. Every shape addresses
- * ONE CONTIGUOUS RANGE in the canonical key order, which is what makes a hit a
- * `row` + `count` rather than a set of scattered matches.
+ * Four shapes, because a key is not always one string: an exact whole-key
+ * literal; a String prefix; for STRUCT keys, exact leading fields with an
+ * optional prefix continuing into the next String field; and a range over the
+ * key's flattened fields. Every shape addresses ONE CONTIGUOUS RANGE in the
+ * canonical key order, which is what makes a hit a `row` + `count` rather than
+ * a set of scattered matches.
  *
  * Literals are canonical `.east` text of already-validated values, so the query
  * is plain serializable data at any key type — no type-specific wire format,
  * and the search chrome parses the user's text against the key type it was
  * handed ({@link SeekType.keyType}) before it ever gets here.
  *
- * Deliberately the same three shapes as e3's `DatasetFindQuery`, so a bound
- * source forwards a query rather than translating one.
+ * Deliberately the same shapes as e3's `DatasetFindQuery`, so a bound source
+ * forwards a query rather than translating one.
  *
  * @property key - A whole-key `.east` literal — an exact lookup, any key type.
  * @property prefix - A String prefix (String keys, or a Struct key's first
@@ -102,8 +103,10 @@ export type SeekRangeType = typeof SeekRangeType;
  * @property range - A half-open bound on a leading prefix of the key's
  *   FLATTENED field path — `.east` literals, nested structs recursed in
  *   declaration order — so `{ik: {status, due}, k}` bounds on `status`, then
- *   `due`. An empty array is an open end. What a time window or a status band
- *   asks for, and the one shape the other three cannot express.
+ *   `due`. An empty array is an open end, and a range names at least one end:
+ *   open at both it bounds nothing, and a server-backed source refuses it.
+ *   What a time window or a status band asks for, and the one shape the other
+ *   three cannot express.
  */
 export const SeekQueryType = VariantType({
     key:    StringType,
@@ -792,7 +795,7 @@ export const Paged = {
         Source: PagedSourceType,
         /** Where a key query landed in a source's row order. */
         SeekRange: SeekRangeType,
-        /** A key query — exact literal, String prefix, or leading struct fields. */
+        /** A key query — exact literal, String prefix, leading struct fields, or a range. */
         SeekQuery: SeekQueryType,
         /** How a component's rows arrive (inline / paged), at a collection type. */
         RowSource: RowSourceType,

@@ -63,7 +63,7 @@ export interface MatchUi {
     /** The query text, for the command box status. */
     text: string;
     /** The query form. */
-    form: 'exact' | 'prefix' | 'fields';
+    form: 'exact' | 'prefix' | 'fields' | 'range';
 }
 
 /** A value tree's UI state. */

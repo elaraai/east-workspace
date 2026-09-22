@@ -40,14 +40,15 @@ export interface DatasetKeyMatchRange {
  * prefix (`prefix`), exact leading-field literals for struct keys (`fields`,
  * declaration order) optionally followed by a `prefix` on the next (String)
  * field, or a half-open `from` / `to` RANGE over a leading prefix of the key's
- * FLATTENED field path. Every form addresses one contiguous row range in the
- * canonical key order.
+ * FLATTENED field path, naming at least one end. Every form addresses one
+ * contiguous row range in the canonical key order.
  */
 export type DatasetKeyQuery =
     | { key: string }
     | { prefix: string }
     | { fields: string[]; prefix?: string }
-    | { from?: string[]; to?: string[] };
+    | { from: string[]; to?: string[] }
+    | { from?: string[]; to: string[] };
 
 /** A parsed search input: a wire query, or the hint to show instead. */
 export type ParsedKeyInput =
@@ -120,11 +121,18 @@ export function keySignature(keyType: EastTypeValue): string {
 
 /**
  * Turns typed search text into a wire query, or a hint when it cannot
- * parse. Struct keys: `(` opens a whole-key `.east` literal; otherwise
- * comma-separated leading field values — exact for all but the last
- * segment (unquoted String segments need no quotes), the last a prefix on
- * a String field or an exact value otherwise, and a trailing comma
- * narrows to the leading exact fields.
+ * parse. String keys: bare text is a prefix. Struct keys: `(` opens a
+ * whole-key `.east` literal; otherwise comma-separated leading field values
+ * — exact for all but the last segment (unquoted String segments need no
+ * quotes), the last a prefix on a String field or an exact value otherwise,
+ * and a trailing comma narrows to the leading exact fields. Any key:
+ * `from..to` is a range over the key's flattened fields, open at one end or
+ * neither.
+ *
+ * Quoting is the escape. A quoted value is a `.east` literal, taken exactly
+ * as written — a `..` or `,` inside it is text — so a String key whose input
+ * is one quoted literal is an exact key: `"../config"` finds `../config`
+ * rather than everything below `/config`.
  *
  * @param keyType - The collection's Dict key / Set element type
  * @param text - The raw search input
@@ -135,7 +143,12 @@ export function parseKeyInput(keyType: EastTypeValue, text: string): ParsedKeyIn
     if (bounds !== null) return parseRangeInput(keyType, bounds);
     const fields = structKeyFields(keyType);
     if (fields === null) {
-        if (keyType.type === "String") return { kind: "query", query: { prefix: text } };
+        if (keyType.type === "String") {
+            const literal = text.trim().startsWith('"') ? parseFor(StringType)(text) : null;
+            return literal?.success === true
+                ? { kind: "query", query: { key: printFor(StringType)(literal.value) } }
+                : { kind: "query", query: { prefix: text } };
+        }
         const parsed = parseFor(keyType)(text);
         if (!parsed.success) return { kind: "hint", hint: `Key is ${keyType.type}` };
         return { kind: "query", query: { key: printFor(keyType)(parsed.value as never) } };
@@ -182,8 +195,9 @@ export function parseKeyInput(keyType: EastTypeValue, text: string): ParsedKeyIn
  *
  * @remarks
  * `..` is the range operator the search chrome types; either side may be
- * empty, which is an open end. Scanned with the same string/bracket awareness
- * as {@link splitTopLevel}, so a `..` inside a quoted value is just text.
+ * empty, which is an open end, though not both. Scanned with the same
+ * string/bracket awareness as {@link splitTopLevel}, so a `..` inside a quoted
+ * value is just text.
  */
 function splitRange(text: string): { from: string; to: string } | null {
     let inString = false;
@@ -227,20 +241,25 @@ function parseBound(leaves: readonly KeyLeaf[], text: string): string[] | null {
     return literals;
 }
 
-/** The hint for a range the key's leading leaves cannot take. */
+/** The hint for a range the key's leading leaves cannot take. It names the
+ *  escape too, since text a key holds can contain the operator. */
 function rangeHint(leaves: readonly KeyLeaf[]): string {
-    return `Range is from..to over ${leaves.map((l) => `${l.path.join(".") || "key"}: ${l.type.type}`).join(", ")}`;
+    return `Range is from..to over ${leaves.map((l) => `${l.path.join(".") || "key"}: ${l.type.type}`).join(", ")}`
+        + ` — quote text that holds ".."`;
 }
 
-/** A `from..to` search input as a range query, or the hint to display. */
+/** A `from..to` search input as a range query, or the hint to display. A
+ *  range open at both ends names no run, so it is a hint as well. */
 function parseRangeInput(keyType: EastTypeValue, bounds: { from: string; to: string }): ParsedKeyInput {
     const leaves = flattenKeyLeaves(keyType);
     const from = parseBound(leaves, bounds.from);
     const to = parseBound(leaves, bounds.to);
-    if (from === null || to === null) return { kind: "hint", hint: rangeHint(leaves) };
+    if (from === null || to === null || (from.length === 0 && to.length === 0)) {
+        return { kind: "hint", hint: rangeHint(leaves) };
+    }
     return {
         kind: "query",
-        query: { ...(from.length > 0 && { from }), ...(to.length > 0 && { to }) },
+        query: from.length === 0 ? { to } : to.length === 0 ? { from } : { from, to },
     };
 }
 

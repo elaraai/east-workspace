@@ -267,10 +267,10 @@ export async function datasetGetPage(
  *  String), `fields` (Struct keys: `.east` literals of exact leading
  *  fields in declaration order, optionally with `prefix` continuing into
  *  the next String field), or a `from` / `to` RANGE over a leading prefix
- *  of the key's flattened field path. Every form addresses one contiguous
- *  row range in the canonical key order. Pinned queries are
- *  immutable-cacheable (same URL ⇒ same answer); a stale pin is refused with
- *  an error rather than answered against different content.
+ *  of the key's flattened field path, naming at least one end. Every form
+ *  addresses one contiguous row range in the canonical key order. Pinned
+ *  queries are immutable-cacheable (same URL ⇒ same answer); a stale pin is
+ *  refused with an error rather than answered against different content.
  *
  *  `index` searches one of a record's secondary indexes instead of the
  *  record itself, so the rows the answer names are the index's — the same
@@ -279,7 +279,8 @@ export type DatasetFindQuery = (
   | { key: string }
   | { prefix: string }
   | { fields: string[]; prefix?: string }
-  | { from?: string[]; to?: string[] }
+  | { from: string[]; to?: string[] }
+  | { from?: string[]; to: string[] }
 ) & { hash?: string; index?: string };
 
 /** A key-search result over a Set/Dict dataset. */
