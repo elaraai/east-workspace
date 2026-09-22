@@ -18,8 +18,9 @@ import * as nodePath from 'node:path';
 import { createHash } from 'node:crypto';
 import yazl from 'yazl';
 import { variant, some, none, encodeBeast2For, encodeEastIR, EastIR, AsyncEastIR, printIdentifier, SortedMap, toEastTypeValue, decodeFunctionManifest, linkImports, type FunctionManifest, type LinkedImport } from '@elaraai/east';
-import type { Structure, PackageObject, DatasetRef, DatasetSourceWire, FunctionObject, MutationObject, RecordObject } from '@elaraai/e3-types';
-import { DatasetRefType, PackageObjectType, TaskObjectType, FunctionObjectType, MutationObjectType, RecordObjectType, encodeDatasetBlob } from '@elaraai/e3-types';
+import type { Structure, PackageObject, DatasetRef, DatasetSourceWire, FunctionObject, MutationObject, RecordIndexObject, RecordObject } from '@elaraai/e3-types';
+import { DatasetRefType, PackageObjectType, TaskObjectType, FunctionObjectType, MutationObjectType, RecordIndexObjectType, RecordObjectType, encodeDatasetBlob } from '@elaraai/e3-types';
+import { indexBuildProgram } from './record-programs.js';
 import { readDatasetFileHeader } from './dataset-file.js';
 import type { PackageDef, PackageItem } from './types.js';
 import { runnerProvides, runnerToVariant, type Runner } from './runner.js';
@@ -362,6 +363,7 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
   // minted at deploy (writeRecordGenesis) from the initial-state ref.
   const records = new SortedMap<string, string>(); // name -> RecordObject hash
   const mutationEncoder = encodeBeast2For(MutationObjectType);
+  const indexEncoder = encodeBeast2For(RecordIndexObjectType);
   const recordEncoder = encodeBeast2For(RecordObjectType);
   for (const [rname, rdef] of Object.entries(pkg.records)) {
     const recordRefPath = rdef.path.map(seg => {
@@ -384,7 +386,27 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
       mutations.set(mname, mutHash);
     }
 
-    const recObject: RecordObject = { path: recordRefPath, mutations };
+    // An index ships its declared functions AND the program built from them:
+    // what runs is the program, and it is linked and encoded like any body.
+    const indexes = new SortedMap<string, string>(); // name -> RecordIndexObject hash
+    for (const [iname, idef] of Object.entries(rdef.indexes)) {
+      const owner = `index "${rname}.${iname}"`;
+      const irHash = (expr: { toIR: () => EastIR<any, any> | AsyncEastIR<any, any> }): string =>
+        addObject(zipfile, Buffer.from(encodeEastIR(link(expr.toIR(), owner, idef.runner))));
+      const indexObject: RecordIndexObject = {
+        keyIr: irHash(idef.keyFn),
+        multi: idef.multi,
+        valueIr: idef.valueFn === undefined ? none : some(irHash(idef.valueFn)),
+        keyType: toEastTypeValue(idef.keyType),
+        valueType: toEastTypeValue(idef.valueType),
+        buildIr: addObject(zipfile, Buffer.from(
+          encodeEastIR(link(indexBuildProgram(idef.record.type, idef), owner, idef.runner)))),
+        runner: runnerToVariant(idef.runner),
+      };
+      indexes.set(iname, addObject(zipfile, Buffer.from(indexEncoder(indexObject))));
+    }
+
+    const recObject: RecordObject = { path: recordRefPath, mutations, indexes };
     const recHash = addObject(zipfile, Buffer.from(recordEncoder(recObject)));
     records.set(rname, recHash);
   }

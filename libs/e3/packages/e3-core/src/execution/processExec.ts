@@ -287,14 +287,34 @@ export function buildRunnerArgv(
   runner: RunnerValue,
   argPaths: string[],
   outputPath: string,
-  bodyIrPath: string
+  bodyIrPath: string,
+  streaming?: RunnerStreamingFlags,
 ): string[] {
   return [
     ...runnerToArgv(runner),
+    ...(streaming?.emit !== undefined ? ['--emit', streaming.emit] : []),
+    ...(streaming?.stream ?? []).flatMap((i) => ['--stream', String(i)]),
     ...argPaths.flatMap((p) => ['-i', p]),
     '-o', outputPath,
     bodyIrPath,
   ];
+}
+
+/**
+ * The streaming flags a generated program's argv carries.
+ *
+ * @remarks
+ * A program whose output is a collection built entry by entry writes through
+ * the runner's emit sink rather than returning a value, and a program over a
+ * huge input takes it lazily rather than decoding it. Both are flags the stock
+ * runners already have — there is no new runner command here, which is what
+ * keeps a generated program runnable on whichever runtime its author chose.
+ */
+export interface RunnerStreamingFlags {
+  /** The collection kind the program emits, `--emit`. */
+  emit?: 'array' | 'set' | 'dict';
+  /** Input indices to open lazily, `--stream`. */
+  stream?: number[];
 }
 
 /** How long a child e3 stopped is read after it has exited, before its pipes

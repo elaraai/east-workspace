@@ -18,6 +18,7 @@ import {
   workspaceExport,
   workspaceStatus,
   packageGetLatestVersion,
+  LocalTaskRunner,
 } from '@elaraai/e3-core';
 import type { StorageBackend } from '@elaraai/e3-core';
 import { sendSuccess, sendError } from '../beast2.js';
@@ -244,6 +245,9 @@ export async function deployWorkspace(
     await workspaceDeploy(storage, repoPath, workspace, pkgName, pkgVersion, {
       resolveFileSources: false,
       sourceWarning: (message) => console.warn(`[deploy ${workspace}] ${message}`),
+      // An index a record declares is built here, on the runner its author
+      // chose — the same runner a mutation on this server runs on.
+      runner: new LocalTaskRunner(repoPath),
     });
     return sendSuccess(NullType, null);
   } catch (err) {

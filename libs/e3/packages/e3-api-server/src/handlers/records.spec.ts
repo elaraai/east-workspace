@@ -70,6 +70,7 @@ async function seedDeployedRecord(storage: InMemoryStorage): Promise<void> {
   const recHash = await storage.objects.write(REPO, encodeBeast2For(RecordObjectType)({
     path: 'records/counter',
     mutations: new Map([['increment', mutHash]]),
+    indexes: new Map(),
   }));
 
   const structure = variant('struct', new Map([

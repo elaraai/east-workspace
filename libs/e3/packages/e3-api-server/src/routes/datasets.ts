@@ -97,10 +97,18 @@ export function createDatasetRoutes(
       const key = c.req.query('key');
       const prefix = c.req.query('prefix');
       const fields = c.req.queries('field');
+      // `from` / `to` repeat, as `field` does: each is one `.east` literal of
+      // a leading prefix of the flattened key.
+      const from = c.req.queries('from');
+      const to = c.req.queries('to');
+      const index = c.req.query('index');
       return findDatasetKey(storage, repoPath, ws, treePath, {
         ...(key !== undefined && { key }),
         ...(prefix !== undefined && { prefix }),
         ...(fields !== undefined && fields.length > 0 && { fields }),
+        ...(from !== undefined && from.length > 0 && { from }),
+        ...(to !== undefined && to.length > 0 && { to }),
+        ...(index !== undefined && index !== '' && { index }),
         ...(hash !== undefined && hash !== '' && { hash }),
       }, {
         ...(options?.pageReadMaxBytes !== undefined && { readMaxBytes: options.pageReadMaxBytes }),
@@ -112,6 +120,8 @@ export function createDatasetRoutes(
         ...(intParam(c.req.query('offset')) !== undefined && { offset: intParam(c.req.query('offset'))! }),
         ...(intParam(c.req.query('limit')) !== undefined && { limit: intParam(c.req.query('limit'))! }),
         ...(intParam(c.req.query('segment')) !== undefined && { segment: intParam(c.req.query('segment'))! }),
+        ...(c.req.query('index') !== undefined && c.req.query('index') !== '' && { index: c.req.query('index')! }),
+        ...(c.req.query('join') === 'true' && { join: true }),
         ...(hash !== undefined && hash !== '' && { hash }),
       };
       return getDatasetPage(storage, repoPath, ws, treePath, window, {

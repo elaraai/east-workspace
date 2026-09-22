@@ -20,6 +20,7 @@ import {
   LocalStorage,
   WorkspaceExistsError,
   type WorkspaceStatusResult,
+  LocalTaskRunner,
 } from '@elaraai/e3-core';
 import {
   workspaceCreate as workspaceCreateRemote,
@@ -118,7 +119,7 @@ export const workspaceCommand = {
 
       if (location.type === 'local') {
         const storage = new LocalStorage();
-        await workspaceDeploy(storage, location.path, ws, name, version, { resolveFileSources: !target.skipFileSources });
+        await workspaceDeploy(storage, location.path, ws, name, version, { resolveFileSources: !target.skipFileSources, runner: new LocalTaskRunner(location.path) });
         if (target.skipFileSources) {
           reportSkippedFileSources(target, fileSourcesOf(await packageRead(storage, location.path, name, version)));
         }
@@ -560,7 +561,7 @@ async function deployFromZip(target: DeployTarget, zipPath: string): Promise<voi
     } catch (err) {
       if (!(err instanceof WorkspaceExistsError)) throw err;
     }
-    await workspaceDeploy(storage, location.path, ws, name, version, { resolveFileSources: !target.skipFileSources });
+    await workspaceDeploy(storage, location.path, ws, name, version, { resolveFileSources: !target.skipFileSources, runner: new LocalTaskRunner(location.path) });
     if (target.skipFileSources) {
       reportSkippedFileSources(target, fileSourcesOf(await packageRead(storage, location.path, name, version)));
     }

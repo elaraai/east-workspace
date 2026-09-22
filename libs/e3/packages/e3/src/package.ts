@@ -10,6 +10,7 @@
 import type {
   FunctionDef,
   MutationDef,
+  RecordIndexDef,
   PackageDef,
   PackageItem,
   RecordDef,
@@ -57,7 +58,7 @@ import type {
 export function package_(
   name: string,
   version: string,
-  ...items: (PackageItem | FunctionDef | MutationDef | PackageDef<any>)[]
+  ...items: (PackageItem | FunctionDef | MutationDef | RecordIndexDef | PackageDef<any>)[]
 ): PackageDef<Record<string, unknown>> {
   // Recursively collect all items and their transitive dependencies
   const all_items = new Set<PackageItem>();
@@ -69,6 +70,9 @@ export function package_(
   // folded onto their record below. Records themselves are datasets, so they
   // ride `all_items` and only need a separate RecordObject channel.
   const mutationsByRecord = new Map<string, Record<string, MutationDef>>();
+  // Indexes are collected onto their record the same way, and for the same
+  // reason: an index is declared beside the record and belongs to it.
+  const indexesByRecord = new Map<string, Record<string, RecordIndexDef>>();
   const importedRecords: Record<string, RecordDef> = {};
 
   function collect(item: PackageItem): void {
@@ -99,6 +103,11 @@ export function package_(
       const muts = mutationsByRecord.get(item.record.name) ?? {};
       muts[item.name] = item;
       mutationsByRecord.set(item.record.name, muts);
+    } else if (item.kind === "recordIndex") {
+      collect(item.record);
+      const idx = indexesByRecord.get(item.record.name) ?? {};
+      idx[item.name] = item;
+      indexesByRecord.set(item.record.name, idx);
     } else {
       collect(item);
     }
@@ -162,6 +171,10 @@ export function package_(
           ...records[rec.name]?.mutations,
           ...rec.mutations,
           ...mutationsByRecord.get(rec.name),
+        },
+        indexes: {
+          ...rec.indexes,
+          ...indexesByRecord.get(rec.name),
         },
       };
     }

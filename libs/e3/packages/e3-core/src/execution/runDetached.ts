@@ -22,6 +22,7 @@ import { withRunnerLifeline, withRunnerVerbose, type RunnerValue } from '@elaraa
 import {
   marshalBytesToDir,
   buildRunnerArgv,
+  type RunnerStreamingFlags,
   spawnAndCapture,
   readOutputFile,
 } from './processExec.js';
@@ -41,6 +42,11 @@ export interface DetachedSpec {
   /** environment spec object hash (FunctionObject.environment); the runner
    *  materializes it and prepends its bin dir to the child PATH */
   environment?: string;
+  /** Streaming flags for a generated program: the collection kind it emits,
+   *  and which of its inputs it opens lazily. A program that emits writes its
+   *  output through the runner's sink, so the result is a canonical collection
+   *  blob rather than a returned value. */
+  streaming?: RunnerStreamingFlags;
 }
 
 /**
@@ -110,7 +116,7 @@ export async function runDetached(
     const stdinLifeline = spec.runner.type !== 'custom';
     let args = withRunnerVerbose(
       spec.runner,
-      buildRunnerArgv(spec.runner, argPaths, outputPath, bodyIrPath),
+      buildRunnerArgv(spec.runner, argPaths, outputPath, bodyIrPath, spec.streaming),
       options.verbose,
     );
     if (stdinLifeline) args = withRunnerLifeline(spec.runner, args);

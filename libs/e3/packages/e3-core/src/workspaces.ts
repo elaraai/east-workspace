@@ -22,7 +22,7 @@ import * as fs from 'fs/promises';
 import yazl from 'yazl';
 import { decodeBeast2For, encodeBeast2For, equalFor, variant, none, EastTypeType, type EastTypeValue } from '@elaraai/east';
 import { DatasetFileTypeMismatchError, readDatasetFileHeader } from '@elaraai/e3';
-import { PackageObjectType, WorkspaceStateType, RecordObjectType, RecordCommitType, DataflowRunType, DatasetRefType, decodePackageObject, decodeTaskObject, decodeFunctionObject, EnvironmentSpecType, environmentSpecObjectHashes } from '@elaraai/e3-types';
+import { PackageObjectType, WorkspaceStateType, RecordCommitType, DataflowRunType, DatasetRefType, decodePackageObject, decodeRecordObject, decodeTaskObject, decodeFunctionObject, EnvironmentSpecType, environmentSpecObjectHashes } from '@elaraai/e3-types';
 import type { PackageObject, WorkspaceState, TaskObject, FunctionObject, DatasetRef, RecordCommit, Structure, TreePath } from '@elaraai/e3-types';
 import { objectAdoptFile } from './dataset-adopt.js';
 import { packageResolve, packageRead } from './packages.js';
@@ -36,6 +36,8 @@ import {
   WorkspaceLockError,
 } from './errors.js';
 import type { StorageBackend, LockHandle } from './storage/interfaces.js';
+import type { TaskRunner } from './execution/interfaces.js';
+import { reconcileRecordIndexes } from './records.js';
 
 /**
  * List workspace names.
@@ -268,6 +270,21 @@ export interface WorkspaceDeployOptions {
    */
   resolveFileSources?: boolean;
   /**
+   * Task runner for the index builds a deploy owes.
+   *
+   * @remarks
+   * A record that declares an index needs that index built before anything can
+   * read through it, and an index is built by running its program on the
+   * runner its author chose. Deploy is where that debt falls due: a record
+   * minted here has no index yet, and a record whose declaration changed has
+   * one built under the wrong declaration.
+   *
+   * Omit it only where no package can declare an index — a deploy that must
+   * build one without a runner is refused rather than left with a record whose
+   * index reads answer from nothing.
+   */
+  runner?: TaskRunner;
+  /**
    * The sink for warnings about `file` sources this deploy leaves unassigned.
    *
    * @remarks
@@ -363,6 +380,12 @@ export async function workspaceDeploy(
     // record's committed state + history across a redeploy (errors if its type
     // changed). A record is thus never unassigned and never silently reset.
     await writeRecordGenesis(storage, repo, name, pkg, priorRecords);
+    // An index is derived state a deploy owes: a record minted here has none,
+    // and one whose declaration changed has one built under the old
+    // declaration. Reconciling is a `$reindex` commit per record — the
+    // primary is untouched, and no policy governs it, because building an
+    // index changes nothing the audit chain protects.
+    await reconcileRecordIndexes(storage, repo, name, pkg, options.runner);
 
     const now = new Date();
     const state: WorkspaceState = {
@@ -470,7 +493,6 @@ function datasetLeafType(structure: Structure, refPath: string): EastTypeValue |
   return recordLeafType(structure, refPath);
 }
 
-const decodeRecordObject = decodeBeast2For(RecordObjectType);
 const encodeRecordCommit = encodeBeast2For(RecordCommitType);
 const recordTypesEqual = equalFor(EastTypeType);
 

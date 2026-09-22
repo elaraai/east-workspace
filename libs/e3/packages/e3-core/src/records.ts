@@ -14,15 +14,22 @@
  * what makes re-running against fresher state safe.
  */
 
-import { variant, some, none, ArrayType, BlobType, encodeBeast2For, decodeBeast2For, type EastTypeValue } from '@elaraai/east';
+import { variant, some, none, ArrayType, BlobType, encodeBeast2For, decodeBeast2For, fromEastTypeValue, readBeast2Type, toEastTypeValue, type EastType, type EastTypeValue } from '@elaraai/east';
 import {
-  RecordObjectType,
   MutationObjectType,
+  RECORD_STATE_KIND,
   RecordCommitType,
+  RecordIndexObjectType,
+  RecordStateType,
   decodePackageObject,
+  decodeRecordObject,
+  indexCollectionType,
+  indexWindowType,
+  isRecordStateType,
   type RecordCommit,
+  type RecordIndexObject,
 } from '@elaraai/e3-types';
-import { adoptDatasetBlob, readDatasetWhole } from './dataset-open.js';
+import { adoptDatasetBlob, readDatasetWhole, readManifest } from './dataset-open.js';
 import { workspaceGetPackage } from './workspaces.js';
 import { refPathToKeypath } from './dataset-refs.js';
 import { DatasetRefConflictError, WorkspaceLockError } from './errors.js';
@@ -32,8 +39,10 @@ import type { DetachedResult } from './execution/runDetached.js';
 
 const encodeCommit = encodeBeast2For(RecordCommitType);
 const decodeCommit = decodeBeast2For(RecordCommitType);
-const decodeRecordObject = decodeBeast2For(RecordObjectType);
 const decodeMutationObject = decodeBeast2For(MutationObjectType);
+const decodeIndexObject = decodeBeast2For(RecordIndexObjectType);
+const encodeRecordState = encodeBeast2For(RecordStateType);
+const decodeRecordState = decodeBeast2For(RecordStateType);
 const encodeArgsTuple = encodeBeast2For(ArrayType(BlobType));
 
 /** Mutations persist their (potentially large) new state, so the result cap is
@@ -149,6 +158,72 @@ interface ResolvedRecord {
   refPath: string;
   selfKeypath: string;
   mutations: Map<string, string>;
+  /** Index name -> RecordIndexObject hash, as the deployed package declares
+   *  them. What the state names is what was BUILT; deploy reconciles the two. */
+  indexes: Map<string, string>;
+}
+
+/**
+ * What a record's state names: the primary's manifest, and each index's
+ * manifest with the index object it was built under.
+ */
+export interface RecordStateRefs {
+  /** CollectionManifest hash of the primary. */
+  primary: string;
+  /** Index name -> `{ manifest, index }`. */
+  indexes: Map<string, { manifest: string; index: string }>;
+}
+
+/**
+ * Resolve a record's state object.
+ *
+ * @remarks
+ * The door every reader of a record's `value.hash` goes through. A record with
+ * no index keeps the plain manifest as its state, so this accepts both shapes:
+ * a `$record` table naming the primary and every index, or the primary itself.
+ * That is what makes indexes additive — a record that never declares one is
+ * stored exactly as it was.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param hash - the state object's hash (a record ref's `value.hash`)
+ * @returns the primary and the indexes the state names
+ */
+export async function readRecordState(storage: StorageBackend, repo: string, hash: string): Promise<RecordStateRefs> {
+  const head = await storage.objects.read(repo, hash);
+  let typeValue: EastTypeValue;
+  try {
+    typeValue = readBeast2Type(head);
+  } catch {
+    return { primary: hash, indexes: new Map() };
+  }
+  if (!isRecordStateType(typeValue)) return { primary: hash, indexes: new Map() };
+  const state = decodeRecordState(head);
+  if (state.kind !== RECORD_STATE_KIND) return { primary: hash, indexes: new Map() };
+  return { primary: state.primary, indexes: state.indexes };
+}
+
+/**
+ * Write a record's state object and return what the ref should name.
+ *
+ * @remarks
+ * A record with no index names its primary manifest directly — one object
+ * fewer, and the shape every record had before indexes existed. With indexes
+ * it names one small `$record` object, so the primary and every index swing
+ * together under one conditional ref write and can never be seen apart.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param state - the primary and the indexes to name
+ * @returns the hash the record ref should carry
+ */
+export async function writeRecordState(storage: StorageBackend, repo: string, state: RecordStateRefs): Promise<string> {
+  if (state.indexes.size === 0) return state.primary;
+  return storage.objects.write(repo, encodeRecordState({
+    kind: RECORD_STATE_KIND,
+    primary: state.primary,
+    indexes: state.indexes,
+  }));
 }
 
 /** Resolve a record name in a workspace's deployed package to its ref path and
@@ -168,6 +243,7 @@ async function resolveRecord(
     refPath: recObj.path,
     selfKeypath: refPathToKeypath(recObj.path),
     mutations: recObj.mutations,
+    indexes: recObj.indexes,
   };
 }
 
@@ -253,7 +329,11 @@ export async function recordMutate(
       // The reducer takes a value, not a layout: a state held as a segment
       // manifest is spliced back into one blob for it, exactly as a task
       // input is staged.
-      const stateBytes = await readDatasetWhole(storage, repo, existing.ref.value.hash);
+      const state = await readRecordState(storage, repo, existing.ref.value.hash);
+      // The reducer takes a value, not a layout: a primary held as a segment
+      // manifest is spliced back into one blob for it, exactly as a task
+      // input is staged.
+      const stateBytes = await readDatasetWhole(storage, repo, state.primary);
       const result = await runner.runDetached(
         { bodyIr, args: [stateBytes, ...args], runner: mutObj.runner, limits: runLimits },
         { signal: opts.signal, verbose: opts.verbose },
@@ -262,7 +342,14 @@ export async function recordMutate(
 
       // Objects written before the conditional ref swing are invisible until the
       // ref references them; a conflict simply orphans them for GC.
-      const newStateHash = await adoptDatasetBlob(storage, repo, result.value);
+      const newPrimary = await adoptDatasetBlob(storage, repo, result.value);
+      // A commit either updates every index or none. The reduce form hands
+      // back a whole state, so every index is rebuilt over it — correct, and
+      // O(state) until a mutation carries the delta of what it changed.
+      const rebuilt = await buildRecordIndexes(storage, runner, repo, resolved.indexes, newPrimary,
+        { limits: runLimits, ...(opts.signal !== undefined && { signal: opts.signal }), ...(opts.verbose !== undefined && { verbose: opts.verbose }) });
+      if ('failure' in rebuilt) return rebuilt.failure;
+      const newStateHash = await writeRecordState(storage, repo, { primary: newPrimary, indexes: rebuilt.built });
       const argsHash = args.length > 0
         ? await storage.objects.write(repo, encodeArgsTuple(args))
         : undefined;
@@ -300,6 +387,318 @@ export async function recordMutate(
       }
     }
   });
+}
+
+/**
+ * Build every index of a record over one primary state.
+ *
+ * @remarks
+ * Each index's build program runs on the runner its author chose, with the
+ * primary as its only input and the runner's emit sink as its output — `run`
+ * with `--stream 0 --emit dict`, no new runner command. e3-core never
+ * evaluates the index functions: it runs a program and takes what it emits
+ * into the store. The emitted collection is canonical by construction (the
+ * program emits in order), so it goes through the encoder door like any other
+ * collection and lands as a manifest.
+ *
+ * @param storage - Storage backend
+ * @param runner - Task runner for the detached runs
+ * @param repo - Repository identifier
+ * @param indexes - Index name -> RecordIndexObject hash, from the record object
+ * @param primary - CollectionManifest hash of the primary to build over
+ * @param opts - Execution limits, cancellation and verbosity
+ * @returns The built indexes, or the first program's failure
+ */
+async function buildRecordIndexes(
+  storage: StorageBackend,
+  runner: TaskRunner,
+  repo: string,
+  indexes: Map<string, string>,
+  primary: string,
+  opts: { limits: RecordMutateLimits; signal?: AbortSignal; verbose?: boolean },
+): Promise<{ built: Map<string, { manifest: string; index: string }> } | { failure: MutationOutcome }> {
+  const built = new Map<string, { manifest: string; index: string }>();
+  if (indexes.size === 0) return { built };
+
+  // The program opens the primary lazily from its own file, so the bytes are
+  // written once here and paged there.
+  const primaryBytes = await readDatasetWhole(storage, repo, primary);
+  for (const [name, indexHash] of indexes) {
+    const indexObj: RecordIndexObject = decodeIndexObject(await storage.objects.read(repo, indexHash));
+    const result = await runner.runDetached(
+      {
+        bodyIr: await storage.objects.read(repo, indexObj.buildIr),
+        args: [primaryBytes],
+        runner: indexObj.runner,
+        limits: opts.limits,
+        streaming: { emit: 'dict', stream: [0] },
+      },
+      { signal: opts.signal, verbose: opts.verbose },
+    );
+    if (result.kind !== 'success') return { failure: failureOutcome(result) };
+    built.set(name, { manifest: await adoptDatasetBlob(storage, repo, result.value), index: indexHash });
+  }
+  return { built };
+}
+
+/**
+ * Rebuild a record's indexes from its primary and commit the result.
+ *
+ * @remarks
+ * An index is derived state, so this is always available and never loses
+ * anything: it is the operator's exit when an index function turns out to be
+ * wrong (fix the function, redeploy, and the deploy plan rebuilds), and it is
+ * what deploy itself runs when a declaration changes. The rebuild appends a
+ * `$reindex` commit, so the audit chain records that it happened — the state's
+ * primary is untouched, and only the index manifests move.
+ *
+ * At every commit a maintained index equals the one this writes, byte for
+ * byte: content-defined segment boundaries make that a property of the value
+ * rather than of the edit history.
+ *
+ * @param storage - Storage backend
+ * @param runner - Task runner for the build programs
+ * @param repo - Repository identifier
+ * @param ws - Workspace name
+ * @param recordName - The record to reindex
+ * @param opts - One index by name (default: all), plus the mutation options
+ * @returns `committed` / `invalid` / a program failure / `conflict`
+ */
+export async function recordReindex(
+  storage: StorageBackend,
+  runner: TaskRunner,
+  repo: string,
+  ws: string,
+  recordName: string,
+  opts: RecordMutateOptions & { index?: string },
+): Promise<MutationOutcome> {
+  return withSharedWorkspaceLock(storage, repo, ws, opts.lock, async () => {
+    const resolved = await resolveRecord(storage, repo, ws, recordName);
+    if (!resolved) return { kind: 'invalid', message: `record '${recordName}' not found` };
+    if (opts.index !== undefined && !resolved.indexes.has(opts.index)) {
+      const declared = [...resolved.indexes.keys()];
+      return {
+        kind: 'invalid',
+        message: `record '${recordName}' declares no index '${opts.index}'`
+          + (declared.length > 0 ? ` — it has ${declared.join(', ')}` : ''),
+      };
+    }
+    const wanted = opts.index === undefined
+      ? resolved.indexes
+      : new Map([[opts.index, resolved.indexes.get(opts.index)!]]);
+
+    const limits = opts.limits ?? DEFAULT_LIMITS;
+    const deadline = Date.now() + (opts.maxRetryMs ?? DEFAULT_MAX_RETRY_MS);
+    for (let attempt = 1; ; attempt++) {
+      const existing = await storage.datasets.readVersioned(repo, ws, resolved.refPath);
+      if (!existing || existing.ref.type !== 'value') {
+        return { kind: 'invalid', message: `record '${recordName}' has no state` };
+      }
+      const state = await readRecordState(storage, repo, existing.ref.value.hash);
+      const outcome = await buildRecordIndexes(storage, runner, repo, wanted, state.primary,
+        { limits, ...(opts.signal !== undefined && { signal: opts.signal }), ...(opts.verbose !== undefined && { verbose: opts.verbose }) });
+      if ('failure' in outcome) return outcome.failure;
+
+      // Rebuilding one index leaves the others where they are; rebuilding all
+      // of them replaces the table, so an index the package has dropped goes
+      // with it.
+      const indexes = opts.index === undefined ? outcome.built : new Map([...state.indexes, ...outcome.built]);
+      const stateHash = await writeRecordState(storage, repo, { primary: state.primary, indexes });
+      const prevCommit = existing.ref.value.versions.get(resolved.selfKeypath);
+      const commitHash = await storage.objects.write(repo, encodeCommit({
+        parent: prevCommit !== undefined ? some(prevCommit) : none,
+        state: stateHash,
+        mutation: opts.index === undefined ? '$reindex' : `$reindex:${opts.index}`,
+        args: none,
+        actor: opts.actor,
+        at: new Date(),
+      }));
+
+      try {
+        await storage.datasets.writeIf(
+          repo, ws, resolved.refPath,
+          variant('value', { hash: stateHash, versions: new Map([[resolved.selfKeypath, commitHash]]) }),
+          existing.revision,
+        );
+        return { kind: 'committed', commitHash, stateHash };
+      } catch (err) {
+        if (!(err instanceof DatasetRefConflictError)) throw err;
+        if ((opts.maxAttempts !== undefined && attempt >= opts.maxAttempts) || Date.now() >= deadline) {
+          return { kind: 'conflict', attempts: attempt };
+        }
+        await new Promise((resolve) => setTimeout(resolve, casBackoffMs(attempt)));
+      }
+    }
+  });
+}
+
+/**
+ * Bring every record's indexes into line with what its package declares.
+ *
+ * @remarks
+ * Run by deploy, once the refs are in place. For each record, an index the
+ * package declares whose object hash is not the one the state names is BUILT
+ * (a freshly minted record names none, so all of them are); one the state
+ * names and the package does not is DROPPED; one that matches is KEPT and
+ * nothing runs. A record whose indexes all match is not touched at all, so a
+ * redeploy that changes no declaration costs nothing and appends no commit.
+ *
+ * No `--schema`-style policy governs this: an index is derived, and building
+ * one changes no state the audit chain protects. What it does append is one
+ * `$reindex` commit per record that changed, so the chain records that the
+ * views over the record moved.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param ws - Workspace name
+ * @param pkg - the package just deployed
+ * @param runner - Task runner for the build programs
+ * @throws {Error} When a build is owed and no runner was given, or a build
+ *   program fails — deploy is all-or-nothing, so this surfaces rather than
+ *   leaving a record whose index reads answer from nothing.
+ */
+export async function reconcileRecordIndexes(
+  storage: StorageBackend,
+  repo: string,
+  ws: string,
+  pkg: { records: Map<string, string> },
+  runner?: TaskRunner,
+): Promise<void> {
+  const at = new Date();
+  for (const recHash of pkg.records.values()) {
+    const recObj = decodeRecordObject(await storage.objects.read(repo, recHash));
+    const existing = await storage.datasets.read(repo, ws, recObj.path);
+    if (!existing || existing.type !== 'value') continue;
+    const state = await readRecordState(storage, repo, existing.value.hash);
+
+    const build = new Map<string, string>();
+    for (const [name, indexHash] of recObj.indexes) {
+      if (state.indexes.get(name)?.index !== indexHash) build.set(name, indexHash);
+    }
+    const dropped = [...state.indexes.keys()].filter((name) => !recObj.indexes.has(name));
+    if (build.size === 0 && dropped.length === 0) continue;
+
+    if (build.size > 0 && runner === undefined) {
+      throw new Error(
+        `deploying record '${recObj.path}' must build ${[...build.keys()].join(', ')}, ` +
+        `but this deploy was given no task runner — an index read would answer from nothing.`,
+      );
+    }
+    const outcome = build.size === 0
+      ? { built: new Map<string, { manifest: string; index: string }>() }
+      : await buildRecordIndexes(storage, runner!, repo, build, state.primary, { limits: DEFAULT_LIMITS });
+    if ('failure' in outcome) {
+      const detail = outcome.failure.kind === 'failed' ? outcome.failure.stderr : outcome.failure.kind;
+      throw new Error(`building the indexes of record '${recObj.path}' failed: ${detail}`);
+    }
+
+    // Kept indexes carry over; dropped ones simply are not in the package.
+    const indexes = new Map<string, { manifest: string; index: string }>();
+    for (const [name, indexHash] of recObj.indexes) {
+      const rebuilt = outcome.built.get(name);
+      indexes.set(name, rebuilt ?? state.indexes.get(name)!);
+      void indexHash;
+    }
+    const stateHash = await writeRecordState(storage, repo, { primary: state.primary, indexes });
+
+    const selfKeypath = refPathToKeypath(recObj.path);
+    const prevCommit = existing.value.versions.get(selfKeypath);
+    const commitHash = await storage.objects.write(repo, encodeCommit({
+      parent: prevCommit !== undefined ? some(prevCommit) : none,
+      state: stateHash,
+      mutation: '$reindex',
+      args: none,
+      actor: 'system:deploy',
+      at,
+    }));
+    // Deploy holds the workspace lock exclusively, so this is uncontended.
+    await storage.datasets.write(repo, ws, recObj.path,
+      variant('value', { hash: stateHash, versions: new Map([[selfKeypath, commitHash]]) }));
+  }
+}
+
+/**
+ * What a read through a record's index needs: the collection to page, and the
+ * types to decode and answer in.
+ */
+export interface ResolvedRecordIndex {
+  /** CollectionManifest hash of the index collection. */
+  manifest: string;
+  /** The index collection's type, `Dict<{ik, k}, P>` — what a page of it
+   *  decodes as. */
+  collectionType: EastTypeValue;
+  /** CollectionManifest hash of the primary, for a joined read. */
+  primary: string;
+  /** The primary's type, `Dict<K, V>`. */
+  primaryType: EastTypeValue;
+  /** The window a read answers with, `Array<{ik, key, value, row}>`. */
+  windowType: EastTypeValue;
+}
+
+/**
+ * Resolve one of a record's indexes for reading.
+ *
+ * @remarks
+ * The types come from the state itself rather than from the package: a
+ * manifest carries the collection type it describes, so a page read at an
+ * older commit decodes under the type that state was written with — which is
+ * the same reason a blob carries its own type section.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param ws - Workspace name
+ * @param refPath - the record's dataset ref path, e.g. `records/plans`
+ * @param stateHash - the record ref's `value.hash`
+ * @param indexName - the index to read through
+ * @returns the resolved index, or `null` when the state names no such index
+ */
+export async function resolveRecordIndex(
+  storage: StorageBackend,
+  repo: string,
+  ws: string,
+  refPath: string,
+  stateHash: string,
+  indexName: string,
+): Promise<ResolvedRecordIndex | null> {
+  void ws;
+  void refPath;
+  const state = await readRecordState(storage, repo, stateHash);
+  const entry = state.indexes.get(indexName);
+  if (entry === undefined) return null;
+
+  const indexObj: RecordIndexObject = decodeIndexObject(await storage.objects.read(repo, entry.index));
+  const primaryManifest = await readManifest(storage, repo, state.primary);
+  if (primaryManifest === null) return null;
+  // The manifest carries the collection's type as a homoiconic VALUE; the type
+  // constructors below build from EastTypes, so it is read back into one. A
+  // state written under an older declaration therefore decodes under the type
+  // it was written with, which is the same reason a blob carries its own type
+  // section.
+  const primaryType = fromEastTypeValue(primaryManifest.type as EastTypeValue) as unknown as
+    { type: string; key: EastType; value: EastType };
+  if (primaryType.type !== 'Dict') return null;
+  const indexKeyType = fromEastTypeValue(indexObj.keyType as EastTypeValue) as unknown as EastType;
+  const projectionType = fromEastTypeValue(indexObj.valueType as EastTypeValue) as unknown as EastType;
+
+  return {
+    manifest: entry.manifest,
+    collectionType: toEastTypeValue(indexCollectionType(primaryType.key, indexKeyType, projectionType)),
+    primary: state.primary,
+    primaryType: primaryManifest.type as EastTypeValue,
+    windowType: toEastTypeValue(indexWindowType(primaryType.key, indexKeyType, projectionType, primaryType.value)),
+  };
+}
+
+/**
+ * The indexes a record's state names, by name.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param stateHash - the record ref's `value.hash`
+ * @returns the index names, in declaration order
+ */
+export async function recordIndexNames(storage: StorageBackend, repo: string, stateHash: string): Promise<string[]> {
+  return [...(await readRecordState(storage, repo, stateHash)).indexes.keys()];
 }
 
 /** A record's mutation surface: each mutation's name and EXTRA arg types. */

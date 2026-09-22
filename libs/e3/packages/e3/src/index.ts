@@ -59,6 +59,7 @@ import type {
 import { input } from './input.js';
 import { record } from './record.js';
 import { mutation } from './mutation.js';
+import { recordIndex } from './record-index.js';
 import { task, customTask, partitionTask, streamTask } from './task.js';
 import { function_ } from './function.js';
 import { package_ } from './package.js';
@@ -97,6 +98,7 @@ const e3 = {
   input,
   record,
   mutation,
+  recordIndex,
   task,
   customTask,
   partitionTask,
@@ -109,7 +111,7 @@ const e3 = {
 export default e3;
 
 // Also export individual functions for tree-shaking
-export { input, record, mutation, task, customTask, partitionTask, streamTask, function_, package_ as package, export_ as export };
+export { input, record, mutation, recordIndex, task, customTask, partitionTask, streamTask, function_, package_ as package, export_ as export };
 export type { PartitionTaskSpec, StreamTaskSpec, EmitOf } from './task.js';
 
 // Singleton tree definitions

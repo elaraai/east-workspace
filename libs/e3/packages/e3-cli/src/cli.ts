@@ -44,6 +44,7 @@ import { callCommand } from './commands/call.js';
 import { mutateCommand } from './commands/mutate.js';
 import { historyCommand } from './commands/history.js';
 import { compactCommand } from './commands/compact.js';
+import { reindexCommand } from './commands/reindex.js';
 import { logsCommand, DEFAULT_TAIL_LINES } from './commands/logs.js';
 import { datasetStatusCommand } from './commands/dataset-status.js';
 import { findCommand } from './commands/find.js';
@@ -361,6 +362,19 @@ program
   .argument('<record>', 'Record name')
   .option('-w, --workspace <ws>', 'Workspace holding the record (required)')
   .action(compactCommand);
+
+// ---------------------------------------------------------------------------
+// reindex — rebuild a record's secondary indexes from its primary
+// ---------------------------------------------------------------------------
+program
+  .command('reindex')
+  .description("Rebuild a record's secondary indexes from its primary (the state is unchanged)")
+  .argument('<repo>', 'Repository path')
+  .argument('<record>', 'Record name')
+  .option('-w, --workspace <ws>', 'Workspace holding the record (required)')
+  .option('--index <name>', 'Rebuild one index (default: every index the record declares)')
+  .option('-v, --verbose', "Pass -v to the index programs' runner (timing/perf to stderr)")
+  .action(reindexCommand);
 
 // ---------------------------------------------------------------------------
 // watch — source first, workspace second

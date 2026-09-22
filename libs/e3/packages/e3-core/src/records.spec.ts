@@ -16,8 +16,8 @@ import { fileURLToPath } from 'node:url';
 import { East, IntegerType, StringType, encodeBeast2For, decodeBeast2For, toEastTypeValue, ArrayType, BlobType, DictType, StructType, variant, type ValueTypeOf } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import type { Structure, TreePath } from '@elaraai/e3-types';
-import { DatasetSegments } from './dataset-open.js';
-import { recordMutate, recordHistory, recordCompact, recordDescribe } from './records.js';
+import { DatasetSegments, readDatasetWhole } from './dataset-open.js';
+import { recordMutate, recordHistory, recordCompact, recordDescribe, recordIndexNames, recordReindex, readRecordState, resolveRecordIndex } from './records.js';
 import { runDetached } from './execution/runDetached.js';
 import { repoGc } from './storage/local/gc.js';
 import { snapshotInputVersions } from './dataset-refs.js';
@@ -626,5 +626,154 @@ describe('frozen reducer state (#539)', () => {
     const after = await workspaceGetDataset(storage, repo, ws, kvPath) as ValueTypeOf<typeof StateT>;
     assert.strictEqual(after.size, 1, 'the touched row is the whole new state');
     assert.strictEqual(after.get('k-0')!.n, 0n);
+  });
+});
+
+const PlanRowType = StructType({ status: StringType, due: IntegerType, title: StringType });
+const PlansType = DictType(StringType, PlanRowType);
+const StatusKeyType = StructType({ status: StringType, due: IntegerType });
+
+/**
+ * Secondary indexes end to end, on the real runner.
+ *
+ * An index is a second canonical collection maintained inside the same commit
+ * as the primary, so what is asserted here is that one commit moves both and
+ * that the maintained index is the one a rebuild writes — which is what makes
+ * a page through an index trustworthy at all.
+ */
+describe('record indexes', () => {
+  let repo: string;
+  let tempDir: string;
+  let storage: StorageBackend;
+  const ws = 'main';
+
+  const realRunner = {
+    runDetached: (spec: Parameters<typeof runDetached>[0], options: Parameters<typeof runDetached>[1]) =>
+      runDetached(spec, { ...options, runnerSearchDir: dirname(fileURLToPath(import.meta.url)) }),
+  } as unknown as TaskRunner;
+
+  beforeEach(async () => {
+    repo = createTestRepo();
+    tempDir = createTempDir();
+    storage = new LocalStorage(dirname(repo));
+
+    const plans = e3.record('plans', PlansType, new Map());
+    const seed = e3.mutation('seed', plans, East.function([PlansType], PlansType, ($, _state) => {
+      const out = $.let(new Map(), PlansType);
+      $.for(East.Array.range(0n, 600n), ($, i) => {
+        const status = $.let('ok');
+        $.if(East.equal(i.remainder(3n), 0n), ($) => {
+          $.assign(status, 'late');
+        });
+        $(out.insert(East.str`p-${i}`, { status, due: i, title: East.str`Plan ${i}` }));
+      });
+      return out;
+    }));
+    const retitle = e3.mutation('retitle', plans, East.function([PlansType, StringType], PlansType, ($, state, k) => {
+      const next = $.let(state.copy());
+      const row = $.let(state.get(k));
+      $(next.insert(k, { status: row.status, due: row.due, title: 'RETITLED' }));
+      return next;
+    }));
+    const byStatus = e3.recordIndex('by_status', plans, {
+      key: East.function([StringType, PlanRowType], StatusKeyType, ($, _k, v) => ({ status: v.status, due: v.due })),
+      value: East.function([StringType, PlanRowType], StringType, ($, _k, v) => v.title),
+    });
+
+    const pkg = e3.package('planrecords', '1.0.0', plans, seed, retitle, byStatus);
+    const zip = join(tempDir, 'planrecords.zip');
+    await e3.export(pkg, zip);
+    await packageImport(storage, repo, zip);
+    await workspaceCreate(storage, repo, ws);
+    await workspaceDeploy(storage, repo, ws, 'planrecords', '1.0.0', { runner: realRunner });
+  });
+
+  afterEach(() => {
+    removeTestRepo(repo);
+    removeTempDir(tempDir);
+  });
+
+  /** The record's state refs. */
+  async function state(): Promise<{ primary: string; indexes: Map<string, { manifest: string; index: string }> }> {
+    const ref = await storage.datasets.read(repo, ws, 'records/plans');
+    assert.ok(ref && ref.type === 'value');
+    return readRecordState(storage, repo, ref.value.hash);
+  }
+
+  it('deploy builds a declared index, and the state names it beside the primary', async () => {
+    const built = await state();
+    assert.deepStrictEqual([...built.indexes.keys()], ['by_status']);
+    // An empty record: the index is empty too, and both are real manifests.
+    const index = await DatasetSegments.open(storage, repo, built.indexes.get('by_status')!.manifest);
+    assert.strictEqual(index.elementCount, 0);
+
+    const history = await recordHistory(storage, repo, ws, 'plans');
+    assert.deepStrictEqual(history.map((e) => e.commit.mutation), ['$reindex', '$init']);
+  });
+
+  it('a commit moves the primary and the index together', async () => {
+    const seeded = await recordMutate(storage, realRunner, repo, ws, 'plans', 'seed', [], { actor: 'cli:test' });
+    assert.strictEqual(seeded.kind, 'committed', JSON.stringify(seeded));
+
+    const after = await state();
+    const index = await DatasetSegments.open(storage, repo, after.indexes.get('by_status')!.manifest);
+    const primary = await DatasetSegments.open(storage, repo, after.primary);
+    assert.strictEqual(primary.elementCount, 600, 'the primary holds every row');
+    assert.strictEqual(index.elementCount, 600, 'the index holds one entry per row');
+
+    // The index is sorted by the index key first: every `late` row precedes
+    // every `ok` one, whatever their primary keys.
+    // The index collection's key is `{ik, k}` — the index key first, so every
+    // entry sharing one is a contiguous run ordered by primary key inside it.
+    const collection = DictType(StructType({ ik: StatusKeyType, k: StringType }), StringType);
+    const whole = decodeBeast2For(collection)(await readDatasetWhole(storage, repo, after.indexes.get('by_status')!.manifest)) as Map<{ ik: { status: string; due: bigint }; k: string }, string>;
+    const statuses = [...whole.keys()].map((entry) => entry.ik.status);
+    assert.strictEqual(statuses.indexOf('ok'), statuses.lastIndexOf('late') + 1, 'one contiguous run per status');
+    assert.strictEqual(whole.size, 600);
+  });
+
+  it('a maintained index equals the one a reindex rebuilds, hash for hash', async () => {
+    await recordMutate(storage, realRunner, repo, ws, 'plans', 'seed', [], { actor: 'cli:test' });
+    await recordMutate(storage, realRunner, repo, ws, 'plans', 'retitle', [encodeBeast2For(StringType)('p-7')], { actor: 'cli:test' });
+    const maintained = await state();
+
+    const rebuilt = await recordReindex(storage, realRunner, repo, ws, 'plans', { actor: 'cli:test' });
+    assert.strictEqual(rebuilt.kind, 'committed', JSON.stringify(rebuilt));
+    const after = await state();
+
+    assert.strictEqual(after.primary, maintained.primary, 'a reindex never touches the primary');
+    assert.strictEqual(
+      after.indexes.get('by_status')!.manifest,
+      maintained.indexes.get('by_status')!.manifest,
+      'maintained ≡ rebuilt — the same value gives the same segments',
+    );
+  });
+
+  it('resolves the index for reading, with the window and collection types', async () => {
+    await recordMutate(storage, realRunner, repo, ws, 'plans', 'seed', [], { actor: 'cli:test' });
+    const ref = await storage.datasets.read(repo, ws, 'records/plans');
+    assert.ok(ref && ref.type === 'value');
+
+    const resolved = await resolveRecordIndex(storage, repo, ws, 'records/plans', ref.value.hash, 'by_status');
+    assert.ok(resolved !== null);
+    assert.strictEqual(resolved.collectionType.type, 'Dict');
+    assert.strictEqual(resolved.windowType.type, 'Array');
+    assert.strictEqual(await resolveRecordIndex(storage, repo, ws, 'records/plans', ref.value.hash, 'nope'), null);
+    assert.deepStrictEqual(await recordIndexNames(storage, repo, ref.value.hash), ['by_status']);
+  });
+
+  it('keeps every object an index names reachable through gc', async () => {
+    await recordMutate(storage, realRunner, repo, ws, 'plans', 'seed', [], { actor: 'cli:test' });
+    const after = await state();
+    const entry = after.indexes.get('by_status')!;
+
+    const result = await repoGc(storage, repo, { minAge: 0 });
+    assert.strictEqual(result.deletedObjects, 0, 'nothing the record names is collected');
+    // The index's manifest, its segments, and the declaration it was built
+    // under — a state read at an older commit names all three.
+    await storage.objects.read(repo, entry.manifest);
+    await storage.objects.read(repo, entry.index);
+    const index = await DatasetSegments.open(storage, repo, entry.manifest);
+    for (const segment of index.manifest!.entries) await storage.objects.read(repo, segment.hash);
   });
 });

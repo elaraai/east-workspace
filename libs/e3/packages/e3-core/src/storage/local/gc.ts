@@ -21,7 +21,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { tmpdir } from 'os';
 import { decodeBeast2, isEastDict, readBeast2Type, toEastTypeValue, variant, type EastTypeValue } from '@elaraai/east';
-import { COLLECTION_MANIFEST_KIND, PartitionPlanType, isCollectionManifestType } from '@elaraai/e3-types';
+import { COLLECTION_MANIFEST_KIND, PartitionPlanType, RECORD_STATE_KIND, RecordObjectType, isCollectionManifestType, isRecordStateType } from '@elaraai/e3-types';
 import type { RepoStore, GcObjectEntry, GcRootScanResult, LockHandle, StorageBackend } from '../interfaces.js';
 import { transferStagingDir } from './localHelpers.js';
 import { sweepScratchDirs } from '../../execution/scratch.js';
@@ -308,14 +308,55 @@ function isFunctionObjectShape(type: any): boolean {
   return names.has('bodyIr') && names.has('inputTypes') && names.has('outputType') && names.has('runner');
 }
 
+/** `RecordObjectType`'s field names, in wire order, read from the type itself:
+ *  every record-object shape a repository can hold is a PREFIX of this list,
+ *  because struct fields encode positionally and the record object only ever
+ *  grows by appending LAST. */
+const RECORD_OBJECT_FIELDS: readonly string[] =
+  (toEastTypeValue(RecordObjectType).value as { name: string }[]).map(f => f.name);
+
+/** The fields every record object has carried from the first vintage on. */
+const RECORD_OBJECT_MIN_FIELDS = 2;
+
 /**
- * Check if a decoded EastTypeValue represents a RecordObject.
- * RecordObject is a Struct with fields: path, mutations.
+ * Check if a decoded EastTypeValue represents a RecordObject — of any vintage:
+ * a struct agreeing with {@link RECORD_OBJECT_FIELDS} on their common prefix,
+ * which must reach {@link RECORD_OBJECT_MIN_FIELDS}.
+ *
+ * Both directions matter. A record object SHORTER than this build's type is
+ * one an older e3 wrote; one LONGER is one a newer e3 wrote in a repository
+ * this build is sweeping. Either way an unrecognised record object is treated
+ * as a leaf, its mutation bodies and index objects are never extracted, and
+ * the sweep deletes the things it is the only reference to.
  */
 function isRecordObjectShape(type: any): boolean {
   if (type.type !== 'Struct') return false;
+  const names = (type.value as { name: string }[]).map(f => f.name);
+  const common = Math.min(names.length, RECORD_OBJECT_FIELDS.length);
+  if (common < RECORD_OBJECT_MIN_FIELDS) return false;
+  return RECORD_OBJECT_FIELDS.slice(0, common).every((name, i) => name === names[i]);
+}
+
+/**
+ * Check if a decoded EastTypeValue represents a RecordIndexObject — the
+ * declaration an index was built under, which a historical state keeps naming
+ * long after the package that declared it is gone.
+ */
+function isRecordIndexObjectShape(type: any): boolean {
+  if (type.type !== 'Struct') return false;
   const names = new Set((type.value as { name: string }[]).map(f => f.name));
-  return names.has('path') && names.has('mutations') && names.size === 2;
+  return names.size === 7
+    && names.has('keyIr') && names.has('multi') && names.has('valueIr')
+    && names.has('keyType') && names.has('valueType') && names.has('buildIr')
+    && names.has('runner');
+}
+
+/**
+ * Check if a decoded EastTypeValue represents a record's `$record` state — the
+ * table naming its primary manifest and every index's.
+ */
+function isRecordStateShape(type: any): boolean {
+  return isRecordStateType(type as EastTypeValue);
 }
 
 /**
@@ -420,7 +461,7 @@ function isStructuralShape(type: EastTypeValue): boolean {
   return isPackageObjectShape(t) || isTaskObjectShape(t) || isFunctionObjectShape(t)
     || isRecordObjectShape(t) || isMutationObjectShape(t) || isEnvironmentSpecShape(t)
     || isRecordCommitShape(t) || isPartitionPlanShape(t) || isTreeObjectShape(t)
-    || isCollectionManifestShape(t);
+    || isCollectionManifestShape(t) || isRecordIndexObjectShape(t) || isRecordStateShape(t);
 }
 
 /**
@@ -485,9 +526,35 @@ function extractChildren(
   }
 
   if (isRecordObjectShape(t)) {
-    const rec = value as { mutations: Map<string, string> };
+    const rec = value as { mutations: Map<string, string>; indexes?: Map<string, string> };
     for (const mutHash of rec.mutations.values()) {
       children.push({ hash: mutHash, kind: 'node' });
+    }
+    // Absent on a record object written before indexes existed.
+    if (isEastDict(rec.indexes)) {
+      for (const indexHash of rec.indexes.values()) {
+        children.push({ hash: indexHash, kind: 'node' });
+      }
+    }
+    return children;
+  }
+
+  if (isRecordIndexObjectShape(t)) {
+    const index = value as { keyIr: string; valueIr: { type: string; value: string }; buildIr: string };
+    children.push({ hash: index.keyIr, kind: 'leaf' }, { hash: index.buildIr, kind: 'leaf' });
+    if (index.valueIr.type === 'some') children.push({ hash: index.valueIr.value, kind: 'leaf' });
+    return children;
+  }
+
+  if (isRecordStateShape(t)) {
+    const state = value as { kind: string; primary: string; indexes: Map<string, { manifest: string; index: string }> };
+    if (state.kind !== RECORD_STATE_KIND) return children; // a look-alike user struct
+    children.push({ hash: state.primary, kind: 'value' });
+    for (const entry of state.indexes.values()) {
+      children.push({ hash: entry.manifest, kind: 'value' });
+      // The declaration an index was built under must outlive the package
+      // that declared it: a state read at an older commit names it.
+      children.push({ hash: entry.index, kind: 'node' });
     }
     return children;
   }

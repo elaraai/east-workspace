@@ -28,6 +28,7 @@
 import {
   beast2HasIndex,
   carveBeast2Ranged,
+  compareFor,
   decodeBeast2FenceFor,
   openBeast2PagesFor,
   readBeast2Extents,
@@ -176,6 +177,39 @@ export class DatasetSegments {
       : openBeast2PagesFor(this.typeValue)(await this.segment(i)).fence(0);
     this.fences.set(i, value);
     return value;
+  }
+
+  /**
+   * The segment a canonical-order scan from `key` starts in: the greatest
+   * segment whose fence is at most `key`, or 0 when `key` precedes them all.
+   *
+   * @remarks
+   * Segments are disjoint ascending ranges, so this is the only segment that
+   * can hold `key` and the first that can hold anything at or above it. Over a
+   * manifest the bisect reads nothing at all — every fence came with it — which
+   * is what makes a keyed read of a million-entry record one segment read.
+   *
+   * @param key - the Dict key or Set element to seek to
+   * @returns the zero-based segment index
+   * @throws {Error} When the root is an Array, which has no key order.
+   */
+  async segmentFor(key: unknown): Promise<number> {
+    const keyType = segmentKeyTypeOf(this.typeValue);
+    if (keyType === null) {
+      throw new Error('beast2 v5: a keyed seek addresses Set and Dict roots; this holds Array');
+    }
+    const n = this.counts.length;
+    if (n === 0) return 0;
+    const cmp = compareFor(keyType as never) as (a: unknown, b: unknown) => number;
+    if (cmp(key, await this.fence(0)) < 0) return 0;
+    let lo = 0;
+    let hi = n - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (cmp(await this.fence(mid), key) <= 0) lo = mid;
+      else hi = mid - 1;
+    }
+    return lo;
   }
 
   /**

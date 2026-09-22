@@ -14,7 +14,7 @@
  * - **Task**: A transformation that reads input datasets and produces an output dataset
  */
 
-import type { EastType, EastIR, AsyncEastIR, ValueTypeOf, variant } from '@elaraai/east';
+import type { CallableFunctionExpr, EastType, EastIR, AsyncEastIR, ValueTypeOf, variant } from '@elaraai/east';
 import type { TreePath } from '@elaraai/e3-types';
 import type { DatasetSource } from './input.js';
 import type { Runner } from './runner.js';
@@ -173,6 +173,55 @@ export interface RecordDef<T extends EastType = EastType, Path extends TreePath 
   readonly recordKind: 'record';
   /** Mutations that may write this record, by name. */
   readonly mutations: Record<string, MutationDef>;
+  /** Secondary indexes over this record, by name. */
+  readonly indexes: Record<string, RecordIndexDef>;
+}
+
+/**
+ * A secondary index over a record — a second canonical collection whose sort
+ * order IS a query order.
+ *
+ * A record is paged and patched in its primary key order and nothing else, but
+ * the views over one have more than one order: by an attribute of the row, by
+ * a related entity a row names many of, by time across every key. An index
+ * closes that without a new storage structure — it is a collection
+ * `Dict<{ik, k}, P>` stored as a segment manifest exactly like the primary,
+ * maintained inside the same commit, and read with the same paging machinery.
+ *
+ * Passed to `e3.package` like a mutation; it is collected onto its record.
+ *
+ * @typeParam Name - The index name (literal type)
+ * @typeParam T - The owning record's state type
+ * @typeParam IK - The index key an entry sorts under
+ * @typeParam P - The covering projection's type (`NullType` when there is none)
+ */
+export interface RecordIndexDef<
+  Name extends string = string,
+  T extends EastType = EastType,
+  IK extends EastType = EastType,
+  P extends EastType = EastType,
+> {
+  readonly kind: 'recordIndex';
+  /** Index name — unique on the record, and never `primary`, which names the
+   *  record's own collection wherever an index is selected. */
+  readonly name: Name;
+  /** The record this index is over. */
+  readonly record: RecordDef<T>;
+  /** `(K, V) -> IK`, or `(K, V) -> Set<IK>` when {@link multi}. Kept as the
+   *  expression so export can compose it into the generated programs. */
+  readonly keyFn: CallableFunctionExpr<any, any>;
+  /** `(K, V) -> P`, the covering projection; absent when the index carries no
+   *  value. */
+  readonly valueFn?: CallableFunctionExpr<any, any>;
+  /** Declared with `keys` rather than `key`: one entry per element of the
+   *  returned set, so a row naming five resources appears under five keys. */
+  readonly multi: boolean;
+  /** `IK`. */
+  readonly keyType: IK;
+  /** `P`; `NullType` when the index carries no value. */
+  readonly valueType: P;
+  /** Runtime the index's functions run on; defaults to DEFAULT_RUNNER. */
+  readonly runner: Runner;
 }
 
 /**
@@ -204,6 +253,9 @@ export interface MutationDef<
   readonly body: EastIR<any, any> | AsyncEastIR<any, any>;
   /** The EXTRA positional parameter types (the state type comes from the record). */
   readonly argTypes: Args;
+  /** The reducer as an expression, kept beside its IR so export can compose
+   *  it into a generated program rather than re-deriving it from the IR. */
+  readonly fn?: CallableFunctionExpr<any, any>;
   /** Runtime the reducer runs on; defaults to DEFAULT_RUNNER. */
   readonly runner: Runner;
 }

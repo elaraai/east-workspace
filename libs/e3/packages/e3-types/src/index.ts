@@ -139,6 +139,15 @@ export {
   type MutationObject,
   RecordObjectType,
   type RecordObject,
+  decodeRecordObject,
+  RecordIndexObjectType,
+  type RecordIndexObject,
+  RECORD_STATE_KIND,
+  RecordStateType,
+  type RecordState,
+  isRecordStateType,
+  indexCollectionType,
+  indexWindowType,
 } from './record.js';
 
 // Package objects

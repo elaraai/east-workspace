@@ -28,6 +28,7 @@ import {
   LocalOrchestrator,
   InMemoryStateStore,
   type TaskCompletedCallback,
+  LocalTaskRunner,
 } from '@elaraai/e3-core';
 import { resolveRepo, formatError, exitError } from '../utils.js';
 import { loadPackageFile } from './load-package.js';
@@ -146,7 +147,7 @@ export async function watchCommand(
 
     // Deploy to workspace
     try {
-      await workspaceDeploy(deployStorage, repoPath, workspace, pkg.name, pkg.version);
+      await workspaceDeploy(deployStorage, repoPath, workspace, pkg.name, pkg.version, { runner: new LocalTaskRunner(repoPath) });
       console.log(`[${timestamp()}] Deployed to workspace: ${workspace}`);
     } catch (err) {
       console.log(`[${timestamp()}] Error deploying:`);

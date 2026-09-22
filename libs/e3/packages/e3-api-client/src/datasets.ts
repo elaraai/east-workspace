@@ -148,7 +148,17 @@ export async function datasetGet(
  *  immutable-cacheable (same URL ⇒ same bytes); a stale pin is refused with
  *  an error rather than answered with different bytes — refetch the status
  *  for the current hash and retry. */
-export type DatasetPageWindow = ({ offset: number; limit: number } | { segment: number }) & { hash?: string };
+export type DatasetPageWindow = ({ offset: number; limit: number } | { segment: number }) & {
+  hash?: string;
+  /** Read through one of a record's secondary indexes. The page's `data` is
+   *  then an ORDERED `Array<{ik, key, value, row}>` in index order — decode it
+   *  with the index's window type, never the record's. */
+  index?: string;
+  /** Fill each window entry's `row` from the primary. A view rendering from
+   *  the index's covering projection alone leaves this off and never reads a
+   *  primary segment. */
+  join?: boolean;
+};
 
 /** One page of a collection dataset. */
 export interface DatasetPage {
@@ -212,6 +222,10 @@ export async function datasetGetPage(
   if (window.hash !== undefined) {
     params.set('hash', window.hash);
   }
+  if (window.index !== undefined) {
+    params.set('index', window.index);
+    if (window.join === true) params.set('join', 'true');
+  }
   const response = await fetchWithAuth(
     `${url}/api/repos/${encodeURIComponent(repo)}/workspaces/${encodeURIComponent(workspace)}/datasets/${pathStr}?${params.toString()}`,
     {
@@ -250,13 +264,23 @@ export async function datasetGetPage(
 /** Query for {@link datasetFindKey}, optionally pinned to a content hash:
  *  `key` (a whole-key `.east` literal, any key type), `prefix` (String
  *  keys — or, for Struct keys, a prefix on the FIRST field when it is a
- *  String), or `fields` (Struct keys: `.east` literals of exact leading
+ *  String), `fields` (Struct keys: `.east` literals of exact leading
  *  fields in declaration order, optionally with `prefix` continuing into
- *  the next String field). Every form addresses one contiguous row range
- *  in the canonical key order. Pinned queries are immutable-cacheable
- *  (same URL ⇒ same answer); a stale pin is refused with an error rather
- *  than answered against different content. */
-export type DatasetFindQuery = ({ key: string } | { prefix: string } | { fields: string[]; prefix?: string }) & { hash?: string };
+ *  the next String field), or a `from` / `to` RANGE over a leading prefix
+ *  of the key's flattened field path. Every form addresses one contiguous
+ *  row range in the canonical key order. Pinned queries are
+ *  immutable-cacheable (same URL ⇒ same answer); a stale pin is refused with
+ *  an error rather than answered against different content.
+ *
+ *  `index` searches one of a record's secondary indexes instead of the
+ *  record itself, so the rows the answer names are the index's — the same
+ *  row space an index page serves. */
+export type DatasetFindQuery = (
+  | { key: string }
+  | { prefix: string }
+  | { fields: string[]; prefix?: string }
+  | { from?: string[]; to?: string[] }
+) & { hash?: string; index?: string };
 
 /** A key-search result over a Set/Dict dataset. */
 export interface DatasetFindResult {
@@ -314,11 +338,17 @@ export async function datasetFindKey(
     }
   } else if ('key' in query) {
     params.set('key', query.key);
-  } else {
+  } else if ('prefix' in query) {
     params.set('prefix', query.prefix);
+  } else {
+    for (const literal of query.from ?? []) params.append('from', literal);
+    for (const literal of query.to ?? []) params.append('to', literal);
   }
   if (query.hash !== undefined) {
     params.set('hash', query.hash);
+  }
+  if (query.index !== undefined) {
+    params.set('index', query.index);
   }
   const response = await fetchWithAuth(
     `${url}/api/repos/${encodeURIComponent(repo)}/workspaces/${encodeURIComponent(workspace)}/datasets/${pathStr}?${params.toString()}`,
