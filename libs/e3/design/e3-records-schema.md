@@ -1,6 +1,8 @@
 # Design: record schema versioning, migrations, and paged mutation
 
-> Status: **proposal** · 2026-09-04
+> Status: **proposal** · 2026-09-04 · revised 2026-09-22 (§9–§11: secondary
+> indexes, the mutation delta, steps for records; §7.3 corrected; §12–§17
+> renumbered from §9–§14)
 > Audience: e3 maintainers. Companion to [`e3-records.md`](./e3-records.md)
 > (the records spec) and [`e3-records-storage.md`](./e3-records-storage.md)
 > (the storage decision record). Resolves the §13 open question *"Redeploy
@@ -8,7 +10,7 @@
 > migration mutations (`$migrate`)"*, and folds it together with the paged
 > read/write story so one mechanism serves both.
 > Related issues: #413 (scale large keyed-collection records), #635 (composable
-> content addressing), e3-cloud#175/#176/#181.
+> content addressing), #779 (the epic of §9–§11), e3-cloud#175/#176/#181.
 
 ## 1. Summary
 
@@ -41,13 +43,14 @@ exactly the same terms:
   the record's audit history rather than an event that destroys it.
 - **Deploy plans the migration path before it touches anything, and is
   all-or-nothing** (§6), with `--plan` for a dry run.
-- **One write door, `e3.mutateByPatch`, paged automatically when the record's
+- **One write door, `e3.patchMutation`, paged automatically when the record's
   root is a collection** (§7). `PatchType(T)` already addresses what changed —
   keys for Dict/Set, `{key, offset}` for Array — so the engine resolves the
   touched segments and rewrites only those, on the
   `carveBeast2`/`rebuildBeast2`/`spliceBeast2` geometry
   `execution/partitionIo.ts` already wraps. A one-row edit costs one segment,
-  and — being generic — needs no reducer process at all.
+  and — on a record without indexes — needs no reducer process at all. §10
+  generalises the door to three write forms.
 - **The write is emitted as a composition plan, not a byte stream** (§8), so
   e3-cloud executes it as ranged reads in and `UploadPartCopy` ranges out — the
   unchanged segments never leave S3. This needs a new `ObjectStore.composeFrom`
@@ -57,13 +60,33 @@ exactly the same terms:
 - **Every content-addressed object lives in S3; DynamoDB holds only pointers,
   revision tokens, leases and the GC catalogue** (§8.6). The ≤ 4 KB
   DynamoDB-inline rule is withdrawn so the platform has one data-at-rest
-  surface, and it lands first (S0, §12) so nothing in this design is written
+  surface, and it lands first (S0, §15) so nothing in this design is written
   against a placement branch.
 
-The wire cost is one appended field on `RecordObjectType` and two new object
-types (`MigrationObjectType`, `RecordMigrationArgsType`). `RecordCommitType`,
-`DatasetRefType`, `PackageObjectType` and the structure encoding are all
-unchanged.
+- **A record declares secondary indexes** (§9). `e3.recordIndex` names an
+  East function of an entry; the index is a second canonical collection,
+  `Dict<{ik, k}, P>`, stored as a segment manifest like the primary, and the
+  record's state becomes a small `$record` object naming the primary and every
+  index — one commit, one ref swing, always consistent. Pages and key searches
+  take an index selector and a range-seek form; an index window is an ordered
+  array, never a dict.
+- **Every mutation writes a delta** (§10). Three forms — `reduce`, `edit` and
+  `patch` — run as one generated program on the mutation's runner that emits
+  the primary and index changes as one sorted collection, which e3-core
+  applies segment by segment. A mutation's write cost is the touched segments
+  of every target whatever its form, and e3-core never evaluates user East.
+- **Records reuse the step interpreter** (§11): index builds and reindexes,
+  migrations including key-changing ones, and writes above a segment threshold
+  run as plan, map, reduce and splice templates with a commit step, on every
+  backend. Runners open a segment manifest lazily, so a record is staged by
+  linking and a slice is a sub-manifest.
+
+The wire cost is four new object types (`MigrationObjectType`,
+`RecordMigrationArgsType`, `RecordIndexObjectType`, `RecordStateType`) and
+five appended fields (`RecordObjectType.migrations` and `.indexes`,
+`MutationObjectType.form` and `.programIr`, `RecordCommitType.delta`), each
+appended last with a dual decoder. `DatasetRefType`, `PackageObjectType` and
+the structure encoding are unchanged.
 
 ## 2. What exists today (audited)
 
@@ -105,6 +128,11 @@ span parts) and `spliceChunks` (streamed splice, O(chunk) memory). Both
 `isMutationObjectShape`, `isRecordCommitShape`. A record commit pushes `state`
 and `args` as leaves and `parent` as non-leaf.
 
+**Built, as of the 2026-09-22 revision.** Nothing of §7, §8.7 or §9–§11 exists
+in the tree: `recordMutate` is the whole-value loop above, there is no
+collection manifest or opener door, and `getDatasetPage` pages single blobs.
+Every stage of §15 is ahead.
+
 ## 3. The gaps
 
 | Gap | Consequence today |
@@ -119,6 +147,8 @@ and `args` as leaves and `parent` as non-leaf.
 | No compose primitive | `ObjectStore` offers `write`/`writeStream`/`read`/`readRange?` only, so every byte of an unchanged segment must transit the process — fatal to ranged copies in cloud (§8.1). Composition alternative only — not needed under §8.7, where unchanged segments are never rewritten at all |
 | History spans schemas untyped | Nothing marks where in a chain the state type changed |
 | Two data-at-rest surfaces in cloud | Objects ≤ 4 KB live in DynamoDB, the rest in S3 — two encryption, audit and retention scopes for one dataset, and a size branch in the object store (§8.6) |
+| One key order | A view by an attribute of the value, by a related entity, or by time across every key scans the record (§9) |
+| Every mutation form returns a whole state | Index maintenance would have to diff whole states; only a client patch is sparse (§10) |
 
 ## 4. Schema identity — derived, not declared
 
@@ -435,7 +465,7 @@ changed — even though a redeploy can change every mutation body and every task
 reading it. Append a `$deploy` commit (`state` unchanged, `parent` = prior head)
 on every keep; ~300 bytes, and it gives history one vocabulary — `$init`,
 `$deploy`, `$migrate:<name>`, `$reset`, `$compact`, `<mutation>`. Like every
-commit path, it must preserve `$schema` (§5.2). On by default; see §13 for the
+commit path, it must preserve `$schema` (§5.2). On by default; see §16 for the
 watch-loop volume question.
 
 ### 6.5 `e3 watch`
@@ -445,7 +475,7 @@ type-changing edit to a record fails the loop until a migration exists — the
 correct behaviour for a shared workspace, the wrong ergonomics for a scratch
 one. `watch` should take the same `--schema` flag and the scaffold's dev script
 should pass `--schema=reset`, so the dev loop resets a scratch record loudly
-and a shared workspace still refuses. See §12.
+and a shared workspace still refuses. See §15.
 
 ## 7. Paged mutation and streamed migration
 
@@ -467,7 +497,7 @@ leaf *format*; this design drops the discriminant as well.) The same door
 decides the §8.7 layout: a collection root is stored as a manifest over
 segment objects at every size, still with no flag.
 
-### 7.2 `e3.mutateByPatch` — one door, paged when it can be
+### 7.2 `e3.patchMutation` — one door, paged when it can be
 
 Today's authored surface is `e3.mutation(name, record, fn, config?)` with
 `fn: (State, ...Args) => State` (`e3/src/mutation.ts`). It stays exactly as it
@@ -475,7 +505,7 @@ is, for logic and invariants. Beside it:
 
 ```ts
 // any record, any type — no reducer body
-const editRoster = e3.mutateByPatch(roster);   // arg: PatchType(RosterType)
+const editRoster = e3.patchMutation(roster);   // arg: PatchType(RosterType)
 ```
 
 **`PatchType` already carries the address.** This is the key point, and it makes
@@ -497,7 +527,7 @@ by a representation East already fuzz-tests (`east/src/patch/fuzz.ts`) — which
 strictly better than the replace-only compromise a hand-rolled index address
 would have forced.
 
-**Paging is an implementation detail, not an API split.** `mutateByPatch` is
+**Paging is an implementation detail, not an API split.** `patchMutation` is
 declared once for any record type; the engine picks the write strategy from the
 record's root type (§7.1):
 
@@ -546,7 +576,11 @@ real care:
 applies the patch **in-process** with `applyFor(type)` per touched segment —
 there is no `runDetached`, no runner selection, no scratch dir, no spawn. For an
 interactive row edit that removes the dominant fixed cost outright: the write is
-one segment decode, one segment encode, and a byte-copy splice.
+one segment decode, one segment encode, and a byte-copy splice. That holds for
+a record without indexes. A record with indexes runs the generated program of
+§10.2 over a sub-manifest of the touched segments — one process per mutation,
+because the index functions are user East and run where user East runs; the
+apply itself stays in-process.
 
 (The authored path keeps full generality: `East.applyPatch` is a real builtin on
 **all three runtimes** — TypeScript `compile.ts:1366`, east-c
@@ -570,7 +604,7 @@ what changed, not merely which mutation ran. For a system of record that is a
 real upgrade at zero wire cost. The `replace`-op doubling (before *and* after) is
 the price, bounded by what actually changed.
 
-**Opt-in, not universal.** `mutateByPatch` is declared per record and passed to
+**Opt-in, not universal.** `patchMutation` is declared per record and passed to
 `e3.package` like any mutation, rather than being an implicit verb on every
 record. A record whose whole point is that writes go through validated
 mutations must be able to *not* offer a generic patch door — "mutations are the
@@ -608,7 +642,10 @@ Under the §8.7 layout steps 1, 4 and 5 read differently: open the **manifest**
 (one small object read) instead of head + tail ranges; rebuild each touched
 segment as a standalone **segment object** under the manifest's pinned header;
 write those objects plus a new manifest. There is no composition plan and no
-ranged rebuild. §8.7 gives the step-by-step form and §8.8 the costs.
+ranged rebuild. §8.7 gives the step-by-step form and §8.8 the costs. Under §10
+this list is superseded by §10.4: the program runs first, and its delta — not
+the raw patch — is what the touched-segment loop buckets and applies, for the
+primary and for every index.
 
 The state never enters a runner payload and is never held whole in the API
 process, which subsumes #413 work-item A's `{ objectHash }` arg form for this
@@ -689,6 +726,12 @@ size with a message pointing at the honest alternative (rebuild the record from
 a task, deploy it as the new record's initial value). Stating the boundary beats
 discovering it at 20 s of reducer CPU.
 
+> **Withdrawn (2026-09-22).** With the merge-tree fan-in of #764 a key-changing
+> migration streams too: `map` emits re-keyed entries per slice, `reduce` sorts
+> and merges them, `splice` finishes — §11.3. The size refusal above no longer
+> applies, and the batched-program recommendation is what the template does:
+> one unit per slice.
+
 The whole-value form (`e3.migration`) stays the default for scalar, struct and
 small-collection records — the overwhelmingly common case.
 
@@ -715,8 +758,10 @@ path makes them load-bearing:
 
 ### 7.5 What the reducer sees
 
-`e3.mutateByPatch` runs no reducer at all — e3-core applies the patch
-in-process — so it introduces no runtime concept anywhere. Authored
+`e3.patchMutation` runs no reducer at all on a record without indexes —
+e3-core applies the patch in-process — so it introduces no runtime concept
+anywhere; with indexes it runs the generated program of §10.2, and §10.5
+restates this section under the delta. Authored
 `e3.mutation` bodies and element migrations still receive a *value*, not a
 handle, so the frozen-task-input contract (#539) and the copy-first rule apply
 unchanged; the runner still receives beast2 files and writes a beast2 file. Only
@@ -769,7 +814,7 @@ backends to one result); an S3 store maps `copy` → `UploadPartCopy` and `bytes
 → `UploadPart`. This is the `composeFrom?()` that #635's "To build" list
 already names, given a concrete first consumer.
 
-A `mutateByPatch` write therefore emits, for a patch touching segments *i* and
+A `patchMutation` write therefore emits, for a patch touching segments *i* and
 *k*:
 
 ```
@@ -967,7 +1012,7 @@ placement. In e3-cloud:
   bytes — the property the evaluation depends on, checked in CI rather than by
   review.
 
-**Staging.** S0 in §12 — independent of S1–S4 and lands first, so the paged
+**Staging.** S0 in §15 — independent of S1–S4 and lands first, so the paged
 write path is never written against a size branch that is about to disappear.
 
 ### 8.7 Target-state flow — one row of a 200k-row record (segment-object layout)
@@ -977,7 +1022,7 @@ the roles of Lambda, DynamoDB and S3 are unambiguous. It assumes the
 **segment-object layout** below — the prolly tree `e3-records-storage.md`
 decided on, realised on the v5 segment format that now exists. Where this layout
 is adopted, §8.1–§8.4 (the composition plan, `UploadPartCopy`, the 5 MiB
-coalescing, the ranged rebuild) are not needed and the first bullet of §10 no
+coalescing, the ranged rebuild) are not needed and the first bullet of §13 no
 longer applies; they stay in this document as the considered alternative until
 §7–§8 are rewritten against the layout.
 
@@ -991,12 +1036,53 @@ longer applies; they stay in this document as the considered alternative until
 2. **A segment object is a standalone v5 blob**: header, one frame of ~1,000
    rows, terminator, index, footer — exactly what `carveBeast2` produces. Any
    existing reader in any runtime opens it, and materialising a whole value for
-   a runner is `spliceBeast2` over the segments.
-3. **Boundaries are content-defined.** A segment ends where a pinned hash of the
-   encoded key matches a pinned pattern, within pinned minimum and maximum
-   bounds, identically in all three runtimes. Segmentation is then a pure
-   function of the value, never of edit history: equal values produce equal
-   manifests, and two states diff in O(changed segments).
+   a runner is `spliceBeast2` over the segments — or, with the manifest-aware
+   opener of §10.3, no materialisation at all: the runner opens the manifest
+   and reads the segments it touches, the splice being the fallback for a
+   runtime without it.
+3. **Boundaries are content-defined.** A segment *starts* at the element whose
+   encoded key hashes into a pinned pattern, within pinned minimum and maximum
+   element bounds, identically in all three runtimes. Segmentation is then a
+   pure function of the value, never of edit history: equal values produce
+   equal manifests, and two states diff in O(changed segments).
+
+   **Resolved (2026-09-22), rule id `cdc/fnv1a64/256-1024-4096/1`.** Walking a
+   Set or Dict's keys in canonical order, a new segment begins at key *k* when
+   the open segment already holds at least `MIN = 256` elements and either
+   `fnv1a64(canonical bare encoding of k) & 1023 == 0` — so segments average
+   `TARGET = 1024` elements — or the open segment has reached `MAX = 4096`.
+   Array roots have no key to hash and keep the paged encoder's byte-adaptive
+   batching under the id `pos/1000-2MiB/1`; their segmentation is a property of
+   the writer rather than of the value.
+
+   Three things about that shape are load-bearing.
+
+   - **The cut falls before the boundary key, not after it**, so the key that
+     decided a boundary IS that segment's fence — which the manifest already
+     stores and a bare blob's reader already probes. A reader can therefore
+     answer *"was this cut by the rule?"* from the segment index alone, which
+     is what lets a conforming runner's output be carved into segment objects
+     by byte copy rather than decoded and re-encoded. The test is necessary
+     rather than sufficient — a writer that skipped a boundary key inside a
+     segment cannot be caught without decoding it — and that is enough: the
+     writers are the three runtimes' encoders, and a positionally batched blob
+     fails it almost surely.
+   - **The bounds are element counts, never bytes.** The only byte count a
+     writer knows as it cuts is the compressed one, and deflate output is not
+     byte-identical across zlib builds, so a byte bound could not be part of a
+     rule three runtimes must agree on. The exposure this leaves is wide rows:
+     at the 53 B/row of the sizes below a segment is ~52 KiB, but a row holding
+     a nested collection at 10 KB makes a 1024-element segment ~10 MB, and a
+     segment is the unit of every random read and of every one-row rewrite. A
+     cap on *logical* (pre-deflate) bytes would be deterministic and
+     reproducible on all three runtimes and is the obvious extension; it
+     changes the rule id, so it is a decision to take before the first
+     production write rather than after.
+   - **FNV-1a rather than SHA-256**, because it is one multiply and one xor per
+     byte with no state beyond a 64-bit accumulator, so every runtime
+     reproduces it in a few lines and the per-element cost stays under the
+     key's own encode. It carries no security claim: a key chosen to avoid
+     boundaries only lengthens a segment as far as `MAX`.
 4. **The manifest carries now what a second index level and a changed boundary
    rule will need** — BEAST2 is positional, so adding these later is another
    dual-decode tier:
@@ -1022,7 +1108,7 @@ export const CollectionManifestType = StructType({
    pushes every `entries[].hash` (leaf at level 0, non-leaf above) and `header`;
    `isRecordCommitShape` flips `state` to **non-leaf**; every dataset ref's
    `value.hash` is walked the same way. Survival fixtures in the same change, as
-   §9.2 demands.
+   §12.2 demands.
 
 **Sizes used below** were measured with the v5 paged encoder (deflate, the
 default) on a 12-field plan row: 53 B/row, so 200k rows ≈ 10 MiB in ~200
@@ -1195,9 +1281,528 @@ Compaction + GC reduces both to the live state (~10 MiB). Under the segment
 layout the whole audit history is affordable to keep, which is the point of a
 system of record.
 
-## 9. Wire changes and the GC gate
+## 9. Secondary indexes — `e3.recordIndex`
 
-### 9.1 Wire
+### 9.1 The gap
+
+§7 and §8.7 page and patch a record in its primary key order and nothing
+else. The trigger workload has more than one order. A planning record
+`Dict<{plan, bin}, Row>` — hundreds of thousands of plans, each a run of time
+bins, a row holding variants and nested collections, millions of entries in
+all — is read by plan, by plan over a time range, by an attribute of the row
+(status, owner, customer), by a related entity a row names many of (the
+resources a plan consumes), and by time across every plan. Only the first two
+are contiguous in primary order. The rest are not addressable through §7 at
+any cost short of a scan of the primary, which is exactly what a system of
+record at this size cannot afford per view.
+
+A secondary index closes that gap without a new storage structure: it is a
+second canonical collection whose sort order *is* the query order, stored as a
+segment manifest exactly like the primary, maintained inside the same commit,
+and read with the same paging machinery.
+
+### 9.2 An index is a canonical collection
+
+```
+Index(K, V, IK, P) = Dict<{ ik: IK, k: K }, P>
+```
+
+- `IK` is the index key an East function computes from an entry `(K, V)` — a
+  scalar, a struct, a variant. Struct keys compare field by field in
+  declaration order, so every entry with the same `ik` is one contiguous run,
+  ordered by primary key inside it, and a *range* of `ik` is one contiguous
+  run too. `k` in the key makes the entry unique and gives the run its inner
+  order.
+- A **multi-valued** index function returns `Set<IK>`: one entry per element,
+  so a plan that names five resources appears under five resource keys. An
+  empty set is an entry the index does not carry — a partial index is the same
+  declaration with a predicate inside the function.
+- `P` is an optional **covering projection**, a second East function of
+  `(K, V)`; `NullType` by default. A view that renders from the index alone —
+  a queue of `{status, due, title}` — declares the fields it renders as `P`
+  and never touches the primary segments; a view that needs the row joins
+  (§9.5).
+
+Because it is an ordinary collection blob under the §8.7 layout, everything
+already built for one applies unchanged: content-defined segments and their
+fences, the pager's bisect and windows, `findDatasetKey`, carve and splice,
+the lazy opener, the emit sink and the k-way merge. Nothing is added to
+beast2.
+
+### 9.3 Authoring surface
+
+```ts
+// packages/e3/src/record-index.ts (new)
+const plans = e3.record('plans', DictType(PlanKeyType, PlanRowType), new Map());
+
+// One key per entry, with a covering projection.
+const byStatus = e3.recordIndex('by_status', plans, {
+  key:   East.function([PlanKeyType, PlanRowType], StatusKeyType, ($, k, v) => ({ status: v.status, due: v.due })),
+  value: East.function([PlanKeyType, PlanRowType], QueueCardType, ($, k, v) => ({ title: v.title, owner: v.owner })),
+});
+
+// Many keys per entry: a Set return.
+const byResource = e3.recordIndex('by_resource', plans, {
+  keys: East.function([PlanKeyType, PlanRowType], SetType(ResourceRefType), ($, k, v) => v.resources),
+});
+
+// Time-major order across every plan.
+const byBin = e3.recordIndex('by_bin', plans, {
+  key: East.function([PlanKeyType, PlanRowType], TimeBinType, ($, k, v) => k.bin),
+});
+
+const pkg = e3.package('planning', '1.0.0', plans, byStatus, byResource, byBin, …);
+```
+
+`e3.recordIndex(name, record, spec, config?)`:
+
+- `spec` carries exactly one of `key` (a function of `(K, V)` to `IK`) or
+  `keys` (to `SetType(IK)`), and an optional `value` (to `P`); `config` takes
+  an optional `runner` on the `e3.mutation` policy. The record's type must be a
+  `Dict` — a Set or Array record has no `(K, V)` entry to index.
+- collected by `package_()` onto its record like a mutation
+  (`item.kind === 'recordIndex'`); an index whose record is not in the package
+  is a definition-time error.
+- the same guards as a mutation: sync, no `Platform` node under `walkIR`,
+  parameter types equal to the record's key and value types by
+  `equalFor(EastTypeType)`. The name is an identifier, unique on the record,
+  and not `primary` (reserved by §10.1). All definition-time errors, never
+  deploy failures.
+
+The functions are pure for the same reason a reducer is: they run again on
+every commit and in every bulk build, and the maintained index must equal the
+rebuilt one to the byte (§9.6).
+
+### 9.4 Where the indexes live — the `$record` state object
+
+The record's `state` gains one level when the record declares an index. The
+ref's `value.hash` then names a small state object rather than the primary
+manifest:
+
+```ts
+// packages/e3-types/src/record.ts
+export const RecordStateType = StructType({
+  kind:    StringType,                 // "$record" — GC recognizer tag, like "$segments"
+  primary: StringType,                 // CollectionManifest hash of the primary
+  indexes: DictType(StringType, StructType({
+    manifest: StringType,              // CollectionManifest hash of the index collection
+    index:    StringType,              // RecordIndexObject hash it was built under
+  })),
+});
+```
+
+One state object, one commit, one conditional ref write: the primary and every
+index are consistent at every commit, history carries them, `e3 get --at
+<commit>` resolves them, compaction copies the state hash and so keeps them,
+and GC walks them (§12.2). A record without indexes keeps the plain manifest,
+so this is additive on §8.7 — and adding a record's first index is a
+`$reindex` commit (§11.2), not a migration.
+
+`indexes[name].index` is what deploy compares (§11.2): an index whose object
+hash differs from the package's — its key function, its value function or its
+runner changed — is rebuilt; one absent from the package is dropped from the
+state; one present in the package and absent from the state is built.
+
+The state object is resolved through the same opener door §8.7 rule 1
+introduces: every reader of a record's `value.hash` asks the door for the
+*primary* and gets the manifest, and the index readers of §9.5 ask it for an
+index by name. Task-input marshalling, `datasetGet`, paging and the UI read
+path see the primary and nothing else, as today.
+
+### 9.5 Reads through an index
+
+The page and key-search endpoints take an index selector, `index=<name>`,
+beside the window or the query:
+
+```
+GET …/datasets/<record>?page=true&index=by_status&offset=0&limit=50[&join=true][&hash=<state>]
+GET …/datasets/<record>?find=true&index=by_status&from=<literal>…&to=<literal>…[&hash=<state>]
+```
+
+- **The index window is served from the index's own segments** — the same
+  fence bisect and window slice §7 uses on the primary, over the index
+  manifest. With a covering `P` the window is the answer.
+- **`join=true` returns the rows.** The window's primary keys are bucketed by
+  owning primary segment (one fence bisect each, against the primary manifest
+  already in hand), each distinct segment is read and decoded once, and the
+  rows are projected out. A page of fifty rows scattered across the primary
+  costs at most fifty segment reads, issued in parallel; a page whose entries
+  share an index key usually clusters far better than that. A joined page of
+  wide rows is clamped by the primary's average row bytes exactly as §7's page
+  byte budget clamps a primary window.
+- **An index window is an array, not a dict.** A `Dict` value re-sorts by its
+  key, which would throw away the index order the page was asked for. The
+  wire type of an index window is therefore positional, in index order,
+  carrying every key the client may need:
+
+  ```ts
+  IndexWindowType(K, IK, P, V) = ArrayType(StructType({
+    ik:    IK,             // the index key
+    key:   K,              // the primary key
+    value: P,              // the covering projection (Null when none)
+    row:   OptionType(V),  // the primary row — some(...) with join=true
+  }));
+  ```
+
+  Whatever renders an index-ordered view consumes this shape. That is a
+  contract the data layer sets and the UI meets, not the reverse: the keyed
+  row-source contract in east-ui grows an ordered-keyed-rows arm for it (§13,
+  last bullet).
+- **Range seeks.** `findDatasetKey` answers exact keys, string prefixes and
+  exact leading struct fields. An index over `{status, due}` and a primary over
+  `{plan, bin}` both need *bounds*: "plan X between t0 and t1", "every plan in
+  this week", "late plans due before Friday". The query gains a fourth form —
+  `from` and `to`, each a list of `.east` literals for a leading prefix of the
+  key's **flattened** field path (for an index key that path begins inside
+  `ik`: `{ik: {status, due}, k: {plan, bin}}` flattens to `status, due, plan,
+  bin`, so `from=[late, 2026-10-01]` bounds `ik.status, ik.due`) — with the
+  same monotone lower and upper predicates the existing forms build, recursing
+  into nested struct fields in declaration order. Two fence bisects, one
+  contiguous row range, on the primary and on any index alike.
+- **Hash pinning** pins the `$record` state hash; a page of any index under it
+  is immutable-cacheable exactly as a primary page is (§7).
+
+Per-operation cost on the §8.8 record with three indexes declared, typical
+in-region figures:
+
+| Read | S3 GET | Rows decoded | Warm latency |
+|---|---|---|---|
+| Index page of 50 covering entries | state + index manifest (cached warm) + 1–2 segments | 1,000–2,000 index entries | 40–80 ms |
+| Index page of 50, `join=true`, entries clustered in 3 primary segments | + 3 primary segments | + 3,000 rows | 60–120 ms |
+| Index page of 50, `join=true`, fully scattered | + up to 50 primary segments, in parallel | + up to 50,000 rows | 120–250 ms, CPU-bound |
+| Range seek on an index | 2 bisects over cached fences | ≤ 2 segments | 20–60 ms |
+
+### 9.6 Invariants and the reindex door
+
+- **Maintained ≡ rebuilt.** At every commit each index manifest equals, byte
+  for byte, the manifest a bulk build (§11.2) over the same primary would
+  write. Content-defined boundaries make this a property of the value rather
+  than of the edit history, and the compliance suite asserts it after a mixed
+  sequence of inserts, updates, deletes and multi-key changes.
+- **Rebuildable.** An index is derived state. `e3 record reindex <ws> <record>
+  [--index <name>]` (and its API route) rebuilds it from the primary through
+  §11.2 and appends a `$reindex` commit; the audit chain records that it
+  happened. This is also the operator's exit when an index function turns out
+  to be wrong: fix the function, redeploy, and the deploy plan rebuilds.
+- **Never partial.** A commit either updates every index the state names or
+  none: the delta of §10 carries every index arm, and the apply of §10.4
+  writes every manifest before the one ref swing.
+
+## 10. Every mutation writes a delta
+
+### 10.1 The mutation delta
+
+§7.2 reasoned about one write form: a client-supplied `PatchType(State)`. With
+indexes, every write form must produce the same thing — the primary changes
+*and* the index changes, addressed by key, sparse — so that one apply path
+serves all of them. That thing is the **mutation delta**, one sorted collection
+per commit:
+
+```ts
+// Derived per record from its type and index declarations; never stored as a
+// type — every delta blob is self-describing.
+PatchOps(T)       = VariantType({ delete: T, insert: T, update: PatchType(T) })  // the op type of PatchType(Dict<_, T>)'s `patch` arm
+DeltaKeyType      = VariantType({ primary: K,           [name]: StructType({ ik: IK_name, k: K }) … })
+DeltaOpType       = VariantType({ primary: PatchOps(V), [name]: PatchOps(P_name) … })
+MutationDeltaType = DictType(DeltaKeyType, DeltaOpType)
+```
+
+One variant case per target — `primary` plus one per declared index, which is
+why `primary` is a reserved index name. The arm of a case is exactly the op
+type of that target's own `PatchType`, so applying the `by_status` run of a
+delta to the `by_status` collection *is* `applyFor(indexType)(segment,
+variant('patch', ops))`, `ConflictError` and all. Canonical order puts every
+target's ops in one contiguous run, in the target's own key order: the apply
+streams the delta segment by segment and never holds it whole, and a delta is
+a pageable dataset like any other. A delta whose only arm is `primary`, on a
+record with no index, is exactly the `patch` arm of §7.2.
+
+The delta is what the commit records: `RecordCommitType` gains a trailing
+`delta: OptionType(StringType)` (appended last, dual-decoded, a GC leaf like
+`args`) naming it, so history shows what changed without diffing states, and
+`invertFor` can synthesise an undo from it. `args` keeps its meaning — the
+mutation's own arguments, which is what an audit reader wants to see first.
+
+### 10.2 Three write forms, one program
+
+| Form | Declared as | Body | Best for |
+|---|---|---|---|
+| **reduce** | `e3.mutation(name, record, fn)` — unchanged | `(State, …Args) => State` | invariants over the whole state; small records |
+| **edit** | `e3.editMutation(name, record, fn)` | `(State, …Args, Edit) => Null` | server-side logic touching a few entries of a large record — the "lazy write" |
+| **patch** | `e3.patchMutation(record)` | none; the argument is `PatchType(State)` | interactive edits from a view; integrations that send diffs |
+
+`e3.patchMutation` is the door §7.2 specifies, under the name this document
+now uses throughout (§16). `Edit` is a struct of three East functions the SDK
+types as `EditOf(State)`:
+
+```ts
+EditOf(Dict<K, V>) = StructType({
+  set:    FunctionType([K, V], NullType),
+  delete: FunctionType([K], NullType),
+  update: FunctionType([K, PatchType(V)], NullType),
+});
+```
+
+An edit body reads the state it is given — lazily, the frozen pager-backed
+value every runner already serves (#539) — and writes through `edit`; it never
+returns a state. Repeated edits of one key fold: `set` after anything is that
+`set`; `update` after `set` applies to the set value; `update` after `update`
+composes (`composePatch`); `delete` after anything is `delete`; a `delete` or
+`update` of a key the state does not hold fails the mutation naming the key,
+as `applyFor` would.
+
+All three forms run as **one generated program** on the mutation's runner. The
+SDK builds it at export beside the body, the way `partitionTask` builds its
+merge command and `streamTask` its command IR — an ordinary East function
+assembled from the author's own IR and the record's index functions, then
+linked and encoded like any other `bodyIr`:
+
+```
+program(state, …args | patch, emit):
+  ops : Dict<K, EditOp(V)>                          // the touched primary keys, folded
+    reduce:  next = body(state, …args); ops = diff(state, next).patch   // the Diff builtin — sparse
+    edit:    ops = {}; body(state, …args, edit-over-ops)
+    patch:   ops = patch.patch  (a `replace` arm: check `before` ≡ state, then ops = diff(state, after).patch)
+  arms : one Dict per target, keyed by that target's key type
+  for (k, op) in ops:                               // canonical key order
+    old = state.tryGet(k)                           // one lazy segment decode, LRU-cached by the pager
+    new = apply(old, op)
+    arms.primary[k] = toPatchOp(old, new)           // insert new | delete old | update diff(old, new)
+    for each index i:
+      oldKeys = keys_i(k, old) if old else {}       // `key` wraps into a one-element set
+      newKeys = keys_i(k, new) if new else {}
+      for ik in oldKeys − newKeys: arms.i[{ik, k}] = delete value_i(k, old)
+      for ik in newKeys − oldKeys: arms.i[{ik, k}] = insert value_i(k, new)
+      for ik in oldKeys ∩ newKeys, value changed:  arms.i[{ik, k}] = update diff(value_i(k, old), value_i(k, new))
+  for case in canonical case order of DeltaKeyType: // `emit` needs ascending keys on every runtime
+    for (key, op) in arms[case]: emit(variant(case, key), variant(case, op))
+```
+
+The runner invocation is the one every task already knows: `run` with the
+state as a lazily opened input (`--stream`, so a 1.5 GB primary costs the
+segments the body touches, not a decode), `--emit dict` for the delta, `-o
+<delta.beast2>`. No new runner command and no new native code: the program
+emits its delta in canonical order itself, so it needs neither the C sink's
+spill-and-merge sort (the TypeScript sink has none) nor any runtime beyond the
+one the mutation declares. e3-core never evaluates user East — it applies
+(§10.4) — which keeps the step interpreter's rule and the cross-runtime parity
+§7.3 wanted for migrations.
+
+Two costs to name. The `reduce` form's diff is O(n) in the runner, as its
+encode already was; its *write* is now O(touched) like the others. And a record
+with indexes turns the `patch` form from "no process" (§7.2) into one runner
+run over the touched entries — the price of computing the index functions
+where user East runs. Without indexes e3-core applies a client patch directly,
+exactly as §7.2 says.
+
+### 10.3 The state the program sees
+
+Locally, a record's state is materialised for the runner the way every task
+input is (#767): by link, never by copy. Under §8.7 that means the segment
+objects are linked into the scratch directory beside a manifest, and the
+runner's lazy opener follows the manifest — a beast2 file whose value is a
+`CollectionManifest` opens as the collection it describes, its segments being
+sibling files named by hash. Splicing the segments into one file, which §8.7
+rule 2 names as the materialisation, becomes the fallback for a runtime
+without a manifest-aware opener. The same opener lets a partition slice be a
+*sub-manifest* — a list of segment hashes, no bytes copied — which is what §11
+leans on.
+
+For the `patch` form e3-core knows the touched keys before anything runs,
+bisects them against the primary manifest, and hands the program a
+sub-manifest of only the touched segments. The `edit` and `reduce` forms read
+data-dependently, so they take the whole manifest. On e3-cloud the difference
+matters (§10.6).
+
+### 10.4 The apply, in e3-core
+
+Per CAS attempt, replacing the step list of §7.2:
+
+1. Read the versioned ref; read the `$record` state object (or the bare
+   manifest); read the manifests it names — every one immutable and served
+   from an in-process cache by hash on a warm process.
+2. Run the program (§10.2); adopt its delta output as an object by hash.
+   Nothing is decoded in this process.
+3. Stream the delta. For each arm, bisect the touched keys against that
+   target's fences, group by segment, and for each touched segment: read the
+   segment object, verify its hash, decode,
+   `applyFor(targetType)(segment, variant('patch', ops))`, re-run the boundary
+   rule over the result together with its neighbours where a merge or split
+   falls due, and encode each resulting segment as a standalone blob under the
+   manifest's pinned header. A `ConflictError` here is the stale-write signal
+   of §7.2: the attempt is abandoned and the outcome is `conflict` naming the
+   key, never a silent clobber.
+4. Write the new segment objects and one new manifest per touched target;
+   untouched targets keep their manifest hash.
+5. Write the new `$record` state object and the commit (with `delta`), and
+   swing the ref with `writeIf`; on a conflict, restart from step 1 with the
+   same arguments.
+
+Nothing in this process ever holds more than the touched segments of one
+target. The whole-apply ≡ segment-wise-apply property test §7.2 asks for
+covers every arm; a second fixture pins that the apply's segment objects equal,
+hash for hash, the objects the encoder door writes for the whole new value.
+
+Per-mutation cost on the §8.8 record with three indexes — one plan edited from
+a view, typical in-region figures, warm:
+
+| | primary | each index | fixed |
+|---|---|---|---|
+| segment GET + PUT | 1 + 1 | 1 + 1 | manifests 1 + 3 (cached warm), state object, delta, commit |
+| rows decoded and re-encoded | ~1,000 | ~1,000 | — |
+| process runs | 1 (the program, ~30–50 ms warm) | 0 | — |
+| warm latency, end to end | | | 250–350 ms |
+
+Against §8.8's 150–200 ms for a record without indexes, the difference is the
+program run and three more small puts. The 50-row scattered save of §8.8
+scales the same way: at most 50 primary segments plus at most 50 per index,
+CPU-bound, in parallel.
+
+### 10.5 What the reducer sees, restated
+
+§7.5 stands: every form receives a value, frozen and pager-backed, and the
+copy-first rule applies. What changes is the *output* contract — a delta on
+the runner's emit sink instead of a state on `-o` — and that a mutation never
+needs the whole state on the heap unless its own body does.
+
+### 10.6 On e3-cloud
+
+The shape is unchanged: every manifest, segment, state object and delta is an
+S3 object under §8.6; DynamoDB holds the ref and the conditional write; the
+program runs on the detached-runner Lambda. Three things follow for the cloud
+implementation:
+
+- **Inputs by reference** (#413 work item A) is a prerequisite: the state is a
+  manifest, so the runner Lambda resolves object hashes against S3 and
+  materialises segments to its ephemeral disk. A warm runner keeps a
+  hash-keyed cache of segment objects; after the first mutation of a record
+  only the segments a later commit changed are fetched again, so the `edit`
+  and `reduce` forms cost O(changed segments) of transfer on a warm container
+  and one full fetch on a cold one. The `patch` form carries a sub-manifest
+  and is O(touched) cold or warm — the form to use for interactive latency at
+  any record size.
+- **The delta comes back as an object**, never in the invoke response: the
+  runner adopts it into S3 by hash and returns the hash — #413 work item A's
+  `resultAsObject`.
+- **The S3 object store has no ranged read and buffers streamed writes whole**
+  today. Under the segment-object layout neither is on the mutation path —
+  segments are whole small objects — but a bulk build's final splice (§11.2)
+  is a streamed write and needs the multipart path.
+
+## 11. Steps for records
+
+Partitioned execution has a step interpreter — `plan`, `map`, `reduce`,
+`splice` over a template, every unit an ordinary content-addressed execution,
+the carve and splice hooks and the unit executor injectable so e3-cloud runs
+the units on its own compute (`execution/steps.ts`, #770). Records get their
+bulk operations from it rather than from anything new, and the mutation forms
+of §10 are its units when a write is large.
+
+### 11.1 The record template
+
+A record operation is a template over the record's primary manifest instead
+of a task's input blob:
+
+- `plan` reads the manifest — its fences, counts and bytes *are* the segment
+  index — and cuts partitions by `targetPartitionBytes` exactly as
+  `planPartitions` does from a blob's index; a slice is a sub-manifest
+  (§10.3), so nothing is carved.
+- `map` runs a generated program per slice on the record's (or the index's)
+  runner — an execution of a synthesized task object, probed in the execution
+  cache first, so a re-run over unchanged segments hits.
+- `reduce` is the merge tree of #770's fan-in — `ranges` grouping, the
+  runner's `merge` command.
+- `splice` writes the result through the encoder door, which cuts it into
+  segment objects and a manifest; a segment equal to one the store already
+  holds dedupes by hash.
+- a final **commit step** writes the `$record` state object, the commit and
+  the conditional ref write — the one step the task interpreter lacks, and the
+  reason "steps" reach mutations at all.
+
+### 11.2 Index build and reindex
+
+Building an index over N entries is an external sort of N small entries — the
+emit sink's job. The template is `[plan, map, reduce(merge), splice, commit]`:
+
+- `map`: the index's build program, generated at export beside its key and
+  value functions — `(slice: Dict<K, V>, emit) => Null`, iterating the slice
+  and emitting `{ik, k} → P` for every key the index function yields. Index
+  order is not primary order, so the program collects its slice's entries in a
+  local `Dict` and emits it in order; a runtime whose sink sorts may stream
+  instead, and the bytes are the same either way.
+- `reduce`: partials overlap in index-key space, so they merge through the
+  tree with a trivial merge function — keys cannot collide, since `k` is
+  unique to one slice.
+- `splice` and the door; then one `$reindex` commit naming the new state
+  object, carrying `mutation: "$reindex:<name>"` and, in `args`, the
+  `RecordIndexObject` hash it was built under.
+
+Deploy plans it. §6.1's table gains rows: for each record present, an index in
+the package whose object hash is not the one the state names is `build`; an
+index the state names and the package does not is `drop`; a type-changing
+migration (§5) implies `build` for every index, applied after the migration's
+own steps; a record whose declared indexes match its state is `keep`.
+`--plan` prints the work per index in segments and bytes. Every policy of §6.2
+runs index builds, `fail` included: an index is derived, and building one
+changes no state the audit chain protects. The frontier of §5.2 is untouched.
+
+Sizes for the §8.8 record: 200 segments, one map unit per 256 MiB target —
+one unit at this size, a few seconds on the C runner; the 1.5-million-entry
+planning record of §9.1 at ~150 MB is one unit at the default 256 MiB target
+and six at 32 MiB — the byte target is the parallelism knob — a minute or so on
+a laptop either way and, on cloud, a job (§11.5).
+
+### 11.3 Migrations, corrected
+
+§7.3 says a key-changing migration cannot stream because its output must be
+re-sorted. With the merge tree that is no longer true: `map` emits re-keyed
+entries per slice through the migration's program, `reduce` sorts and merges
+them, `splice` finishes. The whole-value refusal of §7.3 is withdrawn: a
+key-changing migration is the same template as an index build with a
+different map program, and an element migration is the template without
+`reduce`. The "one process per segment" trap of §7.3 is answered the same way
+— one map unit per slice, not per segment — so the batched-program
+recommendation there is what the template does.
+
+### 11.4 Large writes as steps
+
+A delta is a sorted, pageable collection, so a write that touches many
+segments is a `map` over the touched segments rather than an in-process loop.
+Above a threshold of touched segments — `MUTATION_INLINE_MAX_SEGMENTS`, pinned
+like the boundary constants — the apply of §10.4 plans one unit per run of
+touched segments per target, each unit a generated program
+`(segments: Dict<K, V>, ops: Dict<K, PatchOps(V)>) => Dict<K, V>` that is one
+`applyPatch` call, run on the record's runner, its output re-encoded by the
+runner as a canonical blob; the untouched spans are copied by sub-manifest;
+`splice` and the door finish; then the commit step. Below the threshold the
+in-process apply runs, and a fixture pins that both paths write the same
+segment objects for the same delta. This is what an integration writing a
+hundred thousand rows in one mutation, or a planner's "reschedule everything
+on this resource", costs: parallel units on every backend, cached like any
+other execution.
+
+A **partitioned edit mutation** — an `edit` body run once per slice of the
+state, each unit emitting its own delta, the deltas merged (their keys are
+disjoint by construction) and applied as above — is the same template one
+step earlier, and is deferred until a workload asks for it; every piece is
+present.
+
+### 11.5 On e3-cloud
+
+The units run through the executor hook e3-cloud already supplies for
+partitioned tasks; nothing record-specific is added to the compute path. What
+is new is *when* the template runs: a deploy that builds an index or migrates
+a record cannot finish inside a deploy request, so a cloud deploy returns with
+the record in an `indexing` or `migrating` status and runs the template as an
+orchestrated job — the yielding shell the dataflow loop uses — with the
+workspace fenced by the deploy lock until the commit step lands or the
+all-or-nothing rollback of §6.3 restores the captured refs. This is a cloud
+design item with a companion issue; it applies to §5's migrations as much as
+to indexes.
+
+## 12. Wire changes and the GC gate
+
+### 12.1 Wire
 
 ```ts
 // packages/e3-types/src/record.ts
@@ -1216,15 +1821,49 @@ export const RecordObjectType = StructType({
 });
 ```
 
-`RecordCommitType`, `PackageObjectType`, `DatasetRefType`, `StructureType`,
-`MutationObjectType`: **unchanged**. The applied frontier (§5.2) is a reserved
+The 2026-09-22 revision appends to three of these and adds two object types:
+
+```ts
+// packages/e3-types/src/record.ts — §9 and §10
+export const RecordIndexObjectType = StructType({
+  keyIr:     StringType,               // encodeEastIR bundle hash: (K, V) -> IK, or -> Set<IK>
+  multi:     BooleanType,              // declared with `keys` (a Set return) rather than `key`
+  valueIr:   OptionType(StringType),   // (K, V) -> P; none ⇒ P is Null
+  keyType:   EastTypeType,             // IK
+  valueType: EastTypeType,             // P
+  buildIr:   StringType,               // the generated build program of §11.2
+  runner:    RunnerType,
+});
+export const RecordStateType = …       // the `$record` envelope, §9.4
+export const RecordObjectType = StructType({
+  path, mutations, migrations,
+  indexes:   DictType(StringType, StringType),   // NEW — name -> RecordIndexObject hash
+});
+export const MutationObjectType = StructType({
+  bodyIr, argTypes, runner,
+  form:      StringType,                         // NEW — "reduce" | "edit" | "patch"
+  programIr: StringType,                         // NEW — the generated program of §10.2
+});
+export const RecordCommitType = StructType({
+  parent, state, mutation, args, actor, at,
+  delta:     OptionType(StringType),             // NEW — the mutation delta object, §10.1
+});
+```
+
+Every new field is appended last, in landing order (`migrations` and
+`indexes` land with different stages, and whichever lands first takes the
+earlier position), and every decoder reads every prefix. For the `patch` form
+`bodyIr` names the program itself, there being no author body.
+`PackageObjectType`, `DatasetRefType` and `StructureType`: **unchanged**. The
+applied frontier (§5.2) is a reserved
 `$schema` key in the record ref's existing `VersionVector`
 (`DictType(String, String)`) — new *state*, but not a new wire shape, on the
 `$idem` precedent.
 
 BEAST2 is positional, so `decodeRecordObject` becomes a dual-decoder on the
 `decodePackageObject` precedent (`e3-types/src/package.ts:118`) — try current,
-fall back to the two-field shape with `migrations: []`. Every read path, local
+fall back to every shorter prefix, defaulting `migrations` to `[]` and `indexes`
+to an empty map. Every read path, local
 and cloud, must route through it. `RecordMigrationArgsType` (§5.2) is a new
 value type with no compatibility surface.
 
@@ -1234,7 +1873,7 @@ inference happens to be unambiguous today, but BEAST2 is positional: adding the
 field later is another dual-decode tier, and reading a migration's kind is on
 the deploy path. Pay the byte now.
 
-### 9.2 GC is a merge gate, not an optimization
+### 12.2 GC is a merge gate, not an optimization
 
 `isRecordObjectShape` (`gc.ts:215`) matches an **exact** field set. Adding
 `migrations` breaks it: a package with the new field would fail the shape test,
@@ -1250,7 +1889,18 @@ Splice-produced state blobs need no GC change — they are ordinary objects.
 Manifests under §8.7 do: rule 5 there — the `$segments` recognizer and the
 `state` non-leaf flip — is part of the same gate.
 
-### 9.3 Compliance surface
+The 2026-09-22 revision adds to the gate: `isRecordIndexObjectShape` (its
+three IR fields are leaves); `isRecordObjectShape` accepting two to four
+fields and pushing every `indexes` value as non-leaf; `isMutationObjectShape`
+accepting the two appended fields and pushing `programIr` as a leaf;
+`isRecordCommitShape` accepting `delta` as a leaf; and `isRecordStateShape`
+(kind `$record`) pushing `primary`, every `indexes[].manifest` and every
+`indexes[].index` as non-leaf — the index object must stay reachable from a
+historical state after the package that declared it is gone. Survival
+fixtures: deploy with indexes → mutate → reindex → gc → read at head and at an
+older commit; drop an index → gc.
+
+### 12.3 Compliance surface
 
 `e3-api-tests/src/suites/records.ts` is scalar-counter shaped today. It needs:
 keyed-collection fixtures at 10k and (perf-tagged) 100k rows; a migration
@@ -1262,9 +1912,13 @@ guarantee. Under §8.7 the splice/carve round-trip becomes a manifest round-trip
 encode → manifest + segment objects → splice → decodes equal to the whole
 encode — plus a determinism fixture: equal values yield byte-identical
 manifests regardless of the edit history that produced them, and a one-row edit
-at 1M rows costs no more than twice a one-row edit at 10k.
+at 1M rows costs no more than twice a one-row edit at 10k. §9.6 and §10.4 add:
+maintained ≡ rebuilt for every index after a mixed mutation sequence; the
+whole-apply ≡ segment-wise-apply property over every delta arm; a joined index
+page against a whole-value filter; and the generated program's delta
+byte-identical across the three runtimes.
 
-## 10. What this does *not* fix
+## 13. What this does *not* fix
 
 Stated plainly, because the temptation is to claim more:
 
@@ -1282,11 +1936,13 @@ Stated plainly, because the temptation is to claim more:
   advances the record's single version-vector entry, so every task reading it
   re-runs. Per-key invalidation remains out of scope (#413 non-goal). §8.7's canonical
   manifests make per-segment change detection a manifest diff, which is the
-  enabler if this is ever pursued.
-- **Authored whole-value mutations stay O(n).** `e3.mutateByPatch` is an
-  *additive* surface; an author who writes `(State, ...) => State` gets today's
-  cost. Nor does a `replace`-arm patch page — only structural (`patch`-arm)
-  patches are sparse enough to exploit.
+  enabler if this is ever pursued. A `partitionTask` over the record already
+  re-runs only the partitions whose slices changed, which content-defined
+  segments make exact — coarse, but automatic.
+- **The `reduce` form's runner cost stays O(n).** Its body and its diff see the
+  whole state (§10.2); only its *write* is O(touched). Nor does a `replace`-arm
+  patch avoid that diff. The `edit` and `patch` forms are the O(touched) forms
+  end to end.
 - **Down-migrations are not supported.** Rolling a package back over a migrated
   record is refused, not reversed. `invertFor` from the patch system could in
   principle synthesize one, but only for value diffs, not type changes.
@@ -1295,8 +1951,16 @@ Stated plainly, because the temptation is to claim more:
   another — losing state and history unless the operator notices. An explicit
   `renamedFrom` on `e3.record` would close it; deliberately left out of v1, but
   `--allow-drop-records` is what stands between a rename and silent data loss.
+- **Ad-hoc indexes are not in v1.** An index is declared in the package (§9.3);
+  a view that sorts by an undeclared attribute scans. The bulk build of §11.2
+  keyed by state hash and index-function hash is the obvious on-demand form,
+  deferred until a workload asks for it.
+- **The UI contract is a consequence here, not a driver.** An index-ordered
+  window is an ordered array (§9.5); the keyed row-source contract in east-ui
+  gains an arm for it, and composite keys, in a follow-up. This document sets
+  the wire shape and stops there.
 
-## 11. Extension: the same mechanism for `e3.input`
+## 14. Extension: the same mechanism for `e3.input`
 
 §2 establishes that redeploy silently resets every input to its package default.
 The machinery generalizes — an input's type identity is the same derived hash, a
@@ -1309,7 +1973,7 @@ change to every existing deployment, and the "cache of someone else's truth vs.
 ours" distinction in `e3-records-storage.md` is *why* inputs reset. Opt-in after
 the record path is proven, or not at all.
 
-## 12. Staging
+## 15. Staging
 
 Each stage is independently valuable and independently shippable.
 
@@ -1333,7 +1997,7 @@ only. **This is the user-visible capability**; everything after is scale.
 cost amortizes across segments (§7.3). Unblocks migrating records that cannot be
 materialized. Requires S1's plan phase to route to it.
 
-**S3 — paged patch writes.** `e3.mutateByPatch`, fence bisect, per-segment
+**S3 — paged patch writes.** `e3.patchMutation`, fence bisect, per-segment
 apply, rebuild + splice, the Array offset-resolution pass and the
 whole-apply ≡ segment-wise-apply property test (§7.2), split/merge policy with
 pinned constants and parity fixtures. Includes widening `PatchType(T)`'s
@@ -1358,6 +2022,30 @@ fixtures, the pinned boundary rule in three runtimes, the manifest-backed range
 reader — and `composeFrom`, part coalescing, the ranged rebuild and the
 multipart lifecycle rule are dropped.
 
+**SL — the segment-object layout (§8.7).** `CollectionManifestType`, the
+encoder door writing segment objects plus a manifest, the content-defined
+boundary rule pinned in all three runtimes' writers, the opener at every
+reader, the GC recognizer with the `state` non-leaf flip and survival fixtures,
+the manifest round-trip and determinism fixtures. Not a stage of the first
+draft, named here because everything after it stands on it.
+
+**S5 — secondary indexes (§9).** `e3.recordIndex`, `RecordIndexObjectType`,
+`RecordObjectType.indexes`, `RecordStateType` and its door, the GC
+recognizers, the index page and find selectors, the range-seek query form,
+`e3 record reindex`, genesis builds, the compliance suites. Reads work from S5
+alone; before S7 an index is built by one detached run of its build program.
+
+**S6 — the mutation delta (§10).** `MutationDeltaType`, `e3.editMutation` and
+`e3.patchMutation`, the generated program at export, `MutationObjectType.form`
+and `.programIr`, `RecordCommitType.delta`, the manifest-aware lazy opener in
+the three runtimes with staging by links, the in-process apply of §10.4 with
+its property tests. Subsumes S3: the paged patch write is the `patch` form's
+apply.
+
+**S7 — steps for records (§11).** The record template and commit step, index
+builds and reindexes on deploy and on demand, migrations by template (§11.3),
+the large-write threshold and its map units (§11.4).
+
 **Emit the composition plan from S3 onward, not only in S4.** A `ComposePart[]`
 that a local backend simply materializes costs nothing locally, and it means the
 S3 backend is a *backend implementation* rather than a second write path to keep
@@ -1369,7 +2057,13 @@ wrapper if S3 lands first. Recommended order is S1 → S3 → S2 → S4 if
 interactive latency is the binding constraint, S1 → S2 → S3 → S4 if the
 blocking need is migrating an existing large record. S0 precedes both orders.
 
-## 13. Open questions
+**Revised order (2026-09-22).** S0 → SL → S1 → S5 → S6 → S7. S3 is subsumed by
+S6 (the `patch` form's apply), S2 by S7 (migrations by template), and S4 is
+dropped as §8.7 already says. S5 ships reads before S6 ships writes; S6
+without S7 serves interactive edits and small batches through the in-process
+apply, which is the user-visible capability of this revision.
+
+## 16. Open questions
 
 - **`e3 watch` default.** `--schema=reset` is right for a scratch workspace and
   catastrophic for a shared one, and `watch` cannot tell them apart. Options:
@@ -1386,7 +2080,9 @@ blocking need is migrating an existing large record. S0 precedes both orders.
 - **Where element-wise migrations run.** Segment-by-segment sequentially in the
   deploy process (simple, O(segment) memory, O(n) wall clock) vs. fanned out as
   partitioned executions (fast, reuses `partitionExec`, but a migration is not
-  a task and has no cache key). Sequential first.
+  a task and has no cache key). Sequential first. *Resolved 2026-09-22:* as the
+  template of §11.3 — partitioned units whose synthesized task object and
+  slice inputs are their cache key.
 - **Where the multipart threshold sits, and who owns it.** Below some object
   size a ranged read + `PutObject` beats `CreateMultipartUpload` + parts +
   `Complete` on round trips (§8.3). Is that threshold a property of the S3
@@ -1400,12 +2096,14 @@ blocking need is migrating an existing large record. S0 precedes both orders.
   telemetry counter (bytes copied server-side vs bytes transferred) before it
   is load-bearing in production, on the same principle as "no silent caps".
   Composition alternative only; moot under §8.7.
-- **Boundary-rule constants (§8.7 rule 3).** The expected segment size (the
-  paged encoder's 1,000-row / 2 MiB targets, or a byte target alone), the
-  minimum and maximum bounds, and the key hash (the SHA-256 every runtime
-  already has, or a cheaper pinned hash). They are baked into every manifest's
-  `rule` id, so they are decided once, before the first production write, and
-  parity-fixtured across the three runtimes.
+- **Boundary-rule constants (§8.7 rule 3). Resolved 2026-09-22** as
+  `cdc/fnv1a64/256-1024-4096/1` — `MIN 256`, `TARGET 1024`, `MAX 4096`, FNV-1a
+  64-bit over the key's canonical bare encoding, the cut falling *before* the
+  boundary key. See §8.7 rule 3 for why each is what it is. One sub-question
+  stays open and is cheap only until the first production write: whether the
+  rule should also cap a segment's *logical* (pre-deflate) bytes, which is
+  deterministic across runtimes where the compressed size is not, so that a
+  record of very wide rows does not get multi-megabyte segments.
 - **Header byte identity across runtimes (§8.7 rule 2).** `spliceBeast2` needs
   byte-identical header prefixes, and type sections are not guaranteed
   byte-identical across independently built encoders (§8.4). The manifest pins
@@ -1423,20 +2121,38 @@ blocking need is migrating an existing large record. S0 precedes both orders.
   exported bundle — correct for re-importing a workspace snapshot, and it means
   a bundle carries "what had been applied" as data. Confirm this is the wanted
   semantics before it becomes load-bearing.
-- **Naming.** `e3.mutateByPatch` reads as a verb where its siblings
-  (`e3.mutation`, `e3.migration`) are nouns. `e3.patchMutation` matches the
-  SDK's qualifier-first style (`partitionTask`, `streamTask`) but reads as "a
-  mutation of patches"; `mutateByPatch` says what it does. Decide before the
-  surface ships. `e3.elementMigration` (§7.3) is the same question one level
-  over.
+- **Naming — resolved.** Qualifier-first nouns throughout, as `partitionTask`
+  and `streamTask`: `e3.patchMutation`, `e3.editMutation`, `e3.recordIndex`,
+  `e3.elementMigration`.
+- **The large-write threshold** (§11.4). `MUTATION_INLINE_MAX_SEGMENTS` is a
+  pinned constant; where it sits is a measurement — the in-process apply's
+  per-segment cost against a unit's spawn — and the fixture that pins both
+  paths to the same bytes is what makes moving it safe.
+- **The TypeScript sink does not sort.** The C sink spills and merges permuted
+  keys; the TypeScript `EmitFileWriter` refuses them, as `streamTask`'s
+  contract says every runtime does. §10.2 and §11.2 emit in order so nothing
+  here depends on it, but the two runtimes disagree today and should be
+  reconciled one way or the other.
+- **Cold materialisation on cloud** (§10.6). Whether the runner Lambda's
+  segment cache is enough for the `edit` and `reduce` forms on multi-GB
+  records, or a fault-on-read opener — libcurl in east-c, a worker-backed
+  synchronous fetch in TypeScript — is needed. The `patch` form does not wait
+  on the answer.
+- **Deploy-time builds on cloud** (§11.5). The job's status surface and how a
+  client waits on it; shared with §5's migrations.
+- **Where the `reduce` form's diff runs.** In the program (recommended: O(n)
+  in the runner, which already holds the new state) or in e3-core from the
+  manifest diff (O(changed segments), but e3-core decoding user data at scale
+  and a second runner run for the index functions anyway).
 
-## 14. Relationship to existing issues
+## 17. Relationship to existing issues
 
 | Issue | Relationship |
 |---|---|
 | #413 (scale large keyed-collection records) | §7 supersedes work-item D's `layout` flag and `$chunk` envelope with the v5 segment format (as its own comment suggests), subsumes work-item A for the patch path, and promotes the partial-key reducer follow-on the comment requests into S3. Work-item B (size guardrails) and C (fixtures/benchmarks) stand. Under §8.7 the `$chunk` envelope returns as `CollectionManifestType` (kind `$segments`), still with no per-record layout flag. |
 | #635 (composable content addressing) | Hard dependency of S4, and its first concrete consumer. §8.2 answers the issue's open "where do the digests live" question **in favour of the in-container form**: a paged write already ranged-reads the blob's tail for the segment geometry, so index-section digests arrive free, while a side-car costs one extra GET on the hottest path forever. §8.1 gives `composeFrom?()` — named in the issue's "To build" list — a caller. Under §8.7 the composite address is not needed: the manifest is an ordinary object whose own hash is the state's address, and its entries are the per-leaf digests. |
 | `e3-records.md` §13 | Resolves the redeploy open question: explicit migrations, with reset as an audited opt-in policy rather than the default. |
-| `e3-records-storage.md` | Endorses its prolly-tree direction, on the v5 segment format rather than a new chunk encoding (§8.7 gives that tree its concrete form: a manifest over standalone v5 segment objects), and leaves its auto-compaction ↔ GC-cadence question open (§10). |
+| `e3-records-storage.md` | Endorses its prolly-tree direction, on the v5 segment format rather than a new chunk encoding (§8.7 gives that tree its concrete form: a manifest over standalone v5 segment objects), and leaves its auto-compaction ↔ GC-cadence question open (§13). |
 | #539 (frozen task inputs) | Unchanged: reducers still receive frozen values, copy-first. |
 | e3-cloud#181 | §7 + §8 are the upstream half of the interactive-latency requirement. |
+| #779 (records: secondary indexes, the mutation delta, steps for records) | The epic of §9–§11, filed with the 2026-09-22 revision. Its first child delivers #413 work item D as respecified by §8.7; its cloud items depend on #413 work item A; the UI adapts to §9.5's window shape in its last child. |

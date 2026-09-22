@@ -31,9 +31,21 @@ nothing here is built beyond what `e3-records.md` already describes.
 >   whole-value path's payload and latency budgets.
 >
 > Also changed: the O(n) runner-CPU term this record accepted is removed for the
-> generic patch door (`e3.mutateByPatch`, applied in-process per segment) while
+> generic patch door (`e3.patchMutation`, applied in-process per segment) while
 > authored reducers keep it; and the auto-compaction ↔ GC-cadence question
 > stands, at roughly 85× less storage pressure (schema doc §8.8).
+
+> **Update (2026-09-22).** Three further statements below are superseded by
+> the schema doc's §9–§11 (epic #779). The *partial-key reducer signature*
+> open question is answered by the `edit` form and the mutation delta: every
+> write form's durable write is O(touched segments); only the `reduce` form's
+> runner cost stays O(n). "Reducers stay whole-value … runner CPU/memory stays
+> O(n)" therefore holds for one form of three. And the *reactive granularity*
+> question gains a coarse answer without a platform change: a `partitionTask`
+> over the record re-runs only the partitions whose slices changed, which
+> content-defined segments make exact. Secondary indexes over a record —
+> `e3.recordIndex`, a second canonical collection per index, maintained in the
+> same commit — are specified in §9 there.
 
 ## Why records retain history at all
 
@@ -241,7 +253,9 @@ speculatively.
   sweep safely reclaims. Does auto-compaction imply a GC schedule/threshold, an
   idle-triggered GC, or eventually a scoped/incremental GC? Decide together.
 - **Partial-key reducer signature** `(State[K], …) => State[K]` — the only path to
-  also kill the O(n) runner-CPU term; additive, deferred.
+  also kill the O(n) runner-CPU term; additive, deferred. *Resolved 2026-09-22:*
+  the `edit` form of `e3-records-schema.md` §10.2 — a body over the lazily
+  opened state writing through an `edit` capability — is that path.
 - **Reactive granularity** — a record is one reactive input today (one version-
   vector entry per record). Per-key invalidation (so a one-row mutation doesn't
   invalidate every task reading the record) is a separate, larger change.

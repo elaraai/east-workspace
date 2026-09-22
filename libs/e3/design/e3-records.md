@@ -283,6 +283,15 @@ explicitly rejected in v1 (open question §13).
 > O(touched) on the read side instead of a whole-state decode (the write
 > half stays O(n) — the #413 partial-key follow-on).
 
+> **Amended (2026-09-22).** `e3.mutation` is one of three write forms —
+> `reduce` (this one), `edit` (`e3.editMutation`, a body that writes through an
+> `edit` capability over the lazily opened state) and `patch`
+> (`e3.patchMutation`) — and every form writes a *delta*, not a state: one
+> generated program per mutation emits the primary and index changes as one
+> sorted collection, and e3-core rebuilds only the touched segments. A record
+> may declare secondary indexes with `e3.recordIndex`, maintained in the same
+> commit. `e3-records-schema.md` §9–§11; the epic is #779.
+
 `package_()` (`packages/e3/src/package.ts`) branches on
 `item.kind === 'mutation'` exactly as it does for `'function'`
 (`e3-functions.md` §3 item 2): collect by name onto the owning record,
@@ -616,6 +625,12 @@ This satisfies the manifest-derivation literal-name constraint
 is a static JS string at IR-build time, and makes every binding correct by
 construction — it cannot drift from the deployed signature.
 
+> **Amended (2026-09-22).** A large record is read through pages, not
+> `read()`: `Data.bindPaged` over the record, optionally through one of its
+> secondary indexes, whose window is an index-ordered *array* carrying the
+> primary key on each row (`e3-records-schema.md` §9.5). The east-ui row-source
+> contract grows an arm for that shape; the data layer's contract is the given.
+
 ## 10. e3-cloud mapping
 
 Where records live — and explicitly **not** "in S3" in any database sense:
@@ -684,7 +699,8 @@ continuously and should land with (or before) the cloud PR:
    per-record reactive debounce, retention/auto-compaction, chunked
    (prolly-tree) state for partial read/write of large records — the last is
    now specified as the segment-object layout, `e3-records-schema.md` §7 and
-   §8.7.
+   §8.7; secondary indexes, the mutation delta and the record step templates
+   are §9–§11 there (2026-09-22, epic #779).
 
 ## 12. Test plan (PR-3 highlights)
 
