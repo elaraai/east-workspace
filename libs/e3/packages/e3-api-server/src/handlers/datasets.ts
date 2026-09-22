@@ -242,10 +242,12 @@ export interface DatasetPageWindow {
   index?: string;
   /** Fill each window entry's `row` from the primary.
    *
-   *  The window's primary keys are bucketed by owning primary segment and each
-   *  distinct segment is read once, so a page whose entries cluster costs far
-   *  fewer reads than its row count. A view that renders from the index's
-   *  covering projection alone leaves this off and never touches the primary. */
+   *  The window's primary keys are grouped by the primary segment that holds
+   *  them, and each segment is read and decoded once, then dropped before the
+   *  next: a page reads at most one segment per row and holds one decoded
+   *  segment at a time, and one whose entries cluster costs far fewer reads
+   *  than its row count. A view that renders from the index's covering
+   *  projection alone leaves this off and never touches the primary. */
   join?: boolean;
   /** Content hash the window is addressed against. When it matches the
    *  current value the response is immutable (`Cache-Control: immutable`) —
@@ -542,27 +544,32 @@ async function indexPage(
   const slice = openBeast2PagesFor(resolved.collectionType)(await index.span(from, to))
     .slice(to > from ? offset - base : 0, limit) as Map<{ ik: unknown; k: unknown }, unknown>;
 
-  // The rows, if asked for: one read per distinct primary segment the page
-  // touches, each decoded once however many of the page's keys it holds.
-  const rows = new Map<number, Map<unknown, unknown>>();
+  // The rows, if asked for. An index's order is not the record's, so a page's
+  // primary keys scatter across the record: they are grouped by the segment
+  // that holds them, and each segment is decoded once and dropped before the
+  // next. A page holds one decoded segment at a time however widely its keys
+  // scatter, and reads at most one segment per row it returns.
+  const entries = [...slice];
+  const rows: unknown[] = entries.map(() => none);
   if (primary !== null) {
-    const wanted = new Set<number>();
-    for (const entry of slice.keys()) wanted.add(await primary.segmentFor(entry.k));
-    for (const segment of wanted) {
-      rows.set(segment, openBeast2PagesFor(primary.typeValue)(await primary.segment(segment)).segment(0) as Map<unknown, unknown>);
+    const bySegment = new Map<number, number[]>();
+    for (let i = 0; i < entries.length; i++) {
+      const segment = await primary.segmentFor(entries[i]![0].k);
+      const held = bySegment.get(segment);
+      if (held === undefined) bySegment.set(segment, [i]);
+      else held.push(i);
+    }
+    const decodeSegment = openBeast2PagesFor(primary.typeValue);
+    for (const [segment, indices] of bySegment) {
+      const decoded = decodeSegment(await primary.segment(segment)).segment(0) as Map<unknown, unknown>;
+      for (const i of indices) {
+        const row = decoded.get(entries[i]![0].k);
+        if (row !== undefined) rows[i] = some(row);
+      }
     }
   }
-  const rowOf = async (key: unknown): Promise<{ type: 'some'; value: unknown } | { type: 'none'; value: null }> => {
-    if (primary === null) return none;
-    const segment = rows.get(await primary.segmentFor(key));
-    const row = segment?.get(key);
-    return row === undefined ? none : some(row);
-  };
 
-  const windowValue: unknown[] = [];
-  for (const [entry, value] of slice) {
-    windowValue.push({ ik: entry.ik, key: entry.k, value, row: await rowOf(entry.k) });
-  }
+  const windowValue = entries.map(([entry, value], i) => ({ ik: entry.ik, key: entry.k, value, row: rows[i] }));
 
   const body = encodeBeast2For(resolved.windowType)(windowValue);
   return new Response(body, {

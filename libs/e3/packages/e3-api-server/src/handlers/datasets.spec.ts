@@ -10,20 +10,23 @@ import {
   DictType,
   IntegerType,
   SetType,
+  SortedMap,
   StringType,
   StructType,
+  compareFor,
   decodeBeast2For,
   encodeBeast2For,
   encodeBeast2PagedFor,
   equalFor,
   none,
+  some,
   toEastTypeValue,
   variant,
   type EastType,
 } from '@elaraai/east';
-import { BEAST2_CONTENT_TYPE, computeHash, InMemoryTransferBackend } from '@elaraai/e3-core';
+import { BEAST2_CONTENT_TYPE, computeHash, cutDatasetIntoStore, InMemoryTransferBackend, writeRecordState } from '@elaraai/e3-core';
 import { InMemoryStorage } from '@elaraai/e3-core/test';
-import { PackageObjectType, WorkspaceStateType } from '@elaraai/e3-types';
+import { PackageObjectType, RecordIndexObjectType, WorkspaceStateType, decodeCollectionManifest, encodeDatasetBlob, indexCollectionType, indexWindowType } from '@elaraai/e3-types';
 import { findDatasetKey, getDataset, getDatasetPage } from './datasets.js';
 
 /**
@@ -679,5 +682,113 @@ describe('findDatasetKey — struct keys', () => {
     const fieldsOnScalar = await findDatasetKey(scalar, REPO, WS, lookupPath, { fields: ['"a"'] });
     assert.equal(fieldsOnScalar.status, 400);
     assert.match(((await fieldsOnScalar.json()) as { error: { message: string } }).error.message, /Struct keys/);
+  });
+});
+
+const PlanRowType = StructType({ due: IntegerType, title: StringType });
+const PlansType = DictType(StringType, PlanRowType);
+const plansPath = [variant('field', 'records'), variant('field', 'plans')];
+type PlanRow = { due: bigint; title: string };
+
+/**
+ * Seeds a deployed workspace holding an indexed record: `n` plans keyed
+ * `p-000000…`, and a `by_due` index whose order scatters them — `due` is a
+ * permutation of the rows, so consecutive index entries land in unrelated
+ * primary segments. The index object carries only what a read resolves
+ * (its key and projection types); no program runs here.
+ */
+async function seedIndexedRecord(storage: InMemoryStorage, n: number): Promise<{ rows: SortedMap<string, PlanRow>; primarySegments: string[] }> {
+  await storage.repos.create(REPO);
+  const rows = new SortedMap<string, PlanRow>(
+    Array.from({ length: n }, (_, i) => [`p-${String(i).padStart(6, '0')}`,
+      { due: BigInt((i * 7919) % n), title: `Plan ${i}` }] as [string, PlanRow]),
+    compareFor(StringType));
+  const primary = await cutDatasetIntoStore(storage, REPO, encodeDatasetBlob(PlansType, rows));
+  const EntryType = StructType({ ik: IntegerType, k: StringType });
+  const entries = new SortedMap<{ ik: bigint; k: string }, string>(
+    [...rows].map(([k, row]) => [{ ik: row.due, k }, row.title] as [{ ik: bigint; k: string }, string]),
+    compareFor(EntryType));
+  const index = await cutDatasetIntoStore(storage, REPO,
+    encodeDatasetBlob(indexCollectionType(StringType, IntegerType, StringType), entries));
+  const declaration = await storage.objects.write(REPO, encodeBeast2For(RecordIndexObjectType)({
+    keyIr: '0'.repeat(64), multi: false, valueIr: some('0'.repeat(64)),
+    keyType: toEastTypeValue(IntegerType), valueType: toEastTypeValue(StringType),
+    buildIr: '0'.repeat(64), runner: variant('east_node', { platforms: [] }), mergeIr: '0'.repeat(64),
+  }));
+  const state = await writeRecordState(storage, REPO, {
+    primary, indexes: new Map([['by_due', { manifest: index, index: declaration }]]),
+  });
+  const structure = variant('struct', new Map([
+    ['records', variant('struct', new Map([
+      ['plans', variant('value', { type: toEastTypeValue(PlansType), writable: false })],
+    ]))],
+  ]));
+  const pkgHash = await storage.objects.write(REPO, encodeBeast2For(PackageObjectType)({
+    tasks: new Map(),
+    data: { structure, refs: new Map([['records/plans', variant('value', { hash: state, versions: new Map() })]]) },
+    functions: new Map(),
+    records: new Map(), sources: new Map(),
+  }));
+  await storage.refs.workspaceWrite(REPO, WS, encodeBeast2For(WorkspaceStateType)({
+    packageName: 'plans', packageVersion: '1.0.0', packageHash: pkgHash, deployedAt: new Date(0), currentRunId: none,
+  }));
+  await storage.datasets.write(REPO, WS, 'records/plans', variant('value', { hash: state, versions: new Map() }));
+  const manifest = decodeCollectionManifest(await storage.objects.read(REPO, primary));
+  return { rows, primarySegments: manifest.entries.map((entry) => entry.hash) };
+}
+
+describe('getDatasetPage (index reads)', () => {
+  it('a joined page reads each primary segment it needs once, and serves the window whole', async () => {
+    const storage = new InMemoryStorage();
+    const { rows, primarySegments } = await seedIndexedRecord(storage, 6000);
+    assert.ok(primarySegments.length > 3, `the record spans segments, got ${primarySegments.length}`);
+
+    const reads = new Map<string, number>();
+    const objects = storage.objects;
+    const read = objects.read.bind(objects);
+    objects.read = (repo: string, hash: string) => {
+      if (primarySegments.includes(hash)) reads.set(hash, (reads.get(hash) ?? 0) + 1);
+      return read(repo, hash);
+    };
+    const response = await getDatasetPage(storage, REPO, WS, plansPath, { offset: 100, limit: 200, index: 'by_due', join: true });
+    objects.read = read;
+    assert.equal(response.status, 200, await response.clone().text());
+
+    // The window is the index's rows 100..299, in INDEX order, each joined to
+    // its row — never shortened to bound the join: a client concatenates
+    // windows at their offsets, so a short one would silently drop rows.
+    const window = decodeBeast2For(indexWindowType(StringType, IntegerType, StringType, PlanRowType) as never)(
+      new Uint8Array(await response.arrayBuffer())) as Array<{ ik: bigint; key: string; value: string; row: { type: string; value: PlanRow } }>;
+    const expected = [...rows].sort(([ka, a], [kb, b]) => compareFor(IntegerType)(a.due, b.due) || compareFor(StringType)(ka, kb)).slice(100, 300);
+    assert.equal(window.length, 200);
+    assert.equal(response.headers.get('X-Page-Count'), '200');
+    window.forEach((entry, i) => {
+      const [key, row] = expected[i]!;
+      assert.equal(entry.key, key);
+      assert.equal(entry.ik, row.due);
+      assert.equal(entry.value, row.title);
+      assert.ok(entry.row.type === 'some' && equalFor(PlanRowType)(entry.row.value, row), `row ${i} joined`);
+    });
+
+    // Scattered keys touch many segments; each is read once, however many of
+    // the window's rows it holds.
+    assert.ok(reads.size > 1, 'the window scatters across the record');
+    assert.deepEqual([...reads.values()].filter((count) => count !== 1), [], 'every touched segment is read exactly once');
+  });
+
+  it('an unjoined page never touches the primary', async () => {
+    const storage = new InMemoryStorage();
+    const { primarySegments } = await seedIndexedRecord(storage, 3000);
+    const objects = storage.objects;
+    const read = objects.read.bind(objects);
+    const touched: string[] = [];
+    objects.read = (repo: string, hash: string) => {
+      if (primarySegments.includes(hash)) touched.push(hash);
+      return read(repo, hash);
+    };
+    const response = await getDatasetPage(storage, REPO, WS, plansPath, { offset: 0, limit: 50, index: 'by_due' });
+    objects.read = read;
+    assert.equal(response.status, 200, await response.clone().text());
+    assert.deepEqual(touched, [], 'a covering read is the index alone');
   });
 });
