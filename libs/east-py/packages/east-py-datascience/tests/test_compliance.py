@@ -13,8 +13,6 @@ in this package); with no IR directory the cases skip.
 
 import importlib.util
 import os
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
@@ -37,19 +35,5 @@ if not IR_FILES:
 @pytest.mark.parametrize("ir_file", IR_FILES, ids=[f.stem for f in IR_FILES])
 def test_exported_ir(ir_file: Path) -> None:
     """Every test in the exported suite passes against ``east_py_datascience.platform``."""
-    result = subprocess.run(
-        [
-            sys.executable,
-            str(_CORE_RUNNER),
-            str(ir_file),
-            "--ir-dir",
-            str(IR_DIR),
-            "-p",
-            "east_py_datascience",
-        ],
-        capture_output=True,
-        text=True,
-        timeout=900,
-        check=False,
-    )
+    result = _core.run_one_in_subprocess(ir_file, IR_DIR, ["east_py_datascience"], timeout=900)
     assert result.returncode == 0, result.stdout + result.stderr

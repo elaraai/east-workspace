@@ -183,20 +183,40 @@ def _load_platform_module(module_name: str) -> list:
     return mod.platform
 
 
-def _run_one_subprocess(ir_file: Path, verbose: bool, platform_modules: list[str] | None = None) -> tuple[str, int, int, str, str]:
-    """Run in subprocess. Returns (name, passed, failed, output_text, error)."""
-    try:
-        extra = []
-        for mod_name in (platform_modules or []):
-            extra.extend(_load_platform_module(mod_name))
-        buf = io.StringIO() if verbose else None
-        p, f = run_one(ir_file, out=buf, extra_platform=extra)
-        return (ir_file.stem, p, f, buf.getvalue() if buf else "", "")
-    except Exception as e:
-        return (ir_file.stem, 0, 0, "", str(e))
+def _report_in_utf8() -> None:
+    """Write this process's report in UTF-8, whatever the platform's default.
+
+    A test name is any East string. On Windows a piped stdout takes the ANSI
+    code page (cp1252 on the CI runners), which cannot encode most of them — a
+    Bengali digit in a JsonStrict name crashed the whole file (#777). The
+    report is UTF-8 everywhere, as east-c's is, and `run_one_in_subprocess`
+    reads it back so. Each stream keeps its error handler.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        if isinstance(stream, io.TextIOWrapper):
+            stream.reconfigure(encoding="utf-8", errors=stream.errors)
+
+
+def run_one_in_subprocess(ir_file: Path, ir_dir: Path, platform_modules: list[str], timeout: float):
+    """Run one IR file in a fresh interpreter — this script's single-file mode.
+
+    Returns the `subprocess.CompletedProcess`: exit status 1 when a test
+    failed, and the report decoded as the UTF-8 `_report_in_utf8` writes. A
+    byte that is not UTF-8 (a native library's own message) shows as an
+    escape rather than crashing the reader.
+    """
+    import subprocess
+
+    cmd = [sys.executable, __file__, str(ir_file), '--ir-dir', str(ir_dir)]
+    for mod_name in platform_modules:
+        cmd += ['-p', mod_name]
+    return subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
+                          errors="backslashreplace", timeout=timeout, check=False)
 
 
 def main():
+    _report_in_utf8()
+
     import argparse
 
     # Auto-detect EAST_QUIET env var
@@ -237,19 +257,13 @@ def main():
     # XGBoost) loaded by early tasks to corrupt state for later ones. A fresh process
     # per file avoids this entirely.
     import re
-    import subprocess
-
-    platform_flags: list[str] = []
-    for mod_name in (platform_modules or []):
-        platform_flags += ['-p', mod_name]
 
     total_pass = total_fail = total_crash = 0
 
     t_start = time.perf_counter()
     for f in files:
         name = f.stem
-        cmd = [sys.executable, __file__, str(f), '--ir-dir', str(ir_dir)] + platform_flags + ['-q']
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        result = run_one_in_subprocess(f, ir_dir, platform_modules, timeout=300)
         out = result.stdout + result.stderr
         m = re.search(r'Results:\s*(\d+)/(\d+)', out)
         if m:
