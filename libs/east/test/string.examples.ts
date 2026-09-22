@@ -2,7 +2,7 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, ArrayType, IntegerType, StringType, BooleanType, example } from "@elaraai/east";
+import { East, ArrayType, DateTimeType, IntegerType, StringType, BooleanType, example } from "@elaraai/east";
 
 // ---------------------------------------------------------------------------
 // Printing and Parsing
@@ -50,6 +50,17 @@ export const stringParseJson = example({
     }),
     inputs: [],
     returns: 42n,
+});
+
+export const stringParseJsonDateTime = example({
+    keywords: ["string", "StringType", "parseJson", "JSON", "DateTime", "DateTimeType", "RFC 3339", "ISO 8601", "date-time", "timestamp", "offset", "timezone", "UTC"],
+    description: "Parse an RFC 3339 timestamp with an offset from JSON as the UTC DateTime it names",
+    fn: East.function([], DateTimeType, ($) => {
+        const s = $.const('"2022-06-29T18:43:00.123456+05:00"');
+        return s.parseJson(DateTimeType);
+    }),
+    inputs: [],
+    returns: new Date("2022-06-29T13:43:00.123Z"),
 });
 
 // ---------------------------------------------------------------------------

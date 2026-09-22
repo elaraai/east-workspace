@@ -9,6 +9,108 @@ import {
 import { describeEast as describe, assertEast as assert } from "./platforms.spec.js";
 
 /**
+ * RFC 3339 date-times and the UTC instant each one is: the valid cases of the
+ * JSON-Schema-Test-Suite's `format: "date-time"` corpus (draft2020-12
+ * optional/format/date-time.json), then East's own. The std corpus
+ * (east-node-std test/json.spec.ts) reads the same table through the strict
+ * reader, so `parseJson` and `Json.next` agree on every one.
+ */
+const DATETIMES_READ: [string, Date][] = [
+    ["1963-06-19T08:30:06.283185Z", new Date("1963-06-19T08:30:06.283Z")],
+    ["1963-06-19T08:30:06Z", new Date("1963-06-19T08:30:06.000Z")],
+    ["1937-01-01T12:00:27.87+00:20", new Date("1937-01-01T11:40:27.870Z")],
+    ["1990-12-31T15:59:50.123-08:00", new Date("1990-12-31T23:59:50.123Z")],
+    // A leap second is the Unix time its fields add up to.
+    ["1998-12-31T23:59:60Z", new Date("1999-01-01T00:00:00.000Z")],
+    ["1998-12-31T15:59:60.123-08:00", new Date("1999-01-01T00:00:00.123Z")],
+    ["1963-06-19t08:30:06.283185z", new Date("1963-06-19T08:30:06.283Z")],
+    // Digits past the millisecond are dropped, never rounded into the next second.
+    ["1985-04-12T00:59:59.999999999999999Z", new Date("1985-04-12T00:59:59.999Z")],
+    ["2021-02-28T00:00:00Z", new Date("2021-02-28T00:00:00.000Z")],
+    ["2020-02-29T00:00:00Z", new Date("2020-02-29T00:00:00.000Z")],
+    ["0400-02-29T00:00:00Z", new Date("0400-02-29T00:00:00.000Z")],
+    ["2022-06-29T13:43:00.123+00:00", new Date("2022-06-29T13:43:00.123Z")],
+    ["2022-06-29T13:43:00.5Z", new Date("2022-06-29T13:43:00.500Z")],
+    ["2022-06-29T13:43:00.123-00:00", new Date("2022-06-29T13:43:00.123Z")],
+    ["2022-06-29T18:43:00.123+05:00", new Date("2022-06-29T13:43:00.123Z")],
+    ["2000-01-01T00:30:00+01:00", new Date("1999-12-31T23:30:00.000Z")],
+    ["2000-01-01T00:00:00+23:59", new Date("1999-12-31T00:01:00.000Z")],
+    ["1969-12-31T23:59:59.9999Z", new Date("1969-12-31T23:59:59.999Z")],
+    ["0001-01-01T00:00:00Z", new Date("0001-01-01T00:00:00.000Z")],
+    ["9999-12-31T23:59:59.999999Z", new Date("9999-12-31T23:59:59.999Z")],
+    // east-c's decoder once read this as midnight: sscanf stopped at the "t".
+    ["2022-06-29t13:43:00.123z", new Date("2022-06-29T13:43:00.123Z")],
+];
+
+/** Why a text is not a DateTime, in the order the parser finds it. */
+type DateTimeFault = "shape" | "field" | "calendar" | "range";
+
+/**
+ * Text `parseJson` refuses as a DateTime, and why: the invalid cases of the
+ * same suite corpus, then East's own. Each fault has one message, the same on
+ * every runtime.
+ */
+const DATETIMES_REFUSED: [string, DateTimeFault][] = [
+    ["1963-06-19T08:30:06.28123+01:00Z", "shape"],
+    ["06/19/1963 08:30:06 PST", "shape"],
+    ["2013-350T01:01:01", "shape"],
+    ["1963-6-19T08:30:06.283185Z", "shape"],
+    ["1963-06-1T08:30:06.283185Z", "shape"],
+    ["1963-06-1৪T00:00:00Z", "shape"],
+    ["1963-06-11T0৪:00:00Z", "shape"],
+    ["+11963-06-19T08:30:06.283185Z", "shape"],
+    ["1985-04-12T23:20:50+01", "shape"],
+    ["1985-04-12T23:20:50Z\n", "shape"],
+    ["1985-04-12T23:20Z", "shape"],
+    ["1985-04-12T23:20:50Ztail", "shape"],
+    ["1998-12-31T23:59:61Z", "field"],
+    ["1998-12-31T23:58:60Z", "field"],
+    ["1998-12-31T22:59:60Z", "field"],
+    ["1990-12-31T15:59:59-24:00", "field"],
+    ["1990-12-31T24:00:00Z", "field"],
+    ["1990-12-31T15:60:00Z", "field"],
+    ["1990-12-31T10:00:00+10:60", "field"],
+    ["2016-12-31T24:59:60+01:00", "field"],
+    ["1985-04-12T23:60:00+00:01", "field"],
+    ["1990-02-31T15:59:59.123-08:00", "calendar"],
+    ["2020-02-30T00:00:00Z", "calendar"],
+    ["2021-02-29T00:00:00Z", "calendar"],
+    ["0100-02-29T00:00:00Z", "calendar"],
+    ["2100-02-29T00:00:00Z", "calendar"],
+    // RFC 3339 has no space for the T, no empty fraction, no surrounding
+    // space (east-c took it), no missing offset (east_json_decode took it as
+    // UTC) and no colon-less offset.
+    ["2022-06-29 13:43:00Z", "shape"],
+    ["2022-06-29T13:43:00.Z", "shape"],
+    ["  2022-06-29T13:43:00.123Z", "shape"],
+    ["2022-06-29T13:43:00.123", "shape"],
+    ["2022-06-29T13:43:00+0530", "shape"],
+    // The instants outside years 0001-9999, which python cannot hold.
+    ["0000-01-01T00:00:00Z", "range"],
+    ["0001-01-01T00:00:00+00:01", "range"],
+    ["9999-12-31T23:59:59-00:01", "range"],
+    ["9999-12-31T23:59:60Z", "range"],
+];
+
+/** The reason `parseJson` gives for each fault. */
+const DATETIME_REASON: Record<DateTimeFault, string> = {
+    shape: 'expected RFC 3339 date-time string (e.g. "2022-06-29T13:43:00.123Z" or "2022-06-29T13:43:00.123+05:00")',
+    field: "invalid date string",
+    calendar: "invalid date string",
+    range: "date outside DateTime's range 0001-01-01T00:00:00.000Z to 9999-12-31T23:59:59.999Z",
+};
+
+/**
+ * A regex matching `text` literally, on every runtime's regex engine. It is
+ * not anchored: the decoder's sentence is the same everywhere, but a runtime
+ * may wrap it — TypeScript's `parseJson` prefixes "Failed to convert JSON to
+ * .DateTime: " — as the neighbouring parse-error specs allow.
+ */
+function literally(text: string): RegExp {
+    return new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+}
+
+/**
  * Where East JSON's encoder and decoder have to agree with each other, and
  * every runtime has to agree with the rest.
  *
@@ -110,6 +212,26 @@ await describe("JsonStrict", (test) => {
             East.value("\"2026-01-01T23:59:59.999+00:00\"").parseJson(DateTimeType),
             East.value(new Date(Date.UTC(2026, 0, 1, 23, 59, 59, 999)))));
     });
+
+    // Any RFC 3339 date-time — what the schema's `format: "date-time"` names —
+    // reads as the UTC instant it is, one case per test so a runtime that
+    // reads a text at a different instant fails by name.
+    for (const [text, want] of DATETIMES_READ) {
+        const json = JSON.stringify(text);
+        test(`parseJson reads the RFC 3339 date-time ${text} as ${want.toISOString()}`, $ => {
+            $(assert.equal(East.value(json).parseJson(DateTimeType), East.value(want)));
+        });
+    }
+
+    // ...and anything else is refused, with the same words on every runtime.
+    for (const [text, fault] of DATETIMES_REFUSED) {
+        const json = JSON.stringify(text);
+        const refusal = literally(
+            `Error occurred because ${DATETIME_REASON[fault]}, got ${json} (line 1, col 1) while parsing value of type ".DateTime"`);
+        test(`parseJson refuses ${json} as a DateTime (${fault})`, $ => {
+            $(assert.throws(East.value(json).parseJson(DateTimeType), refusal));
+        });
+    }
 
     test("printJson writes an Option as null or its payload where the payload cannot be null", $ => {
         const printJson = East.String.printJson;

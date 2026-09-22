@@ -4,11 +4,12 @@
 #
 """JSON Schema emission for East types — the python half of the contract.
 
-The schema describes what ``print_json`` emits and what a strict reader
-accepts, so a producer validating against it cannot send a payload that would
-then be rejected. It pins the ENCODER's canonical output rather than the
-historic decoder's tolerance, and it must match the TypeScript implementation
-byte for byte — the two languages hand the same partner the same document.
+The schema describes what a strict reader accepts, so a producer validating
+against it cannot send a payload that would then be rejected. It pins the
+ENCODER's canonical output for Integer and Blob, and RFC 3339's date-time — the
+standard ``format`` — for DateTime, which every decoder reads; and it must
+match the TypeScript implementation byte for byte — the two languages hand the
+same partner the same document.
 """
 
 import hashlib
@@ -119,7 +120,7 @@ def test_matches_the_cross_language_corpus_digest():
             lines.append(f"{draft}|{name}={document}")
     assert len(lines) == 81
     digest = hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()
-    assert digest == "457a0ca6a2d616a37c54bbd85bb1cf35908160152761004eb4c83a000755cae0"
+    assert digest == "4a281175573a86a22c3b562abb60c58ac03259e51851261d506134aa67edf9e7"
 
 
 def test_stamps_schema_for_the_releases_that_carry_one():
@@ -166,41 +167,31 @@ def test_integer_pattern_rejects_what_the_encoder_never_emits(text):
     assert re.match(EAST_JSON_PATTERNS.integer, text) is None
 
 
-@pytest.mark.parametrize(
-    "text",
-    [
-        "2022-06-29T13:43:00.123Z",  # the decoder takes Z; the encoder never writes it
-        "2022-06-29T13:43:00.123+05:00",
-        "0000-01-01T00:00:00.000+00:00",  # year 0, below the range every runtime reads
-        "2022-13-29T13:43:00.123+00:00",
-        "2022-06-32T13:43:00.123+00:00",
-        "2022-06-29T24:43:00.123+00:00",
-        "2022-06-29T13:43:00+00:00",
-        "٢٠٢٦-01-01T00:00:00.000+00:00",  # Arabic-Indic digits
-    ],
-)
-def test_datetime_pattern_rejects_non_canonical_text(text):
-    assert re.match(EAST_JSON_PATTERNS.datetime, text) is None
+@pytest.mark.parametrize("draft", DRAFTS)
+def test_datetime_is_the_date_time_format_with_no_pattern(draft):
+    """Every decoder reads any RFC 3339 date-time, so the contract is the standard format.
+
+    A partner's validator and code generator already know ``format: "date-time"``;
+    the regex it replaced described only the encoder's own ``+00:00`` form.
+    """
+    schema = json_schema_for(DateTimeType, draft=draft)
+    schema.pop("$schema", None)
+    assert schema == {"type": "string", "format": "date-time", "x-east-type": "DateTime"}
 
 
-def test_datetime_pattern_accepts_the_canonical_form():
-    assert re.match(EAST_JSON_PATTERNS.datetime, "2022-06-29T13:43:00.123+00:00")
-    assert re.match(EAST_JSON_PATTERNS.datetime, "0001-01-01T00:00:00.000+00:00")
-    assert re.match(EAST_JSON_PATTERNS.datetime, "9999-12-31T23:59:59.999+00:00")
+def test_no_datetime_pattern_is_published():
+    """The readers take the whole format, which no regex can carry."""
+    assert not hasattr(EAST_JSON_PATTERNS, "datetime")
 
 
 def test_patterns_spell_every_digit_as_an_ascii_class():
     """``\\d`` is any Unicode digit to python's ``re``.
 
-    A partner validating with a python engine would pass a timestamp written in
+    A partner validating with a python engine would pass a value written in
     Arabic-Indic digits that the reader then refuses, so the contract spells
     every digit class ``[0-9]`` and reads the same on every engine.
     """
-    for pattern in (
-        EAST_JSON_PATTERNS.integer,
-        EAST_JSON_PATTERNS.datetime,
-        EAST_JSON_PATTERNS.blob,
-    ):
+    for pattern in (EAST_JSON_PATTERNS.integer, EAST_JSON_PATTERNS.blob):
         assert "\\d" not in pattern
 
 

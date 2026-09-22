@@ -112,6 +112,44 @@ def test_maps_the_primitive_types_of_a_foreign_document():
     assert type_from_json_schema({"type": "integer"}) == IntegerType
 
 
+@pytest.mark.parametrize(
+    ("schema", "want"),
+    [
+        ({"type": "string", "format": "date-time"}, DateTimeType),
+        ({"type": ["string", "null"], "format": "date-time"}, option(DateTimeType)),
+        ({"type": "string", "format": "date-time", "nullable": True}, option(DateTimeType)),
+        (
+            {"oneOf": [{"type": "null"}, {"type": "string", "format": "date-time"}]},
+            option(DateTimeType),
+        ),
+        (
+            {
+                "type": "object",
+                "properties": {"at": {"type": "string", "format": "date-time"}},
+                "required": ["at"],
+                "additionalProperties": False,
+            },
+            StructType([("at", DateTimeType)]),
+        ),
+        # A pattern beside the format constrains nothing East reads by.
+        ({"type": "string", "format": "date-time", "pattern": "^.*Z$"}, DateTimeType),
+        ({"type": "string", "format": "date"}, StringType),
+        ({"type": "string", "format": "time"}, StringType),
+        ({"type": "string", "format": "email"}, StringType),
+        ({"type": "string", "format": "uuid"}, StringType),
+        ({"type": "string", "format": "duration"}, StringType),
+        ({"type": "string", "format": "DATE-TIME"}, StringType),
+    ],
+)
+def test_reads_a_date_time_string_as_a_datetime_and_any_other_format_as_a_string(schema, want):
+    """Every East decoder reads any RFC 3339 date-time.
+
+    So a foreign timestamp field arrives as the instant it names — in each of
+    the spellings of "this or null", which read as an Option of it.
+    """
+    assert type_from_json_schema(schema) == want
+
+
 def test_reads_openapi_nullable():
     assert type_from_json_schema({"nullable": True, "enum": [None]}) == NullType
 

@@ -116,6 +116,36 @@ describe("typeFromJsonSchema", () => {
             assert.ok(isTypeEqual(typeFromJsonSchema({ type: "integer" }), IntegerType));
         });
 
+        test("reads a date-time string as a DateTime, and any other format as a String", () => {
+            // Every East decoder reads any RFC 3339 date-time, so a foreign
+            // timestamp field arrives as the instant it names — in each of the
+            // spellings of "this or null", which read as an Option of it.
+            assert.ok(isTypeEqual(typeFromJsonSchema({ type: "string", format: "date-time" }), DateTimeType));
+            assert.ok(isTypeEqual(
+                typeFromJsonSchema({ type: ["string", "null"], format: "date-time" }),
+                OptionType(DateTimeType)));
+            assert.ok(isTypeEqual(
+                typeFromJsonSchema({ type: "string", format: "date-time", nullable: true }),
+                OptionType(DateTimeType)));
+            assert.ok(isTypeEqual(
+                typeFromJsonSchema({ oneOf: [{ type: "null" }, { type: "string", format: "date-time" }] }),
+                OptionType(DateTimeType)));
+            assert.ok(isTypeEqual(
+                typeFromJsonSchema({
+                    type: "object",
+                    properties: { at: { type: "string", format: "date-time" } },
+                    required: ["at"], additionalProperties: false,
+                }),
+                StructType({ at: DateTimeType })));
+            // A pattern beside the format constrains nothing East reads by.
+            assert.ok(isTypeEqual(
+                typeFromJsonSchema({ type: "string", format: "date-time", pattern: "^.*Z$" }),
+                DateTimeType));
+            for (const format of ["date", "time", "email", "uuid", "duration", "DATE-TIME"]) {
+                assert.ok(isTypeEqual(typeFromJsonSchema({ type: "string", format }), StringType), format);
+            }
+        });
+
         test("reads OpenAPI 3.0's nullable spelling of null", () => {
             assert.ok(isTypeEqual(typeFromJsonSchema({ nullable: true, enum: [null] }), NullType));
         });

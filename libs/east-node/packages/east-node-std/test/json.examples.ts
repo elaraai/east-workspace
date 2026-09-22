@@ -2,7 +2,7 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, IntegerType, OptionType, StringType, StructType, example } from "@elaraai/east";
+import { East, ArrayType, DateTimeType, IntegerType, OptionType, StringType, StructType, example } from "@elaraai/east";
 import { FileSystem, Json } from "@elaraai/east-node-std";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -109,4 +109,25 @@ export const jsonReadOptional = example({
     }),
     inputs: [],
     returns: 1n,
+});
+
+export const jsonReadTimestamps = example({
+    keywords: ["json", "Json", "next", "DateTime", "DateTimeType", "timestamp", "RFC 3339", "ISO 8601", "date-time", "offset", "timezone", "UTC", "microseconds"],
+    description: "Read the timestamps other systems write — Z, an offset, microseconds — as UTC DateTimes",
+    fn: East.asyncFunction([], ArrayType(DateTimeType), ($) => {
+        const handle = $.let(Json.openText(
+            '[{"at":"2022-06-29T13:43:00Z"},{"at":"2022-06-29T18:43:00.123456+05:00"},{"at":"2022-06-29T05:43:00.5-08:00"}]', ""));
+        const out = $.let([], ArrayType(DateTimeType));
+        $.while(Json.more(handle), ($) => {
+            $(out.pushLast(Json.next(StructType({ at: DateTimeType }), handle).at));
+        });
+        $(Json.close(handle));
+        return out;
+    }),
+    inputs: [],
+    returns: [
+        new Date("2022-06-29T13:43:00.000Z"),
+        new Date("2022-06-29T13:43:00.123Z"),
+        new Date("2022-06-29T13:43:00.500Z"),
+    ],
 });

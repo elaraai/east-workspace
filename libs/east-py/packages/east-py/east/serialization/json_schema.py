@@ -80,23 +80,6 @@ def _integer_pattern() -> str:
     )
 
 
-# The canonical text DateTime encodes to -- always UTC, always three fractional
-# digits, always an explicit +00:00 offset. Stricter than the historic decoder,
-# deliberately: that also accepts a Z suffix and any numeric offset, neither of
-# which the encoder ever emits. The year is pinned to 0001..9999, the range
-# every runtime reads (python's datetime starts at year 1), so 0000 is refused
-# by the validator rather than only by the reader. Every digit class is spelled
-# [0-9], never \d: python's re reads \d as any Unicode digit, so a validator
-# built on it would pass a timestamp written in Arabic-Indic digits that the
-# reader then refuses. Calendar-impossible dates such as 30 February still
-# match -- no regex a schema can carry rules them out -- and are rejected when
-# the date is constructed.
-_DATETIME_PATTERN = (
-    r"^(?:000[1-9]|00[1-9][0-9]|0[1-9][0-9]{2}|[1-9][0-9]{3})"
-    r"-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])"
-    r"T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]\.[0-9]{3}\+00:00$"
-)
-
 # `0x` and an even count of lowercase hex.
 _BLOB_PATTERN = "^0x(?:[0-9a-f]{2})*$"
 
@@ -110,18 +93,16 @@ class _EastJsonPatterns:
 
     Published so a reader can enforce precisely what :func:`json_schema_for`
     describes -- the contract and the check are then one definition, not two
-    that have to be kept in step by hand.
+    that have to be kept in step by hand. A ``DateTime`` has no pattern here:
+    its schema is ``format: "date-time"``, the RFC 3339 date-time, whose
+    calendar and leap-second rules no regex carries, and every decoder reads
+    exactly that.
     """
 
     @property
     def integer(self) -> str:
         """Decimal i64, no leading zeros, no sign on zero."""
         return _integer_pattern()
-
-    @property
-    def datetime(self) -> str:
-        """RFC 3339 in UTC with three fractional digits and an explicit ``+00:00``."""
-        return _DATETIME_PATTERN
 
     @property
     def blob(self) -> str:
@@ -318,12 +299,12 @@ def _schema_of(t: EastType, ctx: _Context) -> JsonSchema:  # noqa: PLR0911, PLR0
         }
 
     if kind == "DateTime":
-        return {
-            "type": "string",
-            "format": "date-time",
-            "pattern": _DATETIME_PATTERN,
-            "x-east-type": "DateTime",
-        }
+        # The standard format, not a regex: every decoder reads any RFC 3339
+        # date-time, so the contract is the one a partner's tooling already
+        # knows. Two things it cannot say are stated in the docs instead -- the
+        # instant must fall in years 0001-9999, and digits past the millisecond
+        # are dropped.
+        return {"type": "string", "format": "date-time", "x-east-type": "DateTime"}
 
     if kind == "Blob":
         return {"type": "string", "pattern": _BLOB_PATTERN, "x-east-type": "Blob"}

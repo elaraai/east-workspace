@@ -34,7 +34,7 @@ import {
 } from '../types.js';
 import { toEastTypeValue, type EastTypeValue } from '../type_of_type.js';
 import { matrix } from '../containers/matrix.js';
-import { decodeJSONFor, encodeJSONFor, fromJSONFor, jsonFlatOptionPayload, toJSONFor } from "./json.js";
+import { decodeJSONFor, encodeJSONFor, fromJSONFor, jsonFlatOptionPayload, jsonParseDateTime, toJSONFor } from "./json.js";
 import { isFrozenValue } from "../frozen.js";
 import { compareFor, equalFor } from "../comparison.js";
 import { SortedSet } from "../containers/sortedset.js";
@@ -211,11 +211,58 @@ describe('Json encoding/decoding of EAST values', () => {
             "1970-13-01T00:00:00.000+00:00", // Invalid month
             "1970-01-01T00:00:00.000", // Missing timezone
             "1970-01-01 00:00:00.000Z", // Space instead of T
-            "1970-01-01T00:00:00Z", // Missing milliseconds
             "2022-06-29T13:43:00.123+5:00", // Invalid offset format (should be +05:00)
+            "0000-01-01T00:00:00.000Z", // Before year 0001, which python cannot hold
         ];
 
         run(type, decoded, encoded, erroneous);
+    });
+
+    test('should decode any RFC 3339 date-time as the UTC instant it names', () => {
+        // What the schema's `format: "date-time"` admits, the decoder reads:
+        // Z or any offset, a lowercase t or z, any number of fractional digits
+        // (past the millisecond dropped), and a leap second as the Unix time its
+        // fields add up to.
+        const fromJson = fromJSONFor(DateTimeType);
+        const cases: [string, string][] = [
+            ["1970-01-01T00:00:00Z", "1970-01-01T00:00:00.000Z"],
+            ["2022-06-29T18:43:00.5+05:00", "2022-06-29T13:43:00.500Z"],
+            ["2022-06-29t13:43:00.123456z", "2022-06-29T13:43:00.123Z"],
+            ["1969-12-31T23:59:59.9999Z", "1969-12-31T23:59:59.999Z"],
+            ["1998-12-31T23:59:60.25Z", "1999-01-01T00:00:00.250Z"],
+            ["2022-06-29T13:43:00-00:00", "2022-06-29T13:43:00.000Z"],
+        ];
+        for (const [text, want] of cases) {
+            assert.equal(fromJson(text).toISOString(), want, text);
+        }
+    });
+
+    test('jsonParseDateTime names the first fault, in shape, field, calendar, range order', () => {
+        assert.equal(jsonParseDateTime("2022-06-29T13:43:00.123+00:00"), Date.UTC(2022, 5, 29, 13, 43, 0, 123));
+        for (const shape of ["", "2022-06-29", "2022-06-29T13:43:00", "2022-06-29T13:43:00.Z", "2022-06-29T13:43:00+0530",
+            "2022-06-29T13:43:00Z ", " 2022-06-29T13:43:00Z", "2022-06-29T13:43Z", "+2022-06-29T13:43:00Z",
+            "2022-06-2٩T13:43:00Z", "2022-06-29T13:43:00.1٢3Z", "2022-13-29T13:43:00"]) {
+            assert.equal(jsonParseDateTime(shape), "shape", JSON.stringify(shape));
+        }
+        // A field out of bounds outranks the calendar: day 32 and hour 24 are
+        // not a real day either, but they are not RFC 3339's field at all.
+        for (const field of ["2022-00-10T00:00:00Z", "2022-06-00T00:00:00Z", "2022-02-32T00:00:00Z",
+            "2022-06-29T24:00:00Z", "2022-06-29T23:60:00Z", "2022-06-29T23:59:61Z", "2022-06-29T23:58:60Z",
+            "2022-06-29T13:43:00+24:00", "2022-06-29T13:43:00+05:60", "2022-02-30T24:00:00Z"]) {
+            assert.equal(jsonParseDateTime(field), "field", field);
+        }
+        // A leap second is judged in UTC: 15:59:60 at -08:00 is 23:59:60 UTC.
+        assert.equal(jsonParseDateTime("1998-12-31T15:59:60-08:00"), Date.UTC(1999, 0, 1));
+        assert.equal(jsonParseDateTime("1998-12-31T23:59:60+01:00"), "field");
+        // The calendar outranks the range: year 0000 has a February 30 no more
+        // than any other year does.
+        assert.equal(jsonParseDateTime("2025-02-29T00:00:00Z"), "calendar");
+        assert.equal(jsonParseDateTime("0000-02-30T00:00:00Z"), "calendar");
+        assert.equal(jsonParseDateTime("0000-02-29T00:00:00Z"), "range");
+        assert.equal(jsonParseDateTime("0001-01-01T00:00:00+00:01"), "range");
+        assert.equal(jsonParseDateTime("9999-12-31T23:59:60Z"), "range");
+        assert.equal(jsonParseDateTime("0001-01-01T00:00:00Z"), -62135596800000);
+        assert.equal(jsonParseDateTime("9999-12-31T23:59:59.999999Z"), 253402300799999);
     });
 
     test('should encode/decode array', () => {

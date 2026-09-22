@@ -133,51 +133,43 @@ describe("jsonSchemaFor", () => {
     });
 
     describe("DateTime", () => {
-        const pattern = patternOf(jsonSchemaFor(DateTimeType));
-
-        test("accepts the canonical form the encoder emits", () => {
-            const encode = toJSONFor(DateTimeType);
-            for (const d of [new Date(0), new Date("2022-06-29T13:43:00.123Z"), new Date("2026-12-31T23:59:59.999Z")]) {
-                assert.ok(pattern.test(encode(d) as string), `${encode(d)} should validate`);
+        test("is RFC 3339's date-time by the standard format, with no pattern, in every release", () => {
+            // Every decoder reads any RFC 3339 date-time, so the contract is the
+            // format a partner's validator and code generator already know.
+            for (const draft of ["2020-12", "draft-07", "openapi-3.0"] as const) {
+                assert.deepEqual(body(jsonSchemaFor(DateTimeType, { draft })), {
+                    type: "string",
+                    format: "date-time",
+                    "x-east-type": "DateTime",
+                }, draft);
             }
         });
 
-        test("rejects the offsets the decoder tolerates", () => {
-            // The decoder takes a Z suffix or any numeric offset; the encoder
-            // only ever writes +00:00, so the contract pins that.
-            assert.ok(!pattern.test("2022-06-29T13:43:00.123Z"));
-            assert.ok(!pattern.test("2022-06-29T13:43:00.123+05:00"));
-            assert.ok(!pattern.test("2022-06-29T13:43:00.123-08:00"));
+        test("no DateTime pattern is published", () => {
+            // The pattern described only the encoder's own form; the readers
+            // now take the whole format, which no regex can carry.
+            assert.equal("datetime" in EAST_JSON_PATTERNS, false);
         });
 
-        test("rejects out-of-range calendar fields", () => {
-            for (const bad of [
-                "0000-01-01T00:00:00.000+00:00",  // year 0, below the range every runtime reads
-                "2022-13-29T13:43:00.123+00:00",  // month 13
-                "2022-06-32T13:43:00.123+00:00",  // day 32
-                "2022-06-29T24:43:00.123+00:00",  // hour 24
-                "2022-06-29T13:60:00.123+00:00",  // minute 60
-                "2022-06-29T13:43:60.123+00:00",  // second 60
-                "2022-06-29T13:43:00+00:00",      // no milliseconds
-                "2022-06-29 13:43:00.123+00:00",  // space, not T
-            ]) {
-                assert.ok(!pattern.test(bad), `${bad} should be rejected`);
-            }
-        });
-
-        test("accepts the first and last years the reader does", () => {
-            assert.ok(pattern.test("0001-01-01T00:00:00.000+00:00"));
-            assert.ok(pattern.test("9999-12-31T23:59:59.999+00:00"));
+        test("no pattern refuses another producer's RFC 3339 under a real validator", () => {
+            // The old pattern failed "…Z" and "+05:00" even with formats
+            // unchecked; the format itself is the readers' corpus to pin
+            // (east-node-std test/json.spec.ts, libs/east test/json_strict.spec.ts).
+            const valid = validatorFor("2020-12", jsonSchemaFor(ArrayType(DateTimeType)));
+            const encode = toJSONFor(ArrayType(DateTimeType)) as (v: Date[]) => unknown;
+            assert.ok(valid(encode([new Date(0), new Date("2022-06-29T13:43:00.123Z")])));
+            assert.ok(valid(["2022-06-29T13:43:00Z", "2022-06-29T18:43:00.123456+05:00"]));
+            assert.equal(valid([1656510180123]), false, "a DateTime is a string, not epoch milliseconds");
         });
     });
 
     describe("digit classes", () => {
         test("spells every digit as [0-9], never \\d", () => {
             // A validator built on python's `re` reads \d as any Unicode digit,
-            // so a timestamp in Arabic-Indic digits would pass a partner's check
+            // so a value in Arabic-Indic digits would pass a partner's check
             // and then fail on receipt. The contract has to read the same on
             // every regex engine a partner might use.
-            for (const p of [EAST_JSON_PATTERNS.integer, EAST_JSON_PATTERNS.datetime, EAST_JSON_PATTERNS.blob]) {
+            for (const p of [EAST_JSON_PATTERNS.integer, EAST_JSON_PATTERNS.blob]) {
                 assert.ok(!p.includes("\\d"), `${p} must not use \\d`);
             }
         });
@@ -489,7 +481,7 @@ describe("jsonSchemaFor", () => {
         assert.equal(lines.length, 81);
         assert.equal(
             createHash("sha256").update(lines.join("\n")).digest("hex"),
-            "457a0ca6a2d616a37c54bbd85bb1cf35908160152761004eb4c83a000755cae0");
+            "4a281175573a86a22c3b562abb60c58ac03259e51851261d506134aa67edf9e7");
     });
 
     test("emits byte-identical documents for the same type and release", () => {

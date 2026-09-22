@@ -10,7 +10,8 @@
  *   Integer  -> string (to preserve 64-bit precision)
  *   Float    -> number (or string for NaN/Infinity/-Infinity/-0.0)
  *   String   -> quoted string with escapes
- *   DateTime -> ISO 8601 string with timezone
+ *   DateTime -> RFC 3339 date-time, written "YYYY-MM-DDTHH:MM:SS.sss+00:00";
+ *               any RFC 3339 date-time is read (json_parse_datetime)
  *   Blob     -> hex string "0x..."
  *   Array    -> JSON array
  *   Set      -> JSON array
@@ -160,15 +161,131 @@ static int east_json_days_in_month(int year, int month)
     return days[month - 1];
 }
 
-/* True when the fields name an instant that exists. */
-static bool east_json_datetime_fields_valid(int year, int month, int day, int hour, int min,
-                                            int sec, int ms)
+/* ================================================================== */
+/*  DateTime: RFC 3339 date-time text                                  */
+/* ================================================================== */
+
+/* The first and last instants a DateTime holds on every runtime, in epoch
+ * milliseconds: 0001-01-01T00:00:00.000Z and 9999-12-31T23:59:59.999Z.
+ * Python's datetime starts at year 1, so an instant outside them has no value
+ * there. */
+#define JSON_DATETIME_MIN_MS INT64_C(-62135596800000)
+#define JSON_DATETIME_MAX_MS INT64_C(253402300799999)
+
+/* Why a text is not a DateTime, in the order json_parse_datetime finds it. */
+enum {
+    JSON_DATETIME_OK = 0,
+    JSON_DATETIME_SHAPE,    /* not RFC 3339's date-time production */
+    JSON_DATETIME_FIELD,    /* a field or the offset out of bounds, or a :60 not at 23:59 UTC */
+    JSON_DATETIME_CALENDAR, /* a day the written month does not have */
+    JSON_DATETIME_RANGE,    /* an instant outside 0001-9999 */
+};
+
+/* `n` ASCII digits at s[at], as a number. False when any is not one — never a
+ * locale's digit class, so a Bengali four is not a digit here. The caller
+ * guarantees the bytes exist. */
+static bool json_ascii_digits(const char *s, size_t at, size_t n, int *out)
 {
-    int dim = east_json_days_in_month(year, month);
-    if (dim == 0 || day < 1 || day > dim) return false;
-    if (hour < 0 || hour > 23 || min < 0 || min > 59 || sec < 0 || sec > 59) return false;
-    if (ms < 0 || ms > 999) return false;
+    int value = 0;
+    for (size_t i = 0; i < n; i++) {
+        char c = s[at + i];
+        if (c < '0' || c > '9') return false;
+        value = value * 10 + (c - '0');
+    }
+    *out = value;
     return true;
+}
+
+/* Days from 1970-01-01 to a proleptic Gregorian date — Howard Hinnant's
+ * days_from_civil, exact for every year a DateTime holds. */
+static int64_t json_days_from_civil(int64_t year, int64_t month, int64_t day)
+{
+    int64_t y = month <= 2 ? year - 1 : year;
+    int64_t era = (y >= 0 ? y : y - 399) / 400;
+    int64_t yoe = y - era * 400;
+    int64_t doy = (153 * (month > 2 ? month - 3 : month + 9) + 2) / 5 + day - 1;
+    int64_t doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    return era * 146097 + doe - 719468;
+}
+
+/* An RFC 3339 date-time (§5.6) — the text JSON Schema's format "date-time"
+ * names, and so what jsonSchemaFor publishes for a DateTime — as epoch
+ * milliseconds in *epoch_ms_out, or the first fault found (JSON_DATETIME_*).
+ *
+ * The one DateTime parser behind every decode here: both whole-document
+ * decoders and the strict reader, which is also python's codec and reader. Its
+ * twin is jsonParseDateTime in libs/east/src/serialization/json.ts, which the
+ * TypeScript codec and east-node's reader share; the compliance corpora pin
+ * that the two agree case for case.
+ *
+ * A "T" or "t", any number of fractional digits, and "Z", "z" or a +HH:MM /
+ * -HH:MM offset, in ASCII digits and nothing else. The offset is applied, so
+ * the instant is UTC. Fractional digits past the third are dropped — the
+ * floor, so nothing carries into the next second. A leap second (:60, valid
+ * only at 23:59 UTC) reads as the Unix time its fields add up to: 23:59:60.500Z
+ * is 00:00:00.500Z of the next day. Whether the written day exists is judged
+ * on the written date; an offset cannot make 30 February real. */
+static int json_parse_datetime(const char *s, size_t len, int64_t *epoch_ms_out)
+{
+    /* YYYY-MM-DD, then T or t, then HH:MM:SS. */
+    int year, month, day, hour, minute, second;
+    if (len < 20) return JSON_DATETIME_SHAPE;
+    if (!json_ascii_digits(s, 0, 4, &year) || s[4] != '-' || !json_ascii_digits(s, 5, 2, &month) ||
+        s[7] != '-' || !json_ascii_digits(s, 8, 2, &day) || (s[10] != 'T' && s[10] != 't') ||
+        !json_ascii_digits(s, 11, 2, &hour) || s[13] != ':' ||
+        !json_ascii_digits(s, 14, 2, &minute) || s[16] != ':' ||
+        !json_ascii_digits(s, 17, 2, &second))
+        return JSON_DATETIME_SHAPE;
+
+    /* An optional fraction of at least one digit, of which three are kept. */
+    size_t at = 19;
+    int millis = 0;
+    if (s[at] == '.') {
+        size_t first = ++at;
+        while (at < len && s[at] >= '0' && s[at] <= '9') {
+            if (at - first < 3) millis = millis * 10 + (s[at] - '0');
+            at++;
+        }
+        size_t digits = at - first;
+        if (digits == 0) return JSON_DATETIME_SHAPE;
+        for (size_t i = digits; i < 3; i++)
+            millis *= 10;
+    }
+
+    /* Z, z, or +HH:MM / -HH:MM — and nothing after it. */
+    int sign = 0, offset_hours = 0, offset_minutes = 0;
+    if (at >= len) return JSON_DATETIME_SHAPE;
+    if (s[at] == 'Z' || s[at] == 'z') {
+        at += 1;
+    } else if (s[at] == '+' || s[at] == '-') {
+        sign = s[at] == '-' ? -1 : 1;
+        if (len - at < 6 || !json_ascii_digits(s, at + 1, 2, &offset_hours) || s[at + 3] != ':' ||
+            !json_ascii_digits(s, at + 4, 2, &offset_minutes))
+            return JSON_DATETIME_SHAPE;
+        at += 6;
+    } else {
+        return JSON_DATETIME_SHAPE;
+    }
+    if (at != len) return JSON_DATETIME_SHAPE;
+
+    if (month < 1 || month > 12 || day < 1 || day > 31 || hour > 23 || minute > 59 || second > 60 ||
+        offset_hours > 23 || offset_minutes > 59)
+        return JSON_DATETIME_FIELD;
+    int64_t offset = (int64_t)sign * (offset_hours * 60 + offset_minutes);
+    /* RFC 3339 §5.7: a leap second is 23:59:60 in UTC, whatever the offset. */
+    if (second == 60) {
+        int64_t utc_minute = ((int64_t)hour * 60 + minute - offset) % 1440;
+        if (utc_minute < 0) utc_minute += 1440;
+        if (utc_minute != 23 * 60 + 59) return JSON_DATETIME_FIELD;
+    }
+    if (day > east_json_days_in_month(year, month)) return JSON_DATETIME_CALENDAR;
+
+    int64_t ms = json_days_from_civil(year, month, day) * INT64_C(86400000) +
+                 ((int64_t)hour * 3600 + minute * 60 + second) * 1000 + millis -
+                 offset * INT64_C(60000);
+    if (ms < JSON_DATETIME_MIN_MS || ms > JSON_DATETIME_MAX_MS) return JSON_DATETIME_RANGE;
+    *epoch_ms_out = ms;
+    return JSON_DATETIME_OK;
 }
 
 /* ================================================================== */
@@ -1222,47 +1339,10 @@ static EastValue *jp_decode_inner(JsonParser *p, EastType *type, JRefCtx *ctx)
         size_t slen;
         char *s = jp_parse_string(p, &slen);
         if (!s) return NULL;
-
-        int year = 0, month = 0, day = 0, hour = 0, min = 0, sec = 0, ms = 0;
-        int tz_hour = 0, tz_min = 0;
-        int tz_sign = 1;
-
-        if (slen >= 23) {
-            sscanf(s, "%d-%d-%dT%d:%d:%d.%d", &year, &month, &day, &hour, &min, &sec, &ms);
-            const char *tz = s + 23;
-            if (*tz == 'Z' || *tz == 'z') {
-                /* UTC */
-            } else if (*tz == '+' || *tz == '-') {
-                tz_sign = (*tz == '-') ? -1 : 1;
-                sscanf(tz + 1, "%d:%d", &tz_hour, &tz_min);
-            }
-        }
-
-        if (!east_json_datetime_fields_valid(year, month, day, hour, min, sec, ms)) {
-            free(s);
-            return NULL;
-        }
-
-        int64_t y = year;
-        int64_t m_adj = month;
-        if (m_adj <= 2) {
-            y--;
-            m_adj += 9;
-        } else {
-            m_adj -= 3;
-        }
-
-        int64_t era = (y >= 0 ? y : y - 399) / 400;
-        int64_t yoe = y - era * 400;
-        int64_t doy = (153 * m_adj + 2) / 5 + day - 1;
-        int64_t doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-        int64_t days = era * 146097 + doe - 719468;
-
-        int64_t epoch_secs = days * 86400 + hour * 3600 + min * 60 + sec;
-        epoch_secs -= tz_sign * (tz_hour * 3600 + tz_min * 60);
-
-        int64_t epoch_ms = epoch_secs * 1000 + ms;
+        int64_t epoch_ms = 0;
+        int fault = json_parse_datetime(s, slen, &epoch_ms);
         free(s);
+        if (fault != JSON_DATETIME_OK) return NULL;
         return east_datetime(epoch_ms);
     }
 
@@ -1929,73 +2009,28 @@ static EastValue *jp_decode_err_inner(JsonParser *p, EastType *type, JRefCtx *ct
                 }
                 return NULL;
             }
-            /* Validate ISO 8601 format with timezone */
-            /* Pattern: YYYY-MM-DDTHH:mm:ss.sss(Z|+HH:MM|-HH:MM) */
-            bool valid_format = false;
-            if (slen >= 24) {
-                /* Check basic structure */
-                bool has_tz = false;
-                if (s[slen - 1] == 'Z' || s[slen - 1] == 'z') has_tz = true;
-                if (slen >= 29 && (s[slen - 6] == '+' || s[slen - 6] == '-')) has_tz = true;
-                valid_format = has_tz;
-            }
-            if (!valid_format) {
-                free(s);
-                if (err) {
-                    p->pos = save;
-                    jde_set_msg(
-                        err,
-                        jp_fmt_error(
-                            p,
-                            "expected ISO 8601 date string with timezone (e.g. "
-                            "\"2022-06-29T13:43:00.123Z\" or \"2022-06-29T13:43:00.123+05:00\")"));
-                }
-                return NULL;
-            }
-
-            int year = 0, month = 0, day = 0, hour = 0, min = 0, sec = 0, ms = 0;
-            int tz_hour = 0, tz_min = 0;
-            int tz_sign = 1;
-
-            sscanf(s, "%d-%d-%dT%d:%d:%d.%d", &year, &month, &day, &hour, &min, &sec, &ms);
-            const char *tz = s + 23;
-            if (*tz == 'Z' || *tz == 'z') {
-                /* UTC */
-            } else if (*tz == '+' || *tz == '-') {
-                tz_sign = (*tz == '-') ? -1 : 1;
-                sscanf(tz + 1, "%d:%d", &tz_hour, &tz_min);
-            }
-
-            /* The fields must name an instant that exists. Day-of-month is the
-             * one the civil-from-days arithmetic cannot catch by itself: it
-             * turns 30 February into 2 March rather than failing, which is
-             * silent corruption of a date the sender got wrong. */
-            if (!east_json_datetime_fields_valid(year, month, day, hour, min, sec, ms)) {
-                free(s);
-                if (err) {
-                    p->pos = save;
-                    jde_set_msg(err, jp_fmt_error(p, "invalid date string"));
-                }
-                return NULL;
-            }
-
-            int64_t y = year;
-            int64_t m_adj = month;
-            if (m_adj <= 2) {
-                y--;
-                m_adj += 9;
-            } else {
-                m_adj -= 3;
-            }
-            int64_t era = (y >= 0 ? y : y - 399) / 400;
-            int64_t yoe = y - era * 400;
-            int64_t doy = (153 * m_adj + 2) / 5 + day - 1;
-            int64_t doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-            int64_t days = era * 146097 + doe - 719468;
-            int64_t epoch_secs = days * 86400 + hour * 3600 + min * 60 + sec;
-            epoch_secs -= tz_sign * (tz_hour * 3600 + tz_min * 60);
-            int64_t epoch_ms = epoch_secs * 1000 + ms;
+            /* Any RFC 3339 date-time, through the parser the strict reader
+             * shares — the words are the TypeScript decoder's. A day its month
+             * does not have is refused rather than rolled forward, which the
+             * civil-from-days arithmetic would otherwise do silently. */
+            int64_t epoch_ms = 0;
+            int fault = json_parse_datetime(s, slen, &epoch_ms);
             free(s);
+            if (fault != JSON_DATETIME_OK) {
+                if (err) {
+                    p->pos = save;
+                    const char *reason =
+                        fault == JSON_DATETIME_SHAPE
+                            ? "expected RFC 3339 date-time string (e.g. "
+                              "\"2022-06-29T13:43:00.123Z\" or \"2022-06-29T13:43:00.123+05:00\")"
+                        : fault == JSON_DATETIME_RANGE
+                            ? "date outside DateTime's range 0001-01-01T00:00:00.000Z to "
+                              "9999-12-31T23:59:59.999Z"
+                            : "invalid date string";
+                    jde_set_msg(err, jp_fmt_error(p, reason));
+                }
+                return NULL;
+            }
             return east_datetime(epoch_ms);
         }
         if (err) jde_set_msg(err, jp_fmt_error(p, "expected string for DateTime"));
@@ -3689,66 +3724,6 @@ static bool jr_integer_form(const char *s, size_t len)
     return memcmp(s + i, bound, 19) <= 0;
 }
 
-static bool jr_two_digit(const char *s, int lo, int hi, int *out)
-{
-    if (s[0] < '0' || s[0] > '9' || s[1] < '0' || s[1] > '9') return false;
-    int v = (s[0] - '0') * 10 + (s[1] - '0');
-    if (v < lo || v > hi) return false;
-    if (out) *out = v;
-    return true;
-}
-
-/* YYYY-MM-DDTHH:MM:SS.mmm+00:00 — the canonical text the encoder writes.
- * Stricter than the decoder, which also takes `Z` and any numeric offset.
- * 0: the form, and a real date; 1: not the form; 2: the form, but a day the
- * month does not have — the one fault no pattern can carry. */
-static int jr_datetime_check(const char *s, size_t len, int64_t *epoch_ms_out)
-{
-    if (len != 29) return 1;
-    for (int i = 0; i < 4; i++) {
-        if (s[i] < '0' || s[i] > '9') return 1;
-    }
-    if (s[4] != '-' || s[7] != '-' || s[10] != 'T' || s[13] != ':' || s[16] != ':' || s[19] != '.')
-        return 1;
-    if (memcmp(s + 23, "+00:00", 6) != 0) return 1;
-
-    int year = (s[0] - '0') * 1000 + (s[1] - '0') * 100 + (s[2] - '0') * 10 + (s[3] - '0');
-    /* The pattern pins the year to 0001..9999 — the range every runtime
-     * reads, python's datetime starting at year 1 — so 0000 is not the form. */
-    if (year < 1) return 1;
-    int month, day, hour, minute, second;
-    if (!jr_two_digit(s + 5, 1, 12, &month)) return 1;
-    if (!jr_two_digit(s + 8, 1, 31, &day)) return 1;
-    if (!jr_two_digit(s + 11, 0, 23, &hour)) return 1;
-    if (!jr_two_digit(s + 14, 0, 59, &minute)) return 1;
-    if (!jr_two_digit(s + 17, 0, 59, &second)) return 1;
-    for (int i = 20; i < 23; i++) {
-        if (s[i] < '0' || s[i] > '9') return 1;
-    }
-    int ms = (s[20] - '0') * 100 + (s[21] - '0') * 10 + (s[22] - '0');
-
-    /* The field bounds above cannot rule out a day the month does not have;
-     * a payload naming one must be refused, not silently rolled forward. */
-    if (day > east_json_days_in_month(year, month)) return 2;
-
-    int64_t y = year;
-    int64_t m_adj = month;
-    if (m_adj <= 2) {
-        y--;
-        m_adj += 9;
-    } else {
-        m_adj -= 3;
-    }
-    int64_t era = (y >= 0 ? y : y - 399) / 400;
-    int64_t yoe = y - era * 400;
-    int64_t doy = (153 * m_adj + 2) / 5 + day - 1;
-    int64_t doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    int64_t days = era * 146097 + doe - 719468;
-    if (epoch_ms_out)
-        *epoch_ms_out = (days * 86400 + hour * 3600 + minute * 60 + second) * 1000 + ms;
-    return 0;
-}
-
 /* "0x" and an even count of LOWERCASE hex. */
 static bool jr_blob_form(const char *s, size_t len)
 {
@@ -4352,13 +4327,18 @@ static EastValue *jr_read_value(EastJsonReader *r, EastType *type, char **error_
         size_t slen;
         char *s = jr_read_string_value(r, &slen, error_out);
         if (!s) break;
+        /* Any RFC 3339 date-time — what format "date-time" in the published
+         * schema names — through the parser the whole-document decoders use. */
         int64_t epoch_ms = 0;
-        int fault = jr_datetime_check(s, slen, &epoch_ms);
-        if (fault != 0) {
+        int fault = json_parse_datetime(s, slen, &epoch_ms);
+        if (fault != JSON_DATETIME_OK) {
             char *q = jr_quote(s, slen);
             jr_fail(r, error_out,
-                    fault == 1 ? "%s is not East JSON's UTC date-time form"
-                               : "%s is not a real date",
+                    fault == JSON_DATETIME_CALENDAR ? "%s is not a real date"
+                    : fault == JSON_DATETIME_RANGE
+                        ? "%s is outside DateTime's range, 0001-01-01T00:00:00.000Z to "
+                          "9999-12-31T23:59:59.999Z"
+                        : "%s is not an RFC 3339 date-time",
                     q);
             free(q);
             free(s);
