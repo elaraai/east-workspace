@@ -47,7 +47,8 @@ function actor(): string {
 
 /**
  * Render a terminal mutation outcome. Both the local `MutationOutcome` and the
- * remote `MutationResult.outcome` share these tags and payload field names.
+ * remote `MutationResult.outcome` share these tags and payload field names;
+ * a conflict's `detail` is the local optional string.
  */
 function renderOutcome(outcome: { kind: string; [field: string]: unknown }): void {
   const kind = outcome.kind;
@@ -67,10 +68,13 @@ function renderOutcome(outcome: { kind: string; [field: string]: unknown }): voi
   if (kind === 'too_large') exitError(`New state too large (${String(outcome.bytes)} bytes > ${String(outcome.limit)} limit)`);
   if (kind === 'timed_out') exitError(`Mutation timed out after ${String(outcome.ms)}ms`);
   if (kind === 'conflict') {
-    // A delta that disagreed with the state names the key it disagreed on;
-    // a lost compare-and-swap race names only how many times it was lost.
-    const detail = outcome.detail === undefined || outcome.detail === null ? '' : `: ${String(outcome.detail)}`;
-    exitError(`Mutation conflicted after ${String(outcome.attempts)} attempts; try again${detail}`);
+    // A lost compare-and-swap race is worth another try: another writer got
+    // there first. A write that disagreed with the state is not — it names
+    // the key, and the same write lands on the same state and disagrees again.
+    if (typeof outcome.detail === 'string') {
+      exitError(`Mutation conflicted: ${outcome.detail} — the write no longer matches the record; re-read it and resubmit`);
+    }
+    exitError(`Mutation conflicted after ${String(outcome.attempts)} attempts; try again`);
   }
   exitError(`Unknown mutation outcome '${kind}'`);
 }
@@ -122,7 +126,14 @@ async function mutateRemote(baseUrl: string, repo: string, token: string, ws: st
   const result: MutationResult = await workspaceRecordMutate(
     baseUrl, repo, ws, record, mutation, { args, actor: some(actor()), limits: none }, opts,
   );
-  renderOutcome({ kind: result.outcome.type, ...result.outcome.value });
+  const outcome = result.outcome;
+  renderOutcome(outcome.type === 'conflict'
+    ? {
+      kind: 'conflict',
+      attempts: outcome.value.attempts,
+      ...(outcome.value.detail.type === 'some' && { detail: outcome.value.detail.value }),
+    }
+    : { kind: outcome.type, ...outcome.value });
 }
 
 /** `e3 mutate` entry point. */

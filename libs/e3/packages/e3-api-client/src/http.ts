@@ -61,6 +61,26 @@ export interface RequestOptions {
   verbose?: boolean;
 }
 
+/**
+ * The shape a server that predates a response field sends, and how to read it
+ * as the current one.
+ *
+ * @remarks
+ * A struct encodes positionally, so a field appended to a response is simply
+ * absent from what an older server encodes, and the current type cannot read
+ * it. The client decodes with the current type first and, only when that
+ * fails, with the shape as it was before the field — defaulting the field — so
+ * a new client keeps working against a server that has not been upgraded.
+ *
+ * @typeParam T - The current success type.
+ */
+export interface LegacyResponse<T extends EastType> {
+  /** The success type as it was before the field was appended. */
+  type: EastType;
+  /** Reads a value of {@link type} as the current type, the new field defaulted. */
+  upgrade: (value: any) => ValueTypeOf<T>;
+}
+
 /** Append `?verbose=1` to an endpoint path when verbose was requested. */
 export function verboseQuery(path: string, options: RequestOptions): string {
   return options.verbose ? `${path}?verbose=1` : path;
@@ -389,6 +409,8 @@ const STATUS_CODES: Record<number, string> = {
 
 /**
  * Make a GET request and decode BEAST2 response.
+ * @param legacy - The response's shape before a field was appended, for a
+ *   server that predates it.
  * @throws {ApiError} On application-level errors
  * @throws {AuthError} On 401 Unauthorized
  */
@@ -396,7 +418,8 @@ export async function get<T extends EastType>(
   url: string,
   path: string,
   successType: T,
-  options: RequestOptions
+  options: RequestOptions,
+  legacy?: LegacyResponse<T>,
 ): Promise<ValueTypeOf<T>> {
   const response = await fetchWithRetry(`${url}/api${path}`, {
     method: 'GET',
@@ -406,12 +429,14 @@ export async function get<T extends EastType>(
     },
   }, { idempotent: true, retry: options.retry });
 
-  return decodeResponse(response, successType);
+  return decodeResponse(response, successType, legacy);
 }
 
 /**
  * Make a POST request with BEAST2 body and decode BEAST2 response.
  * @param extraHeaders - Optional additional request headers (e.g. `Idempotency-Key`), merged after the defaults.
+ * @param legacy - The response's shape before a field was appended, for a
+ *   server that predates it.
  * @throws {ApiError} On application-level errors
  * @throws {AuthError} On 401 Unauthorized
  */
@@ -423,6 +448,7 @@ export async function post<Req extends EastType, Res extends EastType>(
   successType: Res,
   options: RequestOptions,
   extraHeaders?: Record<string, string>,
+  legacy?: LegacyResponse<Res>,
 ): Promise<ValueTypeOf<Res>> {
   const encode = encodeBeast2For(requestType);
   const response = await fetchWithRetry(`${url}/api${path}`, {
@@ -436,7 +462,7 @@ export async function post<Req extends EastType, Res extends EastType>(
     body: encode(body),
   }, { idempotent: hasIdempotencyKey(extraHeaders), retry: options.retry });
 
-  return decodeResponse(response, successType);
+  return decodeResponse(response, successType, legacy);
 }
 
 /**
@@ -512,12 +538,14 @@ export async function putEmpty<T extends EastType>(
 
 /**
  * Decode a BEAST2 response, throwing on errors.
+ * @param legacy - Read a body the current type cannot as this older shape.
  * @throws {ApiError} On application-level errors (including BEAST2 error responses)
  * @throws {AuthError} On 401 Unauthorized
  */
 async function decodeResponse<T extends EastType>(
   response: globalThis.Response,
-  successType: T
+  successType: T,
+  legacy?: LegacyResponse<T>,
 ): Promise<ValueTypeOf<T>> {
   // Handle HTTP-level errors
   if (!response.ok) {
@@ -530,9 +558,20 @@ async function decodeResponse<T extends EastType>(
   }
 
   // Decode BEAST2 response
-  const buffer = await response.arrayBuffer();
-  const decode = decodeBeast2For(ResponseType(successType));
-  const result = decode(new Uint8Array(buffer)) as Response<ValueTypeOf<T>>;
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  let result: Response<ValueTypeOf<T>>;
+  try {
+    result = decodeBeast2For(ResponseType(successType))(bytes) as Response<ValueTypeOf<T>>;
+  } catch (err) {
+    if (legacy === undefined) throw err;
+    let older: Response<unknown>;
+    try {
+      older = decodeBeast2For(ResponseType(legacy.type))(bytes) as Response<unknown>;
+    } catch {
+      throw err; // no known shape — surface the current type's error
+    }
+    result = older.type === 'success' ? { type: 'success', value: legacy.upgrade(older.value) } : older;
+  }
 
   // Handle application-level errors in BEAST2 response
   if (result.type === 'error') {

@@ -849,7 +849,9 @@ export const MutationCallRequestType = StructType({
  * - `failed`: the reducer process exited non-zero (incl. a reducer `$.error`; see stderr)
  * - `too_large`: the new state exceeded the result cap
  * - `timed_out`: the reducer exceeded its time budget
- * - `conflict`: the compare-and-swap lost the race `attempts` times
+ * - `conflict`: the compare-and-swap lost the race `attempts` times, or the
+ *   write disagreed with the state it landed on — then `detail` names the key,
+ *   and resubmitting the same write cannot help
  */
 export const MutationResultType = StructType({
   outcome: VariantType({
@@ -858,7 +860,8 @@ export const MutationResultType = StructType({
     failed:    StructType({ exitCode: IntegerType, stderr: StringType }),
     too_large: StructType({ bytes: IntegerType, limit: IntegerType, stderr: StringType }),
     timed_out: StructType({ ms: IntegerType, stderr: StringType }),
-    conflict:  StructType({ attempts: IntegerType }),
+    // `detail` is appended LAST, per the positional struct rule.
+    conflict:  StructType({ attempts: IntegerType, detail: OptionType(StringType) }),
   }),
 });
 

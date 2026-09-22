@@ -141,7 +141,7 @@ export function keyedRecordTests(setup: TestSetup<TestContext>): void {
       assert.equal((await readRows(ctx)).get('p-11')!.title, 'PATCHED');
     });
 
-    it('a stale patch conflicts and writes nothing', async (t) => {
+    it('a stale patch conflicts, names the key, and writes nothing', async (t) => {
       const ctx = await withRecord(t);
       const opts = await ctx.opts();
 
@@ -152,7 +152,12 @@ export function keyedRecordTests(setup: TestSetup<TestContext>): void {
         ctx.config.baseUrl, ctx.repoName, WS, 'plans', 'patch',
         { args: [encodePatch(variant('patch', ops))], actor: none, limits: none }, opts,
       );
-      assert.equal(result.outcome.type, 'conflict', `expected conflict, got ${result.outcome.type}`);
+      assert.ok(result.outcome.type === 'conflict', `expected conflict, got ${result.outcome.type}`);
+      // A caller retries a lost race; it re-reads and resubmits a stale write.
+      // Only the detail tells the two apart, so it has to reach the caller.
+      const { detail } = result.outcome.value;
+      assert.ok(detail.type === 'some' && detail.value.includes('p-11'),
+        `the conflict names the key that disagreed, got ${JSON.stringify(detail)}`);
       assert.equal((await readRows(ctx)).get('p-11')!.title, 'Plan 11', 'the row is untouched');
     });
 

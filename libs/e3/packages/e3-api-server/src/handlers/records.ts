@@ -12,7 +12,7 @@
  * state is live, so there is no package-scoped form.
  */
 
-import { variant } from '@elaraai/east';
+import { none, some, variant } from '@elaraai/east';
 import { recordMutate, recordHistory, recordDescribe, recordCompact, DatasetNotFoundError } from '@elaraai/e3-core';
 import type { StorageBackend, TaskRunner, MutationOutcome } from '@elaraai/e3-core';
 import { sendSuccess, sendError } from '../beast2.js';
@@ -84,7 +84,12 @@ function outcomeToResult(outcome: MutationOutcome): MutationResult {
     case 'timed_out':
       return { outcome: variant('timed_out', { ms: BigInt(outcome.ms), stderr: outcome.stderr }) };
     case 'conflict':
-      return { outcome: variant('conflict', { attempts: BigInt(outcome.attempts) }) };
+      return {
+        outcome: variant('conflict', {
+          attempts: BigInt(outcome.attempts),
+          detail: outcome.detail !== undefined ? some(outcome.detail) : none,
+        }),
+      };
   }
 }
 
