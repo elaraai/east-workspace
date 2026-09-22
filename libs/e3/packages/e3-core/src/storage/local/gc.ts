@@ -21,7 +21,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { tmpdir } from 'os';
 import { decodeBeast2, isEastDict, readBeast2Type, toEastTypeValue, variant, type EastTypeValue } from '@elaraai/east';
-import { COLLECTION_MANIFEST_KIND, MutationObjectType, PartitionPlanType, RECORD_STATE_KIND, RecordCommitType, RecordObjectType, isCollectionManifestType, isRecordStateType } from '@elaraai/e3-types';
+import { COLLECTION_MANIFEST_KIND, MutationObjectType, PartitionPlanType, RECORD_STATE_KIND, RecordCommitType, RecordIndexObjectType, RecordObjectType, isCollectionManifestType, isRecordStateType } from '@elaraai/e3-types';
 import type { RepoStore, GcObjectEntry, GcRootScanResult, LockHandle, StorageBackend } from '../interfaces.js';
 import { transferStagingDir } from './localHelpers.js';
 import { sweepScratchDirs } from '../../execution/scratch.js';
@@ -337,18 +337,29 @@ function isRecordObjectShape(type: any): boolean {
   return RECORD_OBJECT_FIELDS.slice(0, common).every((name, i) => name === names[i]);
 }
 
+/** `RecordIndexObjectType`'s field names, in wire order, read from the type
+ *  itself: an index object of any vintage BEGINS with these, because struct
+ *  fields encode positionally and the index object only ever grows by
+ *  appending LAST. */
+const RECORD_INDEX_OBJECT_FIELDS: readonly string[] =
+  (toEastTypeValue(RecordIndexObjectType).value as { name: string }[]).map(f => f.name);
+
 /**
  * Check if a decoded EastTypeValue represents a RecordIndexObject — the
  * declaration an index was built under, which a historical state keeps naming
- * long after the package that declared it is gone.
+ * long after the package that declared it is gone. Of any vintage: a struct
+ * beginning with {@link RECORD_INDEX_OBJECT_FIELDS}, so one a NEWER e3 wrote
+ * with a field appended is still recognised in a repository this build sweeps.
+ *
+ * An index object this does not recognise is a leaf: the key, projection,
+ * build and merge IR it names go unmarked, the next sweep deletes them, and
+ * the index is left one no rebuild can ever run again.
  */
 function isRecordIndexObjectShape(type: any): boolean {
   if (type.type !== 'Struct') return false;
-  const names = new Set((type.value as { name: string }[]).map(f => f.name));
-  return names.size === 7
-    && names.has('keyIr') && names.has('multi') && names.has('valueIr')
-    && names.has('keyType') && names.has('valueType') && names.has('buildIr')
-    && names.has('runner');
+  const names = (type.value as { name: string }[]).map(f => f.name);
+  if (names.length < RECORD_INDEX_OBJECT_FIELDS.length) return false;
+  return RECORD_INDEX_OBJECT_FIELDS.every((name, i) => name === names[i]);
 }
 
 /**
@@ -563,8 +574,12 @@ function extractChildren(
   }
 
   if (isRecordIndexObjectShape(t)) {
-    const index = value as { keyIr: string; valueIr: { type: string; value: string }; buildIr: string };
-    children.push({ hash: index.keyIr, kind: 'leaf' }, { hash: index.buildIr, kind: 'leaf' });
+    const index = value as { keyIr: string; valueIr: { type: string; value: string }; buildIr: string; mergeIr: string };
+    children.push(
+      { hash: index.keyIr, kind: 'leaf' },
+      { hash: index.buildIr, kind: 'leaf' },
+      { hash: index.mergeIr, kind: 'leaf' },
+    );
     if (index.valueIr.type === 'some') children.push({ hash: index.valueIr.value, kind: 'leaf' });
     return children;
   }

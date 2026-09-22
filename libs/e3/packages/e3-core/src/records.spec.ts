@@ -15,6 +15,7 @@ import assert from 'node:assert';
 import { join, dirname } from 'node:path';
 import { East, IntegerType, NullType, PatchType, SortedMap, StringType, compareFor, encodeBeast2For, decodeBeast2For, toEastTypeValue, ArrayType, BlobType, DictType, StructType, variant, type PatchTypeOf, type ValueTypeOf } from '@elaraai/east';
 import e3 from '@elaraai/e3';
+import { RecordIndexObjectType } from '@elaraai/e3-types';
 import type { Structure, TreePath } from '@elaraai/e3-types';
 import { DatasetSegments, readDatasetWhole } from './dataset-open.js';
 import { recordMutate, recordHistory, recordCompact, recordDescribe, recordIndexNames, recordReindex, readRecordState, resolveRecordIndex } from './records.js';
@@ -911,6 +912,26 @@ describe('record indexes', () => {
     await storage.objects.read(repo, entry.index);
     const index = await DatasetSegments.open(storage, repo, entry.manifest);
     for (const segment of index.manifest!.entries) await storage.objects.read(repo, segment.hash);
+    // ...and the IR bundles the declaration names, which nothing else in the
+    // store reaches. A rebuild runs those programs, so an index whose bundles
+    // are gone is one that can never be rebuilt again.
+    const declared = decodeBeast2For(RecordIndexObjectType)(await storage.objects.read(repo, entry.index));
+    for (const ir of [declared.keyIr, declared.buildIr, declared.mergeIr]) await storage.objects.read(repo, ir);
+    if (declared.valueIr.type === 'some') await storage.objects.read(repo, declared.valueIr.value);
+  });
+
+  it('rebuilds an index after a sweep', async () => {
+    // The sweep read from the other end: what survives it has to be enough to
+    // run a rebuild, which is the one thing every index of every vintage must
+    // stay able to do.
+    await recordMutate(storage, realRunner, repo, ws, 'plans', 'seed', [], { actor: 'cli:test' });
+    const built = (await state()).indexes.get('by_status')!.manifest;
+    await repoGc(storage, repo, { minAge: 0 });
+
+    const rebuilt = await recordReindex(storage, realRunner, repo, ws, 'plans', { actor: 'cli:test' });
+    assert.strictEqual(rebuilt.kind, 'committed', JSON.stringify(rebuilt));
+    assert.strictEqual((await state()).indexes.get('by_status')!.manifest, built,
+      'the rebuild after a sweep writes the index the sweep kept');
   });
 });
 
