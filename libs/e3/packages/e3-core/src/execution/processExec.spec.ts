@@ -24,25 +24,29 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join, sep } from 'node:path';
 import crossSpawn from 'cross-spawn';
-import { East, FunctionType, IntegerType, NullType, encodeEastIR, variant } from '@elaraai/east';
+import { DictType, East, FunctionType, IntegerType, NullType, SortedMap, StringType, compareFor, decodeBeast2For, encodeEastIR, variant } from '@elaraai/east';
+import { decodeCollectionManifest } from '@elaraai/e3-types';
 import { withRunnerLifeline } from '@elaraai/e3-types';
 import { adoptOutputFile, jobLauncher, marshalInputsToDir, quoteWindowsArgument, spawnAndCapture } from './processExec.js';
+import { datasetWrite } from '../trees.js';
 import { createTestRepo, removeTestRepo, createTempDir, removeTempDir, processTree } from '../test-helpers.js';
 import { LocalStorage } from '../storage/local/index.js';
 import { objectPath } from '../storage/local/localHelpers.js';
 import type { ObjectStore, StorageBackend } from '../storage/interfaces.js';
 
 /** Counts the whole-object reads a marshal makes; the point of #767 is that
- *  there are none. */
-function countWholeReads(storage: StorageBackend): { reads: () => number } {
+ *  there are none. `counts` narrows to the objects that matter — for a
+ *  manifest-backed input, its segments, since the manifest itself is the
+ *  index and is meant to be read. */
+function countWholeReads(storage: StorageBackend, counts?: (hash: string) => boolean): { reads: () => number } {
   const objects = storage.objects as ObjectStore;
   const original = objects.read.bind(objects);
   let reads = 0;
   objects.read = async (repo: string, hash: string): Promise<Uint8Array> => {
-    reads++;
+    if (counts === undefined || counts(hash)) reads++;
     return original(repo, hash);
   };
   return { reads: () => reads };
@@ -124,6 +128,60 @@ describe('staging by link or kernel copy', () => {
 
     assert.deepEqual(readFileSync(staged!), Buffer.from(bytes));
     assert.equal(spy.reads(), 0, 'ranged reads, not a whole read');
+  });
+
+  it('stages a manifest-backed input as its manifest plus linked segments', async () => {
+    const rows = new SortedMap<string, bigint>(
+      Array.from({ length: 20_000 }, (_, i) => [`k${String(i).padStart(7, '0')}`, BigInt(i)] as [string, bigint]),
+      compareFor(StringType),
+    );
+    const type = DictType(StringType, IntegerType);
+    const hash = await datasetWrite(storage, testRepo, rows, type);
+    const manifest = decodeCollectionManifest(await storage.objects.read(testRepo, hash));
+    assert.ok(manifest.entries.length > 1);
+    const segmentHashes = new Set(manifest.entries.map((e) => e.hash));
+    const spy = countWholeReads(storage, (read) => segmentHashes.has(read));
+
+    const [staged] = await marshalInputsToDir(storage, testRepo, scratch, [hash], { manifests: true });
+
+    // The manifest file, and one file per segment beside it named by hash —
+    // the convention every runtime's opener reads.
+    assert.deepEqual(readFileSync(staged!), readFileSync(objectPath(testRepo, hash)));
+    const segmentDir = `${staged!}.segments`;
+    assert.deepEqual(
+      readdirSync(segmentDir).sort(),
+      manifest.entries.map((e) => `${e.hash}.beast2`).sort(),
+    );
+    // Not one byte of any segment moved: each staged file IS its object.
+    for (const entry of manifest.entries) {
+      const object = statSync(objectPath(testRepo, entry.hash));
+      const input = statSync(join(segmentDir, `${entry.hash}.beast2`));
+      assert.ok(
+        (input.ino === object.ino && input.dev === object.dev) || input.size === object.size,
+        `segment ${entry.hash} is the object, or exactly its bytes`,
+      );
+    }
+    // The manifest is read — it IS the index, and it is a few dozen bytes
+    // per segment — but not one segment's bytes pass through this process.
+    assert.equal(spy.reads(), 0, 'staging a manifest reads no segment whole');
+  });
+
+  it('splices a manifest-backed input for a runner that does not open one', async () => {
+    const rows = new SortedMap<string, bigint>(
+      Array.from({ length: 20_000 }, (_, i) => [`k${String(i).padStart(7, '0')}`, BigInt(i)] as [string, bigint]),
+      compareFor(StringType),
+    );
+    const type = DictType(StringType, IntegerType);
+    const hash = await datasetWrite(storage, testRepo, rows, type);
+
+    const [staged] = await marshalInputsToDir(storage, testRepo, scratch, [hash]);
+
+    // One file, no siblings: the value, exactly as every runner got it
+    // before the layout.
+    assert.equal(existsSync(`${staged!}.segments`), false);
+    const decoded = decodeBeast2For(type)(readFileSync(staged!)) as Map<string, bigint>;
+    assert.equal(decoded.size, 20_000);
+    assert.equal(decoded.get('k0019999'), 19_999n);
   });
 
   it('adopts an output onto the hash objects.write would have produced', async () => {

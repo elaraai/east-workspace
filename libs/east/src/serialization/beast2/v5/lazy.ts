@@ -41,6 +41,7 @@ import { asTypeValue } from "./type-section.js";
 import { isSegmentedRoot } from "./codec.js";
 import { Beast2Pages } from "./stream.js";
 import { type Beast2SyncRangeReader } from "./range.js";
+import { type Beast2ManifestSource } from "./manifest.js";
 
 /** The canonical-order violation error, in the eager decoders' words —
  *  the same sentence on every runtime for the same blob. */
@@ -493,13 +494,13 @@ function lazyArray(pages: Beast2Pages, frozen: boolean = false): unknown[] {
  * @returns a function opening a blob as a lazy collection value
  * @throws {TypeError} When `type` is not an Array, Set or Dict type.
  */
-export function openBeast2LazyFor<T extends EastType>(type: T | EastTypeValue, options?: Beast2DecodeOptions): (source: Uint8Array | Beast2SyncRangeReader) => ValueTypeOf<T> {
+export function openBeast2LazyFor<T extends EastType>(type: T | EastTypeValue, options?: Beast2DecodeOptions): (source: Uint8Array | Beast2SyncRangeReader | Beast2ManifestSource) => ValueTypeOf<T> {
   const typeValue = asTypeValue(type);
   if (!isSegmentedRoot(typeValue)) {
     throw new TypeError(`beast2 v5 lazy values hold Array, Set or Dict roots, not ${typeValue.type}`);
   }
   const frozen = options?.frozen ?? false;
-  return (source: Uint8Array | Beast2SyncRangeReader) => {
+  return (source: Uint8Array | Beast2SyncRangeReader | Beast2ManifestSource) => {
     // The pages carry the decode options, so every segment (and fence) the
     // lazy value serves is decoded frozen at construction.
     const pages = new Beast2Pages(source, typeValue, options);

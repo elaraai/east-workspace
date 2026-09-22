@@ -127,6 +127,7 @@ export {
   readManifest,
   readDatasetWhole,
   cutDatasetIntoStore,
+  adoptDatasetBlob,
 } from './dataset-open.js';
 
 // Taking an existing file into a workspace as a dataset value (#765)

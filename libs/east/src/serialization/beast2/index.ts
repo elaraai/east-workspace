@@ -78,6 +78,22 @@ export {
 } from "./v5/geometry.js";
 export { openBeast2LazyFor, isBeast2LazySafe, type Beast2LazySafeOptions } from "./v5/lazy.js";
 export {
+  COLLECTION_MANIFEST_KIND,
+  CollectionManifestType,
+  CollectionManifestEntryType,
+  type CollectionManifest,
+  type CollectionManifestEntry,
+  type Beast2ManifestSource,
+  isCollectionManifestType,
+  isCollectionManifest,
+  isBeast2ManifestSource,
+  encodeCollectionManifest,
+  decodeCollectionManifest,
+  readBeast2Manifest,
+  manifestElementCount,
+  manifestByteSize,
+} from "./v5/manifest.js";
+export {
   SEGMENT_MIN_COUNT,
   SEGMENT_TARGET_COUNT,
   SEGMENT_MAX_COUNT,

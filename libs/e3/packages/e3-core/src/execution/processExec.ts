@@ -87,6 +87,18 @@ export function collectVenvBins(startDir: string): string[] {
 /** Options for {@link marshalInputsToDir}. */
 export interface MarshalInputsOptions {
   /**
+   * Whether the runner opens a collection staged as a segment manifest.
+   *
+   * @remarks
+   * True stages a manifest-backed input as the manifest file plus one linked
+   * file per segment, so staging a 2 GB input is O(segments) links and no
+   * bytes and the body reads only the segments it touches. False splices the
+   * segments into one file, which every runner got before the layout and a
+   * `custom` command still needs. Decided per runner variant
+   * (`runnerOpensManifests`), never per task.
+   */
+  manifests?: boolean;
+  /**
    * Whether a staged input may SHARE the object's storage (a hard link or a
    * reflink) rather than being copied.
    *
@@ -114,9 +126,10 @@ const MARSHAL_CHUNK_BYTES = 4 * 1024 * 1024;
  * execution over a 2 GB input, for bytes the runner then opened lazily
  * anyway.
  *
- * An input stored as a segment manifest is spliced into the staged file a
- * segment at a time — the runners read one blob, so the layout is resolved
- * here. Peak memory is one segment either way.
+ * An input stored as a segment manifest is staged as the manifest plus one
+ * linked file per segment for a runner that opens the layout, and spliced
+ * into one file for a runner that does not. Peak memory is one segment
+ * either way; for the first, no segment's bytes move at all.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
@@ -136,10 +149,48 @@ export async function marshalInputsToDir(
   const materialize = storage.objects.materialize;
   const readRange = storage.objects.readRange;
   const inputPaths: string[] = [];
+  /** One object into one staged path, without its bytes passing through this
+   *  process where the backend can avoid it. */
+  const stageObject = async (
+    store: StorageBackend, repository: string, objectHash: string, dest: string, mayLink: boolean,
+  ): Promise<void> => {
+    if (materialize) {
+      await materialize.call(store.objects, repository, objectHash, dest, { link: mayLink });
+      return;
+    }
+    if (readRange) {
+      const { size } = await store.objects.stat(repository, objectHash);
+      const handle = await fs.open(dest, 'w');
+      try {
+        for (let offset = 0; offset < size; offset += MARSHAL_CHUNK_BYTES) {
+          const chunk = await readRange.call(store.objects, repository, objectHash, offset, Math.min(MARSHAL_CHUNK_BYTES, size - offset));
+          if (chunk.length === 0) break;
+          await handle.write(chunk);
+        }
+      } finally {
+        await handle.close();
+      }
+      return;
+    }
+    await fs.writeFile(dest, await store.objects.read(repository, objectHash));
+  };
   for (let i = 0; i < inputHashes.length; i++) {
     const inputPath = path.join(scratchDir, `input-${i}.beast2`);
     const hash = inputHashes[i]!;
-    if (await readManifest(storage, repo, hash) !== null) {
+    const manifest = await readManifest(storage, repo, hash);
+    if (manifest !== null && options.manifests === true) {
+      // The manifest itself, then its segments as sibling files named by
+      // hash — the convention every runtime's opener reads. Each segment is a
+      // link (or one kernel copy), so the bytes never move.
+      await stageObject(storage, repo, hash, inputPath, link);
+      const segmentDir = `${inputPath}.segments`;
+      await fs.mkdir(segmentDir, { recursive: true });
+      for (const entry of manifest.entries) {
+        await stageObject(storage, repo, entry.hash, path.join(segmentDir, `${entry.hash}.beast2`), link);
+      }
+    } else if (manifest !== null) {
+      // A runner that does not open manifests gets the value: the segments
+      // splice back under their shared header, one chunk at a time.
       const segments = await DatasetSegments.open(storage, repo, hash);
       const handle = await fs.open(inputPath, 'w');
       try {

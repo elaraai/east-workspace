@@ -119,6 +119,7 @@ export {
   RunnerType,
   type RunnerValue,
   runnerToArgv,
+  runnerOpensManifests,
   withRunnerVerbose,
   withRunnerLifeline,
 } from './runner.js';

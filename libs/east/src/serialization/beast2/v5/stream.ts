@@ -49,7 +49,8 @@ import {
   type Beast2Index,
 } from "./codec.js";
 import { type Beast2SyncRangeReader, TAG_OR_TERMINATOR_FRAME, bytesReader, isBeast2SyncRangeReader, readExact, readU64LE, readBeast2ExtentsSync } from "./range.js";
-import { SegmentCutter, segmentKeyTypeOf } from "./boundary.js";
+import { SegmentCutter, segmentKeyTypeOf, decodeBeast2FenceFor } from "./boundary.js";
+import { isBeast2ManifestSource, type Beast2ManifestSource } from "./manifest.js";
 
 /** The collection kinds a v5 stream can hold at the root. */
 type SegmentedKind = "Array" | "Set" | "Dict";
@@ -867,12 +868,17 @@ export class Beast2Pages<T extends EastType = EastType> {
   /** Whether segments are independently decodable. */
   readonly selfContained: boolean;
   private readonly source: Beast2SyncRangeReader;
+  /** The manifest behind this reader, when the segments are separate blobs
+   *  rather than runs of one. */
+  private readonly manifestSource: Beast2ManifestSource | null = null;
   /** Wire offset of the terminator frame — where the last segment's frame ends. */
   private readonly segmentsEnd: number;
   private readonly indexData: Beast2Index;
   private readonly kind: SegmentedKind;
   private readonly typeValue: EastTypeValue;
-  private readonly sourceMap: SourceMap;
+  /** The stream's source map. For a manifest it starts empty and is replaced
+   *  by the first segment's own header map, which every segment shares. */
+  private sourceMap: SourceMap;
   private readonly decodeSegment: (reader: BufferReader, ctx: V5DecodeContext, n: number, order?: SegmentOrder) => any;
   private readonly platform: Beast2DecodeOptions | undefined;
   private readonly cumulative: number[];
@@ -890,11 +896,28 @@ export class Beast2Pages<T extends EastType = EastType> {
   private readonly segmentCache = new Map<number, { seg: any; first: any; last: any }>();
 
   /** @internal Use {@link openBeast2PagesFor}. */
-  constructor(source: Uint8Array | Beast2SyncRangeReader, typeValue: EastTypeValue, options?: Beast2DecodeOptions) {
+  constructor(source: Uint8Array | Beast2SyncRangeReader | Beast2ManifestSource, typeValue: EastTypeValue, options?: Beast2DecodeOptions) {
     let kind: SegmentedKind;
     let sourceMap: SourceMap;
     let index: Beast2Index;
-    if (!isBeast2SyncRangeReader(source)) {
+    if (isBeast2ManifestSource(source)) {
+      // A manifest names its segments; there is no one blob to take geometry
+      // from. Counts and fences come from the entries, and a segment is its
+      // own blob — so no offset in this index is ever read, and the header
+      // (with it the source map) is parsed from the first segment opened.
+      kind = checkSegmented(typeValue);
+      sourceMap = new SourceMap();
+      const entries = source.manifest.entries;
+      index = {
+        selfContained: true,
+        offsets: entries.map(() => 0),
+        counts: entries.map((e) => Number(e.count)),
+        totalCount: entries.reduce((sum, e) => sum + Number(e.count), 0),
+      };
+      this.manifestSource = source;
+      this.segmentsEnd = 0;
+      this.source = bytesReader(new Uint8Array(0));
+    } else if (!isBeast2SyncRangeReader(source)) {
       ({ kind, sourceMap } = openSegmented(source, typeValue));
       const whole = readIndex(source);
       if (!whole) {
@@ -940,11 +963,30 @@ export class Beast2Pages<T extends EastType = EastType> {
   /** Reads segment `i`'s frame — exactly its wire bytes, from its index
    *  offset to the next segment's (or the terminator) — and opens its
    *  logical chunk. The only place segment bytes are fetched, so a ranged
-   *  source touches one frame per decode. */
+   *  source touches one frame per decode, and a manifest source touches one
+   *  segment blob. */
   private frameReader(i: number): BufferReader {
+    if (this.manifestSource !== null) return this.manifestFrameReader(i);
     const start = this.indexData.offsets[i]!;
     const end = i + 1 < this.indexData.offsets.length ? this.indexData.offsets[i + 1]! : this.segmentsEnd;
     return new FrameReader(readExact(this.source, start, end - start), 0).next();
+  }
+
+  /** Segment `i`'s frame out of its own standalone blob: the blob's geometry
+   *  names exactly one frame, and its header carries the source map every
+   *  segment of this collection shares. */
+  private manifestFrameReader(i: number): BufferReader {
+    const blob = this.manifestSource!.segment(i);
+    const reader = isBeast2SyncRangeReader(blob) ? blob : bytesReader(blob);
+    const extents = readBeast2ExtentsSync(reader);
+    if (extents.offsets.length !== 1) {
+      throw new Error(`beast2 v5: manifest entry ${i} holds ${extents.offsets.length} segments, not one`);
+    }
+    if (this.sourceMap.size <= 1n) {
+      this.sourceMap = openSegmented(extents.head, this.typeValue).sourceMap;
+    }
+    const start = extents.offsets[0]!;
+    return new FrameReader(readExact(reader, start, extents.segmentsEnd - start), 0).next();
   }
 
   /**
@@ -1027,6 +1069,13 @@ export class Beast2Pages<T extends EastType = EastType> {
    *  final attempt reads the frame whole, so corruption is still reported
    *  with the frame's own error. */
   private firstKey(i: number): any {
+    // A manifest stores every fence already, so a bisect over one reads no
+    // segment bytes at all — the whole point of carrying them.
+    if (this.manifestSource !== null) {
+      const entry = this.manifestSource.manifest.entries[i]!;
+      const keyType = this.kind === "Dict" ? (this.typeValue as any).value.key : (this.typeValue as any).value;
+      return decodeBeast2FenceFor(keyType, this.platform)(entry.fence);
+    }
     if (!this.fenceDec) {
       const keyType = this.kind === "Dict" ? (this.typeValue as any).value.key : (this.typeValue as any).value;
       this.fenceDec = buildV5Decoder(keyType);
@@ -1290,16 +1339,17 @@ export class Beast2Pages<T extends EastType = EastType> {
  * Builds a curried pages opener: `open(source)` parses the header, footer and
  * index once and returns a {@link Beast2Pages} for random access.
  *
- * `source` is the whole blob, or a {@link Beast2SyncRangeReader} over it —
- * then only the tail, the head and the segments actually read are ever
- * fetched.
+ * `source` is the whole blob, a {@link Beast2SyncRangeReader} over it — then
+ * only the tail, the head and the segments actually read are ever fetched —
+ * or a {@link Beast2ManifestSource}, whose segments are separate blobs and
+ * whose fences are already decoded, so a keyed read touches exactly one.
  *
  * @param type - the collection type (Array/Set/Dict)
  * @param options - decode options (platform functions for decoded functions)
  * @returns a function opening a blob for paged reads
  * @throws {TypeError} When `type` is not an Array, Set or Dict type.
  */
-export function openBeast2PagesFor<T extends EastType>(type: T | EastTypeValue, options?: Beast2DecodeOptions): (source: Uint8Array | Beast2SyncRangeReader) => Beast2Pages<T> {
+export function openBeast2PagesFor<T extends EastType>(type: T | EastTypeValue, options?: Beast2DecodeOptions): (source: Uint8Array | Beast2SyncRangeReader | Beast2ManifestSource) => Beast2Pages<T> {
   const typeValue = asTypeValue(type);
   checkSegmented(typeValue);
   return (source) => new Beast2Pages<T>(source, typeValue, options);

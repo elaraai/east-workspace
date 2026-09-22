@@ -16,7 +16,7 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { variant } from '@elaraai/east';
-import { type ExecutionStatus, type PartitionProgress, type TaskObject, decodeTaskObject, withRunnerLifeline, withRunnerVerbose, TASK_KIND_PARTITION } from '@elaraai/e3-types';
+import { type ExecutionStatus, type PartitionProgress, type TaskObject, decodeTaskObject, withRunnerLifeline, withRunnerVerbose, TASK_KIND_PARTITION, runnerOpensManifests } from '@elaraai/e3-types';
 import { inputsHash, evaluateCommandIr } from '../executions.js';
 import { uuidv7 } from '../uuid.js';
 import type { StorageBackend } from '../storage/interfaces.js';
@@ -364,9 +364,12 @@ export async function taskExecuteBody(
     // Step 5: Marshal inputs to scratch dir. A stock runner only ever READS
     // its inputs, so they may share the object's storage; a `custom` runner is
     // an arbitrary command that could move or truncate the path, which through
-    // a hard link would rewrite the object itself — so it gets copies.
+    // a hard link would rewrite the object itself — so it gets copies. A
+    // runner whose reader opens a segment manifest gets one staged as the
+    // manifest plus its linked segments; every other gets the spliced value.
     const inputPaths = await marshalInputsToDir(storage, repo, scratchDir, inputHashes, {
       link: task.runner.type !== 'custom',
+      manifests: runnerOpensManifests(task.runner),
     });
 
     // Step 6: Evaluate command IR to get exec args
