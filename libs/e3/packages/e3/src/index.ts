@@ -142,4 +142,4 @@ export { DatasetSourceType, type DatasetSource } from './input.js';
 export { addObject } from './export.js';
 export { editTypeOf } from '@elaraai/e3-types';
 export { indexBuildProgram, buildMutationProgram, deltaTargets, indexEntryKeyType } from './record-programs.js';
-export type { RecordIndexSpec, IndexFunction } from './record-index.js';
+export type { RecordIndexSpec, IndexFunction, IndexKeyOf, ProjectionOf } from './record-index.js';

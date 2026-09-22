@@ -61,20 +61,29 @@ const rows = new SortedMap<string, { status: string; due: bigint; title: string;
 ], compareFor(StringType));
 
 describe('recordIndex — the declaration', () => {
+  // The typed bindings below are half of each test: they compile only when the
+  // declaration carries the exact key and projection types, which are what
+  // type a window read through the index — and so every component rendering
+  // one. An erased EastType is assignable to none of them.
+
   it('reads the index key and the projection off the declared functions', () => {
     const index = recordIndex('by_status', plans(), { key: statusKey, value: titleOf });
+    const keyType: typeof StatusKeyType = index.keyType;
+    const valueType: typeof StringType = index.valueType;
     assert.equal(index.kind, 'recordIndex');
     assert.equal(index.name, 'by_status');
     assert.equal(index.multi, false);
-    assert.equal(printType(index.keyType), printType(StatusKeyType));
-    assert.equal(printType(index.valueType), printType(StringType));
+    assert.equal(printType(keyType), printType(StatusKeyType));
+    assert.equal(printType(valueType), printType(StringType));
   });
 
   it('unwraps the element type of a multi-valued index, and carries no value by default', () => {
     const index = recordIndex('by_tag', plans(), { keys: tagKeys });
+    const keyType: typeof StringType = index.keyType;
+    const valueType: typeof NullType = index.valueType;
     assert.equal(index.multi, true);
-    assert.equal(printType(index.keyType), printType(StringType), 'the SET is unwrapped to its element');
-    assert.equal(printType(index.valueType), printType(NullType));
+    assert.equal(printType(keyType), printType(StringType), 'the SET is unwrapped to its element');
+    assert.equal(printType(valueType), printType(NullType));
   });
 
   it('is collected onto its record by the package', () => {

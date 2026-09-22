@@ -20,7 +20,7 @@
  * one to the byte.
  */
 
-import type { CallableFunctionExpr, EastType } from '@elaraai/east';
+import type { CallableFunctionExpr, EastType, FunctionExpr, SetType } from '@elaraai/east';
 import {
   AsyncEastIR, EastTypeType, Expr, NullType, equalFor, printType, toEastTypeValue, walkIR,
 } from '@elaraai/east';
@@ -71,6 +71,31 @@ export type RecordIndexSpec = {
    *  never touches the primary's segments. */
   value?: IndexFunction;
 };
+
+/** The type an East function returns, read off the expression itself. */
+type OutputOf<F> = F extends FunctionExpr<any, infer O> ? (O extends EastType ? O : EastType) : EastType;
+
+/**
+ * The index key a spec declares: `key`'s return, or the element of the Set
+ * `keys` returns.
+ *
+ * @remarks
+ * Read off the spec the caller actually wrote, so the factory's parameter
+ * keeps the weak {@link IndexFunction} shape the inline callbacks need while
+ * its result carries the precise key type — which is what types a window read
+ * through the index, and so every component that renders one.
+ */
+export type IndexKeyOf<S> =
+  S extends { key: infer F } ? OutputOf<F>
+  : S extends { keys: infer F } ? (OutputOf<F> extends SetType<infer IK> ? IK : EastType)
+  : EastType;
+
+/** The covering projection a spec declares: `value`'s return, Null when the
+ *  spec has no `value`, and any type when it only might. */
+export type ProjectionOf<S> =
+  S extends { value: infer F } ? OutputOf<F>
+  : 'value' extends keyof S ? EastType
+  : NullType;
 
 /** The signature of a function an index declares, as the guards see it. */
 function signatureOf(fn: IndexFunction): { inputs: EastType[]; output: EastType } {
@@ -125,6 +150,8 @@ function checkEntryParams(name: string, role: string, keyType: EastType, valueTy
  *
  * @typeParam Name - Index name (literal type)
  * @typeParam T - The owning record's state type (a Dict)
+ * @typeParam S - The spec as written, from which the index key and covering
+ *   projection types are read
  * @param name - Index name (unique on the record, and never `primary`)
  * @param rec - The record to index
  * @param spec - Exactly one of `key` / `keys`, and an optional `value`
@@ -153,12 +180,12 @@ function checkEntryParams(name: string, role: string, keyType: EastType, valueTy
  * const pkg = e3.package('planning', '1.0.0', plans, byStatus, byResource);
  * ```
  */
-export function recordIndex<Name extends string, T extends EastType>(
+export function recordIndex<Name extends string, T extends EastType, S extends RecordIndexSpec>(
   name: Name,
   rec: RecordDef<T>,
-  spec: RecordIndexSpec,
+  spec: S,
   config?: { runner?: FunctionRunner },
-): RecordIndexDef<Name, T> {
+): RecordIndexDef<Name, T, IndexKeyOf<S>, ProjectionOf<S>> {
   if (!name) {
     throw new Error('e3.recordIndex requires a non-empty name');
   }
@@ -234,8 +261,10 @@ export function recordIndex<Name extends string, T extends EastType>(
     keyFn: keyFn as CallableFunctionExpr<any, any>,
     ...(spec.value !== undefined && { valueFn: spec.value as CallableFunctionExpr<any, any> }),
     multi,
-    keyType: indexKeyType,
-    valueType: projectionType,
+    // The signature read above IS the type the spec's functions declare; the
+    // casts only restate it at the TypeScript level.
+    keyType: indexKeyType as IndexKeyOf<S>,
+    valueType: projectionType as ProjectionOf<S>,
     runner,
   };
 }
