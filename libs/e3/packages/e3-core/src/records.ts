@@ -37,14 +37,14 @@ import {
 } from '@elaraai/e3-types';
 import { DeltaConflictError, applyDelta } from './record-apply.js';
 import { executeRecordOperation } from './execution/recordSteps.js';
-import { adoptDatasetBlob, readDatasetWhole, readManifest } from './dataset-open.js';
+import { DatasetSegments, adoptDatasetBlob, openDatasetObject, readManifest } from './dataset-open.js';
 import { workspaceGetPackage } from './workspaces.js';
 import { refPathToKeypath } from './dataset-refs.js';
 import { DatasetRefConflictError, WorkspaceLockError } from './errors.js';
 import { TASKS_LOCK } from './storage/local/gc.js';
 import type { StorageBackend, LockHandle } from './storage/interfaces.js';
 import type { TaskRunner } from './execution/interfaces.js';
-import type { DetachedResult } from './execution/runDetached.js';
+import type { DetachedArg, DetachedResult } from './execution/runDetached.js';
 
 const encodeCommit = encodeBeast2For(RecordCommitType);
 const decodeIndexObject = decodeBeast2For(RecordIndexObjectType);
@@ -296,6 +296,26 @@ function failureOutcome(result: Exclude<DetachedResult, { kind: 'success' }>): M
 }
 
 /**
+ * A record's state as a detached run's first argument.
+ *
+ * @remarks
+ * A state stored as a segment manifest is passed as its splice, streamed from
+ * the segment objects, so the runner's argument file is written one segment at
+ * a time and the engine never holds the record. A state that is one object —
+ * a scalar record, or a collection written before the layout — is that object.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param primary - the state's primary (a manifest, or the object itself)
+ * @returns the argument to pass
+ */
+async function stateArg(storage: StorageBackend, repo: string, primary: string): Promise<DetachedArg> {
+  const opened = await openDatasetObject(storage, repo, primary);
+  if (opened.manifest === null) return storage.objects.read(repo, opened.hash);
+  return (await DatasetSegments.open(storage, repo, opened.hash)).splice();
+}
+
+/**
  * Apply a named mutation to a record under optimistic concurrency.
  *
  * Resolves the mutation, then loops: read the current state + revision, run the
@@ -496,10 +516,9 @@ async function writeWholeState(
 ): Promise<MutationWrite> {
   // The reducer takes a value, not a layout: a primary held as a segment
   // manifest is spliced back into one blob for it, exactly as a task input is
-  // staged.
-  const stateBytes = await readDatasetWhole(storage, repo, state.primary);
+  // staged — streamed, so the engine never holds the record.
   const result = await runner.runDetached(
-    { bodyIr, args: [stateBytes, ...args], runner: mutObj.runner, limits: run.limits },
+    { bodyIr, args: [await stateArg(storage, repo, state.primary), ...args], runner: mutObj.runner, limits: run.limits },
     { signal: run.signal, verbose: run.verbose },
   );
   if (result.kind !== 'success') return { failure: failureOutcome(result) };
@@ -542,11 +561,13 @@ async function writeDelta(
   if (deltaHash === null) {
     // The program opens the state lazily from its own file, so a body that
     // touches a few entries decodes the segments they live in and no others.
-    const stateBytes = await readDatasetWhole(storage, repo, state.primary);
+    // Writing that file still streams every segment through this process —
+    // one at a time, never the record whole — until a runner opens a record's
+    // segments itself.
     const result = await runner.runDetached(
       {
         bodyIr: await storage.objects.read(repo, mutObj.programIr),
-        args: [stateBytes, ...args],
+        args: [await stateArg(storage, repo, state.primary), ...args],
         runner: mutObj.runner,
         limits: run.limits,
         streaming: { emit: 'dict', stream: [0] },

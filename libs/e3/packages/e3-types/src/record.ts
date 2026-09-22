@@ -148,8 +148,10 @@ export const STALE_WRITE_PREFIX = 'stale write: ';
  *   its diff see the whole state, so its RUNNER cost stays O(state); only its
  *   write is O(touched).
  * - `edit` — `(State, …Args, Edit) => Null`, the lazy write: the body reads the
- *   state it is given, lazily, and writes through an `edit` capability. O(touched)
- *   end to end for a body that touches a few entries of a large record.
+ *   state it is given, lazily, and writes through an `edit` capability, so the
+ *   body and the commit cost the entries it touches. The state still reaches
+ *   the runner as a stream of the record's segments — its bytes moved, never
+ *   held.
  * - `patch` — no body; the argument is `PatchType(State)`. What an interactive
  *   edit from a view sends, and the only form whose cost is independent of the
  *   record's size on a cold container.

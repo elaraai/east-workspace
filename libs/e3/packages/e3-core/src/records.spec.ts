@@ -1216,6 +1216,35 @@ describe('the mutation delta', () => {
     assert.deepStrictEqual(await storage.datasets.read(repo, plain, 'records/plans'), before);
   });
 
+  it('streams the record to the runner, never holding it whole', async () => {
+    // The program opens the state lazily from its argument file; what the
+    // engine owes it is that file. Materialising the record to write it is
+    // the O(state) cost the edit form exists to avoid, so the state goes over
+    // as a stream of its segments — and only a scalar state, which is one
+    // object, goes over as bytes.
+    await recordMutate(storage, realRunner, repo, ws, 'plans', 'seed', [], { actor: 'cli:test' });
+    const passed: string[] = [];
+    const watching = new Proxy(realRunner, {
+      get(target, property, receiver) {
+        if (property === 'runDetached') {
+          return (spec: { args: unknown[] }, options: unknown) => {
+            passed.push(spec.args[0] instanceof Uint8Array ? 'bytes' : 'stream');
+            return (target.runDetached as (s: unknown, o: unknown) => Promise<DetachedResult>).call(target, spec, options);
+          };
+        }
+        const value = Reflect.get(target, property, receiver) as unknown;
+        return typeof value === 'function' ? (value as (...a: unknown[]) => unknown).bind(target) : value;
+      },
+    }) as TaskRunner;
+
+    const outcome = await recordMutate(storage, watching, repo, ws, 'plans', 'retitle',
+      [encodeBeast2For(StringType)('p-7')], { actor: 'cli:test' });
+    assert.strictEqual(outcome.kind, 'committed', JSON.stringify(outcome));
+    assert.deepStrictEqual(passed, ['stream'], 'the state went to the runner as a stream');
+    const rows = decodeBeast2For(PlansType)(await readDatasetWhole(storage, repo, (await state(ws)).primary)) as Map<string, { title: string }>;
+    assert.strictEqual(rows.get('p-7')!.title, 'RETITLED', 'and the runner read it whole and right');
+  });
+
   it('an edit that writes back what the record holds moves nothing', async () => {
     // A delta says what CHANGED. An `edit` body that sets a row to the value
     // already there changed nothing, so the record must land on the state it

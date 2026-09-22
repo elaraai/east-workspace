@@ -28,13 +28,25 @@ import {
 } from './processExec.js';
 
 /**
+ * One positional argument of a detached run: a value's beast2 bytes, or those
+ * bytes as a stream.
+ *
+ * @remarks
+ * A stream is what a record's state is passed as. It is written to the
+ * runner's argument file as it is read, one segment at a time, so the value is
+ * never held whole by the process that stages it — a runner opens the file
+ * lazily, and neither side pays for a record's size in memory.
+ */
+export type DetachedArg = Uint8Array | AsyncIterable<Uint8Array>;
+
+/**
  * Specification of a detached run.
  */
 export interface DetachedSpec {
   /** function: from FunctionObject; one-shot: from request */
   bodyIr: Uint8Array;
   /** positional arg values (beast2), already validated for arity */
-  args: Uint8Array[];
+  args: DetachedArg[];
   /** wire runner variant — resolved to argv via buildRunnerArgv */
   runner: RunnerValue;
   /** execution limits (all required — the caller applies defaults/clamps) */

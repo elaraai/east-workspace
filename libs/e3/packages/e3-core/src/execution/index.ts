@@ -39,6 +39,7 @@ export { MockTaskRunner, type MockTaskCall } from './MockTaskRunner.js';
 // Graph-free execution (functions / one-shot)
 export {
   runDetached,
+  type DetachedArg,
   type DetachedSpec,
   type DetachedResult,
   type DetachedRunOptions,

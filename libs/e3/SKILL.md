@@ -727,11 +727,15 @@ changed, and so in what a write costs.
 A reducer sees the whole state, so its cost in the runner is the record's size
 however little it changes. An **edit** body reads the state lazily and writes
 through `edit.set(key, value)` / `edit.delete(key)` / `edit.update(key, patch)`,
-so it costs the entries it touched end to end; repeated edits of one key fold,
-and a `delete` or `update` of a key the record does not hold fails the mutation
-naming the key. A **patch** mutation has no body at all — on a record with no
-index nothing runs, which makes it the form to use for interactive latency at
-any record size.
+so the body decodes only the entries it reads and the commit rewrites only the
+segments its keys fall in. The record still reaches the runner as a stream of
+its segments: a write moves the record's bytes, one segment at a time, but
+never holds them. Repeated edits of one key fold; a `set` of the value a row
+already holds changes nothing; and a `delete` or `update` of a key the record
+does not hold is a conflict naming the key — the caller's view of the record is
+stale. A **patch** mutation has no body at all — on a record with no index
+nothing runs, which makes it the form to use for interactive latency at any
+record size.
 
 ```typescript
 const plans = e3.record('plans', DictType(StringType, PlanType), new Map());

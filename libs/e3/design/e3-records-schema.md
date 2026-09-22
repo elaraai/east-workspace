@@ -1941,8 +1941,12 @@ Stated plainly, because the temptation is to claim more:
   segments make exact — coarse, but automatic.
 - **The `reduce` form's runner cost stays O(n).** Its body and its diff see the
   whole state (§10.2); only its *write* is O(touched). Nor does a `replace`-arm
-  patch avoid that diff. The `edit` and `patch` forms are the O(touched) forms
-  end to end.
+  patch avoid that diff. The `edit` form's body and apply are O(touched), but
+  every form that runs a program is handed the state as a file, which the
+  engine writes by streaming the record's segments — O(n) bytes moved, one
+  segment held — until runners open a record's segments directly. Only a
+  `patch` on a record with no index runs no process, and is O(touched) end to
+  end.
 - **Down-migrations are not supported.** Rolling a package back over a migrated
   record is refused, not reversed. `invertFor` from the patch system could in
   principle synthesize one, but only for value diffs, not type changes.

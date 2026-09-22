@@ -111,8 +111,8 @@ function checkKeyed(surface: string, name: string, rec: RecordDef): void {
  *
  * The reducer sees the whole state, so its cost in the runner is the record's
  * size however little it changes; only its WRITE is proportional to what it
- * touched. {@link editMutation} is the form whose cost is the entries it
- * touches end to end.
+ * touched. {@link editMutation} is the form whose body and commit cost the
+ * entries it touches.
  *
  * @typeParam Name - Mutation name (literal type)
  * @typeParam T - The owning record's state type

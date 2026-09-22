@@ -248,13 +248,14 @@ export async function adoptOutputFile(
  * Marshal raw value bytes to staged `.beast2` files in a scratch directory.
  *
  * The graph-free path writes args to scratch directly from request bytes —
- * no object-store round trip.
+ * no object-store round trip. An argument given as a stream is written as it
+ * is read, so a value too large to hold is never held.
  *
  * @returns The staged file paths, in arg order
  */
 export async function marshalBytesToDir(
   scratchDir: string,
-  blobs: Uint8Array[]
+  blobs: ReadonlyArray<Uint8Array | AsyncIterable<Uint8Array>>
 ): Promise<string[]> {
   const argPaths: string[] = [];
   for (let i = 0; i < blobs.length; i++) {
