@@ -124,6 +124,24 @@ export type MutationObjectType = typeof MutationObjectType;
 export type MutationObject = ValueTypeOf<typeof MutationObjectType>;
 
 /**
+ * The prefix a generated mutation program puts on an error meaning the state
+ * moved under the write.
+ *
+ * @remarks
+ * A write reaches the record two ways — the program emits a delta and the
+ * engine applies it, or the engine applies the client's patch directly — and
+ * both meet the same situation: an op that disagrees with the state it lands
+ * on. The apply reports it as a conflict, which a caller retries; a program
+ * can only report it by failing, which a caller does not. The prefix is how
+ * the engine tells that refusal apart from a body that is simply wrong, so
+ * the two doors agree on what a stale write is.
+ *
+ * Part of the wire: it is baked into the program's IR at export time and read
+ * back out of the run's stderr.
+ */
+export const STALE_WRITE_PREFIX = 'stale write: ';
+
+/**
  * How a mutation says what it changed.
  *
  * - `reduce` — `(State, …Args) => State`, the original surface. Its body and

@@ -151,6 +151,7 @@ export {
   decodeRecordCommit,
   decodeMutationObject,
   type MutationForm,
+  STALE_WRITE_PREFIX,
   patchOpsType,
   mutationDeltaType,
   editTypeOf,

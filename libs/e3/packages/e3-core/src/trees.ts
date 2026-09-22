@@ -32,7 +32,7 @@ import {
   type EastTypeValue,
 } from '@elaraai/east';
 import { DataRefType, WorkspaceStateType, checkDatasetType, datasetAddress, decodePackageObject, encodeDatasetBlob, isCollectionRoot, manifestByteSize, manifestElementCount, type DataRef, type DatasetRef, type Structure, type TreePath, type VersionVector } from '@elaraai/e3-types';
-import { readDatasetWhole, readManifest } from './dataset-open.js';
+import { openDatasetObject, readDatasetWhole } from './dataset-open.js';
 import { packageRead } from './packages.js';
 import {
   WorkspaceNotFoundError,
@@ -693,21 +693,25 @@ async function datasetGeometry(
 ): Promise<{ segments: number | null; rows: number | null; storedBytes: number | null }> {
   if (!isCollectionRoot(datasetType)) return { segments: null, rows: null, storedBytes: null };
   try {
-    const manifest = await readManifest(storage, repo, hash, size);
-    if (manifest !== null) {
+    // A record that declares an index names a `$record` state, and the
+    // collection hangs off that — so the geometry belongs to the object the
+    // opener resolves to, never to the object the ref happened to point at.
+    const opened = await openDatasetObject(storage, repo, hash, size);
+    const collectionSize = opened.hash === hash ? size : (await storage.objects.stat(repo, opened.hash)).size;
+    if (opened.manifest !== null) {
       return {
-        segments: manifest.entries.length,
-        rows: manifestElementCount(manifest),
-        storedBytes: manifestByteSize(manifest) + size,
+        segments: opened.manifest.entries.length,
+        rows: manifestElementCount(opened.manifest),
+        storedBytes: manifestByteSize(opened.manifest) + collectionSize,
       };
     }
     const readRange = storage.objects.readRange;
     if (!readRange) return { segments: null, rows: null, storedBytes: null };
     const extents = await readBeast2ExtentsRanged({
-      size,
-      read: (offset, length) => readRange.call(storage.objects, repo, hash, offset, length),
+      size: collectionSize,
+      read: (offset, length) => readRange.call(storage.objects, repo, opened.hash, offset, length),
     });
-    return { segments: extents.offsets.length, rows: extents.elementCount, storedBytes: size };
+    return { segments: extents.offsets.length, rows: extents.elementCount, storedBytes: collectionSize };
   } catch {
     return { segments: null, rows: null, storedBytes: null };
   }

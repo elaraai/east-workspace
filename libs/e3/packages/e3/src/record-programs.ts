@@ -34,7 +34,7 @@ import {
   type EastType,
 } from '@elaraai/east';
 import {
-  editTypeOf, indexCollectionType, mutationDeltaType, patchOpsType, type DeltaTarget,
+  STALE_WRITE_PREFIX, editTypeOf, indexCollectionType, mutationDeltaType, patchOpsType, type DeltaTarget,
 } from '@elaraai/e3-types';
 import type { MutationDef, RecordDef, RecordIndexDef } from './types.js';
 
@@ -193,7 +193,7 @@ function collectOps(
     replace: ($: any, whole: any) => {
       if (verifyBefore) {
         $.if(East.notEqual(whole.before, state), ($: any) => {
-          $.error('the patch replaces a state the record no longer holds');
+          $.error(`${STALE_WRITE_PREFIX}the patch replaces a state the record no longer holds`);
         });
       }
       if (keyed === 'Set') {
@@ -397,7 +397,15 @@ function foldEdits(
       set: ($: any, value: any) => {
         $.match(held, {
           some: ($: any, prior: any) => {
-            $(ops.insertOrUpdate(key, variant('update', East.diff(prior, value))));
+            // A `set` of what the record already holds changed nothing, and a
+            // delta says what changed: an op here would re-cut the segment to
+            // the bytes it already has and count itself in the history.
+            // A `set` of what the record already holds changed nothing, and a
+            // delta says what changed: an op here would re-cut the segment to
+            // the bytes it already has and count itself in the history.
+            $.if(East.notEqual(prior, value), ($: any) => {
+              $(ops.insertOrUpdate(key, variant('update', East.diff(prior, value))));
+            });
           },
           none: ($: any) => {
             $(ops.insertOrUpdate(key, variant('insert', value)));
@@ -410,7 +418,7 @@ function foldEdits(
             $(ops.insertOrUpdate(key, variant('delete', prior)));
           },
           none: ($: any) => {
-            $.error(East.str`delete of ${East.print(key)}, which the record does not hold`);
+            $.error(East.str`${STALE_WRITE_PREFIX}delete of ${East.print(key)}, which the record does not hold`);
           },
         });
       },
@@ -420,7 +428,7 @@ function foldEdits(
             $(ops.insertOrUpdate(key, variant('update', patch)));
           },
           none: ($: any) => {
-            $.error(East.str`update of ${East.print(key)}, which the record does not hold`);
+            $.error(East.str`${STALE_WRITE_PREFIX}update of ${East.print(key)}, which the record does not hold`);
           },
         });
       },

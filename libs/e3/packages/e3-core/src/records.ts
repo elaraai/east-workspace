@@ -17,6 +17,7 @@
 import { variant, some, none, ArrayType, BlobType, PatchType, SortedMap, compareFor, encodeBeast2For, decodeBeast2For, fromEastTypeValue, readBeast2Type, toEastTypeValue, type EastType, type EastTypeValue } from '@elaraai/east';
 import {
   RECORD_STATE_KIND,
+  STALE_WRITE_PREFIX,
   RecordCommitType,
   RecordIndexObjectType,
   RecordStateType,
@@ -552,7 +553,19 @@ async function writeDelta(
       },
       { signal: run.signal, verbose: run.verbose },
     );
-    if (result.kind !== 'success') return { failure: failureOutcome(result) };
+    if (result.kind !== 'success') {
+      // A program that refused because the state moved under it is reporting
+      // what the apply reports as a ConflictError. A caller retries one and
+      // gives up on the other, so the two doors must not disagree about which
+      // a stale write is.
+      const refusal = result.kind === 'failed'
+        ? result.stderr.split(/\r?\n/).find((line) => line.includes(STALE_WRITE_PREFIX))
+        : undefined;
+      if (refusal !== undefined) {
+        return { conflictDetail: refusal.slice(refusal.indexOf(STALE_WRITE_PREFIX) + STALE_WRITE_PREFIX.length).trim() };
+      }
+      return { failure: failureOutcome(result) };
+    }
     deltaHash = await adoptDatasetBlob(storage, repo, result.value);
   }
 

@@ -19,10 +19,11 @@ import { RecordIndexObjectType } from '@elaraai/e3-types';
 import type { Structure, TreePath } from '@elaraai/e3-types';
 import { DatasetSegments, readDatasetWhole } from './dataset-open.js';
 import { recordMutate, recordHistory, recordCompact, recordDescribe, recordIndexNames, recordReindex, readRecordState, resolveRecordIndex } from './records.js';
+import { summarizeDelta } from './record-apply.js';
 import { repoGc } from './storage/local/gc.js';
 import { snapshotInputVersions } from './dataset-refs.js';
 import { WorkspaceLockError } from './errors.js';
-import { workspaceGetDataset, workspaceSetDataset } from './trees.js';
+import { workspaceGetDataset, workspaceGetDatasetStatus, workspaceSetDataset } from './trees.js';
 import { packageImport } from './packages.js';
 import { workspaceCreate, workspaceDeploy, workspaceExport } from './workspaces.js';
 import { countingStore, createTestRepo, removeTestRepo, createTempDir, removeTempDir } from './test-helpers.js';
@@ -1001,6 +1002,21 @@ describe('record indexes', () => {
     }
   });
 
+  it("a record's stored size is its primary's, not its state object's", async () => {
+    // The status geometry resolves the record the way every reader does, so
+    // the segment count, the rows and the bytes are the primary's — a
+    // `$record` state is a couple of hundred bytes and describes nothing.
+    await recordMutate(storage, realRunner, repo, ws, 'plans', 'seed', [], { actor: 'cli:test' });
+    const primary = await DatasetSegments.open(storage, repo, (await state()).primary);
+    const status = await workspaceGetDatasetStatus(storage, repo, ws,
+      [variant('field', 'records'), variant('field', 'plans')], { geometry: true });
+
+    assert.strictEqual(status.rows, 600);
+    assert.strictEqual(status.segments, primary.segmentCount);
+    assert.strictEqual(status.storedBytes, primary.bytes,
+      'the bytes a record costs are its manifest plus the segments it names');
+  });
+
   it('rebuilds an index after a sweep', async () => {
     // The sweep read from the other end: what survives it has to be enough to
     // run a rebuild, which is the one thing every index of every vintage must
@@ -1190,6 +1206,49 @@ describe('the mutation delta', () => {
     assert.strictEqual(outcome.kind, 'conflict', JSON.stringify(outcome));
     assert.match((outcome as { detail?: string }).detail ?? '', /p-7/);
     assert.deepStrictEqual(await storage.datasets.read(repo, plain, 'records/plans'), before);
+  });
+
+  it('an edit that writes back what the record holds moves nothing', async () => {
+    // A delta says what CHANGED. An `edit` body that sets a row to the value
+    // already there changed nothing, so the record must land on the state it
+    // was already in — the same primary, the same index, and a delta that
+    // claims no row was updated.
+    assert.strictEqual((await recordMutate(storage, realRunner, repo, ws, 'plans', 'seed', [], { actor: 'cli:test' })).kind, 'committed');
+    const retitle = (): Promise<MutationOutcome> => recordMutate(storage, realRunner, repo, ws, 'plans', 'retitle',
+      [encodeBeast2For(StringType)('p-7')], { actor: 'cli:test' });
+    assert.strictEqual((await retitle()).kind, 'committed');
+    const before = await state(ws);
+
+    // The same edit again: the row already reads RETITLED.
+    assert.strictEqual((await retitle()).kind, 'committed');
+    const after = await state(ws);
+
+    assert.strictEqual(after.primary, before.primary, 'the record holds the state it already held');
+    assert.strictEqual(after.indexes.get('by_status')!.manifest, before.indexes.get('by_status')!.manifest);
+    const [head] = await recordHistory(storage, repo, ws, 'plans', { limit: 1 });
+    assert.strictEqual(head!.commit.delta.type, 'some', 'the commit still records a delta');
+    assert.deepStrictEqual(await summarizeDelta(storage, repo, head!.commit.delta.value), [],
+      'and that delta names no target, because nothing changed');
+  });
+
+  it('a stale whole-state replace is a conflict too, not a program failure', async () => {
+    // The other door to the same situation: an indexed record runs the
+    // program, and a `replace` arm is the one the program checks itself. It
+    // can only report that by failing, and a caller retries a conflict and
+    // gives up on a failure — so what the two doors call a stale write has to
+    // be the same thing.
+    assert.strictEqual((await recordMutate(storage, realRunner, repo, ws, 'plans', 'seed', [], { actor: 'cli:test' })).kind, 'committed');
+    const before = await storage.datasets.read(repo, ws, 'records/plans');
+
+    const stale = new SortedMap(
+      [...seeded()].map(([key, row]) => [key, { ...row, title: 'NEVER COMMITTED' }] as [string, typeof row]), planKeys);
+    const outcome = await recordMutate(storage, realRunner, repo, ws, 'plans', 'patch',
+      [encodePlansPatch(variant('replace', { before: stale, after: new SortedMap(seeded(), planKeys) }))],
+      { actor: 'cli:test' });
+
+    assert.strictEqual(outcome.kind, 'conflict', JSON.stringify(outcome));
+    assert.match((outcome as { detail?: string }).detail ?? '', /no longer holds/);
+    assert.deepStrictEqual(await storage.datasets.read(repo, ws, 'records/plans'), before, 'nothing was written');
   });
 
   it('two patches on different keys both commit — the loser re-applies against fresher state', async () => {
