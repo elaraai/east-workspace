@@ -73,12 +73,13 @@ export interface RequestOptions {
  * a new client keeps working against a server that has not been upgraded.
  *
  * @typeParam T - The current success type.
+ * @typeParam L - The success type as it was before the field was appended.
  */
-export interface LegacyResponse<T extends EastType> {
+export interface LegacyResponse<T extends EastType, L extends EastType> {
   /** The success type as it was before the field was appended. */
-  type: EastType;
+  type: L;
   /** Reads a value of {@link type} as the current type, the new field defaulted. */
-  upgrade: (value: any) => ValueTypeOf<T>;
+  upgrade: (value: ValueTypeOf<L>) => ValueTypeOf<T>;
 }
 
 /** Append `?verbose=1` to an endpoint path when verbose was requested. */
@@ -414,12 +415,12 @@ const STATUS_CODES: Record<number, string> = {
  * @throws {ApiError} On application-level errors
  * @throws {AuthError} On 401 Unauthorized
  */
-export async function get<T extends EastType>(
+export async function get<T extends EastType, L extends EastType = T>(
   url: string,
   path: string,
   successType: T,
   options: RequestOptions,
-  legacy?: LegacyResponse<T>,
+  legacy?: LegacyResponse<T, L>,
 ): Promise<ValueTypeOf<T>> {
   const response = await fetchWithRetry(`${url}/api${path}`, {
     method: 'GET',
@@ -440,7 +441,7 @@ export async function get<T extends EastType>(
  * @throws {ApiError} On application-level errors
  * @throws {AuthError} On 401 Unauthorized
  */
-export async function post<Req extends EastType, Res extends EastType>(
+export async function post<Req extends EastType, Res extends EastType, L extends EastType = Res>(
   url: string,
   path: string,
   body: ValueTypeOf<Req>,
@@ -448,7 +449,7 @@ export async function post<Req extends EastType, Res extends EastType>(
   successType: Res,
   options: RequestOptions,
   extraHeaders?: Record<string, string>,
-  legacy?: LegacyResponse<Res>,
+  legacy?: LegacyResponse<Res, L>,
 ): Promise<ValueTypeOf<Res>> {
   const encode = encodeBeast2For(requestType);
   const response = await fetchWithRetry(`${url}/api${path}`, {
@@ -542,10 +543,10 @@ export async function putEmpty<T extends EastType>(
  * @throws {ApiError} On application-level errors (including BEAST2 error responses)
  * @throws {AuthError} On 401 Unauthorized
  */
-async function decodeResponse<T extends EastType>(
+async function decodeResponse<T extends EastType, L extends EastType = T>(
   response: globalThis.Response,
   successType: T,
-  legacy?: LegacyResponse<T>,
+  legacy?: LegacyResponse<T, L>,
 ): Promise<ValueTypeOf<T>> {
   // Handle HTTP-level errors
   if (!response.ok) {
@@ -564,9 +565,9 @@ async function decodeResponse<T extends EastType>(
     result = decodeBeast2For(ResponseType(successType))(bytes) as Response<ValueTypeOf<T>>;
   } catch (err) {
     if (legacy === undefined) throw err;
-    let older: Response<unknown>;
+    let older: Response<ValueTypeOf<L>>;
     try {
-      older = decodeBeast2For(ResponseType(legacy.type))(bytes) as Response<unknown>;
+      older = decodeBeast2For(ResponseType(legacy.type))(bytes) as Response<ValueTypeOf<L>>;
     } catch {
       throw err; // no known shape — surface the current type's error
     }

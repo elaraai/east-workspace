@@ -11,7 +11,6 @@
 
 import {
   ArrayType, DateTimeType, EastTypeType, IntegerType, OptionType, StringType, StructType, VariantType, none, variant,
-  type ValueTypeOf,
 } from '@elaraai/east';
 import type { MutationCallRequest, MutationResult, RecordHistoryResult, RecordSignature } from './types.js';
 import { MutationCallRequestType, MutationResultType, RecordHistoryResultType, RecordSignatureType } from './types.js';
@@ -55,24 +54,24 @@ const PreDetailResultType = StructType({
   }),
 });
 
-const PRE_FORM_SIGNATURE: LegacyResponse<typeof RecordSignatureType> = {
+const PRE_FORM_SIGNATURE: LegacyResponse<typeof RecordSignatureType, typeof PreFormSignatureType> = {
   type: PreFormSignatureType,
-  upgrade: (sig: ValueTypeOf<typeof PreFormSignatureType>) => ({
+  upgrade: (sig) => ({
     ...sig,
     mutations: sig.mutations.map((m) => ({ ...m, form: 'reduce' })),
   }),
 };
 
-const PRE_DELTA_HISTORY: LegacyResponse<typeof RecordHistoryResultType> = {
+const PRE_DELTA_HISTORY: LegacyResponse<typeof RecordHistoryResultType, typeof PreDeltaHistoryType> = {
   type: PreDeltaHistoryType,
-  upgrade: (history: ValueTypeOf<typeof PreDeltaHistoryType>) => ({
+  upgrade: (history) => ({
     commits: history.commits.map((c) => ({ ...c, delta: none })),
   }),
 };
 
-const PRE_DETAIL_RESULT: LegacyResponse<typeof MutationResultType> = {
+const PRE_DETAIL_RESULT: LegacyResponse<typeof MutationResultType, typeof PreDetailResultType> = {
   type: PreDetailResultType,
-  upgrade: ({ outcome }: ValueTypeOf<typeof PreDetailResultType>) => ({
+  upgrade: ({ outcome }) => ({
     outcome: outcome.type === 'conflict' ? variant('conflict', { ...outcome.value, detail: none }) : outcome,
   }),
 };
