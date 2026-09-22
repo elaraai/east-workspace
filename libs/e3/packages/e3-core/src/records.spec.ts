@@ -25,7 +25,7 @@ import { WorkspaceLockError } from './errors.js';
 import { workspaceGetDataset, workspaceSetDataset } from './trees.js';
 import { packageImport } from './packages.js';
 import { workspaceCreate, workspaceDeploy, workspaceExport } from './workspaces.js';
-import { createTestRepo, removeTestRepo, createTempDir, removeTempDir } from './test-helpers.js';
+import { countingStore, createTestRepo, removeTestRepo, createTempDir, removeTempDir } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
 import { LocalTaskRunner } from './execution/LocalTaskRunner.js';
 import type { MutationOutcome, StorageBackend, TaskRunner, DetachedResult } from './index.js';
@@ -835,6 +835,30 @@ describe('record indexes', () => {
     assert.ok(await countExecutions() >= before + 2, 'the build really did fan out');
     assert.strictEqual((await state()).indexes.get('by_status')!.manifest, built,
       'the fan-out and the single unit agree to the byte');
+  });
+
+  it('a fanned-out build reads the record a bounded number of times', async () => {
+    // The orchestrator's own bytes, which a unit's reads are no part of: the
+    // partition machinery addresses ONE blob, so every open of a manifest
+    // materialises the record whole — once per slice, several at a time.
+    // Splicing it once and carving by range makes that a small constant of
+    // the record's size however far the build fans out.
+    await recordMutate(storage, realRunner, repo, ws, 'plans', 'seed_many',
+      [encodeBeast2For(IntegerType)(12_000n)], { actor: 'cli:test' });
+    const primary = await DatasetSegments.open(storage, repo, (await state()).primary);
+
+    const counted = countingStore(storage);
+    const rebuilt = await recordReindex(counted, realRunner, repo, ws, 'plans',
+      { actor: 'cli:test', sliceBytes: 4 * 1024 });
+    assert.strictEqual(rebuilt.kind, 'committed', JSON.stringify(rebuilt));
+
+    // Whole reads are the ones that matter: a ranged read is a window, a
+    // whole read is the value in memory. Splicing once holds the record about
+    // twice over whatever the fan-out; opening it per slice held it once per
+    // partition, and this record is cut into eight.
+    assert.ok(counted.cost.readBytes < primary.bytes * 5,
+      `a fanned-out build read ${counted.cost.readBytes} whole bytes of a ${primary.bytes}-byte record `
+      + `cut into ${primary.segmentCount} segments`);
   });
 
   it('a rebuild over an unchanged record re-runs no unit', async () => {
