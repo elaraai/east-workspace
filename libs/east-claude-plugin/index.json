@@ -1,7 +1,7 @@
 {
   "version": 2,
   "stats": {
-    "totalEntries": 1170,
+    "totalEntries": 1171,
     "totalFiles": 195,
     "packages": {
       "east": 550,
@@ -9,7 +9,7 @@
       "east-node-io": 63,
       "east-py-datascience": 94,
       "east-ui": 347,
-      "e3-ui": 39,
+      "e3-ui": 40,
       "e3": 11,
       "e3-ui-cli": 7,
       "e3-create": 5
@@ -40111,7 +40111,7 @@
       ],
       "imports": [
         "import { ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, StringType, PatchType, StructType, some, variant, example } from \"@elaraai/east\";",
-        "import { Button, EventStateType, Input, Plan, Reactive, Separator, Slider, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
+        "import { Button, EventStateType, Input, Plan, Reactive, Separator, Slider, Stat, Table, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data } from \"@elaraai/e3-ui\";",
         "import * as e3 from \"@elaraai/e3\";"
       ],
@@ -40147,7 +40147,7 @@
       ],
       "imports": [
         "import { ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, StringType, PatchType, StructType, some, variant, example } from \"@elaraai/east\";",
-        "import { Button, EventStateType, Input, Plan, Reactive, Separator, Slider, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
+        "import { Button, EventStateType, Input, Plan, Reactive, Separator, Slider, Stat, Table, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data } from \"@elaraai/e3-ui\";",
         "import * as e3 from \"@elaraai/e3\";"
       ],
@@ -40173,7 +40173,7 @@
       ],
       "imports": [
         "import { ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, StringType, PatchType, StructType, some, variant, example } from \"@elaraai/east\";",
-        "import { Button, EventStateType, Input, Plan, Reactive, Separator, Slider, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
+        "import { Button, EventStateType, Input, Plan, Reactive, Separator, Slider, Stat, Table, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data } from \"@elaraai/e3-ui\";",
         "import * as e3 from \"@elaraai/e3\";"
       ],
@@ -40207,7 +40207,7 @@
       ],
       "imports": [
         "import { ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, StringType, PatchType, StructType, some, variant, example } from \"@elaraai/east\";",
-        "import { Button, EventStateType, Input, Plan, Reactive, Separator, Slider, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
+        "import { Button, EventStateType, Input, Plan, Reactive, Separator, Slider, Stat, Table, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data } from \"@elaraai/e3-ui\";",
         "import * as e3 from \"@elaraai/e3\";"
       ],
@@ -40242,7 +40242,7 @@
       ],
       "imports": [
         "import { ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, StringType, PatchType, StructType, some, variant, example } from \"@elaraai/east\";",
-        "import { Button, EventStateType, Input, Plan, Reactive, Separator, Slider, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
+        "import { Button, EventStateType, Input, Plan, Reactive, Separator, Slider, Stat, Table, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data } from \"@elaraai/e3-ui\";",
         "import * as e3 from \"@elaraai/e3\";"
       ],
@@ -40250,6 +40250,45 @@
         "tsx"
       ],
       "source": "// Bind a collection dataset BY WINDOW and hand it straight to a Plan — \n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            // The paged handle — the dataset's element type comes from the def,\n            // so `page(offset, limit)` is typed Option<Array<OpsRow>> with no\n            // decode step to write.\n            const paged = $.let(Data.bindPaged(opsInput));\n            // Monday of ISO week n, 2026 (W1 Monday = 2025-12-29). The stored\n            // rows carry week INDICES; instants are the series' business.\n            const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {\n                const w1 = $.const(new Date(\"2025-12-29T00:00:00Z\"), DateTimeType);\n                return w1.addWeeks(n.subtract(1n));\n            }));\n            const series = $.const([\n                // Machines — each flat row becomes TWO bars: a one-week setup\n                // ahead of the job, then the run itself, with its label and\n                // quantity built from the batch code and tonnage. The line\n                // field drives union rollup parents, so the ×k concurrency\n                // bands are the renderer's, over rows it was handed a window\n                // at a time.\n                Plan.series.span(OpsRow, {\n                        key: \"span\", title: \"Span\",\n                    match: r => r.line.equal(\"Docks\").not(),\n                    label: (_r, k) => k, id: true,\n                    value: r => some(East.str`${East.Float.printFixed(r.tonnes, 0n)} t`),\n                    runs: r => [\n                        Plan.run({\n                            key: East.str`${r.batch}-set`,\n                            start: week(r.startWeek.subtract(1n)), end: week(r.startWeek),\n                            label: \"SET\", state: r.state,\n                        }),\n                        Plan.run({\n                            key: r.batch,\n                            start: week(r.startWeek), end: week(r.startWeek.add(r.weeks)),\n                            label: East.str`RUN · ${r.batch}`,\n                            quantity: East.str`${East.Float.printFixed(r.tonnes, 0n)} t`,\n                            qty: r.tonnes, state: r.state,\n                        }),\n                    ],\n                    groupBy: [r => r.line], rollup: \"union\", unit: \"t\",\n                }),\n                // Docks — the SAME flat row read as a load strip instead: one\n                // scalar `load` expanded by `East.Array.generate` into a cell\n                // per week, drifting with a per-berth phase so the strip reads\n                // as a real profile rather than a flat band.\n                Plan.series.group(OpsRow, { key: \"docks\", label: \"Docks\", meta: \"10 berths\", collapsed: true, summaryAggregate: \"mean\" }, [\n                    Plan.series.heat(OpsRow, {\n                        key: \"heat-2\", title: \"Heat\",\n                        match: r => r.line.equal(\"Docks\"),\n                        label: (_r, k) => k, id: true,\n                        cells: r => Plan.heatCells(\n                            East.Array.generate(12n, Plan.Types.HeatCell, ($, i) => {\n                                const drift = $.let(i.toFloat().multiply(2.5).subtract(6.0), FloatType);\n                                const value = $.let(r.load.add(drift), FloatType);\n                                // A heat cell is a stored RECORD, so its instant is\n                                // spelled — `Plan.at.time` on the time arm (#631).\n                                return {\n                                    at: Plan.at.time(week(r.startWeek.add(i))),\n                                    value: some(value),\n                                    label: some(East.Float.printFixed(value, 0n)),\n                                };\n                            }),\n                            { min: 0, max: 100, warnAt: 95 },\n                        ),\n                    }),\n                ]),\n            ], ArrayType(Plan.Types.Series(OpsRow)));\n            const axis = $.const(Plan.axis({\n                window: { min: week(24n), max: week(42n) },\n                resolution: \"week\", resolutions: [\"month\", \"week\", \"day\"], now: week(31n),\n            }));\n            return <Plan axis={axis} data={paged} series={series} />;\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "e3-ui:data.examples.tsx:dataBindPagedIndex",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/bind/data/data.examples.tsx",
+      "suite": "",
+      "test": "Read a record THROUGH one of its indexes — ",
+      "keywords": [
+        "Data",
+        "bindPaged",
+        "index",
+        "recordIndex",
+        "record",
+        "secondary index",
+        "queue",
+        "ordered",
+        "window",
+        "covering",
+        "projection",
+        "ik",
+        "key",
+        "value",
+        "row",
+        "join",
+        "Table",
+        "paged",
+        "by_status"
+      ],
+      "imports": [
+        "import { ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, StringType, PatchType, StructType, some, variant, example } from \"@elaraai/east\";",
+        "import { Button, EventStateType, Input, Plan, Reactive, Separator, Slider, Stat, Table, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
+        "import { Data } from \"@elaraai/e3-ui\";",
+        "import * as e3 from \"@elaraai/e3\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// Read a record THROUGH one of its indexes — \n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            // Pass the index DECLARATION, not its name: the window's type —\n            // its key and what it covers — comes from it.\n            const queue = $.let(Data.bindPaged(workOrders, { index: workQueue }));\n            return <Table data={queue} columns={{\n                ik:    { header: \"Due\", value: (ik) => East.str`${ik.status} · ${ik.due.printFormatted(\"ddd D MMM\")}` },\n                value: { header: \"Work order\" },\n                key:   { header: \"Order\" },\n            }} />;\n        }}</Reactive>\n    ))"
     },
     {
       "id": "e3-ui:func.examples.tsx:funcBindCall",
