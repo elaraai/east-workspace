@@ -18,8 +18,8 @@
  * byte. That is a property of the boundary rule rather than of this code:
  * segmentation is a pure function of the value, so re-cutting an edited run
  * reproduces the rebuild's boundaries as soon as the two agree on where the run
- * ends — which is exactly the condition this module extends a run until it
- * meets.
+ * BEGINS and where it ENDS — the two conditions this module grows a run until
+ * it meets.
  *
  * @packageDocumentation
  */
@@ -211,6 +211,25 @@ async function applyArm(
     if (held === undefined) bySegment.set(i, [[key, op]]);
     else held.push([key, op]);
   }
+
+  // A run may only BEGIN at a fence the delta leaves standing. A re-cut run is
+  // encoded from a fresh cutter, so its first element opens a segment; a
+  // rebuild opens one there only because the segment before it said so, and
+  // deleting that fence takes the reason away. So a deleted fence glues its
+  // segment to the one before: that segment joins the run, which therefore
+  // begins at a fence still standing, and the run may not END at the deleted
+  // one either. Walked descending, so a chain of deleted fences is followed
+  // all the way left. A fence is its segment's smallest key and a delta holds
+  // one op per key, so its delete is the first op that segment has.
+  const glued = new Set<number>();
+  for (const i of [...bySegment.keys()].sort((a, b) => b - a)) {
+    if (i === 0) continue;
+    const [key, op] = bySegment.get(i)![0]!;
+    if ((op as { type: string }).type !== 'delete') continue;
+    if (keyCompare(key, await segments.fence(i)) !== 0) continue;
+    glued.add(i);
+    if (!bySegment.has(i - 1)) bySegment.set(i - 1, []);
+  }
   const touched = [...bySegment.keys()].sort((a, b) => a - b);
 
   const entries: CollectionManifestEntry[] = [];
@@ -223,9 +242,10 @@ async function applyArm(
     for (let i = at; i < lo; i++) entries.push(await carryOver(segments, i, fenceOf, sink));
     at = lo;
 
-    // Extend the run to the right until the re-cut agrees with the old cut
-    // about where the run ENDS. It always terminates: the collection's last
-    // segment holds whatever is left, so a run reaching the end is clean.
+    // Extend the run to the right past every segment whose fence is going
+    // away, and then until the re-cut agrees with the old cut about where the
+    // run ENDS. It always terminates: the collection's last segment holds
+    // whatever is left, so a run reaching the end is clean.
     let hi = lo + 1;
     let last = next;
     for (;;) {
@@ -248,7 +268,8 @@ async function applyArm(
       const extents = readBeast2Extents(blob);
       const counts = [...extents.counts];
       const empty = counts.length === 0 || counts.every((c) => c === 0);
-      if (hi < segments.segmentCount && !endsClean(counts, empty, await fenceBytes(segments, hi, fenceOf))) {
+      if (hi < segments.segmentCount
+        && (glued.has(hi) || !endsClean(counts, empty, await fenceBytes(segments, hi, fenceOf)))) {
         hi++;
         continue;
       }
@@ -306,7 +327,11 @@ async function applyArm(
  *  the element after the run starts a segment there too, and every segment
  *  past the run is unchanged. */
 function endsClean(counts: readonly number[], empty: boolean, nextFence: Uint8Array): boolean {
-  if (empty) return true; // a closed segment precedes the run, so the next element opens one
+  // Emptying a run deletes the fence it began at, which glued it to the
+  // segment before — so a run that empties is one that begins the value, and
+  // whatever follows it becomes the value's first element and opens its first
+  // segment.
+  if (empty) return true;
   const last = counts[counts.length - 1]!;
   return last >= SEGMENT_MAX_COUNT
     || (last >= SEGMENT_MIN_COUNT && isSegmentBoundaryKey(nextFence));

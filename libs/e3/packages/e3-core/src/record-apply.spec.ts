@@ -23,7 +23,7 @@ import assert from 'node:assert/strict';
 import { dirname } from 'node:path';
 import {
   DictType, IntegerType, SetType, SortedMap, SortedSet, StringType, StructType,
-  compareFor, toEastTypeValue, variant, type EastType, type ValueTypeOf,
+  compareFor, decodeBeast2For, toEastTypeValue, variant, type EastType, type ValueTypeOf,
 } from '@elaraai/east';
 import { encodeDatasetBlob, mutationDeltaType, type DeltaTarget } from '@elaraai/e3-types';
 import { DatasetSegments, cutDatasetIntoStore } from './dataset-open.js';
@@ -176,6 +176,91 @@ describe('applying a mutation delta', () => {
     ops.sort((a, b) => ((a[0] as string) < (b[0] as string) ? -1 : 1));
 
     assert.equal(await applyPlans(hash, ops), await store(PlansType, after));
+  });
+
+  it("agrees with the door when a delete removes a segment's first key", async () => {
+    // A run is re-cut from a fresh cutter, so its first element opens a
+    // segment. A rebuild only opens one there if the segment BEFORE the run
+    // says so — the cutter's count carries across the boundary — and once the
+    // fence the run began at is deleted, nothing says so any more.
+    const before = plansOf(5_000);
+    const hash = await store(PlansType, before);
+    const segments = await DatasetSegments.open(storage, repo, hash);
+    assert.ok(segments.segmentCount >= 3,
+      `a fence needs a left neighbour, and this has ${segments.segmentCount} segments`);
+
+    const all = new SortedMap(before, compareFor(StringType));
+    const ops: Array<[unknown, unknown]> = [];
+    for (let i = 1; i < segments.segmentCount; i++) {
+      const fence = await segments.fence(i) as string;
+      const after = new SortedMap(before, compareFor(StringType));
+      after.delete(fence);
+      assert.equal(
+        await applyPlans(hash, [[fence, variant('delete', before.get(fence)!)]]),
+        await store(PlansType, after),
+        `deleting the first key of segment ${i}`);
+      all.delete(fence);
+      ops.push([fence, variant('delete', before.get(fence)!)]);
+    }
+    assert.equal(await applyPlans(hash, ops), await store(PlansType, all), 'every fence in one delta');
+  });
+
+  it('agrees with the door when a whole inner segment is deleted', async () => {
+    const before = plansOf(5_000);
+    const hash = await store(PlansType, before);
+    const segments = await DatasetSegments.open(storage, repo, hash);
+    const held = decodeBeast2For(PlansType)(await segments.segment(1)) as Map<string, Row>;
+    const after = new SortedMap(before, compareFor(StringType));
+    const ops: Array<[unknown, unknown]> = [];
+    for (const [key, value] of held) {
+      after.delete(key);
+      ops.push([key, variant('delete', value)]);
+    }
+    assert.equal(await applyPlans(hash, ops), await store(PlansType, after));
+  });
+
+  it('agrees with the door over randomised edits drawn at the boundaries', async () => {
+    // A fence is one key in a thousand, so uniformly drawn deletes land on one
+    // about once a run and the shapes that turn on a moved boundary — a run
+    // beginning at a deleted fence, two of them adjacent, a chain of them —
+    // are never reached at all. Drawing at the fences reaches every one.
+    const before = plansOf(5_000);
+    const hash = await store(PlansType, before);
+    const segments = await DatasetSegments.open(storage, repo, hash);
+    const fences: string[] = [];
+    for (let i = 0; i < segments.segmentCount; i++) fences.push(await segments.fence(i) as string);
+
+    let seed = 0x9e3779b9;
+    const next = (): number => {
+      seed = (seed + 0x6d2b79f5) | 0;
+      let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+
+    for (let round = 0; round < 12; round++) {
+      const edits = new SortedMap<string, unknown>(undefined, compareFor(StringType));
+      for (const fence of fences) {
+        if (next() < 0.5) edits.set(fence, variant('delete', before.get(fence)!));
+      }
+      for (let i = 0; i < 60; i++) {
+        const key = id(Math.floor(next() * 5_000));
+        if (!edits.has(key)) edits.set(key, variant('delete', before.get(key)!));
+      }
+      for (let i = 0; i < 30; i++) {
+        const key = `${id(Math.floor(next() * 5_000))}-ins`;
+        if (!edits.has(key)) edits.set(key, variant('insert', row(900_000 + i)));
+      }
+
+      const after = new SortedMap(before, compareFor(StringType));
+      const ops: Array<[unknown, unknown]> = [];
+      for (const [key, op] of edits) {
+        if ((op as { type: string }).type === 'delete') after.delete(key);
+        else after.set(key, (op as { value: Row }).value);
+        ops.push([key, op]);
+      }
+      assert.equal(await applyPlans(hash, ops), await store(PlansType, after), `round ${round}`);
+    }
   });
 
   it('agrees with the door when the record empties, and when it starts empty', async () => {
