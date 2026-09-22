@@ -1386,11 +1386,16 @@ describe('the mutation delta — cross-runtime parity', () => {
             const row = $.let(state.get(key));
             $(edit.set(key, { status: 'late', due: row.due, title: 'RETITLED' }));
           }) as never) as never, runner);
+      const drop = e3.editMutation('drop', plans,
+        East.function([PlansType, StringType, e3.editTypeOf(PlansType) as never], NullType,
+          (($: any, _state: any, key: any, edit: any) => {
+            $(edit.delete(key));
+          }) as never) as never, runner);
       const byStatus = e3.recordIndex('by_status', plans, {
         key: East.function([StringType, PlanRowType], StatusKeyType, ($, _k, v) => ({ status: v.status, due: v.due })),
         value: East.function([StringType, PlanRowType], StringType, ($, _k, v) => v.title),
       }, runner);
-      const pkg = e3.package(`parity-${ws}`, '1.0.0', plans, seed, retitle, e3.patchMutation(plans, 'patch', runner) as never, byStatus as never);
+      const pkg = e3.package(`parity-${ws}`, '1.0.0', plans, seed, retitle, drop as never, e3.patchMutation(plans, 'patch', runner) as never, byStatus as never);
       const zip = join(tempDir, `parity-${ws}.zip`);
       await e3.export(pkg, zip);
       await packageImport(storage, repo, zip);
@@ -1425,6 +1430,57 @@ describe('the mutation delta — cross-runtime parity', () => {
     for (const seen of hashes.slice(1)) {
       assert.strictEqual(seen.primary, hashes[0]!.primary, `${seen.ws} disagrees with ${hashes[0]!.ws} on the record`);
       assert.strictEqual(seen.index, hashes[0]!.index, `${seen.ws} disagrees with ${hashes[0]!.ws} on the index`);
+    }
+  });
+
+  it('every runtime skips a no-op write and refuses a stale one, in the same words', { skip: missing }, async () => {
+    // Both happen INSIDE the generated program, so each runtime evaluates them
+    // for itself: a `set` of the value already held must emit nothing, and a
+    // stale write must come back as a conflict naming what disagreed — read
+    // off whatever that runtime prints when a program fails.
+    const words: Array<{ ws: string; stale: string; missing: string }> = [];
+    for (const { ws } of runtimes) {
+      const mutate = (mutation: string, args: Uint8Array[]): Promise<MutationOutcome> =>
+        recordMutate(storage, realRunner, repo, ws, 'plans', mutation, args, { actor: 'cli:test' });
+      const held = async (): Promise<{ primary: string; index: string }> => {
+        const ref = await storage.datasets.read(repo, ws, 'records/plans');
+        assert.ok(ref && ref.type === 'value');
+        const state = await readRecordState(storage, repo, ref.value.hash);
+        return { primary: state.primary, index: state.indexes.get('by_status')!.manifest };
+      };
+
+      assert.strictEqual((await mutate('seed', [])).kind, 'committed');
+      assert.strictEqual((await mutate('retitle', [encodeBeast2For(StringType)('p-7')])).kind, 'committed');
+      const before = await held();
+      // The same edit again: the row already reads RETITLED.
+      assert.strictEqual((await mutate('retitle', [encodeBeast2For(StringType)('p-7')])).kind, 'committed');
+      assert.deepStrictEqual(await held(), before, `${ws}: writing back the held row moved the record`);
+      const [head] = await recordHistory(storage, repo, ws, 'plans', { limit: 1 });
+      assert.strictEqual(head!.commit.delta.type, 'some');
+      assert.deepStrictEqual(
+        await summarizeDelta(storage, repo, head!.commit.delta.type === 'some' ? head!.commit.delta.value : ''), [],
+        `${ws}: a no-op edit's delta names a target`);
+
+      // A replace whose `before` is not the record, and a delete of a key the
+      // record never held: both refused by the program, both conflicts.
+      const stale = await mutate('patch', [encodeBeast2For(PatchType(PlansType))(variant('replace', {
+        before: new SortedMap<string, { status: string; due: bigint; title: string }>([], compareFor(StringType)),
+        after: new SortedMap<string, { status: string; due: bigint; title: string }>([], compareFor(StringType)),
+      }))]);
+      assert.strictEqual(stale.kind, 'conflict', `${ws}/stale replace: ${JSON.stringify(stale)}`);
+      const missing = await mutate('drop', [encodeBeast2For(StringType)('p-nope')]);
+      assert.strictEqual(missing.kind, 'conflict', `${ws}/missing delete: ${JSON.stringify(missing)}`);
+      words.push({
+        ws,
+        stale: (stale as { detail?: string }).detail ?? '',
+        missing: (missing as { detail?: string }).detail ?? '',
+      });
+    }
+    assert.match(words[0]!.stale, /^the patch replaces a state the record no longer holds$/);
+    assert.match(words[0]!.missing, /^delete of "p-nope", which the record does not hold$/);
+    for (const seen of words.slice(1)) {
+      assert.deepStrictEqual({ stale: seen.stale, missing: seen.missing }, { stale: words[0]!.stale, missing: words[0]!.missing },
+        `${seen.ws} words a refusal differently from ${words[0]!.ws}`);
     }
   });
 });
