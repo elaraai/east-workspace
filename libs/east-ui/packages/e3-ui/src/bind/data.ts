@@ -11,6 +11,7 @@
 
 import {
     East,
+    ArrayType,
     NullType,
     BooleanType,
     FunctionType,
@@ -22,6 +23,7 @@ import {
     none,
     some,
     variant,
+    type DictType,
     type EastType,
     type ExprType,
 } from '@elaraai/east';
@@ -30,7 +32,7 @@ import { TreePathType, DatasetStatusType } from '@elaraai/e3-types';
 // `PagedSourceType` — same fields, same order — so Plan / Table / ValueTree
 // take it without either package importing the other's data layer.
 import { SeekQueryType, SeekRangeType } from '@elaraai/east-ui';
-import type { DatasetDef, TaskDef } from '@elaraai/e3';
+import type { DatasetDef, RecordDef, RecordIndexDef, TaskDef } from '@elaraai/e3';
 
 // ============================================================================
 // Mode + binding descriptor types — shared with the Diff component.
@@ -364,6 +366,37 @@ export const DataPagedHandleType = <T extends EastType | string>(t: T) => Struct
     seek:  OptionType(FunctionType([SeekQueryType], OptionType(SeekRangeType))),
 });
 
+/** The window type an index-selected {@link Data.bindPaged} serves, spelled at
+ *  the TypeScript level so a component's prop types against it. */
+export type IndexWindowType<T extends EastType, IK extends EastType, P extends EastType> =
+    T extends DictType<infer K, infer V>
+        ? ArrayType<StructType<{ ik: IK; key: K; value: P; row: OptionType<V> }>>
+        : never;
+
+/** Reading a record through one of its secondary indexes. */
+export interface BindPagedIndexOptions<T extends EastType, IK extends EastType, P extends EastType> {
+    /**
+     * The index to read through, as the `e3.recordIndex` declaration.
+     *
+     * @remarks
+     * The declaration rather than the name: the window's type — the index key
+     * and the covering projection — comes from it, so a component binding an
+     * index gets the row shape it will actually render, checked at compile
+     * time. Only the NAME travels in the IR.
+     */
+    index: RecordIndexDef<string, T, IK, P>;
+    /**
+     * Read each entry's row from the record too.
+     *
+     * @remarks
+     * Off by default, which is what a covering projection is for: a queue view
+     * that renders from `value` alone touches the index's segments and none of
+     * the record's. Turn it on when the view needs fields the projection does
+     * not carry, and accept a read per entry's segment.
+     */
+    join?: boolean;
+}
+
 /**
  * The TypeScript type of a {@link Data.bindPaged} handle bound to source type
  * `T` — the paged sibling of {@link BoundValue}.
@@ -387,7 +420,7 @@ export type PagedValue<T extends EastType> = ExprType<ReturnType<typeof DataPage
 export const bindPagedPlatformFn = East.genericPlatform(
     "data_bind_paged",
     ["T"],
-    [TreePathType],
+    [TreePathType, OptionType(StringType), BooleanType],
     StructType({
         id:    StringType,
         page:  FunctionType([IntegerType, IntegerType], OptionType("T")),
@@ -403,7 +436,10 @@ export const bindPagedPlatformFn = East.genericPlatform(
 // path (the value type rides as a type-arg), so a paged handle is ordinary
 // serializable East data. Implemented by `PagedRuntime` in
 // `@elaraai/e3-ui-components`.
-const PAGED_DESCRIPTOR = [TreePathType] as const;
+// The index selector rides the descriptor as plain data — a name, not a
+// handle — so a paged handle stays ordinary serializable East data and the
+// runtime reads it back from the call's own arguments.
+const PAGED_DESCRIPTOR = [TreePathType, OptionType(StringType), BooleanType] as const;
 const data_page = East.genericPlatform(
     "data_page", ["T"], [...PAGED_DESCRIPTOR, IntegerType, IntegerType], OptionType("T"), { optional: true });
 const data_page_total = East.genericPlatform(
@@ -483,18 +519,55 @@ export const DataPagedPrimitives = {
  */
 function bindDataPaged<T extends EastType>(
     dataset: DatasetDef<T> | TaskDef<T>,
-): PagedValue<T> {
+): PagedValue<T>;
+function bindDataPaged<T extends EastType, IK extends EastType, P extends EastType>(
+    record: RecordDef<T>,
+    options: BindPagedIndexOptions<T, IK, P>,
+): PagedValue<IndexWindowType<T, IK, P>>;
+// The implementation's return is erased: an index window's TS type is a
+// conditional over the record's Dict, which TypeScript cannot resolve against
+// an unbound `T`. The overloads above carry the precise types.
+function bindDataPaged(
+    dataset: DatasetDef<EastType> | TaskDef<EastType>,
+    options?: BindPagedIndexOptions<EastType, EastType, EastType>,
+): PagedValue<any> {
     // A TaskDef binds its output dataset; a DatasetDef binds itself.
     const def = dataset.kind === 'task' ? dataset.output : dataset;
     // The source path comes from the def, so it is statically known by
     // construction — `deriveManifest` reads it back as a single literal
     // `Value` IR node, which `East.value(...)` forces.
     const sourceValue = East.value(def.path, TreePathType);
-    // Two-step cast: the platform definition spells its window type with the
-    // `"T"` type-var, which TS reads as `some: string` inside the nested
-    // `Option`, so it does not overlap the instantiated handle directly. The
-    // East-side substitution is what actually types the value.
-    return bindPagedPlatformFn([def.type as T], sourceValue) as unknown as PagedValue<T>;
+    const index = options?.index;
+    // An index window is the index's OWN order, and it carries whatever a
+    // view needs to render without the record: the index key, the primary key
+    // and the covering projection — plus the row itself when the read joins.
+    const windowType = index === undefined
+        ? def.type
+        : indexWindowOf(def.type, index.keyType, index.valueType);
+    return bindPagedPlatformFn(
+        [windowType],
+        sourceValue,
+        East.value(index === undefined ? none : some(index.name), OptionType(StringType)),
+        East.value(options?.join === true, BooleanType),
+    ) as unknown as PagedValue<EastType>;
+}
+
+/** The window an indexed `Data.bindPaged` serves: ORDERED rows, in the index's
+ *  order, each carrying its index key, the row's own key, the covering
+ *  projection and — when the read joined — the row.
+ *
+ *  A Dict would re-sort by its own key and throw the index order away, which
+ *  is the whole reason the window is positional. */
+function indexWindowOf(recordType: EastType, indexKeyType: EastType, valueType: EastType): EastType {
+    const dict = recordType as unknown as { type: string; key: EastType; value: EastType };
+    if (dict.type !== 'Dict') {
+        throw new Error(
+            `Data.bindPaged: an index reads a Dict record; this one holds ${dict.type}`,
+        );
+    }
+    return ArrayType(StructType({
+        ik: indexKeyType, key: dict.key, value: valueType, row: OptionType(dict.value),
+    }));
 }
 
 /**

@@ -88,6 +88,13 @@ Task → What do you need?
     │   ├─ The binding handle       → .binding   (pass to <Diff bindings={[…]} />)
     │   └─ Staged mode             → { mode: 'staged' } + .commit() / .discard()
     │
+    ├─ Read a collection too large to hold whole — Data.bindPaged(dataset, options?)
+    │   ├─ One window              → .page(offset, limit)  (none = in flight; some([]) = exhausted)
+    │   ├─ Total elements          → .total()
+    │   ├─ Key search              → .seek(query)          (none for an Array source)
+    │   └─ Through a record's index → { index: byStatus, join?: true }
+    │       rows arrive in the INDEX's order as `{ik, key, value, row}`
+    │
     ├─ Call a named package function (e3.function) from the UI — Func.bind(fn)
     │   ├─ Launch (fire-and-forget, sync-callback safe) → .call(args…)
     │   ├─ Last successful result   → .read()   (Option(O))
@@ -148,6 +155,41 @@ A workspace-scoped reactive binding to a dataset — pass the `e3.input` def
 - `'direct'` (default) — each `write()` immediately mutates the destination.
 - `'staged'` — `write()` accumulates a patch; `commit()` applies it, `discard()`
   drops it.
+
+### `Data.bindPaged(dataset, options?)`
+
+A read-only, WINDOWED binding for a collection too large to hold whole — the
+paged sibling of `Data.bind`. There is no `write` / `commit`: a window is not a
+value you can diff or stage.
+
+| Method | Meaning |
+|---|---|
+| `.page(offset, limit)` | one window; `none` while in flight, `some([])` at exhaustion |
+| `.total()` | the source's element count, once any window has landed |
+| `.seek(query)` | where a key query lands in the source's row order; `none` for an Array source, which has no key order to search |
+
+**Through a record's index** (`options.index`) the window is the INDEX's order
+rather than the record's, and each row carries what a view needs to render
+without touching the record:
+
+```tsx
+const queue = $.let(Data.bindPaged(plans, { index: byStatus }));
+// rows: Array<{ ik: StatusKey, key: PlanKey, value: Projection, row: Option<Plan> }>
+<Table data={queue} columns={{
+    ik:    { header: "Status", value: (ik) => ik.status },
+    value: { header: "Plan" },
+}} />
+```
+
+Pass the `e3.recordIndex` DECLARATION, not its name: the window's type — the
+index key and the covering projection — comes from it, so the rows are checked
+at compile time. `join: true` reads each entry's row from the record too;
+leaving it off is the point of a covering projection, since the view then
+touches the index's segments and none of the record's.
+
+`.seek` takes a `from..to` range as well as a key or prefix, bounding a leading
+prefix of the key's flattened fields — `late, 3..ok` over a `{status, due}`
+index key — which is what a time window or a status band asks for.
 
 ### `Func.bind(fn)`
 

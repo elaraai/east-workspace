@@ -385,6 +385,55 @@ describe("ValueTree key search", () => {
         assert.deepEqual(keys.map(nested.upper), [false, false, false, true, true]);
     });
 
+    // The key of an index entry: the index key first, then the row's own —
+    // which is what makes every entry sharing an index key one contiguous run.
+    const EntryKey = toEastTypeValue(StructType({
+        ik: StructType({ status: StringType, due: IntegerType }),
+        k: StringType,
+    }));
+
+    test("parseKeyInput reads from..to as a range over the key's flattened leaves", () => {
+        assert.deepEqual(parseKeyInput(StringKey, "k01..k02"),
+            { kind: "query", query: { from: ['"k01"'], to: ['"k02"'] } });
+        assert.deepEqual(parseKeyInput(StringKey, "..k02"), { kind: "query", query: { to: ['"k02"'] } });
+        assert.deepEqual(parseKeyInput(StringKey, "k01.."), { kind: "query", query: { from: ['"k01"'] } });
+        // A NESTED key flattens: `{ik: {status, due}, k}` bounds on status,
+        // then due, then k — so two literals bound the index key itself.
+        assert.deepEqual(parseKeyInput(EntryKey, "late, 3..ok"),
+            { kind: "query", query: { from: ['"late"', "3"], to: ['"ok"'] } });
+        assert.deepEqual(parseKeyInput(MachineKey, "press, x.."),
+            { kind: "hint", hint: "Range is from..to over machine: String, shift: Integer" });
+    });
+
+    test("keyRangePredicates bound a range over a nested key, with open ends", () => {
+        const keys = [
+            { ik: { status: "late", due: 1n }, k: "p1" },
+            { ik: { status: "late", due: 3n }, k: "p2" },
+            { ik: { status: "ok", due: 2n }, k: "p3" },
+        ];
+        const window = keyRangePredicates(EntryKey, { from: ['"late"', "2"], to: ['"ok"'] })!;
+        assert.deepEqual(keys.map(window.lower), [false, true, true]);
+        assert.deepEqual(keys.map(window.upper), [false, false, true]);
+        // Both ends open: every row is in the range.
+        const open = keyRangePredicates(EntryKey, {})!;
+        assert.deepEqual(keys.map(open.lower), [true, true, true]);
+        assert.deepEqual(keys.map(open.upper), [false, false, false]);
+        // A bound the key cannot take matches nothing rather than throwing.
+        assert.deepEqual(keys.map(keyRangePredicates(EntryKey, { from: ["not-a-literal"] })!.lower), [false, false, false]);
+    });
+
+    test("findKeyInline locates a range as one contiguous run", () => {
+        const keys = [
+            { ik: { status: "late", due: 1n }, k: "p1" },
+            { ik: { status: "late", due: 3n }, k: "p2" },
+            { ik: { status: "ok", due: 2n }, k: "p3" },
+        ];
+        assert.deepEqual(findKeyInline(EntryKey, keys, { from: ['"late"', "2"], to: ['"ok"'] }),
+            { found: true, row: 1, count: 1 });
+        assert.deepEqual(findKeyInline(EntryKey, keys, { from: ['"ok"'] }), { found: true, row: 2, count: 1 });
+        assert.deepEqual(findKeyInline(EntryKey, keys, { to: ['"late"'] }), { found: false, row: 0, count: 0 });
+    });
+
     test("findKeyInline locates exact, prefix and field queries over decoded keys", () => {
         const keys = ["a", "k010", "k011", "k02"];
         assert.deepEqual(findKeyInline(StringKey, keys, { prefix: "k01" }), { found: true, row: 1, count: 2 });

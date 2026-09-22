@@ -93,6 +93,9 @@ export function soughtKeyOf(query: DatasetKeyQuery): string | undefined {
         const parsed = parseFor(StringType)(query.key);
         return parsed.success ? (parsed.value as string) : query.key;
     }
+    // A range has no single sought key — it names a run, and the chrome shows
+    // where the run starts rather than a key it landed on.
+    if ("from" in query || "to" in query) return undefined;
     return query.prefix;
 }
 
@@ -102,6 +105,9 @@ export function soughtKeyOf(query: DatasetKeyQuery): string | undefined {
 export function toSeekQuery(query: DatasetKeyQuery): unknown {
     if ("key" in query) return variant("key", query.key);
     if ("prefix" in query) return variant("prefix", query.prefix);
+    if ("from" in query || "to" in query) {
+        return variant("range", { from: [...(query.from ?? [])], to: [...(query.to ?? [])] });
+    }
     return variant("fields", {
         values: [...query.fields],
         prefix: query.prefix !== undefined ? some(query.prefix) : none,

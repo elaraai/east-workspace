@@ -54,6 +54,7 @@ import type {
   PackageDef,
   PackageItem,
   RecordDef,
+  RecordIndexDef,
   TaskDef,
 } from './types.js';
 import { input } from './input.js';
@@ -76,6 +77,7 @@ export type {
   FunctionDef,
   MutationDef,
   RecordDef,
+  RecordIndexDef,
   TaskDef,
   PackageDef,
   PackageItem,

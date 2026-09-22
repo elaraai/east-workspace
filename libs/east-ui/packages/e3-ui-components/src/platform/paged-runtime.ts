@@ -34,8 +34,10 @@ import {
     compareFor,
     fromEastTypeValue,
     type EastType,
+    BooleanType,
     IntegerType,
     OptionType,
+    StringType,
     decodeBeast2For,
     none,
     some,
@@ -68,6 +70,29 @@ export interface PagedWindow {
     offset: number;
     /** Maximum elements to return (the server may clamp it). */
     limit: number;
+    /** Read through one of a record's secondary indexes instead of the record
+     *  itself — the window is then the INDEX's row space, in its own order. */
+    index?: string;
+    /** With {@link index}: read each entry's row from the record too. */
+    join?: boolean;
+}
+
+/** Which rows a bind serves: the dataset's own, or one of a record's indexes.
+ *  Every channel key, every fetch and the handle cache carry it, because two
+ *  binds that differ here serve different row spaces from one path. */
+export interface PagedSelector {
+    /** The index's name, or `null` for the dataset itself. */
+    index: string | null;
+    /** Whether an index read joins each entry to its row. */
+    join: boolean;
+}
+
+/** The selector a bind with no index has. */
+const NO_INDEX: PagedSelector = { index: null, join: false };
+
+/** A selector's contribution to a channel key and a cache key. */
+function selectorKey(selector: PagedSelector): string {
+    return selector.index === null ? "" : `@${selector.index}${selector.join ? "+join" : ""}`;
 }
 
 /**
@@ -75,7 +100,8 @@ export interface PagedWindow {
  * `@elaraai/e3-api-client`'s `datasetGetPage`.
  */
 export interface PagedApi {
-    /** Fetch one element window of a collection dataset. */
+    /** Fetch one element window of a collection dataset — or of one of a
+     *  record's indexes, when the window names one. */
     getPage(workspace: string, path: TreePath, window: PagedWindow): Promise<DatasetPage>;
     /** Locate a key query in a Set/Dict dataset's canonical key order. The
      *  `row` it answers with indexes the SAME row space {@link getPage}'s
@@ -155,6 +181,15 @@ const MAX_RETAINED_WINDOWS = 24;
  */
 const PERMANENT_PAGE_ERRORS = new Set(["dataset_not_pageable"]);
 
+/** The decoded descriptor arguments as a selector. */
+function toSelector(indexArg: unknown, joinArg: unknown): PagedSelector {
+    const index = indexArg as { type: string; value: unknown } | undefined;
+    return {
+        index: index !== undefined && index.type === "some" ? index.value as string : null,
+        join: joinArg === true,
+    };
+}
+
 /** Whether a caught fetch error is an authoring error rather than a hiccup. */
 function isPermanentPageError(err: unknown): boolean {
     const code = (err as { code?: unknown } | null)?.code;
@@ -186,37 +221,49 @@ function buildSeek(
     sourceType: EastTypeValue,
     T: EastType,
     pathExpr: unknown,
+    indexExpr: unknown,
+    joinExpr: unknown,
+    selector: PagedSelector,
     platform: PlatformFunction[],
 ): unknown {
-    if (keyTypeOf(sourceType) === null) return none;
+    // An INDEX window is an Array — it has to be, or a Dict would re-sort it
+    // out of index order — but the collection behind it is keyed by `{ik, k}`,
+    // so it is searchable even though its window type is not.
+    if (selector.index === null && keyTypeOf(sourceType) === null) return none;
     const { seek } = DataPagedPrimitives;
     return some(East.compile(
         East.function([SeekQueryType], OptionType(SeekRangeType), ($, query) => {
-            $.return(seek([T], pathExpr as never, query));
+            $.return(seek([T], pathExpr as never, indexExpr as never, joinExpr as never, query));
         }),
         platform,
     ));
 }
 
 /** Tracked-channel key for one window. */
-export function pagedWindowKey(workspace: string, path: TreePath, offset: number, limit: number): string {
-    return `paged:${workspace}:${datasetPathToString(path)}#${offset}+${limit}`;
+export function pagedWindowKey(
+    workspace: string, path: TreePath, offset: number, limit: number, selector: PagedSelector = NO_INDEX,
+): string {
+    return `paged:${workspace}:${datasetPathToString(path)}${selectorKey(selector)}#${offset}+${limit}`;
 }
 
 /** Tracked-channel key for a source's element total. */
-export function pagedTotalKey(workspace: string, path: TreePath): string {
-    return `paged:${workspace}:${datasetPathToString(path)}#total`;
+export function pagedTotalKey(workspace: string, path: TreePath, selector: PagedSelector = NO_INDEX): string {
+    return `paged:${workspace}:${datasetPathToString(path)}${selectorKey(selector)}#total`;
 }
 
 /** Tracked-channel key for ONE key query against a source. Every distinct
  *  query gets its own channel: a search result is as immutable as a window. */
-export function pagedSeekKey(workspace: string, path: TreePath, query: DatasetFindQuery): string {
+export function pagedSeekKey(
+    workspace: string, path: TreePath, query: DatasetFindQuery, selector: PagedSelector = NO_INDEX,
+): string {
     const q = "key" in query
         ? `k=${query.key}`
         : "fields" in query
             ? `f=${query.fields.join("\u0000")}|p=${query.prefix ?? ""}`
-            : `p=${query.prefix}`;
-    return `paged:${workspace}:${datasetPathToString(path)}#seek:${q}`;
+            : "prefix" in query
+                ? `p=${query.prefix}`
+                : `r=${(query.from ?? []).join("\u0000")}|${(query.to ?? []).join("\u0000")}`;
+    return `paged:${workspace}:${datasetPathToString(path)}${selectorKey(selector)}#seek:${q}`;
 }
 
 /**
@@ -226,15 +273,26 @@ export function pagedSeekKey(workspace: string, path: TreePath, query: DatasetFi
  * rather than a translation: `.east` literals stay text, and the East option on
  * the `fields` arm becomes an absent property (`exactOptionalPropertyTypes`).
  */
-export function toFindQuery(query: unknown): DatasetFindQuery {
+export function toFindQuery(query: unknown, selector: PagedSelector = NO_INDEX): DatasetFindQuery {
     const q = query as { type: string; value: unknown };
-    if (q.type === "key") return { key: q.value as string };
-    if (q.type === "prefix") return { prefix: q.value as string };
+    const scope = selector.index === null ? {} : { index: selector.index };
+    if (q.type === "key") return { key: q.value as string, ...scope };
+    if (q.type === "prefix") return { prefix: q.value as string, ...scope };
+    if (q.type === "range") {
+        // A half-open bound on a leading prefix of the FLATTENED key — an
+        // empty side is an open end, which the wire says by omitting it.
+        const r = q.value as { from: string[]; to: string[] };
+        return {
+            ...(r.from.length > 0 && { from: [...r.from] }),
+            ...(r.to.length > 0 && { to: [...r.to] }),
+            ...scope,
+        };
+    }
     const f = q.value as { values: string[]; prefix: { type: string; value: unknown } };
     const fields = [...f.values];
     return f.prefix.type === "some"
-        ? { fields, prefix: f.prefix.value as string }
-        : { fields };
+        ? { fields, prefix: f.prefix.value as string, ...scope }
+        : { fields, ...scope };
 }
 
 /**
@@ -350,8 +408,9 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
         path: TreePath,
         offset: number,
         limit: number,
+        selector: PagedSelector,
     ): void {
-        const key = pagedWindowKey(workspace, path, offset, limit);
+        const key = pagedWindowKey(workspace, path, offset, limit, selector);
         const entry = this.entry(key);
         if (entry.status === "running" || entry.status === "loaded") return;
         if (entry.status === "failed") {
@@ -383,7 +442,10 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
             }
             let page: DatasetPage;
             try {
-                page = await api.getPage(workspace, path, { offset, limit });
+                page = await api.getPage(workspace, path, {
+                    offset, limit,
+                    ...(selector.index !== null && { index: selector.index, join: selector.join }),
+                });
             } catch (err) {
                 const permanent = isPermanentPageError(err);
                 settle(e => { e.status = "failed"; e.failedAtMs = this.now(); e.permanent = permanent; });
@@ -408,7 +470,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
             this.touchWindow(key);
             // Any landed window teaches the source's total — publish it on the
             // source-level channel so a reader watching `total()` re-fires.
-            const totalKey = pagedTotalKey(workspace, path);
+            const totalKey = pagedTotalKey(workspace, path, selector);
             const totalEntry = this.entry(totalKey);
             if (totalEntry.total !== page.totalElements) {
                 totalEntry.total = page.totalElements;
@@ -474,14 +536,15 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
     buildPrimitives(): PlatformFunction[] {
         return [
             DataPagedPrimitives.page.implement((sourceType: EastTypeValue) =>
-                (pathArg: unknown, offsetArg: unknown, limitArg: unknown) => {
+                (pathArg: unknown, indexArg: unknown, joinArg: unknown, offsetArg: unknown, limitArg: unknown) => {
                     const workspace = this.resolveWorkspace();
                     const path = pathArg as TreePath;
+                    const selector = toSelector(indexArg, joinArg);
                     const offset = Number(offsetArg as bigint);
                     const limit = Number(limitArg as bigint);
-                    const key = pagedWindowKey(workspace, path, offset, limit);
+                    const key = pagedWindowKey(workspace, path, offset, limit, selector);
                     this.track(key);
-                    this.ensureWindow(sourceType, workspace, path, offset, limit);
+                    this.ensureWindow(sourceType, workspace, path, offset, limit, selector);
                     const entry = this.entry(key);
                     if (entry.status === "loaded" && entry.window !== undefined) {
                         this.touchWindow(key);
@@ -490,9 +553,9 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
                     return variant("none", null);
                 }),
             DataPagedPrimitives.total.implement((_sourceType: EastTypeValue) =>
-                (pathArg: unknown) => {
+                (pathArg: unknown, indexArg: unknown, joinArg: unknown) => {
                     const workspace = this.resolveWorkspace();
-                    const key = pagedTotalKey(workspace, pathArg as TreePath);
+                    const key = pagedTotalKey(workspace, pathArg as TreePath, toSelector(indexArg, joinArg));
                     this.track(key);
                     const entry = this.entry(key);
                     return entry.total !== undefined
@@ -500,11 +563,12 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
                         : variant("none", null);
                 }),
             DataPagedPrimitives.seek.implement((_sourceType: EastTypeValue) =>
-                (pathArg: unknown, queryArg: unknown) => {
+                (pathArg: unknown, indexArg: unknown, joinArg: unknown, queryArg: unknown) => {
                     const workspace = this.resolveWorkspace();
                     const path = pathArg as TreePath;
-                    const query = toFindQuery(queryArg);
-                    const key = pagedSeekKey(workspace, path, query);
+                    const selector = toSelector(indexArg, joinArg);
+                    const query = toFindQuery(queryArg, selector);
+                    const key = pagedSeekKey(workspace, path, query, selector);
                     this.track(key);
                     this.ensureSeek(workspace, path, query, key);
                     const entry = this.entry(key);
@@ -524,8 +588,8 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
      * capturing only the plain-data source path (the value type rides as a
      * type-arg) — so the handle is ordinary serializable East data (issue #106).
      */
-    buildHandle(sourceType: EastTypeValue, path: TreePath): Record<string, unknown> {
-        const pathKey = datasetPathToString(path);
+    buildHandle(sourceType: EastTypeValue, path: TreePath, selector: PagedSelector = NO_INDEX): Record<string, unknown> {
+        const pathKey = `${datasetPathToString(path)}${selectorKey(selector)}`;
         let byPath = this.handleCache.get(sourceType);
         if (byPath) {
             const hit = byPath.get(pathKey);
@@ -539,6 +603,10 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
         // A single literal `Value` IR node for the captured path (the
         // `Data.bind` convention — manifest derivation reads it back).
         const pathExpr = East.value(path, TreePathType);
+        // The selector rides the call as plain data, exactly as the path does,
+        // so a decoded handle re-binds to the same rows.
+        const indexExpr = East.value(selector.index === null ? none : some(selector.index), OptionType(StringType));
+        const joinExpr = East.value(selector.join, BooleanType);
         const platform = this.buildPrimitives();
         const { page, total } = DataPagedPrimitives;
 
@@ -551,13 +619,13 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
             id: pathKey,
             page: East.compile(
                 East.function([IntegerType, IntegerType], OptionType(T), ($, offset, limit) => {
-                    $.return(page([T], pathExpr, offset, limit));
+                    $.return(page([T], pathExpr, indexExpr, joinExpr, offset, limit));
                 }),
                 platform,
             ),
             total: East.compile(
                 East.function([], OptionType(IntegerType), ($) => {
-                    $.return(total([T], pathExpr));
+                    $.return(total([T], pathExpr, indexExpr, joinExpr));
                 }),
                 platform,
             ),
@@ -566,7 +634,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
             // segments) against the stored fences; an Array's stream order has
             // nothing to search. Resolved at bind time from the dataset's own
             // type, so a component renders the affordance only when it works.
-            seek: buildSeek(sourceType, T, pathExpr, platform),
+            seek: buildSeek(sourceType, T, pathExpr, indexExpr, joinExpr, selector, platform),
         };
         byPath.set(pathKey, handle);
         return handle;
@@ -579,7 +647,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
      *  manifest scoping. */
     buildPlatform(allowed: ReadonlySet<string> | null): PlatformFunction {
         return bindPagedPlatformFn.implement((sourceType: EastTypeValue) =>
-            (pathArg: unknown) => {
+            (pathArg: unknown, indexArg: unknown, joinArg: unknown) => {
                 const path = pathArg as TreePath;
                 if (allowed) {
                     const pathStr = datasetPathToString(path);
@@ -590,7 +658,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
                         );
                     }
                 }
-                return this.buildHandle(sourceType, path);
+                return this.buildHandle(sourceType, path, toSelector(indexArg, joinArg));
             },
         );
     }

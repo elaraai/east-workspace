@@ -677,6 +677,7 @@ export function createInMemoryRecordApi(
             mutation: "$init",
             actor: "memory",
             at: new Date(0),
+            delta: none,
         };
         compiled.set(def.name, { stateType, mutations, commits: [genesis], seq: 0 });
         // Seed the record's current value into the dataset cache.
@@ -711,6 +712,7 @@ export function createInMemoryRecordApi(
                 mutation,
                 actor: "memory",
                 at: new Date(0),
+                delta: none,
             });
             return { outcome: variant("committed", { commitHash: hash, stateHash: `${record}-state-${c.seq}`.padEnd(64, "0") }) } as MutationResult;
         },
