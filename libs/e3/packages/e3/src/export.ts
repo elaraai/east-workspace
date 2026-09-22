@@ -426,7 +426,7 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
           encodeEastIR(link(indexBuildProgram(idef.record.type, idef), owner, idef.runner)))),
         runner: runnerToVariant(idef.runner),
         mergeIr: addObject(zipfile, Buffer.from(
-          encodeEastIR(indexMergeProgram(idef.record.type, idef)))),
+          encodeEastIR(link(indexMergeProgram(idef.record.type, idef), owner, idef.runner)))),
       };
       indexes.set(iname, addObject(zipfile, Buffer.from(indexEncoder(indexObject))));
     }

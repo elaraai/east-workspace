@@ -569,7 +569,13 @@ async function deployFromZip(target: DeployTarget, zipPath: string): Promise<voi
     } catch (err) {
       if (!(err instanceof WorkspaceExistsError)) throw err;
     }
-    await workspaceDeploy(storage, location.path, ws, name, version, { resolveFileSources: !target.skipFileSources, runner: new LocalTaskRunner(location.path) });
+    await workspaceDeploy(storage, location.path, ws, name, version, {
+      resolveFileSources: !target.skipFileSources,
+      runner: new LocalTaskRunner(location.path),
+      onRecordIndex: (plan) => {
+        if (plan.action !== 'keep') console.log(`  ${plan.action} index ${plan.record}.${plan.index}`);
+      },
+    });
     if (target.skipFileSources) {
       reportSkippedFileSources(target, fileSourcesOf(await packageRead(storage, location.path, name, version)));
     }

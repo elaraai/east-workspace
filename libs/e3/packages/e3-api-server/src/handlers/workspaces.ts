@@ -246,8 +246,12 @@ export async function deployWorkspace(
       resolveFileSources: false,
       sourceWarning: (message) => console.warn(`[deploy ${workspace}] ${message}`),
       // An index a record declares is built here, on the runner its author
-      // chose — the same runner a mutation on this server runs on.
+      // chose — the same runner a mutation on this server runs on. The build
+      // runs inside this request, so the log says what the deploy is doing.
       runner: new LocalTaskRunner(repoPath),
+      onRecordIndex: (plan) => {
+        if (plan.action !== 'keep') console.log(`[deploy ${workspace}] ${plan.action} index ${plan.record}.${plan.index}`);
+      },
     });
     return sendSuccess(NullType, null);
   } catch (err) {

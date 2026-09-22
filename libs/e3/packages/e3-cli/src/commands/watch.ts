@@ -147,7 +147,14 @@ export async function watchCommand(
 
     // Deploy to workspace
     try {
-      await workspaceDeploy(deployStorage, repoPath, workspace, pkg.name, pkg.version, { runner: new LocalTaskRunner(repoPath) });
+      await workspaceDeploy(deployStorage, repoPath, workspace, pkg.name, pkg.version, {
+        runner: new LocalTaskRunner(repoPath),
+        // A changed index declaration rebuilds the index on this save — the
+        // part of a redeploy that can take minutes, so it is said up front.
+        onRecordIndex: (plan) => {
+          if (plan.action !== 'keep') console.log(`[${timestamp()}] ${plan.action} index ${plan.record}.${plan.index}`);
+        },
+      });
       console.log(`[${timestamp()}] Deployed to workspace: ${workspace}`);
     } catch (err) {
       console.log(`[${timestamp()}] Error deploying:`);
