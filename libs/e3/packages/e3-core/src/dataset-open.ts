@@ -336,20 +336,6 @@ export class DatasetSegments {
     }
     yield spliceBeast2Tail(segments, pos);
   }
-
-  /** Every object this dataset is made of — the manifest, its header and its
-   *  segments — or just the blob, for one that is not stored as a manifest. A
-   *  record state resolves to its primary, so both objects are named.
-   *
-   * @param hash - the dataset object's own hash
-   * @returns the hashes an export or a transfer must carry
-   */
-  objectHashes(hash: string): string[] {
-    const named = hash === this.hash ? [hash] : [hash, this.hash];
-    if (this.backing.kind === 'blob') return named;
-    const { manifest } = this.backing;
-    return [...named, manifest.header, ...manifest.entries.map((e) => e.hash)];
-  }
 }
 
 /** A manifest-backed dataset: the segments are objects in the store. */

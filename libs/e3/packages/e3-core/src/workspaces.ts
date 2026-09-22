@@ -22,7 +22,7 @@ import * as fs from 'fs/promises';
 import yazl from 'yazl';
 import { decodeBeast2For, encodeBeast2For, equalFor, variant, none, EastTypeType, type EastTypeValue } from '@elaraai/east';
 import { DatasetFileTypeMismatchError, readDatasetFileHeader } from '@elaraai/e3';
-import { PackageObjectType, WorkspaceStateType, RecordCommitType, DataflowRunType, DatasetRefType, decodePackageObject, decodeRecordObject, decodeTaskObject, decodeFunctionObject, EnvironmentSpecType, environmentSpecObjectHashes } from '@elaraai/e3-types';
+import { PackageObjectType, WorkspaceStateType, RecordCommitType, RecordIndexObjectType, DataflowRunType, DatasetRefType, decodePackageObject, decodeMutationObject, decodeRecordObject, decodeTaskObject, decodeFunctionObject, EnvironmentSpecType, environmentSpecObjectHashes } from '@elaraai/e3-types';
 import type { PackageObject, WorkspaceState, TaskObject, FunctionObject, DatasetRef, RecordCommit, Structure, TreePath } from '@elaraai/e3-types';
 import { objectAdoptFile } from './dataset-adopt.js';
 import { packageResolve, packageRead } from './packages.js';
@@ -37,7 +37,7 @@ import {
 } from './errors.js';
 import type { StorageBackend, LockHandle } from './storage/interfaces.js';
 import type { TaskRunner } from './execution/interfaces.js';
-import { reconcileRecordIndexes, type RecordIndexPlan } from './records.js';
+import { readRecordState, reconcileRecordIndexes, type RecordIndexPlan } from './records.js';
 
 /**
  * List workspace names.
@@ -789,6 +789,21 @@ export async function workspaceExport(
     }
   };
 
+  // Add an index declaration and every IR bundle it names: the key function,
+  // the covering projection, the build program and the merge function. A
+  // record object names one per declared index and a record STATE names the
+  // one each index was actually built under — the same object only until a
+  // declaration changes, and both have to travel.
+  const decodeIndexObject = decodeBeast2For(RecordIndexObjectType);
+  const addRecordIndex = async (indexHash: string): Promise<void> => {
+    await addObject(indexHash);
+    const index = decodeIndexObject(await storage.objects.read(repo, indexHash));
+    await addObject(index.keyIr);
+    await addObject(index.buildIr);
+    await addObject(index.mergeIr);
+    if (index.valueIr.type === 'some') await addObject(index.valueIr.value);
+  };
+
   // Add the package object
   await addObject(packageHash);
 
@@ -820,6 +835,26 @@ export async function workspaceExport(
     }
   }
 
+  // Collect the record objects, the mutations that may write them and the
+  // indexes they declare, each with the IR it names. A record travels as its
+  // state — the refs below — plus the programs that write and rebuild it; a
+  // bundle carrying one without the other imports a record that cannot be
+  // mutated or redeployed.
+  const recordRefPaths = new Set<string>();
+  for (const recHash of newPkgObject.records.values()) {
+    await addObject(recHash);
+    const record = decodeRecordObject(await storage.objects.read(repo, recHash));
+    recordRefPaths.add(record.path);
+    for (const mutationHash of record.mutations.values()) {
+      await addObject(mutationHash);
+      const mutation = decodeMutationObject(await storage.objects.read(repo, mutationHash));
+      await addObject(mutation.bodyIr);
+      // A mutation deployed before the delta existed names no program.
+      if (mutation.programIr !== '') await addObject(mutation.programIr);
+    }
+    for (const indexHash of record.indexes.values()) await addRecordIndex(indexHash);
+  }
+
   // Write ref files to zip and collect value objects
   const refEncoder = encodeBeast2For(DatasetRefType);
 
@@ -831,14 +866,23 @@ export async function workspaceExport(
     // Add the value object if present. A collection held as a segment
     // manifest is many objects — the manifest, its header, and every segment
     // — and an export that carried only the manifest would import a dataset
-    // whose segments are absent.
+    // whose segments are absent. An indexed record's ref names a `$record`
+    // state over SEVERAL such manifests, the primary's and one per index,
+    // rather than naming one of them.
     if (ref.type === 'value') {
       await addObject(ref.value.hash);
-      const manifest = await readManifest(storage, repo, ref.value.hash);
-      if (manifest !== null) {
-        await addObject(manifest.header);
-        for (const entry of manifest.entries) await addObject(entry.hash);
+      const held = recordRefPaths.has(refPath)
+        ? await readRecordState(storage, repo, ref.value.hash)
+        : { primary: ref.value.hash, indexes: new Map<string, { manifest: string; index: string }>() };
+      for (const manifestHash of [held.primary, ...[...held.indexes.values()].map((index) => index.manifest)]) {
+        await addObject(manifestHash);
+        const manifest = await readManifest(storage, repo, manifestHash);
+        if (manifest !== null) {
+          await addObject(manifest.header);
+          for (const entry of manifest.entries) await addObject(entry.hash);
+        }
       }
+      for (const index of held.indexes.values()) await addRecordIndex(index.index);
     }
   }
 

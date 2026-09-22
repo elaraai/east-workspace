@@ -24,7 +24,7 @@ import { snapshotInputVersions } from './dataset-refs.js';
 import { WorkspaceLockError } from './errors.js';
 import { workspaceGetDataset, workspaceSetDataset } from './trees.js';
 import { packageImport } from './packages.js';
-import { workspaceCreate, workspaceDeploy } from './workspaces.js';
+import { workspaceCreate, workspaceDeploy, workspaceExport } from './workspaces.js';
 import { createTestRepo, removeTestRepo, createTempDir, removeTempDir } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
 import { LocalTaskRunner } from './execution/LocalTaskRunner.js';
@@ -918,6 +918,63 @@ describe('record indexes', () => {
     const declared = decodeBeast2For(RecordIndexObjectType)(await storage.objects.read(repo, entry.index));
     for (const ir of [declared.keyIr, declared.buildIr, declared.mergeIr]) await storage.objects.read(repo, ir);
     if (declared.valueIr.type === 'some') await storage.objects.read(repo, declared.valueIr.value);
+  });
+
+  it('an export carries the primary, every index, and what each was built from', async () => {
+    // A record's ref names a `$record` state, and the manifests hang off
+    // that: an export that walked only the ref's own object would import a
+    // record whose primary is a hash nothing in the bundle defines and whose
+    // indexes are not there at all.
+    await recordMutate(storage, realRunner, repo, ws, 'plans', 'seed', [], { actor: 'cli:test' });
+    const exported = await state();
+    const zip = join(tempDir, 'planrecords-export.zip');
+    await workspaceExport(storage, repo, ws, zip);
+
+    const freshRepo = createTestRepo();
+    const freshStorage = new LocalStorage(dirname(freshRepo));
+    try {
+      await packageImport(freshStorage, freshRepo, zip);
+      for (const manifest of [exported.primary, ...[...exported.indexes.values()].map((i) => i.manifest)]) {
+        const opened = await DatasetSegments.open(freshStorage, freshRepo, manifest);
+        await opened.head();
+        for (let i = 0; i < opened.segmentCount; i++) await opened.segment(i);
+      }
+      // ...and the declaration each index was built under, with the programs
+      // it names: a deploy of the imported package compares that declaration
+      // against its own to decide whether the index needs rebuilding.
+      for (const entry of exported.indexes.values()) {
+        const declared = decodeBeast2For(RecordIndexObjectType)(await freshStorage.objects.read(freshRepo, entry.index));
+        for (const ir of [declared.keyIr, declared.buildIr, declared.mergeIr]) await freshStorage.objects.read(freshRepo, ir);
+      }
+    } finally {
+      removeTestRepo(freshRepo);
+    }
+  });
+
+  it('an exported record redeploys, mutates and reads through its index', async () => {
+    // The end of the same road: an imported bundle must carry enough to DEPLOY
+    // — the record object, every mutation's program, every index declaration —
+    // not just enough to read the bytes back.
+    await recordMutate(storage, realRunner, repo, ws, 'plans', 'seed', [], { actor: 'cli:test' });
+    const zip = join(tempDir, 'planrecords-roundtrip.zip');
+    const { name, version } = await workspaceExport(storage, repo, ws, zip);
+
+    const freshRepo = createTestRepo();
+    const freshStorage = new LocalStorage(dirname(freshRepo));
+    try {
+      await packageImport(freshStorage, freshRepo, zip);
+      await workspaceCreate(freshStorage, freshRepo, ws);
+      await workspaceDeploy(freshStorage, freshRepo, ws, name, version, { runner: new LocalTaskRunner(freshRepo) });
+
+      const ref = await freshStorage.datasets.read(freshRepo, ws, 'records/plans');
+      assert.ok(ref && ref.type === 'value');
+      const imported = await readRecordState(freshStorage, freshRepo, ref.value.hash);
+      const index = await DatasetSegments.open(freshStorage, freshRepo, imported.indexes.get('by_status')!.manifest);
+      assert.strictEqual(index.elementCount, 600, 'the imported record reads through its index');
+      assert.ok(await resolveRecordIndex(freshStorage, freshRepo, ws, 'records/plans', ref.value.hash, 'by_status'));
+    } finally {
+      removeTestRepo(freshRepo);
+    }
   });
 
   it('rebuilds an index after a sweep', async () => {
