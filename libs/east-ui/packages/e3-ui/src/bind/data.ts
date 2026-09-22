@@ -27,7 +27,7 @@ import {
     type EastType,
     type ExprType,
 } from '@elaraai/east';
-import { TreePathType, DatasetStatusType } from '@elaraai/e3-types';
+import { TreePathType, DatasetStatusType, indexWindowType } from '@elaraai/e3-types';
 // The row-source contract is east-ui's (#567): a paged handle IS a
 // `PagedSourceType` — same fields, same order — so Plan / Table / ValueTree
 // take it without either package importing the other's data layer.
@@ -412,6 +412,15 @@ export interface BindPagedIndexOptions<T extends EastType, IK extends EastType, 
  */
 export type PagedValue<T extends EastType> = ExprType<ReturnType<typeof DataPagedHandleType<T>>>;
 
+/** The handle every paged bind returns, declared once so the plain and the
+ *  index binds cannot drift apart. */
+const PAGED_HANDLE = StructType({
+    id:    StringType,
+    page:  FunctionType([IntegerType, IntegerType], OptionType("T")),
+    total: FunctionType([], OptionType(IntegerType)),
+    seek:  OptionType(FunctionType([SeekQueryType], OptionType(SeekRangeType))),
+});
+
 /**
  * The underlying `Data.bindPaged` platform-function definition. End-users
  * should call {@link Data.bindPaged}; runtime implementations register
@@ -420,13 +429,27 @@ export type PagedValue<T extends EastType> = ExprType<ReturnType<typeof DataPage
 export const bindPagedPlatformFn = East.genericPlatform(
     "data_bind_paged",
     ["T"],
-    [TreePathType, OptionType(StringType), BooleanType],
-    StructType({
-        id:    StringType,
-        page:  FunctionType([IntegerType, IntegerType], OptionType("T")),
-        total: FunctionType([], OptionType(IntegerType)),
-        seek:  OptionType(FunctionType([SeekQueryType], OptionType(SeekRangeType))),
-    }),
+    [TreePathType],
+    PAGED_HANDLE,
+    { optional: true },
+);
+
+/**
+ * The underlying platform function of a {@link Data.bindPaged} that reads a
+ * record through one of its indexes — the source path, the index's name, and
+ * whether each entry is joined to its row.
+ *
+ * @remarks
+ * A function of its own rather than more arguments on `data_bind_paged`: the
+ * one-argument call is baked into every UI package already exported, and a
+ * platform call is checked against its implementation's arity, so widening
+ * that function would refuse every one of them.
+ */
+export const bindPagedIndexPlatformFn = East.genericPlatform(
+    "data_bind_paged_index",
+    ["T"],
+    [TreePathType, StringType, BooleanType],
+    PAGED_HANDLE,
     { optional: true },
 );
 
@@ -457,12 +480,15 @@ const data_page_seek = East.genericPlatform(
  * @internal Not for direct use — author against {@link Data.bindPaged}.
  */
 export const DataPagedPrimitives = {
-    /** `data_page([T], source, offset, limit) -> Option<T>` — one window (`none` = in flight). */
+    /** `data_page([T], source, index, join, offset, limit) -> Option<T>` — one
+     *  window (`none` = in flight). */
     page: data_page,
-    /** `data_page_total([T], source) -> Option<Integer>` — total elements, once known. */
+    /** `data_page_total([T], source, index, join) -> Option<Integer>` — total
+     *  elements, once known. */
     total: data_page_total,
-    /** `data_page_seek([T], source, query) -> Option<SeekRange>` — where a key
-     *  query lands in the source's row order (`none` = search in flight). */
+    /** `data_page_seek([T], source, index, join, query) -> Option<SeekRange>` —
+     *  where a key query lands in the source's row order (`none` = search in
+     *  flight). */
     seek: data_page_seek,
 } as const;
 
@@ -538,36 +564,27 @@ function bindDataPaged(
     // `Value` IR node, which `East.value(...)` forces.
     const sourceValue = East.value(def.path, TreePathType);
     const index = options?.index;
-    // An index window is the index's OWN order, and it carries whatever a
-    // view needs to render without the record: the index key, the primary key
-    // and the covering projection — plus the row itself when the read joins.
-    const windowType = index === undefined
-        ? def.type
-        : indexWindowOf(def.type, index.keyType, index.valueType);
-    return bindPagedPlatformFn(
-        [windowType],
-        sourceValue,
-        East.value(index === undefined ? none : some(index.name), OptionType(StringType)),
-        East.value(options?.join === true, BooleanType),
-    ) as unknown as PagedValue<EastType>;
-}
-
-/** The window an indexed `Data.bindPaged` serves: ORDERED rows, in the index's
- *  order, each carrying its index key, the row's own key, the covering
- *  projection and — when the read joined — the row.
- *
- *  A Dict would re-sort by its own key and throw the index order away, which
- *  is the whole reason the window is positional. */
-function indexWindowOf(recordType: EastType, indexKeyType: EastType, valueType: EastType): EastType {
-    const dict = recordType as unknown as { type: string; key: EastType; value: EastType };
-    if (dict.type !== 'Dict') {
+    if (index === undefined) {
+        return bindPagedPlatformFn([def.type], sourceValue) as unknown as PagedValue<EastType>;
+    }
+    // An index window is the index's OWN order: ORDERED rows, each carrying
+    // what a view needs to render without the record — the index key, the
+    // row's own key and the covering projection, plus the row itself when the
+    // read joins. A Dict would re-sort by its own key and throw that order
+    // away, which is the whole reason the window is positional. The server
+    // encodes the window with the same `indexWindowType`.
+    const record = def.type as unknown as { type: string; key: EastType; value: EastType };
+    if (record.type !== 'Dict') {
         throw new Error(
-            `Data.bindPaged: an index reads a Dict record; this one holds ${dict.type}`,
+            `Data.bindPaged: an index reads a Dict record; this one holds ${record.type}`,
         );
     }
-    return ArrayType(StructType({
-        ik: indexKeyType, key: dict.key, value: valueType, row: OptionType(dict.value),
-    }));
+    return bindPagedIndexPlatformFn(
+        [indexWindowType(record.key, index.keyType, index.valueType, record.value)],
+        sourceValue,
+        East.value(index.name, StringType),
+        East.value(options?.join === true, BooleanType),
+    ) as unknown as PagedValue<EastType>;
 }
 
 /**

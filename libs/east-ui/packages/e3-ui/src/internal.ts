@@ -29,7 +29,10 @@ export {
     DataBindPrimitives,
     DataPagedHandleType,
     type PagedValue,
+    type IndexWindowType,
+    type BindPagedIndexOptions,
     bindPagedPlatformFn,
+    bindPagedIndexPlatformFn,
     DataPagedPrimitives,
 } from './bind/data.js';
 export {

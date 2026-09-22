@@ -6,9 +6,9 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 
-import { ArrayType, East, FloatType, StringType, StructType, equalFor, variant } from "@elaraai/east";
+import { ArrayType, DictType, East, FloatType, IntegerType, StringType, StructType, equalFor, variant } from "@elaraai/east";
 import { TreePathType } from "@elaraai/e3-types";
-import { input } from "@elaraai/e3";
+import { input, record, recordIndex } from "@elaraai/e3";
 import { Reactive, UIComponentType, Text } from "@elaraai/east-ui/internal";
 
 import { decodeManifest, DataManifestType, Data } from "@elaraai/e3-ui";
@@ -99,6 +99,27 @@ describe("ui()", () => {
         assert.equal(manifest.pages.length, 1);
         assert.ok(pathEqual(manifest.pages[0]!,
             [variant("field", "inputs"), variant("field", "ops")]));
+    });
+
+    test("a record read through an index lands in `pages` under the record's path", () => {
+        // An index read is a read of the record: the manifest scopes it by the
+        // record's path, whatever index it reads through.
+        const Row = StructType({ status: StringType, due: IntegerType });
+        const plans = record("plans", DictType(StringType, Row), new Map());
+        const byStatus = recordIndex("by_status", plans, {
+            key: East.function([StringType, Row], StringType, ($, _k, v) => v.status),
+        });
+        const dashboard = ui("indexed_dashboard", [], East.function([], UIComponentType, (_$) =>
+            Reactive.Root(East.function([], UIComponentType, $ => {
+                const queue = $.let(Data.bindPaged(plans, { index: byStatus }));
+                const w = $.let(queue.page(0n, 50n));
+                return Text.Root(East.print(w.hasTag("some")));
+            }))
+        ));
+        const manifest = decodeManifest(dashboard.metadata!);
+        assert.equal(manifest.paths.length, 0, "an index read is never preloaded");
+        assert.equal(manifest.pages.length, 1);
+        assert.ok(pathEqual(manifest.pages[0]!, [variant("field", "records"), variant("field", "plans")]));
     });
 
     test("compute-time inputs and reactive paths union without duplicates", () => {

@@ -37,7 +37,10 @@ export {
     bindPlatformFn,
     DataPagedHandleType,
     type PagedValue,
+    type IndexWindowType,
+    type BindPagedIndexOptions,
     bindPagedPlatformFn,
+    bindPagedIndexPlatformFn,
 } from './bind/data.js';
 export {
     Func,

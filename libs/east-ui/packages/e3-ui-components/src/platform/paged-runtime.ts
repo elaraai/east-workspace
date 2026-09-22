@@ -46,7 +46,7 @@ import {
 } from "@elaraai/east";
 import { type PlatformFunction, EastTypeType } from "@elaraai/east/internal";
 import { SeekQueryType, SeekRangeType } from "@elaraai/east-ui";
-import { bindPagedPlatformFn, DataPagedPrimitives } from "@elaraai/e3-ui/internal";
+import { bindPagedIndexPlatformFn, bindPagedPlatformFn, DataPagedPrimitives } from "@elaraai/e3-ui/internal";
 import {
     registerReactiveTracker,
     registerPlatformImplementation,
@@ -188,6 +188,19 @@ function toSelector(indexArg: unknown, joinArg: unknown): PagedSelector {
         index: index !== undefined && index.type === "some" ? index.value as string : null,
         join: joinArg === true,
     };
+}
+
+/** Refuses a paged bind of a path the task's manifest never declared — so a
+ *  `ui()` task windows only the datasets derivation recorded. */
+function checkDeclared(allowed: ReadonlySet<string> | null, path: TreePath): void {
+    if (allowed === null) return;
+    const pathStr = datasetPathToString(path);
+    if (!allowed.has(pathStr)) {
+        throw new Error(
+            `Data.bindPaged: source path "${pathStr}" not declared in manifest — ` +
+            `bind it in the task body so derivation records it`,
+        );
+    }
 }
 
 /** Whether a caught fetch error is an authoring error rather than a hiccup. */
@@ -647,18 +660,24 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
      *  manifest scoping. */
     buildPlatform(allowed: ReadonlySet<string> | null): PlatformFunction {
         return bindPagedPlatformFn.implement((sourceType: EastTypeValue) =>
+            (pathArg: unknown) => {
+                const path = pathArg as TreePath;
+                checkDeclared(allowed, path);
+                return this.buildHandle(sourceType, path);
+            },
+        );
+    }
+
+    /** Build the PlatformFunction behind a `Data.bindPaged` that reads a record
+     *  through one of its indexes, bound to this runtime — scoped by `allowed`
+     *  exactly as {@link buildPlatform} is: an index read is a read of the
+     *  record's path. */
+    buildIndexPlatform(allowed: ReadonlySet<string> | null): PlatformFunction {
+        return bindPagedIndexPlatformFn.implement((sourceType: EastTypeValue) =>
             (pathArg: unknown, indexArg: unknown, joinArg: unknown) => {
                 const path = pathArg as TreePath;
-                if (allowed) {
-                    const pathStr = datasetPathToString(path);
-                    if (!allowed.has(pathStr)) {
-                        throw new Error(
-                            `Data.bindPaged: source path "${pathStr}" not declared in manifest — ` +
-                            `bind it in the task body so derivation records it`,
-                        );
-                    }
-                }
-                return this.buildHandle(sourceType, path, toSelector(indexArg, joinArg));
+                checkDeclared(allowed, path);
+                return this.buildHandle(sourceType, path, { index: indexArg as string, join: joinArg === true });
             },
         );
     }
@@ -686,6 +705,7 @@ export function clearPagedApi(): void {
  *  Registered on module load (powers the extension registry decode path). */
 export const PagedPlatform: PlatformFunction[] = [
     defaultPagedRuntime.buildPlatform(null),
+    defaultPagedRuntime.buildIndexPlatform(null),
     ...defaultPagedRuntime.buildPrimitives(),
 ];
 
@@ -700,6 +720,7 @@ export function createScopedPagedPlatform(pages: readonly TreePath[]): PlatformF
     const allowed = new Set(pages.map(p => datasetPathToString(p)));
     return [
         defaultPagedRuntime.buildPlatform(allowed),
+        defaultPagedRuntime.buildIndexPlatform(allowed),
         ...defaultPagedRuntime.buildPrimitives(),
     ];
 }
