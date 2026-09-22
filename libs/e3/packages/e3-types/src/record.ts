@@ -20,7 +20,7 @@
 import {
   ArrayType, BooleanType, DateTimeType, DictType, EastTypeType, FunctionType, NullType,
   OptionType, PatchType, StringType, StructType, VariantType,
-  decodeBeast2For, dictPatchOpsType, setPatchOpsType, toEastTypeValue,
+  decodeBeast2For, dictPatchOpsType, none, setPatchOpsType, toEastTypeValue,
   type EastType, type EastTypeValue, type ValueTypeOf,
 } from '@elaraai/east';
 import { RunnerType } from './runner.js';
@@ -91,7 +91,7 @@ export function decodeRecordCommit(data: Uint8Array): RecordCommit {
     return decodeCurrentCommit(data);
   } catch (err) {
     try {
-      return { ...decodePreDeltaCommit(data), delta: { type: 'none', value: null } as RecordCommit['delta'] };
+      return { ...decodePreDeltaCommit(data), delta: none };
     } catch {
       throw err;
     }
