@@ -738,13 +738,19 @@ nothing runs, which makes it the form to use for interactive latency at any
 record size.
 
 ```typescript
+const PlanType = StructType({
+  title: StringType, owner: StringType, status: StringType,
+  due: DateTimeType, resources: SetType(StringType),
+});
 const plans = e3.record('plans', DictType(StringType, PlanType), new Map());
 
+// `edit` is typed from the record: edit.set(key, row), edit.delete(key),
+// edit.update(key, patch) — each checked against the record's key and row.
 const reschedule = e3.editMutation('reschedule', plans,
   East.function([plans.type, StringType, DateTimeType, e3.editTypeOf(plans.type)], NullType,
     ($, state, id, due, edit) => {
       const plan = $.let(state.get(id));       // one segment decoded, not the record
-      $(edit.set(id, { title: plan.title, owner: plan.owner, due }));
+      $(edit.set(id, { title: plan.title, owner: plan.owner, status: plan.status, due, resources: plan.resources }));
     }));
 
 const pkg = e3.package('planning', '1.0.0', plans, reschedule, e3.patchMutation(plans));
@@ -767,13 +773,15 @@ empty set is a row the index does not carry). An optional `value` projection is
 what a view renders from the index alone, without touching the record.
 
 ```typescript
+const StatusKeyType = StructType({ status: StringType, due: DateTimeType });
+
 const byStatus = e3.recordIndex('by_status', plans, {
   key:   East.function([StringType, PlanType], StatusKeyType,
            ($, k, v) => ({ status: v.status, due: v.due })),
   value: East.function([StringType, PlanType], StringType, ($, k, v) => v.title),
 });
 const byResource = e3.recordIndex('by_resource', plans, {
-  keys: East.function([StringType, PlanType], SetType(ResourceRefType), ($, k, v) => v.resources),
+  keys: East.function([StringType, PlanType], SetType(StringType), ($, k, v) => v.resources),
 });
 
 const pkg = e3.package('planning', '1.0.0', plans, byStatus, byResource);

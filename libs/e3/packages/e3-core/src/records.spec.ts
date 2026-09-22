@@ -1083,19 +1083,16 @@ describe('the mutation delta', () => {
       return out;
     }));
     const retitle = e3.editMutation('retitle', plans,
-      East.function([PlansType, StringType, e3.editTypeOf(PlansType) as never], NullType,
-        (($: any, state: any, key: any, edit: any) => {
-          const row = $.let(state.get(key));
-          $(edit.set(key, { status: row.status, due: row.due, title: 'RETITLED' }));
-        }) as never) as never);
-    const items = [plans, seed, retitle, e3.patchMutation(plans)];
-    if (indexed) {
-      items.push(e3.recordIndex('by_status', plans, {
-        key: East.function([StringType, PlanRowType], StatusKeyType, ($, _k, v) => ({ status: v.status, due: v.due })),
-        value: East.function([StringType, PlanRowType], StringType, ($, _k, v) => v.title),
-      }) as never);
-    }
-    return e3.package(name, '1.0.0', ...(items as never[]));
+      East.function([PlansType, StringType, e3.editTypeOf(PlansType)], NullType, ($, state, key, edit) => {
+        const row = $.let(state.get(key));
+        $(edit.set(key, { status: row.status, due: row.due, title: 'RETITLED' }));
+      }));
+    const patch = e3.patchMutation(plans);
+    if (!indexed) return e3.package(name, '1.0.0', plans, seed, retitle, patch);
+    return e3.package(name, '1.0.0', plans, seed, retitle, patch, e3.recordIndex('by_status', plans, {
+      key: East.function([StringType, PlanRowType], StatusKeyType, ($, _k, v) => ({ status: v.status, due: v.due })),
+      value: East.function([StringType, PlanRowType], StringType, ($, _k, v) => v.title),
+    }));
   }
 
   beforeEach(async () => {
@@ -1410,21 +1407,19 @@ describe('the mutation delta — cross-runtime parity', () => {
         return out;
       }), runner);
       const retitle = e3.editMutation('retitle', plans,
-        East.function([PlansType, StringType, e3.editTypeOf(PlansType) as never], NullType,
-          (($: any, state: any, key: any, edit: any) => {
-            const row = $.let(state.get(key));
-            $(edit.set(key, { status: 'late', due: row.due, title: 'RETITLED' }));
-          }) as never) as never, runner);
+        East.function([PlansType, StringType, e3.editTypeOf(PlansType)], NullType, ($, state, key, edit) => {
+          const row = $.let(state.get(key));
+          $(edit.set(key, { status: 'late', due: row.due, title: 'RETITLED' }));
+        }), runner);
       const drop = e3.editMutation('drop', plans,
-        East.function([PlansType, StringType, e3.editTypeOf(PlansType) as never], NullType,
-          (($: any, _state: any, key: any, edit: any) => {
-            $(edit.delete(key));
-          }) as never) as never, runner);
+        East.function([PlansType, StringType, e3.editTypeOf(PlansType)], NullType, ($, _state, key, edit) => {
+          $(edit.delete(key));
+        }), runner);
       const byStatus = e3.recordIndex('by_status', plans, {
         key: East.function([StringType, PlanRowType], StatusKeyType, ($, _k, v) => ({ status: v.status, due: v.due })),
         value: East.function([StringType, PlanRowType], StringType, ($, _k, v) => v.title),
       }, runner);
-      const pkg = e3.package(`parity-${ws}`, '1.0.0', plans, seed, retitle, drop as never, e3.patchMutation(plans, 'patch', runner) as never, byStatus as never);
+      const pkg = e3.package(`parity-${ws}`, '1.0.0', plans, seed, retitle, drop, e3.patchMutation(plans, 'patch', runner), byStatus);
       const zip = join(tempDir, `parity-${ws}.zip`);
       await e3.export(pkg, zip);
       await packageImport(storage, repo, zip);

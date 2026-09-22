@@ -195,9 +195,9 @@ export function mutation(
  *
  * Repeated edits of one key fold: `set` after anything is that `set`; `update`
  * after `set` applies to the set value; `update` after `update` composes;
- * `delete` after anything is `delete`. A `delete` or `update` of a key the
- * record does not hold fails the mutation naming the key, exactly as applying
- * such a patch would.
+ * `delete` after anything is `delete`. A `set` of the value the record already
+ * holds is no change. A `delete` or `update` of a key the record does not hold
+ * is a conflict naming the key, exactly as applying such a patch would be.
  *
  * The purity rules of {@link mutation} apply unchanged.
  *
@@ -213,14 +213,17 @@ export function mutation(
  *
  * @example
  * ```ts
+ * const PlanType = StructType({ title: StringType, owner: StringType, due: DateTimeType });
  * const plans = e3.record('plans', DictType(StringType, PlanType), new Map());
- * const EditPlans = e3.editTypeOf(plans.type);
  *
+ * // The edit capability is the body's LAST parameter; its type comes from
+ * // the record, so `edit.set` checks the key and the row.
  * const reschedule = e3.editMutation('reschedule', plans,
- *   East.function([plans.type, StringType, DateTimeType], NullType, ($, state, id, due) => {
- *     const plan = $.let(state.get(id));
- *     $(edit.set(id, { ...plan, due }));
- *   }));
+ *   East.function([plans.type, StringType, DateTimeType, e3.editTypeOf(plans.type)], NullType,
+ *     ($, state, id, due, edit) => {
+ *       const plan = $.let(state.get(id));
+ *       $(edit.set(id, { title: plan.title, owner: plan.owner, due }));
+ *     }));
  * ```
  */
 export function editMutation<Name extends string, T extends EastType, Args extends EastType[], E extends EastType>(

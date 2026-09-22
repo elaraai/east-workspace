@@ -21,7 +21,7 @@ import {
   ArrayType, BooleanType, DateTimeType, DictType, EastTypeType, FunctionType, NullType,
   OptionType, PatchType, StringType, StructType, VariantType,
   decodeBeast2For, dictPatchOpsType, none, setPatchOpsType, toEastTypeValue,
-  type EastType, type EastTypeValue, type ValueTypeOf,
+  type EastType, type EastTypeValue, type PatchTypeOf, type ValueTypeOf,
 } from '@elaraai/east';
 import { RunnerType } from './runner.js';
 
@@ -449,13 +449,24 @@ export function mutationDeltaType(targets: readonly DeltaTarget[]): EastType {
  *
  * Repeated edits of one key fold: `set` after anything is that `set`; `update`
  * after `set` applies to the set value; `update` after `update` composes;
- * `delete` after anything is `delete`; a `delete` or `update` of a key the
- * state does not hold fails the mutation naming the key, as an apply would.
+ * `delete` after anything is `delete`. A `set` of the value the state already
+ * holds is no change, and a `delete` or `update` of a key the state does not
+ * hold is a conflict naming the key, as an apply's would be.
+ *
+ * The Dict overload carries the struct's shape into TypeScript, so a body that
+ * declares `editTypeOf(record.type)` as its last parameter gets `edit.set`,
+ * `edit.delete` and `edit.update` typed against the record's own key and row.
  *
  * @param recordType - the record's state type, a Dict
  * @returns the struct of edit functions
  * @throws {Error} When the record's root is not a Dict.
  */
+export function editTypeOf<K extends EastType, V extends EastType>(recordType: DictType<K, V>): StructType<{
+  set: FunctionType<[K, V], NullType>;
+  delete: FunctionType<[K], NullType>;
+  update: FunctionType<[K, PatchTypeOf<V>], NullType>;
+}>;
+export function editTypeOf(recordType: EastType): EastType;
 export function editTypeOf(recordType: EastType): EastType {
   const dict = recordType as unknown as { type: string; key: EastType; value: EastType };
   if (dict.type !== 'Dict') {

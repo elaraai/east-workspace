@@ -222,17 +222,16 @@ export async function createKeyedRecordPackageZip(
       return out;
     }));
   const retitle = e3.editMutation('retitle', plans,
-    East.function([PlansType, StringType, e3.editTypeOf(PlansType) as never], NullType,
-      (($: any, state: any, key: any, edit: any) => {
-        const row = $.let(state.get(key));
-        $(edit.set(key, { status: row.status, due: row.due, title: 'RETITLED' }));
-      }) as never) as never);
+    East.function([PlansType, StringType, e3.editTypeOf(PlansType)], NullType, ($, state, key, edit) => {
+      const row = $.let(state.get(key));
+      $(edit.set(key, { status: row.status, due: row.due, title: 'RETITLED' }));
+    }));
   const byStatus = e3.recordIndex('by_status', plans, {
     key: East.function([StringType, PlanRowType], PlanStatusKeyType,
       ($, _k, v) => ({ status: v.status, due: v.due })),
     value: East.function([StringType, PlanRowType], StringType, ($, _k, v) => v.title),
   });
-  const pkg = e3.package(name, version, plans, seed, retitle, e3.patchMutation(plans) as never, byStatus as never);
+  const pkg = e3.package(name, version, plans, seed, retitle, e3.patchMutation(plans), byStatus);
 
   const zipPath = join(tempDir, `${name}-${version}.zip`);
   await e3.export(pkg, zipPath);
