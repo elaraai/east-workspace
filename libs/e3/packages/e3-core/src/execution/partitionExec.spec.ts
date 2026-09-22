@@ -31,7 +31,9 @@ import {
   DatasetRefType,
   TASK_KIND_MERGE,
   TASK_KIND_PARTITION,
+  decodeCollectionManifest,
   decodePartitionPlan,
+  encodeDatasetBlob,
   decodeTaskObject,
   encodePartitionTaskMetadata,
   type ExecutionStatus,
@@ -50,6 +52,7 @@ import { inputsHash } from '../executions.js';
 import { uuidv7 } from '../uuid.js';
 import { objectWrite } from '../storage/local/LocalObjectStore.js';
 import { repoGc } from '../storage/local/gc.js';
+import { cutDatasetIntoStore, readDatasetWhole } from '../dataset-open.js';
 import { createTestRepo, removeTestRepo } from '../test-helpers.js';
 import { LocalStorage } from '../storage/local/index.js';
 import type { StorageBackend } from '../storage/interfaces.js';
@@ -597,6 +600,47 @@ describe('partitionTaskExecute', () => {
     assert.equal(wholeInputReads, 0, 'the partitioned input must never be whole-read');
     assert.ok(maxRangeLength <= readBound,
       `every ranged read of the input (max ${maxRangeLength} B) must stay within one segment frame / tail probe (${readBound} B)`);
+  });
+
+  it('addresses a manifest-stored input through its segment objects: none read whole, carved as its splice', async () => {
+    // A collection dataset is stored as a manifest over segment objects, so
+    // this — not the bare blob above — is the input a partitioned task
+    // usually sees. The partition machinery addresses the blob those segments
+    // splice to, and has to do it by ranged reads of the segment objects: the
+    // value is never materialised, once to plan or again for any carve.
+    const entries: [bigint, { id: bigint; name: string }][] = [];
+    for (let i = 0; i < 30_000; i++) {
+      const id = BigInt(i);
+      const salt = ((i * 2654435761) >>> 0).toString(36) + ((i * 1103515245 + 12345) >>> 0).toString(36);
+      entries.push([id, { id, name: `row-${i}-${salt}` }]);
+    }
+    const table = new SortedMap(entries, compareFor(IntegerType));
+    const manifestHash = await cutDatasetIntoStore(storage, repo, encodeDatasetBlob(TableType, table));
+    const manifest = decodeCollectionManifest(await storage.objects.read(repo, manifestHash));
+    assert.ok(manifest.entries.length > 4, `the input spans segment objects, got ${manifest.entries.length}`);
+    const segmentObjects = new Set(manifest.entries.map((entry) => entry.hash));
+    const fnIrHash = await createDummyFnIr();
+    const taskHash = await createPartitionTask({ copyIndex: 1, partitions: 1, targetPartitionBytes: 1 });
+
+    const objects = storage.objects;
+    const wholeSegmentReads: string[] = [];
+    const origRead = objects.read.bind(objects);
+    objects.read = (r: string, h: string) => {
+      if (segmentObjects.has(h)) wholeSegmentReads.push(h);
+      return origRead(r, h);
+    };
+    const result = await taskExecute(storage, repo, taskHash, [fnIrHash, manifestHash]);
+    objects.read = origRead;
+
+    assert.equal(result.state, 'success', result.error ?? '');
+    assert.deepEqual(wholeSegmentReads, [], 'no segment object is read whole');
+    // The identity body's shards are the slices, so their splice IS the blob
+    // the partition machinery addressed — which must be the manifest's own
+    // splice, byte for byte, or every slice would hash differently from the
+    // one a spliced input carves.
+    const output = Buffer.from(await storage.objects.read(repo, result.outputHash!));
+    assert.ok(output.equals(Buffer.from(await readDatasetWhole(storage, repo, manifestHash))),
+      'the carved slices splice back to the manifest\'s own splice');
   });
 
   it('degrades to whole reads behind the same path when the backend has no ranged reads', async () => {

@@ -30,7 +30,8 @@ import {
   type Beast2RangedExtents,
   type Beast2SyncRangeReader,
 } from '@elaraai/east';
-import { readDatasetWhole, readManifest } from '../dataset-open.js';
+import type { CollectionManifest } from '@elaraai/e3-types';
+import { openDatasetObject } from '../dataset-open.js';
 import type { StorageBackend } from '../storage/interfaces.js';
 
 /** Bytes per range-read → write-stream copy chunk. */
@@ -140,31 +141,34 @@ export class PartitionBlob {
    * Opens a stored blob for partitioned access.
    *
    * @remarks
-   * A dataset stored as a segment manifest is spliced first: the carve and
-   * splice geometry addresses one blob's byte layout, and a partition slice is
-   * a byte range of it. Bounded by the value's size, which is what a backend
-   * without ranged reads has always paid here.
+   * A dataset stored as a segment manifest is addressed as the one blob its
+   * segments splice to, without that blob ever being built: the header comes
+   * from the header object, each segment's frames from its own object, and
+   * the index tail is computed from their geometry. Those are exactly the
+   * bytes a splice writes, so a slice carved here is the slice carved from
+   * the spliced value, hash for hash, and every cached execution over one
+   * still hits.
    *
    * @param storage - Storage backend
    * @param repo - Repository identifier
-   * @param hash - The blob's content hash
+   * @param hash - The blob's content hash — a manifest, a record state naming
+   *   one, or a bare blob
    * @returns The opened blob
    * @throws {Error} When the blob is not a segmented, indexed v5 collection.
    */
   static async open(storage: StorageBackend, repo: string, hash: string): Promise<PartitionBlob> {
-    if (await readManifest(storage, repo, hash) !== null) {
-      const data = await readDatasetWhole(storage, repo, hash);
-      const read = (offset: number, length: number): Promise<Uint8Array> =>
-        Promise.resolve(data.subarray(offset, offset + length));
-      return new PartitionBlob(read, await readBeast2ExtentsRanged({ size: data.length, read }));
+    const opened = await openDatasetObject(storage, repo, hash);
+    if (opened.manifest !== null) {
+      const layout = await manifestLayout(storage, repo, opened.hash, opened.manifest);
+      return new PartitionBlob(layout.read, await readBeast2ExtentsRanged(layout));
     }
     const readRange = storage.objects.readRange?.bind(storage.objects);
     if (readRange) {
-      const { size } = await storage.objects.stat(repo, hash);
-      const read = (offset: number, length: number): Promise<Uint8Array> => readRange(repo, hash, offset, length);
+      const { size } = await storage.objects.stat(repo, opened.hash);
+      const read = (offset: number, length: number): Promise<Uint8Array> => readRange(repo, opened.hash, offset, length);
       return new PartitionBlob(read, await readBeast2ExtentsRanged({ size, read }));
     }
-    const data = await storage.objects.read(repo, hash);
+    const data = await storage.objects.read(repo, opened.hash);
     const read = (offset: number, length: number): Promise<Uint8Array> => Promise.resolve(data.subarray(offset, offset + length));
     return new PartitionBlob(read, await readBeast2ExtentsRanged({ size: data.length, read }));
   }
@@ -321,6 +325,135 @@ export class PartitionBlob {
       },
     };
   }
+}
+
+/** A manifest-stored collection addressed as the one blob its segments
+ *  splice to: that blob's size, and ranged reads of it. */
+interface ManifestLayout {
+  /** The spliced blob's size in bytes. */
+  readonly size: number;
+  /** Reads `[offset, offset + length)` of the spliced blob. */
+  readonly read: (offset: number, length: number) => Promise<Uint8Array>;
+}
+
+/** Layouts kept per backend, keyed by repository and manifest hash. A plan
+ *  opens its input once and every carve opens it again, and the geometry
+ *  costs a read per segment object — while a manifest names the same objects
+ *  forever, so its layout never goes stale. */
+const manifestLayouts = new WeakMap<object, Map<string, ManifestLayout>>();
+
+/** Layouts one backend keeps at once. */
+const MANIFEST_LAYOUTS_PER_BACKEND = 8;
+
+/**
+ * Where each byte of the blob a manifest's segments splice to lives.
+ *
+ * @remarks
+ * Every segment object is the manifest's header, its own frames, and a
+ * one-segment index tail, so the only thing a segment object has to say is
+ * where its frames end — one tail read, with the head served from the header
+ * already in hand. The splice is then the header, each object's frames in
+ * turn, and an index tail computed over their offsets: the same bytes
+ * `DatasetSegments.splice` streams, which is what keeps a carve over one
+ * byte-identical to a carve over the other.
+ *
+ * The object store is resolved on every read rather than captured here, for
+ * the reason `DatasetSegments` gives: a layout outlives the call that built
+ * it.
+ */
+async function manifestLayout(
+  storage: StorageBackend,
+  repo: string,
+  manifestHash: string,
+  manifest: CollectionManifest,
+): Promise<ManifestLayout> {
+  let byBackend = manifestLayouts.get(storage);
+  if (byBackend === undefined) {
+    byBackend = new Map();
+    manifestLayouts.set(storage, byBackend);
+  }
+  const key = `${repo}\u0000${manifestHash}`;
+  const cached = byBackend.get(key);
+  if (cached !== undefined) {
+    byBackend.delete(key);
+    byBackend.set(key, cached); // refresh recency
+    return cached;
+  }
+
+  // A backend with no ranged reads serves a segment object whole. A carve
+  // reads a segment's frames front to back, so the last object is kept.
+  let held: { hash: string; bytes: Uint8Array } | null = null;
+  const objectRange = async (hash: string, offset: number, length: number): Promise<Uint8Array> => {
+    const readRange = storage.objects.readRange;
+    if (readRange) return readRange.call(storage.objects, repo, hash, offset, length);
+    if (held?.hash !== hash) held = { hash, bytes: await storage.objects.read(repo, hash) };
+    return held.bytes.subarray(offset, offset + length);
+  };
+
+  const header = await storage.objects.read(repo, manifest.header);
+  // Each segment object's frames, as a run of the spliced blob; empty runs
+  // hold no bytes and are left out, so every run a read lands in advances it.
+  const runs: { start: number; end: number; hash: string; objectStart: number }[] = [];
+  const segments: { offset: number; count: number }[] = [];
+  let pos = header.length;
+  for (const entry of manifest.entries) {
+    const extents = await readBeast2ExtentsRanged({
+      size: Number(entry.bytes),
+      read: (offset, length) => offset + length <= header.length
+        ? Promise.resolve(header.subarray(offset, offset + length))
+        : objectRange(entry.hash, offset, length),
+    });
+    if (extents.prefixEnd !== header.length) {
+      throw new Error(`collection manifest: segment ${entry.hash} is not written under the manifest's header`);
+    }
+    for (let s = 0; s < extents.offsets.length; s++) {
+      segments.push({ offset: extents.offsets[s]! - extents.prefixEnd + pos, count: extents.counts[s]! });
+    }
+    const length = extents.segmentsEnd - extents.prefixEnd;
+    if (length > 0) runs.push({ start: pos, end: pos + length, hash: entry.hash, objectStart: extents.prefixEnd });
+    pos += length;
+  }
+  const segmentsEnd = pos;
+  const tail = spliceBeast2Tail(segments, segmentsEnd);
+  const size = segmentsEnd + tail.length;
+
+  const read = async (offset: number, length: number): Promise<Uint8Array> => {
+    const end = offset + length;
+    if (offset < 0 || length < 0 || end > size) {
+      throw new RangeError(`collection manifest: read [${offset}, ${end}) outside the ${size}-byte spliced blob`);
+    }
+    const out = new Uint8Array(length);
+    let at = offset;
+    while (at < end) {
+      if (at < header.length) {
+        const upto = Math.min(end, header.length);
+        out.set(header.subarray(at, upto), at - offset);
+        at = upto;
+      } else if (at >= segmentsEnd) {
+        out.set(tail.subarray(at - segmentsEnd, end - segmentsEnd), at - offset);
+        at = end;
+      } else {
+        // The run holding `at`: the last one starting at or before it.
+        let lo = 0;
+        let hi = runs.length - 1;
+        while (lo < hi) {
+          const mid = (lo + hi + 1) >> 1;
+          if (runs[mid]!.start <= at) lo = mid;
+          else hi = mid - 1;
+        }
+        const run = runs[lo]!;
+        const upto = Math.min(end, run.end);
+        out.set(await objectRange(run.hash, run.objectStart + (at - run.start), upto - at), at - offset);
+        at = upto;
+      }
+    }
+    return out;
+  };
+
+  const layout: ManifestLayout = { size, read };
+  byBackend.set(key, layout);
+  while (byBackend.size > MANIFEST_LAYOUTS_PER_BACKEND) byBackend.delete(byBackend.keys().next().value!);
+  return layout;
 }
 
 /**

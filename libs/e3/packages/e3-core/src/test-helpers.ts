@@ -14,7 +14,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import yauzl from 'yauzl';
 import { repoInit } from './storage/local/repository.js';
-import type { StorageBackend } from './storage/interfaces.js';
 
 // Re-export InMemoryStorage for test consumers
 export { InMemoryStorage } from './storage/in-memory/InMemoryStorage.js';
@@ -229,75 +228,4 @@ export async function zipEqual(
   }
 
   return { equal: true };
-}
-
-/** What a counted backend has been asked to do. */
-export interface StorageCost {
-  /** Whole-object reads. */
-  reads: number;
-  /** Bytes those reads returned — what a path holding a value whole costs. */
-  readBytes: number;
-  /** Bytes ranged reads returned — what a path streaming one costs instead. */
-  rangeBytes: number;
-  /** Whole-object writes. */
-  writes: number;
-  /** Bytes those writes were given, which a content-addressed store may
-   *  already hold. */
-  bytes: number;
-}
-
-/**
- * A storage backend that counts what it is asked to read and write.
- *
- * @remarks
- * Counts the caller's own IO, not a runner's: a unit reads its inputs from
- * the object store itself. Whole reads and ranged reads are counted apart,
- * which is what separates a path that materialises a value from one that
- * streams it.
- *
- * A Proxy rather than a spread: a backend is a class instance whose methods
- * live on the prototype, where a spread does not reach them.
- *
- * @param inner - the backend to count
- * @returns the same backend, with a live `cost`
- */
-export function countingStore(inner: StorageBackend): StorageBackend & { cost: StorageCost } {
-  const cost: StorageCost = { reads: 0, readBytes: 0, rangeBytes: 0, writes: 0, bytes: 0 };
-  const objects = new Proxy(inner.objects, {
-    get(target, property, receiver) {
-      if (property === 'read') {
-        return async (repo: string, hash: string) => {
-          cost.reads++;
-          const bytes = await target.read(repo, hash);
-          cost.readBytes += bytes.byteLength;
-          return bytes;
-        };
-      }
-      if (property === 'readRange' && typeof target.readRange === 'function') {
-        return async (repo: string, hash: string, offset: number, length: number) => {
-          const bytes = await target.readRange!(repo, hash, offset, length);
-          cost.rangeBytes += bytes.byteLength;
-          return bytes;
-        };
-      }
-      if (property === 'write') {
-        return async (repo: string, bytes: Uint8Array) => {
-          const hash = await target.write(repo, bytes);
-          cost.writes++;
-          cost.bytes += bytes.byteLength;
-          return hash;
-        };
-      }
-      const value = Reflect.get(target, property, receiver) as unknown;
-      return typeof value === 'function' ? (value as (...a: unknown[]) => unknown).bind(target) : value;
-    },
-  });
-  return new Proxy(inner, {
-    get(target, property, receiver) {
-      if (property === 'objects') return objects;
-      if (property === 'cost') return cost;
-      const value = Reflect.get(target, property, receiver) as unknown;
-      return typeof value === 'function' ? (value as (...a: unknown[]) => unknown).bind(target) : value;
-    },
-  }) as StorageBackend & { cost: StorageCost };
 }

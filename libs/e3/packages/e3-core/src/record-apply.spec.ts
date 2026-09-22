@@ -28,7 +28,7 @@ import {
 import { encodeDatasetBlob, mutationDeltaType, type DeltaTarget } from '@elaraai/e3-types';
 import { DatasetSegments, cutDatasetIntoStore } from './dataset-open.js';
 import { DeltaConflictError, applyDelta } from './record-apply.js';
-import { countingStore, createTestRepo, removeTestRepo } from './test-helpers.js';
+import { createTestRepo, removeTestRepo } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
 import type { StorageBackend } from './index.js';
 
@@ -47,6 +47,44 @@ function plansOf(n: number): SortedMap<string, Row> {
   return new SortedMap<string, Row>(
     Array.from({ length: n }, (_, i) => [id(i), row(i)] as [string, Row]),
     compareFor(StringType));
+}
+
+/** A storage backend that counts what an apply actually reads and writes.
+ *  The manifest a write produces is content-addressed, so re-announcing an
+ *  untouched segment is a write of bytes already stored — counted here as the
+ *  store sees it, which is the number that has to stay flat. */
+function countingStore(inner: StorageBackend): StorageBackend & { cost: { reads: number; writes: number; bytes: number } } {
+  const cost = { reads: 0, writes: 0, bytes: 0 };
+  // A Proxy, not a spread: the store is a class instance and its methods live
+  // on the prototype, where a spread does not reach them.
+  const objects = new Proxy(inner.objects, {
+    get(target, property, receiver) {
+      if (property === 'read') {
+        return (repo: string, hash: string) => {
+          cost.reads++;
+          return target.read(repo, hash);
+        };
+      }
+      if (property === 'write') {
+        return async (repo: string, bytes: Uint8Array) => {
+          const hash = await target.write(repo, bytes);
+          cost.writes++;
+          cost.bytes += bytes.byteLength;
+          return hash;
+        };
+      }
+      const value = Reflect.get(target, property, receiver) as unknown;
+      return typeof value === 'function' ? (value as (...a: unknown[]) => unknown).bind(target) : value;
+    },
+  });
+  return new Proxy(inner, {
+    get(target, property, receiver) {
+      if (property === 'objects') return objects;
+      if (property === 'cost') return cost;
+      const value = Reflect.get(target, property, receiver) as unknown;
+      return typeof value === 'function' ? (value as (...a: unknown[]) => unknown).bind(target) : value;
+    },
+  }) as StorageBackend & { cost: typeof cost };
 }
 
 describe('applying a mutation delta', () => {

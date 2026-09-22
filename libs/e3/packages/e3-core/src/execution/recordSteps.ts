@@ -40,7 +40,7 @@ import {
   type RunnerValue,
   type TaskObject,
 } from '@elaraai/e3-types';
-import { DatasetSegments, cutDatasetObject } from '../dataset-open.js';
+import { cutDatasetObject } from '../dataset-open.js';
 import type { StorageBackend } from '../storage/interfaces.js';
 import type { TaskExecuteOptions, TaskResult, TaskRunner } from './interfaces.js';
 import { carvePartitionSlices, planMergeRanges, planPartitions, spliceBlobs } from './partitionExec.js';
@@ -136,27 +136,6 @@ export async function executeRecordOperation(
   const unit = async (task: { hash: string }, inputs: string[]): Promise<TaskResult> =>
     runner.execute(storage, task.hash, inputs, options);
 
-  // The partition machinery addresses ONE blob's byte layout, so opening a
-  // manifest through it materialises the whole value — once to carve each
-  // slice, `concurrency` of them at a time, which is the record's size times
-  // the fan-out held at once. Splice it once instead, streamed, and carve the
-  // slices out of that object by ranged read. Those are the bytes every open
-  // was materialising, so the slices, their hashes and their cached
-  // executions are unchanged; the object is content-addressed, so a re-run
-  // over the same record writes nothing new, and unrooted, so gc takes it
-  // with the operation's other scratch.
-  let plan = planned.plan;
-  if (planned.partitions > 1) {
-    try {
-      const segments = await DatasetSegments.open(storage, repo, operation.over);
-      if (segments.manifest !== null) {
-        plan = { ...plan, partitions: [await storage.objects.writeStream(repo, segments.splice())] };
-      }
-    } catch (err) {
-      return { kind: 'failed', message: `the record could not be laid out for carving: ${message(err)}`, exitCode: null };
-    }
-  }
-
   // ---------------------------------------------------------------------
   // map — one unit per slice, in a pool
   // ---------------------------------------------------------------------
@@ -179,7 +158,7 @@ export async function executeRecordOperation(
       if (p >= planned.partitions || failed.any || options.signal?.aborted) return;
       let slice: string;
       try {
-        slice = (await carvePartitionSlices(storage, repo, plan, p))[0]!;
+        slice = (await carvePartitionSlices(storage, repo, planned.plan, p))[0]!;
       } catch (err) {
         failed.at(p, { kind: 'failed', message: `slice ${p + 1} of ${planned.partitions} could not be carved: ${message(err)}`, exitCode: null });
         return;
