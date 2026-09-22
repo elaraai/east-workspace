@@ -13,13 +13,11 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import { execFileSync } from 'node:child_process';
 import assert from 'node:assert';
 import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { East, IntegerType, NullType, PatchType, SortedMap, StringType, compareFor, encodeBeast2For, decodeBeast2For, toEastTypeValue, ArrayType, BlobType, DictType, StructType, variant, type PatchTypeOf, type ValueTypeOf } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import type { Structure, TreePath } from '@elaraai/e3-types';
 import { DatasetSegments, readDatasetWhole } from './dataset-open.js';
 import { recordMutate, recordHistory, recordCompact, recordDescribe, recordIndexNames, recordReindex, readRecordState, resolveRecordIndex } from './records.js';
-import { runDetached } from './execution/runDetached.js';
 import { repoGc } from './storage/local/gc.js';
 import { snapshotInputVersions } from './dataset-refs.js';
 import { WorkspaceLockError } from './errors.js';
@@ -28,6 +26,7 @@ import { packageImport } from './packages.js';
 import { workspaceCreate, workspaceDeploy } from './workspaces.js';
 import { createTestRepo, removeTestRepo, createTempDir, removeTempDir } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
+import { LocalTaskRunner } from './execution/LocalTaskRunner.js';
 import type { MutationOutcome, StorageBackend, TaskRunner, DetachedResult } from './index.js';
 
 /** Whether a runtime's CLI answers on PATH — the multi-runtime suites skip
@@ -565,12 +564,11 @@ describe('frozen reducer state (#539)', () => {
   const encodeStr = encodeBeast2For(StringType);
   const FROZEN = /cannot mutate a frozen value \(task inputs are immutable\) — copy first/;
 
-  // The real runDetached, spawning the workspace's actual east-node CLI
-  // (resolved by the node_modules/.bin walk up from this package).
-  const realRunner = {
-    runDetached: (spec: Parameters<typeof runDetached>[0], options: Parameters<typeof runDetached>[1]) =>
-      runDetached(spec, { ...options, runnerSearchDir: dirname(fileURLToPath(import.meta.url)) }),
-  } as unknown as TaskRunner;
+  // The real runner, spawning the workspace's actual east-node CLI (resolved
+  // by the node_modules/.bin walk up from this package). A record operation's
+  // units are ordinary task executions, so what runs them has to be a real
+  // TaskRunner rather than a `runDetached` stub.
+  let realRunner: TaskRunner;
 
   /** Runs `fn` with the given env vars set (undefined = unset), restoring after. */
   async function withEnv<T>(vars: Record<string, string | undefined>, fn: () => Promise<T>): Promise<T> {
@@ -593,6 +591,7 @@ describe('frozen reducer state (#539)', () => {
     repo = createTestRepo();
     tempDir = createTempDir();
     storage = new LocalStorage(dirname(repo));
+    realRunner = new LocalTaskRunner(repo);
 
     const kv = e3.record('kv', StateT, new Map());
     const seed = e3.mutation('seed', kv, East.function([StateT], StateT, ($, _state) => {
@@ -692,20 +691,31 @@ describe('record indexes', () => {
   let storage: StorageBackend;
   const ws = 'main';
 
-  const realRunner = {
-    runDetached: (spec: Parameters<typeof runDetached>[0], options: Parameters<typeof runDetached>[1]) =>
-      runDetached(spec, { ...options, runnerSearchDir: dirname(fileURLToPath(import.meta.url)) }),
-  } as unknown as TaskRunner;
+  // A real TaskRunner: a record operation's units are ordinary task
+  // executions, not `runDetached` calls.
+  let realRunner: TaskRunner;
 
   beforeEach(async () => {
     repo = createTestRepo();
     tempDir = createTempDir();
     storage = new LocalStorage(dirname(repo));
+    realRunner = new LocalTaskRunner(repo);
 
     const plans = e3.record('plans', PlansType, new Map());
     const seed = e3.mutation('seed', plans, East.function([PlansType], PlansType, ($, _state) => {
       const out = $.let(new Map(), PlansType);
       $.for(East.Array.range(0n, 600n), ($, i) => {
+        const status = $.let('ok');
+        $.if(East.equal(i.remainder(3n), 0n), ($) => {
+          $.assign(status, 'late');
+        });
+        $(out.insert(East.str`p-${i}`, { status, due: i, title: East.str`Plan ${i}` }));
+      });
+      return out;
+    }));
+    const seedMany = e3.mutation('seed_many', plans, East.function([PlansType, IntegerType], PlansType, ($, _state, rows) => {
+      const out = $.let(new Map(), PlansType);
+      $.for(East.Array.range(0n, rows), ($, i) => {
         const status = $.let('ok');
         $.if(East.equal(i.remainder(3n), 0n), ($) => {
           $.assign(status, 'late');
@@ -725,7 +735,7 @@ describe('record indexes', () => {
       value: East.function([StringType, PlanRowType], StringType, ($, _k, v) => v.title),
     });
 
-    const pkg = e3.package('planrecords', '1.0.0', plans, seed, retitle, byStatus);
+    const pkg = e3.package('planrecords', '1.0.0', plans, seed, seedMany, retitle, byStatus);
     const zip = join(tempDir, 'planrecords.zip');
     await e3.export(pkg, zip);
     await packageImport(storage, repo, zip);
@@ -737,6 +747,16 @@ describe('record indexes', () => {
     removeTestRepo(repo);
     removeTempDir(tempDir);
   });
+
+  /** How many task executions the repository has recorded, over every task —
+   *  the units of a record operation included. */
+  async function countExecutions(): Promise<number> {
+    let total = 0;
+    for (const { taskHash, inputsHash } of await storage.refs.executionList(repo)) {
+      total += (await storage.refs.executionListIds(repo, taskHash, inputsHash)).length;
+    }
+    return total;
+  }
 
   /** The record's state refs. */
   async function state(): Promise<{ primary: string; indexes: Map<string, { manifest: string; index: string }> }> {
@@ -794,6 +814,72 @@ describe('record indexes', () => {
     );
   });
 
+  it('a fanned-out build writes what the one-unit build writes, hash for hash', async () => {
+    // Big enough to span segments, which is what `plan` cuts into slices.
+    assert.strictEqual((await recordMutate(storage, realRunner, repo, ws, 'plans', 'seed_many',
+      [encodeBeast2For(IntegerType)(5_000n)], { actor: 'cli:test' })).kind, 'committed');
+    const primary = await DatasetSegments.open(storage, repo, (await state()).primary);
+    assert.ok(primary.segmentCount > 1, `a 5,000-row record should span segments, not ${primary.segmentCount}`);
+    const built = (await state()).indexes.get('by_status')!.manifest;
+
+    // A byte target small enough to cut the record into several slices: each
+    // emits its own partial in INDEX order, and the merge tree sorts them
+    // back together. The value is the same value, so its segments are the
+    // same objects — segmentation is a function of the value, not of how many
+    // processes produced it.
+    const before = await countExecutions();
+    const rebuilt = await recordReindex(storage, realRunner, repo, ws, 'plans',
+      { actor: 'cli:test', sliceBytes: 32 * 1024 });
+    assert.strictEqual(rebuilt.kind, 'committed', JSON.stringify(rebuilt));
+    assert.ok(await countExecutions() >= before + 2, 'the build really did fan out');
+    assert.strictEqual((await state()).indexes.get('by_status')!.manifest, built,
+      'the fan-out and the single unit agree to the byte');
+  });
+
+  it('a rebuild over an unchanged record re-runs no unit', async () => {
+    await recordMutate(storage, realRunner, repo, ws, 'plans', 'seed_many',
+      [encodeBeast2For(IntegerType)(5_000n)], { actor: 'cli:test' });
+    const first = await recordReindex(storage, realRunner, repo, ws, 'plans',
+      { actor: 'cli:test', sliceBytes: 32 * 1024 });
+    assert.strictEqual(first.kind, 'committed', JSON.stringify(first));
+    const after = await countExecutions();
+    assert.ok(after > 0, 'the build ran units');
+
+    // Every unit is an ordinary content-addressed execution, so the second
+    // build finds all of them in the cache and records no new one.
+    const second = await recordReindex(storage, realRunner, repo, ws, 'plans',
+      { actor: 'cli:test', sliceBytes: 32 * 1024 });
+    assert.strictEqual(second.kind, 'committed', JSON.stringify(second));
+    assert.strictEqual(await countExecutions(), after, 'the rebuild re-ran nothing');
+  });
+
+  it('a deploy says what it is about to do to each index — build, drop or keep', async () => {
+    await recordMutate(storage, realRunner, repo, ws, 'plans', 'seed', [], { actor: 'cli:test' });
+
+    // Redeploying the same package: the state already names the index built
+    // under this declaration, so nothing runs.
+    const kept: string[] = [];
+    await workspaceDeploy(storage, repo, ws, 'planrecords', '1.0.0',
+      { runner: realRunner, onRecordIndex: (plan) => kept.push(`${plan.index}:${plan.action}`) });
+    assert.deepStrictEqual(kept, ['by_status:keep']);
+
+    // A package that drops the index and declares another: one `drop`, one
+    // `build`, and afterwards the state names only the new one.
+    const plans = e3.record('plans', PlansType, new Map());
+    const byDue = e3.recordIndex('by_due', plans, {
+      key: East.function([StringType, PlanRowType], IntegerType, ($, _k, v) => v.due),
+    });
+    const zip = join(tempDir, 'planrecords-2.zip');
+    await e3.export(e3.package('planrecords', '2.0.0', plans, byDue), zip);
+    await packageImport(storage, repo, zip);
+
+    const moved: string[] = [];
+    await workspaceDeploy(storage, repo, ws, 'planrecords', '2.0.0',
+      { runner: realRunner, onRecordIndex: (plan) => moved.push(`${plan.index}:${plan.action}`) });
+    assert.deepStrictEqual(moved.sort(), ['by_due:build', 'by_status:drop']);
+    assert.deepStrictEqual([...(await state()).indexes.keys()], ['by_due']);
+  });
+
   it('resolves the index for reading, with the window and collection types', async () => {
     await recordMutate(storage, realRunner, repo, ws, 'plans', 'seed', [], { actor: 'cli:test' });
     const ref = await storage.datasets.read(repo, ws, 'records/plans');
@@ -812,6 +898,11 @@ describe('record indexes', () => {
     const after = await state();
     const entry = after.indexes.get('by_status')!;
 
+    // The first sweep takes the operation's scratch — the synthesized unit
+    // tasks and their command IRs, unrooted like an ad-hoc run's carved
+    // slices. The SECOND must take nothing: what is left is the record's own
+    // closure, and a sweep that keeps shrinking it is one eating the record.
+    await repoGc(storage, repo, { minAge: 0 });
     const result = await repoGc(storage, repo, { minAge: 0 });
     assert.strictEqual(result.deletedObjects, 0, 'nothing the record names is collected');
     // The index's manifest, its segments, and the declaration it was built
@@ -831,10 +922,9 @@ describe('the mutation delta', () => {
   const plain = 'plain';
   const ROWS = 600;
 
-  const realRunner = {
-    runDetached: (spec: Parameters<typeof runDetached>[0], options: Parameters<typeof runDetached>[1]) =>
-      runDetached(spec, { ...options, runnerSearchDir: dirname(fileURLToPath(import.meta.url)) }),
-  } as unknown as TaskRunner;
+  // A real TaskRunner: a record operation's units are ordinary task
+  // executions, not `runDetached` calls.
+  let realRunner: TaskRunner;
   /** A runner that must never be reached — the fast path runs no process. */
   const noRunner = {
     runDetached: () => { throw new Error('a process was started'); },
@@ -886,6 +976,7 @@ describe('the mutation delta', () => {
     repo = createTestRepo();
     tempDir = createTempDir();
     storage = new LocalStorage(dirname(repo));
+    realRunner = new LocalTaskRunner(repo);
 
     for (const [name, workspace, indexed] of [['planrecords', ws, true], ['plainrecords', plain, false]] as const) {
       const zip = join(tempDir, `${name}.zip`);
@@ -1058,7 +1149,9 @@ describe('the mutation delta', () => {
     const [head] = await recordHistory(storage, repo, ws, 'plans', { limit: 1 });
     assert.strictEqual(head!.commit.delta.type, 'some');
 
-    assert.strictEqual((await repoGc(storage, repo, { minAge: 0 })).deletedObjects, 0);
+    await repoGc(storage, repo, { minAge: 0 });
+    assert.strictEqual((await repoGc(storage, repo, { minAge: 0 })).deletedObjects, 0,
+      'a second sweep takes nothing: what is left is the record\'s own closure');
     const delta = await DatasetSegments.open(storage, repo, head!.commit.delta.value);
     for (const segment of delta.manifest!.entries) await storage.objects.read(repo, segment.hash);
   });
@@ -1084,10 +1177,9 @@ describe('the mutation delta — cross-runtime parity', () => {
   let storage: StorageBackend;
   const ROWS = 400n;
 
-  const realRunner = {
-    runDetached: (spec: Parameters<typeof runDetached>[0], options: Parameters<typeof runDetached>[1]) =>
-      runDetached(spec, { ...options, runnerSearchDir: dirname(fileURLToPath(import.meta.url)) }),
-  } as unknown as TaskRunner;
+  // A real TaskRunner: a record operation's units are ordinary task
+  // executions, not `runDetached` calls.
+  let realRunner: TaskRunner;
 
   /** The runtimes to compare, minus any that is not installed. */
   const runtimes: Array<{ ws: string; runner: Parameters<typeof e3.mutation>[3] }> = [
@@ -1103,6 +1195,7 @@ describe('the mutation delta — cross-runtime parity', () => {
     repo = createTestRepo();
     tempDir = createTempDir();
     storage = new LocalStorage(dirname(repo));
+    realRunner = new LocalTaskRunner(repo);
     if (missing) return;
 
     for (const { ws, runner } of runtimes) {

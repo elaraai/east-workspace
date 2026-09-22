@@ -103,6 +103,30 @@ export function indexBuildProgram(recordType: EastType, def: RecordIndexDef): Ea
 }
 
 /**
+ * The merge function an index's fan-in folds equal keys with: the first
+ * standing.
+ *
+ * @remarks
+ * It is never called. An index entry is `{ik, k}` and `k` belongs to exactly
+ * one slice of the primary, so two partials cannot hold the same entry — but
+ * the runner's `merge` command takes a fold function whatever the data, and a
+ * fold that cannot run is better than one that could pick wrongly if the
+ * premise ever changed.
+ *
+ * @param recordType - the record's state type, `Dict<K, V>`
+ * @param def - the index declaration
+ * @returns the program's IR bundle
+ */
+export function indexMergeProgram(recordType: EastType, def: RecordIndexDef): EastIR<any, any> {
+  const dict = recordType as unknown as { key: EastType };
+  const entryKey = indexEntryKeyType(dict.key, def.keyType);
+  return East.function(
+    [entryKey as never, def.valueType, def.valueType], def.valueType,
+    ($: any, _entry: any, first: any, _second: any) => first,
+  ).toIR() as EastIR<any, any>;
+}
+
+/**
  * The delta's targets for a record: its own collection, then each index.
  *
  * @remarks

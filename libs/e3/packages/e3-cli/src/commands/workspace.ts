@@ -119,7 +119,15 @@ export const workspaceCommand = {
 
       if (location.type === 'local') {
         const storage = new LocalStorage();
-        await workspaceDeploy(storage, location.path, ws, name, version, { resolveFileSources: !target.skipFileSources, runner: new LocalTaskRunner(location.path) });
+        await workspaceDeploy(storage, location.path, ws, name, version, {
+          resolveFileSources: !target.skipFileSources,
+          runner: new LocalTaskRunner(location.path),
+          // What the deploy is about to do to each record's indexes: a build
+          // over a large record is the part of a deploy that takes minutes.
+          onRecordIndex: (plan) => {
+            if (plan.action !== 'keep') console.log(`  ${plan.action} index ${plan.record}.${plan.index}`);
+          },
+        });
         if (target.skipFileSources) {
           reportSkippedFileSources(target, fileSourcesOf(await packageRead(storage, location.path, name, version)));
         }

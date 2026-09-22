@@ -37,7 +37,7 @@ import {
 } from './errors.js';
 import type { StorageBackend, LockHandle } from './storage/interfaces.js';
 import type { TaskRunner } from './execution/interfaces.js';
-import { reconcileRecordIndexes } from './records.js';
+import { reconcileRecordIndexes, type RecordIndexPlan } from './records.js';
 
 /**
  * List workspace names.
@@ -245,6 +245,16 @@ export async function workspaceGetPackage(
  */
 export interface WorkspaceDeployOptions {
   /**
+   * Called once per declared or dropped index of every record the deploy
+   * touches, with what the deploy decided: `build`, `drop` or `keep`.
+   *
+   * @remarks
+   * An index is derived, so a deploy reconciles it without asking — but which
+   * indexes it is about to build is the one thing an operator wants to know
+   * before a deploy over a large record takes minutes.
+   */
+  onRecordIndex?: (plan: RecordIndexPlan) => void;
+  /**
    * External workspace lock to use. If provided, the caller is responsible
    * for releasing the lock after the operation. If not provided, workspaceDeploy
    * will acquire and release a lock internally.
@@ -385,7 +395,7 @@ export async function workspaceDeploy(
     // declaration. Reconciling is a `$reindex` commit per record — the
     // primary is untouched, and no policy governs it, because building an
     // index changes nothing the audit chain protects.
-    await reconcileRecordIndexes(storage, repo, name, pkg, options.runner);
+    await reconcileRecordIndexes(storage, repo, name, pkg, options.runner, options.onRecordIndex);
 
     const now = new Date();
     const state: WorkspaceState = {

@@ -208,6 +208,11 @@ export const RecordIndexObjectType = StructType({
   buildIr: StringType,
   /** Author-chosen runtime the index's functions run on. */
   runner: RunnerType,
+  /** Hash of the generated merge function's IR bundle, `({ik, k}, P, P) -> P`,
+   *  which the fan-in of a partitioned build folds equal keys with. Two
+   *  partials cannot hold the same entry, so it never runs — but the runner's
+   *  merge command takes one whatever the data. */
+  mergeIr: StringType,
 });
 export type RecordIndexObjectType = typeof RecordIndexObjectType;
 export type RecordIndexObject = ValueTypeOf<typeof RecordIndexObjectType>;

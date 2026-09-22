@@ -28,6 +28,9 @@
 import {
   beast2HasIndex,
   decodeBeast2For,
+  encodeBeast2FenceFor,
+  isContentCut,
+  segmentRuleFor,
   carveBeast2Ranged,
   compareFor,
   decodeBeast2FenceFor,
@@ -46,11 +49,13 @@ import {
   RecordStateType,
   cutDatasetBlob,
   decodeCollectionManifest,
+  encodeCollectionManifest,
   isCollectionManifestType,
   isCollectionRoot,
   isRecordStateType,
   manifestByteSize,
   type CollectionManifest,
+  type CollectionManifestEntry,
 } from '@elaraai/e3-types';
 import type { StorageBackend } from './storage/interfaces.js';
 
@@ -485,6 +490,61 @@ export async function openDatasetObject(
 export async function cutDatasetIntoStore(storage: StorageBackend, repo: string, blob: Uint8Array): Promise<string> {
   const manifest = await cutDatasetBlob(blob, (bytes) => storage.objects.write(repo, bytes));
   return storage.objects.write(repo, manifest);
+}
+
+/**
+ * Take a collection a program already wrote to the store into the layout,
+ * without reading it whole.
+ *
+ * @remarks
+ * The door for a blob that is ALREADY an object — a unit's output, a spliced
+ * merge — where `cutDatasetBlob` wants bytes. A blob cut by the boundary rule
+ * (which every runtime's encoder produces) is carved segment by segment
+ * through ranged reads, so a 2 GB index costs one segment of memory rather
+ * than 2 GB; one cut some other way falls back to the whole-value re-encode,
+ * which is the only way to reach the canonical segmentation.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param hash - the stored blob's content hash
+ * @returns the manifest object's hash — the blob's own, when it is not a
+ *   segmented collection
+ */
+export async function cutDatasetObject(storage: StorageBackend, repo: string, hash: string): Promise<string> {
+  const opened = await openDatasetObject(storage, repo, hash);
+  if (opened.manifest !== null) return opened.hash;
+  const segments = await DatasetSegments.open(storage, repo, opened.hash);
+  const typeValue = segments.typeValue;
+  if (!isCollectionRoot(typeValue)) return opened.hash;
+  const keyType = segmentKeyTypeOf(typeValue);
+  const fenceOf = keyType === null ? null : encodeBeast2FenceFor(keyType);
+  const fences: Uint8Array[] = [];
+  if (fenceOf !== null) {
+    for (let i = 0; i < segments.segmentCount; i++) fences.push(fenceOf(await segments.fence(i)));
+    if (!isContentCut(fences, segments.counts)) {
+      // Not cut by the rule: only laying the value out again reaches the
+      // canonical segmentation, and that needs it whole.
+      return cutDatasetIntoStore(storage, repo, await readDatasetWhole(storage, repo, opened.hash));
+    }
+  }
+  const entries: CollectionManifestEntry[] = [];
+  for (let i = 0; i < segments.segmentCount; i++) {
+    const bytes = await segments.segment(i);
+    entries.push({
+      hash: await storage.objects.write(repo, bytes),
+      fence: fences[i] ?? new Uint8Array(0),
+      count: BigInt(segments.counts[i]!),
+      bytes: BigInt(bytes.byteLength),
+    });
+  }
+  return storage.objects.write(repo, encodeCollectionManifest({
+    kind: COLLECTION_MANIFEST_KIND,
+    level: 0n,
+    type: typeValue,
+    rule: segmentRuleFor(typeValue),
+    header: await storage.objects.write(repo, await segments.head()),
+    entries,
+  }));
 }
 
 /**

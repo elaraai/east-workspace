@@ -781,6 +781,14 @@ reserved — it names the record's own collection wherever an index is selected.
 Read through one by passing `index=<name>` to a dataset page, or rebuild one
 with `e3 reindex`.
 
+A deploy reconciles indexes by itself — one the package declares and the state
+does not hold is BUILT, one the state holds and the package does not is
+DROPPED, one that matches is kept and nothing runs — and says which as it goes.
+A build over a record too large for one process fans out: the record is cut
+into slices, a unit per slice emits its entries, and the partials merge through
+the same tree a partitioned task's fan-in uses. Every unit is an ordinary
+cached execution, so rebuilding over an unchanged record runs nothing at all.
+
 ### e3.package(name, version, ...items)
 
 Bundle into a package. Dependencies are collected automatically.

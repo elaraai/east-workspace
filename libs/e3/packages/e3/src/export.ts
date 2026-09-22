@@ -20,7 +20,7 @@ import yazl from 'yazl';
 import { variant, some, none, encodeBeast2For, encodeEastIR, EastIR, AsyncEastIR, printIdentifier, SortedMap, toEastTypeValue, decodeFunctionManifest, linkImports, type FunctionManifest, type LinkedImport } from '@elaraai/east';
 import type { Structure, PackageObject, DatasetRef, DatasetSourceWire, FunctionObject, MutationObject, RecordIndexObject, RecordObject } from '@elaraai/e3-types';
 import { DatasetRefType, PackageObjectType, TaskObjectType, FunctionObjectType, MutationObjectType, RecordIndexObjectType, RecordObjectType, encodeDatasetBlob } from '@elaraai/e3-types';
-import { buildMutationProgram, hasKeyedDelta, indexBuildProgram } from './record-programs.js';
+import { buildMutationProgram, hasKeyedDelta, indexBuildProgram, indexMergeProgram } from './record-programs.js';
 import { readDatasetFileHeader } from './dataset-file.js';
 import type { PackageDef, PackageItem } from './types.js';
 import { runnerProvides, runnerToVariant, type Runner } from './runner.js';
@@ -425,6 +425,8 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
         buildIr: addObject(zipfile, Buffer.from(
           encodeEastIR(link(indexBuildProgram(idef.record.type, idef), owner, idef.runner)))),
         runner: runnerToVariant(idef.runner),
+        mergeIr: addObject(zipfile, Buffer.from(
+          encodeEastIR(indexMergeProgram(idef.record.type, idef)))),
       };
       indexes.set(iname, addObject(zipfile, Buffer.from(indexEncoder(indexObject))));
     }

@@ -107,6 +107,7 @@ export {
   writeRecordState,
   resolveRecordIndex,
   recordIndexNames,
+  type RecordIndexPlan,
   type RecordStateRefs,
   type ResolvedRecordIndex,
   type MutationOutcome,
@@ -136,6 +137,7 @@ export {
   openDatasetObject,
   readDatasetWhole,
   cutDatasetIntoStore,
+  cutDatasetObject,
   adoptDatasetBlob,
 } from './dataset-open.js';
 

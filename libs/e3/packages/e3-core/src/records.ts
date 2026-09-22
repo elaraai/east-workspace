@@ -35,10 +35,12 @@ import {
   type RecordIndexObject,
 } from '@elaraai/e3-types';
 import { DeltaConflictError, applyDelta } from './record-apply.js';
+import { executeRecordOperation } from './execution/recordSteps.js';
 import { adoptDatasetBlob, readDatasetWhole, readManifest } from './dataset-open.js';
 import { workspaceGetPackage } from './workspaces.js';
 import { refPathToKeypath } from './dataset-refs.js';
 import { DatasetRefConflictError, WorkspaceLockError } from './errors.js';
+import { TASKS_LOCK } from './storage/local/gc.js';
 import type { StorageBackend, LockHandle } from './storage/interfaces.js';
 import type { TaskRunner } from './execution/interfaces.js';
 import type { DetachedResult } from './execution/runDetached.js';
@@ -124,6 +126,11 @@ export interface RecordMutateOptions {
   /** Pass `-v` to the reducer's runner (known runtimes only) so it prints
    *  timing/perf to stderr. Runtime-only; never affects hashing or caching. */
   verbose?: boolean;
+  /** Target slice size for a bulk operation's fan-out, in wire bytes.
+   *  Runtime-only — the units' outputs merge to the same value at any width —
+   *  and mainly a test's way of forcing more than one unit without a record
+   *  big enough to need them. */
+  sliceBytes?: number;
 }
 
 /**
@@ -147,9 +154,30 @@ async function withSharedWorkspaceLock<T>(
     }
   }
   try {
-    return await fn();
+    return await withRunningWork(storage, repo, fn);
   } finally {
     if (!externalLock) await lock.release();
+  }
+}
+
+/**
+ * Runs `fn` holding the tasks lock shared, so a sweep cannot run while it
+ * does.
+ *
+ * @remarks
+ * A record write produces objects before anything names them — a delta, the
+ * new segments, a build's partials and the slices it carved — exactly as an
+ * ad-hoc task run does, and the answer is the same one: gc takes this lock
+ * exclusively, so the two never overlap and none of it needs rooting. Without
+ * it a sweep landing mid-write deletes objects the commit is about to name.
+ */
+async function withRunningWork<T>(storage: StorageBackend, repo: string, fn: () => Promise<T>): Promise<T> {
+  const lock = await storage.locks.acquire(repo, TASKS_LOCK, variant('dataflow', null), { mode: 'shared' });
+  if (!lock) throw new Error('a garbage collection is running in this repository — retry when it finishes');
+  try {
+    return await fn();
+  } finally {
+    await lock.release();
   }
 }
 
@@ -334,7 +362,12 @@ export async function recordMutate(
       const state = await readRecordState(storage, repo, existing.ref.value.hash);
       // Objects written before the conditional ref swing are invisible until the
       // ref references them; a conflict simply orphans them for GC.
-      const run = { limits: runLimits, ...(opts.signal !== undefined && { signal: opts.signal }), ...(opts.verbose !== undefined && { verbose: opts.verbose }) };
+      const run: RunContext = {
+        limits: runLimits,
+        ...(opts.signal !== undefined && { signal: opts.signal }),
+        ...(opts.verbose !== undefined && { verbose: opts.verbose }),
+        ...(opts.sliceBytes !== undefined && { sliceBytes: opts.sliceBytes }),
+      };
       const write = mutObj.programIr === ''
         ? await writeWholeState(storage, runner, repo, bodyIr, mutObj, state, resolved.indexes, args, run)
         : await writeDelta(storage, runner, repo, mutObj, state, args, run);
@@ -433,6 +466,9 @@ interface RunContext {
   limits: RecordMutateLimits;
   signal?: AbortSignal;
   verbose?: boolean;
+  /** Target slice size for a record operation's fan-out, in wire bytes; for
+   *  tests that need more than one unit without a large record. */
+  sliceBytes?: number;
 }
 
 /**
@@ -616,23 +652,28 @@ async function buildRecordIndexes(
   const built = new Map<string, { manifest: string; index: string }>();
   if (indexes.size === 0) return { built };
 
-  // The program opens the primary lazily from its own file, so the bytes are
-  // written once here and paged there.
-  const primaryBytes = await readDatasetWhole(storage, repo, primary);
   for (const [name, indexHash] of indexes) {
     const indexObj: RecordIndexObject = decodeIndexObject(await storage.objects.read(repo, indexHash));
-    const result = await runner.runDetached(
-      {
-        bodyIr: await storage.objects.read(repo, indexObj.buildIr),
-        args: [primaryBytes],
-        runner: indexObj.runner,
-        limits: opts.limits,
-        streaming: { emit: 'dict', stream: [0] },
+    const outcome = await executeRecordOperation(storage, repo, runner, {
+      over: primary,
+      bodyIr: indexObj.buildIr,
+      mergeIr: indexObj.mergeIr,
+      runner: indexObj.runner,
+      options: {
+        ...(opts.signal !== undefined && { signal: opts.signal }),
+        ...(opts.verbose !== undefined && { verbose: opts.verbose }),
       },
-      { signal: opts.signal, verbose: opts.verbose },
-    );
-    if (result.kind !== 'success') return { failure: failureOutcome(result) };
-    built.set(name, { manifest: await adoptDatasetBlob(storage, repo, result.value), index: indexHash });
+      ...(opts.sliceBytes !== undefined && { targetBytes: opts.sliceBytes }),
+    });
+    if (outcome.kind === 'cancelled') return { failure: { kind: 'failed', exitCode: -1, stderr: 'aborted' } };
+    if (outcome.kind === 'failed') {
+      return {
+        failure: outcome.exitCode === null
+          ? { kind: 'invalid', message: `building index '${name}': ${outcome.message}` }
+          : { kind: 'failed', exitCode: outcome.exitCode, stderr: outcome.message },
+      };
+    }
+    built.set(name, { manifest: outcome.hash, index: indexHash });
   }
   return { built };
 }
@@ -691,8 +732,12 @@ export async function recordReindex(
         return { kind: 'invalid', message: `record '${recordName}' has no state` };
       }
       const state = await readRecordState(storage, repo, existing.ref.value.hash);
-      const outcome = await buildRecordIndexes(storage, runner, repo, wanted, state.primary,
-        { limits, ...(opts.signal !== undefined && { signal: opts.signal }), ...(opts.verbose !== undefined && { verbose: opts.verbose }) });
+      const outcome = await buildRecordIndexes(storage, runner, repo, wanted, state.primary, {
+        limits,
+        ...(opts.signal !== undefined && { signal: opts.signal }),
+        ...(opts.verbose !== undefined && { verbose: opts.verbose }),
+        ...(opts.sliceBytes !== undefined && { sliceBytes: opts.sliceBytes }),
+      });
       if ('failure' in outcome) return outcome.failure;
 
       // Rebuilding one index leaves the others where they are; rebuilding all
@@ -733,6 +778,18 @@ export async function recordReindex(
   });
 }
 
+/** What a deploy decided about one of a record's indexes. */
+export interface RecordIndexPlan {
+  /** The record's dataset ref path. */
+  record: string;
+  /** The index's name. */
+  index: string;
+  /** `build` — the state names no index under the package's declaration;
+   *  `drop` — the state names one the package does not declare; `keep` —
+   *  the two already agree and nothing runs. */
+  action: 'build' | 'drop' | 'keep';
+}
+
 /**
  * Bring every record's indexes into line with what its package declares.
  *
@@ -764,6 +821,18 @@ export async function reconcileRecordIndexes(
   ws: string,
   pkg: { records: Map<string, string> },
   runner?: TaskRunner,
+  onPlan?: (plan: RecordIndexPlan) => void,
+): Promise<void> {
+  return withRunningWork(storage, repo, () => reconcileIndexes(storage, repo, ws, pkg, runner, onPlan));
+}
+
+async function reconcileIndexes(
+  storage: StorageBackend,
+  repo: string,
+  ws: string,
+  pkg: { records: Map<string, string> },
+  runner?: TaskRunner,
+  onPlan?: (plan: RecordIndexPlan) => void,
 ): Promise<void> {
   const at = new Date();
   for (const recHash of pkg.records.values()) {
@@ -777,6 +846,12 @@ export async function reconcileRecordIndexes(
       if (state.indexes.get(name)?.index !== indexHash) build.set(name, indexHash);
     }
     const dropped = [...state.indexes.keys()].filter((name) => !recObj.indexes.has(name));
+    if (onPlan !== undefined) {
+      for (const name of recObj.indexes.keys()) {
+        onPlan({ record: recObj.path, index: name, action: build.has(name) ? 'build' : 'keep' });
+      }
+      for (const name of dropped) onPlan({ record: recObj.path, index: name, action: 'drop' });
+    }
     if (build.size === 0 && dropped.length === 0) continue;
 
     if (build.size > 0 && runner === undefined) {
