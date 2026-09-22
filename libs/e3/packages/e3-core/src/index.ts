@@ -133,10 +133,19 @@ export {
 export {
   DatasetSegments,
   readManifest,
+  openDatasetObject,
   readDatasetWhole,
   cutDatasetIntoStore,
   adoptDatasetBlob,
 } from './dataset-open.js';
+
+// The write path a mutation delta takes: only the segments it touched
+export {
+  applyDelta,
+  summarizeDelta,
+  DeltaConflictError,
+  type DeltaArmSummary,
+} from './record-apply.js';
 
 // Taking an existing file into a workspace as a dataset value (#765)
 export {

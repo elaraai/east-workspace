@@ -18,8 +18,9 @@
  */
 
 import {
-  ArrayType, BooleanType, DateTimeType, DictType, EastTypeType, OptionType, StringType,
-  StructType, decodeBeast2For, toEastTypeValue,
+  ArrayType, BooleanType, DateTimeType, DictType, EastTypeType, FunctionType, NullType,
+  OptionType, PatchType, StringType, StructType, VariantType,
+  decodeBeast2For, dictPatchOpsType, setPatchOpsType, toEastTypeValue,
   type EastType, type EastTypeValue, type ValueTypeOf,
 } from '@elaraai/east';
 import { RunnerType } from './runner.js';
@@ -45,9 +46,57 @@ export const RecordCommitType = StructType({
   actor: StringType,
   /** Commit wall-clock time. */
   at: DateTimeType,
+  /** The mutation delta this commit applied: one sorted collection of the
+   *  primary and index changes, addressed by key. History then shows WHAT
+   *  changed without diffing two states, and an undo can be synthesised from
+   *  it. A GC leaf like `args` — nothing depends on it, and every state past
+   *  and present reads identically if every delta were deleted.
+   *
+   *  Appended LAST, per the positional rule: struct fields encode positionally
+   *  in declaration order, so a new field never goes between existing ones. */
+  delta: OptionType(StringType),
 });
 export type RecordCommitType = typeof RecordCommitType;
 export type RecordCommit = ValueTypeOf<typeof RecordCommitType>;
+
+/** The pre-`delta` commit shape, kept only so {@link decodeRecordCommit} can
+ *  read the history of a record committed before deltas existed. */
+const PreDeltaRecordCommitType = StructType({
+  parent: OptionType(StringType),
+  state: StringType,
+  mutation: StringType,
+  args: OptionType(StringType),
+  actor: StringType,
+  at: DateTimeType,
+});
+
+const decodeCurrentCommit = decodeBeast2For(RecordCommitType);
+const decodePreDeltaCommit = decodeBeast2For(PreDeltaRecordCommitType);
+
+/**
+ * Decode a `RecordCommit`, tolerating the shape that predates `delta`.
+ *
+ * @remarks
+ * Every commit-read path — the history walk, the collector, the cloud's —
+ * must use this rather than `decodeBeast2For(RecordCommitType)`: a commit
+ * written before deltas existed simply ends early, and a commit that fails to
+ * decode is a chain that ends there, taking the states it names with it.
+ *
+ * @param data - the stored bytes
+ * @returns the commit, with an absent delta as `none`
+ * @throws {Error} When the bytes are no known commit shape.
+ */
+export function decodeRecordCommit(data: Uint8Array): RecordCommit {
+  try {
+    return decodeCurrentCommit(data);
+  } catch (err) {
+    try {
+      return { ...decodePreDeltaCommit(data), delta: { type: 'none', value: null } as RecordCommit['delta'] };
+    } catch {
+      throw err;
+    }
+  }
+}
 
 /**
  * A mutation: the write half of the function machinery (CQRS — `e3.function`
@@ -63,9 +112,69 @@ export const MutationObjectType = StructType({
   argTypes: ArrayType(EastTypeType),
   /** Author-chosen runtime; resolved to argv by runnerToArgv. */
   runner: RunnerType,
+  /** Which write form this is — see {@link MutationForm}. Appended LAST, per
+   *  the positional rule. */
+  form: StringType,
+  /** Hash of the generated program's IR bundle: the one thing that actually
+   *  runs, whatever the form. For the `patch` form `bodyIr` names it too,
+   *  there being no author body. */
+  programIr: StringType,
 });
 export type MutationObjectType = typeof MutationObjectType;
 export type MutationObject = ValueTypeOf<typeof MutationObjectType>;
+
+/**
+ * How a mutation says what it changed.
+ *
+ * - `reduce` — `(State, …Args) => State`, the original surface. Its body and
+ *   its diff see the whole state, so its RUNNER cost stays O(state); only its
+ *   write is O(touched).
+ * - `edit` — `(State, …Args, Edit) => Null`, the lazy write: the body reads the
+ *   state it is given, lazily, and writes through an `edit` capability. O(touched)
+ *   end to end for a body that touches a few entries of a large record.
+ * - `patch` — no body; the argument is `PatchType(State)`. What an interactive
+ *   edit from a view sends, and the only form whose cost is independent of the
+ *   record's size on a cold container.
+ */
+export type MutationForm = 'reduce' | 'edit' | 'patch';
+
+/** The pre-`form` mutation shape, kept only so {@link decodeMutationObject}
+ *  can read mutations deployed before the delta existed. */
+const PreDeltaMutationObjectType = StructType({
+  bodyIr: StringType,
+  argTypes: ArrayType(EastTypeType),
+  runner: RunnerType,
+});
+
+const decodeCurrentMutation = decodeBeast2For(MutationObjectType);
+const decodePreDeltaMutation = decodeBeast2For(PreDeltaMutationObjectType);
+
+/**
+ * Decode a `MutationObject`, tolerating the shape that predates `form` and
+ * `programIr`.
+ *
+ * @remarks
+ * A mutation deployed before the delta existed is a `reduce` whose program is
+ * its body: e3-core ran the reducer directly and diffed nothing, which is
+ * exactly what `bodyIr` still does. Reading it back that way is what lets a
+ * workspace deployed before this keep mutating.
+ *
+ * @param data - the stored bytes
+ * @returns the mutation object
+ * @throws {Error} When the bytes are no known mutation shape.
+ */
+export function decodeMutationObject(data: Uint8Array): MutationObject {
+  try {
+    return decodeCurrentMutation(data);
+  } catch (err) {
+    try {
+      const legacy = decodePreDeltaMutation(data);
+      return { ...legacy, form: 'reduce', programIr: '' };
+    } catch {
+      throw err;
+    }
+  }
+}
 
 /**
  * A secondary index over a record: an East function of an entry, and the
@@ -239,6 +348,99 @@ export function isRecordStateType(typeValue: EastTypeValue, value?: unknown): bo
  */
 export function indexCollectionType(keyType: EastType, indexKeyType: EastType, valueType: EastType): EastType {
   return DictType(StructType({ ik: indexKeyType, k: keyType }), valueType);
+}
+
+/**
+ * The op type of one target's changes: what one touched key carries.
+ *
+ * @remarks
+ * Exactly the op type of that target's own `PatchType`, which is what makes
+ * applying a delta's run for one target literally
+ * `applyFor(targetType)(segment, variant('patch', ops))` — `ConflictError` and
+ * all — rather than a second apply implementation that could disagree with the
+ * first.
+ *
+ * @param collectionType - the target's collection type (a Dict or a Set)
+ * @returns the op variant for one key of it
+ * @throws {Error} When the type is not a Dict or a Set — the kinds whose
+ *   patches are sparse and addressed by key.
+ */
+export function patchOpsType(collectionType: EastType): EastType {
+  const collection = collectionType as unknown as { type: string; key: EastType; value: EastType };
+  if (collection.type === 'Dict') return dictPatchOpsType(collection.value);
+  if (collection.type === 'Set') return setPatchOpsType(collection.key);
+  throw new Error(
+    `a mutation delta addresses Dict and Set targets by key; this one holds ${collection.type}`,
+  );
+}
+
+/** One target of a mutation delta: its name, its key and its op type. */
+export interface DeltaTarget {
+  /** `primary`, or an index name. */
+  name: string;
+  /** The key the target is addressed by — `K` for the primary, `{ik, k}` for
+   *  an index. */
+  keyType: EastType;
+  /** The target's own collection type, whose patch ops the arm carries. */
+  collectionType: EastType;
+}
+
+/**
+ * The type of a mutation delta: every target's changes in ONE sorted
+ * collection.
+ *
+ * @remarks
+ * One variant case per target — `primary` plus one per declared index, which
+ * is why `primary` is a reserved index name. Canonical order puts every
+ * target's ops in one contiguous run, in that target's own key order, so the
+ * apply streams the delta segment by segment and never holds it whole, and a
+ * delta is a pageable collection like any other.
+ *
+ * Derived on demand and never stored as a type: a delta blob is
+ * self-describing, and deriving it means it cannot drift from the record's
+ * declarations.
+ *
+ * @param targets - the primary and each index, in canonical case order
+ * @returns `Dict<DeltaKey, DeltaOp>`
+ */
+export function mutationDeltaType(targets: readonly DeltaTarget[]): EastType {
+  const keys: Record<string, EastType> = {};
+  const ops: Record<string, EastType> = {};
+  for (const target of targets) {
+    keys[target.name] = target.keyType;
+    ops[target.name] = patchOpsType(target.collectionType);
+  }
+  return DictType(VariantType(keys), VariantType(ops));
+}
+
+/**
+ * The `edit` capability an edit-form mutation writes through.
+ *
+ * @remarks
+ * An edit body reads the state it is given — lazily, the frozen pager-backed
+ * value every runner already serves — and writes through these three
+ * functions; it never returns a state, which is what lets its cost be the
+ * entries it touches rather than the record's size.
+ *
+ * Repeated edits of one key fold: `set` after anything is that `set`; `update`
+ * after `set` applies to the set value; `update` after `update` composes;
+ * `delete` after anything is `delete`; a `delete` or `update` of a key the
+ * state does not hold fails the mutation naming the key, as an apply would.
+ *
+ * @param recordType - the record's state type, a Dict
+ * @returns the struct of edit functions
+ * @throws {Error} When the record's root is not a Dict.
+ */
+export function editTypeOf(recordType: EastType): EastType {
+  const dict = recordType as unknown as { type: string; key: EastType; value: EastType };
+  if (dict.type !== 'Dict') {
+    throw new Error(`an edit mutation writes a Dict record; this one holds ${dict.type}`);
+  }
+  return StructType({
+    set: FunctionType([dict.key, dict.value], NullType),
+    delete: FunctionType([dict.key], NullType),
+    update: FunctionType([dict.key, PatchType(dict.value)], NullType),
+  });
 }
 
 /**

@@ -606,6 +606,7 @@ async function writeRecordGenesis(
       args: none,
       actor: 'system:deploy',
       at,
+      delta: none,
     };
     const commitHash = await storage.objects.write(repo, encodeRecordCommit(commit));
     const selfKeypath = refPathToKeypath(recObj.path);

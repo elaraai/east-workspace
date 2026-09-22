@@ -872,6 +872,10 @@ export const RecordSignatureType = StructType({
   mutations: ArrayType(StructType({
     name:     StringType,
     argTypes: ArrayType(EastTypeType),
+    /** The write form — `reduce`, `edit` or `patch` — which says what the
+     *  arguments MEAN: a `patch` mutation's one argument is a
+     *  `PatchType(State)`, not a value of the record's own type. */
+    form:     StringType,
   })),
 });
 
@@ -883,6 +887,9 @@ export const RecordCommitInfoType = StructType({
   mutation: StringType,
   actor:    StringType,
   at:       DateTimeType,
+  /** The delta this commit applied, when it wrote one — so history shows WHAT
+   *  changed without diffing two states. */
+  delta:    OptionType(StringType),
 });
 
 /** A page of a record's commit history, newest first. */

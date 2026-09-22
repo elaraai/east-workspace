@@ -197,6 +197,7 @@ export async function getRecordHistory(
       mutation: e.commit.mutation,
       actor: e.commit.actor,
       at: e.commit.at,
+      delta: e.commit.delta,
     }));
     return sendSuccess(RecordHistoryResultType, { commits });
   } catch (err) {

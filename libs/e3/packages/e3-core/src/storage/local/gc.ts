@@ -21,7 +21,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { tmpdir } from 'os';
 import { decodeBeast2, isEastDict, readBeast2Type, toEastTypeValue, variant, type EastTypeValue } from '@elaraai/east';
-import { COLLECTION_MANIFEST_KIND, PartitionPlanType, RECORD_STATE_KIND, RecordObjectType, isCollectionManifestType, isRecordStateType } from '@elaraai/e3-types';
+import { COLLECTION_MANIFEST_KIND, MutationObjectType, PartitionPlanType, RECORD_STATE_KIND, RecordCommitType, RecordObjectType, isCollectionManifestType, isRecordStateType } from '@elaraai/e3-types';
 import type { RepoStore, GcObjectEntry, GcRootScanResult, LockHandle, StorageBackend } from '../interfaces.js';
 import { transferStagingDir } from './localHelpers.js';
 import { sweepScratchDirs } from '../../execution/scratch.js';
@@ -359,17 +359,29 @@ function isRecordStateShape(type: any): boolean {
   return isRecordStateType(type as EastTypeValue);
 }
 
+/** `MutationObjectType`'s field names, in wire order, read from the type
+ *  itself: a mutation of any vintage is a PREFIX of this list. */
+const MUTATION_OBJECT_FIELDS: readonly string[] =
+  (toEastTypeValue(MutationObjectType).value as { name: string }[]).map(f => f.name);
+
+/** The fields every mutation has carried from the first vintage on. */
+const MUTATION_OBJECT_MIN_FIELDS = 3;
+
 /**
- * Check if a decoded EastTypeValue represents a MutationObject.
- * MutationObject is a Struct with fields: bodyIr, argTypes, runner — distinct
- * from a FunctionObject (which has inputTypes/outputType, not argTypes).
+ * Check if a decoded EastTypeValue represents a MutationObject — of any
+ * vintage: a struct agreeing with {@link MUTATION_OBJECT_FIELDS} on their
+ * common prefix. Distinct from a FunctionObject, which has
+ * inputTypes/outputType rather than argTypes.
+ *
+ * A mutation this does not recognise is a leaf, its body and program go
+ * unmarked, and the next sweep deletes the IR the deployed package needs.
  */
 function isMutationObjectShape(type: any): boolean {
   if (type.type !== 'Struct') return false;
-  const names = new Set((type.value as { name: string }[]).map(f => f.name));
-  // Exact field set (records' state blobs are arbitrary user structs that flow
-  // through this dispatch, so a name-subset match could misclassify one).
-  return names.size === 3 && names.has('bodyIr') && names.has('argTypes') && names.has('runner');
+  const names = (type.value as { name: string }[]).map(f => f.name);
+  const common = Math.min(names.length, MUTATION_OBJECT_FIELDS.length);
+  if (common < MUTATION_OBJECT_MIN_FIELDS) return false;
+  return MUTATION_OBJECT_FIELDS.slice(0, common).every((name, i) => name === names[i]);
 }
 
 /**
@@ -385,18 +397,29 @@ function isCollectionManifestShape(type: any): boolean {
   return isCollectionManifestType(type as EastTypeValue);
 }
 
+/** `RecordCommitType`'s field names, in wire order, read from the type itself:
+ *  a commit of any vintage is a PREFIX of this list. */
+const RECORD_COMMIT_FIELDS: readonly string[] =
+  (toEastTypeValue(RecordCommitType).value as { name: string }[]).map(f => f.name);
+
+/** The fields every commit has carried from the first vintage on. */
+const RECORD_COMMIT_MIN_FIELDS = 6;
+
 /**
- * Check if a decoded EastTypeValue represents a RecordCommit.
- * RecordCommit is a Struct with fields: parent, state, mutation, args, actor, at.
+ * Check if a decoded EastTypeValue represents a RecordCommit — of any vintage:
+ * a struct agreeing with {@link RECORD_COMMIT_FIELDS} on their common prefix,
+ * which must reach {@link RECORD_COMMIT_MIN_FIELDS} so a user state struct
+ * sharing a field name is not probed for hashes.
+ *
+ * A commit this does not recognise ends the chain there, taking every state
+ * and delta the older commits name with it.
  */
 function isRecordCommitShape(type: any): boolean {
   if (type.type !== 'Struct') return false;
-  const names = new Set((type.value as { name: string }[]).map(f => f.name));
-  // Exact field set so a user state struct sharing some of these field names
-  // can't be misclassified as a commit and have its fields probed as hashes.
-  return names.size === 6
-    && names.has('parent') && names.has('state') && names.has('mutation')
-    && names.has('args') && names.has('actor') && names.has('at');
+  const names = (type.value as { name: string }[]).map(f => f.name);
+  const common = Math.min(names.length, RECORD_COMMIT_FIELDS.length);
+  if (common < RECORD_COMMIT_MIN_FIELDS) return false;
+  return RECORD_COMMIT_FIELDS.slice(0, common).every((name, i) => name === names[i]);
 }
 
 /** `PartitionPlanType`'s field names, in wire order, read from the type
@@ -560,8 +583,12 @@ function extractChildren(
   }
 
   if (isMutationObjectShape(t)) {
-    const mut = value as { bodyIr: string };
+    // A mutation written before the delta existed names no program.
+    const mut = value as { bodyIr: string; programIr?: string };
     children.push({ hash: mut.bodyIr, kind: 'leaf' }); // IR is a leaf
+    if (typeof mut.programIr === 'string' && mut.programIr !== '') {
+      children.push({ hash: mut.programIr, kind: 'leaf' });
+    }
     return children;
   }
 
@@ -612,6 +639,8 @@ function extractChildren(
       parent: { type: string; value: string };
       state: string;
       args: { type: string; value: string };
+      // Absent on a commit written before deltas existed.
+      delta?: { type: string; value: string };
     };
     // The state may be a manifest naming segment objects, so it is marked and
     // then classified; a plain value blob is never read.
@@ -621,6 +650,11 @@ function extractChildren(
     }
     if (commit.args.type === 'some') {
       children.push({ hash: commit.args.value, kind: 'leaf' }); // args tuple is a leaf
+    }
+    // The delta is a collection like any other, so it may be a manifest naming
+    // segment objects: marked, then classified, never read as a value.
+    if (commit.delta?.type === 'some') {
+      children.push({ hash: commit.delta.value, kind: 'value' });
     }
     return children;
   }

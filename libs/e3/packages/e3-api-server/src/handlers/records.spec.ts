@@ -59,13 +59,15 @@ async function seedDeployedRecord(storage: InMemoryStorage): Promise<void> {
 
   const stateHash = await storage.objects.write(REPO, encodeInt(0n));
   const genesisHash = await storage.objects.write(REPO, encodeBeast2For(RecordCommitType)({
-    parent: none, state: stateHash, mutation: '$init', args: none, actor: 'system:deploy', at: new Date(0),
+    parent: none, state: stateHash, mutation: '$init', args: none, actor: 'system:deploy', at: new Date(0), delta: none,
   }));
   const bodyIrHash = await storage.objects.write(REPO, encodeInt(0n)); // stand-in IR (MockTaskRunner ignores it)
   const mutHash = await storage.objects.write(REPO, encodeBeast2For(MutationObjectType)({
     bodyIr: bodyIrHash,
     argTypes: [toEastTypeValue(IntegerType)],
     runner: variant('east_node', { platforms: ['@elaraai/east-node-std'] }),
+    form: 'reduce',
+    programIr: '',
   }));
   const recHash = await storage.objects.write(REPO, encodeBeast2For(RecordObjectType)({
     path: 'records/counter',

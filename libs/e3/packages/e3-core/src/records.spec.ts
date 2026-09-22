@@ -10,10 +10,11 @@
  */
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
+import { execFileSync } from 'node:child_process';
 import assert from 'node:assert';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { East, IntegerType, StringType, encodeBeast2For, decodeBeast2For, toEastTypeValue, ArrayType, BlobType, DictType, StructType, variant, type ValueTypeOf } from '@elaraai/east';
+import { East, IntegerType, NullType, PatchType, SortedMap, StringType, compareFor, encodeBeast2For, decodeBeast2For, toEastTypeValue, ArrayType, BlobType, DictType, StructType, variant, type PatchTypeOf, type ValueTypeOf } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import type { Structure, TreePath } from '@elaraai/e3-types';
 import { DatasetSegments, readDatasetWhole } from './dataset-open.js';
@@ -27,7 +28,18 @@ import { packageImport } from './packages.js';
 import { workspaceCreate, workspaceDeploy } from './workspaces.js';
 import { createTestRepo, removeTestRepo, createTempDir, removeTempDir } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
-import type { StorageBackend, TaskRunner, DetachedResult } from './index.js';
+import type { MutationOutcome, StorageBackend, TaskRunner, DetachedResult } from './index.js';
+
+/** Whether a runtime's CLI answers on PATH — the multi-runtime suites skip
+ *  rather than fail on a developer machine without it. */
+function onPath(command: string, args: string[]): boolean {
+  try {
+    execFileSync(command, args, { stdio: 'ignore', shell: process.platform === 'win32' });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 const encodeInt = encodeBeast2For(IntegerType);
 const decodeInt = decodeBeast2For(IntegerType);
@@ -485,6 +497,35 @@ describe('records', () => {
     assert.strictEqual((tooLarge as { stderr: string }).stderr, 'huge state');
   });
 
+  it('carries a reserved $ slot through a mutation and a compaction', async () => {
+    // A `$` slot is bookkeeping whose owner is whichever writer set it — the
+    // applied-schema frontier, say. Every commit path builds its version vector
+    // fresh, so a path that forgets to carry one erases it, and the writer that
+    // set it reads the record afterwards as one that never had it.
+    const ref = await storage.datasets.read(repo, ws, 'records/counter');
+    assert.ok(ref && ref.type === 'value');
+    const versions = new Map(ref.value.versions);
+    versions.set('$schema', 'frontier-hash');
+    await storage.datasets.write(repo, ws, 'records/counter',
+      variant('value', { hash: ref.value.hash, versions }));
+
+    const mutated = await recordMutate(storage, successRunner(encodeInt(3n)), repo, ws, 'counter', 'increment',
+      [encodeInt(3n)], { actor: 'cli:test', idempotencyKey: 'k1' });
+    assert.strictEqual(mutated.kind, 'committed');
+    const afterMutate = await storage.datasets.read(repo, ws, 'records/counter');
+    assert.ok(afterMutate && afterMutate.type === 'value');
+    assert.strictEqual(afterMutate.value.versions.get('$schema'), 'frontier-hash');
+    assert.strictEqual(afterMutate.value.versions.get('$idem'), 'k1', 'the writer that owns $idem still writes it');
+
+    const compacted = await recordCompact(storage, repo, ws, 'counter', { actor: 'cli:test' });
+    assert.strictEqual(compacted.kind, 'committed');
+    const afterCompact = await storage.datasets.read(repo, ws, 'records/counter');
+    assert.ok(afterCompact && afterCompact.type === 'value');
+    assert.strictEqual(afterCompact.value.versions.get('$schema'), 'frontier-hash');
+    assert.strictEqual(afterCompact.value.versions.get('$idem'), undefined,
+      'a compaction is not an idempotency-keyed write, so it drops the key it does not own');
+  });
+
   it('history pages with a from cursor and ends gracefully on an unknown cursor', async () => {
     for (let i = 0; i < 3; i++) {
       await recordMutate(storage, successRunner(encodeInt(BigInt(i + 1))), repo, ws, 'counter', 'increment', [encodeInt(1n)], { actor: 'x' });
@@ -630,6 +671,10 @@ describe('frozen reducer state (#539)', () => {
 });
 
 const PlanRowType = StructType({ status: StringType, due: IntegerType, title: StringType });
+/** What one touched key of a plans patch carries — derived from the patch type
+ *  rather than hand-written, so it follows the row type. */
+type PlanOp = Extract<ValueTypeOf<PatchTypeOf<typeof PlansType>>, { type: 'patch' }>['value'] extends Map<string, infer Op>
+  ? Op : never;
 const PlansType = DictType(StringType, PlanRowType);
 const StatusKeyType = StructType({ status: StringType, due: IntegerType });
 
@@ -775,5 +820,349 @@ describe('record indexes', () => {
     await storage.objects.read(repo, entry.index);
     const index = await DatasetSegments.open(storage, repo, entry.manifest);
     for (const segment of index.manifest!.entries) await storage.objects.read(repo, segment.hash);
+  });
+});
+
+describe('the mutation delta', () => {
+  let repo: string;
+  let tempDir: string;
+  let storage: StorageBackend;
+  const ws = 'main';
+  const plain = 'plain';
+  const ROWS = 600;
+
+  const realRunner = {
+    runDetached: (spec: Parameters<typeof runDetached>[0], options: Parameters<typeof runDetached>[1]) =>
+      runDetached(spec, { ...options, runnerSearchDir: dirname(fileURLToPath(import.meta.url)) }),
+  } as unknown as TaskRunner;
+  /** A runner that must never be reached — the fast path runs no process. */
+  const noRunner = {
+    runDetached: () => { throw new Error('a process was started'); },
+  } as unknown as TaskRunner;
+
+  const encodePlansPatch = encodeBeast2For(PatchType(PlansType));
+  const planKeys = compareFor(StringType);
+
+  /** The seed mutation's rows, as this process sees them. */
+  function seeded(): Map<string, { status: string; due: bigint; title: string }> {
+    const rows = new Map<string, { status: string; due: bigint; title: string }>();
+    for (let i = 0; i < ROWS; i++) {
+      rows.set(`p-${i}`, { status: i % 3 === 0 ? 'late' : 'ok', due: BigInt(i), title: `Plan ${i}` });
+    }
+    return rows;
+  }
+
+  /** A record with `seed`, an `edit` retitle and a `patch` door, indexed when asked. */
+  function planPackage(name: string, indexed: boolean): ReturnType<typeof e3.package> {
+    const plans = e3.record('plans', PlansType, new Map());
+    const seed = e3.mutation('seed', plans, East.function([PlansType], PlansType, ($, _state) => {
+      const out = $.let(new Map(), PlansType);
+      $.for(East.Array.range(0n, BigInt(ROWS)), ($, i) => {
+        const status = $.let('ok');
+        $.if(East.equal(i.remainder(3n), 0n), ($) => {
+          $.assign(status, 'late');
+        });
+        $(out.insert(East.str`p-${i}`, { status, due: i, title: East.str`Plan ${i}` }));
+      });
+      return out;
+    }));
+    const retitle = e3.editMutation('retitle', plans,
+      East.function([PlansType, StringType, e3.editTypeOf(PlansType) as never], NullType,
+        (($: any, state: any, key: any, edit: any) => {
+          const row = $.let(state.get(key));
+          $(edit.set(key, { status: row.status, due: row.due, title: 'RETITLED' }));
+        }) as never) as never);
+    const items = [plans, seed, retitle, e3.patchMutation(plans)];
+    if (indexed) {
+      items.push(e3.recordIndex('by_status', plans, {
+        key: East.function([StringType, PlanRowType], StatusKeyType, ($, _k, v) => ({ status: v.status, due: v.due })),
+        value: East.function([StringType, PlanRowType], StringType, ($, _k, v) => v.title),
+      }) as never);
+    }
+    return e3.package(name, '1.0.0', ...(items as never[]));
+  }
+
+  beforeEach(async () => {
+    repo = createTestRepo();
+    tempDir = createTempDir();
+    storage = new LocalStorage(dirname(repo));
+
+    for (const [name, workspace, indexed] of [['planrecords', ws, true], ['plainrecords', plain, false]] as const) {
+      const zip = join(tempDir, `${name}.zip`);
+      await e3.export(planPackage(name, indexed), zip);
+      await packageImport(storage, repo, zip);
+      await workspaceCreate(storage, repo, workspace);
+      await workspaceDeploy(storage, repo, workspace, name, '1.0.0', { runner: realRunner });
+    }
+  });
+
+  afterEach(() => {
+    removeTestRepo(repo);
+    removeTempDir(tempDir);
+  });
+
+  async function state(workspace: string): Promise<{ primary: string; indexes: Map<string, { manifest: string; index: string }> }> {
+    const ref = await storage.datasets.read(repo, workspace, 'records/plans');
+    assert.ok(ref && ref.type === 'value');
+    return readRecordState(storage, repo, ref.value.hash);
+  }
+
+  it('an edit mutation commits, and the commit names the delta it applied', async () => {
+    assert.strictEqual((await recordMutate(storage, realRunner, repo, ws, 'plans', 'seed', [], { actor: 'cli:test' })).kind, 'committed');
+    const before = await state(ws);
+
+    const outcome = await recordMutate(storage, realRunner, repo, ws, 'plans', 'retitle',
+      [encodeBeast2For(StringType)('p-7')], { actor: 'cli:test' });
+    assert.strictEqual(outcome.kind, 'committed', JSON.stringify(outcome));
+
+    const after = await state(ws);
+    assert.notStrictEqual(after.primary, before.primary);
+    const rows = decodeBeast2For(PlansType)(await readDatasetWhole(storage, repo, after.primary)) as Map<string, { title: string }>;
+    assert.strictEqual(rows.get('p-7')!.title, 'RETITLED');
+    assert.strictEqual(rows.size, ROWS);
+
+    const [head] = await recordHistory(storage, repo, ws, 'plans', { limit: 1 });
+    assert.strictEqual(head!.commit.delta.type, 'some', 'the commit records what changed');
+  });
+
+  it('an edit mutation maintains every index: maintained ≡ rebuilt, hash for hash', async () => {
+    await recordMutate(storage, realRunner, repo, ws, 'plans', 'seed', [], { actor: 'cli:test' });
+    for (const key of ['p-7', 'p-100', 'p-599']) {
+      const outcome = await recordMutate(storage, realRunner, repo, ws, 'plans', 'retitle',
+        [encodeBeast2For(StringType)(key)], { actor: 'cli:test' });
+      assert.strictEqual(outcome.kind, 'committed', JSON.stringify(outcome));
+    }
+    const maintained = await state(ws);
+
+    assert.strictEqual((await recordReindex(storage, realRunner, repo, ws, 'plans', { actor: 'cli:test' })).kind, 'committed');
+    const rebuilt = await state(ws);
+    assert.strictEqual(rebuilt.primary, maintained.primary, 'a reindex never touches the primary');
+    assert.strictEqual(rebuilt.indexes.get('by_status')!.manifest, maintained.indexes.get('by_status')!.manifest);
+  });
+
+  it('a patch on a record with no index commits with no process at all', async () => {
+    assert.strictEqual((await recordMutate(storage, realRunner, repo, plain, 'plans', 'seed', [], { actor: 'cli:test' })).kind, 'committed');
+    const before = await state(plain);
+
+    const ops = new SortedMap<string, PlanOp>([
+      ['p-7', variant('update', variant('patch', {
+        status: variant('unchanged', null),
+        due: variant('unchanged', null),
+        title: variant('replace', { before: 'Plan 7', after: 'PATCHED' }),
+      }))],
+      ['p-zzz', variant('insert', { status: 'ok', due: 9_999n, title: 'New' })],
+    ], planKeys);
+    const outcome = await recordMutate(storage, noRunner, repo, plain, 'plans', 'patch',
+      [encodePlansPatch(variant('patch', ops))], { actor: 'cli:test' });
+    assert.strictEqual(outcome.kind, 'committed', JSON.stringify(outcome));
+
+    const after = await state(plain);
+    const rows = decodeBeast2For(PlansType)(await readDatasetWhole(storage, repo, after.primary)) as Map<string, { title: string }>;
+    assert.strictEqual(rows.get('p-7')!.title, 'PATCHED');
+    assert.strictEqual(rows.size, ROWS + 1);
+
+    // The whole point: the new state IS the old one bar the segments the two
+    // touched keys fell in.
+    const was = await DatasetSegments.open(storage, repo, before.primary);
+    const now = await DatasetSegments.open(storage, repo, after.primary);
+    const moved = now.manifest!.entries.filter((e) => !was.manifest!.entries.some((o) => o.hash === e.hash));
+    assert.ok(moved.length <= 2, `a two-key patch rewrote ${moved.length} segments`);
+  });
+
+  it('a patch on an indexed record runs the program and moves the index with it', async () => {
+    await recordMutate(storage, realRunner, repo, ws, 'plans', 'seed', [], { actor: 'cli:test' });
+    const ops = new SortedMap<string, PlanOp>([
+      ['p-7', variant('delete', seeded().get('p-7')!)],
+    ], planKeys);
+    const outcome = await recordMutate(storage, realRunner, repo, ws, 'plans', 'patch',
+      [encodePlansPatch(variant('patch', ops))], { actor: 'cli:test' });
+    assert.strictEqual(outcome.kind, 'committed', JSON.stringify(outcome));
+
+    const after = await state(ws);
+    const primary = await DatasetSegments.open(storage, repo, after.primary);
+    const index = await DatasetSegments.open(storage, repo, after.indexes.get('by_status')!.manifest);
+    assert.strictEqual(primary.elementCount, ROWS - 1);
+    assert.strictEqual(index.elementCount, ROWS - 1, 'the index lost the entry with the row');
+  });
+
+  it('a stale patch is a conflict naming the key, and writes nothing', async () => {
+    await recordMutate(storage, realRunner, repo, plain, 'plans', 'seed', [], { actor: 'cli:test' });
+    const before = await storage.datasets.read(repo, plain, 'records/plans');
+
+    const ops = new SortedMap<string, PlanOp>([
+      ['p-7', variant('delete', { status: 'ok', due: 7n, title: 'SOMETHING ELSE' })],
+    ], planKeys);
+    const outcome = await recordMutate(storage, noRunner, repo, plain, 'plans', 'patch',
+      [encodePlansPatch(variant('patch', ops))], { actor: 'cli:test' });
+    assert.strictEqual(outcome.kind, 'conflict', JSON.stringify(outcome));
+    assert.match((outcome as { detail?: string }).detail ?? '', /p-7/);
+    assert.deepStrictEqual(await storage.datasets.read(repo, plain, 'records/plans'), before);
+  });
+
+  it('two patches on different keys both commit — the loser re-applies against fresher state', async () => {
+    // The compare-and-swap loop is what makes a delta safe to retry: the
+    // second writer's ops are re-applied to the state the first committed,
+    // not to the one it read. Two keys, two commits, both changes present.
+    assert.strictEqual((await recordMutate(storage, realRunner, repo, plain, 'plans', 'seed', [], { actor: 'cli:test' })).kind, 'committed');
+    const rows = seeded();
+    const retitle = (key: string, title: string): Promise<MutationOutcome> => recordMutate(
+      storage, noRunner, repo, plain, 'plans', 'patch',
+      [encodePlansPatch(variant('patch', new SortedMap<string, PlanOp>([
+        [key, variant('update', variant('patch', {
+          status: variant('unchanged', null),
+          due: variant('unchanged', null),
+          title: variant('replace', { before: rows.get(key)!.title, after: title }),
+        }))],
+      ], planKeys)))],
+      { actor: 'cli:test' });
+
+    const outcomes = await Promise.all([retitle('p-1', 'FIRST'), retitle('p-2', 'SECOND')]);
+    assert.deepStrictEqual(outcomes.map((o) => o.kind), ['committed', 'committed'],
+      JSON.stringify(outcomes));
+
+    const after = await state(plain);
+    const held = decodeBeast2For(PlansType)(await readDatasetWhole(storage, repo, after.primary)) as Map<string, { title: string }>;
+    assert.strictEqual(held.get('p-1')!.title, 'FIRST');
+    assert.strictEqual(held.get('p-2')!.title, 'SECOND', 'neither write was lost');
+    assert.strictEqual((await recordHistory(storage, repo, plain, 'plans')).length, 4,
+      'one unbroken chain: $init, seed, and a commit per patch — no fork');
+  });
+
+  it('an indexed record reads back through the ordinary dataset door', async () => {
+    // A record that declares an index stores a `$record` state naming the
+    // primary and every index. Every read door must still answer with the
+    // ROWS — otherwise declaring an index silently changes what `e3 get`, a
+    // page and a task input see.
+    const plansPath: TreePath = [variant('field', 'records'), variant('field', 'plans')];
+    for (const workspace of [ws, plain]) {
+      assert.strictEqual((await recordMutate(storage, realRunner, repo, workspace, 'plans', 'seed', [], { actor: 'cli:test' })).kind, 'committed');
+      const rows = await workspaceGetDataset(storage, repo, workspace, plansPath) as Map<string, { title: string }>;
+      assert.strictEqual(rows.size, ROWS, `the ${workspace} record reads as its rows`);
+      assert.strictEqual(rows.get('p-7')!.title, 'Plan 7');
+    }
+    const indexed = await state(ws);
+    assert.ok(indexed.indexes.has('by_status'), 'the indexed workspace really does hold an index');
+  });
+
+  it('describes each mutation\'s write form, so a caller knows what its arguments mean', async () => {
+    const signature = await recordDescribe(storage, repo, ws, 'plans');
+    assert.deepStrictEqual(
+      Object.fromEntries(signature!.mutations.map((m) => [m.name, m.form])),
+      { seed: 'reduce', retitle: 'edit', patch: 'patch' });
+  });
+
+  it('keeps every object a commit names — the delta included — reachable through gc', async () => {
+    await recordMutate(storage, realRunner, repo, ws, 'plans', 'seed', [], { actor: 'cli:test' });
+    await recordMutate(storage, realRunner, repo, ws, 'plans', 'retitle',
+      [encodeBeast2For(StringType)('p-7')], { actor: 'cli:test' });
+    const [head] = await recordHistory(storage, repo, ws, 'plans', { limit: 1 });
+    assert.strictEqual(head!.commit.delta.type, 'some');
+
+    assert.strictEqual((await repoGc(storage, repo, { minAge: 0 })).deletedObjects, 0);
+    const delta = await DatasetSegments.open(storage, repo, head!.commit.delta.value);
+    for (const segment of delta.manifest!.entries) await storage.objects.read(repo, segment.hash);
+  });
+});
+
+/**
+ * Three runtimes, one delta.
+ *
+ * A mutation runs on the runner its author chose, and the engine applies what
+ * it emits — so the three runtimes must agree, byte for byte, on what a write
+ * changed. They cannot be checked by comparing programs: what has to match is
+ * the RESULT, so this deploys the same record to a workspace per runtime,
+ * applies the same writes, and compares the state hashes. Anything that
+ * diverges — an emit sink that orders differently, a patch builtin that
+ * produces a different op, a segment cut elsewhere — shows up as one hash.
+ *
+ * Skips where a runtime is not installed, the way every multi-runtime suite
+ * here does; CI installs all three.
+ */
+describe('the mutation delta — cross-runtime parity', () => {
+  let repo: string;
+  let tempDir: string;
+  let storage: StorageBackend;
+  const ROWS = 400n;
+
+  const realRunner = {
+    runDetached: (spec: Parameters<typeof runDetached>[0], options: Parameters<typeof runDetached>[1]) =>
+      runDetached(spec, { ...options, runnerSearchDir: dirname(fileURLToPath(import.meta.url)) }),
+  } as unknown as TaskRunner;
+
+  /** The runtimes to compare, minus any that is not installed. */
+  const runtimes: Array<{ ws: string; runner: Parameters<typeof e3.mutation>[3] }> = [
+    { ws: 'node', runner: { runner: { runtime: 'east-node', platforms: ['@elaraai/east-node-std'] } } },
+    ...(onPath('east-c', ['version']) ? [{ ws: 'c', runner: { runner: { runtime: 'east-c' as const, platforms: [] } } }] : []),
+    ...(onPath('east-py', ['version']) ? [{ ws: 'py', runner: { runner: { runtime: 'east-py' as const, platforms: [] } } }] : []),
+  ];
+  const missing = runtimes.length < 3
+    ? `needs east-c and east-py on PATH; have ${runtimes.map((r) => r.ws).join(', ')}`
+    : false;
+
+  beforeEach(async () => {
+    repo = createTestRepo();
+    tempDir = createTempDir();
+    storage = new LocalStorage(dirname(repo));
+    if (missing) return;
+
+    for (const { ws, runner } of runtimes) {
+      const plans = e3.record('plans', PlansType, new Map());
+      const seed = e3.mutation('seed', plans, East.function([PlansType], PlansType, ($, _state) => {
+        const out = $.let(new Map(), PlansType);
+        $.for(East.Array.range(0n, ROWS), ($, i) => {
+          const status = $.let('ok');
+          $.if(East.equal(i.remainder(3n), 0n), ($) => {
+            $.assign(status, 'late');
+          });
+          $(out.insert(East.str`p-${i}`, { status, due: i, title: East.str`Plan ${i}` }));
+        });
+        return out;
+      }), runner);
+      const retitle = e3.editMutation('retitle', plans,
+        East.function([PlansType, StringType, e3.editTypeOf(PlansType) as never], NullType,
+          (($: any, state: any, key: any, edit: any) => {
+            const row = $.let(state.get(key));
+            $(edit.set(key, { status: 'late', due: row.due, title: 'RETITLED' }));
+          }) as never) as never, runner);
+      const byStatus = e3.recordIndex('by_status', plans, {
+        key: East.function([StringType, PlanRowType], StatusKeyType, ($, _k, v) => ({ status: v.status, due: v.due })),
+        value: East.function([StringType, PlanRowType], StringType, ($, _k, v) => v.title),
+      }, runner);
+      const pkg = e3.package(`parity-${ws}`, '1.0.0', plans, seed, retitle, e3.patchMutation(plans, 'patch', runner) as never, byStatus as never);
+      const zip = join(tempDir, `parity-${ws}.zip`);
+      await e3.export(pkg, zip);
+      await packageImport(storage, repo, zip);
+      await workspaceCreate(storage, repo, ws);
+      await workspaceDeploy(storage, repo, ws, `parity-${ws}`, '1.0.0', { runner: realRunner });
+    }
+  });
+
+  afterEach(() => {
+    removeTestRepo(repo);
+    removeTempDir(tempDir);
+  });
+
+  it('every runtime writes the same state, hash for hash', { skip: missing }, async () => {
+    const hashes: Array<{ ws: string; primary: string; index: string }> = [];
+    for (const { ws } of runtimes) {
+      for (const [mutation, args] of [
+        ['seed', []],
+        ['retitle', [encodeBeast2For(StringType)('p-7')]],
+        ['patch', [encodeBeast2For(PatchType(PlansType))(variant('patch', new SortedMap<string, PlanOp>([
+          ['p-zzz', variant('insert', { status: 'late', due: 9_999n, title: 'New' })],
+        ], compareFor(StringType))))]],
+      ] as const) {
+        const outcome = await recordMutate(storage, realRunner, repo, ws, 'plans', mutation, [...args], { actor: 'cli:test' });
+        assert.strictEqual(outcome.kind, 'committed', `${ws}/${mutation}: ${JSON.stringify(outcome)}`);
+      }
+      const ref = await storage.datasets.read(repo, ws, 'records/plans');
+      assert.ok(ref && ref.type === 'value');
+      const state = await readRecordState(storage, repo, ref.value.hash);
+      hashes.push({ ws, primary: state.primary, index: state.indexes.get('by_status')!.manifest });
+    }
+    for (const seen of hashes.slice(1)) {
+      assert.strictEqual(seen.primary, hashes[0]!.primary, `${seen.ws} disagrees with ${hashes[0]!.ws} on the record`);
+      assert.strictEqual(seen.index, hashes[0]!.index, `${seen.ws} disagrees with ${hashes[0]!.ws} on the index`);
+    }
   });
 });

@@ -173,6 +173,7 @@ export function package_(
           ...mutationsByRecord.get(rec.name),
         },
         indexes: {
+          ...records[rec.name]?.indexes,
           ...rec.indexes,
           ...indexesByRecord.get(rec.name),
         },

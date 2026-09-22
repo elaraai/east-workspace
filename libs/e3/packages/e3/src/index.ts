@@ -58,12 +58,16 @@ import type {
 } from './types.js';
 import { input } from './input.js';
 import { record } from './record.js';
-import { mutation } from './mutation.js';
+import { mutation, editMutation, patchMutation } from './mutation.js';
 import { recordIndex } from './record-index.js';
 import { task, customTask, partitionTask, streamTask } from './task.js';
 import { function_ } from './function.js';
 import { package_ } from './package.js';
 import { export_ } from './export.js';
+// The edit capability's type is the author's to name: an `editMutation` body
+// declares it as a parameter type, so the surface that consumes a record must
+// be able to spell it without reaching into e3-types.
+import { editTypeOf } from '@elaraai/e3-types';
 
 export type {
   DataTreeDef,
@@ -98,6 +102,9 @@ const e3 = {
   input,
   record,
   mutation,
+  editMutation,
+  patchMutation,
+  editTypeOf,
   recordIndex,
   task,
   customTask,
@@ -111,7 +118,7 @@ const e3 = {
 export default e3;
 
 // Also export individual functions for tree-shaking
-export { input, record, mutation, recordIndex, task, customTask, partitionTask, streamTask, function_, package_ as package, export_ as export };
+export { input, record, mutation, editMutation, patchMutation, recordIndex, task, customTask, partitionTask, streamTask, function_, package_ as package, export_ as export };
 export type { PartitionTaskSpec, StreamTaskSpec, EmitOf } from './task.js';
 
 // Singleton tree definitions
@@ -131,3 +138,6 @@ export {
 } from './dataset-file.js';
 export { DatasetSourceType, type DatasetSource } from './input.js';
 export { addObject } from './export.js';
+export { editTypeOf } from '@elaraai/e3-types';
+export { indexBuildProgram, buildMutationProgram, deltaTargets, indexEntryKeyType } from './record-programs.js';
+export type { RecordIndexSpec, IndexFunction } from './record-index.js';

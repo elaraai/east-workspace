@@ -20,7 +20,7 @@ import yazl from 'yazl';
 import { variant, some, none, encodeBeast2For, encodeEastIR, EastIR, AsyncEastIR, printIdentifier, SortedMap, toEastTypeValue, decodeFunctionManifest, linkImports, type FunctionManifest, type LinkedImport } from '@elaraai/east';
 import type { Structure, PackageObject, DatasetRef, DatasetSourceWire, FunctionObject, MutationObject, RecordIndexObject, RecordObject } from '@elaraai/e3-types';
 import { DatasetRefType, PackageObjectType, TaskObjectType, FunctionObjectType, MutationObjectType, RecordIndexObjectType, RecordObjectType, encodeDatasetBlob } from '@elaraai/e3-types';
-import { indexBuildProgram } from './record-programs.js';
+import { buildMutationProgram, hasKeyedDelta, indexBuildProgram } from './record-programs.js';
 import { readDatasetFileHeader } from './dataset-file.js';
 import type { PackageDef, PackageItem } from './types.js';
 import { runnerProvides, runnerToVariant, type Runner } from './runner.js';
@@ -115,7 +115,14 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
   }
   for (const [fname, fdef] of Object.entries(pkg.functions)) refer(fdef.body, `function "${fname}"`, fdef.runner);
   for (const [rname, rdef] of Object.entries(pkg.records)) {
-    for (const [mname, mdef] of Object.entries(rdef.mutations)) refer(mdef.body, `mutation "${rname}.${mname}"`, mdef.runner);
+    for (const [mname, mdef] of Object.entries(rdef.mutations)) {
+      if (mdef.body !== undefined) refer(mdef.body, `mutation "${rname}.${mname}"`, mdef.runner);
+    }
+    for (const [iname, idef] of Object.entries(rdef.indexes)) {
+      const owner = `index "${rname}.${iname}"`;
+      refer(idef.keyFn.toIR() as EastIR<any, any>, owner, idef.runner);
+      if (idef.valueFn !== undefined) refer(idef.valueFn.toIR() as EastIR<any, any>, owner, idef.runner);
+    }
   }
   const manifests = resolveFunctionManifests(references, explicit, process.cwd(), options?.onEvent === undefined
     ? undefined
@@ -373,14 +380,30 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
       return seg.value;
     }).join('/');
 
+    // A mutation ships its author body AND the program built from it: the
+    // program is what runs, and it emits the delta the engine applies. A
+    // record whose collection has no delta addressed by key keeps the original
+    // protocol — the reducer runs and its whole result is the new state — and
+    // says so by naming no program.
     const mutations = new SortedMap<string, string>(); // name -> MutationObject hash
     for (const [mname, mdef] of Object.entries(rdef.mutations)) {
-      const bodyIrData = encodeEastIR(link(mdef.body, `mutation "${rname}.${mname}"`, mdef.runner));
-      const bodyIrHash = addObject(zipfile, Buffer.from(bodyIrData));
+      const owner = `mutation "${rname}.${mname}"`;
+      const programIr = hasKeyedDelta(rdef.type)
+        ? addObject(zipfile, Buffer.from(
+          encodeEastIR(link(buildMutationProgram(rdef, mdef), owner, mdef.runner))))
+        : '';
+      if (mdef.body === undefined && programIr === '') {
+        throw new Error(`${owner} has neither a body nor a program to run`);
+      }
+      const bodyIr = mdef.body === undefined
+        ? programIr
+        : addObject(zipfile, Buffer.from(encodeEastIR(link(mdef.body, owner, mdef.runner))));
       const mutObject: MutationObject = {
-        bodyIr: bodyIrHash,
+        bodyIr,
         argTypes: mdef.argTypes.map((t) => toEastTypeValue(t)),
         runner: runnerToVariant(mdef.runner),
+        form: mdef.form,
+        programIr,
       };
       const mutHash = addObject(zipfile, Buffer.from(mutationEncoder(mutObject)));
       mutations.set(mname, mutHash);

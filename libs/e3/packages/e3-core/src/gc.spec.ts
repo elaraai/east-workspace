@@ -1071,7 +1071,7 @@ describe('gc', () => {
     it('a genuine RecordCommit IS traversed: its state blob stays reachable', async () => {
       const STATE = 'b'.repeat(64);
       const root = 'real-commit'.padEnd(64, '0');
-      const objects = new Map([[root, encodeBeast2For(RecordCommitType)({ parent: none, state: STATE, mutation: '$init', args: none, actor: 'system', at: new Date(0) })]]);
+      const objects = new Map([[root, encodeBeast2For(RecordCommitType)({ parent: none, state: STATE, mutation: '$init', args: none, actor: 'system', at: new Date(0), delta: none })]]);
 
       const reachable = await markReachable(trace(objects), new Set([root]));
       assert.ok(reachable.has(STATE), 'a real commit must keep its state blob reachable');
@@ -1080,7 +1080,7 @@ describe('gc', () => {
     it('a genuine MutationObject IS traversed: its bodyIr stays reachable', async () => {
       const BODY = 'c'.repeat(64);
       const root = 'real-mutation'.padEnd(64, '0');
-      const objects = new Map([[root, encodeBeast2For(MutationObjectType)({ bodyIr: BODY, argTypes: [toEastTypeValue(IntegerType)], runner: variant('east_node', { platforms: ['@elaraai/east-node-std'] }) })]]);
+      const objects = new Map([[root, encodeBeast2For(MutationObjectType)({ bodyIr: BODY, argTypes: [toEastTypeValue(IntegerType)], runner: variant('east_node', { platforms: ['@elaraai/east-node-std'] }), form: 'reduce', programIr: '' })]]);
 
       const reachable = await markReachable(trace(objects), new Set([root]));
       assert.ok(reachable.has(BODY), 'a real mutation must keep its bodyIr reachable');

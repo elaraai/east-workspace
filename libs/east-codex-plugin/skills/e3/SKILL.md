@@ -75,7 +75,10 @@ Task → What do you need?
 ├─ Authoring a package (SDK)
 │   ├─ Input dataset        → e3.input(name, type, source?) — variant('value', v) | variant('file', path)
 │   ├─ Record (audited state)→ e3.record(name, type, initial)
-│   ├─ Mutation (reducer)    → e3.mutation(name, record, fn)
+│   ├─ Mutation (reducer)    → e3.mutation(name, record, fn) — sees the whole state
+│   ├─ Mutation (lazy write) → e3.editMutation(name, record, fn) — (state, …args, edit) => Null
+│   ├─ Mutation (client diff)→ e3.patchMutation(record) — the argument IS the change
+│   ├─ Secondary index       → e3.recordIndex(name, record, { key | keys, value? })
 │   ├─ East function task   → e3.task(name, [inputs], fn, config?)
 │   ├─ Huge input, per-row / per-entity / reduce / re-key → e3.partitionTask(name, spec, fn)
 │   ├─ Huge input, one-pass fold in order / ingest → e3.streamTask(name, spec, fn)
@@ -121,7 +124,8 @@ Task → What do you need?
 │
 ├─ Records (audited mutable state — mutations only, no raw set)
 │   ├─ Apply a mutation     → e3 mutate <repo> <record.mutation> [args...] -w <ws>
-│   ├─ Commit history       → e3 history <repo> <record> -w <ws> [--limit n] [--from hash]
+│   ├─ Commit history       → e3 history <repo> <record> -w <ws> [--limit n] [--from hash] [--delta]
+│   ├─ Rebuild an index     → e3 reindex <repo> <record> -w <ws> [--index <name>]
 │   └─ Compact history      → e3 compact <repo> <record> -w <ws>
 │
 ├─ Tasks (inspect / logs)
@@ -707,6 +711,76 @@ Mutations are the only writer — a raw `e3 dataset set` on a record path is
 rejected. Apply with `e3 mutate`, inspect with `e3 history`, drop history with
 `e3 compact` (see CLI).
 
+### The three write forms
+
+Every form commits the same thing — a **mutation delta**, the record's and each
+index's changes addressed by key — which the engine applies by rewriting only
+the segments those keys fall in. They differ in how the author says what
+changed, and so in what a write costs.
+
+| Form | Body | Reach for it when |
+|---|---|---|
+| `e3.mutation(name, rec, fn)` | `(state, …args) => state` | the rule is over the whole state, or the record is small |
+| `e3.editMutation(name, rec, fn)` | `(state, …args, edit) => Null` | server-side logic touches a few entries of a large record |
+| `e3.patchMutation(rec, name?)` | none — the argument is `PatchType(state)` | an interactive edit from a view, or an integration that sends diffs |
+
+A reducer sees the whole state, so its cost in the runner is the record's size
+however little it changes. An **edit** body reads the state lazily and writes
+through `edit.set(key, value)` / `edit.delete(key)` / `edit.update(key, patch)`,
+so it costs the entries it touched end to end; repeated edits of one key fold,
+and a `delete` or `update` of a key the record does not hold fails the mutation
+naming the key. A **patch** mutation has no body at all — on a record with no
+index nothing runs, which makes it the form to use for interactive latency at
+any record size.
+
+```typescript
+const plans = e3.record('plans', DictType(StringType, PlanType), new Map());
+
+const reschedule = e3.editMutation('reschedule', plans,
+  East.function([plans.type, StringType, DateTimeType, e3.editTypeOf(plans.type)], NullType,
+    ($, state, id, due, edit) => {
+      const plan = $.let(state.get(id));       // one segment decoded, not the record
+      $(edit.set(id, { title: plan.title, owner: plan.owner, due }));
+    }));
+
+const pkg = e3.package('planning', '1.0.0', plans, reschedule, e3.patchMutation(plans));
+```
+
+`e3.editTypeOf(recordType)` is the edit capability's type — the struct of three
+East functions an edit body declares as its last parameter.
+
+### e3.recordIndex(name, record, spec)
+
+A record is paged and searched in its primary key order and nothing else. An
+index is a **second canonical collection whose sort order IS the query order**,
+stored and read exactly like the record, and maintained inside the same commit —
+so a view by an attribute of the row, or by a related entity a row names many
+of, is a page rather than a scan.
+
+Declare exactly one of `key` (one entry per row) or `keys` (a `Set` return: one
+entry per element, so a row naming five resources appears under five keys; an
+empty set is a row the index does not carry). An optional `value` projection is
+what a view renders from the index alone, without touching the record.
+
+```typescript
+const byStatus = e3.recordIndex('by_status', plans, {
+  key:   East.function([StringType, PlanType], StatusKeyType,
+           ($, k, v) => ({ status: v.status, due: v.due })),
+  value: East.function([StringType, PlanType], StringType, ($, k, v) => v.title),
+});
+const byResource = e3.recordIndex('by_resource', plans, {
+  keys: East.function([StringType, PlanType], SetType(ResourceRefType), ($, k, v) => v.resources),
+});
+
+const pkg = e3.package('planning', '1.0.0', plans, byStatus, byResource);
+```
+
+The functions must be pure and synchronous: an index is maintained on every
+commit and rebuilt on demand, and the two must agree to the byte. `primary` is
+reserved — it names the record's own collection wherever an index is selected.
+Read through one by passing `index=<name>` to a dataset page, or rebuild one
+with `e3 reindex`.
+
 ### e3.package(name, version, ...items)
 
 Bundle into a package. Dependencies are collected automatically.
@@ -796,13 +870,16 @@ dataset.
 
 ```bash
 e3 mutate <repo> <record.mutation> [args...] -w <ws> [-v]  # apply a mutation; args = .east literals or .beast2/.json/.east files; -v = runner timing/perf (local)
-e3 history <repo> <record> -w <ws> [--limit <n>] [--from <hash>]  # commit chain, newest first (--from pages)
+e3 history <repo> <record> -w <ws> [--limit <n>] [--from <hash>] [--delta]  # commit chain, newest first (--from pages; --delta counts what each commit changed, per target)
+e3 reindex <repo> <record> -w <ws> [--index <name>]   # rebuild a secondary index from the record (all of them by default)
 e3 compact <repo> <record> -w <ws>                    # collapse history to a $compact root (state preserved)
 ```
 
 ```bash
 e3 mutate . counter.increment 5.east -w main   # state += 5
+e3 mutate . plans.patch ./edit.beast2 -w main  # a patch mutation's one argument IS the change
 e3 history . counter -w main --limit 10
+e3 history . plans -w main --delta             # …with +inserts ~updates -deletes per target
 ```
 
 ### Task

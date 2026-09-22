@@ -14,7 +14,7 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 import e3 from '@elaraai/e3';
-import { ArrayType, DictType, IntegerType, StringType, StructType, East, variant } from '@elaraai/east';
+import { ArrayType, DictType, IntegerType, NullType, StringType, StructType, East, variant } from '@elaraai/east';
 import { Time } from '@elaraai/east-node-std';
 
 /**
@@ -173,6 +173,66 @@ export async function createRecordPackageZip(
     )
   );
   const pkg = e3.package(name, version, counter, increment, addPositive);
+
+  const zipPath = join(tempDir, `${name}-${version}.zip`);
+  await e3.export(pkg, zipPath);
+
+  return zipPath;
+}
+
+/** The row of the keyed record fixture. */
+export const PlanRowType = StructType({ status: StringType, due: IntegerType, title: StringType });
+/** The keyed record fixture's state: a Dict big enough to span segments. */
+export const PlansType = DictType(StringType, PlanRowType);
+/** The `by_status` index key — the order a queue view wants. */
+export const PlanStatusKeyType = StructType({ status: StringType, due: IntegerType });
+
+/**
+ * Create a package holding a KEYED record — the shape every write form and the
+ * segment-wise apply are for.
+ *
+ * The record carries one secondary index and all three write forms: `seed`
+ * (reduce), `retitle` (edit) and `patch`. A scalar record exercises the commit
+ * protocol; only a keyed one exercises what a commit COSTS, which is the
+ * property a remote backend has to reproduce.
+ *
+ * @param tempDir - Directory to write the zip file
+ * @param name - Package name
+ * @param version - Package version
+ * @returns Path to the created zip file
+ */
+export async function createKeyedRecordPackageZip(
+  tempDir: string,
+  name: string,
+  version: string
+): Promise<string> {
+  mkdirSync(tempDir, { recursive: true });
+
+  const plans = e3.record('plans', PlansType, new Map());
+  const seed = e3.mutation('seed', plans,
+    East.function([PlansType, IntegerType], PlansType, ($, _state, rows) => {
+      const out = $.let(new Map(), PlansType);
+      $.for(East.Array.range(0n, rows), ($, i) => {
+        const status = $.let('ok');
+        $.if(East.equal(i.remainder(3n), 0n), ($) => {
+          $.assign(status, 'late');
+        });
+        $(out.insert(East.str`p-${i}`, { status, due: i, title: East.str`Plan ${i}` }));
+      });
+      return out;
+    }));
+  const retitle = e3.editMutation('retitle', plans,
+    East.function([PlansType, StringType, e3.editTypeOf(PlansType) as never], NullType,
+      (($: any, state: any, key: any, edit: any) => {
+        const row = $.let(state.get(key));
+        $(edit.set(key, { status: row.status, due: row.due, title: 'RETITLED' }));
+      }) as never) as never);
+  const byStatus = e3.recordIndex('by_status', plans, {
+    key: East.function([StringType, PlanRowType], PlanStatusKeyType,
+      ($, _k, v) => ({ status: v.status, due: v.due })),
+    value: East.function([StringType, PlanRowType], StringType, ($, _k, v) => v.title),
+  });
+  const pkg = e3.package(name, version, plans, seed, retitle, e3.patchMutation(plans) as never, byStatus as never);
 
   const zipPath = join(tempDir, `${name}-${version}.zip`);
   await e3.export(pkg, zipPath);

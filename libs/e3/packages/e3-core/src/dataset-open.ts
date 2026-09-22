@@ -27,6 +27,7 @@
 
 import {
   beast2HasIndex,
+  decodeBeast2For,
   carveBeast2Ranged,
   compareFor,
   decodeBeast2FenceFor,
@@ -41,10 +42,13 @@ import {
 } from '@elaraai/east';
 import {
   COLLECTION_MANIFEST_KIND,
+  RECORD_STATE_KIND,
+  RecordStateType,
   cutDatasetBlob,
   decodeCollectionManifest,
   isCollectionManifestType,
   isCollectionRoot,
+  isRecordStateType,
   manifestByteSize,
   type CollectionManifest,
 } from '@elaraai/e3-types';
@@ -68,6 +72,9 @@ const SPLICE_CHUNK_BYTES = 8 * 1024 * 1024;
  * reader written against this is written once.
  */
 export class DatasetSegments {
+  /** The collection object this opened — the dataset's own hash, unless that
+   *  named a record state, in which case its primary. */
+  readonly hash: string;
   /** The dataset's root collection type. */
   readonly typeValue: EastTypeValue;
   /** Element (pair) count of each segment, in segment order. */
@@ -86,12 +93,14 @@ export class DatasetSegments {
   private readonly fences = new Map<number, unknown>();
 
   private constructor(
+    hash: string,
     typeValue: EastTypeValue,
     counts: readonly number[],
     bytes: number,
     manifest: CollectionManifest | null,
     backing: ManifestBacking | BlobBacking,
   ) {
+    this.hash = hash;
     this.typeValue = typeValue;
     this.counts = counts;
     this.bytes = bytes;
@@ -119,21 +128,24 @@ export class DatasetSegments {
    *   indexed, self-contained v5 collection blob.
    */
   static async open(storage: StorageBackend, repo: string, hash: string, size?: number): Promise<DatasetSegments> {
-    const manifest = await readManifest(storage, repo, hash, size);
+    const opened = await openDatasetObject(storage, repo, hash, size);
+    const manifest = opened.manifest;
+    const known = opened.hash === hash ? size : undefined;
+    hash = opened.hash;
     if (manifest !== null) {
       const counts = manifest.entries.map((e) => Number(e.count));
       // What the dataset costs in the store: every segment object plus the
       // manifest naming them. A page reports this as the value's total, and a
       // status call reports the same number — the manifest object alone would
       // say a 10 MiB dataset is 12 KiB.
-      const manifestBytes = size ?? (await storage.objects.stat(repo, hash)).size;
+      const manifestBytes = known ?? (await storage.objects.stat(repo, hash)).size;
       return new DatasetSegments(
-        manifest.type, counts, manifestByteSize(manifest) + manifestBytes, manifest,
+        hash, manifest.type, counts, manifestByteSize(manifest) + manifestBytes, manifest,
         { kind: 'manifest', storage, repo, manifest },
       );
     }
 
-    const objectSize = size ?? (await storage.objects.stat(repo, hash)).size;
+    const objectSize = known ?? (await storage.objects.stat(repo, hash)).size;
     // A backend with no ranged reads serves the object whole, once, behind
     // the same interface — the executor and the handlers stay single-path.
     const whole = storage.objects.readRange ? null : await storage.objects.read(repo, hash);
@@ -143,7 +155,7 @@ export class DatasetSegments {
       throw new Error('beast2 v5: blob has cross-segment aliasing — segments must decode independently');
     }
     backing.extents = extents;
-    return new DatasetSegments(extents.typeValue, [...extents.counts], objectSize, null, backing);
+    return new DatasetSegments(hash, extents.typeValue, [...extents.counts], objectSize, null, backing);
   }
 
   /** Number of segments. */
@@ -321,15 +333,17 @@ export class DatasetSegments {
   }
 
   /** Every object this dataset is made of — the manifest, its header and its
-   *  segments — or just the blob, for one that is not stored as a manifest.
+   *  segments — or just the blob, for one that is not stored as a manifest. A
+   *  record state resolves to its primary, so both objects are named.
    *
    * @param hash - the dataset object's own hash
    * @returns the hashes an export or a transfer must carry
    */
   objectHashes(hash: string): string[] {
-    if (this.backing.kind === 'blob') return [hash];
+    const named = hash === this.hash ? [hash] : [hash, this.hash];
+    if (this.backing.kind === 'blob') return named;
     const { manifest } = this.backing;
-    return [hash, manifest.header, ...manifest.entries.map((e) => e.hash)];
+    return [...named, manifest.header, ...manifest.entries.map((e) => e.hash)];
   }
 }
 
@@ -393,6 +407,36 @@ export async function readManifest(
   hash: string,
   size?: number,
 ): Promise<CollectionManifest | null> {
+  return (await openDatasetObject(storage, repo, hash, size)).manifest;
+}
+
+const decodeRecordState = decodeBeast2For(RecordStateType);
+
+/**
+ * The collection object a dataset hash names, and its manifest when it has one.
+ *
+ * @remarks
+ * One head read answers both questions an opener has, and the second is the
+ * one every reader would otherwise have to ask itself: a record that declares a
+ * secondary index stores a `$record` state naming the primary's manifest and
+ * each index's, and **reading the record means reading the primary**. Resolving
+ * that here is what keeps `e3 get`, a page, a key search, a task input and a
+ * download on one path — an indexed record reads exactly like an unindexed one,
+ * which is the whole claim indexes are additive on.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param hash - the dataset object's content hash
+ * @param size - the object's byte size, when the caller already has it
+ * @returns the collection object's hash and its manifest, or `null` for a
+ *   dataset that is not stored as one
+ */
+export async function openDatasetObject(
+  storage: StorageBackend,
+  repo: string,
+  hash: string,
+  size?: number,
+): Promise<{ hash: string; manifest: CollectionManifest | null }> {
   const readRange = storage.objects.readRange?.bind(storage.objects);
   let head: Uint8Array;
   if (readRange) {
@@ -405,14 +449,21 @@ export async function readManifest(
   try {
     typeValue = readBeast2Type(head);
   } catch {
-    // A type section wider than the probe is not a manifest's: manifests carry
-    // one small struct type, and every other object is a leaf here.
-    return null;
+    // A type section wider than the probe is not a manifest's or a state's:
+    // both carry one small struct type, and every other object is a leaf here.
+    return { hash, manifest: null };
   }
-  if (!isCollectionManifestType(typeValue)) return null;
+  if (isRecordStateType(typeValue)) {
+    const data = head.length < HEAD_PROBE_BYTES ? head : await storage.objects.read(repo, hash);
+    const state = decodeRecordState(data);
+    // A struct of this shape carrying another tag is a user value, not a state.
+    if (state.kind === RECORD_STATE_KIND) return openDatasetObject(storage, repo, state.primary);
+    return { hash, manifest: null };
+  }
+  if (!isCollectionManifestType(typeValue)) return { hash, manifest: null };
   const data = head.length >= (size ?? Infinity) ? head : await storage.objects.read(repo, hash);
   const manifest = decodeCollectionManifest(data);
-  return manifest.kind === COLLECTION_MANIFEST_KIND ? manifest : null;
+  return { hash, manifest: manifest.kind === COLLECTION_MANIFEST_KIND ? manifest : null };
 }
 
 /**
@@ -480,9 +531,9 @@ export async function adoptDatasetBlob(storage: StorageBackend, repo: string, by
  * @returns the value's beast2 bytes
  */
 export async function readDatasetWhole(storage: StorageBackend, repo: string, hash: string): Promise<Uint8Array> {
-  const manifest = await readManifest(storage, repo, hash);
-  if (manifest === null) return storage.objects.read(repo, hash);
-  const segments = await DatasetSegments.open(storage, repo, hash);
+  const opened = await openDatasetObject(storage, repo, hash);
+  if (opened.manifest === null) return storage.objects.read(repo, opened.hash);
+  const segments = await DatasetSegments.open(storage, repo, opened.hash);
   const chunks: Uint8Array[] = [];
   let total = 0;
   for await (const chunk of segments.splice()) {

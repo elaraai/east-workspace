@@ -133,16 +133,35 @@ export function isCollectionManifest(typeValue: EastTypeValue, value: unknown): 
     && (value as CollectionManifest | null)?.kind === COLLECTION_MANIFEST_KIND;
 }
 
+/** The manifest's codec, built on first use.
+ *
+ *  Built lazily rather than at module scope because building an encoder writes
+ *  a type section, and this module sits inside the beast2 import cycle — an
+ *  eager build runs while a module it reaches through that cycle is still
+ *  initializing, and dies on a binding that does not exist yet. Nothing else
+ *  about it is lazy: the codec is built once and kept. */
+let manifestCodec: {
+  encode: (manifest: CollectionManifest) => Uint8Array;
+  decode: (data: Uint8Array) => CollectionManifest;
+} | null = null;
+
+function codec(): NonNullable<typeof manifestCodec> {
+  manifestCodec ??= {
+    encode: encodeBeast2V5For(CollectionManifestType) as (manifest: CollectionManifest) => Uint8Array,
+    decode: decodeBeast2V5For(CollectionManifestType) as (data: Uint8Array) => CollectionManifest,
+  };
+  return manifestCodec;
+}
+
 /**
  * Encodes a segment manifest.
  *
  * @param manifest - the manifest
  * @returns the beast2 bytes
  */
-export const encodeCollectionManifest: (manifest: CollectionManifest) => Uint8Array =
-  encodeBeast2V5For(CollectionManifestType) as (manifest: CollectionManifest) => Uint8Array;
-
-const decodeManifestStruct = decodeBeast2V5For(CollectionManifestType) as (data: Uint8Array) => CollectionManifest;
+export function encodeCollectionManifest(manifest: CollectionManifest): Uint8Array {
+  return codec().encode(manifest);
+}
 
 /**
  * Decodes a segment manifest.
@@ -154,7 +173,7 @@ const decodeManifestStruct = decodeBeast2V5For(CollectionManifestType) as (data:
  *   another tag is a different object that must not be read as segments.
  */
 export function decodeCollectionManifest(data: Uint8Array): CollectionManifest {
-  const manifest = decodeManifestStruct(data);
+  const manifest = codec().decode(data);
   if (manifest.kind !== COLLECTION_MANIFEST_KIND) {
     throw new Error(`beast2 v5: unknown manifest kind '${manifest.kind}' (expected '${COLLECTION_MANIFEST_KIND}')`);
   }
@@ -218,7 +237,7 @@ export function readBeast2Manifest(source: Uint8Array | Beast2SyncRangeReader): 
   }
   if (!isCollectionManifestType(typeValue)) return null;
   const data = reader === null ? head : readExact(reader, 0, size);
-  const manifest = decodeManifestStruct(data);
+  const manifest = codec().decode(data);
   return manifest.kind === COLLECTION_MANIFEST_KIND ? manifest : null;
 }
 

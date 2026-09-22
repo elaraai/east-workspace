@@ -148,6 +148,13 @@ export {
   isRecordStateType,
   indexCollectionType,
   indexWindowType,
+  decodeRecordCommit,
+  decodeMutationObject,
+  type MutationForm,
+  patchOpsType,
+  mutationDeltaType,
+  editTypeOf,
+  type DeltaTarget,
 } from './record.js';
 
 // Package objects

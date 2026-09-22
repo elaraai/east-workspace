@@ -15,7 +15,7 @@
  */
 
 import type { CallableFunctionExpr, EastType, EastIR, AsyncEastIR, ValueTypeOf, variant } from '@elaraai/east';
-import type { TreePath } from '@elaraai/e3-types';
+import type { MutationForm, TreePath } from '@elaraai/e3-types';
 import type { DatasetSource } from './input.js';
 import type { Runner } from './runner.js';
 import type { EnvironmentDecl } from './environment.js';
@@ -248,13 +248,17 @@ export interface MutationDef<
   readonly name: Name;
   /** The record this mutation writes. */
   readonly record: RecordDef<T>;
+  /** Which write form this is: a reducer over the whole state, a body writing
+   *  through an `edit` capability, or a client-supplied patch. */
+  readonly form: MutationForm;
   // Typed loosely + cast like FunctionDef.body / task function_ir (TS2344 on
   // a readonly first generic param of EastIR).
-  readonly body: EastIR<any, any> | AsyncEastIR<any, any>;
+  /** The author's body; absent for the `patch` form, which has none. */
+  readonly body?: EastIR<any, any> | AsyncEastIR<any, any>;
   /** The EXTRA positional parameter types (the state type comes from the record). */
   readonly argTypes: Args;
-  /** The reducer as an expression, kept beside its IR so export can compose
-   *  it into a generated program rather than re-deriving it from the IR. */
+  /** The body as an expression, kept beside its IR so export can compose it
+   *  into the generated program rather than re-deriving it from the IR. */
   readonly fn?: CallableFunctionExpr<any, any>;
   /** Runtime the reducer runs on; defaults to DEFAULT_RUNNER. */
   readonly runner: Runner;

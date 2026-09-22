@@ -66,8 +66,24 @@ function renderOutcome(outcome: { kind: string; [field: string]: unknown }): voi
   if (kind === 'invalid') exitError(String(outcome.message));
   if (kind === 'too_large') exitError(`New state too large (${String(outcome.bytes)} bytes > ${String(outcome.limit)} limit)`);
   if (kind === 'timed_out') exitError(`Mutation timed out after ${String(outcome.ms)}ms`);
-  if (kind === 'conflict') exitError(`Mutation conflicted after ${String(outcome.attempts)} attempts; try again`);
+  if (kind === 'conflict') {
+    // A delta that disagreed with the state names the key it disagreed on;
+    // a lost compare-and-swap race names only how many times it was lost.
+    const detail = outcome.detail === undefined || outcome.detail === null ? '' : `: ${String(outcome.detail)}`;
+    exitError(`Mutation conflicted after ${String(outcome.attempts)} attempts; try again${detail}`);
+  }
   exitError(`Unknown mutation outcome '${kind}'`);
+}
+
+/** Refuses the wrong number of arguments, saying what the one argument of a
+ *  `patch` mutation is — the state's patch, which is the thing people reach
+ *  for a row instead. */
+function checkArity(mutation: string, mut: { form: string; argTypes: unknown[] }, got: number): void {
+  if (got === mut.argTypes.length) return;
+  const what = mut.form === 'patch'
+    ? " — a patch mutation takes one argument, the record's patch (a .beast2/.json/.east file, or an .east literal)"
+    : '';
+  exitError(`Mutation '${mutation}' expects ${mut.argTypes.length} argument(s), got ${got}${what}`);
 }
 
 async function mutateLocal(repoPath: string, ws: string, record: string, mutation: string, rawArgs: string[], verbose?: boolean): Promise<void> {
@@ -78,9 +94,7 @@ async function mutateLocal(repoPath: string, ws: string, record: string, mutatio
   if (!mut) {
     exitError(`Mutation '${mutation}' not found on record '${record}'. Available: ${sig.mutations.map((m) => m.name).join(', ') || '(none)'}`);
   }
-  if (rawArgs.length !== mut.argTypes.length) {
-    exitError(`Mutation '${mutation}' expects ${mut.argTypes.length} argument(s), got ${rawArgs.length}`);
-  }
+  checkArity(mutation, mut, rawArgs.length);
   const args: Uint8Array[] = [];
   for (let i = 0; i < rawArgs.length; i++) {
     args.push(await encodeArg(rawArgs[i]!, mut.argTypes[i]!, i));
@@ -99,9 +113,7 @@ async function mutateRemote(baseUrl: string, repo: string, token: string, ws: st
   if (!mut) {
     exitError(`Mutation '${mutation}' not found on record '${record}'. Available: ${sig.mutations.map((m) => m.name).join(', ') || '(none)'}`);
   }
-  if (rawArgs.length !== mut.argTypes.length) {
-    exitError(`Mutation '${mutation}' expects ${mut.argTypes.length} argument(s), got ${rawArgs.length}`);
-  }
+  checkArity(mutation, mut, rawArgs.length);
   const args: Uint8Array[] = [];
   for (let i = 0; i < rawArgs.length; i++) {
     args.push(await encodeArg(rawArgs[i]!, mut.argTypes[i]!, i));

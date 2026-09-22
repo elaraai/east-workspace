@@ -350,6 +350,7 @@ program
   .option('-w, --workspace <ws>', 'Workspace holding the record (required)')
   .option('--limit <n>', 'Maximum number of commits to show')
   .option('--from <hash>', 'Commit hash to start the walk at (page cursor)')
+  .option('--delta', "Show what each commit changed, per target (local repositories)")
   .action(historyCommand);
 
 // ---------------------------------------------------------------------------

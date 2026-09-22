@@ -64,7 +64,9 @@ Task → What do you need?
     │   ├─ Numeric → VectorType(T), MatrixType(T) where T is FloatType, IntegerType, or BooleanType
     │   ├─ Compound → StructType({...}), VariantType({...}), RecursiveType(...)
     │   ├─ Function → FunctionType<I, O>, AsyncFunctionType<I, O>
-    │   └─ Patch → PatchType(T) (compute patch type for any East type)
+    │   └─ Patch → PatchType(T) (compute patch type for any East type);
+    │       dictPatchOpsType(V) / setPatchOpsType(E) for the op a touched key
+    │       carries, when building a sparse key-addressed change set of your own
     │
     ├─ Create TypeScript Values for East Types
     │   ├─ NullType → null
