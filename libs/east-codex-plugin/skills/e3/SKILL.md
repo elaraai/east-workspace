@@ -759,6 +759,14 @@ const pkg = e3.package('planning', '1.0.0', plans, reschedule, e3.patchMutation(
 `e3.editTypeOf(recordType)` is the edit capability's type — the struct of three
 East functions an edit body declares as its last parameter.
 
+Costs are counted in segments, and a Dict or Set record is cut into segments by
+key — about a thousand entries each, whatever an entry weighs. Rows of a few
+hundred bytes make segments of tens of kilobytes; rows that carry large blobs or
+big nested collections make segments of many megabytes, and reading or
+rewriting one such row costs its whole segment. Keep the fields a view pages and
+an edit touches in narrow rows, and a bulky payload in a second record keyed the
+same way.
+
 ### e3.recordIndex(name, record, spec)
 
 A record is paged and searched in its primary key order and nothing else. An

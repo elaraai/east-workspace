@@ -2,7 +2,7 @@
 
 > Status: **proposal** · 2026-09-04 · revised 2026-09-22 (§9–§11: secondary
 > indexes, the mutation delta, steps for records; §7.3 corrected; §12–§17
-> renumbered from §9–§14)
+> renumbered from §9–§14) · 2026-09-23 (§8.7 rule 3: the byte bound decided)
 > Audience: e3 maintainers. Companion to [`e3-records.md`](./e3-records.md)
 > (the records spec) and [`e3-records-storage.md`](./e3-records-storage.md)
 > (the storage decision record). Resolves the §13 open question *"Redeploy
@@ -1073,11 +1073,17 @@ longer applies; they stay in this document as the considered alternative until
      rule three runtimes must agree on. The exposure this leaves is wide rows:
      at the 53 B/row of the sizes below a segment is ~52 KiB, but a row holding
      a nested collection at 10 KB makes a 1024-element segment ~10 MB, and a
-     segment is the unit of every random read and of every one-row rewrite. A
-     cap on *logical* (pre-deflate) bytes would be deterministic and
-     reproducible on all three runtimes and is the obvious extension; it
-     changes the rule id, so it is a decision to take before the first
-     production write rather than after.
+     segment is the unit of every random read and of every one-row rewrite —
+     measured, a `Dict<String, Blob>` of 300 one-MiB blobs is a single 300 MiB
+     segment. *Decided 2026-09-23: shipped count-only.* A plain cap on logical
+     (pre-deflate) bytes, deterministic as it would be, is the wrong fix: for
+     wide rows its cuts land more often than the 256 elements a hash cut
+     needs, so they never line up with the hash cuts again, and one row
+     growing by a byte re-cuts every segment after it — a wide-row mutation
+     becomes O(state), the cost this layout exists to remove. A bound that
+     keeps edit locality has to make the boundary test itself size-aware,
+     which is #788; it lands under a new rule id, and a manifest cut under an
+     older one is re-cut whole on its first write.
    - **FNV-1a rather than SHA-256**, because it is one multiply and one xor per
      byte with no state beyond a 64-bit accumulator, so every runtime
      reproduces it in a few lines and the per-element cost stays under the
@@ -2103,11 +2109,10 @@ apply, which is the user-visible capability of this revision.
 - **Boundary-rule constants (§8.7 rule 3). Resolved 2026-09-22** as
   `cdc/fnv1a64/256-1024-4096/1` — `MIN 256`, `TARGET 1024`, `MAX 4096`, FNV-1a
   64-bit over the key's canonical bare encoding, the cut falling *before* the
-  boundary key. See §8.7 rule 3 for why each is what it is. One sub-question
-  stays open and is cheap only until the first production write: whether the
-  rule should also cap a segment's *logical* (pre-deflate) bytes, which is
-  deterministic across runtimes where the compressed size is not, so that a
-  record of very wide rows does not get multi-megabyte segments.
+  boundary key. See §8.7 rule 3 for why each is what it is. The sub-question
+  of a byte bound is decided there too (2026-09-23): not a plain cap on
+  logical bytes, which would cost wide-row edits their locality, but a
+  size-aware boundary test under a new rule id — #788.
 - **Header byte identity across runtimes (§8.7 rule 2).** `spliceBeast2` needs
   byte-identical header prefixes, and type sections are not guaranteed
   byte-identical across independently built encoders (§8.4). The manifest pins
