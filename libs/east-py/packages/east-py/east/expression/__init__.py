@@ -50,7 +50,8 @@ Every build records an authoring-frame source map (``location.py``, #626):
 a runtime error inside a python-built function names the python
 ``file:line:column`` of the expression that raised it, on every runner the
 function is exported to. ``set_location_base_path`` fixes the directory the
-recorded paths are relativized against (the working directory by default).
+recorded paths are relativized against (the working directory by default),
+and ``set_location_capture(False)`` builds without recording them (#834).
 """
 
 from east.expression.capture import _eligible, _trace_out_type, capture_callback
@@ -139,6 +140,7 @@ from east.expression.location import (
     current_source_map,
     location_id,
     set_location_base_path,
+    set_location_capture,
     source_map_scope,
 )
 from east.expression.nodes import (
@@ -214,9 +216,10 @@ __all__ = [
     "if_else",
     "greatest",
     "least",
-    # authoring-frame source maps (#626)
+    # authoring-frame source maps (#626), and the switch that skips them (#834)
     "SourceMap",
     "set_location_base_path",
+    "set_location_capture",
     # block-level control flow (#578) — reached as East.while_ / East.for_ / …
     "Label",
     "while_",
