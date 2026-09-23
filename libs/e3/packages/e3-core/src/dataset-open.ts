@@ -89,7 +89,9 @@ export class DatasetSegments {
   /** Total elements (pairs) across every segment. */
   readonly elementCount: number;
   /** Stored bytes of the value: every segment object plus the manifest that
-   *  names them, or the blob when it is not stored as one. */
+   *  names them, or the blob when it is not stored as one. The header object
+   *  a manifest names is not counted — every segment carries those bytes
+   *  already, and counting it would cost a stat per open. */
   readonly bytes: number;
   /** The manifest, when this dataset is stored as one. */
   readonly manifest: CollectionManifest | null;
@@ -436,6 +438,9 @@ export async function openDatasetObject(
   } else {
     head = await storage.objects.read(repo, hash);
   }
+  // The head is the whole object when the store could not serve a range, or
+  // when the object ended inside the probe — then nothing is read twice.
+  const whole = !readRange || head.length < HEAD_PROBE_BYTES || (size !== undefined && head.length >= size);
   let typeValue: EastTypeValue;
   try {
     typeValue = readBeast2Type(head);
@@ -445,15 +450,13 @@ export async function openDatasetObject(
     return { hash, manifest: null };
   }
   if (isRecordStateType(typeValue)) {
-    const data = head.length < HEAD_PROBE_BYTES ? head : await storage.objects.read(repo, hash);
-    const state = decodeRecordState(data);
+    const state = decodeRecordState(whole ? head : await storage.objects.read(repo, hash));
     // A struct of this shape carrying another tag is a user value, not a state.
     if (state.kind === RECORD_STATE_KIND) return openDatasetObject(storage, repo, state.primary);
     return { hash, manifest: null };
   }
   if (!isCollectionManifestType(typeValue)) return { hash, manifest: null };
-  const data = head.length >= (size ?? Infinity) ? head : await storage.objects.read(repo, hash);
-  const manifest = decodeCollectionManifest(data);
+  const manifest = decodeCollectionManifest(whole ? head : await storage.objects.read(repo, hash));
   return { hash, manifest: manifest.kind === COLLECTION_MANIFEST_KIND ? manifest : null };
 }
 

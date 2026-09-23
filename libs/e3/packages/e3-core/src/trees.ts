@@ -608,8 +608,9 @@ export interface DatasetStatusResult {
   /** Bytes the VALUE occupies in the store. For a collection held as a
    *  segment manifest that is the segments plus the manifest, which `size` —
    *  the dataset object's own bytes — is not: a manifest is a few dozen bytes
-   *  per segment whatever the value weighs. `null` when the geometry was not
-   *  asked for or could not be read. */
+   *  per segment whatever the value weighs. The header object the manifest
+   *  names is not counted; every segment carries those bytes already. `null`
+   *  when the geometry was not asked for or could not be read. */
   storedBytes?: number | null;
 }
 
@@ -665,7 +666,6 @@ export async function workspaceGetDatasetStatus(
   if (ref.type === 'null') {
     return { refType: 'null', hash: null, datasetType, size: 0, segments: null, rows: null, storedBytes: null };
   }
-
 
   // value ref - get size from object store
   const { size } = await storage.objects.stat(repo, ref.value.hash);
