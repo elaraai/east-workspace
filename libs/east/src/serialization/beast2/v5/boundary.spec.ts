@@ -44,6 +44,7 @@ import {
   SEGMENT_MAX_BYTES,
   SEGMENT_RULE_KEYED,
   SEGMENT_RULE_ARRAY,
+  type Beast2Segment,
 } from "../index.js";
 import { toEastTypeValue } from "../../../type_of_type.js";
 
@@ -403,6 +404,45 @@ describe("beast2 v5 content-defined boundaries", () => {
       writer.add(["b", 2n]);
       writer.finish();
       assert.deepEqual([...decodeBeast2For(TableKeyedType)(Buffer.concat(chunks))], [["a", 1n], ["b", 2n]]);
+    });
+
+    test("hands each segment over as the blob carving it out of the whole gives", () => {
+      const value = table(20_000);
+      const blob = encodeBeast2PagedFor(TableType)(value);
+      const extents = readBeast2Extents(blob);
+      const { fences, counts, sizes } = geometry(blob, TableType);
+      const segments: Beast2Segment[] = [];
+      const writer = new Beast2ElementWriter(TableType, { segment: (segment) => { segments.push(segment); } });
+      for (const entry of value) writer.add(entry);
+      writer.finish();
+      assert.deepEqual(writer.header, blob.subarray(0, extents.prefixEnd));
+      assert.equal(writer.segments, counts.length);
+      assert.equal(segments.length, counts.length);
+      for (let i = 0; i < segments.length; i++) {
+        assert.deepEqual(segments[i]!.blob, carveBeast2(blob, i, i + 1, extents), `segment ${i}`);
+        assert.equal(segments[i]!.count, counts[i]);
+        assert.deepEqual(segments[i]!.fence, fences[i]);
+        assert.equal(segments[i]!.logicalBytes, sizes[i]);
+      }
+    });
+
+    test("hands an Array's segments over with empty fences, and an empty collection's none", () => {
+      const type = ArrayType(RowType);
+      const rows = Array.from({ length: 5_000 }, (_, i) => ({ id: BigInt(i), name: `row-${i}` }));
+      const segments: Beast2Segment[] = [];
+      const writer = new Beast2ElementWriter(type, { segment: (segment) => { segments.push(segment); } });
+      for (const row of rows) writer.add(row);
+      writer.finish();
+      assert.ok(segments.length > 1);
+      assert.ok(segments.every((segment) => segment.fence.length === 0));
+      assert.deepEqual(spliceBeast2(segments.map((segment) => segment.blob)), encodeBeast2PagedFor(type)(rows));
+
+      const none: Beast2Segment[] = [];
+      const empty = new Beast2ElementWriter(type, { segment: (segment) => { none.push(segment); } });
+      empty.finish();
+      assert.equal(none.length, 0);
+      const blob = encodeBeast2PagedFor(type)([]);
+      assert.deepEqual(empty.header, blob.subarray(0, readBeast2Extents(blob).prefixEnd));
     });
   });
 

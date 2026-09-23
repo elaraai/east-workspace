@@ -50,6 +50,8 @@ export {
   Beast2ElementWriter,
   type Beast2ElementWriterOptions,
   type Beast2ElementOf,
+  type Beast2Segment,
+  type Beast2SegmentSink,
   encodeBeast2SegmentsFor,
   encodeBeast2PagedFor,
   type Beast2PagedEncodeOptions,
@@ -89,6 +91,14 @@ export {
   type Beast2MergeOptions,
   type Beast2MergeStats,
 } from "./v5/merge.js";
+export {
+  recutBeast2For,
+  type Beast2SegmentRef,
+  type Beast2RecutPiece,
+  type Beast2RecutSink,
+  type Beast2RecutOptions,
+  type Beast2RecutStats,
+} from "./v5/recut.js";
 export {
   COLLECTION_MANIFEST_KIND,
   CollectionManifestType,

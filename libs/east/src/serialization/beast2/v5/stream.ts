@@ -8,7 +8,8 @@
  *
  * - {@link Beast2ElementWriter} — the canonical writer: elements in, segments
  *   out where the content-defined cut rule places them, so a collection's
- *   bytes are a function of its value alone. Every writer of a stored
+ *   bytes are a function of its value alone — as one blob, or as the
+ *   standalone segment blobs a manifest names. Every writer of a stored
  *   collection writes through it.
  * - {@link encodeBeast2PagedFor} — one whole value through the element writer.
  * - {@link Beast2Writer} — append-only streaming writer: each `write(batch)`
@@ -118,6 +119,125 @@ export type Beast2WriterOptions = {
 const POOL_MIN_LOGICAL_BYTES = 8 * 1024 * 1024;
 
 // =============================================================================
+// Framing
+// =============================================================================
+
+/**
+ * Frames segments' logical bytes — inline, or on the frame pool — and lands
+ * each frame in the order its segment was submitted, with what the submitter
+ * said about it. Both writers frame through one of these.
+ */
+class FramePipeline<I> {
+  private readonly codec: Beast2Codec;
+  private readonly parallel: boolean;
+  private readonly land: (frame: Uint8Array, info: I) => void;
+  /** `undefined` until decided; `null` when frames are written inline. */
+  private pool: FramePool | null | undefined;
+  private logicalWritten = 0;
+  /** Frames submitted to the pool and not yet landed, in order. */
+  private readonly inflight: { frame: PendingFrame; info: I }[] = [];
+
+  constructor(codec: Beast2Codec, parallel: boolean, land: (frame: Uint8Array, info: I) => void) {
+    this.codec = codec;
+    this.parallel = parallel;
+    this.land = land;
+  }
+
+  /** Frames one segment, or hands it to the pool; its frame lands once every
+   *  frame submitted before it has. */
+  submit(logical: Uint8Array, info: I): void {
+    this.logicalWritten += logical.length;
+    const pool = this.poolFor();
+    if (pool === null) {
+      const frame = new BufferWriter();
+      writeFrame(frame, logical, this.codec);
+      this.land(frame.toUint8Array(), info);
+      return;
+    }
+    // Back-pressure: at most two frames per worker in flight, so the
+    // writer's memory stays O(workers x segment).
+    while (this.inflight.length >= pool.workers * 2) this.appendFrames(1);
+    this.inflight.push({ frame: pool.submit(logical, this.codec), info });
+    this.appendFrames(0);
+  }
+
+  /** Lands every in-flight frame. */
+  settle(): void {
+    this.appendFrames(Infinity);
+  }
+
+  /** The pool to frame on — decided once a parallel writer has produced
+   *  enough bytes to be worth it. While frames are in flight the writer keeps
+   *  the pool they are on, so frames cannot interleave out of order; with none
+   *  in flight it follows the process's current pool — a new one after an idle
+   *  pool retired its workers, `null` once a pool has lost a worker — so a
+   *  writer never submits to terminated workers. */
+  private poolFor(): FramePool | null {
+    if (this.pool === undefined) {
+      if (!this.parallel || this.logicalWritten < POOL_MIN_LOGICAL_BYTES) return null;
+      this.pool = framePool();
+    } else if (this.pool !== null && this.inflight.length === 0) {
+      this.pool = framePool();
+    }
+    return this.pool;
+  }
+
+  /** Lands the done frames at the head of the in-flight queue, in order;
+   *  blocks until at least `minimum` have landed (`Infinity` settles the
+   *  queue). */
+  private appendFrames(minimum: number): void {
+    let appended = 0;
+    while (this.inflight.length > 0) {
+      const head = this.inflight[0]!;
+      if (appended >= minimum && !head.frame.ready()) return;
+      const bytes = head.frame.take();
+      this.inflight.shift();
+      this.land(bytes, head.info);
+      appended++;
+    }
+  }
+}
+
+/**
+ * The header a collection blob of `typeValue` starts with: magic, type
+ * section, source-map section, then the root tag as its own frame so every
+ * indexed segment frame is pure. A caller-provided prefix (splice tooling) is
+ * the header instead — after verifying its wire type IS the declared type,
+ * since a mismatched prefix would write a blob whose header lies about its
+ * contents.
+ */
+function headerFor(typeValue: EastTypeValue, sourceMap: SourceMap | null, headerPrefix: Uint8Array | undefined): Uint8Array {
+  if (headerPrefix !== undefined) {
+    verifyV5Magic(headerPrefix);
+    const prefixReader = new BufferReader(headerPrefix, MAGIC_BYTES_V5.length);
+    const { rootType } = readTypeSection(prefixReader);
+    if (!isTypeValueEqual(rootType, typeValue)) {
+      const printType = printFor(EastTypeValueType);
+      throw new TypeError(`beast2 v5: headerPrefix declares wire type ${printType(rootType)}, not the writer's ${printType(typeValue)} — the prefix must come from a blob of the same wire type`);
+    }
+    return headerPrefix;
+  }
+  const head = new BufferWriter();
+  head.writeBytes(MAGIC_BYTES_V5);
+  writeTypeSection(typeValue, head);
+  writeSourceMapSectionV5(sourceMap, head);
+  writeFrame(head, new Uint8Array([TAG_NEW]), "none");
+  return head.toUint8Array();
+}
+
+/** A segment as a standalone blob: the collection's header, the segment's
+ *  frame, the terminator, and an index naming the one segment — byte for byte
+ *  what carving it out of the whole blob gives. */
+function segmentBlob(head: Uint8Array, frame: Uint8Array, count: number): Uint8Array {
+  const blob = new BufferWriter(head.length + frame.length + TAG_OR_TERMINATOR_FRAME.length + 32);
+  blob.writeBytes(head);
+  blob.writeBytes(frame);
+  blob.writeBytes(TAG_OR_TERMINATOR_FRAME);
+  writeIndexAndFooter(blob, [{ offset: head.length, count }], true);
+  return blob.toUint8Array();
+}
+
+// =============================================================================
 // Streaming writer
 // =============================================================================
 
@@ -151,7 +271,6 @@ export class Beast2Writer<T extends EastType = EastType> {
   segments = 0;
   private readonly kind: SegmentedKind;
   private readonly sink: (bytes: Uint8Array) => void;
-  private readonly codec: Beast2Codec;
   private readonly selfContained: boolean;
   private readonly withIndex: boolean;
   private readonly ctx: V5EncodeContext;
@@ -162,12 +281,9 @@ export class Beast2Writer<T extends EastType = EastType> {
   private hasLast = false;
   private bytesWritten = 0;
   private finished = false;
-  private readonly parallel: boolean;
-  /** `undefined` until decided; `null` when frames are written inline. */
-  private pool: FramePool | null | undefined;
-  private logicalWritten = 0;
-  /** Frames submitted to the pool and not yet on the sink, in order. */
-  private readonly inflight: { frame: PendingFrame; count: number }[] = [];
+  /** Frames each segment and puts it on the sink as it lands, recording its
+   *  index entry there. */
+  private readonly frames: FramePipeline<number>;
 
   /**
    * @param type - the collection type this stream holds (Array/Set/Dict)
@@ -180,11 +296,13 @@ export class Beast2Writer<T extends EastType = EastType> {
     const typeValue = asTypeValue(type);
     this.kind = checkSegmented(typeValue);
     this.sink = sink;
-    this.codec = options?.codec ?? "deflate";
     this.selfContained = options?.selfContained ?? true;
     this.withIndex = options?.index ?? true;
-    this.parallel = options?.parallel ?? false;
     this.orderCmp = orderCmpFor(typeValue, this.kind);
+    this.frames = new FramePipeline<number>(options?.codec ?? "deflate", options?.parallel ?? false, (frame, count) => {
+      this.index.push({ offset: this.bytesWritten, count });
+      this.emit(frame);
+    });
 
     const sourceMap = options?.sourceMap ?? null;
     this.ctx = createV5EncodeContext(sourceMap, this.selfContained);
@@ -220,35 +338,13 @@ export class Beast2Writer<T extends EastType = EastType> {
       };
     }
 
-    // Header: magic + type section + source map section, then the root tag
-    // as its own frame so every indexed segment frame is pure. A caller-
-    // provided prefix (splice tooling) is emitted verbatim instead — after
-    // verifying its wire type IS the declared type, since a mismatched
-    // prefix would write a blob whose header lies about its contents.
-    if (options?.headerPrefix !== undefined) {
-      verifyV5Magic(options.headerPrefix);
-      const prefixReader = new BufferReader(options.headerPrefix, MAGIC_BYTES_V5.length);
-      const { rootType } = readTypeSection(prefixReader);
-      if (!isTypeValueEqual(rootType, typeValue)) {
-        const printType = printFor(EastTypeValueType);
-        throw new TypeError(`beast2 v5: headerPrefix declares wire type ${printType(rootType)}, not the writer's ${printType(typeValue)} — the prefix must come from a blob of the same wire type`);
-      }
-      this.ctx.containerCount = 1;
-      this.ctx.segmentBaseDef = 1;
-      this.emit(options.headerPrefix);
-      return;
-    }
-    const head = new BufferWriter();
-    head.writeBytes(MAGIC_BYTES_V5);
-    writeTypeSection(typeValue, head);
-    writeSourceMapSectionV5(sourceMap, head);
-    writeFrame(head, new Uint8Array([TAG_NEW]), "none");
+    const head = headerFor(typeValue, sourceMap, options?.headerPrefix);
     // The root container consumes definition 0 (no root object exists on the
     // encode side — batches are independent values, so nothing can alias it);
     // segments scope from definition 1 to match the decoder's numbering.
     this.ctx.containerCount = 1;
     this.ctx.segmentBaseDef = 1;
-    this.emit(head.toUint8Array());
+    this.emit(head);
   }
 
   /**
@@ -310,21 +406,7 @@ export class Beast2Writer<T extends EastType = EastType> {
    *  records its index entry as its frame lands. */
   private frameSegment(count: number, logicalBytes: Uint8Array): void {
     this.segments++;
-    this.logicalWritten += logicalBytes.length;
-
-    const pool = this.poolFor();
-    if (pool === null) {
-      const frame = new BufferWriter();
-      writeFrame(frame, logicalBytes, this.codec);
-      this.index.push({ offset: this.bytesWritten, count });
-      this.emit(frame.toUint8Array());
-      return;
-    }
-    // Back-pressure: at most two frames per worker in flight, so the
-    // writer's memory stays O(workers x segment).
-    while (this.inflight.length >= pool.workers * 2) this.appendFrames(1);
-    this.inflight.push({ frame: pool.submit(logicalBytes, this.codec), count });
-    this.appendFrames(0);
+    this.frames.submit(logicalBytes, count);
   }
 
   /**
@@ -337,39 +419,7 @@ export class Beast2Writer<T extends EastType = EastType> {
    *   failed or stopped responding (see {@link write}).
    */
   settle(): void {
-    this.appendFrames(Infinity);
-  }
-
-  /** The pool to frame on — decided once a parallel writer has produced
-   *  enough bytes to be worth it. While frames are in flight the writer keeps
-   *  the pool they are on, so frames cannot interleave out of order; with none
-   *  in flight it follows the process's current pool — a new one after an idle
-   *  pool retired its workers, `null` once a pool has lost a worker — so a
-   *  writer never submits to terminated workers. */
-  private poolFor(): FramePool | null {
-    if (this.pool === undefined) {
-      if (!this.parallel || this.logicalWritten < POOL_MIN_LOGICAL_BYTES) return null;
-      this.pool = framePool();
-    } else if (this.pool !== null && this.inflight.length === 0) {
-      this.pool = framePool();
-    }
-    return this.pool;
-  }
-
-  /** Passes the done frames at the head of the in-flight queue to the sink,
-   *  in order, assigning index offsets as they land; blocks until at least
-   *  `minimum` have been passed (`Infinity` settles the queue). */
-  private appendFrames(minimum: number): void {
-    let appended = 0;
-    while (this.inflight.length > 0) {
-      const head = this.inflight[0]!;
-      if (appended >= minimum && !head.frame.ready()) return;
-      const bytes = head.frame.take();
-      this.inflight.shift();
-      this.index.push({ offset: this.bytesWritten, count: head.count });
-      this.emit(bytes);
-      appended++;
-    }
+    this.frames.settle();
   }
 
   /**
@@ -381,7 +431,7 @@ export class Beast2Writer<T extends EastType = EastType> {
    */
   finish(): void {
     if (this.finished) return;
-    this.appendFrames(Infinity);
+    this.frames.settle();
     this.finished = true;
     const tail = new BufferWriter();
     writeFrame(tail, new Uint8Array([0x00]), "none");
@@ -481,9 +531,85 @@ export type Beast2ElementOf<T> =
 export type Beast2ElementWriterOptions = Omit<Beast2WriterOptions, "selfContained" | "index">;
 
 /**
- * The canonical writer of a collection blob: elements go in one at a time, in
+ * One segment of a collection as a store keeps it: a standalone blob, and what
+ * a manifest entry records of it.
+ */
+export interface Beast2Segment {
+  /** Elements (pairs, for a Dict) in the segment. */
+  readonly count: number;
+  /** Set/Dict: the segment's first key in its canonical bare encoding
+   *  (`encodeBeast2FenceFor`) — its fence. Array: empty. */
+  readonly fence: Uint8Array;
+  /** The segment's logical size: its elements' canonical bytes before
+   *  compression, which is what the cut rule measures a segment by. */
+  readonly logicalBytes: number;
+  /** The segment as a standalone v5 blob: the collection's header, the
+   *  segment's frame, the terminator, and an index of the one segment. */
+  readonly blob: Uint8Array;
+}
+
+/** Where a {@link Beast2ElementWriter} puts a collection written as separate
+ *  segment blobs rather than one blob. */
+export interface Beast2SegmentSink {
+  /**
+   * Receives each segment once it is written, in order.
+   *
+   * @param segment - the segment
+   */
+  segment(segment: Beast2Segment): void;
+}
+
+/** What a segment's frame lands with, before its blob is assembled. */
+type SegmentFacts = Omit<Beast2Segment, "blob">;
+
+/**
+ * Builds an encoder of a collection's root elements, one at a time, each in
+ * its canonical bytes: aliasing is scoped to the element, so no REF reaches a
+ * neighbour and the element's bytes depend on it alone.
+ *
+ * @param typeValue - the collection type (Array/Set/Dict)
+ * @param sourceMap - the stream's source map, for function values
+ * @returns a function appending one element's bytes to a writer and returning
+ *   the length of its key: a Set element's whole length, a Dict pair's key, 0
+ *   for an Array element, which has none
+ * @throws {TypeError} When `typeValue` is not an Array, Set or Dict type.
+ * @internal
+ */
+export function elementEncoderFor(typeValue: EastTypeValue, sourceMap: SourceMap | null): (element: unknown, writer: BufferWriter) => number {
+  const kind = checkSegmented(typeValue);
+  const ctx = createV5EncodeContext(sourceMap, true);
+  // The root container is definition 0, so elements define from 1.
+  ctx.containerCount = 1;
+  const typeCtx = new Map<bigint, any>();
+  if (kind === "Dict") {
+    const key = buildV5Encoder((typeValue as any).value.key, typeCtx);
+    const value = buildV5Encoder((typeValue as any).value.value, typeCtx);
+    return (element, writer) => {
+      ctx.containerIndex.clear();
+      ctx.segmentBaseDef = ctx.containerCount;
+      const start = writer.size;
+      key((element as [unknown, unknown])[0], writer, ctx);
+      const keyLength = writer.size - start;
+      value((element as [unknown, unknown])[1], writer, ctx);
+      return keyLength;
+    };
+  }
+  const elem = buildV5Encoder((typeValue as any).value, typeCtx);
+  const keyed = kind === "Set";
+  return (element, writer) => {
+    ctx.containerIndex.clear();
+    ctx.segmentBaseDef = ctx.containerCount;
+    const start = writer.size;
+    elem(element, writer, ctx);
+    return keyed ? writer.size - start : 0;
+  };
+}
+
+/**
+ * The canonical writer of a collection: elements go in one at a time, in
  * canonical order, and segments come out wherever the content-defined cut rule
- * ({@link SegmentCutter}) places them.
+ * ({@link SegmentCutter}) places them — as one blob, or as the standalone
+ * segment blobs a manifest names, one at a time to a {@link Beast2SegmentSink}.
  *
  * Each element is encoded as it arrives, with aliasing scoped to itself, so
  * its bytes depend on the element alone — and the cut rule reads nothing but
@@ -505,67 +631,70 @@ export type Beast2ElementWriterOptions = Omit<Beast2WriterOptions, "selfContaine
  * writer.add(["b", 2n]);
  * writer.finish();
  * decodeBeast2For(type)(Buffer.concat(chunks));  // Map { "a" => 1n, "b" => 2n }
+ *
+ * const segments: Beast2Segment[] = [];
+ * const split = new Beast2ElementWriter(type, { segment: (s) => segments.push(s) });
+ * split.add(["a", 1n]);
+ * split.finish();
+ * segments[0].blob;  // segment 0 as a standalone blob, under split.header
  * ```
  */
 export class Beast2ElementWriter<T extends EastType = EastType> {
   private readonly kind: SegmentedKind;
-  private readonly blob: Beast2Writer<T>;
-  private readonly ctx: V5EncodeContext;
-  /** Encodes one element at the end of the writer and returns the length of
-   *  its key: a Set element's whole length, a Dict pair's key, 0 for an
-   *  Array element, which has none. */
+  /** The writer of the one blob, when that is the output. */
+  private readonly blob: Beast2Writer<T> | null;
+  /** The framing of the segment blobs, when those are the output. */
+  private readonly frames: FramePipeline<SegmentFacts> | null;
+  private readonly head: Uint8Array;
   private readonly encodeElement: (element: unknown, writer: BufferWriter) => number;
   private readonly orderCmp: ((a: any, b: any) => number) | null;
-  private readonly cutter = new SegmentCutter();
+  private cutter = new SegmentCutter();
   /** The open segment's elements, back to back. */
   private readonly open = new BufferWriter();
   /** Elements in the open segment. */
   private count = 0;
+  /** The length of the open segment's first key — its fence. */
+  private firstKeyLength = 0;
+  private written = 0;
   private lastKey: unknown;
   private hasLast = false;
   private finished = false;
 
   /**
-   * @param type - the collection type the blob holds (Array/Set/Dict)
-   * @param sink - receives the blob's bytes as they are produced
+   * @param type - the collection type (Array/Set/Dict)
+   * @param sink - receives the blob's bytes as they are produced; or, as a
+   *   {@link Beast2SegmentSink}, each segment as a standalone blob
    * @param options - codec, source map, header prefix and parallel framing
    * @throws {TypeError} When `type` is not an Array, Set or Dict type, or
    *   when `options.headerPrefix` is not a v5 header of exactly `type`.
    */
-  constructor(type: T | EastTypeValue, sink: (bytes: Uint8Array) => void, options?: Beast2ElementWriterOptions) {
+  constructor(type: T | EastTypeValue, sink: ((bytes: Uint8Array) => void) | Beast2SegmentSink, options?: Beast2ElementWriterOptions) {
     const typeValue = asTypeValue(type);
     this.kind = checkSegmented(typeValue);
-    this.blob = new Beast2Writer<T>(typeValue, sink, options);
     this.orderCmp = orderCmpFor(typeValue, this.kind);
-    this.ctx = createV5EncodeContext(options?.sourceMap ?? null, true);
-    this.ctx.containerCount = 1;
-
-    const typeCtx = new Map<bigint, any>();
-    if (this.kind === "Dict") {
-      const key = buildV5Encoder((typeValue as any).value.key, typeCtx);
-      const value = buildV5Encoder((typeValue as any).value.value, typeCtx);
-      this.encodeElement = (element, writer) => {
-        const start = writer.size;
-        key((element as [unknown, unknown])[0], writer, this.ctx);
-        const keyLength = writer.size - start;
-        value((element as [unknown, unknown])[1], writer, this.ctx);
-        return keyLength;
-      };
+    this.encodeElement = elementEncoderFor(typeValue, options?.sourceMap ?? null);
+    const head = headerFor(typeValue, options?.sourceMap ?? null, options?.headerPrefix);
+    this.head = head;
+    if (typeof sink === "function") {
+      this.blob = new Beast2Writer<T>(typeValue, sink, options);
+      this.frames = null;
     } else {
-      const elem = buildV5Encoder((typeValue as any).value, typeCtx);
-      const keyed = this.kind === "Set";
-      this.encodeElement = (element, writer) => {
-        const start = writer.size;
-        elem(element, writer, this.ctx);
-        return keyed ? writer.size - start : 0;
-      };
+      this.blob = null;
+      this.frames = new FramePipeline<SegmentFacts>(options?.codec ?? "deflate", options?.parallel ?? false,
+        (frame, facts) => sink.segment({ ...facts, blob: segmentBlob(head, frame, facts.count) }));
     }
   }
 
   /** Segments written so far; the open segment is not among them until the
    *  cut rule closes it or {@link finish} does. */
   get segments(): number {
-    return this.blob.segments;
+    return this.written;
+  }
+
+  /** The header every segment is written under — magic, type section,
+   *  source-map section and root tag — which a manifest names as its header. */
+  get header(): Uint8Array {
+    return this.head;
   }
 
   /**
@@ -589,10 +718,6 @@ export class Beast2ElementWriter<T extends EastType = EastType> {
       }
     }
     const start = this.open.size;
-    // Aliasing is scoped to the element, so no REF reaches a neighbour and the
-    // element's bytes depend on it alone.
-    this.ctx.containerIndex.clear();
-    this.ctx.segmentBaseDef = this.ctx.containerCount;
     let keyLength: number;
     try {
       keyLength = this.encodeElement(element, this.open);
@@ -638,18 +763,59 @@ export class Beast2ElementWriter<T extends EastType = EastType> {
     // An Array element has no key, so the rule hashes it whole.
     const hashed = this.kind === "Array" ? element : element.subarray(0, keyLength);
     if (this.cutter.startsSegment(element.length, hashed)) {
-      this.blob.writeEncodedSegment(this.count, bytes.subarray(0, start));
+      this.writeSegment(bytes.subarray(0, start));
       const carried = element.slice();
       this.open.pop();
       this.open.writeBytes(carried);
       this.count = 0;
     }
+    if (this.count === 0) this.firstKeyLength = keyLength;
     this.count++;
   }
 
   /**
-   * Writes the open segment, then the terminator, index and footer.
-   * Idempotent.
+   * Waits for every in-flight frame and passes it to the sink, so the sink
+   * holds every segment written so far. A no-op for a serial writer.
+   *
+   * @throws {Error} For a parallel writer, when an in-flight frame's worker
+   *   failed or stopped responding (see {@link Beast2Writer.write}).
+   */
+  settle(): void {
+    if (this.blob !== null) this.blob.settle();
+    else this.frames!.settle();
+  }
+
+  /** Elements in the open segment.
+   *  @internal */
+  get openCount(): number {
+    return this.cutter.openCount;
+  }
+
+  /** Logical bytes in the open segment.
+   *  @internal */
+  get openBytes(): number {
+    return this.cutter.openBytes;
+  }
+
+  /**
+   * Ends the open segment here, for a caller that knows the cut rule starts
+   * one at what comes next without handing it over: writes the open segment,
+   * and makes the next element the first of a segment.
+   *
+   * @throws {Error} When called after {@link finish}.
+   * @internal
+   */
+  closeSegment(): void {
+    if (this.finished) throw new Error("add() after finish()");
+    this.writeSegment(this.open.toUint8Array());
+    this.open.pop();
+    this.count = 0;
+    this.cutter = new SegmentCutter();
+  }
+
+  /**
+   * Writes the open segment and — for a blob — the terminator, index and
+   * footer. Idempotent.
    *
    * @throws {Error} For a parallel writer, when an in-flight frame's worker
    *   failed or stopped responding (see {@link Beast2Writer.write}).
@@ -657,8 +823,28 @@ export class Beast2ElementWriter<T extends EastType = EastType> {
   finish(): void {
     if (this.finished) return;
     this.finished = true;
-    this.blob.writeEncodedSegment(this.count, this.open.toUint8Array());
-    this.blob.finish();
+    this.writeSegment(this.open.toUint8Array());
+    if (this.blob !== null) this.blob.finish();
+    else this.frames!.settle();
+  }
+
+  /** Writes the open segment, whose elements are `elements`, unless it is
+   *  empty. */
+  private writeSegment(elements: Uint8Array): void {
+    if (this.count === 0) return;
+    this.written++;
+    if (this.blob !== null) {
+      this.blob.writeEncodedSegment(this.count, elements);
+      return;
+    }
+    const logical = new BufferWriter(elements.length + 10);
+    logical.writeVarint(this.count);
+    logical.writeBytes(elements);
+    this.frames!.submit(logical.toUint8Array(), {
+      count: this.count,
+      fence: this.kind === "Array" ? new Uint8Array(0) : elements.slice(0, this.firstKeyLength),
+      logicalBytes: elements.length,
+    });
   }
 }
 

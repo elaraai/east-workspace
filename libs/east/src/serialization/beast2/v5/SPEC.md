@@ -458,7 +458,9 @@ handed the segments spliced back into one blob.
   self-contained blob is: the blob's header bytes up to and including the root
   tag frame, segment `i`'s frame byte-for-byte, the terminator frame, and an
   index of that one segment plus the footer. Splicing a manifest's segments
-  back under their shared header reproduces the single-blob form exactly.
+  back under their shared header reproduces the single-blob form exactly. A
+  canonical writer can hand a collection over as these segment blobs, one at a
+  time, rather than as one blob.
 - The **manifest** is a v5 blob whose root type is the struct
 
   ```
@@ -514,6 +516,37 @@ which east-py binds).
   by run, so with an associative merge function the result is the value a
   single run would have held.
 
+## Re-cutting
+
+A collection that arrives in **pieces** — the outputs of parts of one
+computation, the segments of a record around an edit — is written whole by a
+**re-cut** (TypeScript `v5/recut.ts`). A piece is a run of consecutive
+segments a canonical writer wrote, or elements in canonical order. The
+re-cut's segments are exactly the canonical writer's for the whole value.
+
+- **Carrying a segment.** Where a cut falls depends only on the elements since
+  the previous cut, so once the whole starts a segment where a piece started
+  one, the two cut alike until the piece ends: each of those segments is a
+  segment of the whole, byte for byte, and is carried over without being read.
+- **A seam.** A piece's last segment ended because the piece did. The whole
+  cuts after it when the rule starts a segment at the next element, given that
+  segment's element count and logical size. When it does not, the segment's
+  elements join what follows, and elements are cut one at a time until the
+  whole starts a segment where a piece does again. Under a Set or Dict root the
+  next element's hash input is a fence; under an Array root it is the next
+  segment's first element, which is read.
+- **Elements** are encoded with aliasing scoped to each, and cut by the rule.
+- **Moving an element by byte copy.** A segment the re-cut looks inside is
+  walked element by element, each decoded against an empty definition table,
+  so an element that refers outside itself is refused rather than copied (see
+  *Aliasing scope in a self-contained collection*).
+- A piece's segments must be a current writer's: cut by the current rules,
+  with aliasing scoped per element, and framed with the codec the re-cut
+  writes. A collection stored any other way — cut by an earlier rule, or not
+  by a canonical writer at all — goes in as its elements: checking its
+  segments would cost what re-encoding them does, and a canonical segment
+  re-encodes to the same bytes.
+
 ## Writer memory / reader memory
 
 - A writer of the canonical segments holds one open segment of encoded
@@ -524,7 +557,9 @@ which east-py binds).
   trees track O(1).
 - A run sorter holds its open run — under 64 MiB of encoded elements, plus the
   element that reaches the cap — and each of its elements' decoded keys. A
-  merge holds one decoded segment per input and one open output segment.
+  merge holds one decoded segment per input and one open output segment. A
+  re-cut holds one open output segment and the segments it has read: at most
+  the one it holds at a seam and the one arriving.
 - A sequential whole-value reader is O(value). The segment iterator is
   O(segment) decoded state (plus one pointer per container definition in
   non-self-contained streams). A paging reader is O(segment) per access.

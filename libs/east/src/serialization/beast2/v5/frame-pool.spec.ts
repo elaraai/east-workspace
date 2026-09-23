@@ -26,6 +26,7 @@ import {
   Beast2Writer,
   decodeBeast2For,
   encodeBeast2PagedFor,
+  type Beast2Segment,
 } from "../index.js";
 import { configureFramePool, framePool } from "./frame-pool.js";
 
@@ -102,6 +103,25 @@ describe("beast2 v5 parallel frame writer", () => {
     const decoded = decodeBeast2For(type)(pooled);
     assert.equal(decoded.size, entries.length);
     assert.equal(decoded.get(3n * 777n), values[777]);
+  });
+
+  test("a pooled writer hands over the segments an inline one does", () => {
+    const items = strings(24_000, 0x5e95);
+    const type = ArrayType(StringType);
+    const segmentsOf = (parallel: boolean): Beast2Segment[] => {
+      const segments: Beast2Segment[] = [];
+      const writer = new Beast2ElementWriter(type, { segment: (segment) => { segments.push(segment); } }, { parallel });
+      for (const item of items) writer.add(item);
+      writer.finish();
+      return segments;
+    };
+    const pooled = segmentsOf(true);
+    const inline = segmentsOf(false);
+    assert.equal(pooled.length, inline.length);
+    for (let i = 0; i < inline.length; i++) {
+      assert.equal(firstDifference(pooled[i]!.blob, inline[i]!.blob), -1, `segment ${i}`);
+      assert.equal(pooled[i]!.count, inline[i]!.count);
+    }
   });
 
   test("the pool is created on a multi-core Node host", () => {
