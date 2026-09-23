@@ -98,6 +98,26 @@ if (a === b) { /* WRONG — fails for BigInt vs number, fails for structs */ }
 arr.sort((a, b) => a - b);  // WRONG — overflows BigInt, mis-orders NaN
 ```
 
+### Values that carry functions: `equivalentFor`
+
+`equalFor` treats every pair of functions as EQUAL — the right answer for
+data. It is the wrong one for a render memo or a cache key over a value that
+carries callbacks: a closure that captured new data compares equal to the old
+one, and the memo or cache serves stale output. `equivalentFor(T)` is
+`equalFor` everywhere except on functions, which it compares by IR and
+captured values (a host function without IR only to itself).
+
+```ts
+import { equivalentFor } from "@elaraai/east";
+
+const rootEqual = equivalentFor(PlanRootType);   // memo comparer over a value with callbacks
+```
+
+A renderer uses both: `equivalentFor` for its memo (a changed callback must
+re-render), `equalFor` for anything that resets local state (a changed callback
+must not wipe what the user typed) — east-ui-components' `useValueSync` /
+`useDataStable` gate on it.
+
 ---
 
 ## 3. Use `variant()` / `some()` / `none` — never hand-roll tagged objects
@@ -203,6 +223,7 @@ instead) and pager-backed lazy values.
 |---|---|---|
 | Runtime type check | `isValueOf(v, T)` | `typeof v`, `instanceof` |
 | Equality | `equalFor(T)(a, b)` | `a === b` |
+| Memo / cache key over a value with functions | `equivalentFor(T)(a, b)` | `equalFor(T)` (every function compares equal) |
 | Less-than | `lessFor(T)(a, b)` | `a < b` |
 | Sort comparator | `compareFor(T)` | hand-rolled `(a,b)=>...` |
 | Construct variant | `variant("Tag", data)` | `{ tag, data }` |

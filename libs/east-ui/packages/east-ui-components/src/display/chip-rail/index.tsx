@@ -13,13 +13,13 @@
 
 import { memo, Fragment, useMemo } from "react";
 import { Flex as ChakraFlex, Separator as ChakraSeparator, Box as ChakraBox, useSlotRecipe } from "@chakra-ui/react";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { ChipRail } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 import { useDensity, DensityProvider, type Density } from "../../contracts/density";
 
-const chipRailEqual = equalFor(ChipRail.Types.ChipRail);
+const chipRailEqual = equivalentFor(ChipRail.Types.ChipRail);
 
 /** East ChipRail value type. */
 export type ChipRailValue = ValueTypeOf<typeof ChipRail.Types.ChipRail>;

@@ -35,7 +35,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode
 import { Box, Text, Menu, Portal, Spinner, useRecipe, useSlotRecipe } from '@chakra-ui/react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faArrowDown, faArrowUp, faCheck, faChevronDown, faPlus, faTriangleExclamation, faXmark } from '@fortawesome/free-solid-svg-icons';
-import { fromEastTypeValue, variant, some, none, equalFor, isEastSet, type EastType, type EastTypeValue, type ValueTypeOf } from '@elaraai/east';
+import { fromEastTypeValue, variant, some, none, equivalentFor, isEastSet, type EastType, type EastTypeValue, type ValueTypeOf } from '@elaraai/east';
 import { Experiment } from '@elaraai/e3-ui/internal';
 import {
     implementUIComponent,
@@ -265,10 +265,10 @@ export interface EastChakraExperimentProps {
     storageKey: string;
 }
 
-// Structural equality over the decoded payload — the MANDATORY memo+equalFor rule
-// (east-ui-components/CLAUDE.md). The payload is all data structs (binding
-// descriptors {name}, diff handles), so equalFor compares cleanly.
-const experimentValueEqual = equalFor(Experiment.Component.schema);
+// The MANDATORY memo comparer, `equivalentFor` (east-ui-components/CLAUDE.md,
+// #809). The payload is all data structs (binding descriptors {name}, diff
+// handles), so it compares exactly as `equalFor` would.
+const experimentValueEqual = equivalentFor(Experiment.Component.schema);
 
 const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastChakraExperimentProps) {
     const v = value as unknown as ValueTypeOf<typeof Experiment.Types.Payload>;

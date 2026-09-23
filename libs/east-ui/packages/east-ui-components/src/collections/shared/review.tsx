@@ -10,8 +10,8 @@
  * composes the same pieces:
  *
  * - {@link useReviewController} — the optimistic per-row decisions state
- *   (the mandatory interactive-state pattern: local `useState`, `useEffect`
- *   re-sync on value change, `queueMicrotask` for the East callbacks).
+ *   (the mandatory interactive-state pattern: local `useState`, re-synced on
+ *   a data change, `queueMicrotask` for the East callbacks).
  * - {@link DecisionButtons} — the per-row Approve / Reject pair (shared
  *   `button` recipe, so it matches the DecisionQueue).
  * - {@link ReviewFoot} — the batch foot on the shared `commitBar` recipe
@@ -109,10 +109,11 @@ export interface ReviewController extends ReviewFootModel {
  *
  * @remarks
  * Seeds the local decision map from the rows' `approval` fields and re-syncs
- * whenever `approvals` changes identity — memoise it from the component's
- * value (`useMemo(() => value.rows.map(r => r.approval), [value])`) so the
- * reset tracks data changes, not re-renders. Callbacks fire through
- * `queueMicrotask` per the interactive-state pattern.
+ * whenever `approvals` changes identity — memoise it from the component
+ * value's DATA (`const data = useDataStable(value, dataEqual)`, then
+ * `useMemo(() => data.rows.map(r => r.approval), [data])`) so the reset
+ * tracks data changes, not re-renders or closure-only changes (#809).
+ * Callbacks fire through `queueMicrotask` per the interactive-state pattern.
  */
 export function useReviewController(
     review: RowReviewValue | undefined,

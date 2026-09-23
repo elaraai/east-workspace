@@ -6,14 +6,14 @@
 import React, { memo, useMemo, useCallback, useRef } from "react";
 import { usePersistedState } from "../../hooks/usePersistedState";
 import { Box, Splitter as ChakraSplitter, useSlotRecipe } from "@chakra-ui/react";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Splitter } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 import { useContainerBelow } from "../../contracts/adaptive.js";
 
 // Pre-define the equality function at module level
-const splitterEqual = equalFor(Splitter.Types.Splitter);
+const splitterEqual = equivalentFor(Splitter.Types.Splitter);
 
 /** East Splitter value type */
 export type SplitterValue = ValueTypeOf<typeof Splitter.Types.Splitter>;

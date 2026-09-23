@@ -17,7 +17,7 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import { Box, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faArrowRight, faArrowDown, faBan, faRotateRight } from "@fortawesome/free-solid-svg-icons";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equalFor, equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Flowchart, Slice as SliceInternal, type UIComponentType } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
@@ -26,6 +26,7 @@ import { SliceRailCluster } from "../../slice/rail";
 import { SliceDensityContext } from "../../slice/density";
 import { parseCssSize } from "../../style/parse-size.js";
 import { useSliceReactivity } from "../../slice/use-slice-reactivity";
+import { useDataStable } from "../../hooks/useDataStable";
 import {
     buildModel, type FlowchartModel, type FlowchartValue, type ModelLink,
 } from "./model.js";
@@ -36,7 +37,8 @@ import {
 } from "./layout.js";
 import { dropTargetAt, existingLink, laneAt } from "./connect.js";
 
-const flowchartEqual = equalFor(Flowchart.Types.Flowchart);
+const flowchartEqual = equivalentFor(Flowchart.Types.Flowchart);
+const flowchartDataEqual = equalFor(Flowchart.Types.Flowchart);
 
 export type { FlowchartValue };
 
@@ -151,7 +153,11 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
     const styles = useSlotRecipe({ key: "flowchart" })();
 
     // ── decode ────────────────────────────────────────────────────────────
-    const model = useMemo(() => buildModel(value), [value]);
+    // Keyed on the value's DATA identity (#809): a closure-only change
+    // re-renders with the new callbacks but keeps the model — and the routed
+    // layout derived from it.
+    const data = useDataStable(value, flowchartDataEqual);
+    const model = useMemo(() => buildModel(data), [data]);
     const orientationDefault = (getSomeorUndefined(value.orientation)?.type ?? "LR") as "LR" | "TD";
     const freshness = getSomeorUndefined(value.freshness);
     const legendOn = getSomeorUndefined(value.legend) ?? true;

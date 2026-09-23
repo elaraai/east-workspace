@@ -5,13 +5,13 @@
 
 import { memo, useMemo } from "react";
 import { Badge as ChakraBadge, type BadgeProps } from "@chakra-ui/react";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Badge } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { parseCssSize } from "../../style/parse-size.js";
 import { useDensity } from "../../contracts/density";
 
-const badgeEqual = equalFor(Badge.Types.Badge);
+const badgeEqual = equivalentFor(Badge.Types.Badge);
 
 /** East Badge value type. */
 export type BadgeValue = ValueTypeOf<typeof Badge.Types.Badge>;

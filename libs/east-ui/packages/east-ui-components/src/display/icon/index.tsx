@@ -10,13 +10,13 @@ import { library, type IconName, type IconPrefix } from "@fortawesome/fontawesom
 import { fas } from "@fortawesome/free-solid-svg-icons";
 import { far } from "@fortawesome/free-regular-svg-icons";
 import { fab } from "@fortawesome/free-brands-svg-icons";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Icon } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 
 library.add(fas, far, fab);
 
-const iconEqual = equalFor(Icon.Types.Icon);
+const iconEqual = equivalentFor(Icon.Types.Icon);
 
 /** East Icon value type. */
 export type IconValue = ValueTypeOf<typeof Icon.Types.Icon>;

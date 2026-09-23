@@ -3,14 +3,16 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { memo, useMemo, useCallback, useState, useEffect, useId } from "react";
+import { memo, useMemo, useCallback, useState, useId } from "react";
 import { TagsInput as ChakraTagsInput, type TagsInputRootProps } from "@chakra-ui/react";
-import { equalFor, some, none, type ValueTypeOf } from "@elaraai/east";
+import { equalFor, equivalentFor, some, none, type ValueTypeOf } from "@elaraai/east";
 import { TagsInput } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
+import { useValueSync } from "../../hooks/useValueSync";
 
 // Pre-define equality function at module level
-const tagsInputEqual = equalFor(TagsInput.Types.Root);
+const tagsInputEqual = equivalentFor(TagsInput.Types.Root);
+const tagsInputDataEqual = equalFor(TagsInput.Types.Root);
 
 /** East TagsInput value type */
 export type TagsInputValue = ValueTypeOf<typeof TagsInput.Types.Root>;
@@ -63,9 +65,7 @@ export const EastChakraTagsInput = memo(function EastChakraTagsInput({ value }: 
     const onInputChangeFn = useMemo(() => getSomeorUndefined(value.onInputChange), [value.onInputChange]);
     const onHighlightChangeFn = useMemo(() => getSomeorUndefined(value.onHighlightChange), [value.onHighlightChange]);
 
-    useEffect(() => {
-        setProps(() => toChakraTagsInput(value));
-    }, [value]);
+    useValueSync(value, tagsInputDataEqual, () => setProps(toChakraTagsInput(value)));
 
     const handleValueChange = useCallback((details: { value: string[] }) => {
         setProps(prev => ({ ...prev, value: details.value }));

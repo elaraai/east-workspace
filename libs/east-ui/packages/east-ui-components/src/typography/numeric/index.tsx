@@ -10,12 +10,12 @@
 
 import { memo, useMemo } from "react";
 import { Box, Text as ChakraText } from "@chakra-ui/react";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Numeric } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { formatTick } from "./format-tick";
 
-const numericEqual = equalFor(Numeric.Types.Numeric);
+const numericEqual = equivalentFor(Numeric.Types.Numeric);
 
 /** East Numeric value type */
 export type NumericValue = ValueTypeOf<typeof Numeric.Types.Numeric>;

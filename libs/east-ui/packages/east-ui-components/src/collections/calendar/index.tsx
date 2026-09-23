@@ -5,7 +5,7 @@
 
 import { memo, useCallback, useMemo, useState, type ReactNode } from "react";
 import { Box, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Calendar } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { parseCssSize } from "../../style/parse-size.js";
@@ -13,7 +13,7 @@ import { VirtualRows } from "../virtual-rows.js";
 import { useDensity } from "../../contracts/density";
 import { usePlotGutter } from "../../contracts/plot-gutter.js";
 
-const calendarEqual = equalFor(Calendar.Types.Calendar);
+const calendarEqual = equivalentFor(Calendar.Types.Calendar);
 
 /** East Calendar value type. */
 export type CalendarValue = ValueTypeOf<typeof Calendar.Types.Calendar>;

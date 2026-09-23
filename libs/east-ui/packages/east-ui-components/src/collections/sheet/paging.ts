@@ -23,6 +23,8 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { equivalentFor } from "@elaraai/east";
+import { Sheet } from "@elaraai/east-ui/internal";
 import { useTrackedEvaluation } from "../../reactive/index.js";
 import {
     createLedger, observeWindow, documentHeight, elementAtOffset, offsetOfWindow,
@@ -85,6 +87,11 @@ function readFailure(err: unknown): string {
 /** The caller-owned read-once cache, keyed by window index. */
 type WindowCache = Map<number, readonly SheetRowValue[]>;
 
+/** Whether two paged sources serve the same rows: the same id AND equivalent
+ *  functions — `page` is the bridge over the author's projection, so its
+ *  captures are what the rows are projected WITH (#809). */
+const pagedSourceEquivalent = equivalentFor(Sheet.Types.Root.fields.rows.cases.paged);
+
 /**
  * Drive a paged sheet source.
  *
@@ -103,11 +110,18 @@ export function useSheetPaging(
     const [viewportWindow, setViewportWindow] = useState(0);
     const [isScrolling, setIsScrolling] = useState(false);
     const [sizeVersion, setSizeVersion] = useState(0);
-    const cacheRef = useRef<{ id: string; cache: WindowCache }>({ id: "", cache: new Map() });
+    // Read-once cache, keyed by the source that filled it — not by its id
+    // alone: a `page` whose closures changed serves different rows under the
+    // same id, so a source that is not EQUIVALENT to the filler drops the
+    // cache and the resident windows re-read (#809). Reset here rather than
+    // in an effect so a swapped source cannot serve the previous one's rows
+    // for a frame.
+    const cacheRef = useRef<{ source: SheetPagedSourceValue | undefined; cache: WindowCache }>({ source: undefined, cache: new Map() });
 
     const read = useCallback(() => {
         if (source === undefined) return undefined;
-        if (cacheRef.current.id !== source.id) cacheRef.current = { id: source.id, cache: new Map() };
+        const filledBy = cacheRef.current.source;
+        if (filledBy === undefined || !pagedSourceEquivalent(filledBy, source)) cacheRef.current = { source, cache: new Map() };
         let total: number | undefined;
         let error: string | undefined;
         try {
@@ -148,7 +162,7 @@ export function useSheetPaging(
         if (total === undefined || total === ledger.total) return;
         if (ledger.total > 0) {
             console.warn(`[Sheet] paged source ${source !== undefined ? `"${source.id}" ` : ""}changed total() ${ledger.total} → ${total} under one id — same id must serve same rows; dropping cached windows.`);
-            cacheRef.current = { id: cacheRef.current.id, cache: new Map() };
+            cacheRef.current = { source: cacheRef.current.source, cache: new Map() };
         }
         setLedger(createLedger(total, SHEET_PAGE_SIZE));
         setResidency(NO_RESIDENCY);

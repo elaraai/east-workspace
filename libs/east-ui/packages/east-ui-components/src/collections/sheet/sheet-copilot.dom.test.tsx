@@ -67,7 +67,7 @@ const ROWS_WITH_PACKAGING = [
     { id: "j2", start: some(FEB20), end: none, activity: "Packaging", qty: none, notes: "" },
 ];
 
-type Options = { proposers?: "sync" | "async"; hours?: number; rows?: ValueTypeOf<typeof PlanRowType>[]; footer?: string };
+type Options = { proposers?: "sync" | "async"; hours?: number; rows?: ValueTypeOf<typeof PlanRowType>[] };
 
 /** The sheet the way an author declares it: derive · history · sequence · default fills, a pattern proposer, an async model. */
 function buildCopilotSheet(opts: Options = {}): SheetRootValue {
@@ -137,7 +137,7 @@ function buildCopilotSheet(opts: Options = {}): SheetRootValue {
             driver: Sheet.driver("activity", activities, { key: (a) => a.name, label: (a) => a.name }),
             suggest: { ahead: 2n, triggers: ["activity", "start", "qty", "notes"], propose: opts.proposers === "async" ? [modelProposals] : [followUps] },
             blanks: 3,
-            footer: [{ text: opts.footer ?? "1 planned" }],
+            footer: [{ text: "1 planned" }],
         });
     });
     const value = East.compile(program, getRegisteredPlatformImplementations())() as
@@ -383,10 +383,13 @@ describe("async providers (§5 row 11)", () => {
     });
 });
 
-describe("the equalFor rule (§6.2)", () => {
-    test("a swapped provider function value re-runs the copilot on the next trigger", async () => {
-        const eight = withSpies(buildCopilotSheet({ rows: ROWS_WITH_PACKAGING, hours: 8.0, footer: "eight" }));
-        const two = withSpies(buildCopilotSheet({ rows: ROWS_WITH_PACKAGING, hours: 2.0, footer: "two" }));
+describe("a swapped provider (§6.2, #809)", () => {
+    test("a closure-only change swaps the provider the next trigger runs, and keeps the local edits", async () => {
+        // The same data twice; only closures differ (the default fill's
+        // captured `hours`, the spy). The memo sees them (`equivalentFor`); the
+        // local layer, keyed on the value's DATA, does not reset.
+        const eight = withSpies(buildCopilotSheet({ rows: ROWS_WITH_PACKAGING, hours: 8.0 }));
+        const two = withSpies(buildCopilotSheet({ rows: ROWS_WITH_PACKAGING, hours: 2.0 }));
         const { cell, key, type, editorKey, settle, rerender } = mount(eight.value);
         // j2 (Packaging, no history): the default fill is eight hours at 120/h.
         fireEvent.mouseDown(cell(1, "notes"), { button: 0 });
@@ -396,6 +399,7 @@ describe("the equalFor rule (§6.2)", () => {
         await settle();
         expect(cell(1, "qty").textContent).toBe("960cartons");
         rerender(two.value);
+        expect(cell(1, "notes").textContent).toBe("x");
         fireEvent.mouseDown(cell(1, "notes"), { button: 0 });
         key("y");
         type("y");

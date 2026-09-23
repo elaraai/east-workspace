@@ -9,7 +9,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { findIconDefinition, library } from "@fortawesome/fontawesome-svg-core";
 import { fas, faAnglesLeft, faAnglesRight, faBullseye, faCaretRight, faChevronLeft, faChevronRight, faExpand, faEye, faEyeSlash, faHand, faLayerGroup, faLink, faLock, faLockOpen, faMinus, faUpDownLeftRight, faObjectGroup, faObjectUngroup, faPlus, faXmark } from "@fortawesome/free-solid-svg-icons";
 import RBush from "rbush";
-import { equalFor, some, none, variant, type ValueTypeOf } from "@elaraai/east";
+import { equalFor, equivalentFor, some, none, variant, type ValueTypeOf } from "@elaraai/east";
 import { Schematic, Slice as SliceInternal, type UIComponentType } from "@elaraai/east-ui/internal";
 import type { IconName } from "@fortawesome/fontawesome-common-types";
 import { getSomeorUndefined } from "../../utils";
@@ -18,6 +18,7 @@ import { SliceRailCluster } from "../../slice/rail";
 import { parseCssSize } from "../../style/parse-size.js";
 import { useSliceReactivity } from "../../slice/use-slice-reactivity";
 import { usePersistedState } from "../../hooks/usePersistedState";
+import { useDataStable } from "../../hooks/useDataStable";
 import { LINK_HIT_SLOP, MARKER_LABEL_FONT, distanceToPolyline, markerHit, markerHitbox, netGeometry, orthogonalize, paintSchematic, parallelLanes as paintParallelLanes, LINK_LANE_GAP, type SchematicPalette, type SchematicPaintEffect } from "./paint";
 import { EMPTY_STRING_SET, type ItemBox, managedSelectionSet, marqueeHits, sameStringSet, sliceWithSelection } from "./selection";
 import { type LodTier, type NavZone, buildCenterTree, buildNavTree, declutterTiers, tierSize } from "./model";
@@ -29,7 +30,11 @@ import { SchematicPaletteProbe } from "./theme";
 
 library.add(fas);
 
-const schematicEqual = equalFor(Schematic.Types.Schematic);
+// The memo compares closures too (#809); the local-first overlays and the
+// derivations below key on the value's DATA identity, so a callback that
+// captured new data never replaces an in-progress edit or re-fits the camera.
+const schematicEqual = equivalentFor(Schematic.Types.Schematic);
+const schematicDataEqual = equalFor(Schematic.Types.Schematic);
 
 /** East Schematic value type. */
 export type SchematicValue = ValueTypeOf<typeof Schematic.Types.Schematic>;
@@ -187,6 +192,9 @@ function pointInPolygon(x: number, y: number, pts: readonly Pt[]): boolean {
 export const EastChakraSchematic = memo(function EastChakraSchematic({ value, storageKey }: EastChakraSchematicProps) {
     const styles = useSlotRecipe({ key: "schematic" })() as SlotStyles;
     const { width: W, height: H } = value.extent;
+    // Changes identity on a DATA change only — items / zones / links / nets /
+    // layers are read through it; callbacks come from `value` (#809).
+    const data = useDataStable(value, schematicDataEqual);
 
     const onSelectFn = useMemo(() => getSomeorUndefined(value.onSelect), [value.onSelect]);
     const onSelectionChangeFn = useMemo(() => getSomeorUndefined(value.onSelectionChange), [value.onSelectionChange]);
@@ -358,17 +366,18 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
     // Which items are slice-excluded (only meaningful when an effect is set).
     const excludedKeys = useMemo(() => {
         const s = new Set<string>();
-        if (hasEffect) for (const it of value.items) if (getSomeorUndefined(it.excluded) === true) s.add(it.key);
+        if (hasEffect) for (const it of data.items) if (getSomeorUndefined(it.excluded) === true) s.add(it.key);
         return s;
-    }, [value.items, hasEffect]);
+    }, [data.items, hasEffect]);
     // The effect only "engages" once something is actually excluded — otherwise
     // emphasis / frame would decorate every item (no narrowing active).
     const effectActive = hasEffect && excludedKeys.size > 0;
 
     // --- Local link state (#176, draw mode) — the form-input model. ----------
     // Created / re-targeted / deleted deltas over `value.links`, so link editing
-    // works with zero callbacks wired; a reactive `value.links` change REPLACES
-    // the local edits (prop is source of truth on change, like form inputs).
+    // works with zero callbacks wired; a reactive change to the links' DATA
+    // REPLACES the local edits (prop is source of truth on change, like form
+    // inputs) — a closure-only change keeps them (#809).
     const [linkEdits, setLinkEdits] = useState<{
         created: readonly SchematicLinkValue[];
         createdNets: readonly SchematicNetValue[];
@@ -379,47 +388,48 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
     }>({ created: [], createdNets: [], retarget: new Map(), deleted: new Set(), netEdits: new Map() });
     useEffect(() => {
         setLinkEdits({ created: [], createdNets: [], retarget: new Map(), deleted: new Set(), netEdits: new Map() });
-    }, [value.links, value.nets]);
+    }, [data.links, data.nets]);
     const hasLinkEdits = linkEdits.created.length > 0 || linkEdits.createdNets.length > 0
         || linkEdits.retarget.size > 0 || linkEdits.deleted.size > 0 || linkEdits.netEdits.size > 0;
     const effectiveLinks = useMemo<SchematicLinkValue[]>(() => {
-        if (!hasLinkEdits) return value.links;
-        const base = value.links
+        if (!hasLinkEdits) return data.links;
+        const base = data.links
             .filter(l => !linkEdits.deleted.has(l.key))
             .map(l => {
                 const rt = linkEdits.retarget.get(l.key);
                 return rt !== undefined ? { ...l, from: rt.from, to: rt.to } : l;
             });
         return [...base, ...linkEdits.created];
-    }, [value.links, linkEdits, hasLinkEdits]);
+    }, [data.links, linkEdits, hasLinkEdits]);
     const effectiveNets = useMemo<SchematicNetValue[]>(() => {
-        if (!hasLinkEdits) return value.nets;
+        if (!hasLinkEdits) return data.nets;
         // Membership edits apply AFTER the concat so leg-deletes also cover nets
         // created locally this session.
-        return [...value.nets.filter(n => !linkEdits.deleted.has(n.key)), ...linkEdits.createdNets].map(n => {
+        return [...data.nets.filter(n => !linkEdits.deleted.has(n.key)), ...linkEdits.createdNets].map(n => {
             const e = linkEdits.netEdits.get(n.key);
             return e !== undefined ? { ...n, sources: [...e.sources], destinations: [...e.destinations] } : n;
         });
-    }, [value.nets, linkEdits, hasLinkEdits]);
+    }, [data.nets, linkEdits, hasLinkEdits]);
     // --- Local item positions (#179, move tool) — the form-input model. -------
     // A position overlay over `value.items`, applied UPSTREAM of the working set
     // so centers / rbush / LOD / nav / link endpoints all follow a move for free;
-    // a reactive `value.items` change REPLACES the local moves.
+    // a reactive change to the items' DATA REPLACES the local moves.
     const [itemMoves, setItemMoves] = useState<ReadonlyMap<string, Pt>>(new Map());
-    useEffect(() => { setItemMoves(new Map()); }, [value.items]);
+    useEffect(() => { setItemMoves(new Map()); }, [data.items]);
     const movedItems = useMemo(() => {
-        if (itemMoves.size === 0) return value.items;
-        return value.items.map(it => {
+        if (itemMoves.size === 0) return data.items;
+        return data.items.map(it => {
             const m = itemMoves.get(it.key);
             return m !== undefined ? { ...it, x: m.x, y: m.y } : it;
         });
-    }, [value.items, itemMoves]);
+    }, [data.items, itemMoves]);
     // The ONE seam feeding local link/net edits to the canvas painter: paint sees
     // a value whose links + nets are the effective sets; everything else untouched.
+    // Built over the DATA identity, so a closure-only change never repaints.
     const paintValue = useMemo(() => (hasLinkEdits || itemMoves.size > 0)
-        ? { ...value, items: movedItems, links: effectiveLinks, nets: effectiveNets }
-        : value,
-    [value, movedItems, itemMoves, effectiveLinks, effectiveNets, hasLinkEdits]);
+        ? { ...data, items: movedItems, links: effectiveLinks, nets: effectiveNets }
+        : data,
+    [data, movedItems, itemMoves, effectiveLinks, effectiveNets, hasLinkEdits]);
     // Selected-link hygiene: clear when the link leaves the effective set
     // (deleted locally or dropped by a prop change).
     useEffect(() => {
@@ -513,7 +523,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
     // --- Layers: named groups toggled from the layer button. -----------------
     // Visibility / lock are VIEW state (persisted above; solo is transient); the
     // East `layers` carry only the author defaults. Absent ⇒ no layer chrome.
-    const layers = useMemo(() => getSomeorUndefined(value.layers) ?? [], [value.layers]);
+    const layers = useMemo(() => getSomeorUndefined(data.layers) ?? [], [data.layers]);
     const hasLayers = layers.length > 0;
     const layerVis = persisted.layerVis ?? EMPTY_LAYER_OVERRIDES;
     const layerLocks = persisted.layerLocks ?? EMPTY_LAYER_OVERRIDES;
@@ -550,11 +560,11 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
             const a = authorOpacityOf(lk);
             if (a < 1) alpha.set(key, a);
         };
-        for (const it of value.items) scan(it.key, getSomeorUndefined(it.layer));
-        for (const z of value.zones) scan(z.key, getSomeorUndefined(z.layer));
-        for (const l of value.links) scan(l.key, getSomeorUndefined(l.layer));
+        for (const it of data.items) scan(it.key, getSomeorUndefined(it.layer));
+        for (const z of data.zones) scan(z.key, getSomeorUndefined(z.layer));
+        for (const l of data.links) scan(l.key, getSomeorUndefined(l.layer));
         return { layerHiddenKeys: hiddenKeys, lockedKeys: locked, layerAlpha: alpha, layerHiddenLayers: hiddenLayers };
-    }, [layers, value.items, value.zones, value.links, layerLocks, layerHidden, authorLockedOf, authorOpacityOf]);
+    }, [layers, data.items, data.zones, data.links, layerLocks, layerHidden, authorLockedOf, authorOpacityOf]);
     // The view is "filtered" (drives the button's active state) whenever a layer
     // is hidden or a solo is active.
     const layersFiltered = layerHiddenLayers.size > 0 || soloLayer !== null;
@@ -562,11 +572,11 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
     const layerCounts = useMemo(() => {
         const m = new Map<string, number>();
         const add = (k: string | undefined) => { if (k !== undefined) m.set(k, (m.get(k) ?? 0) + 1); };
-        for (const it of value.items) add(getSomeorUndefined(it.layer));
-        for (const z of value.zones) add(getSomeorUndefined(z.layer));
-        for (const l of value.links) add(getSomeorUndefined(l.layer));
+        for (const it of data.items) add(getSomeorUndefined(it.layer));
+        for (const z of data.zones) add(getSomeorUndefined(z.layer));
+        for (const l of data.links) add(getSomeorUndefined(l.layer));
         return m;
-    }, [value.items, value.zones, value.links]);
+    }, [data.items, data.zones, data.links]);
     // Eye toggle: flip the layer's override off its EFFECTIVE visibility (so it
     // reverses correctly even under a solo, which it clears); lock toggles the
     // non-selectable override; solo isolates one layer; reset clears all.
@@ -600,8 +610,8 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
     // Zones are read at several surfaces (nav TOC, minimap, viewport spy, labels);
     // drop hidden-layer zones once here. Links are filtered inside paint.
     const shownZones = useMemo(
-        () => layerHiddenKeys.size === 0 ? value.zones : value.zones.filter(z => !layerHiddenKeys.has(z.key)),
-        [value.zones, layerHiddenKeys],
+        () => layerHiddenKeys.size === 0 ? data.zones : data.zones.filter(z => !layerHiddenKeys.has(z.key)),
+        [data.zones, layerHiddenKeys],
     );
 
     const [palette, setPalette] = useState<SchematicPalette | null>(null);
@@ -2286,10 +2296,10 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
     const frameSig = useMemo(() => {
         if (!(effectActive && frameFit)) return null;
         const keys: string[] = [];
-        for (const it of value.items) if (!excludedKeys.has(it.key) && !layerHiddenKeys.has(it.key)) keys.push(it.key);
+        for (const it of data.items) if (!excludedKeys.has(it.key) && !layerHiddenKeys.has(it.key)) keys.push(it.key);
         keys.sort();
         return keys.join("|");
-    }, [value.items, excludedKeys, layerHiddenKeys, effectActive, frameFit]);
+    }, [data.items, excludedKeys, layerHiddenKeys, effectActive, frameFit]);
     // `sizeReady` gates the initial fit: on mount `size` is null and `flyTo` bails,
     // so without it a State-seeded slice (filter already applied on load) would
     // never fit. It flips false→true once (resizes don't retrigger).

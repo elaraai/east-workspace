@@ -33,13 +33,14 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useReducer, use
 import { Box, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faEllipsis } from "@fortawesome/free-solid-svg-icons";
-import { equalFor, none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { equalFor, equivalentFor, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Plan, Slice } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils.js";
 import { parseCssSize } from "../../style/parse-size.js";
 import { DensityProvider } from "../../contracts/density.js";
 import { useContainerBelow } from "../../contracts/adaptive.js";
 import { useSliceReactivity } from "../../slice/use-slice-reactivity.js";
+import { useDataStable } from "../../hooks/useDataStable.js";
 import { boundRangeDomain } from "../../platform/slice/index.js";
 import { VirtualRows } from "../virtual-rows.js";
 import { PlanScaleContext, PlanDispatchContext, PlanCursorContext, PlanResolversContext, type PlanCursor, type PlanResolvers, type PlanElementRefValue } from "./context.js";
@@ -82,7 +83,16 @@ type SliceBindValue = ValueTypeOf<typeof Slice.Types.Bind>;
 
 export { type PlanRootValue, type PlanRowValue } from "./model.js";
 
-const planRootEqual = equalFor(Plan.Types.Root);
+// The memo compares CLOSURES too (#809). A Plan root is function-heavy — the
+// resolvers, the element callbacks, a paged source's `page` wrapping its
+// series — and `equalFor` calls every pair of functions equal, so a root that
+// differed only inside one (a resolver over new data, a series `match` over a
+// new threshold) was dropped and the canvas rendered the old closures.
+const planRootEqual = equivalentFor(Plan.Types.Root);
+// ...while the pure-data derivations key on the value's DATA identity, so the
+// root a closure-only change lets through swaps the callbacks without
+// rebuilding the row model, the scale or the link graph.
+const planRootDataEqual = equalFor(Plan.Types.Root);
 
 /** Default gutter width (px, desktop — the §8 sheet). */
 const GUTTER_W = 168;
@@ -101,6 +111,9 @@ export interface EastChakraPlanProps {
 
 /** Renders an East Plan value — the composite temporal canvas. */
 export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }: EastChakraPlanProps) {
+    // Changes identity on a DATA change only — read data fields through it,
+    // callbacks through `value` (#809).
+    const data = useDataStable(value, planRootDataEqual);
     // ── The rows channel: inline rows, or the derived paged source (§3.8)
     //    streamed in as a contiguous prefix by the loader hook. ──────────────
     const pagedSource = value.rows.type === "paged" ? value.rows.value : undefined;
@@ -124,8 +137,8 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     // The inline arm is the canvas's KEYED collection (#568) — decoded as a
     // SortedMap, so its values are already in canonical key order.
     const rows = useMemo(
-        () => (value.rows.type === "inline" ? [...value.rows.value.values()] : paging.rows),
-        [value.rows, paging.rows],
+        () => (data.rows.type === "inline" ? [...data.rows.value.values()] : paging.rows),
+        [data.rows, paging.rows],
     );
     // What the chrome tells the truth with (#567 D9). Counted in ELEMENTS —
     // the number `total()` reports — never canvas rows, since a series can emit
@@ -173,7 +186,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
 
     // ── Window + resolution: slice state ▸ axis ▸ fit-to-data (§3/§8) ─────
     // The axis KIND (#631) — every window read below speaks its slice arm.
-    const axisKind = value.axis.type;
+    const axisKind = data.axis.type;
     // Keyed on the DOMAIN NUMBERS, never on the range object. `slice.read()`
     // decodes fresh state on every render, so `sliceState.range` has a new
     // identity each time even when the window has not moved. Keying the memo
@@ -191,18 +204,18 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     // `resolveScale` owns the ladder: the slice's range ▸ the declared window
     // ▸ fit-to-data (a PAGED canvas must declare — #567 D8), per axis kind.
     const scale: PlanScale | undefined = useMemo(() => resolveScale({
-        axis: value.axis,
+        axis: data.axis,
         sliceWindow: sliceFromN === undefined || sliceToN === undefined ? undefined : [sliceFromN, sliceToN],
         sliceResolution,
         rows,
         paged: pagedSource !== undefined,
-    }), [value.axis, sliceFromN, sliceToN, sliceResolution, rows, pagedSource]);
+    }), [data.axis, sliceFromN, sliceToN, sliceResolution, rows, pagedSource]);
 
     // ── The one state machine ─────────────────────────────────────────────
     const index = useMemo(() => indexRows(rows), [rows]);
     // An ordinal axis orders its instants by the declared list — the
     // derivations sort cells by it (nothing else needs it).
-    const ordinalIndex = useMemo(() => ordinalIndexOf(value.axis), [value.axis]);
+    const ordinalIndex = useMemo(() => ordinalIndexOf(data.axis), [data.axis]);
     // Renderer-side derivations (§4.2 — the Table idiom): the IR declares
     // rollups / aggregates / summaries; the numbers are computed here.
     const derived = useMemo(() => derivePlan(index, ordinalIndex), [index, ordinalIndex]);
@@ -211,7 +224,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     // named, with the arm it carries — instead of being drawn somewhere wrong.
     const mismatches = useMemo(() => axisKindMismatches(index, axisKind), [index, axisKind]);
     // The R1 link graph — rows an edge touches grow the `links` control.
-    const linkedKeys = useMemo(() => linkedRowKeys(value.links), [value.links]);
+    const linkedKeys = useMemo(() => linkedRowKeys(data.links), [data.links]);
     // A run's instants by (row, run) — the overlay's off-window resolution.
     const runDates = useCallback((rowKey: string, runKey: string): { start: PlanInstantValue; end: PlanInstantValue } | undefined => {
         const row = index.byKey.get(rowKey);
@@ -237,8 +250,8 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
             declaredCollapsed: index.initiallyCollapsed,
             declaredGrain: initGrain,
         });
-        // eslint-disable-next-line react-hooks/exhaustive-deps -- reconcile fires on the VALUE identity; the index it prunes against is read fresh
-    }, [value]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- reconcile fires on the value's DATA identity; the index it prunes against is read fresh
+    }, [data]);
 
     // Rows that arrive WITHOUT a data change — a paged canvas streams its
     // windows in against an unchanging `value` — carry their own declared
@@ -252,8 +265,8 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
 
     // Row focus (R1 links / R2 expand) — family closure + height context.
     const linkFamily = useMemo(
-        () => (ui.focus?.kind === "links" ? deriveLinkFamily(value.links, ui.focus.key) : undefined),
-        [ui.focus, value.links],
+        () => (ui.focus?.kind === "links" ? deriveLinkFamily(data.links, ui.focus.key) : undefined),
+        [ui.focus, data.links],
     );
     const focusVisibleKeys = useMemo(
         () => (ui.focus !== null && linkFamily !== undefined
@@ -359,13 +372,13 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     }, [onDragFn]);
     const targetConfig = useMemo(() => (dropEligible ? {
         id: value.id,
-        sources: [...value.sources],
+        sources: [...data.sources],
         // `add` only. `move` / `resize` need a drag to START on the canvas —
         // a draggable run bar or chip — and nothing here begins one, so
         // declaring them would advertise a capability with no gesture behind it.
         kinds: { add: true },
         onDrag: handleDrop,
-    } : null), [dropEligible, value.id, value.sources, handleDrop]);
+    } : null), [dropEligible, value.id, data.sources, handleDrop]);
     useDragTarget(targetConfig);
     // One config shared by every droppable row — the per-row part of the
     // coordinate is the row itself, which `RowShell` already knows.
@@ -427,7 +440,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                     // window, so the rung idles there, exactly like the
                     // resolution segment (#615).
                     if (slice === undefined || scale === undefined) break;
-                    const nowInstant = axisNow(value.axis);
+                    const nowInstant = axisNow(data.axis);
                     if (nowInstant === undefined) break;
                     // Re-derive the window on period edges with the SAME
                     // column count, now a third of the way in (ahead is where
@@ -445,7 +458,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                 }
             }
         }
-    }, [slice, scale, value.axis, writeWindow, onSelect, onGroupToggle, onGrainChange]);
+    }, [slice, scale, data.axis, writeWindow, onSelect, onGroupToggle, onGrainChange]);
 
     const dispatch = useCallback((e: PlanEvent) => dispatchStore({ t: "event", e }), []);
     // The store's effect batch, drained EXACTLY ONCE per bump — post-commit
@@ -529,7 +542,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
         () => recipe({ density: dense ? "dense" : "default" } as Record<string, unknown>) as unknown as Styles,
         [recipe, dense],
     );
-    const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);
+    const style = useMemo(() => getSomeorUndefined(data.style), [data.style]);
     // gutterWidth is a CSS px size string (the shared component-height type).
     // `pxOf`, not `parseFloat`: a percentage must fall back to the default,
     // never silently become that many pixels (#615).
@@ -748,8 +761,8 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     // ── Shell composition ─────────────────────────────────────────────────
     // The resolution segment is a TIME-axis affordance; the now instant rides
     // whichever arm the axis declares.
-    const resolutions = useMemo(() => axisResolutions(value.axis), [value.axis]);
-    const now = useMemo(() => axisNow(value.axis), [value.axis]);
+    const resolutions = useMemo(() => axisResolutions(data.axis), [data.axis]);
+    const now = useMemo(() => axisNow(data.axis), [data.axis]);
 
     // A paged source that could not be READ outranks every other diagnostic:
     // there is no offline stand-in for `Data.bindPaged` (paging is a server
@@ -895,7 +908,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                             dense={dense} barHeight={barHeight} storageKey={storageKey}
                             slice={slice} affordances={affordances}
                             resolution={scale.resolution ?? ""} resolutions={resolutions}
-                            transport={transport} footer={value.footer} review={review}
+                            transport={transport} footer={data.footer} review={review}
                             expandBody={expandBody} expandGutterBody={expandGutterBody}
                             canExpand={expandRenderFn !== undefined}
                             partial={transport?.partial} fill={frameFills}
@@ -924,7 +937,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                             sizeVersion={paging.sizeVersion + focusVersion}
                             scrollElRef={scrollElRef}
                             header={header}
-                            footer={<PlanFooter styles={styles} items={value.footer} transport={transport} />}
+                            footer={<PlanFooter styles={styles} items={data.footer} transport={transport} />}
                             count={bodyItems.length}
                             estimateSize={(i) => {
                                 const item = bodyItems[i];
@@ -955,7 +968,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                         (ribbons need width — never on the narrow layout). */}
                     {!narrow && ui.focus?.kind === "links" && focusVisibleKeys !== undefined && (
                         <LinksOverlay container={focusBodyRef.current}
-                            links={value.links} visibleKeys={focusVisibleKeys}
+                            links={data.links} visibleKeys={focusVisibleKeys}
                             scale={scale} runDates={runDates} />
                     )}
                 </Box>

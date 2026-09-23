@@ -11,10 +11,12 @@
  * pressure behind #581: every read touched the runtime's decoded-window cache,
  * so a prefix longer than the cache evicted its own head.
  *
- * A landed window is immutable — a dataset that changes content is a new bind,
- * not a mutated window — so re-reading it can only return what we already have.
- * It is therefore read exactly once, into a caller-owned cache, and afterwards
- * served from there.
+ * A landed window is immutable for the source that read it — the driver owns
+ * the cache per source and drops it when the next source is not EQUIVALENT (the
+ * same id and the same series closures, `equivalentFor` — #809), since the rows
+ * here are DERIVED and a changed series derives different ones — so re-reading
+ * it can only return what we already have. It is therefore read exactly once,
+ * into a caller-owned cache, and afterwards served from there.
  *
  * # What the caching does to dependency tracking, and why that is correct
  *

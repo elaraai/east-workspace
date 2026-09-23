@@ -3,11 +3,11 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { memo, useCallback, useMemo, useState, type ReactNode } from "react";
 import { Box, Popover, Portal, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCheck, faGripVertical, faTrashCan } from "@fortawesome/free-solid-svg-icons";
-import { equalFor, match, some, none, variant, type ValueTypeOf } from "@elaraai/east";
+import { equalFor, equivalentFor, match, some, none, variant, type ValueTypeOf } from "@elaraai/east";
 import { Board, type CellRefType } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { parseCssSize } from "../../style/parse-size.js";
@@ -15,8 +15,10 @@ import { VirtualRows } from "../virtual-rows.js";
 import { useDragTarget, useDropCell, useDragEventChip, type DragEventValue, type DragMeta, type DragPayload } from "../../dnd/drag-layer";
 import { useIRCanDrop, canDropAllows, type CanDropFn } from "../../dnd/ir-can-drop";
 import { useReviewController, ReviewFoot } from "../shared/review";
+import { useValueSync } from "../../hooks/useValueSync";
 
-const boardEqual = equalFor(Board.Types.Board);
+const boardEqual = equivalentFor(Board.Types.Board);
+const boardDataEqual = equalFor(Board.Types.Board);
 
 /** Minimum width of a shift column — the `minmax(SHIFT_MIN, 1fr)` floor that
  *  keeps every column equal (and aligned to the header) while the board pans
@@ -306,7 +308,7 @@ export const EastChakraBoard = memo(function EastChakraBoard({ value, storageKey
     // callbacks persist the change, and the prop sync reconciles
     // authoritative data.
     const [assignments, setAssignments] = useState<BoardAssignmentValue[]>(() => [...value.assignments]);
-    useEffect(() => { setAssignments([...value.assignments]); }, [value.assignments]);
+    useValueSync(value, boardDataEqual, () => setAssignments([...value.assignments]));
     // Faces for optimistic adds whose person key is not in `people` yet.
     const [localFaces, setLocalFaces] = useState<Map<string, string>>(() => new Map());
 

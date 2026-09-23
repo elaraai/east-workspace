@@ -336,20 +336,32 @@ describe("paging driver — a derived source whose rows change (#590)", () => {
         } as unknown as PlanPagedSourceValue;
     }
 
-    test("a NEW page function under the SAME id serves the OLD rows — the window cache is keyed on id alone", async () => {
+    test("a NEW page function under the SAME id re-reads its resident windows (#809)", async () => {
         const { rerender } = render(<Harness src={labelled("ops", "before")} />);
         await waitFor(() => expect(text("rows")).toContain("before-w0"));
 
         // What a pick toggle does: the Reactive re-runs and the Plan rebuilds
         // its `page` (the series list inside it changed), but the underlying
-        // handle's id is the author's and does not move.
+        // handle's id is the author's and does not move. The cache belongs to
+        // the source that filled it, and this one is not equivalent — so the
+        // resident window is read again instead of served stale.
         rerender(<Harness src={labelled("ops", "after")} />);
-        await act(async () => { await Promise.resolve(); });
+        await waitFor(() => expect(text("rows")).toContain("after-w0"));
+        expect(text("rows")).not.toContain("before-w0");
+    });
 
-        // Resident windows are immutable and served from cache, so the canvas
-        // keeps showing rows the author no longer asked for.
-        expect(text("rows")).toContain("before-w0");
-        expect(text("rows")).not.toContain("after-w0");
+    test("an EQUIVALENT rebuilt source keeps the cache — no window is read twice", async () => {
+        const { value, asked } = source(50);
+        const { rerender } = render(<Harness src={value} />);
+        await waitFor(() => expect(text("resident")).toBe("0-600"));
+        const before = [...asked];
+
+        // A fresh struct over the same functions — what an unrelated root
+        // change hands the driver. Equivalent, so nothing is re-read.
+        rerender(<Harness src={{ ...value }} />);
+        await act(async () => { await Promise.resolve(); });
+        expect(asked).toEqual(before);
+        expect(text("resident")).toBe("0-600");
     });
 
     test("moving the id re-reads — which is why a derived source must sign its id", async () => {

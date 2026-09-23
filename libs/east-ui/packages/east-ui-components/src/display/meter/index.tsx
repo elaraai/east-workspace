@@ -5,13 +5,13 @@
 
 import { memo, useMemo } from "react";
 import { Box, useSlotRecipe } from "@chakra-ui/react";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Meter } from "@elaraai/east-ui/internal";
 import { EastChakraComponent } from "../../component";
 import { getSomeorUndefined } from "../../utils";
 import { useDensity } from "../../contracts/density";
 
-const meterEqual = equalFor(Meter.Types.Meter);
+const meterEqual = equivalentFor(Meter.Types.Meter);
 
 /** East Meter value type. */
 export type MeterValue = ValueTypeOf<typeof Meter.Types.Meter>;

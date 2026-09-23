@@ -29,8 +29,8 @@ import {
     type ColumnDef,
     type RowSelectionState,
 } from "@tanstack/react-table";
-import { compareFor, equalFor, printFor, variant, type ValueTypeOf } from "@elaraai/east";
-import { Table, type UIComponentType } from "@elaraai/east-ui/internal";
+import { compareFor, equalFor, equivalentFor, printFor, variant, OptionType, type ValueTypeOf } from "@elaraai/east";
+import { Table, ApprovalStateType, type UIComponentType } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 import { Slice as SliceInternal } from "@elaraai/east-ui/internal";
@@ -40,6 +40,7 @@ import { virtualScrollbarCss } from "../../style/scrollbar.js";
 import { coarseHitArea } from "../../style/hit-area.js";
 import { railAffordanceKinds } from "../../slice/rail-kinds.js";
 import { useSliceReactivity } from "../../slice/use-slice-reactivity";
+import { useDataStable } from "../../hooks/useDataStable";
 import { RowStateManager, type RowKey, type RowState } from "../../utils/RowStateManager";
 import { useRowStatusBg, useDensityHeights } from "../shared/helpers";
 import { useReviewController, DecisionButtons, ReviewFoot, DECISION_WIDTH, type ApprovalOptionValue } from "../shared/review";
@@ -51,8 +52,29 @@ import { useTablePagedRows, type TablePagedSourceValue } from "./use-paged-rows.
  * not 44 — the controls sit adjacent; full halos would swallow each other). */
 const coarseControlHalo = coarseHitArea({ position: true, size: 36 });
 
-// Pre-define equality function at module level
-const tableRootEqual = equalFor(Table.Types.Root);
+// The memo compares closures too (#809) — a column `render` or a click
+// callback over new data must reach the cells; the row space keys on the
+// value's DATA, so such a change never rebuilds it.
+const tableRootEqual = equivalentFor(Table.Types.Root);
+const tableRootDataEqual = equalFor(Table.Types.Root);
+const approvalEqual = equalFor(OptionType(ApprovalStateType));
+
+/** The review controller's re-seed key: the same row space and the same
+ *  verdicts (#809). */
+interface ReviewVerdicts {
+    rows: readonly TableRowValue[];
+    verdicts: readonly (ApprovalOptionValue | undefined)[];
+}
+
+/** Whether two {@link ReviewVerdicts} would seed the same decisions. */
+function sameVerdicts(a: ReviewVerdicts, b: ReviewVerdicts): boolean {
+    return a.rows === b.rows
+        && a.verdicts.length === b.verdicts.length
+        && a.verdicts.every((x, i) => {
+            const y = b.verdicts[i];
+            return x === y || (x !== undefined && y !== undefined && approvalEqual(x, y));
+        });
+}
 
 // Parse CSS size values to pixels (simple numeric extraction)
 const parseSize = (val: string | undefined, defaultVal: number): number => {
@@ -372,10 +394,15 @@ const TableCore = function TableCore({
         ((rowIndex: bigint) => { type: "some" | "none"; value: unknown }) | undefined, [value.reviewStatus]);
     const reviewApprovalFn = useMemo(() => getSomeorUndefined(value.reviewApproval) as
         ((rowIndex: bigint) => ApprovalOptionValue) | undefined, [value.reviewApproval]);
-    const reviewApprovals = useMemo(
-        () => sourceRows.map((_row: TableRowValue, i: number) => reviewApprovalFn?.(BigInt(i))),
+    const reviewVerdicts = useMemo<ReviewVerdicts>(
+        () => ({ rows: sourceRows, verdicts: sourceRows.map((_row: TableRowValue, i: number) => reviewApprovalFn?.(BigInt(i))) }),
         [sourceRows, reviewApprovalFn],
     );
+    // The controller re-seeds its optimistic decisions whenever `approvals`
+    // changes identity, so hold the identity while the rows and the verdicts
+    // are unchanged: a closure-only change re-evaluates `reviewApproval`, but
+    // only verdicts that actually moved re-seed (#809).
+    const reviewApprovals = useDataStable(reviewVerdicts, sameVerdicts).verdicts;
     const reviewController = useReviewController(review, reviewApprovals);
     const reviewChromeRecipe = useSlotRecipe({ key: "reviewChrome" });
     const reviewChrome = useMemo(() => reviewChromeRecipe({}) as Record<string, Record<string, unknown>>, [reviewChromeRecipe]);
@@ -1839,9 +1866,13 @@ export const EastChakraTable = memo(function EastChakraTable(props: EastChakraTa
     const pagedSource: TablePagedSourceValue | undefined =
         rowsArm.type === "paged" ? rowsArm.value : undefined;
     const paged = useTablePagedRows(pagedSource);
+    // Inline rows are pure data: key them on the value's DATA identity, so a
+    // closure-only change keeps the row space — and every state keyed on it —
+    // intact (#809). A paged source keeps its fresh closures above.
+    const dataRows = useDataStable(props.value, tableRootDataEqual).rows;
     const rows = useMemo(
-        () => (rowsArm.type === "inline" ? (rowsArm.value as TableRowValue[]) : paged.rows),
-        [rowsArm, paged.rows],
+        () => (dataRows.type === "inline" ? (dataRows.value as TableRowValue[]) : paged.rows),
+        [dataRows, paged.rows],
     );
     const transport = useMemo<TableTransport | undefined>(() => (pagedSource === undefined ? undefined : {
         loaded: paged.loadedElements,
@@ -1948,4 +1979,4 @@ export const EastChakraTable = memo(function EastChakraTable(props: EastChakraTa
             </Box>
         </Box>
     );
-}, (prev, next) => tableRootEqual(prev.value, next.value));
+}, (prev, next) => tableRootEqual(prev.value, next.value) && prev.storageKey === next.storageKey);

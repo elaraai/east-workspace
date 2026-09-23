@@ -48,6 +48,7 @@ import {
     decodeBeast2For,
     encodeBeast2For,
     equalFor,
+    equivalentFor,
     ConflictError,
     detectConflictsFor,
     mergeWithResolutionsFor,
@@ -65,7 +66,7 @@ import {
 } from "@elaraai/east";
 import type { TreePath } from "@elaraai/e3-types";
 import { Diff, DiffBindingType } from "@elaraai/e3-ui/internal";
-import { implementUIComponent } from "@elaraai/east-ui-components";
+import { implementUIComponent, useDataStable } from "@elaraai/east-ui-components";
 
 import {
     getStagedStore,
@@ -89,7 +90,10 @@ import { isPrimitiveLeafType, formatManualDraft, parseManualDraft } from "./manu
 // =============================================================================
 
 type DiffValue = ValueTypeOf<typeof Diff.Component.schema>;
-const diffValueEqual = equalFor(Diff.Component.schema);
+// The memo compares closures too (`onCommitted` / `onDiscarded`, #809); the
+// bindings and the conflict-state reset key on the value's DATA instead.
+const diffValueEqual = equivalentFor(Diff.Component.schema);
+const diffValueDataEqual = equalFor(Diff.Component.schema);
 
 /**
  * What "Apply" does for this binding. Determined by the binding's mode +
@@ -968,9 +972,12 @@ const EastChakraDiff = memo(function EastChakraDiff({ value }: EastChakraDiffPro
     const [resolutions, setResolutions] = useState<Map<string, Resolution>>(new Map());
     const [committing, setCommitting] = useState(false);
 
+    // Changes identity on a DATA change only — a new `onCommitted` closure must
+    // not re-derive the bindings or drop the conflict resolutions (#809).
+    const data = useDataStable(value, diffValueDataEqual);
     const irBindings = useMemo(
-        () => (value.bindings ?? []) as ValueTypeOf<typeof DiffBindingType>[],
-        [value.bindings],
+        () => (data.bindings ?? []) as ValueTypeOf<typeof DiffBindingType>[],
+        [data.bindings],
     );
     const interactive = !(getOpt(value.readonly) ?? false);
     const onCommittedFn = getOpt(value.onCommitted) as (() => void) | undefined;
@@ -1015,7 +1022,7 @@ const EastChakraDiff = memo(function EastChakraDiff({ value }: EastChakraDiffPro
     useEffect(() => {
         setConflicts(null);
         setResolutions(new Map());
-    }, [value, stagedVersion, datasetVersion]);
+    }, [data, stagedVersion, datasetVersion]);
 
     // Hide bindings with no leaves — covers the "buffered === snapshot" edge
     // case where StagedStore still holds an entry but the user reverted it.

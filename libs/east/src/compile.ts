@@ -28,27 +28,12 @@ import type { AnalyzedIR } from "./analyze.js";
 import { ref } from "./containers/ref.js";
 import { matrix } from "./containers/matrix.js";
 import type { PlatformFunction } from "./platform.js";
+import { EAST_IR_SYMBOL, EAST_CAPTURES_SYMBOL, EAST_SOURCE_MAP_SYMBOL } from "./function_symbols.js";
 
 export { isTypeValueEqual };
 export const printTypeValue = printFor(EastTypeValueType) as (type: EastTypeValue) => string;
 
-/**
- * Symbol used to attach source IR to compiled functions.
- * This enables serialization of free functions (functions with no captures).
- */
-export const EAST_IR_SYMBOL = Symbol.for("east.ir");
-
-/**
- * Symbol used to attach capture values to compiled functions.
- * This enables serialization of closures (functions with captures).
- */
-export const EAST_CAPTURES_SYMBOL = Symbol.for("east.captures");
-
-/**
- * Symbol used to attach source map to compiled functions.
- * Enables encoding location stacks into beast2 source_map_section.
- */
-export const EAST_SOURCE_MAP_SYMBOL = Symbol.for("east.source_map");
+export { EAST_IR_SYMBOL, EAST_CAPTURES_SYMBOL, EAST_SOURCE_MAP_SYMBOL };
 
 // =============================================================================
 // Context Value Types - for variables in execution context

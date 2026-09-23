@@ -395,6 +395,10 @@ export {
 // Hooks
 export { usePersistedState, type PersistedStateResult } from "./hooks/usePersistedState.js";
 export { useColorMode, applyColorMode, type ColorMode } from "./hooks/useColorMode.js";
+// The #809 data gates — a renderer memoizes with `equivalentFor`, and these keep
+// its local state and derivations on DATA changes only.
+export { useValueSync } from "./hooks/useValueSync.js";
+export { useDataStable } from "./hooks/useDataStable.js";
 
 // Platform (State Management)
 export {

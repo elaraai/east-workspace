@@ -29,7 +29,7 @@ import { Box, Popover as ChakraPopover, Portal, chakra, useRecipe, useSlotRecipe
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { findIconDefinition, type IconName } from "@fortawesome/fontawesome-svg-core";
 import { faChevronDown, faChevronRight, faXmark } from "@fortawesome/free-solid-svg-icons";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Deck, Slice as SliceInternal } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
@@ -41,10 +41,10 @@ import { SliceRailCluster } from "../../slice/rail";
 import { railAffordanceKinds } from "../../slice/rail-kinds.js";
 import { useSliceReactivity } from "../../slice/use-slice-reactivity";
 
-const deckEqual = equalFor(Deck.Types.Deck);
-const readoutEqual = equalFor(Deck.Types.Readout);
-const rowsEqual = equalFor(Deck.Types.Rows);
-const noteEqual = equalFor(Deck.Types.Note);
+const deckEqual = equivalentFor(Deck.Types.Deck);
+const readoutEqual = equivalentFor(Deck.Types.Readout);
+const rowsEqual = equivalentFor(Deck.Types.Rows);
+const noteEqual = equivalentFor(Deck.Types.Note);
 
 /** East Deck value type. */
 export type DeckValue = ValueTypeOf<typeof Deck.Types.Deck>;

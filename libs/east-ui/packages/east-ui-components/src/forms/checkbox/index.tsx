@@ -3,14 +3,16 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { memo, useMemo, useCallback, useState, useEffect } from "react";
+import { memo, useMemo, useCallback, useState } from "react";
 import { Checkbox as ChakraCheckbox, type CheckboxCheckedChangeDetails, type CheckboxRootProps } from "@chakra-ui/react";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equalFor, equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Checkbox } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
+import { useValueSync } from "../../hooks/useValueSync";
 
 // Pre-define equality function at module level
-const checkboxEqual = equalFor(Checkbox.Types.Checkbox);
+const checkboxEqual = equivalentFor(Checkbox.Types.Checkbox);
+const checkboxDataEqual = equalFor(Checkbox.Types.Checkbox);
 
 /** East Checkbox value type */
 export type CheckboxValue = ValueTypeOf<typeof Checkbox.Types.Checkbox>;
@@ -45,9 +47,7 @@ export const EastChakraCheckbox = memo(function EastChakraCheckbox({ value }: Ea
     const label = useMemo(() => getSomeorUndefined(value.label), [value.label]);
     const onChangeFn = useMemo(() => getSomeorUndefined(value.onChange), [value.onChange]);
 
-    useEffect(() => {
-        setProps(() => toChakraCheckbox(value));
-    }, [value]);
+    useValueSync(value, checkboxDataEqual, () => setProps(toChakraCheckbox(value)));
 
     const handleCheckedChange = useCallback((e: CheckboxCheckedChangeDetails) => {
         setProps(prev => ({ ...prev, checked: e.checked }));

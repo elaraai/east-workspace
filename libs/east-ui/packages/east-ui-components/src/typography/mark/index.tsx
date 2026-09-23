@@ -5,13 +5,13 @@
 
 import { memo, useMemo } from "react";
 import { Mark as ChakraMark, type MarkProps } from "@chakra-ui/react";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Mark } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { parseCssSize } from "../../style/parse-size.js";
 
 // Pre-define the equality function at module level
-const markEqual = equalFor(Mark.Types.Mark);
+const markEqual = equivalentFor(Mark.Types.Mark);
 
 /** East Mark value type */
 export type MarkValue = ValueTypeOf<typeof Mark.Types.Mark>;

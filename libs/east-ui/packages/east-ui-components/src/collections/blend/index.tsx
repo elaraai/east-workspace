@@ -7,15 +7,17 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Box, chakra, useRecipe, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faGripVertical, faThumbtack, faTrashCan } from "@fortawesome/free-solid-svg-icons";
-import { equalFor, variant, some, none, type ValueTypeOf } from "@elaraai/east";
+import { equalFor, equivalentFor, variant, some, none, type ValueTypeOf } from "@elaraai/east";
 import { Blend } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { useDragTarget, useDropCell, useDragEventChip, type DragEventValue, type DragMeta, type DragPayload } from "../../dnd/drag-layer";
 import { useIRCanDrop, canDropAllows, type CanDropFn } from "../../dnd/ir-can-drop";
 import { DropHint } from "../../dnd/drop-hint";
 import { useContainerBelow } from "../../contracts/adaptive.js";
+import { useValueSync } from "../../hooks/useValueSync";
 
-const blendEqual = equalFor(Blend.Types.Blend);
+const blendEqual = equivalentFor(Blend.Types.Blend);
+const blendDataEqual = equalFor(Blend.Types.Blend);
 
 /** East Blend value type. */
 export type BlendValue = ValueTypeOf<typeof Blend.Types.Blend>;
@@ -280,7 +282,7 @@ export const EastChakraBlend = memo(function EastChakraBlend({ value }: EastChak
     // Interactive-state pattern: drops / edits / removals apply locally;
     // callbacks persist; the prop sync reconciles authoritative data.
     const [targets, setTargets] = useState<BlendTargetValue[]>(() => [...value.targets]);
-    useEffect(() => { setTargets([...value.targets]); }, [value.targets]);
+    useValueSync(value, blendDataEqual, () => setTargets([...value.targets]));
 
     const handleDrag = useCallback((event: DragEventValue, meta?: DragMeta) => {
         // Re-check the IR veto with the real event before mutating (the hover

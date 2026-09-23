@@ -9,7 +9,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faGripVertical, faMagnifyingGlass, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { type IconName } from "@fortawesome/fontawesome-svg-core";
-import { equalFor, match, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, match, type ValueTypeOf } from "@elaraai/east";
 import { Library, Slice as SliceInternal } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { usePersistedState } from "../../hooks/usePersistedState";
@@ -20,7 +20,7 @@ import { useSliceReactivity } from "../../slice/use-slice-reactivity";
 import { parseCssSize } from "../../style/parse-size.js";
 import { virtualScrollbarCss } from "../../style/scrollbar.js";
 
-const libraryEqual = equalFor(Library.Types.Library);
+const libraryEqual = equivalentFor(Library.Types.Library);
 
 /** East Library value type. */
 export type LibraryValue = ValueTypeOf<typeof Library.Types.Library>;

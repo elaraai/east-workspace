@@ -10,8 +10,9 @@ Renderers specific to e3: `DataTaskPreview`, `TaskPreview`,
 - React Query (TanStack Query 5.x) hooks live alongside the
   components. They wrap `@elaraai/e3-api-client` calls.
 - Renderers follow the same patterns as `east-ui-components` —
-  `memo` + `equalFor`, the MANDATORY interactive-state pattern with
-  `useState` + `useEffect` sync + `queueMicrotask` for callbacks.
+  `memo` + `equivalentFor`, the MANDATORY interactive-state pattern with
+  `useState` + a data-gated `useValueSync` / `useDataStable` re-sync +
+  `queueMicrotask` for callbacks.
 - East value previews (`EastValueViewer`) use `isValueOf` for runtime
   type dispatch — see EAST_TS_INTEROP rules below.
 

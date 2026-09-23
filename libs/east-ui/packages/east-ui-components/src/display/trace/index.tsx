@@ -12,13 +12,13 @@
 
 import { memo, Fragment, useEffect, useMemo } from "react";
 import { Box as ChakraBox, useSlotRecipe } from "@chakra-ui/react";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Trace } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { useDensity, type Density } from "../../contracts/density";
 import { usePlotGutter } from "../../contracts/plot-gutter.js";
 
-const traceEqual = equalFor(Trace.Types.Trace);
+const traceEqual = equivalentFor(Trace.Types.Trace);
 
 /** East Trace value type. */
 export type TraceValue = ValueTypeOf<typeof Trace.Types.Trace>;

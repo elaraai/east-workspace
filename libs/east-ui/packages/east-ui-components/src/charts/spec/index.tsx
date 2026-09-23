@@ -6,7 +6,7 @@
 import { memo, useId, useMemo, useCallback, createContext, useContext, type CSSProperties, type ReactNode, type PointerEvent as ReactPointerEvent } from "react";
 import { Box, Skeleton, useChakraContext, useSlotRecipe } from "@chakra-ui/react";
 import { useTooltip, useTooltipInPortal } from "@visx/tooltip";
-import { match, equalFor, some, none, variant, type ValueTypeOf } from "@elaraai/east";
+import { match, equivalentFor, some, none, variant, type ValueTypeOf } from "@elaraai/east";
 import { tokenizeDateTimeFormat, formatDateTime } from "@elaraai/east/internal";
 import { Chart, Slice as SliceInternal } from "@elaraai/east-ui/internal";
 import { SliceRailCluster } from "../../slice/rail";
@@ -1099,7 +1099,7 @@ export interface EastVisxChartProps {
     brushKey?: string;
 }
 
-const chartEqual = equalFor(T.Spec);
+const chartEqual = equivalentFor(T.Spec);
 
 /**
  * Slice chrome around a chart frame — the rail above the plot, the

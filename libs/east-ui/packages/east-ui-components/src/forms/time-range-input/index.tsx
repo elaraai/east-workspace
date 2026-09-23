@@ -6,13 +6,13 @@
 import { memo, useCallback, useState, useEffect, useMemo } from "react";
 import { HStack, VStack, Wrap, Button, Text, Box } from "@chakra-ui/react";
 import { Time } from "@internationalized/date";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { TimeRangeInput } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { fieldChrome, fieldFocusRing } from "../../theme/field-chrome";
 import { TimeField, TimeInput, TimeSegment } from "../input/date";
 
-const timeRangeInputEqual = equalFor(TimeRangeInput.Types.Root);
+const timeRangeInputEqual = equivalentFor(TimeRangeInput.Types.Root);
 
 export type TimeRangeInputValue = ValueTypeOf<typeof TimeRangeInput.Types.Root>;
 

@@ -3,11 +3,11 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { memo, useCallback, useMemo, useState, type ReactNode } from "react";
 import { Box, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCheck, faGripVertical, faTrashCan } from "@fortawesome/free-solid-svg-icons";
-import { equalFor, match, some, none, variant, type ValueTypeOf } from "@elaraai/east";
+import { equalFor, equivalentFor, match, some, none, variant, type ValueTypeOf } from "@elaraai/east";
 import { Roster, type CellRefType } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { parseCssSize } from "../../style/parse-size.js";
@@ -15,8 +15,11 @@ import { VirtualRows } from "../virtual-rows.js";
 import { useDragTarget, useDropCell, useDragEventChip, type DragEventValue, type DragMeta, type DragPayload } from "../../dnd/drag-layer";
 import { useIRCanDrop, canDropAllows, type CanDropFn } from "../../dnd/ir-can-drop";
 import { useReviewController, DecisionButtons, ReviewFoot, DECISION_WIDTH } from "../shared/review";
+import { useValueSync } from "../../hooks/useValueSync";
+import { useDataStable } from "../../hooks/useDataStable";
 
-const rosterEqual = equalFor(Roster.Types.Roster);
+const rosterEqual = equivalentFor(Roster.Types.Roster);
+const rosterDataEqual = equalFor(Roster.Types.Roster);
 
 /** Minimum width of a day column — the `minmax(DAY_MIN, 1fr)` floor that
  *  keeps every column equal (and aligned to the header) while letting the
@@ -240,7 +243,7 @@ export const EastChakraRoster = memo(function EastChakraRoster({ value, storageK
     // state immediately (the widget works without callbacks); the callbacks
     // persist the change, and the prop sync reconciles authoritative data.
     const [shifts, setShifts] = useState<RosterShiftValue[]>(() => [...value.shifts]);
-    useEffect(() => { setShifts([...value.shifts]); }, [value.shifts]);
+    useValueSync(value, rosterDataEqual, () => setShifts([...value.shifts]));
 
     const onDragFn = useMemo(() => getSomeorUndefined(value.onDrag), [value.onDrag]);
     const canDropFn = useMemo(() => getSomeorUndefined(value.canDrop) as CanDropFn | undefined, [value.canDrop]);
@@ -252,7 +255,10 @@ export const EastChakraRoster = memo(function EastChakraRoster({ value, storageK
     // replace — per-tile ghost accept: ✓ resolves ONE ghost,
     // review.onApprove({ rowIndex }) signs off a LINE (interplay host-owned).
     const review = useMemo(() => getSomeorUndefined(value.review), [value.review]);
-    const approvals = useMemo(() => value.people.map((person) => person.approval), [value]);
+    // Keyed on the value's DATA: a closure-only change must not reset the
+    // optimistic decisions the controller re-seeds from `approvals` (#809).
+    const data = useDataStable(value, rosterDataEqual);
+    const approvals = useMemo(() => data.people.map((person) => person.approval), [data]);
     const reviewController = useReviewController(review, approvals);
     const chromeRecipe = useSlotRecipe({ key: "reviewChrome" });
     const reviewChrome = useMemo(() => chromeRecipe({}) as SlotStyles, [chromeRecipe]);

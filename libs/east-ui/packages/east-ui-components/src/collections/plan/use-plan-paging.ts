@@ -50,11 +50,18 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { equivalentFor } from "@elaraai/east";
+import { Plan } from "@elaraai/east-ui/internal";
 import { useTrackedEvaluation } from "../../reactive/index.js";
 import type { PlanBand, PlanRootValue, PlanRowValue } from "./model.js";
 
 /** The decoded `paged` arm — the derived source at the canvas-row type. */
 export type PlanPagedSourceValue = Extract<PlanRootValue["rows"], { type: "paged" }>["value"];
+
+/** Whether two paged sources derive the same rows: the same id AND equivalent
+ *  functions — `page` wraps the series pipeline, so its captures are what the
+ *  rows are derived WITH (#809). */
+const pagedSourceEquivalent = equivalentFor(Plan.Types.Root.fields.rows.cases.paged);
 import {
     createLedger, observeWindow, documentHeight, elementAtOffset, offsetOfWindow, elementsIn,
     type WindowLedger,
@@ -165,15 +172,24 @@ export function usePlanPaging(
     const [isScrolling, setIsScrolling] = useState(false);
     const [sizeVersion, setSizeVersion] = useState(0);
 
-    // Read-once cache, per source identity. Reset here rather than in an effect
-    // so a swapped source cannot serve the previous one's rows for a frame.
-    const cacheRef = useRef<{ id: string; cache: WindowCache }>({ id: "", cache: new Map() });
+    // Read-once cache of DERIVED rows, keyed by the source that derived them.
+    // The id alone cannot key it: the derived `page` wraps the series
+    // pipeline, and a series whose closures changed (a `match` over a new
+    // threshold, an accessor over a rebound lookup) derives different rows
+    // from the same windows under the same id (#809). So the cache belongs to
+    // the source that filled it and is dropped when the next one is not
+    // equivalent — the resident windows re-read (the runtime still holds their
+    // raw pages), while the ledger keeps its measured heights, so nothing
+    // jumps. Reset here rather than in an effect so a swapped source cannot
+    // serve the previous one's rows for a frame.
+    const cacheRef = useRef<{ source: PlanPagedSourceValue | undefined; cache: WindowCache }>({ source: undefined, cache: new Map() });
     const originRef = useRef<ReadonlyMap<string, number>>(new Map());
 
     const read = useCallback(() => {
         if (source === undefined) return undefined;
-        if (cacheRef.current.id !== source.id) {
-            cacheRef.current = { id: source.id, cache: new Map() };
+        const filledBy = cacheRef.current.source;
+        if (filledBy === undefined || !pagedSourceEquivalent(filledBy, source)) {
+            cacheRef.current = { source, cache: new Map() };
         }
         let total: number | undefined;
         let error: string | undefined;
@@ -209,7 +225,7 @@ export function usePlanPaging(
         // the author's derived source is what needs fixing (sign the id).
         if (ledger.total > 0) {
             console.warn(`[Plan] paged source ${source !== undefined ? `"${source.id}" ` : ""}changed total() ${ledger.total} → ${total} under one id — same id must serve same rows; dropping cached windows.`);
-            cacheRef.current = { id: cacheRef.current.id, cache: new Map() };
+            cacheRef.current = { source: cacheRef.current.source, cache: new Map() };
         }
         setLedger(createLedger(total, PLAN_PAGE_SIZE));
         setResidency(NO_RESIDENCY);

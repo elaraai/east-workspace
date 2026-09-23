@@ -18,7 +18,7 @@ import { lazy, memo, Suspense, useMemo, useRef, useState, type ReactNode } from 
 import { Box, chakra, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faLayerGroup, faXmark } from "@fortawesome/free-solid-svg-icons";
-import { equalFor } from "@elaraai/east";
+import { equivalentFor } from "@elaraai/east";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 import { Map } from "@elaraai/east-ui/internal";
@@ -74,7 +74,7 @@ export type { MapValue, MapAreaValue, MapMarkerValue, MapLineValue, MapOverlayVa
 
 const MapEngine = lazy(() => import("./engine"));
 
-const mapEqual = equalFor(Map.Types.Map);
+const mapEqual = equivalentFor(Map.Types.Map);
 
 type SlotStyles = Record<string, SystemStyleObject>;
 

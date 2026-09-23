@@ -5,13 +5,13 @@
 
 import { memo, useMemo } from "react";
 import { Box, useSlotRecipe } from "@chakra-ui/react";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { BarStrip } from "@elaraai/east-ui/internal";
 import { EastChakraComponent } from "../../component";
 import { getSomeorUndefined } from "../../utils";
 import { useDensity } from "../../contracts/density";
 
-const barStripEqual = equalFor(BarStrip.Types.BarStrip);
+const barStripEqual = equivalentFor(BarStrip.Types.BarStrip);
 
 /** East BarStrip value type. */
 export type BarStripValue = ValueTypeOf<typeof BarStrip.Types.BarStrip>;

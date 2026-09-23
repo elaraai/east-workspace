@@ -16,15 +16,17 @@
  * resets the local layer, so a host that writes back through `onUpdate` sees
  * its own rows come around with the edit applied.
  *
- * `equalFor` treats every function value as equal, so the memo guard cannot
- * see a swapped provider or `onEdit`; every function is taken from the
- * latest value on each render (the Table / Plan rule, §6.2), and the
- * copilot's memo is keyed on the value's identity.
+ * The memo compares with `equivalentFor` (#809), so a value whose only change
+ * is a closure — a swapped provider, an `onEdit` over new data — still
+ * re-renders, and every function is taken from the latest value (§6.2). The
+ * derivations that own local state (the row layer, the controlled selection)
+ * key on the value's DATA identity instead, so such a change never resets
+ * them; the copilot's memo is keyed on the value's identity.
  */
 
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type MouseEvent, type KeyboardEvent, type ClipboardEvent, type ReactNode } from "react";
 import { Box, useSlotRecipe } from "@chakra-ui/react";
-import { ArrayType, equalFor, none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { ArrayType, equalFor, equivalentFor, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Sheet, Slice } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils.js";
 import { boundSliceConfig } from "../../platform/slice/index.js";
@@ -33,6 +35,7 @@ import { DensityProvider } from "../../contracts/density.js";
 import { useCoarsePointer } from "../../contracts/adaptive.js";
 import { useDensityHeights } from "../shared/helpers.js";
 import { useSliceReactivity } from "../../slice/use-slice-reactivity.js";
+import { useDataStable } from "../../hooks/useDataStable.js";
 import { railAffordanceKinds } from "../../slice/rail-kinds.js";
 import { VirtualRows } from "../virtual-rows.js";
 import {
@@ -74,7 +77,8 @@ type SliceBindValue = ValueTypeOf<typeof Slice.Types.Bind>;
 /** The gutter's floor on a coarse pointer: the number, then two 26 px buttons (a proposal's ✓ ×) with room to tap. */
 const COARSE_GUTTER_PX = 96;
 
-const sheetRootEqual = equalFor(Sheet.Types.Root);
+const sheetRootEqual = equivalentFor(Sheet.Types.Root);
+const sheetRootDataEqual = equalFor(Sheet.Types.Root);
 const cellEqual = equalFor(Sheet.Types.Cell);
 const sliceStateEqual = equalFor(Slice.Types.State) as (a: SliceStateValue, b: SliceStateValue) => boolean;
 const viewsEqual = equalFor(ArrayType(Sheet.Types.View)) as (a: readonly SheetViewValue[], b: readonly SheetViewValue[]) => boolean;
@@ -161,6 +165,9 @@ export interface EastChakraSheetProps {
 
 /** Renders an East Sheet value — the planning spreadsheet. */
 export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChakraSheetProps) {
+    // Changes identity on a DATA change only — what owns local state keys on
+    // it; callbacks come from `value` (#809).
+    const data = useDataStable(value, sheetRootDataEqual);
     // ── Decode ────────────────────────────────────────────────────────────
     const columns = useMemo(() => indexColumns(value.columns), [value.columns]);
     const registers = useMemo(() => indexRegisters(value.registers), [value.registers]);
@@ -181,12 +188,14 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
     const minWidth = gutterPx + columns.totalWidth;
     const today = useMemo(() => todayUtc(), []);
 
-    // Callbacks — taken from the latest value on every render (the equalFor rule).
+    // Callbacks — taken from the latest value on every render.
     const onEditFn = useMemo(() => getSomeorUndefined(value.onEdit), [value.onEdit]);
     const onSelectFn = useMemo(() => getSomeorUndefined(value.onSelect), [value.onSelect]);
     const onViewsChangeFn = useMemo(() => getSomeorUndefined(value.onViewsChange), [value.onViewsChange]);
     const newRowIdFn = useMemo(() => getSomeorUndefined(value.newRowId), [value.newRowId]);
-    const selection = useMemo(() => getSomeorUndefined(value.selection), [value.selection]);
+    // The controlled selection follows the host's DATA: a closure-only change
+    // must not snap the ring back to it.
+    const selection = useMemo(() => getSomeorUndefined(data.selection), [data.selection]);
     const activeView = useMemo(() => getSomeorUndefined(value.activeView), [value.activeView]);
 
     // ── Slice chrome — the lens reads the bound slice's narrowing (§3.8) ──
@@ -226,7 +235,8 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
     const ahead = Number(suggestDecl?.ahead ?? 2n);
     const triggers = useMemo(() => new Set(suggestDecl?.triggers ?? []), [suggestDecl]);
     const copilotOn = !readOnly && (proposers.length > 0 || fillColumns.some((c) => c.providers.length > 0));
-    // The memo empties on a new value: it may carry new provider functions equalFor cannot see.
+    // The memo empties on every new value — new data, or a provider closure
+    // the root memo saw change (#809).
     const suggestMemo = useRef(new SuggestMemo());
     useEffect(() => { suggestMemo.current.clear(); }, [value]);
     const inflight = useRef(new InFlight());
@@ -234,15 +244,15 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value }: EastChak
     // ── The row source: inline rows, or the paged driver ──────────────────
     const pagedSource = value.rows.type === "paged" ? value.rows.value : undefined;
     const decodedRows = useMemo<readonly SheetRowValue[] | undefined>(
-        () => (value.rows.type === "inline" ? (value.rows.value as readonly SheetRowValue[]) : undefined),
-        [value.rows],
+        () => (data.rows.type === "inline" ? (data.rows.value as readonly SheetRowValue[]) : undefined),
+        [data.rows],
     );
     const paging = useSheetPaging(pagedSource, rowPx);
     const sourceRows: readonly SheetRowValue[] = decodedRows ?? paging.rows;
     const rowsOffset = decodedRows !== undefined ? 0 : paging.rowsOffset;
     const exhausted = decodedRows !== undefined || paging.exhausted;
-    // The identity of the source the local layer sits over: a new decoded
-    // value, or a new paged source, resets the layer.
+    // The identity of the source the local layer sits over: new decoded DATA,
+    // or a new paged source, resets the layer — a closure-only change keeps it.
     const sourceIdentity = decodedRows ?? pagedSource?.id ?? "";
     const [layerState, setLayerState] = useState<{ over: unknown; layer: LocalLayer }>({ over: sourceIdentity, layer: EMPTY_LAYER });
     const layer = layerState.over === sourceIdentity ? layerState.layer : EMPTY_LAYER;

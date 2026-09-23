@@ -6,7 +6,7 @@
 import { memo, useMemo } from "react";
 import { parseCssSize } from "../../style/parse-size.js";
 import { Grid as ChakraGrid, GridItem as ChakraGridItem, type GridProps } from "@chakra-ui/react";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Grid } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
@@ -23,7 +23,7 @@ function parseGridPosition(value: string | undefined): number | "auto" | undefin
 }
 
 // Pre-define the equality function at module level
-const gridEqual = equalFor(Grid.Types.Grid);
+const gridEqual = equivalentFor(Grid.Types.Grid);
 
 /** East Grid value type */
 export type GridValue = ValueTypeOf<typeof Grid.Types.Grid>;

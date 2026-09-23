@@ -9,12 +9,12 @@
 
 import { memo, useMemo } from "react";
 import { Box as ChakraBox } from "@chakra-ui/react";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Sticky } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 
-const stickyEqual = equalFor(Sticky.Types.Sticky);
+const stickyEqual = equivalentFor(Sticky.Types.Sticky);
 
 /** East Sticky value type. */
 export type StickyValue = ValueTypeOf<typeof Sticky.Types.Sticky>;

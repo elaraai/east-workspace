@@ -5,13 +5,13 @@
 
 import { memo, useMemo } from "react";
 import { AvatarGroup as ChakraAvatarGroup, Avatar as ChakraAvatar, type AvatarRootProps } from "@chakra-ui/react";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { AvatarGroup } from "@elaraai/east-ui/internal";
 import { toChakraAvatar } from "../avatar";
 import { getSomeorUndefined } from "../../utils";
 import { useDensity } from "../../contracts/density";
 
-const avatarGroupEqual = equalFor(AvatarGroup.Types.AvatarGroup);
+const avatarGroupEqual = equivalentFor(AvatarGroup.Types.AvatarGroup);
 
 /** East AvatarGroup value type. */
 export type AvatarGroupValue = ValueTypeOf<typeof AvatarGroup.Types.AvatarGroup>;

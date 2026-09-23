@@ -7,14 +7,14 @@ import { memo, useMemo } from "react";
 import { Stat as ChakraStat, type StatRootProps, HStack, Box } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconName, IconPrefix } from "@fortawesome/fontawesome-svg-core";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Stat } from "@elaraai/east-ui/internal";
 import { EastChakraComponent } from "../../component";
 import { getSomeorUndefined } from "../../utils";
 import { useDensity } from "../../contracts/density";
 import { formatTick } from "../../typography/numeric/format-tick";
 
-const statEqual = equalFor(Stat.Types.Stat);
+const statEqual = equivalentFor(Stat.Types.Stat);
 
 /** East Stat value type. */
 export type StatValue = ValueTypeOf<typeof Stat.Types.Stat>;

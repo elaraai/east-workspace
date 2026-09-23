@@ -22,8 +22,8 @@
  *   shortens the fade.
  *
  * State follows the mandatory interactive pattern (CLAUDE.md): local
- * useState drives the UI, `useEffect([value])` re-syncs on IR changes,
- * callbacks fire via `queueMicrotask` outside updaters. The optional
+ * useState drives the UI, `useValueSync` re-syncs when the IR value's data
+ * changes, callbacks fire via `queueMicrotask` outside updaters. The optional
  * `active` binding is a plain closure struct (read/write/has) with no
  * visible key, so external writes are observed via a global store
  * subscription (`useSyncExternalStore` on `getStore()`).
@@ -31,12 +31,13 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Box as ChakraBox } from "@chakra-ui/react";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equalFor, equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Story, UIComponentType } from "@elaraai/east-ui/internal";
 import { EastChakraComponent } from "../../component";
 import { getSomeorUndefined } from "../../utils";
 import { getStore } from "../../platform/state-runtime";
 import { usePrefersReducedMotion } from "../../contracts/reduced-motion";
+import { useValueSync } from "../../hooks/useValueSync";
 
 type StoryValue = ValueTypeOf<typeof Story.Types.Story>;
 type StoryStepValue = ValueTypeOf<typeof Story.Types.Step>;
@@ -46,9 +47,10 @@ type ActiveBinding = ValueTypeOf<typeof Story.Types.ActiveBinding>;
 type ProgressBinding = ValueTypeOf<typeof Story.Types.ProgressBinding>;
 
 // Pre-define equality functions at module level
-const storyEqual = equalFor(Story.Types.Story);
-const storyStepEqual = equalFor(Story.Types.Step);
-const storyProgressEqual = equalFor(Story.Types.Progress);
+const storyEqual = equivalentFor(Story.Types.Story);
+const storyDataEqual = equalFor(Story.Types.Story);
+const storyStepEqual = equivalentFor(Story.Types.Step);
+const storyProgressEqual = equivalentFor(Story.Types.Progress);
 
 /** Whether the static override disables the scrollport (one keyframe, no driver). */
 function isStaticForScrollport(value: StoryValue): boolean {
@@ -432,15 +434,14 @@ export const EastChakraStory = memo(function EastChakraStory({ value, storageKey
     const activeRef = useRef(active);
     activeRef.current = active;
 
-    // Re-sync local state when the IR value changes (rule 2)
-    useEffect(() => {
+    // Re-sync local state when the IR value's data changes (rule 2)
+    useValueSync(value, storyDataEqual, () => {
         if (isStatic) {
             setActive(Math.max(0, steps.findIndex(s => s.id === staticActiveId)));
         } else {
             setActive(prev => Math.max(0, Math.min(total - 1, prev)));
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [value, total]);
+    });
 
     /** Apply a scroll-driven (or click-driven) activation: local state first,
      *  then binding write + enter/exit handlers via queueMicrotask. */

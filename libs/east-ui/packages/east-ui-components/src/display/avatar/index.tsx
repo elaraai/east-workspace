@@ -5,13 +5,13 @@
 
 import { memo, useMemo } from "react";
 import { Avatar as ChakraAvatar, type AvatarRootProps } from "@chakra-ui/react";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Avatar } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { parseCssSize } from "../../style/parse-size.js";
 import { useDensity } from "../../contracts/density";
 
-const avatarEqual = equalFor(Avatar.Types.Avatar);
+const avatarEqual = equivalentFor(Avatar.Types.Avatar);
 
 /** East Avatar value type. */
 export type AvatarValue = ValueTypeOf<typeof Avatar.Types.Avatar>;

@@ -10,11 +10,11 @@ import {
     SkeletonCircle as ChakraSkeletonCircle,
     VStack as ChakraVStack,
 } from "@chakra-ui/react";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Skeleton } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 
-const skeletonEqual = equalFor(Skeleton.Types.Skeleton);
+const skeletonEqual = equivalentFor(Skeleton.Types.Skeleton);
 
 export type SkeletonValue = ValueTypeOf<typeof Skeleton.Types.Skeleton>;
 

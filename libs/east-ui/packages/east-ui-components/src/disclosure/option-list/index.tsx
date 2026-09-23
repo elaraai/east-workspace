@@ -3,14 +3,16 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useMemo, useRef, useState } from "react";
 import { Box as ChakraBox, useSlotRecipe } from "@chakra-ui/react";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equalFor, equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { OptionList } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
+import { useValueSync } from "../../hooks/useValueSync";
 
-const optionListEqual = equalFor(OptionList.Types.OptionList);
+const optionListEqual = equivalentFor(OptionList.Types.OptionList);
+const optionListDataEqual = equalFor(OptionList.Types.OptionList);
 
 export type OptionListValue = ValueTypeOf<typeof OptionList.Types.OptionList>;
 
@@ -42,9 +44,7 @@ export const EastChakraOptionList = memo(function EastChakraOptionList({ value, 
     // Local state — selection updates immediately even when no onSelect is bound.
     const initialSelected = getSomeorUndefined(value.selectedId);
     const [selectedId, setSelectedId] = useState<string | undefined>(initialSelected);
-    useEffect(() => {
-        setSelectedId(getSomeorUndefined(value.selectedId));
-    }, [value.selectedId]);
+    useValueSync(value, optionListDataEqual, () => setSelectedId(getSomeorUndefined(value.selectedId)));
 
     const listRef = useRef<HTMLDivElement>(null);
 

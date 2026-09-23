@@ -5,13 +5,13 @@
 
 import { memo, useMemo } from "react";
 import { Box, Flex, HStack, Text as ChakraText, useSlotRecipe } from "@chakra-ui/react";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { SegmentedMeter } from "@elaraai/east-ui/internal";
 import { EastChakraComponent } from "../../component";
 import { getSomeorUndefined } from "../../utils";
 import { useDensity } from "../../contracts/density";
 
-const segmentedMeterEqual = equalFor(SegmentedMeter.Types.SegmentedMeter);
+const segmentedMeterEqual = equivalentFor(SegmentedMeter.Types.SegmentedMeter);
 
 /** East SegmentedMeter value type. */
 export type SegmentedMeterValue = ValueTypeOf<typeof SegmentedMeter.Types.SegmentedMeter>;
