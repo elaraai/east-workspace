@@ -59,6 +59,7 @@ set(EAST_C_SOURCES
     src/type_of_type.c
     src/source_map.c
     src/ir_normalize.c
+    src/sha256.c
 )
 
 add_library(east-c ${EAST_C_SOURCES})
@@ -330,6 +331,13 @@ add_test(NAME beast2_hardening COMMAND test_beast2_hardening)
 add_executable(test_beast2_boundary tests/test_beast2_boundary.c)
 target_link_libraries(test_beast2_boundary east-c)
 add_test(NAME beast2_boundary COMMAND test_beast2_boundary)
+
+# SHA-256, the name of every object a manifest directory holds: the FIPS 180-4
+# vectors TypeScript's sha256.spec.ts pins too, and a digest fed in pieces
+# equal to one fed whole at every length across the padding boundaries.
+add_executable(test_sha256 tests/test_sha256.c)
+target_link_libraries(test_sha256 east-c)
+add_test(NAME sha256 COMMAND test_sha256)
 
 # Aliasing scoped per root element, pinned against the TypeScript encoder:
 # sharing between elements encodes as copies, sharing inside one is kept, and
