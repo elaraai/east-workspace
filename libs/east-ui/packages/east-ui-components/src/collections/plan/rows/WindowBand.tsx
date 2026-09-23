@@ -32,14 +32,28 @@ export interface WindowBandProps {
     loading: boolean;
 }
 
-/** The unloaded run above or below the resident rows. */
-export function WindowBand({ band, styles, loading }: WindowBandProps) {
+/**
+ * What an unloaded run says — how many source elements it covers and that
+ * scrolling there loads them (or which ones are loading). The canvas band and
+ * the narrow list's load-more card (#812) both say it, the same way.
+ *
+ * @param band - The unloaded run
+ * @param loading - Whether a window is in flight
+ * @returns The caption
+ */
+export function bandCaption(band: PlanBand, loading: boolean): string {
     const count = bandElements(band);
-    const caption = loading
+    return loading
         ? `Loading elements ${band.from.toLocaleString()}–${band.to.toLocaleString()}`
         : band.at === "head"
             ? `${count.toLocaleString()} earlier elements — scroll to load`
             : `${count.toLocaleString()} more elements — scroll to load`;
+}
+
+/** The unloaded run above or below the resident rows. */
+export function WindowBand({ band, styles, loading }: WindowBandProps) {
+    const count = bandElements(band);
+    const caption = bandCaption(band, loading);
     return (
         <Box
             css={styles.windowBand}

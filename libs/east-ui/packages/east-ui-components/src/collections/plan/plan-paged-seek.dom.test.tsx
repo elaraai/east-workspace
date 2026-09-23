@@ -25,10 +25,14 @@
  * moved: the far window landed, the near one was released, the ~60 windows in
  * between were never requested, and the skipped span is described by a band
  * rather than by rows.
+ *
+ * The canvas has no height, and 600 rows land in its opening ring, so it
+ * virtualizes against the WINDOW (#812): a jump scrolls the page to its row.
+ * jsdom cannot scroll, so the jump test stands in for the window's scrolling.
  */
 
 import { describe, test, expect, afterEach } from "vitest";
-import { render, cleanup, waitFor, fireEvent } from "@testing-library/react";
+import { render, cleanup, waitFor, fireEvent, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ChakraProvider } from "@chakra-ui/react";
 import {
@@ -113,6 +117,45 @@ function withRecordedWindows(root: PlanRootValue): { root: PlanRootValue; asked:
     return { root: { ...root, rows: variant("paged", spied) as PlanRootValue["rows"] }, asked };
 }
 
+/**
+ * What the unbounded canvas reads from the page it scrolls in (#812), for a
+ * jsdom that lays nothing out: the canvas sits at the top of a tall document,
+ * `window.scrollTo` moves `scrollY` and fires `scroll`, and the rows' top
+ * moves with it. Returns the restore.
+ */
+function emulateWindowScroll(): () => void {
+    let y = 0;
+    const html = document.documentElement;
+    const saved = {
+        scrollY: Object.getOwnPropertyDescriptor(window, "scrollY"),
+        scrollTo: Object.getOwnPropertyDescriptor(window, "scrollTo"),
+        rect: Element.prototype.getBoundingClientRect,
+    };
+    Object.defineProperty(window, "scrollY", { configurable: true, get: () => y });
+    Object.defineProperty(window, "scrollTo", {
+        configurable: true,
+        writable: true,
+        value: (arg: ScrollToOptions | number) => {
+            y = Math.max(0, typeof arg === "number" ? arg : (arg.top ?? y));
+            window.dispatchEvent(new Event("scroll"));
+        },
+    });
+    // A document tall enough to scroll through the canvas (jsdom reports 0).
+    Object.defineProperty(html, "scrollHeight", { configurable: true, get: () => 100_000_000 });
+    Element.prototype.getBoundingClientRect = function (this: Element) {
+        if (this.hasAttribute("data-virtual-extent")) {
+            return { x: 0, y: -y, top: -y, left: 0, right: 1024, bottom: -y, width: 1024, height: 0, toJSON: () => ({}) } as DOMRect;
+        }
+        return saved.rect.call(this);
+    };
+    return () => {
+        if (saved.scrollY !== undefined) Object.defineProperty(window, "scrollY", saved.scrollY);
+        if (saved.scrollTo !== undefined) Object.defineProperty(window, "scrollTo", saved.scrollTo);
+        delete (html as { scrollHeight?: number }).scrollHeight;
+        Element.prototype.getBoundingClientRect = saved.rect;
+    };
+}
+
 function renderPlan(value: PlanRootValue, key: string) {
     initializeStore(new UIStore());
     return render(
@@ -145,43 +188,52 @@ describe("Plan paged random access (#567/#574/#577)", () => {
     }, 30_000);
 
     test("seeking element 3,000 REBASES — the windows in between are never fetched", async () => {
-        const { root, asked } = withRecordedWindows(buildPagedPlan());
-        const { container } = renderPlan(root, "plan-jump");
-        await waitFor(() => {
-            expect(container.querySelector('[data-plan-row="u0000"]')).toBeTruthy();
-        });
-        const beforeJump = new Set(asked);
+        const restore = emulateWindowScroll();
+        try {
+            const { root, asked } = withRecordedWindows(buildPagedPlan());
+            const { container } = renderPlan(root, "plan-jump");
+            await waitFor(() => {
+                expect(container.querySelector('[data-plan-row="u0000"]')).toBeTruthy();
+            });
+            const beforeJump = new Set(asked);
 
-        // Drive the SHIPPED affordance: type the key, wait out the 250 ms
-        // debounce for the seek to land, then commit with Enter.
-        // The search mounts because the SOURCE declares `seek` — this canvas
-        // binds no slice at all (#587).
-        const input = container.querySelector('[data-part="dataset-key-search"] input')! as HTMLElement;
-        await userEvent.type(input, TARGET_KEY);
-        await waitFor(() => {
-            expect(container.querySelector('[data-part="dataset-key-search"]')!.textContent)
-                .toMatch(/match/);
-        }, { timeout: 5_000 });
-        fireEvent.keyDown(input, { key: "Enter" });
+            // Drive the SHIPPED affordance: type the key, wait out the 250 ms
+            // debounce for the seek to land, then commit with Enter.
+            // The search mounts because the SOURCE declares `seek` — this canvas
+            // binds no slice at all (#587).
+            const input = container.querySelector('[data-part="dataset-key-search"] input')! as HTMLElement;
+            await userEvent.type(input, TARGET_KEY);
+            await waitFor(() => {
+                expect(container.querySelector('[data-part="dataset-key-search"]')!.textContent)
+                    .toMatch(/match/);
+            }, { timeout: 5_000 });
+            fireEvent.keyDown(input, { key: "Enter" });
 
-        // The canvas MOVED: the target window landed...
-        await waitFor(() => {
-            expect(container.querySelector(`[data-plan-row="${TARGET_KEY}"]`)).toBeTruthy();
-        }, { timeout: 10_000 });
-        // ...and the head it left behind is described by a band, not by rows.
-        const head = container.querySelector('[data-plan-window-band="head"]');
-        expect(head).toBeTruthy();
-        expect(Number(head!.getAttribute("data-plan-elements"))).toBeGreaterThan(2_000);
-        expect(container.querySelector('[data-plan-row="u0000"]')).toBeNull();
+            // The canvas MOVED: the target window landed, and the page
+            // scrolled to its row...
+            await waitFor(() => {
+                expect(container.querySelector(`[data-plan-row="${TARGET_KEY}"]`)).toBeTruthy();
+            }, { timeout: 10_000 });
+            expect(window.scrollY).toBeGreaterThan(0);
+            // ...and the head it left behind is described by a band, not by
+            // rows: scrolled back to the top, the band is what is there.
+            act(() => { window.scrollTo({ top: 0 }); });
+            const head = container.querySelector('[data-plan-window-band="head"]');
+            expect(head).toBeTruthy();
+            expect(Number(head!.getAttribute("data-plan-elements"))).toBeGreaterThan(2_000);
+            expect(container.querySelector('[data-plan-row="u0000"]')).toBeNull();
 
-        // The point of paging: it jumped, it did not walk. Everything between
-        // the opening ring and the target ring stayed unread.
-        const target = Math.floor(TARGET / PLAN_PAGE_SIZE);
-        const newly = asked.filter((w) => !beforeJump.has(w));
-        expect(newly.length).toBeGreaterThan(0);
-        for (const w of newly) expect(w).toBeGreaterThanOrEqual(target - 2);
-        expect(asked).not.toContain(8);
-        expect(asked).not.toContain(10);
+            // The point of paging: it jumped, it did not walk. Everything between
+            // the opening ring and the target ring stayed unread.
+            const target = Math.floor(TARGET / PLAN_PAGE_SIZE);
+            const newly = asked.filter((w) => !beforeJump.has(w));
+            expect(newly.length).toBeGreaterThan(0);
+            for (const w of newly) expect(w).toBeGreaterThanOrEqual(target - 2);
+            expect(asked).not.toContain(8);
+            expect(asked).not.toContain(10);
+        } finally {
+            restore();
+        }
     }, 30_000);
 
     test("the bar appears for the SOURCE's sake — and only when there is a reason", async () => {

@@ -167,6 +167,24 @@ export interface ResolveScaleArgs {
 }
 
 /**
+ * Whether {@link resolveScale} reads the rows at all — only to FIT the window
+ * to the data, when neither the slice nor the axis states one on an unpaged
+ * time or number axis. A caller keys its scale on the rows only then, so a
+ * canvas with a stated window keeps ONE scale while rows change under it
+ * (#812): every row reads the scale through context, so a new one — built on
+ * each paged window landing — repaints every mounted row.
+ *
+ * @param axis - The decoded root axis
+ * @param sliceWindow - The bound slice's window on the axis's domain (see {@link sliceWindowOf})
+ * @param paged - Whether the rows stream from a paged source (it must state its window)
+ * @returns `true` when the scale is fitted to the rows
+ */
+export function scaleReadsRows(axis: PlanAxisValue, sliceWindow: readonly [number, number] | undefined, paged: boolean): boolean {
+    if (paged || sliceWindow !== undefined || axis.type === "ordinal") return false;
+    return axis.value.window.type === "none";
+}
+
+/**
  * Resolve the scale: slice state ▸ the axis declaration ▸ fit-to-data (§3/§8).
  *
  * @remarks

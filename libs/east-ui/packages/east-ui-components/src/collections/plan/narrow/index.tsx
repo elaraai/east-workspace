@@ -31,9 +31,17 @@
  * shows its diagnostic, a card whose plot throws shows its own fallback, a
  * window whose read failed is a card with the reason and a Retry at the top
  * of the list, and the chip row carries the diagnostics chips.
+ *
+ * A paged source pages around the LIST (#812). There is no virtualizer here
+ * to report a mounted range, so the cards report themselves: an
+ * `IntersectionObserver` watches every row card, and the last one on screen
+ * is the viewport the driver pages around — prefetching past it, keeping what
+ * is on screen resident. Once a list shows every resident row, its load-more
+ * becomes the canvas's tail band in list form: scrolling it into view, or
+ * tapping it, loads the next window.
  */
 
-import { useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type PointerEvent, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type PointerEvent, type ReactNode } from "react";
 import { Box, Menu as ChakraMenu, Portal, useRecipe, useSlotRecipe } from "@chakra-ui/react";
 import { type ValueTypeOf } from "@elaraai/east";
 import { Plan, Slice } from "@elaraai/east-ui/internal";
@@ -49,12 +57,16 @@ import { HeatCells } from "../rows/HeatRow.js";
 import { derivedSummaryArm } from "../rows/GroupRow.js";
 import { PlanPartBoundary } from "../rows/PartBoundary.js";
 import { RowDiagnostic } from "../rows/RowDiagnostic.js";
-import { failureCaption } from "../rows/WindowBand.js";
+import { bandCaption, failureCaption } from "../rows/WindowBand.js";
+import { bandElements } from "../use-plan-paging.js";
 import { PlanFooter } from "../shell/Footer.js";
 import { PlanDiagnosticChips, hasDiagnostics, type PlanDiagnostics } from "../shell/Diagnostics.js";
 import { PlanDecisionCell, tagOf, type PlanReview } from "../shell/Review.js";
 import type { PlanTransport } from "../shell/transport.js";
-import { pxOf, rowHeight, type PlanDerived, type PlanRowIndex, type PlanRowValue, type PlanWindowFailure } from "../model.js";
+import {
+    pxOf, rowHeight,
+    type PlanBand, type PlanDerived, type PlanRowIndex, type PlanRowValue, type PlanWindowFailure,
+} from "../model.js";
 import { formatDerived, membersMeta } from "../format.js";
 import { appendAll } from "../reductions.js";
 import type { PlanUiState, RowKey } from "../plan-state.js";
@@ -125,6 +137,85 @@ export interface PlanNarrowProps {
     failures?: readonly PlanWindowFailure[] | undefined;
     /** Ask a failed window again. */
     onRetry?: ((w: number) => void) | undefined;
+    /** A paged source's demand (#812) — absent on an inline canvas, which
+     *  has nothing to demand. */
+    paging?: PlanNarrowPaging | undefined;
+}
+
+/** How the narrow list drives a paged source (#812). */
+export interface PlanNarrowPaging {
+    /** The unloaded run after the resident rows, when there is one. */
+    tail: PlanBand | undefined;
+    /** Whether a window is in flight. */
+    loading: boolean;
+    /** Where the list is — the last row card on screen. */
+    onViewport: (key: RowKey) => void;
+    /** Demand the window after the resident run. */
+    onLoadMore: () => void;
+}
+
+/** The latest of a set of elements in document order. */
+function lastInOrder(elements: ReadonlySet<Element>): Element | undefined {
+    let last: Element | undefined;
+    for (const el of elements) {
+        if (last === undefined || (last.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0) last = el;
+    }
+    return last;
+}
+
+/**
+ * The list's side of paged demand (#812): one `IntersectionObserver` for the
+ * whole list, which every row card and the load-more card enrol in through
+ * the returned ref. Whenever what is on screen changes, the LAST row card
+ * visible is reported as the viewport; the load-more card coming into view
+ * demands the next window. (A report that names the window the driver is
+ * already on changes no state, so scrolling within a window re-renders
+ * nothing.)
+ *
+ * @param paging - The paged demand, or `undefined` on an inline canvas
+ * @returns The ref an observed element takes — `undefined` when there is
+ *   nothing to demand, or no `IntersectionObserver` to demand it with
+ */
+function useListDemand(paging: PlanNarrowPaging | undefined): ((el: HTMLElement | null) => (() => void) | undefined) | undefined {
+    const latest = useRef(paging);
+    latest.current = paging;
+    const observer = useRef<{ io: IntersectionObserver; visible: Set<Element> } | null>(null);
+    useEffect(() => () => {
+        observer.current?.io.disconnect();
+        observer.current = null;
+    }, []);
+    const watch = useCallback((el: HTMLElement | null): (() => void) | undefined => {
+        if (el === null) return undefined;
+        let o = observer.current;
+        if (o === null) {
+            const visible = new Set<Element>();
+            const io = new IntersectionObserver((entries) => {
+                let reachedEnd = false;
+                for (const entry of entries) {
+                    if (entry.target.hasAttribute("data-plan-more")) {
+                        reachedEnd ||= entry.isIntersecting;
+                        continue;
+                    }
+                    if (entry.isIntersecting) visible.add(entry.target);
+                    else visible.delete(entry.target);
+                }
+                const demand = latest.current;
+                if (demand === undefined) return;
+                const key = lastInOrder(visible)?.getAttribute("data-plan-card");
+                if (key !== null && key !== undefined) demand.onViewport(key);
+                if (reachedEnd) demand.onLoadMore();
+            });
+            o = { io, visible };
+            observer.current = o;
+        }
+        const { io, visible } = o;
+        io.observe(el);
+        return () => {
+            io.unobserve(el);
+            visible.delete(el);
+        };
+    }, []);
+    return paging !== undefined && typeof IntersectionObserver !== "undefined" ? watch : undefined;
 }
 
 /** The DATA rows beneath a key, tree order, any depth (group bands skipped). */
@@ -265,15 +356,148 @@ function ResolutionChip({ resolution, resolutions, onPick }: {
     );
 }
 
+interface NarrowRowCardProps {
+    row: PlanRowValue;
+    /** The card body's height — the row's kind height (Measures force a
+     *  chart's expanded branch). */
+    h: number;
+    /** A chart row draws at expanded density. */
+    chartExpanded: boolean;
+    selected: boolean;
+    /** Whether a second tap drills the row (it declares `expand` and the root
+     *  can render it). */
+    canDrill: boolean;
+    /** The drilled row's developer render and gutter body — on the drilled
+     *  card only. */
+    drill: { body: UIValue; gutter: UIValue | null } | undefined;
+    /** Whether the row nests children (a collapsed parent draws slimmer bars). */
+    hasChildren: boolean;
+    styles: Styles;
+    derived: PlanDerived;
+    storageKey: string;
+    barHeight: number;
+    partial: boolean | undefined;
+    review: PlanReview | undefined;
+    /** Enrols the card in the list's viewport observer (a paged canvas, #812). */
+    watch: ((el: HTMLElement | null) => (() => void) | undefined) | undefined;
+}
+
+/**
+ * Whether a card's facts are unchanged. The derivations are rebuilt whole on
+ * every data change and every paged window landing, but a card reads only
+ * its own row's entries from them — the ones `KindPlot` draws (bands, derived
+ * heat cells, derived table series) and the diagnostic that replaces it. So a
+ * reveal that adds cards below, or a window landing elsewhere, re-renders none
+ * of the cards already shown (#812): a tap costs the cards it adds.
+ */
+function sameCard(a: NarrowRowCardProps, b: NarrowRowCardProps): boolean {
+    const keys = Object.keys(a) as (keyof NarrowRowCardProps)[];
+    if (keys.length !== Object.keys(b).length) return false;
+    for (const key of keys) {
+        if (key !== "derived" && a[key] !== b[key]) return false;
+    }
+    const k = a.row.key;
+    return a.derived.bands.get(k) === b.derived.bands.get(k)
+        && a.derived.heatCells.get(k) === b.derived.heatCells.get(k)
+        && a.derived.tableSeries.get(k) === b.derived.tableSeries.get(k)
+        && a.derived.diagnostics.get(k) === b.derived.diagnostics.get(k);
+}
+
+/** One data row as a card: head = the gutter identity, body = the plot. */
+const NarrowRowCard = memo(function NarrowRowCard({
+    row, h, chartExpanded, selected, canDrill, drill, hasChildren,
+    styles, derived, storageKey, barHeight, partial, review, watch,
+}: NarrowRowCardProps) {
+    const scale = usePlanScale();
+    const dispatch = usePlanDispatch();
+    const v = useMemo(() => ({ row, depth: 0, collapsed: false }), [row]);
+    const isChart = row.kind.type === "chart";
+    const declaredPx = row.expand.type === "some" && row.expand.value.height.type === "some"
+        ? pxOf(row.expand.value.height.value)
+        : undefined;
+    const renderPx = declaredPx ?? NARROW_RENDER_PX;
+    const gutter = row.gutter;
+    const isId = gutter.id.type === "some" && gutter.id.value;
+    const sub = gutter.sub.type === "some" ? gutter.sub.value : undefined;
+    const value = gutter.value.type === "some" ? gutter.value.value : undefined;
+    const meta = gutter.meta.type === "some" ? gutter.meta.value : undefined;
+    const statusTone = row.status.type === "some" ? row.status.value.type : undefined;
+    // A row that cannot be placed shows its diagnostic in the card body
+    // (#811) — no marks, and no value ticks for marks that are not there.
+    const diagnostic = derived.diagnostics.get(row.key);
+    return (
+        <Box ref={watch} css={styles.narrowCard} data-plan-card={row.key}
+            data-selected={selected ? "" : undefined}
+            data-expanded={drill !== undefined ? "" : undefined}
+            // Tap selects; a second tap on a selected row that declares
+            // `expand` drills it in place (and again returns) — §10.
+            onClick={() => dispatch(selected && canDrill
+                ? { t: "focus.expand", key: row.key }
+                : { t: "row.select", key: row.key })}
+        >
+            <Box css={styles.narrowCardHead}>
+                <Box css={styles.narrowCardTitle} data-id={isId ? "" : undefined}>{gutter.label}</Box>
+                {meta !== undefined && <Box as="span" css={styles.gutterMeta}>{meta}</Box>}
+                <Box display="flex" alignItems="center" gap="6px" marginLeft="auto" flexShrink={0}>
+                    {value !== undefined && <Box as="span" css={styles.gutterValue}>{value}</Box>}
+                    {statusTone !== undefined && <Box as="span" css={styles.statusDot} data-tone={statusTone} />}
+                </Box>
+            </Box>
+            {sub !== undefined && <Box css={styles.narrowCardSub}>{sub}</Box>}
+            {drill !== undefined && drill.gutter !== null && (
+                <Box css={styles.expandGutterBody} data-plan-expandgutter marginX="12px" marginBottom="8px">
+                    <PlanPartBoundary part="expand gutter" resetKey={drill.gutter} styles={styles}>
+                        <EastChakraComponent value={drill.gutter} storageKey={`${storageKey}.${row.key}.expandgutter`} />
+                    </PlanPartBoundary>
+                </Box>
+            )}
+            <Box css={styles.narrowCardBody} height={`${h}px`} data-plan-cardbody={row.kind.type}>
+                {!isChart && <GridSeparators styles={styles} />}
+                {diagnostic !== undefined ? (
+                    <RowDiagnostic diagnostic={diagnostic} styles={styles} />
+                ) : (
+                    <PlanPartBoundary part={`row ${row.key}`} resetKey={row} styles={styles}>
+                        <KindPlot v={v} styles={styles} derived={derived} storageKey={storageKey}
+                            barHeight={barHeight} hasChildren={hasChildren}
+                            ctx={false} plotHeight={h} chartExpanded={chartExpanded} partial={partial} />
+                        {row.kind.type === "chart" && (
+                            <Box css={styles.narrowTicks}>
+                                <ChartLeftTicks kind={row.kind.value} styles={styles} height={h} />
+                            </Box>
+                        )}
+                    </PlanPartBoundary>
+                )}
+                {scale.nowFrac !== undefined && (
+                    <Box css={styles.nowLine} data-plan-axisline left={`${scale.nowFrac * 100}%`} />
+                )}
+            </Box>
+            {drill !== undefined && (
+                <Box css={styles.narrowRender} data-plan-expandrender height={`${renderPx}px`}>
+                    <PlanPartBoundary part="expand render" resetKey={drill.body} styles={styles}>
+                        <EastChakraComponent value={drill.body} storageKey={`${storageKey}.${row.key}.expand`} />
+                    </PlanPartBoundary>
+                </Box>
+            )}
+            {review !== undefined && review.hasRowVerbs && (
+                <Box css={styles.narrowCardFoot}>
+                    <PlanDecisionCell rowKey={row.key} tag={tagOf(row)} review={review} />
+                </Box>
+            )}
+        </Box>
+    );
+}, sameCard);
+
 /** The narrow shell: chips · tabs · ruler · card list · footer. */
 export function PlanNarrow({
     styles, index, derived, ui, dense, barHeight, storageKey,
     slice, affordances, resolution, resolutions, transport, footer, review,
     expandBody, expandGutterBody, canExpand, partial, fill,
-    diagnostics, failures, onRetry,
+    diagnostics, failures, onRetry, paging,
 }: PlanNarrowProps) {
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
+    // Paged demand (#812): row cards and the load-more card enrol here.
+    const watch = useListDemand(paging);
     const tabsRecipe = useSlotRecipe({ key: "tabs" });
     // The auto-appended cohort chip appears when the STORE moves (#611).
     const sliceVersion = useSliceReactivity(slice?.key);
@@ -373,97 +597,53 @@ export function PlanNarrow({
         ? <Box css={styles.nowLine} data-plan-axisline left={`${scale.nowFrac * 100}%`} />
         : null;
 
-    // One data row as a card: head = the gutter identity, body = the plot.
+    // One data row as a card — its facts computed here, its render memoized
+    // (`NarrowRowCard`), so a list that grows re-renders only what it adds.
     const renderRowCard = (row: PlanRowValue, measures: boolean) => {
-        const v = { row, depth: 0, collapsed: false };
         const isChart = row.kind.type === "chart";
         // Measures stack at EXPANDED density (§10): force the chart's expanded
         // branch (it still honours a declared fixed / expandedHeight).
-        const h = rowHeight(v, dense, measures && isChart ? new Set([row.key]) : ui.chartsExpanded, undefined, derived);
+        const h = rowHeight({ row, depth: 0, collapsed: false }, dense,
+            measures && isChart ? new Set([row.key]) : ui.chartsExpanded, undefined, derived);
         const chartExpanded = row.kind.type === "chart" && (measures
             || row.kind.value.height.type === "expanded" || ui.chartsExpanded.has(row.key));
-        const selected = ui.selected === row.key;
-        const drilled = ui.focus !== null && ui.focus.kind === "expand" && ui.focus.key === row.key && expandBody !== null;
-        const canDrill = canExpand && row.expand.type === "some";
-        const declaredPx = row.expand.type === "some" && row.expand.value.height.type === "some"
-            ? pxOf(row.expand.value.height.value)
-            : undefined;
-        const renderPx = declaredPx ?? NARROW_RENDER_PX;
-        const gutter = row.gutter;
-        const isId = gutter.id.type === "some" && gutter.id.value;
-        const sub = gutter.sub.type === "some" ? gutter.sub.value : undefined;
-        const value = gutter.value.type === "some" ? gutter.value.value : undefined;
-        const meta = gutter.meta.type === "some" ? gutter.meta.value : undefined;
-        const statusTone = row.status.type === "some" ? row.status.value.type : undefined;
-        // A row that cannot be placed shows its diagnostic in the card body
-        // (#811) — no marks, and no value ticks for marks that are not there.
-        const diagnostic = derived.diagnostics.get(row.key);
+        const drilled = ui.focus !== null && ui.focus.kind === "expand" && ui.focus.key === row.key;
         return (
-            <Box key={row.key} css={styles.narrowCard} data-plan-card={row.key}
-                data-selected={selected ? "" : undefined}
-                data-expanded={drilled ? "" : undefined}
-                // Tap selects; a second tap on a selected row that declares
-                // `expand` drills it in place (and again returns) — §10.
-                onClick={() => dispatch(selected && canDrill
-                    ? { t: "focus.expand", key: row.key }
-                    : { t: "row.select", key: row.key })}
-            >
-                <Box css={styles.narrowCardHead}>
-                    <Box css={styles.narrowCardTitle} data-id={isId ? "" : undefined}>{gutter.label}</Box>
-                    {meta !== undefined && <Box as="span" css={styles.gutterMeta}>{meta}</Box>}
-                    <Box display="flex" alignItems="center" gap="6px" marginLeft="auto" flexShrink={0}>
-                        {value !== undefined && <Box as="span" css={styles.gutterValue}>{value}</Box>}
-                        {statusTone !== undefined && <Box as="span" css={styles.statusDot} data-tone={statusTone} />}
-                    </Box>
-                </Box>
-                {sub !== undefined && <Box css={styles.narrowCardSub}>{sub}</Box>}
-                {drilled && expandGutterBody !== null && (
-                    <Box css={styles.expandGutterBody} data-plan-expandgutter marginX="12px" marginBottom="8px">
-                        <PlanPartBoundary part="expand gutter" resetKey={expandGutterBody} styles={styles}>
-                            <EastChakraComponent value={expandGutterBody} storageKey={`${storageKey}.${row.key}.expandgutter`} />
-                        </PlanPartBoundary>
-                    </Box>
-                )}
-                <Box css={styles.narrowCardBody} height={`${h}px`} data-plan-cardbody={row.kind.type}>
-                    {!isChart && <GridSeparators styles={styles} />}
-                    {diagnostic !== undefined ? (
-                        <RowDiagnostic diagnostic={diagnostic} styles={styles} />
-                    ) : (
-                        <PlanPartBoundary part={`row ${row.key}`} resetKey={row} styles={styles}>
-                            <KindPlot v={v} styles={styles} derived={derived} storageKey={storageKey}
-                                barHeight={barHeight} hasChildren={(index.children.get(row.key)?.length ?? 0) > 0}
-                                ctx={false} plotHeight={h} chartExpanded={chartExpanded} partial={partial} />
-                            {row.kind.type === "chart" && (
-                                <Box css={styles.narrowTicks}>
-                                    <ChartLeftTicks kind={row.kind.value} styles={styles} height={h} />
-                                </Box>
-                            )}
-                        </PlanPartBoundary>
-                    )}
-                    {nowLine}
-                </Box>
-                {drilled && (
-                    <Box css={styles.narrowRender} data-plan-expandrender height={`${renderPx}px`}>
-                        <PlanPartBoundary part="expand render" resetKey={expandBody} styles={styles}>
-                            <EastChakraComponent value={expandBody} storageKey={`${storageKey}.${row.key}.expand`} />
-                        </PlanPartBoundary>
-                    </Box>
-                )}
-                {review !== undefined && review.hasRowVerbs && (
-                    <Box css={styles.narrowCardFoot}>
-                        <PlanDecisionCell rowKey={row.key} tag={tagOf(row)} review={review} />
-                    </Box>
-                )}
-            </Box>
+            <NarrowRowCard key={row.key} row={row} h={h} chartExpanded={chartExpanded}
+                selected={ui.selected === row.key}
+                canDrill={canExpand && row.expand.type === "some"}
+                drill={drilled && expandBody !== null ? { body: expandBody, gutter: expandGutterBody } : undefined}
+                hasChildren={(index.children.get(row.key)?.length ?? 0) > 0}
+                styles={styles} derived={derived} storageKey={storageKey} barHeight={barHeight}
+                partial={partial} review={review} watch={watch} />
         );
     };
 
+    const revealMore = (key: NarrowTab) =>
+        setReveal((r) => ({ ...r, [key]: r[key] + (key === "groups" ? PAGE_GROUPS : PAGE_ROWS) }));
     const more = (key: NarrowTab, label: string) => (
-        <Box as="button" css={styles.narrowMore} data-plan-more={key}
-            onClick={() => setReveal((r) => ({ ...r, [key]: r[key] + (key === "groups" ? PAGE_GROUPS : PAGE_ROWS) }))}>
+        <Box as="button" css={styles.narrowMore} data-plan-more={key} onClick={() => revealMore(key)}>
             {label}
         </Box>
     );
+    // A list that shows every resident row while the source holds more
+    // (#812): the canvas's tail band in list form. Scrolling it into view (the
+    // list's observer) or tapping it demands the next window; the tap also
+    // opens the next page, so the landed rows show without a second tap. Keyed
+    // by where the unloaded run starts, so a landing that leaves it on screen
+    // re-arms the observer instead of stranding the list.
+    const loadMore = (key: NarrowTab) => {
+        const tail = paging?.tail;
+        if (paging === undefined || tail === undefined) return null;
+        return (
+            <Box key={`source-${tail.from}`} ref={watch} as="button" css={styles.narrowMore}
+                data-plan-more="source" data-plan-elements={bandElements(tail)}
+                aria-busy={paging.loading ? "true" : undefined}
+                onClick={() => { revealMore(key); paging.onLoadMore(); }}>
+                {bandCaption(tail, paging.loading)}
+            </Box>
+        );
+    };
 
     let list: ReactNode;
     if (activeTab === "groups") {
@@ -506,8 +686,9 @@ export function PlanNarrow({
                         </Box>
                     );
                 })}
-                {hidden.length > 0 && more("groups",
-                    `${formatDerived(hidden.length)} more group${hidden.length > 1 ? "s" : ""}${hiddenRs > 0 ? ` · ${membersMeta(hiddenRs, undefined)}` : ""}`)}
+                {hidden.length > 0 ? more("groups",
+                    `${formatDerived(hidden.length)} more group${hidden.length > 1 ? "s" : ""}${hiddenRs > 0 ? ` · ${membersMeta(hiddenRs, undefined)}` : ""}`)
+                    : loadMore("groups")}
                 {ungrouped.length > 0 && (
                     <Box css={styles.narrowCard} data-plan-groupcard="other" onClick={() => openGroup(OTHER_SCOPE)}>
                         <Box css={styles.narrowCardHead}>
@@ -566,7 +747,7 @@ export function PlanNarrow({
                 )}
                 {total === 0 && <Box css={styles.narrowEmpty}>No rows</Box>}
                 {body}
-                {rest > 0 && more("rows", `${formatDerived(rest)} more row${rest > 1 ? "s" : ""}`)}
+                {rest > 0 ? more("rows", `${formatDerived(rest)} more row${rest > 1 ? "s" : ""}`) : loadMore("rows")}
             </>
         );
     } else {
@@ -575,7 +756,7 @@ export function PlanNarrow({
         list = (
             <>
                 {shown.map((row) => renderRowCard(row, true))}
-                {rest > 0 && more("measures", `${formatDerived(rest)} more measure${rest > 1 ? "s" : ""}`)}
+                {rest > 0 ? more("measures", `${formatDerived(rest)} more measure${rest > 1 ? "s" : ""}`) : loadMore("measures")}
             </>
         );
     }

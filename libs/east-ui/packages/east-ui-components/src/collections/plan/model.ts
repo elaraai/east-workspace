@@ -1007,6 +1007,26 @@ export type PlanBodyItem =
     | { kind: "failed"; failure: PlanWindowFailure };
 
 /**
+ * A body item's identity (#812) — its row's key, its gap's first row, its
+ * band's end, its failed window — prefixed by kind, so no two items of a body
+ * share one. The virtualizer keys rows by it, so a row keeps its component
+ * instance when a collapse, a focus or a landing window moves it; keyed by
+ * index, the instance at a moved row's old index was handed whichever row now
+ * sat there.
+ *
+ * @param item - The body item
+ * @returns Its key, unique within one body
+ */
+export function bodyItemKey(item: PlanBodyItem): string {
+    switch (item.kind) {
+        case "row": return `r:${item.row.row.key}`;
+        case "gap": return `g:${item.gap.key}`;
+        case "band": return `b:${item.band.at}`;
+        case "failed": return `f:${item.failure.w}`;
+    }
+}
+
+/**
  * Place each failed window's band where its rows would be (#811): after the
  * last row that came from an EARLIER window, or first when none did.
  *

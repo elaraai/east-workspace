@@ -14,7 +14,8 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach } from "vitest";
-import { render, cleanup, fireEvent } from "@testing-library/react";
+import { useEffect } from "react";
+import { render, cleanup, fireEvent, act } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { system } from "../theme/index.js";
 import { VirtualRows } from "./virtual-rows.js";
@@ -186,5 +187,137 @@ describe("VirtualRows — the paged collection's two signals (#577)", () => {
         // Bump the version ⇒ re-measured, so half as many rows now fit.
         rerender(frame(2));
         expect(mounted()).toBeLessThan(atShortRows);
+    });
+});
+
+describe("VirtualRows — keys, exact sizes, a watched header (#812)", () => {
+    const extentOf = (c: HTMLElement) =>
+        Number(c.querySelector("[data-virtual-extent]")!.getAttribute("data-virtual-extent"));
+
+    test("exact sizes re-measure by themselves when an entry moves at a constant count", () => {
+        const frame = (sizes: readonly number[]) => (
+            <ChakraProvider value={system}>
+                <VirtualRows height="200px" maxHeight={undefined} count={sizes.length} sizes={sizes}
+                    measureRows={false} overscan={2} renderRow={(i) => <div>row {i}</div>} />
+            </ChakraProvider>
+        );
+        const short = Array.from({ length: 20 }, () => ROW_H);
+        const { container, rerender } = render(frame(short));
+        const mounted = (): number => container.querySelectorAll("[data-index]").length;
+        const atShort = mounted();
+        expect(extentOf(container)).toBe(20 * ROW_H);
+        // A new list, the same entries: the geometry holds.
+        rerender(frame([...short]));
+        expect(mounted()).toBe(atShort);
+        // Every row doubles at the same count — no version to bump; the frame
+        // sees the entries move, so half as many rows fit and the extent follows.
+        rerender(frame(short.map((h) => h * 2)));
+        expect(extentOf(container)).toBe(20 * 2 * ROW_H);
+        expect(mounted()).toBeLessThan(atShort);
+    });
+
+    test("getItemKey keeps a row's instance when the rows above it go", () => {
+        const events: string[] = [];
+        function Row({ id }: { id: string }) {
+            useEffect(() => {
+                events.push(`mount ${id}`);
+                return () => { events.push(`unmount ${id}`); };
+            }, [id]);
+            return <div>{id}</div>;
+        }
+        const frame = (ids: readonly string[]) => (
+            <ChakraProvider value={system}>
+                <VirtualRows height="200px" maxHeight={undefined} count={ids.length} sizes={ids.map(() => ROW_H)}
+                    getItemKey={(i) => ids[i]!} measureRows={false} overscan={10}
+                    renderRow={(i) => <Row id={ids[i]!} />} />
+            </ChakraProvider>
+        );
+        const { rerender } = render(frame(["a", "b", "c", "d"]));
+        events.length = 0;
+        // a and b collapse away: c and d move up two places. Keyed by index,
+        // the instances at 0 and 1 would be handed c and d, and the ones that
+        // drew them would go.
+        rerender(frame(["c", "d"]));
+        expect([...events].sort()).toEqual(["unmount a", "unmount b"]);
+    });
+
+    test("unbounded with a range listener: every row renders, and the range is the scrolling ancestor's", () => {
+        const seen: { startIndex: number; endIndex: number }[] = [];
+        const { container } = render(
+            <ChakraProvider value={system}>
+                <div style={{ overflowY: "auto", height: "200px" }}>
+                    <VirtualRows height={undefined} maxHeight={undefined} count={50} estimateSize={() => ROW_H}
+                        measureRows={false} overscan={2} onRangeChange={(range) => seen.push(range)}
+                        renderRow={(i) => <div>row {i}</div>} />
+                </div>
+            </ChakraProvider>,
+        );
+        expect(container.querySelector('[data-virtual-rows="watched"]')).toBeTruthy();
+        // Every row is in flow — none is a virtual window item...
+        expect(container.querySelectorAll("[data-index]")).toHaveLength(0);
+        expect(container.textContent).toContain("row 49");
+        // ...and the range reported is the one the 200px ancestor shows.
+        const last = seen[seen.length - 1]!;
+        expect(last.startIndex).toBe(0);
+        expect(last.endIndex).toBeGreaterThan(0);
+        expect(last.endIndex).toBeLessThan(49);
+    });
+
+    test("unbounded at scale mounts only what the scrolling ancestor shows, at the full extent", () => {
+        const { container } = render(
+            <ChakraProvider value={system}>
+                <div style={{ overflowY: "auto", height: "200px" }}>
+                    <VirtualRows height={undefined} maxHeight={undefined} count={1_000} estimateSize={() => ROW_H}
+                        measureRows={false} overscan={2} virtualizeUnboundedAt={400}
+                        renderRow={(i) => <div>row {i}</div>} />
+                </div>
+            </ChakraProvider>,
+        );
+        expect(container.querySelector('[data-virtual-rows="ancestor"]')).toBeTruthy();
+        const mounted = container.querySelectorAll("[data-index]").length;
+        expect(mounted).toBeGreaterThan(1);
+        expect(mounted).toBeLessThan(20);
+        expect(extentOf(container)).toBe(1_000 * ROW_H);
+    });
+
+    test("a header that grows moves the scroll margin — the range follows the rows down", () => {
+        // A ResizeObserver the test fires, and the rows' offset below the
+        // header as the frame measures it.
+        const observers: (() => void)[] = [];
+        const realRO = (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
+        (globalThis as { ResizeObserver?: unknown }).ResizeObserver = class {
+            private readonly cb: ResizeObserverCallback;
+            constructor(cb: ResizeObserverCallback) { this.cb = cb; }
+            observe() { observers.push(() => this.cb([], this as unknown as ResizeObserver)); }
+            unobserve() {}
+            disconnect() {}
+        };
+        let headerPx = 20;
+        const realOffsetTop = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetTop");
+        Object.defineProperty(HTMLElement.prototype, "offsetTop", {
+            configurable: true,
+            get(this: HTMLElement) { return this.hasAttribute("data-virtual-extent") ? headerPx : 0; },
+        });
+        try {
+            const seen: { startIndex: number; endIndex: number }[] = [];
+            render(
+                <ChakraProvider value={system}>
+                    <VirtualRows height="200px" maxHeight={undefined} count={100} estimateSize={() => ROW_H}
+                        measureRows={false} overscan={0} header={<div>header</div>}
+                        onRangeChange={(range) => seen.push(range)}
+                        renderRow={(i) => <div>row {i}</div>} />
+                </ChakraProvider>,
+            );
+            // Under a 20px header the 200px viewport shows rows 0–5.
+            expect(seen[seen.length - 1]!.endIndex).toBe(5);
+            // The header grows by 100px (a focus bar, a wrapped toolbar): the
+            // rows start lower, so fewer of them are on screen.
+            headerPx = 120;
+            act(() => { for (const fire of observers) fire(); });
+            expect(seen[seen.length - 1]!.endIndex).toBe(2);
+        } finally {
+            (globalThis as { ResizeObserver?: unknown }).ResizeObserver = realRO;
+            if (realOffsetTop !== undefined) Object.defineProperty(HTMLElement.prototype, "offsetTop", realOffsetTop);
+        }
     });
 });

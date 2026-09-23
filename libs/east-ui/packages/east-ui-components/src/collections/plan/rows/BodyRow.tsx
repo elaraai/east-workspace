@@ -20,7 +20,7 @@
  * removes is the store-change tax, not the geometry-change work.
  */
 
-import { memo, type ReactNode } from "react";
+import { memo, useEffect, type ReactNode } from "react";
 import { Box } from "@chakra-ui/react";
 import { RowShell, type PlanRowDrop } from "./RowShell.js";
 import { GroupRow } from "./GroupRow.js";
@@ -114,6 +114,20 @@ export function setBodyRowRenderProbe(fn: ((key: string) => void) | undefined): 
     bodyRowRenderProbe = fn;
 }
 
+/**
+ * Test-only mount probe — lets "a row keeps its component instance" be
+ * asserted as mounts and unmounts per row (#812). An index-keyed body hands an
+ * instance whichever row now sits at its index, which shows up here as a row
+ * that is still on screen UNMOUNTING (the instance it mounted as went away)
+ * — deterministic, where a render count cannot tell the two apart.
+ * `undefined` outside tests.
+ */
+let bodyRowMountProbe: ((key: string, phase: "mount" | "unmount") => void) | undefined;
+/** Install (or clear) the test mount probe. Test use only. */
+export function setBodyRowMountProbe(fn: ((key: string, phase: "mount" | "unmount") => void) | undefined): void {
+    bodyRowMountProbe = fn;
+}
+
 /** One body row — a group band, an R1 rail, or a kind row in its shell. */
 export const PlanBodyRow = memo(function PlanBodyRow({
     v, h, styles, gridTemplate, barHeight, storageKey, index, derived,
@@ -122,6 +136,12 @@ export const PlanBodyRow = memo(function PlanBodyRow({
     expandBody, expandGutter, bandHeight,
 }: PlanBodyRowProps) {
     bodyRowRenderProbe?.(v.row.key);
+    const mountedAs = v.row.key;
+    useEffect(() => {
+        bodyRowMountProbe?.(mountedAs, "mount");
+        return () => bodyRowMountProbe?.(mountedAs, "unmount");
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- once per INSTANCE, under the row it mounted as
+    }, []);
     const kind = v.row.kind;
     // A row that cannot be placed on the axis renders in place as its
     // diagnostic (#811) — gutter kept, marks replaced by the reason.

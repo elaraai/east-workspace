@@ -58,15 +58,15 @@ import { useElementHeight } from "./use-element-height.js";
 import { WindowBand, WindowFailureBand } from "./rows/WindowBand.js";
 import { PlanPartBoundary } from "./rows/PartBoundary.js";
 import { resolutionInterval, type PlanResolution, type PlanScale } from "./scale.js";
-import { axisNow, axisResolutions, ordinalIndexOf, rangeArmOf, rangeOf, resolveScale, sliceWindowOf } from "./axis.js";
+import { axisNow, axisResolutions, ordinalIndexOf, rangeArmOf, rangeOf, resolveScale, scaleReadsRows, sliceWindowOf } from "./axis.js";
 import type { PlanInstantValue } from "./instant.js";
 import {
     initialPlanStore, planStoreReducer,
     type PlanEffect, type PlanEvent,
 } from "./plan-state.js";
 import {
-    GAP_H, derivePlan, deriveLinkFamily, elideForFocus, firstDiagnosticItem, indexRows, linkedRowKeys, pinnedRows,
-    placeFailures, pxOf, rowHeight, visibleRows, windowRestHeight,
+    GAP_H, bodyItemKey, derivePlan, deriveLinkFamily, elideForFocus, firstDiagnosticItem, indexRows, linkedRowKeys,
+    pinnedRows, placeFailures, pxOf, rowHeight, visibleRows, windowRestHeight,
     type FocusGap, type PlanBodyItem, type PlanFocusCtx, type PlanRootValue, type PlanRowValue, type VisibleRow,
 } from "./model.js";
 import { appendAll } from "./reductions.js";
@@ -75,7 +75,7 @@ import { useDragTarget, type DragEventValue } from "../../dnd/drag-layer";
 import { type CanDropFn } from "../../dnd/ir-can-drop";
 import { type PlanRowDrop } from "./rows/RowShell.js";
 import { PlanBodyRow } from "./rows/BodyRow.js";
-import { PlanNarrow, PLAN_NARROW_BELOW } from "./narrow/index.js";
+import { PlanNarrow, PLAN_NARROW_BELOW, type PlanNarrowPaging } from "./narrow/index.js";
 import { PlanToolbar } from "./shell/Toolbar.js";
 import { HorizonBrush } from "./shell/HorizonBrush.js";
 import { FocusBar } from "./shell/FocusBar.js";
@@ -112,6 +112,12 @@ const EXPAND_DEFAULT_PX = 240;
 /** The render never clamps below this — a region too short to hold anything
  *  is worse than one that scrolls. */
 const EXPAND_FLOOR_PX = 88;
+/** An UNBOUNDED canvas with at least this many body items mounts only what
+ *  its scrolling ancestor shows (#812). Below it every row renders, so
+ *  content-sized examples and captures keep their full render. */
+const VIRTUALIZE_UNBOUNDED_AT = 400;
+/** The rows a scale with a stated window is resolved over — none (#812). */
+const NO_ROWS: readonly PlanRowValue[] = [];
 
 export interface EastChakraPlanProps {
     /** The Plan root value. */
@@ -215,13 +221,17 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
         : undefined;
     // `resolveScale` owns the ladder: the slice's range ▸ the declared window
     // ▸ fit-to-data (a PAGED canvas must declare — #567 D8), per axis kind.
+    // The rows are an input only when the window is fitted to them: a stated
+    // window keeps one scale while windows land, rather than handing every
+    // mounted row a new one (#812).
+    const fitRows = scaleReadsRows(data.axis, sliceWin, pagedSource !== undefined) ? rows : NO_ROWS;
     const scale: PlanScale | undefined = useMemo(() => resolveScale({
         axis: data.axis,
         sliceWindow: sliceFromN === undefined || sliceToN === undefined ? undefined : [sliceFromN, sliceToN],
         sliceResolution,
-        rows,
+        rows: fitRows,
         paged: pagedSource !== undefined,
-    }), [data.axis, sliceFromN, sliceToN, sliceResolution, rows, pagedSource]);
+    }), [data.axis, sliceFromN, sliceToN, sliceResolution, fitRows, pagedSource]);
 
     // ── The one state machine ─────────────────────────────────────────────
     const index = useMemo(() => indexRows(rows), [rows]);
@@ -315,13 +325,6 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
             return null;
         }
     }, [ui.focus, expandGutterFn]);
-    // Entering / leaving / moving a row focus rewrites EVERY row's height
-    // while the row COUNT holds — precisely the case TanStack's measurement
-    // memo does not watch (see `VirtualRows.sizeVersion`). Bump on each
-    // distinct focus so the offsets are recomputed instead of the strips
-    // painting at their old full heights.
-    const [focusVersion, setFocusVersion] = useState(0);
-    useEffect(() => { setFocusVersion((n) => n + 1); }, [ui.focus]);
     // The element-click callbacks (#569) — one funnel, routed by the clicked
     // ref's own tag. The click payloads ARE the element-ref arms (types.ts),
     // so nothing is re-encoded; `queueMicrotask` per the mandatory pattern.
@@ -496,14 +499,15 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     // The virtualizer's scroll viewport — the only element that knows how much
     // canvas there actually is, which the R2 clamp measures.
     const scrollElRef = useRef<HTMLDivElement | null>(null);
-    // The sticky chrome's measured height (toolbar / brush / ruler / pinned
-    // rows / focus bar). It sits INSIDE the scroll viewport, so the clamp has
-    // to take it off the top. Measured rather than summed from constants: the
-    // chrome is conditional in five places and a hand-kept total would drift.
-    const headerPxRef = useRef(0);
-    const headerElRef = useCallback((el: HTMLDivElement | null) => {
-        headerPxRef.current = el?.offsetHeight ?? 0;
-    }, []);
+    // The sticky chrome (toolbar / brush / ruler / pinned rows / focus bar).
+    // It sits INSIDE the scroll viewport, so the clamp has to take it off the
+    // top. Measured rather than summed from constants — the chrome is
+    // conditional in five places and a hand-kept total would drift — and
+    // WATCHED rather than measured once (#812): the focus bar mounts with the
+    // very focus that asks for the clamp, and the toolbar can wrap at any
+    // width, so a height read when the header mounted is wrong by the time
+    // the clamp uses it.
+    const headerRef = useRef<HTMLDivElement | null>(null);
     // Entering a row focus can swap the body tree (R2 unmounts the clicked
     // control), dropping browser focus to <body> and killing the esc rung —
     // re-anchor keyboard focus on the canvas surface.
@@ -589,12 +593,15 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     const expandDecl = focusCtx?.kind === "expand"
         ? getSomeorUndefined(index.byKey.get(focusCtx.key)?.expand)
         : undefined;
-    // The v2 clamp — `min(renderHeight, canvas − strips − ruler)`. The canvas
+    // The v2 clamp — `min(renderHeight, canvas − strips − chrome)`. The canvas
     // is MEASURED, not parsed: `height: "fill"` is `"100%"`, which has no
     // pixel value until layout runs. Unbounded frames have no scroll element
     // and grow to content, so there is nothing to clamp against and the
-    // declared height stands.
-    const viewportPx = useElementHeight(scrollElRef, ui.focus?.kind === "expand");
+    // declared height stands. Both readings are live while an expand focus is
+    // open on the canvas layout (the narrow cards size their own render).
+    const expandActive = ui.focus?.kind === "expand" && !narrow;
+    const viewportPx = useElementHeight(scrollElRef, expandActive);
+    const headerPx = useElementHeight(headerRef, expandActive);
     // The clamp feeds `focusCtx.renderPx`, which `rowHeight` adds to the focal
     // row — so it must be computed WITHOUT `focusCtx` (which would be
     // circular). Strip heights are constant per row, so summing them needs no
@@ -611,8 +618,8 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
         const bare = { kind: "expand" as const, key: ui.focus?.key ?? "" };
         const rowsPx = visible.reduce(
             (sum, v) => sum + rowHeight(v, dense, ui.chartsExpanded, bare, derived), 0);
-        return Math.max(EXPAND_FLOOR_PX, Math.min(want, viewportPx - rowsPx - headerPxRef.current));
-    }, [expandDecl, viewportPx, visible, dense, ui.chartsExpanded, ui.focus, derived]);
+        return Math.max(EXPAND_FLOOR_PX, Math.min(want, viewportPx - rowsPx - (headerPx ?? 0)));
+    }, [expandDecl, viewportPx, headerPx, visible, dense, ui.chartsExpanded, ui.focus, derived]);
     // The height context every `rowHeight` call uses. `focusCtx` says WHICH
     // row is focused (that is all `renderVisible` needs); this adds how tall
     // its render is, which only the measurements need — keeping them separate
@@ -640,6 +647,24 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
         if (paging.tail !== undefined) out.push({ kind: "band", band: paging.tail });
         return out;
     }, [focusCtx, visible, index, paging.failures, paging.origin, paging.head, paging.tail]);
+    // The exact height of every body item — the virtualizer's sizes AND what
+    // each item renders at (`RowShell` pins the same `rowHeight`, the bands
+    // their own px). The list is the height SIGNATURE (#812): a row's kind,
+    // the density, a chart's toggle, a focus and the expand clamp all reach
+    // it, so any of them changing a height re-measures the frame — and a
+    // selection, which reaches none of its inputs, re-measures nothing.
+    const heights = useMemo(() => bodyItems.map((item) => {
+        if (item.kind === "gap") return GAP_H;
+        if (item.kind === "band") return Math.max(1, item.band.px);
+        if (item.kind === "failed") return item.failure.px;
+        return rowHeight(item.row, dense, ui.chartsExpanded, heightCtx, derived);
+    }), [bodyItems, dense, ui.chartsExpanded, heightCtx, derived]);
+    // Each item's identity (#812), so a row keeps its component instance when
+    // a collapse, a focus or a landing window moves it.
+    const itemKey = useCallback((i: number): string => {
+        const item = bodyItems[i];
+        return item !== undefined ? bodyItemKey(item) : `i:${i}`;
+    }, [bodyItems]);
 
     // The viewport, in the driver's terms — which ROW (or which band) it sits
     // on. The item under the viewport CENTER when the frame can resolve one
@@ -673,6 +698,15 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
         else if (item.kind === "failed") reportViewport({ kind: "window", w: item.failure.w }, isScrolling);
         // A links-focus gap band names no window — leave the demand where it is.
     }, [bodyItems, reportViewport]);
+    // The narrow list's side of the same loop (#812): it has no virtualizer,
+    // so it reports the last row card on screen, and its load-more asks for
+    // the window past the resident run.
+    const narrowPaging = useMemo<PlanNarrowPaging | undefined>(() => (pagedSource === undefined ? undefined : {
+        tail: paging.tail,
+        loading: paging.loading,
+        onViewport: (key: string) => reportViewport({ kind: "row", key }, false),
+        onLoadMore: () => reportViewport({ kind: "band", at: "tail" }, false),
+    }), [pagedSource, paging.tail, paging.loading, reportViewport]);
     // Where a key search has positioned the canvas. Resolved against the
     // VISIBLE body (a match inside a collapsed group has no row to scroll to),
     // and only once that row has actually loaded.
@@ -838,7 +872,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     const rulerCaption = ui.grain.toUpperCase();
 
     const header = (
-        <Box background="bg.surface" ref={headerElRef}>
+        <Box background="bg.surface" ref={headerRef} data-plan-header>
             {/* The toolbar is SLICE chrome (§2) — the grain / resolution
                 segments ride the slice rail; an unbound canvas has no rail.
                 It ALSO carries the key search, and that is a capability of the
@@ -944,14 +978,15 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                             canExpand={expandRenderFn !== undefined}
                             partial={transport?.partial} fill={frameFills}
                             diagnostics={diagnostics} failures={paging.failures} onRetry={paging.retry}
+                            paging={narrowPaging}
                         />
                     ) : (
                         <VirtualRows
                             height={frameFills ? undefined : height}
                             maxHeight={frameFills ? undefined : maxHeight}
                             fillParent={frameFills}
-                            // Every body item pins an exact height matching
-                            // `estimateSize` — `RowShell` sets `height: {h}px`
+                            // Every body item pins the exact height it gives the
+                            // frame in `sizes` — `RowShell` sets `height: {h}px`
                             // from the same `rowHeight()`, the rail / gap bands
                             // pin 11px / 22px in the recipe, and the R2 render
                             // pins its clamped `px`. Measuring fixed-height rows
@@ -961,25 +996,21 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                             scrollToIndex={scrollToIndex}
                             scrollNonce={scrollOwner === "skipped" ? skippedSeq : undefined}
                             onRangeChange={pagedSource !== undefined ? reportRange : undefined}
-                            // A band becoming rows changes heights without
-                            // changing the count, which TanStack's measurement
-                            // memo does not watch (see `sizeVersion`). A row focus
-                            // does exactly the same thing — every unfocused row
-                            // drops to a strip while the count holds — so the
-                            // focus identity rides the same bust.
-                            sizeVersion={paging.sizeVersion + focusVersion}
+                            // Unbounded, a large canvas mounts only what its
+                            // scrolling ancestor shows (#812) — the same threshold
+                            // whatever the source. A smaller paged canvas mounts
+                            // every row and still reports which are on screen:
+                            // `onRangeChange` makes the frame watch the ancestor.
+                            virtualizeUnboundedAt={VIRTUALIZE_UNBOUNDED_AT}
                             scrollElRef={scrollElRef}
                             header={header}
                             footer={<PlanFooter styles={styles} items={data.footer} transport={transport} />}
                             count={bodyItems.length}
-                            estimateSize={(i) => {
-                                const item = bodyItems[i];
-                                if (item === undefined) return 32;
-                                if (item.kind === "gap") return GAP_H;
-                                if (item.kind === "band") return Math.max(1, item.band.px);
-                                if (item.kind === "failed") return item.failure.px;
-                                return rowHeight(item.row, dense, ui.chartsExpanded, heightCtx, derived);
-                            }}
+                            // Heights move at a constant count — a chart toggle, a
+                            // focus stripping every other row, a band landing as
+                            // rows — and the frame re-measures from these alone.
+                            sizes={heights}
+                            getItemKey={itemKey}
                             renderRow={(i) => {
                                 const item = bodyItems[i];
                                 if (item === undefined) return null;

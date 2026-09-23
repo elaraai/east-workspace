@@ -46,6 +46,16 @@
  * the cursor and "60% of the way down" means the same element when the gesture
  * ends as when it began.
  *
+ * # A jump owns the viewport (#812)
+ *
+ * A key search REBASES the run on its target window, but the canvas can only
+ * scroll to the target once its row has landed. Until then every viewport
+ * report is taken from where the canvas still is — the old scroll position,
+ * now over the new head band — and honouring one would rebase the run back and
+ * undo the jump. So while the target window is pinned, reports move nothing;
+ * the pin drops when the window SETTLES (it lands, or its read fails), and the
+ * canvas, scrolled to the target by then, reports from there.
+ *
  * # A failure belongs to its window (#811)
  *
  * A window whose read throws becomes a {@link PlanWindowFailure} — one error
@@ -145,9 +155,8 @@ export interface PlanPaging {
     /** Why the SOURCE could not be read — its `total()` threw — when it could
      *  not be. Chrome, never a canvas replacement (#811). */
     sourceError: string | undefined;
-    /** Bump for `VirtualRows`' `sizeVersion` — heights change at constant count. */
-    sizeVersion: number;
-    /** Tell the driver where the viewport is. */
+    /** Tell the driver where the viewport is. Ignored while a jump is pending
+     *  — the jump owns the viewport until its window settles (#812). */
     reportViewport: (at: PlanViewport, isScrolling: boolean) => void;
     /** Jump to a source element (a seek result): pin its window and rebase. */
     jumpToElement: (element: number) => void;
@@ -164,7 +173,6 @@ const IDLE: PlanPaging = {
     rows: [], origin: new Map(), head: undefined, tail: undefined,
     total: undefined, resident: undefined, loading: false,
     failures: NO_FAILURES, sourceError: undefined,
-    sizeVersion: 0,
     reportViewport: () => {},
     jumpToElement: () => {},
     clearJump: () => {},
@@ -195,7 +203,6 @@ export function usePlanPaging(
     const [residency, setResidency] = useState<Residency>(NO_RESIDENCY);
     const [viewportWindow, setViewportWindow] = useState(0);
     const [isScrolling, setIsScrolling] = useState(false);
-    const [sizeVersion, setSizeVersion] = useState(0);
     // Bumped by a Retry: the evaluation re-runs and asks the window whose
     // failure record the Retry just dropped.
     const [retrySeq, setRetrySeq] = useState(0);
@@ -264,7 +271,6 @@ export function usePlanPaging(
         }
         setLedger(createLedger(total, PLAN_PAGE_SIZE));
         setResidency(NO_RESIDENCY);
-        setSizeVersion((v) => v + 1);
     }, [total, ledger.total, source]);
 
     // ── Landed windows teach the ledger ───────────────────────────────────
@@ -276,10 +282,9 @@ export function usePlanPaging(
             next = observeWindow(next, w, { px: heightOf([...rows.values()]), rows: rows.size });
         }
         if (next === ledger) return;
+        // Band heights move with the ledger while the body-item count barely
+        // does; the canvas re-measures from the heights themselves (#812).
         setLedger(next);
-        // Heights changed while the body-item count barely moved — TanStack's
-        // measurement memo does not watch `estimateSize`, so say so explicitly.
-        setSizeVersion((v) => v + 1);
     }, [landed, ledger, heightOf]);
 
     // ── Demand follows the viewport, at idle only ─────────────────────────
@@ -305,7 +310,6 @@ export function usePlanPaging(
         const keep = new Set(residentWindows(next));
         pruneCache(cacheRef.current.cache, keep);
         pruneCache(cacheRef.current.failures, keep);
-        setSizeVersion((v) => v + 1);
     }, [source, ledger, residency, viewportWindow, isScrolling, policy]);
 
     // ── What the renderer sees ────────────────────────────────────────────
@@ -377,6 +381,12 @@ export function usePlanPaging(
     // ── Callbacks the renderer feeds ──────────────────────────────────────
     const reportViewport = useCallback((at: PlanViewport, scrolling: boolean) => {
         setIsScrolling(scrolling);
+        // A jump owns the viewport until its window settles (#812). The canvas
+        // cannot scroll to a row that has not landed, so every report until
+        // then is taken from where the canvas still IS — the old scroll
+        // position, now over a band — and demanding that window would rebase
+        // the run back and undo the jump before it ever arrived.
+        if (residency.pins.size > 0) return;
         setViewportWindow((current) => {
             if (at.kind === "window") return at.w;
             if (at.kind === "band") {
@@ -402,7 +412,7 @@ export function usePlanPaging(
             const w = originRef.current.get(at.key);
             return w ?? current;
         });
-    }, [residency.lo, residency.hi, ledger]);
+    }, [residency.lo, residency.hi, residency.pins, ledger]);
 
     const jumpToElement = useCallback((element: number) => {
         const w = Math.floor(Math.max(0, element) / PLAN_PAGE_SIZE);
@@ -422,17 +432,21 @@ export function usePlanPaging(
         setRetrySeq((n) => n + 1);
     }, []);
 
-    // A pin protects the jump target only until it LANDS — then it drops, as
-    // `window-residency`'s own doc always promised. Leaving it would keep one
-    // window trim-exempt for the session per search (#614).
+    // A pin protects the jump target only until it SETTLES — it lands, or its
+    // read fails (#811) — then it drops, as `window-residency`'s own doc
+    // always promised. Leaving it would keep one window trim-exempt for the
+    // session per search (#614), and, since a pending jump owns the viewport
+    // (#812), a target that failed would freeze the demand where it was.
     const landedWindows = value?.resident;
+    const failedWindows = value?.failed;
     useEffect(() => {
         if (residency.pins.size === 0 || landedWindows === undefined) return;
-        const landedSet = new Set(landedWindows.map((r) => r.w));
-        if ([...residency.pins].every((w) => landedSet.has(w))) {
+        const settled = new Set(landedWindows.map((r) => r.w));
+        for (const f of failedWindows ?? []) settled.add(f.w);
+        if ([...residency.pins].every((w) => settled.has(w))) {
             setResidency((r) => unpinAll(r));
         }
-    }, [residency.pins, landedWindows]);
+    }, [residency.pins, landedWindows, failedWindows]);
 
     if (source === undefined) return IDLE;
 
@@ -446,7 +460,6 @@ export function usePlanPaging(
         loading: value?.loading ?? false,
         failures,
         sourceError,
-        sizeVersion,
         reportViewport,
         jumpToElement,
         clearJump,

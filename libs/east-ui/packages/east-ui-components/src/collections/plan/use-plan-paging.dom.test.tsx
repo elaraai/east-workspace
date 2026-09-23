@@ -267,6 +267,74 @@ describe("paging driver — pins and totals (#614)", () => {
     });
 });
 
+describe("paging driver — a pending jump owns the viewport (#812)", () => {
+    /** Windows from 100 on stay IN FLIGHT until `open`, and window `broken`
+     *  throws — a far jump's target arrives (or fails) when the test says. */
+    function held(windows: number, broken?: number) {
+        const state = { open: false };
+        const value = {
+            id: "held-driver",
+            page: (offset: bigint) => {
+                const w = Number(offset) / PLAN_PAGE_SIZE;
+                if (w === broken) throw new Error("fetch failed: 503");
+                if (w >= 100 && !state.open) return none;
+                const pad = String(w).padStart(4, "0");
+                return some(new Map([`w${pad}r000`, `w${pad}r001`].map((key) =>
+                    [key, { key, parent: none } as unknown as PlanRowValue])));
+            },
+            total: () => some(BigInt(windows * PLAN_PAGE_SIZE)),
+            seek: none,
+        } as unknown as PlanPagedSourceValue;
+        return { value, state };
+    }
+
+    test("a report taken before the jump lands does not undo it", async () => {
+        const { value, state } = held(250);
+        const { rerender } = render(<Harness src={value} />);
+        await waitFor(() => expect(text("resident")).toBe("0-600"));
+
+        act(() => { latest?.jumpToElement(40_000); });
+        await act(async () => { await Promise.resolve(); });
+        // The canvas cannot scroll to a row that has not landed, so it reports
+        // where it still is — the top, now over the head band. Honoured, that
+        // rebased the run back to window 0 and the jump never arrived.
+        report({ kind: "band", at: "head", px: 10 });
+        await act(async () => { await Promise.resolve(); });
+        expect(text("resident")).toBe("-");
+
+        // The target lands (an equivalent source re-runs the read).
+        state.open = true;
+        rerender(<Harness src={{ ...value }} />);
+        await waitFor(() => {
+            const [from, to] = text("resident").split("-").map(Number) as [number, number];
+            expect(from).toBeLessThanOrEqual(40_000);
+            expect(to).toBeGreaterThan(40_000);
+        });
+        // Landed, the pin drops and reports move the demand again.
+        report({ kind: "band", at: "head", px: 10 });
+        await waitFor(() => expect(text("resident")).toMatch(/^0-/));
+    });
+
+    test("a jump whose window FAILS hands the viewport back", async () => {
+        const { value, state } = held(250, 200);
+        state.open = true;
+        const err = vi.spyOn(console, "error").mockImplementation(() => {});
+        try {
+            render(<Harness src={value} />);
+            await waitFor(() => expect(text("resident")).toBe("0-600"));
+            act(() => { latest?.jumpToElement(40_000); });
+            await waitFor(() => expect(latest?.failures.map((f) => f.w)).toContain(200));
+            // The target settled as a failure (#811): the jump is over, and a
+            // report moves the demand — a pin that waited for a landing would
+            // have frozen it there.
+            report({ kind: "band", at: "head", px: 10 });
+            await waitFor(() => expect(text("resident")).toMatch(/^0-/));
+        } finally {
+            err.mockRestore();
+        }
+    });
+});
+
 describe("paging driver — an unreadable source", () => {
     test("reports the reason — the SOURCE's for `total()`, and window 0's own failure (#811)", async () => {
         const boom = (): never => { throw new Error("no paging service"); };

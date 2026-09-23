@@ -1795,7 +1795,15 @@ describe("Plan paged source (P-c)", () => {
         // the head the reader needs next pass, so the canvas blinked empty and
         // reloaded forever past ~4,800 elements. The prefix now stops at a
         // stated budget and the chrome reports the shortfall.
-        const w0 = [planRow("m1", spanKind([run("r1", W27, new Date("2026-07-13Z"), variant("actual", null))]))];
+        //
+        // The demand is the VIEWPORT's (#812): window 0 fills the 768px jsdom
+        // window, so the canvas asks for window 0's ring and no further. A
+        // canvas whose viewport showed unloaded space would load on — the
+        // band says as much ("scroll to load").
+        const w0 = [
+            planRow("m1", spanKind([run("r1", W27, new Date("2026-07-13Z"), variant("actual", null))])),
+            ...Array.from({ length: 29 }, (_u, i) => planRow(`f${i}`, spanKind([]))),
+        ];
         const offsets: bigint[] = [];
         const source = {
             page: (offset: bigint) => {
@@ -1827,8 +1835,12 @@ describe("Plan paged source (P-c)", () => {
         // Not one skeleton per row: the canvas cannot know how many rows an
         // unvisited window makes, so a per-row skeleton would assert a count it
         // has no way to support. One band, captioned with what IS known — the
-        // source ELEMENTS it covers.
-        const w0 = [planRow("m1", spanKind([run("r1", W27, new Date("2026-07-13Z"), variant("actual", null))]))];
+        // source ELEMENTS it covers. (Window 0 fills the jsdom viewport, so
+        // the demand rests on its ring and the band stays — #812.)
+        const w0 = [
+            planRow("m1", spanKind([run("r1", W27, new Date("2026-07-13Z"), variant("actual", null))])),
+            ...Array.from({ length: 29 }, (_u, i) => planRow(`f${i}`, spanKind([]))),
+        ];
         const source = {
             page: (offset: bigint) => (offset === 0n ? some(rowCollection(w0)) : some(rowCollection([]))),
             total: () => some(10_000n),          // 50 windows
@@ -1836,7 +1848,8 @@ describe("Plan paged source (P-c)", () => {
             seek: none,
         };
         // Unbounded, like the other Plan DOM tests: jsdom has no layout, so a
-        // bounded frame would virtualize down to nothing.
+        // bounded frame would virtualize down to nothing. (Below 400 body
+        // items an unbounded canvas mounts every one, band included.)
         const { container } = renderPlan(planRoot([], { source }), "plan-band");
         await screen.findByText("R1");
 
@@ -1879,18 +1892,20 @@ describe("Plan paged source (P-c)", () => {
     });
 
     test("ledger heights are the AT-REST render — declared collapse applied, pinned rows excluded (#613)", async () => {
-        // Window 0: a declared-collapsed group hiding 20 members, 7 plain rows
-        // and a pinned row (it renders in the header). Its at-rest body height
-        // is GROUP_H + 7×ROW_H = 250px — NOT the 922px the flat row list
-        // costs. The ledger seeds its frozen slot rate from this FIRST
-        // measurement (250 / 200 elements), so the never-visited remainder —
-        // two windows, 400 elements — must describe itself as 500px. The old
-        // measure (every row at full height, pinned included) would have said
-        // 1,844.
+        // Window 0: a declared-collapsed group hiding 20 members, 15 plain
+        // rows and a pinned row (it renders in the header). Its at-rest body
+        // height is GROUP_H + 15×ROW_H = 506px — NOT the 1,178px the flat row
+        // list costs. The ledger seeds its frozen slot rate from this FIRST
+        // measurement (506 / 200 elements), so the never-visited remainder —
+        // two windows, 400 elements — must describe itself as 1,012px. The
+        // old measure (every row at full height, pinned included) would have
+        // said 2,356. (Fifteen rows put the jsdom viewport's center inside
+        // window 0, so the demand rests on its ring and windows 3–4 stay a
+        // band — #812.)
         const w0 = [
             planRow("g1", variant("group", { summary: none, summaryAggregate: none, collapsed: some(true) })),
             ...Array.from({ length: 20 }, (_u, i) => planRow(`m${i}`, spanKind([]), { parent: "g1" })),
-            ...Array.from({ length: 7 }, (_u, i) => planRow(`p${i}`, spanKind([]))),
+            ...Array.from({ length: 15 }, (_u, i) => planRow(`p${i}`, spanKind([]))),
             { ...planRow("pin", spanKind([])), pinned: some(true) } as PlanRowValue,
         ];
         const source = {
@@ -1910,7 +1925,7 @@ describe("Plan paged source (P-c)", () => {
         await waitFor(() => {
             const band = container.querySelector('[data-plan-window-band="tail"]');
             expect(band).not.toBeNull();
-            expect(band!.getAttribute("data-plan-px")).toBe("500");
+            expect(band!.getAttribute("data-plan-px")).toBe("1012");
         });
         // The window renders the way it was measured: collapsed, pin in header.
         expect(container.querySelector('[data-plan-row="m0"]')).toBeNull();
@@ -2376,9 +2391,10 @@ describe("Plan typed axis (#631) — chrome per kind", () => {
 });
 
 describe("Plan failure is local (#811)", () => {
-    /** One source window of span rows keyed `w{w}r{i}` — two per window, each
-     *  with a time-axis run; `offAxis` rows carry NUMBER instants instead. */
-    const windowRows = (w: number, offAxis: ReadonlySet<string> = new Set()) => rowCollection([0, 1].map((i) => {
+    /** One source window of span rows keyed `w{w}r{i}` — two per window unless
+     *  asked for more, each with a time-axis run; `offAxis` rows carry NUMBER
+     *  instants instead. */
+    const windowRows = (w: number, offAxis: ReadonlySet<string> = new Set(), perWindow = 2) => rowCollection(Array.from({ length: perWindow }, (_u, i) => {
         const key = `w${w}r${i}`;
         return planRow(key, spanKind([offAxis.has(key)
             ? { key: `x${key}`, start: n(3), end: n(6), label: key, quantity: none, qty: none,
@@ -2393,7 +2409,9 @@ describe("Plan failure is local (#811)", () => {
             id: "dom-811-axis",
             page: (offset: bigint) => {
                 const w = Number(offset) / 200;
-                return w < 6 ? some(windowRows(w, new Set(["w3r0"]))) : some(rowCollection([]));
+                // Sixteen rows a window: window 0 fills the jsdom viewport, so
+                // the demand rests on its ring (#812).
+                return w < 6 ? some(windowRows(w, new Set(["w3r0"]), 16)) : some(rowCollection([]));
             },
             total: () => some(TOTAL),
             // A keyed source seeks: every query lands on element 600 — window 3.
