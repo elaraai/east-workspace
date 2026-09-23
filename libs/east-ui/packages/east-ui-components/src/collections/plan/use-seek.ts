@@ -28,8 +28,12 @@
  * @packageDocumentation
  */
 
-import { StringType, none, parseFor, some, variant, type EastTypeValue } from "@elaraai/east";
+import { StringType, none, parseFor, some, variant, type EastTypeValue, type ValueTypeOf } from "@elaraai/east";
+import type { SeekQueryType } from "@elaraai/east-ui";
 import type { DatasetKeyMatchRange, DatasetKeyQuery } from "../key-search/index.js";
+
+/** A decoded key query — what a source's `seek` is asked. */
+export type SeekQueryValue = ValueTypeOf<SeekQueryType>;
 
 /** What the toolbar needs to mount `<DatasetKeySearch>`. */
 export interface PlanSearch {
@@ -59,9 +63,10 @@ export function soughtKeyOf(query: DatasetKeyQuery): string | undefined {
 }
 
 /** The East `SeekQueryType` value for a control query — the inverse of the
- *  runtime's `toFindQuery`, so one vocabulary crosses the whole path.
+ *  runtime's `toFindQuery`, so one vocabulary crosses the whole path, typed by
+ *  the East type the source's `seek` declares (#743 item 7).
  *  Shared with the Sheet's key search (`sheet/use-seek.ts`). */
-export function toSeekQuery(query: DatasetKeyQuery): unknown {
+export function toSeekQuery(query: DatasetKeyQuery): SeekQueryValue {
     if ("key" in query) return variant("key", query.key);
     if ("prefix" in query) return variant("prefix", query.prefix);
     return variant("fields", {

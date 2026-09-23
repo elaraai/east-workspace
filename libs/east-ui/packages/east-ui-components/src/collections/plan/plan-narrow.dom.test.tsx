@@ -254,7 +254,7 @@ describe("Plan narrow layout (§10 / #570)", () => {
         initializeStore(new UIStore());
         const cfg = {
             fields: new Map<string, unknown>([
-                ["at", { type: "datetime", value: { label: "At", accessor: (r: { at: Date }) => r.at, format: none } }],
+                ["at", variant("datetime", { label: "At", accessor: (r: { at: Date }) => r.at, format: none })],
             ]),
             rangeFieldId: some("at"), searchFieldIds: [], breakdownFieldIds: [],
         };
@@ -273,7 +273,7 @@ describe("Plan narrow layout (§10 / #570)", () => {
         const cov = container.querySelector("[data-plan-card='cov']") as HTMLElement;
         expect(cov).toBeTruthy();
         // Expanded density — the plot's viewBox spans 88px, not the spark's 32.
-        expect(cov.querySelector("polyline")!.closest("svg")!.getAttribute("viewBox")).toBe("0 0 1000 88");
+        expect(cov.querySelector('[data-plan-mark="line"]')!.closest("svg")!.getAttribute("viewBox")).toBe("0 0 1000 88");
         // The value ticks overlay the plot's left edge (no gutter to print them in).
         expect(cov.querySelectorAll("[data-plan-tickpx]")).toHaveLength(2);
 

@@ -142,7 +142,7 @@ const storedAt = (key: string) => JSON.parse(localStorage.getItem(key) ?? "null"
 function resolutionSlice(key: string) {
     const cfg = {
         fields: new Map<string, unknown>([
-            ["at", { type: "datetime", value: { label: "At", accessor: (r: { at: Date }) => r.at, format: none } }],
+            ["at", variant("datetime", { label: "At", accessor: (r: { at: Date }) => r.at, format: none })],
         ]),
         rangeFieldId: some("at"), searchFieldIds: [], breakdownFieldIds: [],
     };

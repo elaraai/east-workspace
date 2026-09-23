@@ -294,13 +294,13 @@ describe("Plan expand-in-place (R2)", () => {
                 variant("Text", { value: `R · ${ref.key}`, style: none }),
         }));
         // At rest the chart row draws its marks and prints its axis.
-        expect(container.querySelector('[data-plan-row="cov"] polyline')).toBeTruthy();
+        expect(container.querySelector('[data-plan-row="cov"] [data-plan-mark="line"]')).toBeTruthy();
         expect(container.querySelector('[data-plan-row="cov"] [data-plan-tickpx]')).toBeTruthy();
         fireEvent.click(container.querySelector('[data-plan-control="expand"]')!);
         // R2 — values RE-ENCODE: the strip is a tone strip, so there is no SVG
         // to squash and no value axis to label in 16px — the ticks go with it.
         expect(container.querySelector('[data-plan-row="cov"]')!.hasAttribute("data-ctx")).toBe(true);
-        expect(container.querySelector('[data-plan-row="cov"] polyline')).toBeNull();
+        expect(container.querySelector('[data-plan-row="cov"] [data-plan-mark="line"]')).toBeNull();
         expect(container.querySelector('[data-plan-row="cov"] [data-plan-tickpx]')).toBeNull();
         // R1 — the span bar is still there, still positioned, flagged for 7px.
         const bar = container.querySelector('[data-plan-row="s"] [data-run="r1"]') as HTMLElement;
@@ -343,7 +343,7 @@ describe("Plan expand-in-place (R2)", () => {
         }), "plan-591-chart-band");
         // The plot SVG is the one holding the line — the gutter's control
         // icon is an SVG too.
-        const plotSvg = () => container.querySelector('[data-plan-row="cov"] polyline')!.closest("svg")!;
+        const plotSvg = () => container.querySelector('[data-plan-row="cov"] [data-plan-mark="line"]')!.closest("svg")!;
         const tick = () => container.querySelector('[data-plan-row="cov"] [data-plan-tickpx]')!;
         // At rest: a 32px spark. The scale's floor sits at the 4px pad + the
         // 24px inner height = 28px; too shallow for the ref label.

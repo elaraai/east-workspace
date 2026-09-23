@@ -425,8 +425,13 @@ export type PlanAnimationLiteral = "none" | "pulse";
  * type (`DateTimeType` ⇒ `time`, numeric ⇒ `number`, `StringType` ⇒
  * `ordinal`) and must match the canvas axis at render.
  *
+ * @remarks
+ * A `y` that is not a finite number (`NaN`) is a GAP — a missing
+ * observation: a line or an area breaks there instead of bridging it, a
+ * column draws nothing, and the value counts toward no axis domain.
+ *
  * @property t - The instant on the shared scale
- * @property y - The measure value
+ * @property y - The measure value (`NaN` ⇒ a gap)
  */
 export const PlanChartPointType = StructType({ t: PlanInstantType, y: FloatType });
 export type PlanChartPointType = typeof PlanChartPointType;
@@ -456,7 +461,8 @@ export const PlanBreachType = VariantType({ above: FloatType, below: FloatType }
 export type PlanBreachType = typeof PlanBreachType;
 
 /**
- * One `{t, lo, hi}` point of a band (area-range) chart layer.
+ * One `{t, lo, hi}` point of a band (area-range) chart layer. A bound that is
+ * not finite (`NaN`) makes the point a gap: the band breaks there.
  *
  * @property t - The instant on the shared scale
  * @property lo - The lower bound
@@ -472,7 +478,7 @@ export type PlanChartBandPointType = typeof PlanChartBandPointType;
  * arms are meaningful (a Plan chart row's time axis is the shared canvas
  * scale, never per-axis).
  *
- * @property domain - Explicit `[min, max]` extent (`none` ⇒ derived from the data)
+ * @property domain - Explicit `[min, max]` extent (`none` ⇒ derived from what the row draws: its values, an area's and each column's baseline, and every column stack's ends)
  * @property tickValues - Explicit tick positions printed at the gutter/plot edge (`none` ⇒ no ticks)
  * @property format - Optional tick format (the shared {@link ValueFormatType} — `Chart.format.*`)
  */
@@ -491,9 +497,13 @@ export type PlanChartAxisType = typeof PlanChartAxisType;
  * @remarks
  * Renderer vocabulary (fixed by the spec, not the IR): lines draw solid ≤ now
  * and dashed after; columns observed `ink`, planned brand at half strength,
- * breach warn; stacked columns pair by `series`; refLines are dotted
- * gridlines with a mono label. `Chart.Bar` (horizontal) is a build-time error
- * on every axis kind — horizontal bars flip the frame the shared axis owns.
+ * breach warn; stacked columns pair by `series`, each value axis stacking on
+ * its own — positive parts up from the baseline, negative parts down;
+ * refLines are dotted gridlines with a mono label. Every mark sits at its
+ * true instant — a point beyond the window keeps its position and the plot
+ * clips it. Hovering a bucket reads each data layer's value there.
+ * `Chart.Bar` (horizontal) is a build-time error on every axis kind —
+ * horizontal bars flip the frame the shared axis owns.
  *
  * @property line - A continuous line series (optional breach threshold)
  * @property area - A filled area series

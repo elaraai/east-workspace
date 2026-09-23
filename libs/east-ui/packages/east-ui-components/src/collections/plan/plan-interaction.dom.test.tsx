@@ -288,7 +288,7 @@ describe("Plan keyboard rungs (#569)", () => {
         initializeStore(new UIStore());
         const cfg = {
             fields: new Map<string, unknown>([
-                ["at", { type: "datetime", value: { label: "At", accessor: (r: { at: Date }) => r.at, format: none } }],
+                ["at", variant("datetime", { label: "At", accessor: (r: { at: Date }) => r.at, format: none })],
             ]),
             rangeFieldId: some("at"), searchFieldIds: [], breakdownFieldIds: [],
         };
@@ -346,7 +346,7 @@ describe("Plan interaction fixes (#615)", () => {
         initializeStore(new UIStore());
         const cfg = {
             fields: new Map<string, unknown>([
-                ["at", { type: "datetime", value: { label: "At", accessor: (r: { at: Date }) => r.at, format: none } }],
+                ["at", variant("datetime", { label: "At", accessor: (r: { at: Date }) => r.at, format: none })],
             ]),
             rangeFieldId: some("at"), searchFieldIds: [], breakdownFieldIds: [],
         };

@@ -11,6 +11,10 @@
  * Routing this through state committed the ENTIRE canvas once per pointermove;
  * now a pointermove renders nothing at all.
  *
+ * The hovered BUCKET is published to subscribers (#743) — each chart row's
+ * crosshair readout — only when it changes, so a pointer gliding across one
+ * bucket costs them nothing, and they too write the DOM directly.
+ *
  * @packageDocumentation
  */
 
@@ -32,30 +36,47 @@ export function usePlanCursorController(
     chipRef: RefObject<HTMLDivElement | null>,
     scale: PlanScale | undefined,
 ): PlanCursor {
-    return useMemo<PlanCursor>(() => ({
-        move: (frac: number) => {
-            const body = bodyRef.current;
-            if (body === null || scale === undefined) return;
-            body.style.setProperty("--plan-cursor-x", String(frac));
-            body.setAttribute("data-plan-cursor", "");
-            const chip = chipRef.current;
-            if (chip === null) return;
-            const bi = scale.bucketAtFrac(frac);
-            if (bi >= 0) {
-                chip.textContent = scale.buckets[bi]!.label;
-                chip.style.left = `${frac * 100}%`;
-                chip.style.transform = `translate(${chipAnchor(frac)}, -50%)`;
-                chip.style.display = "";
-            } else {
-                // A truncated axis's uncovered remainder has no bucket to name
-                // — the hairline still tracks, the readout hides.
-                chip.style.display = "none";
-            }
-        },
-        leave: () => {
-            bodyRef.current?.removeAttribute("data-plan-cursor");
-            const chip = chipRef.current;
-            if (chip !== null) chip.style.display = "none";
-        },
-    }), [bodyRef, chipRef, scale]);
+    return useMemo<PlanCursor>(() => {
+        const listeners = new Set<(bucket: number) => void>();
+        let hovered = -1;
+        const hover = (bucket: number) => {
+            if (bucket === hovered) return;
+            hovered = bucket;
+            for (const listener of listeners) listener(bucket);
+        };
+        return {
+            move: (frac: number) => {
+                const body = bodyRef.current;
+                if (body === null || scale === undefined) return;
+                body.style.setProperty("--plan-cursor-x", String(frac));
+                body.setAttribute("data-plan-cursor", "");
+                const bi = scale.bucketAtFrac(frac);
+                const chip = chipRef.current;
+                if (chip !== null) {
+                    if (bi >= 0) {
+                        chip.textContent = scale.buckets[bi]!.label;
+                        chip.style.left = `${frac * 100}%`;
+                        chip.style.transform = `translate(${chipAnchor(frac)}, -50%)`;
+                        chip.style.display = "";
+                    } else {
+                        // A truncated axis's uncovered remainder has no bucket
+                        // to name — the hairline still tracks, the readout hides.
+                        chip.style.display = "none";
+                    }
+                }
+                hover(bi);
+            },
+            leave: () => {
+                bodyRef.current?.removeAttribute("data-plan-cursor");
+                const chip = chipRef.current;
+                if (chip !== null) chip.style.display = "none";
+                hover(-1);
+            },
+            subscribe: (listener) => {
+                listeners.add(listener);
+                if (hovered >= 0) listener(hovered);
+                return () => { listeners.delete(listener); };
+            },
+        };
+    }, [bodyRef, chipRef, scale]);
 }

@@ -47,7 +47,7 @@ export const planSlotRecipe = defineSlotRecipe({
         // span rows
         "bar", "barQty", "rollBand", "port", "diamond",
         // chart rows
-        "chartTickLeft", "chartTickRight", "refLabel",
+        "chartTickLeft", "chartTickRight", "refLabel", "chartReadout", "chartReadoutValue",
         // heat rows
         "heatCell", "heatLabel", "weightBar", "segmentTrack", "segmentPart",
         // bucket rows (K2), cards rows (K6), event rows (K7), table rows (K5)
@@ -1044,6 +1044,36 @@ export const planSlotRecipe = defineSlotRecipe({
             padding: "0 3px",
             zIndex: 4,
             pointerEvents: "none",
+        },
+        // The crosshair readout (#743) — each data layer's value at the
+        // hovered bucket, beside that bucket, in the ref-label vocabulary.
+        // The cursor channel fills, places and opens it (`data-open`), so a
+        // hover renders nothing; above the now line so it stays legible.
+        chartReadout: {
+            position: "absolute",
+            top: "2px",
+            display: "none",
+            alignItems: "center",
+            gap: "6px",
+            fontFamily: "mono",
+            fontSize: "8.5px",
+            fontWeight: "semibold",
+            letterSpacing: "0.02em",
+            color: "fg.default",
+            background: "bg.surface",
+            borderRadius: "2px",
+            padding: "0 4px",
+            boxShadow: "0 0 0 1px {colors.border.subtle}",
+            whiteSpace: "nowrap",
+            pointerEvents: "none",
+            zIndex: 8,
+            "&[data-open]": { display: "flex" },
+        },
+        // One layer's value — in its mark's ink: lines, areas and bands the
+        // brand, columns the default ink, scatter the chart accent.
+        chartReadoutValue: {
+            "&[data-kind='line'], &[data-kind='area'], &[data-kind='band']": { color: "brand.fg" },
+            "&[data-kind='scatter']": { color: "accent.purple" },
         },
         // ── Heat rows (min-height 16, r2, 3px margins; depth is data-driven) ──
         heatCell: {

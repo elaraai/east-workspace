@@ -200,7 +200,7 @@ describe("Plan pxOf (#615)", () => {
     });
 
     test("a percentage row height falls back to the KIND height, never 50px", () => {
-        const tall = { ...row(spanKind), height: { type: "some", value: "50%" } } as unknown as PlanRowValue;
+        const tall = { ...row(spanKind), height: some("50%") } as PlanRowValue;
         expect(rowHeight(visible(tall), false, new Set())).toBe(ROW_H);
     });
 });

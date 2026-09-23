@@ -63,7 +63,7 @@ type SliceState = { range: { type: string; value?: { type: string; value: { from
 function countingSlice(key: string) {
     const cfg = {
         fields: new Map<string, unknown>([
-            ["at", { type: "datetime", value: { label: "At", accessor: (r: { at: Date }) => r.at, format: none } }],
+            ["at", variant("datetime", { label: "At", accessor: (r: { at: Date }) => r.at, format: none })],
         ]),
         rangeFieldId: some("at"), searchFieldIds: [], breakdownFieldIds: [],
     };

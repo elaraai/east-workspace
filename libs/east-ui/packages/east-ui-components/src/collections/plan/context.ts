@@ -60,12 +60,24 @@ export interface PlanCursor {
     move(frac: number): void;
     /** The pointer left a row plot. */
     leave(): void;
+    /**
+     * Follow the hovered BUCKET (#743) — the listener hears the bucket index
+     * each time the pointer crosses into another one (`-1` once it is over no
+     * bucket, or gone), and at once with the current one. A chart row's
+     * crosshair readout writes the DOM from it, so a hover still renders
+     * nothing.
+     *
+     * @param listener - Called with the hovered bucket index
+     * @returns Stop listening
+     */
+    subscribe(listener: (bucket: number) => void): () => void;
 }
 
 /** The cursor channel (inert by default — chrome simply never shows). */
 export const PlanCursorContext = createContext<PlanCursor>({
     move: () => undefined,
     leave: () => undefined,
+    subscribe: () => () => undefined,
 });
 
 /** The element-click channel (no funnel when the root declares none of the callbacks). */

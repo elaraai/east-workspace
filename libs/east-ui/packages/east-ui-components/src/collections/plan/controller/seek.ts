@@ -20,7 +20,7 @@ import type { DatasetKeyMatchRange, DatasetKeyQuery } from "../../key-search/ind
 import { createTrackedRead } from "../../../reactive/tracked.js";
 import type { PlanRowValue } from "../model.js";
 import type { PlanPagedSourceValue } from "../use-plan-paging.js";
-import { soughtKeyOf, toSeekQuery } from "../use-seek.js";
+import { soughtKeyOf, toSeekQuery, type SeekQueryValue } from "../use-seek.js";
 
 /** Canvas keys are Strings (#568) — a Plan's search input is typed against
  *  that, whatever the underlying dataset keys its elements by. */
@@ -94,7 +94,7 @@ export function firstAtOrAfter(rows: readonly PlanRowValue[], key: string): numb
  */
 export function createSeekDriver(options: SeekDriverOptions): SeekDriver {
     let seekFn: PlanSeekFn | undefined;
-    let query: unknown = null;
+    let query: SeekQueryValue | null = null;
     // The sought key is written SYNCHRONOUSLY in `find()`: the control awaits
     // `onFind` and then calls `onListRange`, and the labels must answer for
     // THIS search, not the previous one (#614).
@@ -115,7 +115,7 @@ export function createSeekDriver(options: SeekDriverOptions): SeekDriver {
         if (seekFn === undefined || query === null) return;
         const fn = seekFn;
         const q = query;
-        const out = tracked.run(() => fn(q as never) as { type: string; value?: { found: boolean; row: bigint; count: bigint } });
+        const out = tracked.run(() => fn(q));
         const waiting = pending;
         if (waiting === null) return;
         if (!out.ok) {
@@ -129,7 +129,7 @@ export function createSeekDriver(options: SeekDriverOptions): SeekDriver {
         const answer = out.value;
         // `none` = still searching: the channel is tracked, and its landing
         // runs this read again.
-        if (answer.type !== "some" || answer.value === undefined) return;
+        if (answer.type !== "some") return;
         const range = answer.value;
         pending = null;
         if (snapshot.sought !== null) publish({ ...snapshot, sought: { key: snapshot.sought.key, row: Number(range.row) } });

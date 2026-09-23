@@ -311,7 +311,7 @@ describe("Plan chart rows (§4·K3)", () => {
         const spark = renderPlan(planRoot([
             planRow("cov", chart(variant("spark", null)), { gutter: gutter("COVERAGE", { id: true, value: "94.2%" }) }),
         ]));
-        expect(spark.container.querySelector('[data-plan-row="cov"] svg polyline')).toBeTruthy();
+        expect(spark.container.querySelector('[data-plan-row="cov"] svg [data-plan-mark="line"]')).toBeTruthy();
         expect(screen.queryByText("TARGET 100")).toBeNull();   // too shallow for the label
         expect(screen.getByText("94.2%")).toBeTruthy();
         expect(screen.getByText("80")).toBeTruthy();           // left tick in the gutter edge

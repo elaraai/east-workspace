@@ -256,7 +256,7 @@ describe("Plan typed axis (#631) — chrome per kind", () => {
         initializeStore(new UIStore());
         const cfg = {
             fields: new Map<string, unknown>([
-                ["day", { type: "float", value: { label: "Day", accessor: (r: { day: number }) => r.day, format: none } }],
+                ["day", variant("float", { label: "Day", accessor: (r: { day: number }) => r.day, format: none })],
             ]),
             rangeFieldId: some("day"), searchFieldIds: [], breakdownFieldIds: [],
         };
@@ -331,7 +331,7 @@ describe("Plan typed axis (#631) — chrome per kind", () => {
         // strip does not mount and a pan writes nothing.
         const cfg = {
             fields: new Map<string, unknown>([
-                ["at", { type: "datetime", value: { label: "At", accessor: (r: { at: Date }) => r.at, format: none } }],
+                ["at", variant("datetime", { label: "At", accessor: (r: { at: Date }) => r.at, format: none })],
             ]),
             rangeFieldId: some("at"), searchFieldIds: [], breakdownFieldIds: [],
         };
