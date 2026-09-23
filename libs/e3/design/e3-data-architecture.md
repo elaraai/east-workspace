@@ -379,7 +379,7 @@ Read first:
    - e3-core's record apply moves onto Recut here, brought forward from stage 4b, and `record-apply.ts`'s private re-cut is deleted.
 8. **Manifests in every runtime.**
    - east-c opens a manifest as a lazy paged value, using the `.segments/` sibling convention (`processExec.ts:181-190`), and east-py opens one through it.
-   - east-c-cli and east-py-cli read manifest inputs, lazily and eagerly, so `runnerOpensManifests` holds for every stock runner and their inputs are staged by linking (F11).
+   - east-c-cli and east-py-cli read manifest inputs, lazily and eagerly, and every stock runner's `merge` command reads them too (east-node's opens them as the library Merger's manifest sources), so `runnerOpensManifests` holds for every stock runner and every command, and their inputs are staged by linking (F11).
    - Every runtime writes manifest directories, and so does the Merger (item 6).
    - A directory names each segment file by its SHA-256, the hash the store names it by, so each library carries one: `east` a pure-TypeScript SHA-256, east-c the one east-c-std has (moved into east-c, which east-c-std then uses), and east-py C's. The store can then adopt a directory's segments under their names (`adoptFile` takes a known hash).
 9. **The conformance corpus.**
