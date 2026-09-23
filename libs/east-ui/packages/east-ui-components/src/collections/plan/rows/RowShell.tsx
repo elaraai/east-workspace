@@ -13,13 +13,14 @@
  */
 
 import { useCallback, useMemo, useRef, type ReactNode } from "react";
-import { Box } from "@chakra-ui/react";
+import { Box, useChakraContext } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCaretDown, faLink, faUpRightAndDownLeftFromCenter } from "@fortawesome/free-solid-svg-icons";
 import { useDropCell, useDragLayerOptional, type CellCoord, type DragPayload } from "../../../dnd/drag-layer";
 import { canDropAllows, candidateEvent, type CanDropFn } from "../../../dnd/ir-can-drop";
 import { toPlanSlot } from "../../../dnd/slot-key";
-import { usePlanCursor, usePlanDispatch, usePlanScale } from "../context.js";
+import { resolveColor } from "../../shared/helpers.js";
+import { usePlanCursor, usePlanDispatch, usePlanGeometry, usePlanScale } from "../context.js";
 import type { PlanRowValue } from "../model.js";
 
 type Styles = Record<string, Record<string, unknown>>;
@@ -137,6 +138,8 @@ export function RowShell({
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
     const cursor = usePlanCursor();
+    const system = useChakraContext();
+    const geometry = usePlanGeometry();
     const gutter = row.gutter;
     // One flag, spread onto every slot that has a collapsed state. The slots
     // own the styling (`&[data-ctx]` in the recipe) — this only says which
@@ -152,6 +155,9 @@ export function RowShell({
     const value = gutter.value.type === "some" ? gutter.value.value : undefined;
     const isId = gutter.id.type === "some" && gutter.id.value;
     const statusTone = row.status.type === "some" ? row.status.value.type : undefined;
+    // The band an expanded row's own marks keep at the top — its natural kind
+    // height, which the focused row is always handed.
+    const band = bandHeight ?? geometry.row;
 
     // ── DnD drop cell ─────────────────────────────────────────────────────
     // The PLOT is the drop target, and its coordinate resolves from the
@@ -268,6 +274,10 @@ export function RowShell({
             gridTemplateColumns={gridTemplate}
             height={`${height}px`}
             data-plan-row={row.key}
+            data-plan-kind={row.kind.type}
+            // The height the model laid the row out at — a layout spec holds
+            // the rendered height to it, kind by kind (#817).
+            data-plan-h={height}
             data-selected={selected ? "" : undefined}
             data-emphasis={emphasis}
             data-ctx={ctxAttr}
@@ -334,8 +344,7 @@ export function RowShell({
                     <Box display="flex" gap="7px" marginTop="1px">
                         {gutter.swatches.map((s, i) => (
                             <Box key={i} as="span" css={styles.gutterSwatch} data-ctx={ctxAttr}>
-                                <Box as="i" background={s.color.includes(".") ? undefined : s.color}
-                                    backgroundColor={s.color.includes(".") ? s.color : undefined} />
+                                <Box as="i" background={resolveColor(system, s.color)} />
                                 {s.label}
                             </Box>
                         ))}
@@ -374,9 +383,9 @@ export function RowShell({
                     drift to the middle), and the render takes the rest. */}
                 {expanded ? (
                     <>
-                        <Box css={styles.expandRowBand} height={`${bandHeight ?? 32}px`}>{children}</Box>
+                        <Box css={styles.expandRowBand} height={`${band}px`}>{children}</Box>
                         <Box css={styles.expandRenderBody} data-plan-expandrender
-                            top={`${(bandHeight ?? 32) + 2}px`}>
+                            top={`${band + 2}px`}>
                             {expandBody}
                         </Box>
                     </>

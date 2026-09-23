@@ -26,16 +26,12 @@ import { Slice } from "@elaraai/east-ui/internal";
 import { BrushStrip } from "../../../slice/brush-strip.js";
 import { boundRangeDomain, boundRangeHistogram } from "../../../platform/slice/index.js";
 import { useSliceReactivity } from "../../../slice/use-slice-reactivity.js";
-import { usePlanDispatch, usePlanScale } from "../context.js";
+import { usePlanDispatch, usePlanGeometry, usePlanScale } from "../context.js";
 import { rangeArmOf, rangeOf } from "../axis.js";
 import type { PlanInstantValue } from "../instant.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 type SliceBindValue = ValueTypeOf<typeof Slice.Types.Bind>;
-
-/** Strip height / max bar height (the §7 sheet: 32px, bars 5px+4px inset). */
-const STRIP_H = 32;
-const BAR_H = 23;
 
 /** Time resolution → the caption unit + its span in ms (for `HORIZON · 26 WK`). */
 const CAPTION_UNIT: Record<string, { label: string; ms: number }> = {
@@ -58,6 +54,7 @@ export interface HorizonBrushProps {
 /** The 32px horizon band — caption gutter cell + the shared brush strip. */
 export function HorizonBrush({ styles, gridTemplate, slice, now }: HorizonBrushProps) {
     const dispatch = usePlanDispatch();
+    const geometry = usePlanGeometry();
     // The scale IS the applied window (slice range ▸ axis ▸ fit), on its
     // own numeric domain — epoch ms, or the value on a number axis.
     const scale = usePlanScale();
@@ -177,8 +174,10 @@ export function HorizonBrush({ styles, gridTemplate, slice, now }: HorizonBrushP
                     counts={counts}
                     window={winTo > winFrom ? { from: winFrom, to: winTo } : undefined}
                     nowFrac={nowFrac !== undefined && nowFrac >= 0 && nowFrac <= 1 ? nowFrac : undefined}
-                    height={STRIP_H}
-                    barHeight={BAR_H}
+                    // The strip and its tallest bar are the canvas geometry
+                    // (#817) — the §7 sheet's 32px band, bars inset within it.
+                    height={geometry.brush}
+                    barHeight={geometry.brushBar}
                     snapWindow={snapWindow}
                     // Snap AGAIN on the instants themselves so float round-trips
                     // can never land the committed window off an edge. The

@@ -72,8 +72,6 @@ export interface PlanBodyRowProps {
     h: number;
     styles: Styles;
     gridTemplate: string;
-    /** Span bar height (20 default / 16 dense). */
-    barHeight: number;
     /** Whether the row nests children (its caret, and a collapsed parent's
      *  slimmer bars). */
     hasChildren: boolean;
@@ -155,7 +153,7 @@ function sameBodyRow(a: PlanBodyRowProps, b: PlanBodyRowProps): boolean {
 
 /** One body row — a group band, an R1 rail, or a kind row in its shell. */
 export const PlanBodyRow = memo(function PlanBodyRow({
-    v, h, styles, gridTemplate, barHeight, hasChildren, derived,
+    v, h, styles, gridTemplate, hasChildren, derived,
     dispatch, focusRole, focusTag, axisMode,
     showLinksControl, showExpandControl, partial, review, rowDrop,
     expandBody, expandGutter, bandHeight,
@@ -180,6 +178,9 @@ export const PlanBodyRow = memo(function PlanBodyRow({
         const railTone = v.row.status.type === "some" ? v.row.status.value.type : undefined;
         return (
             <Box css={styles.rail} gridTemplateColumns={gridTemplate} data-plan-rail={v.row.key}
+                // The recipe sizes the rail from the geometry variable; this
+                // is the height the model laid it out at (#817).
+                data-plan-h={h}
                 onClick={() => dispatch({ t: "focus.clear" })}>
                 <Box position="relative">
                     {railTone !== undefined && (
@@ -301,7 +302,7 @@ export const PlanBodyRow = memo(function PlanBodyRow({
                 // One row's render failure stays in that row (#811).
                 <PlanPartBoundary part={`row ${v.row.key}`} resetKey={v.row} styles={styles}>
                     <KindPlot v={v} styles={styles} derived={derived}
-                        barHeight={barHeight} hasChildren={hasChildren} ctx={isCtx}
+                        hasChildren={hasChildren} ctx={isCtx}
                         plotHeight={plotH} chartExpanded={chartExpanded_} partial={partial} />
                 </PlanPartBoundary>
             )}

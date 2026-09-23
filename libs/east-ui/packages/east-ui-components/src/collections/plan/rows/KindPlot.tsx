@@ -25,6 +25,7 @@ import { CardsRow } from "./CardsRow.js";
 import { EventsRow } from "./EventsRow.js";
 import { TableRowCells } from "./TableRow.js";
 import { getSomeorUndefined } from "../../../utils.js";
+import { usePlanGeometry } from "../context.js";
 import type { PlanDerived, VisibleRow } from "../model.js";
 
 type Styles = Record<string, Record<string, unknown>>;
@@ -34,9 +35,7 @@ export interface KindPlotProps {
     styles: Styles;
     /** The renderer-side derivations (rollup bands, derived cells / series). */
     derived: PlanDerived;
-    /** Span bar height (20 default / 16 dense). */
-    barHeight: number;
-    /** Whether this row nests children (a collapsed parent draws 12px bars). */
+    /** Whether this row nests children (a collapsed parent draws rollup-height bars). */
     hasChildren: boolean;
     /** R2 context strip — marks at strip size. */
     ctx: boolean;
@@ -49,7 +48,10 @@ export interface KindPlotProps {
 }
 
 /** The plot content for a data row kind (`null` for a group band). */
-export function KindPlot({ v, styles, derived, barHeight, hasChildren, ctx, plotHeight, chartExpanded, partial }: KindPlotProps) {
+export function KindPlot({ v, styles, derived, hasChildren, ctx, plotHeight, chartExpanded, partial }: KindPlotProps) {
+    // Bar heights are the canvas's geometry (#817) — the density's bar, or
+    // the rollup band's height for a collapsed parent.
+    const geometry = usePlanGeometry();
     const kind = v.row.kind;
     const rowKey = v.row.key;
     switch (kind.type) {
@@ -57,7 +59,7 @@ export function KindPlot({ v, styles, derived, barHeight, hasChildren, ctx, plot
             return (
                 <SpanRow rowKey={rowKey} kind={kind.value} styles={styles} ctx={ctx}
                     bands={derived.bands.get(rowKey) ?? []}
-                    barHeight={v.collapsed && hasChildren ? 12 : barHeight}
+                    barHeight={v.collapsed && hasChildren ? geometry.rollBar : geometry.bar}
                     partial={partial} />
             );
         case "chart":

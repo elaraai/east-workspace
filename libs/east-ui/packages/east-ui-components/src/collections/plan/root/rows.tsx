@@ -36,8 +36,6 @@ export interface PlanRowContext {
     styles: Styles;
     gridTemplate: string;
     dense: boolean;
-    /** Span bar height (20 default / 16 dense). */
-    barHeight: number;
     storageKey: string;
     index: PlanRowIndex;
     derived: PlanDerived;
@@ -101,7 +99,6 @@ export function renderPlanRow(v: VisibleRow, ctx: PlanRowContext): ReactNode {
             h={h}
             styles={styles}
             gridTemplate={ctx.gridTemplate}
-            barHeight={ctx.barHeight}
             hasChildren={(ctx.index.children.get(v.row.key)?.length ?? 0) > 0}
             derived={ctx.derived}
             dispatch={ctx.dispatch}
@@ -140,8 +137,11 @@ export function renderPlanRow(v: VisibleRow, ctx: PlanRowContext): ReactNode {
  * rows (their count rides beside the icon, the worst hidden tone at right);
  * a click returns to all rows, like a rail.
  */
-export function PlanGapBand({ gap, styles, gridTemplate, dispatch }: {
+export function PlanGapBand({ gap, h, styles, gridTemplate, dispatch }: {
     gap: FocusGap;
+    /** The height the model laid the band out at — the recipe sizes it from
+     *  the same geometry variable (#817). */
+    h: number;
     styles: Styles;
     gridTemplate: string;
     dispatch: (e: PlanEvent) => void;
@@ -149,6 +149,7 @@ export function PlanGapBand({ gap, styles, gridTemplate, dispatch }: {
     return (
         <Box css={styles.focusGap} gridTemplateColumns={gridTemplate}
             data-plan-gap={gap.rows + gap.groups}
+            data-plan-h={h}
             onClick={() => dispatch({ t: "focus.clear" })}>
             <Box css={styles.focusGapInner}>
                 <FontAwesomeIcon icon={faEllipsis} />

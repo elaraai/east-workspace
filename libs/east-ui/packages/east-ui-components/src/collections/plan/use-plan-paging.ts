@@ -16,6 +16,7 @@
 
 import type { PlanBand, PlanRootValue } from "./model.js";
 import { elementsIn } from "./window-ledger.js";
+import { PLAN_GEOMETRY } from "./geometry.js";
 
 /** The decoded `paged` arm — the derived source at the canvas-row type. */
 export type PlanPagedSourceValue = Extract<PlanRootValue["rows"], { type: "paged" }>["value"];
@@ -25,8 +26,9 @@ export const PLAN_PAGE_SIZE = 200;
 
 /** The shortest a failed window's band renders (#811) — its reason and its
  *  Retry must stay legible even in a short last window, or before any window
- *  has taught the ledger its geometry. */
-export const FAILED_BAND_MIN_PX = 64;
+ *  has taught the ledger its geometry. The geometry table's entry (#817); the
+ *  same at every density. */
+export const FAILED_BAND_MIN_PX = PLAN_GEOMETRY.default.failedBandMin;
 
 export type { PlanBand, PlanWindowFailure } from "./model.js";
 

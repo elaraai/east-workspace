@@ -53,7 +53,7 @@ import type { EastChakraComponent } from "../../../component.js";
 import { SliceRailCluster } from "../../../slice/rail/index.js";
 import { railAffordanceKinds } from "../../../slice/rail-kinds.js";
 import { useSliceReactivity } from "../../../slice/use-slice-reactivity.js";
-import { usePlanDispatch, usePlanScale } from "../context.js";
+import { usePlanDispatch, usePlanGeometry, usePlanScale } from "../context.js";
 import { usePlanSelector } from "../controller/react.js";
 import type { PlanSnapshot } from "../controller/index.js";
 import { GridSeparators } from "../rows/RowShell.js";
@@ -95,8 +95,6 @@ const PAGE_ROWS = 8;
 /** A card body's inset from the list edge: 12px list padding + 1px card
  *  border + 12px body margin — the recipe's `narrowRuler` margin matches. */
 const BODY_INSET_PX = 25;
-/** The group card's summary strip height (18px cells + the 3px insets). */
-const GROUP_STRIP_H = 24;
 /** The Rows-tab scope for root data rows that belong to no group. */
 const OTHER_SCOPE = " other";
 
@@ -117,7 +115,6 @@ export interface PlanNarrowProps {
     /** The UI facts the cards read — the selection each list reads itself. */
     view: PlanUiView;
     dense: boolean;
-    barHeight: number;
     storageKey: string;
     /** The bound slice handle, when the canvas carries slice chrome. */
     slice: SliceBindValue | undefined;
@@ -154,13 +151,14 @@ const selectSelected = (s: PlanSnapshot) => s.store.ui.selected;
 
 /** The narrow shell: chips · tabs · ruler · card list · footer. */
 export function PlanNarrow({
-    styles, index, derived, view, dense, barHeight, storageKey,
+    styles, index, derived, view, dense, storageKey,
     slice, affordances, resolution, resolutions, transport, footer, review,
     expandBody, expandGutterBody, canExpand, partial, fill,
     diagnostics, failures, onRetry, paging,
 }: PlanNarrowProps) {
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
+    const geometry = usePlanGeometry();
     // The selection is read HERE, not passed down: a tap re-renders the list,
     // and each card's memo lets through only the two whose selection moved.
     const selected = usePlanSelector(selectSelected);
@@ -282,7 +280,7 @@ export function PlanNarrow({
                 canDrill={canExpand && row.expand.type === "some"}
                 drill={drilled && expandBody !== null ? { body: expandBody, gutter: expandGutterBody } : undefined}
                 hasChildren={(index.children.get(row.key)?.length ?? 0) > 0}
-                styles={styles} derived={derived} storageKey={storageKey} barHeight={barHeight}
+                styles={styles} derived={derived} storageKey={storageKey}
                 partial={partial} review={review} watch={watch} />
         );
     };
@@ -339,7 +337,7 @@ export function PlanNarrow({
                                 </Box>
                             </Box>
                             {arm !== undefined && (
-                                <Box css={styles.narrowCardBody} height={`${GROUP_STRIP_H}px`} data-plan-cardbody="group">
+                                <Box css={styles.narrowCardBody} height={`${geometry.narrowStrip}px`} data-plan-cardbody="group">
                                     <GridSeparators styles={styles} />
                                     {derived.diagnostics.has(row.key) ? (
                                         <RowDiagnostic diagnostic={derived.diagnostics.get(row.key)!} styles={styles} />

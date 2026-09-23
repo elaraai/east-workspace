@@ -59,7 +59,11 @@ import { useDataStable } from "../../hooks/useDataStable.js";
 import { usePersistedState } from "../../hooks/usePersistedState.js";
 import { VirtualRows } from "../virtual-rows.js";
 import { ReviewFoot } from "../shared/review.js";
-import { PlanScaleContext, PlanDispatchContext, PlanCursorContext, PlanResolversContext, type PlanResolvers } from "./context.js";
+import {
+    PlanScaleContext, PlanDispatchContext, PlanCursorContext, PlanResolversContext, PlanGeometryContext,
+    type PlanResolvers,
+} from "./context.js";
+import { planGeometry, planGeometryStyle } from "./geometry.js";
 import { WindowBand, WindowFailureBand } from "./rows/WindowBand.js";
 import { PlanPartBoundary } from "./rows/PartBoundary.js";
 import { axisNow, axisResolutions, ordinalIndexOf } from "./axis.js";
@@ -314,11 +318,13 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
         useMemo(() => ({ popover: hasPopover, hover: hasHover }), [hasPopover, hasHover]));
 
     // ── Recipe + layout ───────────────────────────────────────────────────
+    // Density is GEOMETRY, not a recipe variant (#817): one table of every
+    // row and slot height, written below as the CSS variables the recipe
+    // reads — the same numbers `rowHeight` lays the body out from.
     const recipe = useSlotRecipe({ key: "plan" });
-    const styles = useMemo(
-        () => recipe({ density: dense ? "dense" : "default" } as Record<string, unknown>) as unknown as Styles,
-        [recipe, dense],
-    );
+    const styles = useMemo(() => recipe() as unknown as Styles, [recipe]);
+    const geometry = planGeometry(dense);
+    const geometryStyle = useMemo(() => planGeometryStyle(geometry), [geometry]);
     const style = useMemo(() => getSomeorUndefined(data.style), [data.style]);
     // gutterWidth is a CSS px size string. `pxOf`, not `parseFloat`: a
     // percentage must fall back to the default, never silently become that
@@ -333,7 +339,6 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     // against the auto-height wrapper, which computes to `auto`: the frame
     // reports bounded, renders the spacer, and never scrolls.
     const frameFills = height !== undefined || maxHeight !== undefined;
-    const barHeight = dense ? 16 : 20;
 
     // ── The drag-target role ──────────────────────────────────────────────
     const rowDrop = usePlanDropTarget(value, data.sources, controller);
@@ -383,10 +388,10 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     // What every row of this render shares (#616: per-row facts are computed
     // from it, and each row's memo skips unless ITS facts moved).
     const rowCtx = useMemo<PlanRowContext>(() => ({
-        styles, gridTemplate, dense, barHeight, storageKey, index, derived,
+        styles, gridTemplate, dense, storageKey, index, derived,
         dispatch: controller.dispatch, chartsExpanded, focusCtx, heightCtx, linkFamily, linkedKeys,
         canExpand, expandBody, expandGutterBody, partial: transport?.partial, review, rowDrop,
-    }), [styles, gridTemplate, dense, barHeight, storageKey, index, derived, controller, chartsExpanded,
+    }), [styles, gridTemplate, dense, storageKey, index, derived, controller, chartsExpanded,
         focusCtx, heightCtx, linkFamily, linkedKeys, canExpand, expandBody, expandGutterBody, transport, review, rowDrop]);
 
     // The resolution segment is a TIME-axis affordance; the now instant rides
@@ -446,6 +451,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
 
     const canvas = (
         <PlanControllerContext.Provider value={controller}>
+        <PlanGeometryContext.Provider value={geometry}>
         <PlanScaleContext.Provider value={scale}>
         <PlanDispatchContext.Provider value={controller.dispatch}>
         <PlanCursorContext.Provider value={cursor}>
@@ -465,6 +471,9 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                 data-plan-narrow={narrow ? "" : undefined}
                 // Every derived number in this body is over a prefix.
                 data-plan-partial={transport?.partial === true ? "" : undefined}
+                // The geometry as CSS variables — every height the recipe
+                // draws that the model also computes reads one of these.
+                style={geometryStyle}
                 {...(frameFills && { display: "flex", flexDirection: "column", minHeight: 0, height, maxHeight })}
                 onKeyDown={onKeyDown}
                 onClickCapture={overlayHandlers.onClickCapture}
@@ -474,7 +483,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                 {narrow ? (
                     <PlanNarrow
                         styles={styles} index={index} derived={derived} view={view}
-                        dense={dense} barHeight={barHeight} storageKey={storageKey}
+                        dense={dense} storageKey={storageKey}
                         slice={slice} affordances={affordances}
                         resolution={scale.resolution ?? ""} resolutions={resolutions}
                         transport={transport} footer={data.footer} review={review}
@@ -490,10 +499,11 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                         fillParent={frameFills}
                         // Every body item pins the exact height it gives the
                         // frame in `sizes` — `RowShell` sets `height: {h}px`
-                        // from the same `rowHeight()`, the rail / gap bands pin
-                        // 11px / 22px in the recipe, and the R2 render pins its
-                        // clamped `px`. Measuring fixed-height rows drifts
-                        // under fractional zoom and paints hairline seams (#533).
+                        // from the same `rowHeight()`, the rail / gap bands
+                        // read the same geometry table's variables in the
+                        // recipe (#817), and the R2 render pins its clamped
+                        // `px`. Measuring fixed-height rows drifts under
+                        // fractional zoom and paints hairline seams (#533).
                         measureRows={false}
                         scrollToIndex={target.toIndex}
                         scrollNonce={target.nonce}
@@ -521,8 +531,8 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                             switch (item?.kind) {
                                 case undefined: return null;
                                 case "gap":
-                                    return <PlanGapBand gap={item.gap} styles={styles} gridTemplate={gridTemplate}
-                                        dispatch={controller.dispatch} />;
+                                    return <PlanGapBand gap={item.gap} h={body.heights[i] ?? 0} styles={styles}
+                                        gridTemplate={gridTemplate} dispatch={controller.dispatch} />;
                                 case "band":
                                     return <WindowBand band={item.band} styles={styles} loading={paging.loading} />;
                                 case "failed":
@@ -554,6 +564,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
         </PlanCursorContext.Provider>
         </PlanDispatchContext.Provider>
         </PlanScaleContext.Provider>
+        </PlanGeometryContext.Provider>
         </PlanControllerContext.Provider>
     );
 

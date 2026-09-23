@@ -16,7 +16,7 @@
  */
 
 import type { ReactNode } from "react";
-import { Box } from "@chakra-ui/react";
+import { Box, useChakraContext } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
     faCheck, faCircle, faCircleCheck, faCircleInfo, faCircleXmark, faGripVertical, faTriangleExclamation,
@@ -25,6 +25,7 @@ import {
 import type { IconName, IconPrefix } from "@fortawesome/fontawesome-svg-core";
 import { variant, type ValueTypeOf } from "@elaraai/east";
 import { Plan } from "@elaraai/east-ui/internal";
+import { resolveColor } from "../../shared/helpers.js";
 import { usePlanDispatch, usePlanResolvers, usePlanScale, type PlanElementRefValue } from "../context.js";
 import { runStateKey } from "./SpanRow.js";
 import type { PlanBucket } from "../scale.js";
@@ -62,6 +63,7 @@ function EventChip({ ev, styles, rowKey, ctx }: {
 }) {
     const dispatch = usePlanDispatch();
     const { onElementClick } = usePlanResolvers();
+    const system = useChakraContext();
     const ref = variant("event", { row: rowKey, event: ev.key }) as PlanElementRefValue;
     const label = ev.label.type === "some" ? ev.label.value : undefined;
     const icon = ev.icon.type === "some" ? ev.icon.value : undefined;
@@ -88,8 +90,8 @@ function EventChip({ ev, styles, rowKey, ctx }: {
             alignSelf={vFill && ctx !== true ? "stretch" : undefined}
             height={vFill && ctx !== true ? "auto" : undefined}
             justifyContent={justify}
-            background={color !== undefined && !color.includes(".") ? color : undefined}
-            backgroundColor={color !== undefined && color.includes(".") ? color : undefined}
+            // A theme token or raw CSS — the system says which (#817).
+            background={color !== undefined ? resolveColor(system, color) : undefined}
             onClick={(e) => {
                 e.stopPropagation();
                 dispatch({ t: "row.select", key: rowKey });

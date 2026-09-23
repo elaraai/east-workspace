@@ -27,6 +27,7 @@ import { initialPlanState, type PlanGrain, type PlanUiState, type RowKey } from 
 import type { PlanAxisKind } from "./instant.js";
 import { ancestorsOf } from "./row-tree.js";
 import { derivePlan, type PlanDerived } from "./derive.js";
+import { PLAN_GEOMETRY, planGeometry } from "./geometry.js";
 
 // The model's other halves, one import path for all of it (#815).
 export { forEachInstant, dataExtent, axisKindMismatches, type PlanAxisMismatch } from "./row-instants.js";
@@ -154,46 +155,39 @@ export function pinnedRows(index: PlanRowIndex): PlanRowValue[] {
 }
 
 // ── Row heights (the §8 sheet; px) ─────────────────────────────────────────
+// Every height below is an entry of the ONE geometry table (`geometry.ts`,
+// #817) — the table the recipe reads too, as CSS variables. These names are
+// its default-density entries, kept for the code and tests that name them.
 
-/** Default span/bucket/cards/table row height. */
-export const ROW_H = 32;
+/** Default span/bucket/cards/table row height. Tables share it: numerals need
+ *  no less room than a bar does, and a table row at the dense height beside
+ *  default rows read as a mistake. */
+export const ROW_H = PLAN_GEOMETRY.default.row;
 /** Dense row height (`density: compact`). */
-export const ROW_H_DENSE = 24;
+export const ROW_H_DENSE = PLAN_GEOMETRY.dense.row;
 /** Group band height. */
-export const GROUP_H = 26;
+export const GROUP_H = PLAN_GEOMETRY.default.group;
 /** Group summary heat-strip height (collapsed group with cells). */
-export const GROUP_STRIP_H = 28;
+export const GROUP_STRIP_H = PLAN_GEOMETRY.default.groupStrip;
 /** Chart spark / expanded heights. */
-export const CHART_SPARK_H = 32;
-export const CHART_EXPANDED_H = 88;
-/** Heat ROW height — 22px cells (§8) + the 3px top/bottom recipe insets. */
-export const HEAT_ROW_H = 28;
-/** Table row height — the SHARED default (32 / 24 dense), like span,
- *  buckets and cards. It used to be a fixed 24, which is `ROW_H_DENSE`: a
- *  table row sat at dense height while every neighbour sat at default, so a
- *  canvas mixing a table row with anything else had one row visibly shorter
- *  than the rest for no reason a reader could infer. Numerals need no less
- *  room than a bar does. */
-
-/**
- * A visible row's pixel height — the virtualizer estimate AND the rendered
- * height (rows are fixed-height by kind; `measureElement` still corrects any
- * drift).
- */
+export const CHART_SPARK_H = PLAN_GEOMETRY.default.chartSpark;
+export const CHART_EXPANDED_H = PLAN_GEOMETRY.default.chartExpanded;
+/** Heat ROW height — 22px cells (§8) + the 3px insets above and below. */
+export const HEAT_ROW_H = PLAN_GEOMETRY.default.heatRow;
 /** Two-line-gutter row minimum (the §8 sheet: row min-height 42px). */
-export const ROW_H_STACKED = 42;
+export const ROW_H_STACKED = PLAN_GEOMETRY.default.rowStacked;
 /** Links-focus rail height — a LONE unrelated row collapses, never removed (R1). */
-export const RAIL_H = 11;
+export const RAIL_H = PLAN_GEOMETRY.default.rail;
 /** Expand-focus CONTEXT STRIP height (R2) — an unfocused row compresses to
  *  this, keeping its marks on the shared axis at {@link STRIP_MARK_H}. Taller
  *  than the links rail on purpose: a rail only has to carry a status dot,
  *  a strip has to carry the row's actual marks. */
-export const STRIP_H = 16;
+export const STRIP_H = PLAN_GEOMETRY.default.strip;
 /** The mark height inside a context strip — v2's "bars reduced to 7px marks". */
-export const STRIP_MARK_H = 7;
+export const STRIP_MARK_H = PLAN_GEOMETRY.default.stripMark;
 /** Links-focus gap-band height — a RUN of unrelated rows elides to one
  *  double-height band wearing the ⋯ icon (R1 at scale). */
-export const GAP_H = 22;
+export const GAP_H = PLAN_GEOMETRY.default.gap;
 
 /** The row-focus height context (R1 rails / R2 strips) threaded to {@link rowHeight}. */
 export interface PlanFocusCtx {
@@ -225,6 +219,18 @@ export function pxOf(size: string): number | undefined {
     return Number.isFinite(n) ? n : undefined;
 }
 
+/**
+ * A visible row's pixel height — the virtualizer's size for it AND the height
+ * it renders at (rows are fixed-height by kind), from the density's geometry
+ * table ({@link planGeometry}).
+ *
+ * @param v - The visible row
+ * @param dense - Whether the canvas is dense
+ * @param chartsExpanded - The chart rows the user expanded
+ * @param focus - The row focus, when one is active (R1 rails / R2 strips)
+ * @param derived - The derived numbers, when available (see the parameter note)
+ * @returns The height, px
+ */
 export function rowHeight(
     v: VisibleRow,
     dense: boolean,
@@ -245,12 +251,13 @@ export function rowHeight(
     // focus strips every other row to 16px, where its marks survive at 7px on
     // the same axis. The FOCUSED row falls through to its normal kind height
     // in both cases — R2 grows the canvas under the row, not the row itself.
+    const g = planGeometry(dense);
     if (focus !== undefined && v.row.kind.type !== "group") {
         if (focus.kind === "links") {
             const inFamily = v.row.key === focus.key || (focus.family?.has(v.row.key) ?? false);
-            if (!inFamily) return RAIL_H;
+            if (!inFamily) return g.rail;
         } else if (v.row.key !== focus.key) {
-            return STRIP_H;
+            return g.strip;
         } else if (focus.renderPx !== undefined && focus.renderPx > 0) {
             // The FOCUSED row grows by its render — the row's own marks keep
             // their band at the top, the render fills the rest, and the gutter
@@ -266,18 +273,18 @@ export function rowHeight(
     // 42px on every data kind — a one-line height would clip the sub text.
     const twoLine = (v.row.gutter.stacked.type === "some" && v.row.gutter.stacked.value)
         || v.row.gutter.sub.type === "some";
-    const floor = (h: number) => (twoLine ? Math.max(h, ROW_H_STACKED) : h);
+    const floor = (h: number) => (twoLine ? Math.max(h, g.rowStacked) : h);
     // A diagnostic row (#811) draws its message, never its marks — one line
     // at the shared default; a diagnosed group keeps its band and drops the
     // strip it cannot place.
     if (derived?.diagnostics.has(v.row.key) === true) {
-        return kind.type === "group" ? GROUP_H : floor(dense ? ROW_H_DENSE : ROW_H);
+        return kind.type === "group" ? g.group : floor(g.row);
     }
     switch (kind.type) {
         case "group": {
             const hasStrip = v.collapsed
                 && (kind.value.summary.type === "some" || kind.value.summaryAggregate.type === "some");
-            return hasStrip ? GROUP_STRIP_H : GROUP_H;
+            return hasStrip ? g.groupStrip : g.group;
         }
         case "chart": {
             const h = kind.value.height;
@@ -292,28 +299,27 @@ export function rowHeight(
             // prevent. A DECLARED px (`fixed`, `expandedHeight`) is the
             // author's word and stays unfloored, the same rule the row-level
             // `height` override above follows.
-            if (!expanded) return floor(CHART_SPARK_H);
+            if (!expanded) return floor(g.chartSpark);
             // A declared expandedHeight overrides the 88px expanded default —
             // an expandable spark can open to a full composition height.
             const eh = kind.value.expandedHeight.type === "some" ? pxOf(kind.value.expandedHeight.value) : undefined;
-            return eh ?? floor(CHART_EXPANDED_H);
+            return eh ?? floor(g.chartExpanded);
         }
-        case "heat": return floor(HEAT_ROW_H);
+        case "heat": return floor(g.heatRow);
         case "table": {
-            const base = dense ? ROW_H_DENSE : ROW_H;
-            // A vertical multi-series stack grows the row (~11px per line).
+            // A vertical multi-series stack grows the row, one line per series.
             const n = derived?.tableSeries.get(v.row.key)?.length ?? kind.value.series.length;
-            if (kind.value.split.type === "vertical" && n > 1) return floor(Math.max(base, 6 + n * 11));
-            return floor(base);
+            if (kind.value.split.type === "vertical" && n > 1) return floor(Math.max(g.row, g.tablePad + n * g.tableLine));
+            return floor(g.row);
         }
         case "buckets": {
-            // Laned rows grow — the Planner cell grid: 22px min cells,
-            // 2px gaps, 3px lane padding (§4·K2).
+            // Laned rows grow — the Planner cell grid: a cell per lane, a gap
+            // between, lane padding above and below (§4·K2).
             const n = kind.value.lanes.length;
-            if (n > 1) return floor(6 + n * 22 + (n - 1) * 2);
-            return floor(dense ? ROW_H_DENSE : ROW_H);
+            if (n > 1) return floor(2 * g.lanePad + n * g.laneCell + (n - 1) * g.laneGap);
+            return floor(g.row);
         }
-        default: return floor(dense ? ROW_H_DENSE : ROW_H);
+        default: return floor(g.row);
     }
 }
 

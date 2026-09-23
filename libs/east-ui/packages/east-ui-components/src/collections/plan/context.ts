@@ -17,6 +17,7 @@ import { type ValueTypeOf } from "@elaraai/east";
 import { Plan } from "@elaraai/east-ui/internal";
 import type { PlanScale } from "./scale.js";
 import type { PlanEvent } from "./plan-state.js";
+import { PLAN_GEOMETRY, type PlanGeometry } from "./geometry.js";
 
 /** One decoded element ref — the generalized resolvers' subject. */
 export type PlanElementRefValue = ValueTypeOf<typeof Plan.Types.ElementRef>;
@@ -82,6 +83,18 @@ export const PlanCursorContext = createContext<PlanCursor>({
 
 /** The element-click channel (no funnel when the root declares none of the callbacks). */
 export const PlanResolversContext = createContext<PlanResolvers>({});
+
+/** The canvas's geometry — the one height table for its density (#817). */
+export const PlanGeometryContext = createContext<Readonly<PlanGeometry>>(PLAN_GEOMETRY.default);
+
+/**
+ * The canvas's geometry — every row and slot height, for its density.
+ *
+ * @returns The table (the default density outside a Plan)
+ */
+export function usePlanGeometry(): Readonly<PlanGeometry> {
+    return useContext(PlanGeometryContext);
+}
 
 /**
  * The shared scale — throws when mounted outside a Plan (row components are

@@ -407,8 +407,9 @@ export const planTargetState = example({
  * resolution, and the 14-day sprint at day resolution with `ddd DD` labels
  * (the #309 pinned-day-columns contract the Planner's `day` preset and the
  * AlignedStack date-axis panel guarded). The style sweeps ride `style` —
- * density rhythm and gutter width — and every callback (select / run click /
- * group toggle / grain change) logs to the aside, the retired configurators'
+ * density rhythm and gutter width — over a canvas holding every row kind, so
+ * one click re-rhythms them all; every callback (select / run click / group
+ * toggle / grain change) logs to the aside, the retired configurators'
  * pattern. Fill sizing stays `planFill`'s; the per-kind visual grammars stay
  * the static per-kind panels.
  */
@@ -419,8 +420,10 @@ export const planVariants = example({
         "ddd", "#309", "density", "condensed", "compact", "comfortable", "gutterWidth",
         "gutter", "style", "onSelect", "onRunClick", "onGroupToggle", "onGrainChange",
         "callback", "aside", "Reactive", "State", "SegmentGroup", "Select", "getTag",
+        "every row kind", "span", "chart", "expandable", "heat", "buckets", "table",
+        "tableSeries", "vertical", "cards", "events", "group",
     ],
-    description: "Plan configurator — axis window presets (ops week / year roadmap / 14-day sprint) with density and gutter-width sweeps on one live canvas; every callback logs to the aside",
+    description: "Plan configurator — axis window presets (ops week / year roadmap / 14-day sprint) with density and gutter-width sweeps over every row kind on one live canvas; every callback logs to the aside",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             // Monday of ISO week n, 2026 — the ops window is W27–W38
@@ -435,16 +438,33 @@ export const planVariants = example({
                 key: StringType, label: StringType,
                 start: DateTimeType, end: DateTimeType, state: EventStateType,
             });
+            const AllocRow = StructType({ key: StringType, at: DateTimeType, state: EventStateType });
+            const ShiftRow = StructType({
+                key: StringType, from: DateTimeType, to: DateTimeType, label: StringType, state: EventStateType,
+            });
+            const RawCell = StructType({ at: DateTimeType, value: OptionType(FloatType) });
+            // ONE flat source (the `planExpand` shape): `series` names the
+            // series that claims the row, and every channel a row's kind does
+            // not read stays empty.
             const OpsRow = StructType({
                 series: StringType, label: StringType,
                 sub: OptionType(StringType),
                 jobs: ArrayType(JobRow),
                 points: ArrayType(MeasureRow),
                 cells: ArrayType(Plan.Types.HeatCell),
+                allocs: ArrayType(AllocRow),
+                act: ArrayType(RawCell),
+                plan: ArrayType(RawCell),
+                shifts: ArrayType(ShiftRow),
+                marks: ArrayType(Plan.Types.EventMark),
             });
             const noJobs = $.const([], ArrayType(JobRow));
             const noPoints = $.const([], ArrayType(MeasureRow));
             const noCells = $.const([], ArrayType(Plan.Types.HeatCell));
+            const noAllocs = $.const([], ArrayType(AllocRow));
+            const noRaw = $.const([], ArrayType(RawCell));
+            const noShifts = $.const([], ArrayType(ShiftRow));
+            const noMarks = $.const([], ArrayType(Plan.Types.EventMark));
             const pcts = $.const([46.0, 58.0, 66.0, 72.0, 84.0, 96.0], ArrayType(FloatType));
             const points = $.let(East.Array.generate(6n, MeasureRow, (_$, i) =>
                 ({ week: week(i.multiply(2n).add(27n)), pct: pcts.get(i) })));
@@ -453,30 +473,62 @@ export const planVariants = example({
                 value: some(pcts.get(i)),
                 label: some(East.Float.printFixed(pcts.get(i), 0n)),
             })));
-            // Mixed kinds on purpose: the density sweep re-rhythms the span /
-            // heat rows and the gutter sweep re-widths every label at once.
+            // Despatched tonnes and their signed Δ against plan, fortnightly —
+            // the table row's two positions.
+            const act = $.let(East.Array.generate(6n, RawCell, (_$, i) => ({
+                at: week(i.multiply(2n).add(27n)), value: some(pcts.get(i).multiply(1.5)),
+            })));
+            const delta = $.let(East.Array.generate(6n, RawCell, (_$, i) => ({
+                at: week(i.multiply(2n).add(27n)), value: some(pcts.get(i).subtract(70.0)),
+            })));
+            const base = {
+                sub: none, jobs: noJobs, points: noPoints, cells: noCells,
+                allocs: noAllocs, act: noRaw, plan: noRaw, shifts: noShifts, marks: noMarks,
+            };
+            // Every row kind on purpose: the density sweep re-rhythms them all
+            // at once — compact tightens the shared row and the bars in it,
+            // while a two-line gutter keeps its floor and a stacked table a
+            // line per position — and the gutter sweep re-widths every label.
             const ops = $.const(new Map([
-                ["10-util", { series: "util", label: "UTIL %", sub: none, jobs: noJobs, points, cells: noCells }],
-                ["20-m03", { series: "mach", label: "L1-M03", sub: some("cap 120 t"),
+                ["10-util", { ...base, series: "util", label: "UTIL %", points }],
+                ["20-m03", { ...base, series: "mach", label: "L1-M03", sub: some("cap 120 t"),
                   jobs: [
                       { key: "b214", label: "RUN · B-214", start: week(28n), end: week(31n), state: variant("in-progress", null) },
                       { key: "b221", label: "RUN · B-221", start: week(32n), end: week(35n), state: variant("proposed", variant("recommended", null)) },
-                  ], points: noPoints, cells: noCells }],
-                ["20-m04", { series: "mach", label: "L1-M04", sub: none,
+                  ] }],
+                ["20-m04", { ...base, series: "mach", label: "L1-M04",
                   jobs: [
                       { key: "b208", label: "RUN · B-208", start: week(27n), end: week(30n), state: variant("actual", null) },
-                  ], points: noPoints, cells: noCells }],
-                ["30-load", { series: "load", label: "L2 load", sub: some("%/wk"), jobs: noJobs, points: noPoints, cells }],
-                ["g1-m11", { series: "gmach", label: "L3-M11", sub: none,
+                  ] }],
+                ["30-load", { ...base, series: "load", label: "L2 load", sub: some("%/wk"), cells }],
+                ["40-dock2", { ...base, series: "dock", label: "Dock 2",
+                  allocs: [
+                      { key: "a1", at: week(28n), state: variant("confirmed", null) },
+                      { key: "a2", at: week(31n), state: variant("proposed", variant("recommended", null)) },
+                      { key: "a3", at: week(33n), state: variant("confirmed", null) },
+                  ] }],
+                ["50-desp", { ...base, series: "desp", label: "Despatch t", act, plan: delta }],
+                ["60-crewA", { ...base, series: "crew", label: "Crew A",
+                  shifts: [
+                      { key: "s1", from: week(27n), to: week(29n), label: "80h", state: variant("confirmed", null) },
+                      { key: "s2", from: week(31n), to: week(33n), label: "+64h", state: variant("proposed", variant("recommended", null)) },
+                  ] }],
+                ["70-ms", { ...base, series: "ms", label: "MILESTONES",
+                  marks: [
+                      { key: "k", at: Plan.at.time(week(29n)), kind: variant("milestone", null), icon: none, label: some("KICKOFF") },
+                      { key: "a", at: Plan.at.time(week(34n)), kind: variant("exception", null), icon: none, label: some("AUDIT") },
+                  ] }],
+                ["g1-m11", { ...base, series: "gmach", label: "L3-M11",
                   jobs: [
                       { key: "b301", label: "RUN · B-301", start: week(29n), end: week(33n), state: variant("confirmed", null) },
-                  ], points: noPoints, cells: noCells }],
+                  ] }],
             ]), DictType(StringType, OpsRow));
             const series = $.const([
+                // The spark's gutter opens it to the expanded chart, at any density.
                 Plan.series.chart(OpsRow, {
                     key: "util", title: "Utilisation",
                     match: r => r.series.equal("util"),
-                    label: r => r.label, id: true, height: "spark",
+                    label: r => r.label, id: true, height: "spark", expandable: true,
                     layers: r => [Chart.Line(r.points, { x: p => p.week, y: p => p.pct })],
                 }),
                 Plan.series.span(OpsRow, {
@@ -492,6 +544,40 @@ export const planVariants = example({
                     match: r => r.series.equal("load"),
                     label: r => r.label, sub: r => r.sub,
                     cells: r => Plan.heatCells(r.cells, { min: 0, max: 100 }),
+                }),
+                Plan.series.buckets(OpsRow, {
+                    key: "dock", title: "Dock allocations",
+                    match: r => r.series.equal("dock"),
+                    label: r => r.label,
+                    events: r => r.allocs.map((_$, a) => Plan.event({ key: a.key, at: a.at, state: a.state })),
+                }),
+                // The positions STACKED — the row grows a line per position.
+                Plan.series.table(OpsRow, {
+                    key: "desp", title: "Despatch",
+                    match: r => r.series.equal("desp"),
+                    label: r => r.label, split: "vertical",
+                    series: r => [
+                        Plan.tableSeries({ strong: true, cells: Plan.tableCells(r.act) }),
+                        Plan.tableSeries({
+                            tone: "muted",
+                            format: Format.Number({ maximumFractionDigits: 0n, signDisplay: "always" }),
+                            cells: Plan.tableCells(r.plan),
+                        }),
+                    ],
+                    format: Format.Number({ maximumFractionDigits: 0n }),
+                }),
+                Plan.series.cards(OpsRow, {
+                    key: "crew", title: "Crew shifts",
+                    match: r => r.series.equal("crew"),
+                    label: r => r.label,
+                    chips: r => r.shifts.map((_$, s) =>
+                        Plan.chip({ key: s.key, from: s.from, to: s.to, label: s.label, state: s.state })),
+                }),
+                Plan.series.events(OpsRow, {
+                    key: "ms", title: "Milestones",
+                    match: r => r.series.equal("ms"),
+                    label: r => r.label, id: true,
+                    marks: r => r.marks,
                 }),
                 // A strip so the group-toggle callback has something to fire on.
                 Plan.series.group(OpsRow, { key: "g1-line3", label: "Line 3", meta: "1 rs" }, [
@@ -2615,7 +2701,7 @@ export const planReview = example({
                 $(verdicts.write(next));
             }));
             const setAll = $.const(East.function([StringType], NullType, ($, verdict) => {
-                const next = $.let(new Map<string, string>(), DictType(StringType, StringType));
+                const next = $.let(new Map(), DictType(StringType, StringType));
                 $(jobs.forEach((_$, _r, k) => next.insertOrUpdate(k, verdict)));
                 $(verdicts.write(next));
             }));

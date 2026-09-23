@@ -12,9 +12,10 @@
 
 import { useCallback, useMemo } from "react";
 import {
-    GAP_H, bodyItemKey, elideForFocus, firstDiagnosticItem, placeFailures, rowHeight,
+    bodyItemKey, elideForFocus, firstDiagnosticItem, placeFailures, rowHeight,
     type PlanBodyItem, type PlanDerived, type PlanFocusCtx, type PlanRowIndex, type VisibleRow,
 } from "../model.js";
+import { planGeometry } from "../geometry.js";
 import { appendAll } from "../reductions.js";
 import type { RowKey } from "../plan-state.js";
 import type { PlanController, PlanPagingSnapshot, PlanScrollTarget } from "../controller/index.js";
@@ -77,7 +78,7 @@ export function usePlanBody(
     // height re-measures the frame — and a selection, which reaches none of
     // its inputs, re-measures nothing.
     const heights = useMemo(() => items.map((item) => {
-        if (item.kind === "gap") return GAP_H;
+        if (item.kind === "gap") return planGeometry(dense).gap;
         if (item.kind === "band") return Math.max(1, item.band.px);
         if (item.kind === "failed") return item.failure.px;
         return rowHeight(item.row, dense, chartsExpanded, heightCtx, derived);

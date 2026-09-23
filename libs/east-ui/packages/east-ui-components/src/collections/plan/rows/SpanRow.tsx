@@ -51,7 +51,8 @@ export interface SpanRowProps {
     /** Renderer-derived rollup bands (the IR carries only the declaration). */
     bands: readonly DerivedBand[];
     styles: Styles;
-    /** Bar height (20 default / 16 dense; the §8 sheet). */
+    /** Bar height, px — the canvas geometry's `bar` (or `rollBar` for a
+     *  collapsed parent; `KindPlot` decides). */
     barHeight: number;
     /** Whether the derived bands cover an INCOMPLETE prefix (a paged canvas
      *  still loading) — their captions print `~×2 · 276 t` (#567 D9). */

@@ -95,6 +95,8 @@ export function GroupRow({ row, kind, styles, gridTemplate, height, depth, colla
             gridTemplateColumns={gridTemplate}
             height={`${height}px`}
             data-plan-group={row.key}
+            // The height the model laid the band out at (#817).
+            data-plan-h={height}
             data-collapsed={collapsed ? "" : undefined}
             data-plan-partial={partial === true ? "" : undefined}
             onClick={() => dispatch({ t: "group.toggle", key: row.key })}
