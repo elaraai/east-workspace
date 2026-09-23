@@ -269,9 +269,9 @@ async function cmdRun(irFile: string | undefined, options: RunOptions): Promise<
 }
 
 /**
- * `east-node merge` (#770): k sorted Set/Dict blobs of one type into one
- * canonical blob, in a single pass — the fan-in of a partitioned task's
- * keyed partials.
+ * `east-node merge` (#770): k sorted Set/Dict blobs or manifest directories
+ * of one type into one canonical blob, in a single pass — the fan-in of a
+ * partitioned task's keyed partials.
  */
 async function cmdMerge(options: MergeOptions): Promise<void> {
     startLifeline(options);
@@ -421,7 +421,7 @@ export function main(): void {
         .description('Merge sorted Set or Dict blobs of one type into one, in a single pass: equal keys fold with ' +
             'the East function (K, V, V) -> V in --merge <file> (Dict), or collapse under --union (Set); without ' +
             'a fold an equal key is an error. The output is what `run --emit` writes for the same entries emitted ascending')
-        .option('-i, --input <file>', 'An input blob (can be repeated; equal keys fold in this order)', collect, [])
+        .option('-i, --input <file>', 'An input blob or manifest (can be repeated; equal keys fold in this order)', collect, [])
         .option('-o, --output <file>', 'The merged blob')
         .option('-p, --package <package>', "Platform package the --merge function's platform calls need (can be repeated)", collect, [])
         .option('-v, --verbose', 'Enable verbose output')

@@ -88,12 +88,12 @@ sink writes without the flag for the already-folded sequence.
 ### Merging blobs
 
 `merge` combines sorted Set or Dict blobs of one type — the files `run --emit`
-writes — into one, in a single pass over the inputs: every input is read
-segment by segment, equal keys across inputs fold in input order (`--merge`
-on Dict inputs, `--union` on Set inputs; without a fold an equal key is an
-error), and the output is byte-identical to what `run --emit` writes for the
-same entries emitted ascending. This is how e3 assembles a partitioned task's
-keyed partials; all three runners write the same bytes.
+writes, or manifest directories — into one, in a single pass over the inputs:
+every input is read segment by segment, equal keys across inputs fold in input
+order (`--merge` on Dict inputs, `--union` on Set inputs; without a fold an
+equal key is an error), and the output is byte-identical to what `run --emit`
+writes for the same entries emitted ascending. This is how e3 assembles a
+partitioned task's keyed partials; all three runners write the same bytes.
 
 ```bash
 # Dict partials: fold the values of equal keys, in input order
@@ -216,7 +216,7 @@ Merge sorted Set or Dict blobs of one type into one, in a single pass.
 east-node merge -i <file>... -o <file> [options]
 
 Options:
-  -i, --input <file...>      The input blobs (equal keys fold in this order)
+  -i, --input <file...>      The input blobs or manifests (equal keys fold in this order)
   -o, --output <file>        The merged blob
   -p, --package <package...> Platform packages the --merge function's platform calls need
   -v, --verbose              Enable verbose output
@@ -297,6 +297,12 @@ to an eager decode, so the threshold is a memory knob, not a behavior toggle.
 Control it with the `EAST_LAZY_INPUT_BYTES` environment variable: a byte
 threshold, or `0` to disable lazy opening entirely. Every `--stream` input of
 a streaming task opens lazily regardless of size.
+
+A collection input may also be a manifest directory, the form e3 stages a
+stored collection in: the input file holds a manifest, and each segment it
+names is a standalone blob in `<file>.segments/<sha256>.beast2`. It opens
+over those files — lazily, a read opening only the segments it reaches, or
+whole — and counts as the size of its segments against the threshold.
 
 Lazy opening applies only to **value-semantic element shapes** (scalars,
 structs, variants). An element type that transitively contains an Array, Set,

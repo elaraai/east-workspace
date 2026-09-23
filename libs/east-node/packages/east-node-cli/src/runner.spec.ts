@@ -28,10 +28,12 @@ import {
   SetType,
   StringType,
   StructType,
+  Beast2ManifestWriter,
   East,
   SortedMap,
   compareFor,
   decodeBeast2For,
+  decodeCollectionManifest,
   encodeBeast2For,
   encodeBeast2PagedFor,
   encodeBeast2SegmentsFor,
@@ -695,6 +697,49 @@ describe('folding emit, the blob merge and the stdin lifeline (#770)', () => {
     assert.throws(
       () => mergeBlobs(inputs, join(tempDir, 'rm4.beast2'), { mergePath: writeConcat(), rangePath: empty }),
       { message: `merge: --range (${empty}): Data too short for Beast2 format: 0 bytes` },
+    );
+  });
+
+  it('merge reads manifest directories, the form e3 stages a stored collection in, as east-c and east-py do', () => {
+    // Each input twice over: a blob, and a manifest directory — the manifest's
+    // file and, beside it in `<file>.segments/`, each object named by its
+    // SHA-256. Enough keys for several segments, so a range seeks through the
+    // manifest's fences.
+    const inputs = [0, 2000].map((start) =>
+      Array.from({ length: 3000 }, (_, k) => [BigInt(start + k), `v${start + k}`] as [bigint, string]));
+    const blobs = inputs.map((entries, i) => {
+      const path = join(tempDir, `wide_${i}.beast2`);
+      writeFileSync(path, encodeBeast2PagedFor(DT)(new SortedMap(entries, compareFor(IntegerType))));
+      return path;
+    });
+    const manifests = inputs.map((entries, i) => {
+      const path = join(tempDir, `wide_${i}.manifest.beast2`);
+      const dir = `${path}.segments`;
+      mkdirSync(dir);
+      const writer = new Beast2ManifestWriter(DT, {
+        object: (hash, bytes) => writeFileSync(join(dir, `${hash}.beast2`), bytes),
+        manifest: (bytes) => writeFileSync(path, bytes),
+      });
+      for (const entry of entries) writer.add(entry);
+      writer.finish();
+      return path;
+    });
+    assert.ok(decodeCollectionManifest(new Uint8Array(readFileSync(manifests[0]!))).entries.length > 1, 'several segments');
+    for (const rangePath of [undefined, writeRange('manifest', 1500n, 2600n)]) {
+      const options = { mergePath: writeConcat(), ...(rangePath !== undefined && { rangePath }) };
+      const fromBlobs = join(tempDir, 'from-blobs.beast2');
+      const fromManifests = join(tempDir, 'from-manifests.beast2');
+      assert.deepEqual(mergeBlobs([manifests[0]!, blobs[1]!], fromManifests, options), mergeBlobs(blobs, fromBlobs, options));
+      assert.deepEqual(new Uint8Array(readFileSync(fromManifests)), new Uint8Array(readFileSync(fromBlobs)));
+    }
+
+    // A segment gone from the directory is named when the merge reaches it,
+    // in east-c's words.
+    const gone = `${manifests[1]}.segments/${decodeCollectionManifest(new Uint8Array(readFileSync(manifests[1]!))).entries[0]!.hash}.beast2`;
+    rmSync(gone);
+    assert.throws(
+      () => mergeBlobs([blobs[0]!, manifests[1]!], join(tempDir, 'broken.beast2'), { mergePath: writeConcat() }),
+      { message: `merge: input 1 (${manifests[1]}): beast2 v5: manifest segment ${gone} cannot be read` },
     );
   });
 
