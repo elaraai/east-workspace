@@ -22,7 +22,7 @@ import {
   DateTimeType, DictType, East, IntegerType, NullType, SetType, SortedMap, SortedSet, StringType, StructType,
   compareFor, variant,
 } from '@elaraai/east';
-import { editTypeOf } from '@elaraai/e3-types';
+import { STALE_WRITE_PREFIX, editTypeOf } from '@elaraai/e3-types';
 import e3 from './index.js';
 import { record } from './record.js';
 import { mutation, editMutation, patchMutation } from './mutation.js';
@@ -215,6 +215,25 @@ describe('the edit form', () => {
     }
   });
 
+  it('writes nothing for a key the body created and deleted again', () => {
+    // The record never held `zz`, so creating and removing it changed nothing:
+    // folded into a delete, the pair would be refused as a stale write that no
+    // resubmission could ever get past.
+    const churn = editMutation('churn', rec, East.function([CountsType, EditCounts], NullType, ($, _state, edit) => {
+      $(edit.set('zz', 10n));
+      $(edit.delete('zz'));
+    }));
+    assert.deepEqual(shape(emitted(rec, churn, counts, [])), []);
+  });
+
+  it('deletes a held key the body set before deleting it', () => {
+    const drop = editMutation('drop', rec, East.function([CountsType, EditCounts], NullType, ($, _state, edit) => {
+      $(edit.set('a', 10n));
+      $(edit.delete('a'));
+    }));
+    assert.deepEqual(shape(emitted(rec, drop, counts, [])), ['primary:"a"=delete']);
+  });
+
   it('refuses, at definition time, a body that is not (state, …args, edit) => Null', () => {
     const rec2 = record('counts', CountsType, new Map());
     assert.throws(
@@ -285,6 +304,21 @@ describe('index maintenance inside the delta', () => {
       'by_status:{"ik":{"status":"ok","due":"1"},"k":"p2"}=update',
       'primary:"p2"=update',
     ]);
+  });
+
+  it('refuses a stale update as a stale write naming the key', () => {
+    // An indexed record applies the patch itself, to learn where the row's
+    // entries move. A row that no longer matches the patch is a stale write
+    // here exactly as it is where the engine applies an unindexed record's
+    // patch: a caller re-reads and resubmits a conflict, but gives up on a
+    // failed program.
+    const stale = new SortedMap<string, unknown>([['p1', variant('update', variant('patch', {
+      status: variant('unchanged', null),
+      due: variant('unchanged', null),
+      title: variant('replace', { before: 'Not the title', after: 'Renamed' }),
+    }))]], compareFor(StringType));
+    assert.throws(() => emitted(rec, patchMutation(rec), plans, [variant('patch', stale)]),
+      (err: Error) => err.message.includes(`${STALE_WRITE_PREFIX}update of "p1", whose row no longer matches the patch`));
   });
 
   it('leaves the index alone when neither its key nor its projection moved', () => {

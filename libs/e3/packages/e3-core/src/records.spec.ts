@@ -1213,6 +1213,28 @@ describe('the mutation delta', () => {
     assert.deepStrictEqual(await storage.datasets.read(repo, plain, 'records/plans'), before);
   });
 
+  it('a stale update on an indexed record is a conflict naming the key, not a failed program', async () => {
+    // The indexed door applies the patch inside the program, to learn where the
+    // row's index entries move. A row that no longer matches the patch has to
+    // come back as the conflict the unindexed door reports: a caller re-reads
+    // and resubmits a conflict, and gives up on a failure.
+    await recordMutate(storage, realRunner, repo, ws, 'plans', 'seed', [], { actor: 'cli:test' });
+    const before = await storage.datasets.read(repo, ws, 'records/plans');
+
+    const ops = new SortedMap<string, PlanOp>([
+      ['p-7', variant('update', variant('patch', {
+        status: variant('unchanged', null),
+        due: variant('unchanged', null),
+        title: variant('replace', { before: 'SOMETHING ELSE', after: 'PATCHED' }),
+      }))],
+    ], planKeys);
+    const outcome = await recordMutate(storage, realRunner, repo, ws, 'plans', 'patch',
+      [encodePlansPatch(variant('patch', ops))], { actor: 'cli:test' });
+    assert.strictEqual(outcome.kind, 'conflict', JSON.stringify(outcome));
+    assert.strictEqual((outcome as { detail?: string }).detail, 'update of "p-7", whose row no longer matches the patch');
+    assert.deepStrictEqual(await storage.datasets.read(repo, ws, 'records/plans'), before, 'nothing was written');
+  });
+
   it('streams the record to the runner, never holding it whole', async () => {
     // The program opens the state lazily from its argument file; what the
     // engine owes it is that file. Materialising the record to write it is
@@ -1462,7 +1484,7 @@ describe('the mutation delta — cross-runtime parity', () => {
     // for itself: a `set` of the value already held must emit nothing, and a
     // stale write must come back as a conflict naming what disagreed — read
     // off whatever that runtime prints when a program fails.
-    const words: Array<{ ws: string; stale: string; missing: string }> = [];
+    const words: Array<{ ws: string; stale: string; missing: string; update: string }> = [];
     for (const { ws } of runtimes) {
       const mutate = (mutation: string, args: Uint8Array[]): Promise<MutationOutcome> =>
         recordMutate(storage, realRunner, repo, ws, 'plans', mutation, args, { actor: 'cli:test' });
@@ -1494,16 +1516,30 @@ describe('the mutation delta — cross-runtime parity', () => {
       assert.strictEqual(stale.kind, 'conflict', `${ws}/stale replace: ${JSON.stringify(stale)}`);
       const missing = await mutate('drop', [encodeBeast2For(StringType)('p-nope')]);
       assert.strictEqual(missing.kind, 'conflict', `${ws}/missing delete: ${JSON.stringify(missing)}`);
+      // An update whose row has moved on: each runtime's own apply refuses it
+      // in its own words, and the program must still say it the one way.
+      const update = await mutate('patch', [encodeBeast2For(PatchType(PlansType))(variant('patch', new SortedMap<string, PlanOp>([
+        ['p-7', variant('update', variant('patch', {
+          status: variant('unchanged', null),
+          due: variant('unchanged', null),
+          title: variant('replace', { before: 'NOT THE TITLE', after: 'PATCHED' }),
+        }))],
+      ], compareFor(StringType))))]);
+      assert.strictEqual(update.kind, 'conflict', `${ws}/stale update: ${JSON.stringify(update)}`);
       words.push({
         ws,
         stale: (stale as { detail?: string }).detail ?? '',
         missing: (missing as { detail?: string }).detail ?? '',
+        update: (update as { detail?: string }).detail ?? '',
       });
     }
     assert.match(words[0]!.stale, /^the patch replaces a state the record no longer holds$/);
     assert.match(words[0]!.missing, /^delete of "p-nope", which the record does not hold$/);
+    assert.match(words[0]!.update, /^update of "p-7", whose row no longer matches the patch$/);
     for (const seen of words.slice(1)) {
-      assert.deepStrictEqual({ stale: seen.stale, missing: seen.missing }, { stale: words[0]!.stale, missing: words[0]!.missing },
+      assert.deepStrictEqual(
+        { stale: seen.stale, missing: seen.missing, update: seen.update },
+        { stale: words[0]!.stale, missing: words[0]!.missing, update: words[0]!.update },
         `${seen.ws} words a refusal differently from ${words[0]!.ws}`);
     }
   });

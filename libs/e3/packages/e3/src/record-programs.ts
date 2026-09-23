@@ -317,7 +317,16 @@ export function buildMutationProgram(rec: RecordDef, mut: MutationDef): EastIR<a
           },
           update: ($: any, patch: any) => {
             $.matchTag(held, 'some', ($: any, value: any) => {
-              $.assign(next, some(East.applyPatch(value, patch)));
+              // Applying a patch verifies the row it was made against, and a
+              // row that no longer matches is a stale write — the conflict the
+              // engine reports when it applies an unindexed record's patch.
+              // Refused in words every runtime shares: each one's own apply
+              // message is different.
+              $.try(($: any) => {
+                $.assign(next, some(East.applyPatch(value, patch)));
+              }).catch(($: any) => {
+                $.error(East.str`${STALE_WRITE_PREFIX}update of ${East.print(key)}, whose row no longer matches the patch`);
+              });
             });
           },
         });
@@ -364,7 +373,32 @@ function foldEdits(
       $(edits.insertOrUpdate(key, variant('set', value)));
     }),
     delete: East.function([keyType as never], NullType, ($: any, key: any) => {
-      $(edits.insertOrUpdate(key, variant('delete', null)));
+      $.if(state.has(key), ($: any) => {
+        $(edits.insertOrUpdate(key, variant('delete', null)));
+      }).else(($: any) => {
+        // The record does not hold the key, so a pending `set` of it is this
+        // body creating it: deleting it again leaves the record as it was, and
+        // there is nothing to write. Anything else is a delete of a key the
+        // record does not hold, which resolving refuses.
+        $.match(edits.tryGet(key), {
+          some: ($: any, prior: any) => {
+            $.match(prior, {
+              set: ($: any) => {
+                $(edits.delete(key));
+              },
+              delete: ($: any) => {
+                $(edits.insertOrUpdate(key, variant('delete', null)));
+              },
+              update: ($: any) => {
+                $(edits.insertOrUpdate(key, variant('delete', null)));
+              },
+            });
+          },
+          none: ($: any) => {
+            $(edits.insertOrUpdate(key, variant('delete', null)));
+          },
+        });
+      });
     }),
     update: East.function([keyType as never, PatchType(valueType) as never], NullType, ($: any, key: any, patch: any) => {
       $.match(edits.tryGet(key), {
@@ -397,9 +431,6 @@ function foldEdits(
       set: ($: any, value: any) => {
         $.match(held, {
           some: ($: any, prior: any) => {
-            // A `set` of what the record already holds changed nothing, and a
-            // delta says what changed: an op here would re-cut the segment to
-            // the bytes it already has and count itself in the history.
             // A `set` of what the record already holds changed nothing, and a
             // delta says what changed: an op here would re-cut the segment to
             // the bytes it already has and count itself in the history.
