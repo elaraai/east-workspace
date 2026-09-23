@@ -19,7 +19,7 @@
  * whose rows sit railed have nothing to attach to and simply don't draw.
  */
 
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState, type RefObject } from "react";
 import { Box } from "@chakra-ui/react";
 import { routeRibbon } from "./ribbon-geometry.js";
 import type { PlanLinkValue } from "../model.js";
@@ -59,8 +59,9 @@ interface FadeBand {
 }
 
 export interface LinksOverlayProps {
-    /** The overlay's positioning parent (the canvas body wrapper). */
-    container: HTMLElement | null;
+    /** The overlay's positioning parent (the canvas body wrapper) — read when
+     *  the overlay measures, never while it renders. */
+    containerRef: RefObject<HTMLElement | null>;
     /** The decoded link graph. */
     links: readonly PlanLinkValue[];
     /** The full-height row set (focused row + family) — edges outside it skip. */
@@ -145,7 +146,7 @@ function endpointFor(
 }
 
 /** The links-focus ribbon overlay — mounts over the canvas body. */
-export function LinksOverlay({ container, links, visibleKeys, scale, runDates }: LinksOverlayProps) {
+export function LinksOverlay({ containerRef, links, visibleKeys, scale, runDates }: LinksOverlayProps) {
     const uid = useId();
     const [ribbons, setRibbons] = useState<Ribbon[]>([]);
     const [bands, setBands] = useState<FadeBand[]>([]);
@@ -157,6 +158,7 @@ export function LinksOverlay({ container, links, visibleKeys, scale, runDates }:
     );
 
     useEffect(() => {
+        const container = containerRef.current;
         if (container === null || edges.length === 0) {
             setRibbons([]);
             setBands([]);
@@ -222,7 +224,7 @@ export function LinksOverlay({ container, links, visibleKeys, scale, runDates }:
             container.removeEventListener("scroll", schedule, true);
             window.removeEventListener("resize", schedule);
         };
-    }, [container, edges, scale, runDates]);
+    }, [containerRef, edges, scale, runDates]);
 
     if (ribbons.length === 0 && bands.length === 0) return null;
     return (

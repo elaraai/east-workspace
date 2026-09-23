@@ -14,34 +14,27 @@
  * declared resolvers the wrapper is a pass-through (no overlay machinery
  * mounts).
  *
- * A resolver that THROWS resolves nothing (the call is caught); a body that
- * throws while RENDERING shows its one-line fallback inside the overlay
+ * Which element is open is the canvas controller's state (#815): the intent
+ * goes to the controller, which runs the latest root's resolver, and each
+ * element reads back only whether IT is the open one — so opening a popover
+ * renders the element that opened it and the one that closed.
+ *
+ * A resolver that THROWS resolves nothing (the controller catches it); a body
+ * that throws while RENDERING shows its one-line fallback inside the overlay
  * (#811) — neither ever reaches the canvas around it.
  */
 
-import { useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
 import { Box, HoverCard, Popover, Portal } from "@chakra-ui/react";
-import { usePlanResolvers, type PlanElementRefValue, type PlanElementResolver } from "../context.js";
+import { equalFor } from "@elaraai/east";
+import { Plan } from "@elaraai/east-ui/internal";
+import { usePlanResolvers, type PlanElementRefValue } from "../context.js";
+import { usePlanController, usePlanSelector } from "../controller/react.js";
+import type { PlanOverlayBody, PlanSnapshot } from "../controller/index.js";
 import { EastChakraComponent } from "../../../component.js";
 import { PlanPartBoundary } from "./PartBoundary.js";
 
-/** A resolved overlay body (the resolver's some-value). */
-type BodyValue = Extract<ReturnType<PlanElementResolver>, { type: "some" }>["value"];
-
-/** Run a resolver for a ref; `undefined` when it resolves none (or throws). */
-function resolveBody(
-    resolver: PlanElementResolver,
-    ref: PlanElementRefValue,
-    what: "popover" | "hover",
-): BodyValue | undefined {
-    try {
-        const res = resolver(ref);
-        return res.type === "some" ? res.value : undefined;
-    } catch (err) {
-        console.error(`[Plan] ${what} resolver failed:`, err);
-        return undefined;
-    }
-}
+const refEqual = equalFor(Plan.Types.ElementRef);
 
 export interface ElementOverlaysProps {
     /** The wrapped element's ref — build with `variant("run", { row, run })` etc. */
@@ -59,43 +52,60 @@ export interface ElementOverlaysProps {
  * hovercard (hover). Both are CONTROLLED: the open intent runs the resolver
  * first and only a `some` body opens — an empty surface never flashes.
  */
-export function ElementOverlays({ elementRef, styles, storageKey, children }: ElementOverlaysProps) {
+export function ElementOverlays(props: ElementOverlaysProps) {
     const { popover, hover } = usePlanResolvers();
-    const [pop, setPop] = useState<{ open: boolean; body: BodyValue | null }>({ open: false, body: null });
-    const [hov, setHov] = useState<{ open: boolean; body: BodyValue | null }>({ open: false, body: null });
-    if (popover === undefined && hover === undefined) return <>{children}</>;
+    if (!popover && !hover) return <>{props.children}</>;
+    return <OpenableElement {...props} popover={popover} hover={hover} />;
+}
 
+/** An element with at least one declared surface — subscribed to whether it is the open one. */
+function OpenableElement({ elementRef, styles, storageKey, children, popover, hover }: ElementOverlaysProps & {
+    popover: boolean;
+    hover: boolean;
+}) {
+    const controller = usePlanController();
+    // This element's open body, if it is the open one — `null` otherwise, so
+    // another element opening re-renders nothing here.
+    const pop = usePlanSelector(useCallback((s: PlanSnapshot): PlanOverlayBody | null => {
+        const open = s.overlay.popover;
+        return open !== null && refEqual(open.ref, elementRef) ? open.body : null;
+    }, [elementRef]));
+    const hov = usePlanSelector(useCallback((s: PlanSnapshot): PlanOverlayBody | null => {
+        const open = s.overlay.hover;
+        return open !== null && refEqual(open.ref, elementRef) ? open.body : null;
+    }, [elementRef]));
+    // An element that leaves the canvas — scrolled out of the virtual window,
+    // its row gone — takes its open surface with it; left open, it would
+    // reappear when the element next mounted.
+    const latestRef = useRef(elementRef);
+    useLayoutEffect(() => { latestRef.current = elementRef; });
+    useEffect(() => () => {
+        controller.overlayIntent("popover", latestRef.current, false);
+        controller.overlayIntent("hover", latestRef.current, false);
+    }, [controller]);
     // Close unmounts the body (never a stale hidden surface); open runs the
     // resolver FIRST and only a some body opens.
-    const onPopIntent = (open: boolean) => {
-        if (!open) { setPop({ open: false, body: null }); return; }
-        const body = popover !== undefined ? resolveBody(popover, elementRef, "popover") : undefined;
-        if (body !== undefined) setPop({ open: true, body });
-    };
-    const onHoverIntent = (open: boolean) => {
-        if (!open) { setHov({ open: false, body: null }); return; }
-        const body = hover !== undefined ? resolveBody(hover, elementRef, "hover") : undefined;
-        if (body !== undefined) setHov({ open: true, body });
-    };
+    const onPopIntent = (open: boolean) => controller.overlayIntent("popover", elementRef, open);
+    const onHoverIntent = (open: boolean) => controller.overlayIntent("hover", elementRef, open);
 
-    const hoverBody = hov.body !== null ? (
+    const hoverBody = hov !== null ? (
         <Portal>
             <HoverCard.Positioner>
                 <HoverCard.Content css={styles.elementOverlay}>
-                    <PlanPartBoundary part="hover card" resetKey={hov.body} styles={styles}>
-                        <EastChakraComponent value={hov.body} storageKey={`${storageKey}.hover`} />
+                    <PlanPartBoundary part="hover card" resetKey={hov} styles={styles}>
+                        <EastChakraComponent value={hov} storageKey={`${storageKey}.hover`} />
                     </PlanPartBoundary>
                 </HoverCard.Content>
             </HoverCard.Positioner>
         </Portal>
     ) : null;
-    const popBody = pop.body !== null ? (
+    const popBody = pop !== null ? (
         <Portal>
             <Popover.Positioner>
                 <Popover.Content css={styles.elementOverlay}>
                     <Popover.Body padding={0}>
-                        <PlanPartBoundary part="popover" resetKey={pop.body} styles={styles}>
-                            <EastChakraComponent value={pop.body} storageKey={`${storageKey}.popover`} />
+                        <PlanPartBoundary part="popover" resetKey={pop} styles={styles}>
+                            <EastChakraComponent value={pop} storageKey={`${storageKey}.popover`} />
                         </PlanPartBoundary>
                     </Popover.Body>
                 </Popover.Content>
@@ -103,11 +113,11 @@ export function ElementOverlays({ elementRef, styles, storageKey, children }: El
         </Portal>
     ) : null;
 
-    if (popover !== undefined && hover !== undefined) {
+    if (popover && hover) {
         return (
             <Box as="span" display="contents">
-                <Popover.Root open={pop.open} onOpenChange={(d) => onPopIntent(d.open)} positioning={{ placement: "top" }}>
-                    <HoverCard.Root open={hov.open} onOpenChange={(d) => onHoverIntent(d.open)}
+                <Popover.Root open={pop !== null} onOpenChange={(d) => onPopIntent(d.open)} positioning={{ placement: "top" }}>
+                    <HoverCard.Root open={hov !== null} onOpenChange={(d) => onHoverIntent(d.open)}
                         openDelay={150} positioning={{ placement: "top" }}>
                         <Popover.Trigger asChild>
                             <HoverCard.Trigger asChild>{children}</HoverCard.Trigger>
@@ -119,10 +129,10 @@ export function ElementOverlays({ elementRef, styles, storageKey, children }: El
             </Box>
         );
     }
-    if (hover !== undefined) {
+    if (hover) {
         return (
             <Box as="span" display="contents">
-                <HoverCard.Root open={hov.open} onOpenChange={(d) => onHoverIntent(d.open)}
+                <HoverCard.Root open={hov !== null} onOpenChange={(d) => onHoverIntent(d.open)}
                     openDelay={150} positioning={{ placement: "top" }}>
                     <HoverCard.Trigger asChild>{children}</HoverCard.Trigger>
                     {hoverBody}
@@ -132,7 +142,7 @@ export function ElementOverlays({ elementRef, styles, storageKey, children }: El
     }
     return (
         <Box as="span" display="contents">
-            <Popover.Root open={pop.open} onOpenChange={(d) => onPopIntent(d.open)} positioning={{ placement: "top" }}>
+            <Popover.Root open={pop !== null} onOpenChange={(d) => onPopIntent(d.open)} positioning={{ placement: "top" }}>
                 <Popover.Trigger asChild>{children}</Popover.Trigger>
                 {popBody}
             </Popover.Root>

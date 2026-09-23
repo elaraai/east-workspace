@@ -253,8 +253,8 @@ export function createPlanPick(
  * driver keeps resident windows only for an EQUIVALENT source — the same id
  * AND the same `page` function, compared by IR and captures
  * (`equivalentFor`) — and a pick toggle rebuilds `page` over a different
- * series list, so the cache drops under an unchanged id too
- * (`use-plan-paging.dom.test.tsx` pins both halves). The signature keeps the
+ * series list, so the cache drops under an unchanged id too (the paging
+ * driver's `controller/paging.test.ts` pins both halves). The signature keeps the
  * id itself honest for every reader of the contract that goes by `id`.
  *
  * The signature is the joined keys, so it assumes a key NAMES a series: same

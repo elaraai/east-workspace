@@ -9,9 +9,9 @@
  * Two gaps met here that no other test covers.
  *
  * The first is composition. Every paged test elsewhere hands the renderer a
- * hand-written `{ id, page, total, seek }` literal — `plan.dom.test.tsx` fakes
- * the source, `use-plan-paging.dom.test.tsx` fakes it again for the driver, and
- * `paged-source.spec.ts` exercises `Paged.of` with no renderer in sight. Each
+ * hand-written `{ id, page, total, seek }` literal — `plan-paged.dom.test.tsx`
+ * fakes the source, `controller/paging.test.ts` fakes it again for the driver,
+ * and `paged-source.spec.ts` exercises `Paged.of` with no renderer in sight. Each
  * half is covered and nothing proves they compose. Here the value under test is
  * built by the east-ui factory from a real `Paged.of` and COMPILED, so the
  * closures the driver calls are the ones East emits.
@@ -19,12 +19,12 @@
  * The second is direction. Every paged renderer test streams forward from
  * window 0; none starts, or lands, anywhere else. But the reason a canvas pages
  * at all is that it can show the middle of a source without walking to it —
- * `usePlanSeek` → `jumpToElement` → a residency REBASE (#577), reached through
- * the toolbar key search (#574), which is the only random-access affordance a
- * user actually has. So the test types into that search and asserts the canvas
- * moved: the far window landed, the near one was released, the ~60 windows in
- * between were never requested, and the skipped span is described by a band
- * rather than by rows.
+ * the controller's `search.jump` → the driver's `jumpToElement` → a residency
+ * REBASE (#577), reached through the toolbar key search (#574), which is the
+ * only random-access affordance a user actually has. So the test types into
+ * that search and asserts the canvas moved: the far window landed, the near one
+ * was released, the ~60 windows in between were never requested, and the
+ * skipped span is described by a band rather than by rows.
  *
  * The canvas has no height, and 600 rows land in its opening ring, so it
  * virtualizes against the WINDOW (#812): a jump scrolls the page to its row.

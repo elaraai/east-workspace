@@ -15,7 +15,7 @@
  * forever at window 0.
  *
  * The repo had no asynchronous paged fixture before this: every paged fixture in
- * `plan.dom.test.tsx` / `table-paged.dom.test.tsx` resolves synchronously inside
+ * `plan-paged.dom.test.tsx` / `table-paged.dom.test.tsx` resolves synchronously inside
  * one evaluation, which is exactly why the stall shipped.
  */
 

@@ -22,14 +22,16 @@
  * drivers read are the ones the derived `page` actually assembles. Each driver
  * is walked the way a user scrolls: to the end (which evicts), back to the top,
  * and by a seek jump; at every step each resident window must be WHOLE, and
- * over the walk every element must appear, each exactly once per window.
+ * over the walk every element must appear, each exactly once per window. (The
+ * Plan's driver is framework-free since #815, so it is driven directly.)
  */
 
 import { describe, test, expect, afterEach } from "vitest";
-import { render, cleanup, act, waitFor } from "@testing-library/react";
+import { render, cleanup, waitFor } from "@testing-library/react";
 import { ArrayType, DictType, East, IntegerType, StringType, StructType, type ValueTypeOf } from "@elaraai/east";
 import { Paged, Plan, Table, UIComponentType } from "@elaraai/east-ui/internal";
-import { usePlanPaging, PLAN_PAGE_SIZE, type PlanPagedSourceValue } from "./plan/use-plan-paging.js";
+import { PLAN_PAGE_SIZE, type PlanPagedSourceValue } from "./plan/use-plan-paging.js";
+import { createPagingDriver, type PagingDriver } from "./plan/controller/paging.js";
 import { useTablePagedRows, type TablePagedSourceValue } from "./table/use-paged-rows.js";
 
 afterEach(cleanup);
@@ -92,17 +94,24 @@ function tableSource(): TablePagedSourceValue {
 
 // ── The Plan ────────────────────────────────────────────────────────────────
 
-let plan: ReturnType<typeof usePlanPaging> | undefined;
+let plan: PagingDriver | undefined;
+afterEach(() => {
+    plan?.disconnect();
+    plan = undefined;
+});
 
-function PlanHarness({ src }: { src: PlanPagedSourceValue }) {
-    plan = usePlanPaging(src, { heightOf: (rows) => rows.length * 32 });
-    return null;
+/** The Plan's paging driver over `src`, as the canvas drives it. */
+function drivePlan(src: PlanPagedSourceValue): PagingDriver {
+    const driver = createPagingDriver({ heightOf: (rows) => rows.length * 32, onChange: () => undefined });
+    plan = driver;
+    driver.setSource(src);
+    return driver;
 }
 
 /** Rows per resident window — from the driver's own row → window map. */
 function planWindowSizes(): Map<number, number> {
     const sizes = new Map<number, number>();
-    for (const w of plan?.origin.values() ?? []) sizes.set(w, (sizes.get(w) ?? 0) + 1);
+    for (const w of plan?.getSnapshot().origin.values() ?? []) sizes.set(w, (sizes.get(w) ?? 0) + 1);
     return sizes;
 }
 
@@ -113,17 +122,18 @@ function expectWholePlanWindows(): void {
 
 describe("a trimmed source through the Plan's paging driver (#829)", () => {
     test("walking to the end reads every entry, in whole windows, through eviction and back", async () => {
-        render(<PlanHarness src={planSource()} />);
-        await waitFor(() => expect(plan?.resident).toBeDefined());
+        const driver = drivePlan(planSource());
+        await waitFor(() => expect(driver.getSnapshot().resident).toBeDefined());
 
         const seen = new Set<string>();
         let evicted = false;
         for (let i = 0; i < 400; i++) {
             expectWholePlanWindows();
-            for (const row of plan!.rows) seen.add(row.key);
-            if ((plan!.resident?.from ?? 0) > 0) evicted = true;
-            if (plan!.tail === undefined) break;
-            act(() => { plan!.reportViewport({ kind: "band", at: "tail" }, false); });
+            const snap = driver.getSnapshot();
+            for (const row of snap.rows) seen.add(row.key);
+            if ((snap.resident?.from ?? 0) > 0) evicted = true;
+            if (snap.tail === undefined) break;
+            driver.reportViewport({ kind: "band", at: "tail" }, false);
         }
         // Every entry was on the canvas at some point — none fell between a
         // trimmed piece and the next window.
@@ -131,18 +141,18 @@ describe("a trimmed source through the Plan's paging driver (#829)", () => {
         expect(evicted, "the walk evicted the head").toBe(true);
 
         // Back to the top: the evicted window is read again — whole again.
-        act(() => { plan!.jumpToElement(0); });
-        await waitFor(() => expect(plan!.origin.has(ENTRY_KEYS[0]!)).toBe(true));
+        driver.jumpToElement(0);
+        await waitFor(() => expect(driver.getSnapshot().origin.has(ENTRY_KEYS[0]!)).toBe(true));
         expectWholePlanWindows();
     });
 
     test("a seek jump lands on its element inside a whole window", async () => {
-        render(<PlanHarness src={planSource()} />);
-        await waitFor(() => expect(plan?.resident).toBeDefined());
-        act(() => { plan!.jumpToElement(3_333); });
-        await waitFor(() => expect(plan!.origin.has(ENTRY_KEYS[3_333]!)).toBe(true));
+        const driver = drivePlan(planSource());
+        await waitFor(() => expect(driver.getSnapshot().resident).toBeDefined());
+        driver.jumpToElement(3_333);
+        await waitFor(() => expect(driver.getSnapshot().origin.has(ENTRY_KEYS[3_333]!)).toBe(true));
         expectWholePlanWindows();
-        expect(plan!.origin.get(ENTRY_KEYS[3_333]!)).toBe(Math.floor(3_333 / PLAN_PAGE_SIZE));
+        expect(driver.getSnapshot().origin.get(ENTRY_KEYS[3_333]!)).toBe(Math.floor(3_333 / PLAN_PAGE_SIZE));
     });
 });
 

@@ -39,7 +39,7 @@
  * controls whose value IS their own state. A verdict is a fact about the row.
  */
 
-import { useCallback, useMemo } from "react";
+import { useMemo } from "react";
 import { Box, useRecipe, useSlotRecipe } from "@chakra-ui/react";
 import { type ValueTypeOf } from "@elaraai/east";
 import { Plan } from "@elaraai/east-ui/internal";
@@ -77,58 +77,44 @@ export function tagOf(row: PlanRowValue): ApprovalTag {
     return a === undefined ? "pending" : (a.type as ApprovalTag);
 }
 
+/** The review verbs, by row KEY — the canvas controller's, which fire the
+ *  root's callbacks after the handler returns (#815). */
+export interface PlanReviewVerbs {
+    approveRow(key: string): void;
+    rejectRow(key: string): void;
+    approveAll(): void;
+    rejectAll(): void;
+    rerun(): void;
+}
+
 /**
- * Wire the root's `review` config to key-addressed callbacks.
+ * The review chrome's model — the root's `review` config, with its verbs
+ * addressed by row key.
  *
  * @param review - The decoded `review` option (`undefined` ⇒ chrome off)
+ * @param verbs - The key-addressed verbs (the controller's)
  * @returns The review model, or `undefined` when `review` is absent
  */
-export function usePlanReview(review: PlanReviewValue | undefined): PlanReview | undefined {
-    const onApprove = useMemo(() => review && getSomeorUndefined(review.onApprove), [review]);
-    const onReject = useMemo(() => review && getSomeorUndefined(review.onReject), [review]);
-    const onApproveAll = useMemo(() => review && getSomeorUndefined(review.onApproveAll), [review]);
-    const onRejectAll = useMemo(() => review && getSomeorUndefined(review.onRejectAll), [review]);
-    const onRerun = useMemo(() => review && getSomeorUndefined(review.onRerun), [review]);
-    const summary = useMemo(() => review && getSomeorUndefined(review.summary), [review]);
-
-    // `queueMicrotask` per the interactive-state pattern: the East callback
-    // runs after commit, so a handler that writes cannot re-enter this render.
-    const approveRow = useCallback((key: string) => {
-        if (onApprove) queueMicrotask(() => onApprove({ key }));
-    }, [onApprove]);
-    const rejectRow = useCallback((key: string) => {
-        if (onReject) queueMicrotask(() => onReject({ key }));
-    }, [onReject]);
-    const approveAll = useCallback(() => {
-        if (onApproveAll) queueMicrotask(() => onApproveAll());
-    }, [onApproveAll]);
-    const rejectAll = useCallback(() => {
-        if (onRejectAll) queueMicrotask(() => onRejectAll());
-    }, [onRejectAll]);
-    const rerun = useCallback(() => {
-        if (onRerun) queueMicrotask(() => onRerun());
-    }, [onRerun]);
-
-    return useMemo(() => {
-        if (review === undefined) return undefined;
-        return {
-            columnLabel: review.columnLabel,
-            hasRowVerbs: onApprove !== undefined || onReject !== undefined,
-            approveRow,
-            rejectRow,
-            summary,
-            rerunLabel: review.rerunLabel,
-            showFoot: summary !== undefined || onApproveAll !== undefined
-                || onRejectAll !== undefined || onRerun !== undefined,
-            hasApproveAll: onApproveAll !== undefined,
-            hasRejectAll: onRejectAll !== undefined,
-            hasRerun: onRerun !== undefined,
-            approveAll,
-            rejectAll,
-            rerun,
-        };
-    }, [review, onApprove, onReject, summary, onApproveAll, onRejectAll, onRerun,
-        approveRow, rejectRow, approveAll, rejectAll, rerun]);
+export function planReviewModel(review: PlanReviewValue | undefined, verbs: PlanReviewVerbs): PlanReview | undefined {
+    if (review === undefined) return undefined;
+    const declared = (o: { type: string }) => o.type === "some";
+    const summary = getSomeorUndefined(review.summary);
+    return {
+        columnLabel: review.columnLabel,
+        hasRowVerbs: declared(review.onApprove) || declared(review.onReject),
+        approveRow: verbs.approveRow,
+        rejectRow: verbs.rejectRow,
+        summary,
+        rerunLabel: review.rerunLabel,
+        showFoot: summary !== undefined || declared(review.onApproveAll)
+            || declared(review.onRejectAll) || declared(review.onRerun),
+        hasApproveAll: declared(review.onApproveAll),
+        hasRejectAll: declared(review.onRejectAll),
+        hasRerun: declared(review.onRerun),
+        approveAll: verbs.approveAll,
+        rejectAll: verbs.rejectAll,
+        rerun: verbs.rerun,
+    };
 }
 
 /**

@@ -26,15 +26,18 @@ export type PlanElementResolver =
     Extract<ValueTypeOf<typeof Plan.Types.Root>["popover"], { type: "some" }>["value"];
 
 /**
- * The root's generalized element resolvers, decoded — rows invoke them
- * lazily at interaction time with the clicked/hovered element's ref; a
- * `none` result opens no surface (`Plan Data Interface.md` §3.3).
+ * What the root's element interactions offer. The resolvers themselves stay
+ * with the controller, which runs the LATEST root's at interaction time with
+ * the element's ref — a `none` result opens no surface (`Plan Data
+ * Interface.md` §3.3) — so an element needs to know only whether there is
+ * anything to open, and the context holds still while a resolver's closure
+ * changes (#815).
  */
 export interface PlanResolvers {
-    /** The click-popover resolver, when declared. */
-    popover?: PlanElementResolver | undefined;
-    /** The hovercard resolver, when declared. */
-    hover?: PlanElementResolver | undefined;
+    /** Whether the root declares a click-popover resolver. */
+    popover: boolean;
+    /** Whether the root declares a hovercard resolver. */
+    hover: boolean;
     /**
      * The element-click funnel (#569) — routes a clicked element's ref to the
      * root's `onRunClick` / `onEventClick` / `onMarkClick` / `onChipClick` /
@@ -47,7 +50,7 @@ export interface PlanResolvers {
 /** The shared scale, provided once by the canvas. */
 export const PlanScaleContext = createContext<PlanScale | null>(null);
 
-/** The interaction dispatch channel (the one `useReducer` dispatch). */
+/** The interaction dispatch channel (the canvas controller's `dispatch`). */
 export const PlanDispatchContext = createContext<(e: PlanEvent) => void>(() => undefined);
 
 /**
@@ -70,8 +73,8 @@ export const PlanCursorContext = createContext<PlanCursor>({
     leave: () => undefined,
 });
 
-/** The element-resolver channel (empty when the root declares none). */
-export const PlanResolversContext = createContext<PlanResolvers>({});
+/** The element-resolver channel (nothing to open when the root declares none). */
+export const PlanResolversContext = createContext<PlanResolvers>({ popover: false, hover: false });
 
 /**
  * The shared scale — throws when mounted outside a Plan (row components are
@@ -104,9 +107,9 @@ export function usePlanCursor(): PlanCursor {
 }
 
 /**
- * The root's generalized element resolvers.
+ * What the root's element interactions offer.
  *
- * @returns The decoded `popover` / `hover` functions (absent when undeclared)
+ * @returns Whether a popover / hover card can open, and the click funnel
  */
 export function usePlanResolvers(): PlanResolvers {
     return useContext(PlanResolversContext);

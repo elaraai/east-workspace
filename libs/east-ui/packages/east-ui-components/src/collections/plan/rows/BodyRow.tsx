@@ -9,11 +9,18 @@
  * instead of O(mounted rows).
  *
  * The contract that makes the memo real: every prop is a PRIMITIVE or an
- * identity-stable object. The canvas passes per-row facts as booleans/strings
- * (`selected`, `chartExpanded`, `focusRole`, …) — never whole `ui` Sets — and
- * `visible` keeps its identity across store changes that do not change WHICH
- * rows show (its memo keys on `grain`/`collapsed`, not the whole `ui`). A
- * selection click therefore re-renders exactly two rows; a chart toggle one.
+ * identity-stable object, and the row reads its OWN slice of the UI state —
+ * selection, chart toggle, active focus control — from the canvas controller
+ * (`usePlanRowState`, #815). A selection click therefore renders exactly the
+ * two rows it moved and never the canvas; a chart toggle, the one row whose
+ * height it changes.
+ *
+ * The derivations are rebuilt whole on every data change and every paged
+ * window landing, but a row reads only its own entries from them, and the
+ * canvas keeps an entry's identity while its content holds
+ * (`stableDerived`). So the memo compares those entries, not the maps: a
+ * window landing renders the rows it added and the rows whose numbers it
+ * moved, and none of the rows already on screen (#815).
  *
  * Scale changes still repaint every row — correctly: the row CONTENT consumes
  * `PlanScaleContext`, and context pierces the memo by design. What the memo
@@ -29,7 +36,8 @@ import { KindPlot } from "./KindPlot.js";
 import { PlanPartBoundary } from "./PartBoundary.js";
 import { RowDiagnostic } from "./RowDiagnostic.js";
 import { PlanDecisionCell, tagOf, type PlanReview } from "../shell/Review.js";
-import type { PlanDerived, PlanRowIndex, VisibleRow } from "../model.js";
+import { usePlanRowState } from "../controller/react.js";
+import type { PlanDerived, VisibleRow } from "../model.js";
 import type { PlanEvent } from "../plan-state.js";
 
 type Styles = Record<string, Record<string, unknown>>;
@@ -67,14 +75,12 @@ export interface PlanBodyRowProps {
     /** Span bar height (20 default / 16 dense). */
     barHeight: number;
     storageKey: string;
-    /** The row-tree index (children lookups). Stable per decoded data. */
-    index: PlanRowIndex;
-    /** The renderer-side derivations. Stable per decoded data. */
+    /** Whether the row nests children (its caret, and a collapsed parent's
+     *  slimmer bars). */
+    hasChildren: boolean;
+    /** The renderer-side derivations — compared by THIS row's entries. */
     derived: PlanDerived;
     dispatch: (e: PlanEvent) => void;
-    selected: boolean;
-    /** Whether THIS chart row is user-toggled to expanded. */
-    chartExpanded: boolean;
     /**
      * This row's presentation under the canvas's row focus:
      * `none` (no focus, or full-height family), `rail` (R1 unrelated — 11px),
@@ -88,8 +94,6 @@ export interface PlanBodyRowProps {
     /** Whether the row grows the links / expand focus controls. */
     showLinksControl: boolean;
     showExpandControl: boolean;
-    /** Which of this row's controls is the active focus, if any. */
-    activeControl: "links" | "expand" | undefined;
     /** Whether derived numbers cover an incomplete paged prefix (#567 D9). */
     partial: boolean | undefined;
     /** The review model, when the canvas carries review chrome. */
@@ -128,14 +132,38 @@ export function setBodyRowMountProbe(fn: ((key: string, phase: "mount" | "unmoun
     bodyRowMountProbe = fn;
 }
 
+/**
+ * Whether a row's facts are unchanged — every prop by identity, the
+ * derivations by this row's own entries.
+ */
+function sameBodyRow(a: PlanBodyRowProps, b: PlanBodyRowProps): boolean {
+    const keys = Object.keys(a) as (keyof PlanBodyRowProps)[];
+    if (keys.length !== Object.keys(b).length) return false;
+    for (const key of keys) {
+        if (key !== "derived" && a[key] !== b[key]) return false;
+    }
+    const k = a.v.row.key;
+    const da = a.derived;
+    const db = b.derived;
+    return da === db || (da.bands.get(k) === db.bands.get(k)
+        && da.heatCells.get(k) === db.heatCells.get(k)
+        && da.tableSeries.get(k) === db.tableSeries.get(k)
+        && da.groupSummary.get(k) === db.groupSummary.get(k)
+        && da.groupSummaryScale.get(k) === db.groupSummaryScale.get(k)
+        && da.groupMembers.get(k) === db.groupMembers.get(k)
+        && da.diagnostics.get(k) === db.diagnostics.get(k));
+}
+
 /** One body row — a group band, an R1 rail, or a kind row in its shell. */
 export const PlanBodyRow = memo(function PlanBodyRow({
-    v, h, styles, gridTemplate, barHeight, storageKey, index, derived,
-    dispatch, selected, chartExpanded, focusRole, focusTag, axisMode,
-    showLinksControl, showExpandControl, activeControl, partial, review, rowDrop,
+    v, h, styles, gridTemplate, barHeight, storageKey, hasChildren, derived,
+    dispatch, focusRole, focusTag, axisMode,
+    showLinksControl, showExpandControl, partial, review, rowDrop,
     expandBody, expandGutter, bandHeight,
 }: PlanBodyRowProps) {
     bodyRowRenderProbe?.(v.row.key);
+    // The row's own slice of the UI state — it re-renders when THIS moves.
+    const { selected, chartExpanded, activeControl } = usePlanRowState(v.row.key);
     const mountedAs = v.row.key;
     useEffect(() => {
         bodyRowMountProbe?.(mountedAs, "mount");
@@ -190,7 +218,6 @@ export const PlanBodyRow = memo(function PlanBodyRow({
             onClick: () => dispatch({ t: "focus.expand", key: v.row.key }),
         }] : []),
     ];
-    const hasChildren = (index.children.get(v.row.key)?.length ?? 0) > 0;
     const shellBase = {
         row: v.row, styles, gridTemplate, depth: v.depth,
         selected,
@@ -281,4 +308,4 @@ export const PlanBodyRow = memo(function PlanBodyRow({
             )}
         </RowShell>
     );
-});
+}, sameBodyRow);

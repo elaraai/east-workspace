@@ -376,10 +376,14 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
     const itemsRef = useRef<HTMLDivElement | null>(null);
     const [itemsOffset, setItemsOffset] = useState(0);
     // Re-measure when the row set changes (the header may rewrap); the header
-    // observer below catches every other move.
+    // observer below catches every other move. Only a MOVED offset is set: a
+    // layout-effect setState schedules a second, nested commit even when the
+    // value is unchanged, and a row set changing under an unmoved header is
+    // the common case (#815).
     useLayoutEffect(() => {
-        setItemsOffset(bounded ? itemsRef.current?.offsetTop ?? 0 : 0);
-    }, [count, bounded]);
+        const next = bounded ? itemsRef.current?.offsetTop ?? 0 : 0;
+        if (next !== itemsOffset) setItemsOffset(next);
+    }, [count, bounded, itemsOffset]);
 
     // Unbounded and watching: the element (or window) whose scrolling moves
     // the rows — resolved after the frame mounts, since only then does it have
@@ -388,8 +392,10 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
     const [ancestor, setAncestor] = useState<HTMLElement | Window | undefined>(undefined);
     useLayoutEffect(() => {
         const root = rootRef.current;
-        setAncestor(watching && root !== null ? scrollingAncestor(root) : undefined);
-    }, [watching]);
+        const next = watching && root !== null ? scrollingAncestor(root) : undefined;
+        // Only a CHANGED ancestor is set — the offset rule above.
+        if (next !== ancestor) setAncestor(next);
+    }, [watching, ancestor]);
     const onWindow = ancestor !== undefined && isWindow(ancestor);
     const ancestorEl = ancestor !== undefined && !isWindow(ancestor) ? ancestor : undefined;
     // Set by the unbounded offset observer while it is subscribed.
