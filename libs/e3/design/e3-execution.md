@@ -50,45 +50,16 @@ This organization provides:
 
 ### Status File Format
 
-The `status` file is a `.beast2` encoded struct:
+`status.beast2` holds an `ExecutionStatusType` value (`e3-types/src/execution.ts`), a variant with one case per state. Every case carries the attempt's `executionId` (a UUIDv7), the `inputHashes` and `startedAt`:
 
-```ts
-const ExecutionStatusType = VariantType({
-  // task has been launched
-  running: StructType({
-    inputHashes: ArrayType(StringType), // input hashes
-    startedAt: DateTimeType,
-    pid: IntegerType,                   // process ID
-    pidStartTime: IntegerType,          // process start time (jiffies since boot, from /proc/<pid>/stat)
-    bootId: StringType,                 // system boot ID (from /proc/sys/kernel/random/boot_id)
-  }),
-  // task ran and returned exit code 0
-  success: StructType({
-    inputHashes: ArrayType(StringType), // input hashes
-    outputHash: StringType,             // output hash
-    startedAt: DateTimeType,
-    completedAt: DateTimeType,
-  }),
-  // task ran and returned exit code other than 0
-  failed: StructType({
-    inputHashes: ArrayType(StringType), // input hashes
-    startedAt: DateTimeType,
-    completedAt: DateTimeType,
-    exitCode: IntegerType,
-  }),
-  // e3 execution engine had an internal error
-  error: StructType({
-    inputHashes: ArrayType(StringType), // input hashes
-    startedAt: DateTimeType,
-    completedAt: DateTimeType,
-    message: StringType,
-  }),
-});
+| Case | Meaning | Adds |
+|---|---|---|
+| `running` | the runner has been launched | `pid`, `pidStartTime`, `bootId` (see Crash Detection) |
+| `success` | the runner exited 0 and its output was stored | `outputHash`, `completedAt` |
+| `failed` | the runner exited non-zero, or could not be spawned | `completedAt`, `exitCode` |
+| `error` | e3 stopped the runner, or failed around it | `completedAt`, `message` (see Stopped Executions) |
 
-type ExecutionStatus = ValueTypeOf<typeof ExecutionStatusType>;
-```
-
-Note: `taskHash` is not stored in the status file since it is encoded in the directory path (while the input hashes are hashed together into a single hash in the path).
+`taskHash` is not stored in the status file since it is encoded in the directory path (while the input hashes are hashed together into a single hash in the path).
 
 ### Crash Detection
 
@@ -119,139 +90,32 @@ function isProcessAlive(status: RunningStatus): boolean {
 
 This handles: process crashes, machine restarts, and PID wraparound/reuse.
 
-## Core Execution APIs
+## Reading Executions
 
-### `inputsHash(inputHashes: string[]): string`
-
-Compute the combined hash of input hashes. Pure function, no I/O.
-
-```ts
-function inputsHash(inputHashes: string[]): string {
-  const data = inputHashes.join('\0');
-  return computeHash(new TextEncoder().encode(data));
-}
-```
-
-### `executionPath(repo: string, taskHash: string, inputsHash: string): string`
-
-Get filesystem path for an execution directory.
-
-```ts
-function executionPath(repo: string, taskHash: string, inputsHash: string): string {
-  return path.join(repo, 'executions', taskHash, inputsHash);
-}
-```
-
-### `executionGet(repo: string, taskHash: string, inputsHash: string): Promise<ExecutionStatus | null>`
-
-Get execution status. Returns null if execution doesn't exist.
-
-### `executionListForTask(repo: string, taskHash: string): Promise<string[]>`
-
-List all inputs hashes that have executions for a given task.
-
-### `executionList(repo: string): Promise<Array<{ taskHash: string, inputsHash: string }>>`
-
-List all executions in the repository.
-
-### `executionGetOutput(repo: string, taskHash: string, inputsHash: string): Promise<string | null>`
-
-Get output hash for a completed execution. Returns null if not complete or failed.
-
-### `executionReadLog(repo: string, taskHash: string, inputsHash: string, stream: 'stdout' | 'stderr', options?: LogReadOptions): Promise<LogChunk>`
-
-Read execution logs with pagination support.
-
-```ts
-interface LogReadOptions {
-  offset?: number;    // Byte offset to start reading from (default: 0)
-  limit?: number;     // Maximum bytes to read (default: 64KB)
-}
-
-interface LogChunk {
-  data: string;       // Log content (UTF-8)
-  offset: number;     // Byte offset of this chunk
-  size: number;       // Bytes in this chunk
-  totalSize: number;  // Total log file size (for pagination)
-  complete: boolean;  // True if this is the end of the file
-}
-```
+`e3-core/src/executions.ts` holds the read side: `inputsHash`, `executionGet` and `executionGetLatest` (one attempt's status), `executionGetOutput`, `executionListIds`, `executionListForTask`, `executionList`, `executionFindCurrent`, and `executionReadLog` (a log read in byte-offset pages). Each takes the storage backend and the repository first; the signatures are in the code.
 
 ## Task Execution
 
-### `taskExecute(repo: string, taskHash: string, inputHashes: string[], options?: ExecuteOptions): Promise<ExecutionResult>`
+`taskExecute(storage, repo, taskHash, inputHashes, options)` (`execution/LocalTaskRunner.ts`) runs one execution:
 
-Execute a single task. This is the core execution primitive.
+1. **Inputs hash.** `inHash = inputsHash(inputHashes)`.
+2. **Cache.** Unless `force`, `probeExecutionCache` returns a recorded `success` for `(taskHash, inHash)`. Only `success` is ever served from the cache. A stale `running` record is repaired `interrupted:` on the way (see Stopped Executions).
+3. **Attempt.** A new `executionId` (UUIDv7) names this attempt's directory.
+4. **Task.** The task object is read from the store. A partitioned task (`kind` `partition`) is run by its step template instead (see Partitioned Tasks).
+5. **Scratch.** A scratch directory `e3-exec-<task8>-<in8>-<pid>-<pidStartTime>-<ms>` is created under `E3_SCRATCH_DIR`, or else the system temp directory.
+6. **Inputs** (`marshalInputsToDir`). Each input object is staged as `input-<i>.beast2` without passing through e3's heap: linked, reflinked or kernel-copied where the backend's objects are files, streamed a chunk at a time otherwise.
+   - A collection stored as a segment manifest is staged as the manifest plus one linked file per segment (`input-<i>.beast2.segments/<hash>.beast2`) for a runner that opens manifests (east-node), and spliced into one file for the others.
+   - A `custom` runner is given copies, never links, since its command could modify an input path.
+7. **Command.** The task's command IR is evaluated over the staged input paths and the output path, giving the argv. For a stock runner, `-v` (when verbose) and `--exit-with-parent` are spliced in after `[<bin>, <command>]`.
+8. **Run.** The spawn takes a slot of the jobs budget (see The Jobs Budget). Once the runner has spawned, the `running` status and the `owner` sidecar are written. stdout and stderr stream to the attempt's log files (see Output Capture).
+9. **Outcome.**
+   - On exit 0, `adoptOutputFile` takes the output file into the store: it is hashed by streaming and linked, never decoded. The `output` ref and a `success` status are then written.
+   - Every other outcome is recorded as Stopped Executions describes.
+10. **Cleanup.** The scratch directory is removed.
 
-```ts
-interface ExecuteOptions {
-  force?: boolean;        // Re-run even if cached (default: false)
-  timeout?: number;       // Timeout in ms (default: none)
-  onStdout?: (data: string) => void;  // Stream stdout callback
-  onStderr?: (data: string) => void;  // Stream stderr callback
-}
+### stdout and stderr
 
-interface ExecutionResult {
-  execId: string;         // Execution hash
-  cached: boolean;        // True if result was from cache
-  state: 'success' | 'failed';
-  outputHash: string | null;  // Output dataset hash (null on failure)
-  exitCode: number | null;
-  duration: number;       // Execution time in ms (0 if cached)
-  error: string | null;   // Error message on failure
-}
-```
-
-#### Execution Flow
-
-1. **Compute inputs hash**: `inHash = inputsHash(inputHashes)`
-
-2. **Check cache** (unless `force: true`):
-   - If `executions/<taskHash>/<inHash>/output` exists, return cached result
-   - Read status to get metadata
-
-3. **Read task object**: Decode TaskObject from `taskHash`
-
-4. **Resolve runner**: Get the command template from the task object's `command` field
-
-5. **Create scratch directory**: `e3-exec-<task8>-<in8>-<pid>-<pidStartTime>-<ms>` under `E3_SCRATCH_DIR`, or the system temp directory (see [Stopped Executions](#stopped-executions))
-
-6. **Marshal inputs**:
-   - For each input hash, read from object store
-   - Write to scratch dir: `input-0.beast2`, `input-1.beast2`, ...
-
-7. **Construct command**: Expand runner command template:
-   - `literal` → pass through
-   - `input_path` → next input file path
-   - `inputs` → repeat pattern for remaining inputs
-   - `output_path` → `output.beast2` in scratch dir
-
-8. **Create execution directory**: `executions/<taskHash>/<inHash>/`
-
-9. **Write initial status**: `state: 'running'`, `startedAt: now()`
-
-10. **Execute command**:
-    - Spawn process with constructed command
-    - Tee stdout to `executions/<taskHash>/<inHash>/stdout.txt` and `onStdout` callback
-    - Tee stderr to `executions/<taskHash>/<inHash>/stderr.txt` and `onStderr` callback
-    - Wait for completion or timeout
-
-11. **On success** (exit code 0):
-    - Read `output.beast2` from scratch dir
-    - Store in object store, get output hash
-    - Write ref to `executions/<taskHash>/<inHash>/output`
-    - Update status: `state: 'success'`, `completedAt: now()`, `exitCode: 0`
-
-12. **On failure** (non-zero exit or timeout):
-    - Update status: `state: 'failed'`, `completedAt: now()`, `exitCode`, `error`
-
-13. **Cleanup**: Remove scratch directory
-
-14. **Return result**
-
-### Why Separate stdout/stderr?
-
-Yes, we should separate stdout and stderr:
+They are kept separate:
 
 1. **Debugging**: stderr often contains warnings/errors that are useful to filter
 2. **Convention**: Unix tools expect this separation
@@ -359,96 +223,22 @@ Task C reads from: tasks.A.output, tasks.B.output
 
 Dependency: A → B → C (and A → C)
 
-### `execStart(repo: string, ws: string, options?: ExecStartOptions): Promise<ExecResult>`
+### Running a Dataflow
 
-Execute all tasks in a workspace, respecting dependencies.
+`e3 dataflow run` drives the step functions of `dataflow/steps.ts` through `LocalOrchestrator`, over a persisted `DataflowExecutionState`:
+- `stepInitialize`;
+- `stepGetReady`;
+- `stepPrepareTask`: resolve inputs, probe the cache, check the workspace output;
+- `stepTaskStarted`, `stepTaskCompleted`, `stepTaskFailed` and `stepTasksSkipped`;
+- `stepFinalize`;
+- `stepYield` and `stepCancel`;
+- the reactive steps that detect input changes, invalidate tasks and check version consistency (see e3-reactive-dataflow.md).
 
-```ts
-interface ExecStartOptions {
-  filter?: string;        // Only run tasks matching this name (exact match for MVP)
-  concurrency?: number;   // Tasks the loop may have in progress at once; locally the jobs budget
-  force?: boolean;        // Re-run all tasks even if cached
-  onTaskStart?: (taskName: string) => void;
-  onTaskComplete?: (taskName: string, result: ExecutionResult) => void;
-}
-
-interface ExecResult {
-  success: boolean;           // All tasks succeeded
-  tasksRun: number;           // Number of tasks executed
-  tasksCached: number;        // Number of cache hits
-  tasksFailed: number;        // Number of failures
-  totalDuration: number;      // Wall-clock time
-  results: Map<string, ExecutionResult>;  // Per-task results
-}
-```
-
-#### Execution Flow
-
-1. **Read workspace state**: Get deployed package hash and current root
-
-2. **Read package object**: Get tasks and structure
-
-3. **Build dependency graph**:
-   - For each task, collect input paths and output path
-   - Task B depends on Task A if any of B's inputs matches A's output
-   - Detect cycles (error if found)
-
-4. **Apply filter** (if specified):
-   - Keep only matching task and its transitive dependencies
-
-5. **Topological sort**: Order tasks so dependencies run first
-
-6. **Execute with concurrency**:
-   ```
-   ready = tasks with no pending dependencies
-   running = {}
-   completed = {}
-
-   while tasks remain:
-     # Start tasks up to concurrency limit; each runner they spawn
-     # then takes a slot of the jobs budget (see "The Jobs Budget")
-     while |running| < concurrency and ready is not empty:
-       task = ready.pop()
-       start task asynchronously
-       running.add(task)
-
-     # Wait for any task to complete
-     result = await any(running)
-     running.remove(result.task)
-     completed.add(result.task)
-
-     # Update workspace if successful
-     if result.success:
-       workspaceSetDataset(ws, task.output, result.outputHash)
-
-     # Mark dependent tasks as ready
-     for task in tasks:
-       if all dependencies in completed:
-         ready.add(task)
-   ```
-
-7. **Return aggregate result**
-
-### `execWatch(repo: string, ws: string, options?: ExecWatchOptions): Promise<void>`
-
-Watch for input changes and re-execute affected tasks. (Future - not MVP)
+Each step is pure or idempotent over the persisted state, so a run can yield and resume. The unit a step schedules is a whole task. The loop keeps up to `concurrency` tasks in progress: the CLI sets it to the jobs budget, and every runner those tasks spawn takes a slot of that budget. A task's successful output is written to the workspace under the dataflow lock. `e3 watch` (e3-watch.md) re-runs a workspace as its sources change.
 
 ## Garbage Collection Integration
 
-The GC system already traces from executions. Key points:
-
-1. **Execution outputs are roots**: `executions/<hash>/output` refs are traced
-2. **Status files are metadata**: Not objects, just state
-3. **Log files are ephemeral**: Can be pruned independently (future)
-
-### Finding Executions for a Task
-
-While executions aren't organized by task hash, we can:
-
-1. **Full scan**: List all executions, read status, filter by `taskHash`
-2. **In-memory index**: Build during GC mark phase
-
-For MVP, full scan is acceptable. Future optimization: maintain an index file.
+A recorded execution's `output` ref is a GC root, so its output object is kept. Status files, owner sidecars and logs are files beside it, not objects. Partition plans and slices are not roots (see The Partition Plan).
 
 ## Error Handling
 
@@ -456,69 +246,21 @@ For MVP, full scan is acceptable. Future optimization: maintain an index file.
 
 | Scenario | Behavior |
 |----------|----------|
-| Runner not configured | Error before execution starts |
-| Input hash not found | Error before execution starts |
-| Command not found | Execution fails, exit code from shell |
-| Non-zero exit | Execution fails, logs preserved |
-| Timeout | Runner tree stopped (its process group; on Windows its job), `error` recorded as `timed out: …` (see [Stopped Executions](#stopped-executions)) |
-| Output file missing | Execution fails, error in status |
-| Output decode error | Execution fails, error in status |
+| Input object not found | Error before the runner starts |
+| Runner cannot be spawned | `failed`, exit code -1, `Failed to spawn: …` |
+| Non-zero exit | `failed` with the exit code; logs kept |
+| Timeout, abort, signal, orchestrator death | See [Stopped Executions](#stopped-executions) |
 
 ### Concurrent Execution Safety
 
-Multiple processes might try to execute the same task:
-
-1. **Optimistic locking**: First to write status "owns" the execution
-2. **Check before start**: If status exists and running, wait or skip
-3. **Atomic output**: Write output ref atomically (temp file + rename)
-
-For MVP: Single-process execution. Future: Advisory locking.
+A dataflow run holds its workspace's `#dataflow` lock, and an ad-hoc `e3 run` holds the repository's `#tasks` lock shared. gc takes `#tasks` exclusively and every workspace's `#dataflow` lock, and refuses while a run holds one. Two attempts at one execution identity each record their own `executionId` directory.
 
 ## Example Session
 
 ```bash
-# Deploy and run
-$ e3 workspace deploy prod forecast-model 1.0.0
-$ e3 exec start prod
-Running task: preprocess (1/3)
-Running task: train (2/3)
-Running task: evaluate (3/3)
-✓ All tasks completed (2 cached, 1 executed)
-
-# Check execution
-$ e3 exec list prod
-preprocess  abc123...  success  0.5s (cached)
-train       def456...  success  12.3s
-evaluate    789abc...  success  2.1s (cached)
-
-# View logs
-$ e3 exec logs prod train --stderr
-[2024-01-15 10:23:45] Loading model...
-[2024-01-15 10:23:47] Training epoch 1/10...
-...
-
-# Re-run with force
-$ e3 exec start prod --force
-Running task: preprocess (1/3)
-...
+e3 workspace deploy . prod --from-zip forecast.zip   # import, create and deploy
+e3 dataflow run . prod                               # run every task that is not cached
+e3 task list . prod                                  # each task's latest execution
+e3 task logs . prod.train                            # a task's logs
+e3 dataflow run . prod --force                       # re-run even the cached tasks
 ```
-
-## API Summary
-
-### Execution Identity
-- `inputsHash(inputHashes)` - Compute combined inputs hash
-- `executionPath(repo, taskHash, inputsHash)` - Get execution directory path
-
-### Execution Management
-- `executionGet(repo, taskHash, inputsHash)` - Get execution status
-- `executionGetOutput(repo, taskHash, inputsHash)` - Get output hash
-- `executionListForTask(repo, taskHash)` - List executions for a task
-- `executionList(repo)` - List all executions
-- `executionReadLog(repo, taskHash, inputsHash, stream, options)` - Read logs with pagination
-
-### Task Execution
-- `taskExecute(repo, taskHash, inputHashes, options)` - Run single task
-
-### Dataflow Orchestration
-- `execStart(repo, ws, options)` - Run task DAG
-- `execWatch(repo, ws, options)` - Watch mode (future)

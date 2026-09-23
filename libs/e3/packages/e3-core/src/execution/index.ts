@@ -4,32 +4,14 @@
  */
 
 /**
- * Execution abstraction layer for e3 dataflow.
- *
- * This module provides interfaces that separate orchestration from business
- * logic, enabling different execution strategies:
- * - LocalDataflowExecutor: In-process execution with AsyncMutex (CLI, local dev)
- * - StepFunctionsDataflowExecutor: AWS Step Functions orchestration (cloud)
+ * Task execution for e3: the `TaskRunner` interface, the local runner, and
+ * the process, scratch and jobs-budget mechanics beneath it.
  */
 
 export {
-  // Task execution
   type TaskExecuteOptions,
   type TaskResult,
   type TaskRunner,
-  // Dataflow orchestration
-  type ExecutionHandle,
-  type DataflowStatus,
-  type DataflowExecuteOptions,
-  type DataflowExecuteResult,
-  type DataflowExecutor,
-  // Task graph
-  type TaskGraph,
-  // Business logic function types
-  type DataflowGetGraphFn,
-  type DataflowCheckCacheFn,
-  type DataflowWriteOutputFn,
-  type DataflowGetReadyTasksFn,
 } from './interfaces.js';
 
 // TaskRunner implementations

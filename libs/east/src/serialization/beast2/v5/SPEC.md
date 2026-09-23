@@ -132,14 +132,19 @@ frame:  varint(codec_id) varint(uncompressed_len) varint(payload_len) payload
 ```
 
 - Codec ids: `0 = none` (payload_len MUST equal uncompressed_len),
-  `1 = deflate` — raw DEFLATE per RFC 1951, the mandatory baseline (zlib in
-  C, stdlib `zlib` in Python, `node:zlib` in Node; in browsers the TS runtime
-  ships a portable inflate for the sync decode path and prefers
-  `DecompressionStream("deflate-raw")` on the async path), `2 = zstd`
+  `1 = deflate` — raw DEFLATE per RFC 1951, the mandatory baseline, `2 = zstd`
   (reserved; readers that meet it fail with a clear message naming the
-  codec). The codec is a per-frame writer
-  choice — a blob may mix compressed and uncompressed frames. Writers store
-  tiny or incompressible payloads with codec 0.
+  codec). Any inflate reads a deflate frame: zlib in C and Python, Node's
+  zlib, and in browsers a portable inflate on the sync decode path or
+  `DecompressionStream("deflate-raw")` on the async one. Writers do NOT use a
+  platform deflate — they use the deterministic encoder below, so compressed
+  frames are byte-identical in every runtime.
+- The codec is a per-frame writer choice, and a blob may mix compressed and
+  uncompressed frames. A writer asked for deflate compresses each frame whose
+  logical length is at least 64 bytes and keeps the result when it is
+  strictly shorter than the logical bytes; every other frame, and every frame
+  of a writer asked for no compression, is codec 0. Stored collections are
+  written with deflate.
 - A deflate frame MUST inflate to exactly `uncompressed_len` bytes.
   Decoders MUST reject frames declaring more than 1 GiB uncompressed
   (decompression-bomb guard).
@@ -152,7 +157,47 @@ frame:  varint(codec_id) varint(uncompressed_len) varint(payload_len) payload
   empty frames.
 - Writers targeting paging emit the root tag and the terminator as their own
   frames and exactly one segment per frame, so every indexed frame decodes
-  standalone as `varint(n) + n elements`.
+  standalone as `varint(n) + n elements`. The root tag frame and the
+  terminator frame are then the same four bytes, `00 01 01 00`: a codec-0
+  frame whose one payload byte is the NEW tag, or the `varint(0)`
+  terminator.
+
+## Deterministic DEFLATE encoder
+
+A general-purpose deflate picks its own match finder and Huffman trees, so the
+same input compresses to different valid streams under different libraries.
+e3 content-addresses beast2 bytes, so every runtime encodes with this one
+algorithm, whose output is a pure function of the input (TypeScript
+`v5/deflate.ts`; east-c `v5/deflate.c`, which east-py reaches through the C
+bridge):
+
+- **One block**, `BFINAL = 1`, `BTYPE = 01`: the fixed Huffman codes of RFC
+  1951 §3.2.6, never dynamic trees. The block ends with symbol 256, and the
+  final partial byte is padded with zero bits.
+- **Window** 32768 bytes; matches of 3 to 258 bytes.
+- **Hash** of the three bytes at position `i`:
+  `((b[i] << 10) ^ (b[i+1] << 5) ^ b[i+2]) & 0x7FFF`. The last two positions
+  of the input are never hashed.
+- **Chains.** `head[h]` holds the most recent position with hash `h`, and
+  `prev[i]` the position `head[h]` held before `i` was inserted. Inserting
+  position `i` (when `i + 3 ≤ n`) sets `prev[i] = head[h]; head[h] = i`.
+- **Greedy matching.** At position `pos`, walk the chain from `head[h]`,
+  examining at most 32 candidates and stopping at the first more than 32768
+  bytes back. A candidate's length is the common prefix of the input at the
+  candidate and at `pos`, capped at `min(258, n − pos)`. A candidate replaces
+  the best so far only when it is **strictly** longer, so among equal lengths
+  the nearest wins; the walk stops early at a match of the cap.
+- **Emit.** A best length of 3 or more is a length/distance pair (RFC 1951
+  §3.2.5 codes and extra bits); every position the match covers is inserted,
+  and `pos` advances by the length. Otherwise the byte at `pos` is a literal,
+  `pos` is inserted, and `pos` advances by one.
+
+What is pinned is the symbol stream; how an implementation reaches it (word-
+at-a-time compares, pre-reversed codes, rejecting a candidate by its byte at
+the best length) is free, and each runtime's tests hold its fast path to a
+bit-at-a-time reference. It compresses less than zlib and that is the price of
+determinism. Frames are compressed independently, so a writer may compress
+them in parallel.
 
 ## Value stream — logical encoding
 
@@ -276,6 +321,79 @@ footer[16]:     u64-LE(index_section_offset) footer_magic[8]
   independently (and in parallel). Random access requires it; sequential
   decode is unaffected either way (relative deltas decode identically).
   Only blobs whose root is Array/Set/Dict may carry an index.
+
+## Segmentation rules
+
+Where a collection's root segments end is not part of what a reader
+validates — any segmentation decodes to the same value — but it decides the
+bytes, so a store that addresses segments individually needs it to be a rule.
+Each rule has an id, which a segment manifest records (below).
+
+### Fence bytes
+
+A key's (Dict) or element's (Set) **fence bytes** are its logical encoding
+alone: no header, container or index, encoded against a fresh definition
+table so no container REF can fire. They depend on the key and nothing else,
+and they are what the keyed rule hashes and what a manifest stores as a
+segment's first key.
+
+### `cdc/fnv1a64/256-1024-4096/1` — Set and Dict roots
+
+- A **boundary key** is one whose fence bytes' FNV-1a 64-bit hash (offset
+  basis `0xcbf29ce484222325`, prime `0x100000001b3`) has its low 10 bits zero.
+  Only the hash's low 32-bit word decides, and it evolves on its own, since
+  the prime's 2^40 term never reaches it.
+- Walking the elements in canonical order with `c`, the elements in the open
+  segment (0 at the start):
+  - when `c = 4096`, the element starts a new segment and `c = 1`;
+  - otherwise, when `c < 256` or the element is not a boundary key, it joins
+    the open segment and `c` increases by one;
+  - otherwise it starts a new segment and `c = 1`.
+- So a segment holds 256 to 4096 elements, except the last, which holds what
+  is left. A cut falls *before* the boundary key, so the key that decided a
+  cut is the fence of the segment it starts.
+- The rule is a pure function of the value: nothing about the writer — the
+  codec, the compressed size, how elements were batched — enters it.
+
+### `pos/1000-2MiB/1` — Array roots
+
+Segments of at most 1000 elements, refined toward 2 MiB of written wire bytes
+each, as the paged encoders of TypeScript and C both batch. Where a cut falls
+depends on every element before it, so one edit moves every later cut.
+
+## Segment manifests
+
+A collection can be stored as one standalone blob per root segment plus a
+manifest naming them in order. Equal values then name equal segments, and a
+one-row edit re-cuts one of them. The TypeScript runtime pages a manifest
+directly (`Beast2Pages` over a `Beast2ManifestSource`); east-c and east-py are
+handed the segments spliced back into one blob.
+
+- A **segment blob** for segment `i` of a segmented, indexed,
+  self-contained blob is: the blob's header bytes up to and including the root
+  tag frame, segment `i`'s frame byte-for-byte, the terminator frame, and an
+  index of that one segment plus the footer. Splicing a manifest's segments
+  back under their shared header reproduces the single-blob form exactly.
+- The **manifest** is a v5 blob whose root type is the struct
+
+  ```
+  kind:    String      "$segments"
+  level:   Integer     0 — entries name segment blobs (nesting is reserved)
+  type:    EastType    the root collection type
+  rule:    String      the id of the rule the segments were cut under
+  header:  String      the store hash of the header bytes the segments share
+  entries: Array<{ hash: String, fence: Blob, count: Integer, bytes: Integer }>
+  ```
+
+  with, per segment: the segment blob's store hash, its first key's fence
+  bytes (empty for an Array root), its element (pair) count, and its size in
+  bytes.
+- A reader recognises a manifest by its root type's exact field names, in
+  that order, and then by `kind`. A struct of the same shape with another
+  `kind` is not a manifest.
+- **On disk**, a manifest at `path` names its segments as the sibling files
+  `path.segments/<hash>.beast2`. A runner that opens manifests pages through
+  such a file, reading only the segments it touches.
 
 ## Writer memory / reader memory
 
