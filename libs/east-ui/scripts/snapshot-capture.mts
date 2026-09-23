@@ -20,7 +20,7 @@
  * @packageDocumentation
  */
 
-import { chromium, type Browser, type LaunchOptions } from 'playwright';
+import { chromium, type Browser, type LaunchOptions, type Page } from 'playwright';
 import { createServer, type ViteDevServer } from 'vite';
 import * as fs from 'node:fs/promises';
 import { existsSync, readdirSync } from 'node:fs';
@@ -177,8 +177,11 @@ export async function captureFiles(cfg: CaptureConfig): Promise<{ captured: numb
             const queryStr = Object.entries(target.query)
                 .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
                 .join('&');
+            // Declared out here so a failed capture still closes its page —
+            // a page left open keeps running under every later capture.
+            let page: Page | undefined;
             try {
-                const page = await context.newPage();
+                page = await context.newPage();
                 page.on('console', msg => {
                     if (msg.type() === 'error' || msg.type() === 'warning') {
                         console.log(`[browser:${msg.type()}] ${target.outName}: ${msg.text()}`);
@@ -187,16 +190,23 @@ export async function captureFiles(cfg: CaptureConfig): Promise<{ captured: numb
                 page.on('pageerror', err => {
                     console.log(`[browser:pageerror] ${target.outName}: ${err.message}`);
                 });
+                // Every load of the page. The dependency scan pre-bundles the
+                // whole graph before the first page is served, so a page loads
+                // exactly once; a second load means the dev server met a
+                // dependency its scan could not see, re-optimized mid-load
+                // (invalidating the chunks already requested) and reloaded the
+                // page under the capture. That is a harness defect, reported —
+                // never absorbed by reloading again (#832).
+                let loads = 0;
+                const main = page.mainFrame();
+                page.on('framenavigated', frame => {
+                    if (frame === main) loads += 1;
+                });
                 const navStart = Date.now();
                 await page.goto(`${baseUrl}/?${queryStr}`, {
                     waitUntil: 'networkidle',
                     timeout: 30_000,
                 });
-                // Vite optimizes newly-seen deps on first request and triggers a
-                // full reload that destroys any in-flight evaluate. Reload once
-                // up front so the optimized graph is settled before we capture.
-                await page.waitForTimeout(500);
-                await page.reload({ waitUntil: 'networkidle', timeout: 30_000 });
                 await page.evaluate(() => document.fonts.ready);
                 // Wait for the snapshot app to boot past its "Loading…" state
                 // (cold Vite can compile a newly-seen example module slower than
@@ -218,6 +228,13 @@ export async function captureFiles(cfg: CaptureConfig): Promise<{ captured: numb
                     console.warn(`[snapshot]   ${target.outName}: skeletons still present at timeout`);
                 }
                 await page.waitForTimeout(settleMs);
+                if (loads > 1) {
+                    throw new Error(
+                        `the dev server reloaded the page mid-capture (${loads} loads): it re-optimized a `
+                        + `dependency its scan could not see — check the snapshot config's resolve.dedupe / `
+                        + `optimizeDeps.include`,
+                    );
+                }
 
                 const { bodyHtml, cssText: rawCss, titleText } = await page.evaluate(() => {
                     const css = Array.from(document.styleSheets)
@@ -250,12 +267,13 @@ ${bodyHtml}
 </html>`;
                 await fs.writeFile(outPath, html, 'utf8');
                 await page.screenshot({ path: outPath.replace(/\.html$/, '.png'), fullPage: true });
-                await page.close();
                 captured += 1;
                 console.log(`[snapshot] ${captured}/${cfg.targets.length}  ${target.outName}  (${Date.now() - navStart} ms)`);
             } catch (err) {
                 failed += 1;
                 console.warn(`[snapshot] FAILED ${target.outName}:`, (err as Error).message);
+            } finally {
+                await page?.close();
             }
         }
         console.log(`[snapshot] done — wrote ${captured} files (${failed} failed) → ${cfg.outDir}`);
