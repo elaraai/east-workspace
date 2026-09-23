@@ -24,7 +24,7 @@ export {
   type CollectionManifest, type CollectionManifestEntry, type Beast2ManifestSource,
   isCollectionManifestType, isCollectionManifest, isBeast2ManifestSource,
   encodeCollectionManifest, decodeCollectionManifest, readBeast2Manifest,
-  manifestElementCount, manifestByteSize,
+  manifestElementCount, manifestByteSize, Beast2ManifestWriter, type Beast2ManifestSink, sha256Hex,
   type Beast2EncodeOptions, type Beast2DecodeOptions, type Beast2WriterOptions, type Beast2ElementWriterOptions, type Beast2ElementOf,
   type Beast2PagedEncodeOptions, type Beast2Codec, type Beast2Version,
   type Beast2Extents, type RebuildBeast2Options, type Beast2LazySafeOptions,

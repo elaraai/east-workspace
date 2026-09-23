@@ -5,7 +5,7 @@
 
 /**
  * The merge of sorted collections — k canonical Set or Dict collections in, one
- * canonical blob out.
+ * canonical blob, or one manifest directory, out.
  *
  * The inputs are read segment by segment and their current keys held in a heap
  * ordered by key and then by input, so a key that several inputs hold leaves
@@ -33,6 +33,7 @@ import { openBeast2LazyFor } from "./lazy.js";
 import { readBeast2Extents } from "./geometry.js";
 import { type Beast2SyncRangeReader, isBeast2SyncRangeReader } from "./range.js";
 import { isBeast2ManifestSource, type Beast2ManifestSource } from "./manifest.js";
+import { Beast2ManifestWriter, type Beast2ManifestSink } from "./manifest-writer.js";
 
 /** One input to a merge: a canonical collection blob, synchronous ranged access
  *  to one, or a manifest naming its segments. */
@@ -71,13 +72,15 @@ export type Beast2MergeStats = {
 
 /**
  * Builds a merge of sorted Set or Dict collections of one type into one
- * canonical blob: `merge(sources, sink)`.
+ * canonical collection: `merge(sources, sink)`.
  *
  * @param type - the collection type every input holds (Set or Dict)
  * @param options - the fold, the key range, input labels, and the output's
  *   codec, source map and parallel framing
  * @returns a function merging its sources, in the order equal keys fold, into
- *   `sink`, and returning what it came to
+ *   `sink` — the blob's bytes as they are produced, or, given a
+ *   {@link Beast2ManifestSink}, a manifest directory — and returning what it
+ *   came to
  * @throws {TypeError} When `type` is not a Set or Dict type, or the fold does
  *   not fit it: a merge function folds a Dict, union a Set.
  *
@@ -86,8 +89,9 @@ export type Beast2MergeStats = {
  * given or a source is not a canonical collection of `type`; while merging,
  * when an input's keys do not ascend, a key repeats without a fold, or the
  * merge function throws. A failed merge leaves its output without the
- * terminator and index, so nothing reads it as complete. Messages name the
- * input: `merge: input 2 (<label>): …`.
+ * terminator and index, or a manifest directory without its manifest, so
+ * nothing reads it as complete. Messages name the input:
+ * `merge: input 2 (<label>): …`.
  *
  * @example
  * ```ts
@@ -98,7 +102,7 @@ export type Beast2MergeStats = {
  * decodeBeast2For(type)(Buffer.concat(chunks));  // Set { 1n, 2n, 3n }
  * ```
  */
-export function mergeBeast2For<T extends EastType>(type: T | EastTypeValue, options?: Beast2MergeOptions): (sources: readonly Beast2MergeSource[], sink: (bytes: Uint8Array) => void) => Beast2MergeStats {
+export function mergeBeast2For<T extends EastType>(type: T | EastTypeValue, options?: Beast2MergeOptions): (sources: readonly Beast2MergeSource[], sink: ((bytes: Uint8Array) => void) | Beast2ManifestSink) => Beast2MergeStats {
   const typeValue = asTypeValue(type);
   if (typeValue.type !== "Set" && typeValue.type !== "Dict") {
     throw new TypeError(`merge: inputs must be Set or Dict blobs, got ${typeValue.type}`);
@@ -185,7 +189,9 @@ export function mergeBeast2For<T extends EastType>(type: T | EastTypeValue, opti
     };
     for (let i = (heap.length >> 1) - 1; i >= 0; i--) siftDown(i);
 
-    const writer = new Beast2ElementWriter(typeValue, sink, writerOptions);
+    const writer = typeof sink === "function"
+      ? new Beast2ElementWriter(typeValue, sink, writerOptions)
+      : new Beast2ManifestWriter(typeValue, sink, writerOptions);
     let entries = 0;
     let folds = 0;
     // The current key's entry is held until a greater key arrives, so every
