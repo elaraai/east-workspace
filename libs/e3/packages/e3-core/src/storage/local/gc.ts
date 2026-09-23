@@ -118,7 +118,9 @@ export interface MarkReachableOptions {
    * shorter), or returns null when it does not exist. With it the mark is
    * header-first: an object's type is read from its head, and only an object
    * of a structural shape — one that names other objects — is read whole;
-   * every other object is marked without being read.
+   * every other object is marked without being read. Without it every object
+   * the mark visits is read whole, so a sweep reads every dataset it reaches
+   * — still classified by its type before anything is decoded.
    */
   readHead?: (hash: string, length: number) => Promise<Uint8Array | null>;
 }
@@ -136,17 +138,16 @@ export type GcChildKind =
   /**
    * A dataset value: marked reachable **unconditionally**, so a ref whose
    * object is missing or unreadable is never swept out from under itself, and
-   * traversed only where the header-first classifier can tell a collection
-   * manifest — which names segment objects — from a plain value.
+   * then visited, because a collection manifest names segment objects that
+   * nothing else keeps alive.
    *
    * @remarks
-   * Both halves matter. Marking blind is what keeps a partially transferred
-   * repository sound; not reading a plain value is what keeps a sweep from
-   * decoding every dataset in the store. Without `readHead` a value is marked
-   * and left alone, which is exactly the behaviour that predates the segment
-   * layout — so a store that cannot serve a head read must not hold manifests.
-   * Every backend here serves ranged reads, and `repoGc` passes `readHead`
-   * whenever one does.
+   * Marking blind is what keeps a partially transferred repository sound.
+   * Visiting is what keeps a manifest's header and segments: marked and not
+   * walked, the manifest would survive a sweep that took everything it names.
+   * With `readHead` a value is classified from its head and read no further
+   * unless it is a manifest; without, it is read whole to learn its type,
+   * which costs the sweep I/O but never an object.
    */
   | 'value';
 
@@ -163,7 +164,8 @@ export type GcChildKind =
  * is classified by its header first: 64 KiB of head, growing to 1 MiB and then
  * 16 MiB while its type section does not fit. Only a structural shape is read
  * whole; a dataset, whatever its size, is marked without being read, and so is
- * an object whose head yields no type.
+ * an object whose head yields no type. Without it such an object is read whole
+ * and classified the same way, by its type, before anything is decoded.
  *
  * @param readObject - Function to read an object by hash (returns null if missing)
  * @param roots - Set of root hashes to start from
@@ -200,6 +202,19 @@ export async function markReachable(
     if (!data) continue;
     reachable.add(hash);
 
+    // Without head reads the object had to be read whole to be classified,
+    // but it is classified all the same before it is decoded: a dataset of any
+    // size is decoded only when it is a shape that names other objects.
+    if (!options.readHead) {
+      let type: EastTypeValue;
+      try {
+        type = readBeast2Type(data);
+      } catch {
+        continue; // Not valid BEAST2 or unknown format — a leaf
+      }
+      if (!isStructuralShape(type)) continue;
+    }
+
     // Schema-aware child extraction
     let children: { hash: string; kind: GcChildKind }[];
     try {
@@ -216,7 +231,7 @@ export async function markReachable(
       }
       if (child.kind === 'value') {
         reachable.add(child.hash);
-        if (options.readHead) stack.push(child.hash);
+        stack.push(child.hash);
         continue;
       }
       if (!visited.has(child.hash)) stack.push(child.hash);

@@ -971,7 +971,11 @@ describe('gc', () => {
       });
     });
 
-    it('marks value leaves without reading them', async () => {
+    it('reads a value to learn its type when the store serves no head reads', async () => {
+      // Without ranged reads there is no head to classify a value by, and a
+      // value may be a manifest naming segment objects, so it is read whole —
+      // a plain one is then marked and names nothing (the manifest recognizer
+      // below walks the other kind).
       const valueHash = 'b'.repeat(64);
 
       const treeType = makeTreeType(['data']);
@@ -982,7 +986,7 @@ describe('gc', () => {
       const readCalls: string[] = [];
       const objects = new Map<string, Uint8Array>();
       objects.set(treeHash, treeData);
-      objects.set(valueHash, new Uint8Array([99])); // exists but should not be read
+      objects.set(valueHash, new Uint8Array([99]));
 
       const readObject = async (hash: string) => {
         readCalls.push(hash);
@@ -991,8 +995,8 @@ describe('gc', () => {
       const reachable = await markReachable(readObject, new Set([treeHash]));
 
       assert.ok(reachable.has(valueHash), 'value should be reachable');
-      assert.ok(!readCalls.includes(valueHash), 'value hash should NOT have been read');
-      assert.ok(readCalls.includes(treeHash), 'tree hash should have been read');
+      assert.ok(readCalls.includes(valueHash), 'the value is read to learn its type');
+      assert.strictEqual(reachable.size, 2, 'a plain value names nothing');
     });
   });
 
@@ -1190,6 +1194,26 @@ describe('gc', () => {
       assert.ok(reachable.has(root));
       assert.ok(reachable.has(HEADER), 'the header bytes every segment is written under must survive');
       for (let i = 0; i < 3; i++) {
+        assert.ok(reachable.has(String(i).repeat(64).slice(0, 64)), `segment ${i} must survive`);
+      }
+    });
+
+    it('walks a manifest reached as a value when the store serves no head reads', async () => {
+      // A store without ranged reads — e3-cloud's object store — holds
+      // manifests too. A value child is read to learn its type there, and
+      // walked when it is a manifest: marked and not walked, the manifest
+      // would survive a sweep that took its header and every segment.
+      const tree = 'tree'.padEnd(64, '0');
+      const manifest = 'manifest'.padEnd(64, '0');
+      const objects = new Map([
+        [tree, encodeBeast2For(StructType({ rows: DataRefType }))({ rows: variant('value', manifest) })],
+        [manifest, manifestOf(0n, 2)],
+      ]);
+
+      const reachable = await markReachable(trace(objects), new Set([tree]));
+      assert.ok(reachable.has(manifest));
+      assert.ok(reachable.has(HEADER), 'the header object must survive');
+      for (let i = 0; i < 2; i++) {
         assert.ok(reachable.has(String(i).repeat(64).slice(0, 64)), `segment ${i} must survive`);
       }
     });
