@@ -314,7 +314,7 @@ For this cutover, stored datasets written under the `/1` rules or as blobs stay 
 
 ## 4. The plan
 
-Stages land in order. Each is its own PR, or a short stack, against main; each leaves main green and releasable and carries its own docs (P10).
+Stages land in order on one branch, delivered as one PR against main, so CI runs over each stage as it lands; a stacked PR, based on another branch, runs none. Each stage leaves the branch green and carries its own docs (P10). Stage 8 is a separate repository and PR.
 
 ```
 0 Specify ─► 1 Collection layer ─┬─► 2 Door ────────────┐
@@ -383,7 +383,7 @@ Read first:
    - east-c's and east-py's tests consume them, in those libs' CI workflows.
 10. **SPEC** updated to v2.
 
-Delivered as a stack of five PRs:
+Built in five parts, in this order:
 1. per-element aliasing, cut rule v2 (normalized, with the segmentation benchmarks that fixed it), one encoding and one Writer;
 2. the RunSorter and the Merger;
 3. Recut, the Writer's per-segment output, and record applies on Recut;
@@ -465,7 +465,7 @@ Read first:
 - e3-core: `execution/steps.ts`, `recordSteps.ts`, `LocalTaskRunner.ts`, `partitionExec.ts`, `partitionIo.ts`, `processExec.ts`, `jobs.ts`, `dataflow/steps.ts`, `dataflow/orchestrator/LocalOrchestrator.ts`, `records.ts`, `record-apply.ts` and `storage/local/gc.ts`;
 - the e3-ui consumer of the task's `kind` and `metadata`.
 
-A short stack:
+In three parts:
 
 - **4a — tasks.**
   - The typed task object (§3.3).
@@ -581,4 +581,4 @@ A benchmark harness in `libs/e3/test/`, alongside `partition-scale.spec.ts`, run
 - **Deliveries:** two deliveries differing in one row (Stage 2 acceptance).
 - **Automatic:** the re-key written as `toDict` in an `e3.task` (Stage 6 acceptance).
 
-Each stage's PR records its numbers.
+The PR records each stage's numbers.
