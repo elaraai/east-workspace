@@ -4,14 +4,14 @@
  */
 
 /**
- * The segment writer behind `run --emit` and `merge` (issue #770).
+ * The segment writer behind `run --emit` (issue #770).
  *
  * Entries arrive one at a time and go out through the library's canonical
  * writer (`Beast2ElementWriter`) onto the output file: header at open,
  * terminator and index at the finish, so every finished file is a complete
  * canonical blob, cut where the content-defined rule cuts it — which is where
- * every writer of the same value cuts it, on every runtime. Both commands
- * write through this one class, which is what makes a merge's output
+ * every writer of the same value cuts it, on every runtime. The library's
+ * merge writes through the same writer, which is what makes a merge's output
  * byte-identical to the sink's for the same entries. Memory is one open
  * segment whatever the output's size.
  */
@@ -21,8 +21,8 @@ import { Beast2ElementWriter } from '@elaraai/east';
 import type { EastTypeValue } from '@elaraai/east/internal';
 
 /** Writes all of `bytes` to `fd` — `writeSync` may write fewer bytes than
- *  asked, and a silently short write would corrupt the file. */
-function writeAll(fd: number, bytes: Uint8Array): void {
+ *  asked, and a silently short write would corrupt the file. @internal */
+export function writeAll(fd: number, bytes: Uint8Array): void {
     let written = 0;
     while (written < bytes.length) {
         written += writeSync(fd, bytes, written, bytes.length - written);

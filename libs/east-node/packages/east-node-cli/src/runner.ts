@@ -316,8 +316,8 @@ export function loadMergeFunction(path: string, keyType: EastTypeValue, valueTyp
 }
 
 /**
- * The canonical duplicate-key error, identical across runners: the emit
- * sink's, and the blob merge's when a key is shared without a fold.
+ * The emit sink's duplicate-key error, in the words every runner uses and the
+ * library's merge gives for a key shared without a fold.
  *
  * @param kind - the collection kind
  * @param printKey - the key type's printer

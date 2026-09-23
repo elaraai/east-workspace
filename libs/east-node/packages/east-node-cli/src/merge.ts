@@ -7,14 +7,15 @@
  * The blob merge behind `east-node merge` (issue #770).
  *
  * Canonical Set or Dict blobs of one type in — sorted, indexed beast2 v5
- * collections, as every runner writes them — and one canonical blob out, in
- * a single pass: every input is read segment by segment through positioned
- * reads on its descriptor, a heap over the inputs' current entries yields
- * keys in East order, and the output is written through the same segment
- * writer as `run --emit`, so the file is byte-identical to what that sink
- * writes for the same entries emitted ascending. Memory is one decoded
- * segment per input plus one open output segment; no temporary file is ever
- * written.
+ * collections, as every runner writes them — and one canonical blob out,
+ * merged by the library's `mergeBeast2For`: every input is read segment by
+ * segment through positioned reads on its descriptor, and the output is
+ * written through the canonical element writer, so the file is byte-identical
+ * to what `run --emit` writes for the same entries emitted ascending. Memory
+ * is one decoded segment per input plus one open output segment; no temporary
+ * file is ever written. This module is the command around the merge: it opens
+ * and checks the inputs, reads the key range and loads the fold, refusing
+ * each in the words east-c and east-py use.
  *
  * Equal keys across inputs fold in input order: with a merge function (Dict
  * inputs) `acc = merge(key, acc, value)`; in union mode (Set inputs) the
@@ -38,25 +39,22 @@
 import { closeSync, fstatSync, openSync, readFileSync, readSync } from 'fs';
 import {
     OptionType,
-    SortedMap,
-    SortedSet,
     StructType,
-    compareFor,
     decodeBeast2For,
     fromEastTypeValue,
     isTypeValueEqual,
-    openBeast2LazyFor,
-    printFor,
+    mergeBeast2For,
     readBeast2Extents,
     readBeast2HeaderType,
     readBeast2Type,
     toEastTypeValue,
+    type Beast2RangedExtents,
     type Beast2SyncRangeReader,
 } from '@elaraai/east';
 import type { EastTypeValue, PlatformFunction } from '@elaraai/east/internal';
 import { printTypeValue } from '@elaraai/east/internal';
-import { EmitFileWriter } from './emit-writer.js';
-import { duplicateMessage, formatFileSize, loadMergeFunction, type MergeFunction } from './runner.js';
+import { writeAll } from './emit-writer.js';
+import { formatFileSize, loadMergeFunction } from './runner.js';
 
 /** Options accepted by {@link mergeBlobs}. */
 export interface MergeBlobsOptions {
@@ -86,14 +84,6 @@ export interface MergeBlobsStats {
     folds: number;
 }
 
-/** One input: its current entry (`null` once exhausted) and how to advance.
- *  Closing is the opened input's ({@link OpenedInput.close}) — one owner of
- *  the descriptor, so a started input can never close it a second time. */
-interface MergeInput {
-    head: { key: unknown; value: unknown } | null;
-    advance: () => void;
-}
-
 /** The keys a merge covers: `[from, to)`, a bound `undefined` when open —
  *  East values are never `undefined`. */
 interface KeyRange {
@@ -101,20 +91,17 @@ interface KeyRange {
     to: unknown;
 }
 
-/** An input opened for its type, before its iteration is started. */
+/** An input opened and checked: its type, and positioned reads on its
+ *  descriptor, which `close` releases. */
 interface OpenedInput {
     type: EastTypeValue;
-    /** Starts the iteration over `range` and returns the input, positioned
-     *  before its first entry. */
-    start: (range: KeyRange, cmp: (a: unknown, b: unknown) => number) => MergeInput;
+    reader: Beast2SyncRangeReader;
     close: () => void;
 }
 
 /**
- * Opens input `index` at `path`: reads its geometry and type, and prepares a
- * segment-by-segment iteration of its entries — from the first key, or from
- * a range's lower bound, whose owning segment the lazy value seeks through
- * the fences.
+ * Opens input `index` at `path` and checks it is a canonical Set or Dict blob
+ * of `expected`'s type, read through positioned reads on its descriptor.
  *
  * @param path - the blob
  * @param index - the input's position, for messages
@@ -154,78 +141,31 @@ function openInput(path: string, index: number, expected: EastTypeValue | null):
             return out;
         },
     };
-    const prefixed = (err: unknown): Error =>
-        new Error(`merge: input ${index} (${path}): ${(err as Error).message ?? String(err)}`);
-    let type: EastTypeValue;
-    let lazy: SortedMap<unknown, unknown> | SortedSet<unknown>;
+    let extents: Beast2RangedExtents;
     try {
         // The header first: a file too short for a blob, or one without the
         // magic, is refused in the reader's words — the sentence east-c and
         // east-py give for the same bytes — before the index is looked for.
         readBeast2HeaderType(reader);
-        const extents = readBeast2Extents(reader);
-        type = extents.typeValue;
-        if (expected !== null && !isTypeValueEqual(type, expected)) {
-            closeSync(fd);
-            throw new Error(`merge: input ${index} (${path}) has type ${printTypeValue(type)}, expected ${printTypeValue(expected)} (input 0)`);
-        }
-        if (type.type !== 'Set' && type.type !== 'Dict') {
-            closeSync(fd);
-            throw new Error(`merge: inputs must be Set or Dict blobs, got ${type.type}`);
-        }
-        if (!extents.selfContained) throw new Error('the blob is not self-contained');
-        lazy = openBeast2LazyFor(type, { frozen: true })(reader) as SortedMap<unknown, unknown> | SortedSet<unknown>;
+        extents = readBeast2Extents(reader);
     } catch (err) {
-        const message = (err as Error).message ?? '';
-        if (message.startsWith('merge: ')) throw err;
         closeSync(fd);
-        throw prefixed(err);
+        throw new Error(`merge: input ${index} (${path}): ${(err as Error).message ?? String(err)}`);
     }
-    const dict = type.type === 'Dict';
-    return {
-        type,
-        close: () => closeSync(fd),
-        start: (range, cmp) => {
-            // The lazy value streams one decoded segment at a time, checking
-            // the ascent within and across segments as the eager decoder does;
-            // from a lower bound it starts at the segment owning it.
-            let iterator: Iterator<unknown>;
-            try {
-                iterator = dict
-                    ? (lazy as SortedMap<unknown, unknown>).entries(range.from)
-                    : (lazy as SortedSet<unknown>).keys(range.from);
-            } catch (err) {
-                throw prefixed(err);
-            }
-            let exhausted = false;
-            const input: MergeInput = {
-                head: null,
-                advance: () => {
-                    if (exhausted) return;
-                    let next: IteratorResult<unknown>;
-                    try {
-                        next = iterator.next();
-                    } catch (err) {
-                        throw prefixed(err);
-                    }
-                    if (next.done) {
-                        exhausted = true;
-                        input.head = null;
-                        return;
-                    }
-                    const [key, value] = dict ? (next.value as [unknown, unknown]) : [next.value, undefined];
-                    // The first key at or past the upper bound ends the input.
-                    if (range.to !== undefined && cmp(key, range.to) >= 0) {
-                        exhausted = true;
-                        input.head = null;
-                        return;
-                    }
-                    input.head = { key, value };
-                },
-            };
-            return input;
-        },
-    };
+    const type = extents.typeValue;
+    let refusal: string | null = null;
+    if (expected !== null && !isTypeValueEqual(type, expected)) {
+        refusal = `merge: input ${index} (${path}) has type ${printTypeValue(type)}, expected ${printTypeValue(expected)} (input 0)`;
+    } else if (type.type !== 'Set' && type.type !== 'Dict') {
+        refusal = `merge: inputs must be Set or Dict blobs, got ${type.type}`;
+    } else if (!extents.selfContained) {
+        refusal = `merge: input ${index} (${path}): the blob is not self-contained`;
+    }
+    if (refusal !== null) {
+        closeSync(fd);
+        throw new Error(refusal);
+    }
+    return { type, reader, close: () => closeSync(fd) };
 }
 
 /**
@@ -292,97 +232,46 @@ export function mergeBlobs(inputPaths: readonly string[], outputPath: string, op
         throw new Error('merge: --merge and --union are two folds — give one');
     }
     const opened: OpenedInput[] = [];
-    const inputs: MergeInput[] = [];
-    let out: EmitFileWriter | null = null;
-    let finished = false;
+    let fd = -1;
+    let stats: MergeBlobsStats;
     try {
         const first = openInput(inputPaths[0]!, 0, null);
         opened.push(first);
         const type = first.type;
-        const kind = type.type === 'Dict' ? 'dict' : 'set';
-        if (options.mergePath !== undefined && kind !== 'dict') throw new Error('--merge applies to Dict inputs only');
-        if (options.union && kind !== 'set') throw new Error('--union applies to Set inputs only');
-        const keyType = (kind === 'dict' ? (type as any).value.key : (type as any).value) as EastTypeValue;
-        const valueType = (kind === 'dict' ? (type as any).value.value : null) as EastTypeValue | null;
-        const merge: MergeFunction | null = options.mergePath !== undefined
-            ? loadMergeFunction(options.mergePath, keyType, valueType!, options.platformFns ?? [], 'the inputs')
-            : null;
-        const union = options.union ?? false;
-        const range: KeyRange = options.rangePath !== undefined ? readRange(options.rangePath, keyType) : { from: undefined, to: undefined };
+        const dict = type.type === 'Dict';
+        if (options.mergePath !== undefined && !dict) throw new Error('--merge applies to Dict inputs only');
+        if (options.union && dict) throw new Error('--union applies to Set inputs only');
+        const keyType = (dict ? (type as any).value.key : (type as any).value) as EastTypeValue;
+        const merge = options.mergePath !== undefined
+            ? loadMergeFunction(options.mergePath, keyType, (type as any).value.value as EastTypeValue, options.platformFns ?? [], 'the inputs')
+            : undefined;
+        const range = options.rangePath !== undefined ? readRange(options.rangePath, keyType) : { from: undefined, to: undefined };
         for (let i = 1; i < inputPaths.length; i++) opened.push(openInput(inputPaths[i]!, i, type));
 
-        const cmp = compareFor(keyType as any) as (a: unknown, b: unknown) => number;
-        const printKey = printFor(keyType as any) as (v: unknown) => string;
-        for (const input of opened) inputs.push(input.start(range, cmp));
-        for (const input of inputs) input.advance();
-
-        // A binary min-heap over the inputs' current keys, ordered by (key,
-        // input index), so equal keys leave in input order.
-        const heap: number[] = [];
-        for (let i = 0; i < inputs.length; i++) if (inputs[i]!.head !== null) heap.push(i);
-        const before = (a: number, b: number): boolean => {
-            const order = cmp(inputs[a]!.head!.key, inputs[b]!.head!.key);
-            return order < 0 || (order === 0 && a < b);
-        };
-        const siftDown = (at: number): void => {
-            for (;;) {
-                const l = 2 * at + 1;
-                const r = l + 1;
-                let least = at;
-                if (l < heap.length && before(heap[l]!, heap[least]!)) least = l;
-                if (r < heap.length && before(heap[r]!, heap[least]!)) least = r;
-                if (least === at) return;
-                [heap[at], heap[least]] = [heap[least]!, heap[at]!];
-                at = least;
-            }
-        };
-        for (let i = (heap.length >> 1) - 1; i >= 0; i--) siftDown(i);
-
-        out = new EmitFileWriter(type, outputPath);
-        let entries = 0;
-        let folds = 0;
-        // The current key's entry is held until a greater key arrives, so
-        // every equal key folds into it before it is written.
-        let held: { key: unknown; value: unknown } | null = null;
-        const put = (entry: { key: unknown; value: unknown }): void => {
-            out!.push(kind === 'dict' ? [entry.key, entry.value] : entry.key);
-            entries++;
-        };
-        while (heap.length > 0) {
-            const input = inputs[heap[0]!]!;
-            const { key, value } = input.head!;
-            if (held !== null && cmp(held.key, key) === 0) {
-                if (merge !== null) {
-                    held.value = merge(key, held.value, value);
-                } else if (!union) {
-                    throw new Error(duplicateMessage(kind, printKey, key));
-                }
-                folds++;
-            } else {
-                if (held !== null) put(held);
-                held = { key, value };
-            }
-            input.advance();
-            if (input.head === null) {
-                heap[0] = heap[heap.length - 1]!;
-                heap.pop();
-            }
-            if (heap.length > 0) siftDown(0);
-        }
-        if (held !== null) put(held);
-        out.finishClose();
-        finished = true;
-
-        const stats = { inputs: inputs.length, entries, folds };
-        if (options.verbose) {
-            console.error(`merge: ${stats.inputs} input(s), ${stats.entries} entries, ${stats.folds} fold(s)`);
-            console.error(`Output: ${outputPath}  (${formatFileSize(outputPath)})`);
-            console.error('\nTiming:');
-            console.error(`  Total:    ${(performance.now() - started).toFixed(1).padStart(8)} ms`);
-        }
-        return stats;
+        stats = mergeBeast2For(type, {
+            ...(merge !== undefined && { merge }),
+            union: options.union ?? false,
+            from: range.from,
+            to: range.to,
+            labels: inputPaths,
+            // Frames deflate on worker threads (#763).
+            parallel: true,
+        })(opened.map((input) => input.reader), (bytes) => {
+            // The output is created with its first bytes, which the merge
+            // writes once every input has opened, so a refused input leaves
+            // no file behind.
+            if (fd < 0) fd = openSync(outputPath, 'w');
+            writeAll(fd, bytes);
+        });
     } finally {
         for (const input of opened) input.close();
-        if (out !== null && !finished) out.closeAbandoned();
+        if (fd >= 0) closeSync(fd);
     }
+    if (options.verbose) {
+        console.error(`merge: ${stats.inputs} input(s), ${stats.entries} entries, ${stats.folds} fold(s)`);
+        console.error(`Output: ${outputPath}  (${formatFileSize(outputPath)})`);
+        console.error('\nTiming:');
+        console.error(`  Total:    ${(performance.now() - started).toFixed(1).padStart(8)} ms`);
+    }
+    return stats;
 }

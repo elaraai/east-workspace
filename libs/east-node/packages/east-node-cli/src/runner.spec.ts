@@ -720,8 +720,8 @@ describe('folding emit, the blob merge and the stdin lifeline (#770)', () => {
   it('the emit writer segments a value exactly as the paged encoder does', () => {
     // One value segments the same wherever it is written (#770): a task that
     // RETURNS a collection writes it through encodeBeast2PagedFor, one that
-    // emits or merges writes it through this writer, and a content-addressed
-    // store must see one blob. Both cut through the library's element writer;
+    // emits writes it through this writer, and a content-addressed store must
+    // see one blob. Both cut through the library's element writer;
     // wide rows are where a cut by count and a cut by bytes part ways, so the
     // rows here are wide, and incompressible (a deterministic LCG), so the
     // frames are as wide as the rows.
