@@ -136,11 +136,12 @@ export async function datasetGet(
     return { data, hash, size };
   }
 
+  // A collection comes as a stream with no Content-Length; the bytes in hand
+  // are the size either way.
   const buffer = await response.arrayBuffer();
   const data = new Uint8Array(buffer);
   const hash = response.headers.get('X-Content-SHA256') ?? '';
-  const size = parseInt(response.headers.get('Content-Length') ?? '0', 10);
-  return { data, hash, size };
+  return { data, hash, size: data.byteLength };
 }
 
 /** Window addressing for {@link datasetGetPage}: an element window or one

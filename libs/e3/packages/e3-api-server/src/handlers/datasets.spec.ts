@@ -23,6 +23,7 @@ import {
   toEastTypeValue,
   variant,
   type EastType,
+  type ValueTypeOf,
 } from '@elaraai/east';
 import { BEAST2_CONTENT_TYPE, computeHash, cutDatasetIntoStore, InMemoryTransferBackend, writeRecordState } from '@elaraai/e3-core';
 import { InMemoryStorage } from '@elaraai/e3-core/test';
@@ -187,6 +188,41 @@ describe('getDataset', () => {
     assert.equal(response.status, 200);
     assert.equal(response.headers.get('Content-Type'), BEAST2_CONTENT_TYPE);
     assert.equal(response.headers.get('X-Content-SHA256'), hash);
+  });
+
+  it('streams a manifest-backed collection, reading each segment as the client takes it', async () => {
+    // A collection is many objects, so there is no one object to redirect a
+    // download to — and splicing it into a buffer first held the whole value
+    // (twice) in the server for every download.
+    const storage = new InMemoryStorage();
+    await storage.repos.create(REPO);
+    const type = DictType(StringType, IntegerType);
+    const value = new Map(Array.from({ length: 20_000 }, (_, i) => [`k${String(i).padStart(6, '0')}`, BigInt(i)] as [string, bigint]));
+    const hash = await cutDatasetIntoStore(storage, REPO, encodeDatasetBlob(type, value));
+    const segments = decodeCollectionManifest(await storage.objects.read(REPO, hash)).entries.map((entry) => entry.hash);
+    assert.ok(segments.length > 3, `the value spans segments, got ${segments.length}`);
+    await storage.datasets.write(REPO, WS, 'inputs/lookup', variant('value', { hash, versions: new Map() }));
+
+    const objects = storage.objects;
+    const read = objects.read.bind(objects);
+    let segmentReads = 0;
+    objects.read = (repo: string, object: string) => {
+      if (segments.includes(object)) segmentReads++;
+      return read(repo, object);
+    };
+    try {
+      const response = await getDataset(storage, REPO, WS, [variant('field', 'inputs'), variant('field', 'lookup')]);
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get('Content-Type'), BEAST2_CONTENT_TYPE);
+      assert.equal(segmentReads, 0, 'nothing is read before the client takes the body');
+
+      const decoded = decodeBeast2For(type)(new Uint8Array(await response.arrayBuffer()));
+      assert.equal(decoded.size, 20_000);
+      assert.equal(decoded.get('k019999'), 19_999n);
+      assert.equal(segmentReads, segments.length, 'each segment is read once, as its bytes are sent');
+    } finally {
+      objects.read = read;
+    }
   });
 
   it('returns 404 JSON error for null dataset', async () => {
@@ -688,7 +724,7 @@ describe('findDatasetKey — struct keys', () => {
 const PlanRowType = StructType({ due: IntegerType, title: StringType });
 const PlansType = DictType(StringType, PlanRowType);
 const plansPath = [variant('field', 'records'), variant('field', 'plans')];
-type PlanRow = { due: bigint; title: string };
+type PlanRow = ValueTypeOf<typeof PlanRowType>;
 
 /**
  * Seeds a deployed workspace holding an indexed record: `n` plans keyed

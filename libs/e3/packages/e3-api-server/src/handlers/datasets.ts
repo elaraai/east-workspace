@@ -11,7 +11,6 @@ import {
   workspaceGetDatasetStatus,
   workspaceSetDataset,
   workspaceGetTree,
-  readDatasetWhole,
   readManifest,
   recordIndexNames,
   resolveRecordIndex,
@@ -84,15 +83,25 @@ export async function getDataset(
 
     // A collection held as a segment manifest is many objects, so the
     // transfer backend — which serves ONE object by hash — cannot hand the
-    // client a value. Splice it here instead; the download redirect stays for
-    // objects that are the value.
+    // client a value. The splice is streamed instead, a segment read only
+    // when the client takes the bytes before it, so the server never holds
+    // the value; the download redirect stays for objects that are the value.
     if (await readManifest(storage, repoPath, hash) !== null) {
-      const data = await readDatasetWhole(storage, repoPath, hash);
-      return new Response(data, {
+      const chunks = (await DatasetSegments.open(storage, repoPath, hash)).splice()[Symbol.asyncIterator]();
+      const body = new ReadableStream<Uint8Array>({
+        async pull(controller) {
+          const next = await chunks.next();
+          if (next.done) controller.close();
+          else controller.enqueue(next.value);
+        },
+        async cancel() {
+          await chunks.return?.();
+        },
+      }, { highWaterMark: 0 });
+      return new Response(body, {
         status: 200,
         headers: {
           'Content-Type': BEAST2_CONTENT_TYPE,
-          'Content-Length': String(data.byteLength),
           'X-Content-SHA256': hash,
         },
       });
