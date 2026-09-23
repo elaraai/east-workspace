@@ -51,6 +51,7 @@ set(EAST_C_SOURCES
     src/serialization/beast2/v5/boundary.c
     src/serialization/beast2/v5/stream.c
     src/serialization/beast2/v5/runs.c
+    src/serialization/beast2/v5/manifest.c
     src/serialization/beast2/v5/project.c
     src/serialization/csv.c
     src/serialization/east_parser.c
@@ -356,6 +357,17 @@ add_executable(test_beast2_runs tests/test_beast2_runs.c)
 target_link_libraries(test_beast2_runs east-c)
 add_test(NAME beast2_runs COMMAND test_beast2_runs)
 set_tests_properties(beast2_runs PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+
+# Segment manifests, pinned against the TypeScript manifest writer: three
+# 50,000-element collections and an empty one are written as TypeScript's
+# directories to the byte, every object is named by its SHA-256, and a directory
+# reads back through the manifest pager — lazily, a keyed read opening one
+# segment — or whole. Run under ASan/LSan for the segment source's mappings and
+# the writer's lifetimes, a refused segment included.
+add_executable(test_beast2_manifest tests/test_beast2_manifest.c)
+target_link_libraries(test_beast2_manifest east-c)
+add_test(NAME beast2_manifest COMMAND test_beast2_manifest)
+set_tests_properties(beast2_manifest PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 
 # Beast2 v5 column-projection gate (issue #599): plan validation (subset by
 # name, Dict-key/Set-element/variant-case/function-skip refusals with errors

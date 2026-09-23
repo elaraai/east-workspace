@@ -7,7 +7,8 @@
  * The manifest writer: its directory is the Writer's blob taken apart — the
  * header and each segment, named by SHA-256 — with a manifest naming them; the
  * directory reads back as the value; an empty collection is a header and a
- * manifest of no entries; and a merge writes one too.
+ * manifest of no entries; the directories of three parity values are east-c's
+ * and east-py's to the byte; and a merge writes one too.
  */
 
 import { describe, test } from "node:test";
@@ -150,6 +151,24 @@ describe("beast2 v5 manifest writer", () => {
     assert.deepEqual(manifest.entries, []);
     assert.equal(manifest.header, sha256(header));
     assert.deepEqual([...dir.objects.keys()], [manifest.header]);
+  });
+
+  test("writes the directories east-c and east-py write", () => {
+    // The same values and digests are pinned in east-c's
+    // `tests/test_beast2_manifest.c` and east-py's `test_beast2_manifest.py`.
+    // A manifest names each object by its SHA-256, so its own digest pins
+    // every segment's bytes too.
+    const manifestOf = (type: typeof DictSI | typeof SetS | typeof ArrayS, elements: Iterable<unknown>): string => {
+      const dir = directory();
+      const writer = new Beast2ManifestWriter(type, dir.sink);
+      for (const element of elements) writer.add(element as never);
+      writer.finish();
+      return sha256(dir.manifest());
+    };
+    assert.equal(manifestOf(DictSI, dict.entries()), "5564111725b1962b7ae8c82cf91d24c4e1fb8d2c9613245693757fe4ff4187b0");
+    assert.equal(manifestOf(SetS, set.keys()), "7b2c57db1da82f98ef88018589dc7a4f96bac120472b35e9826dbd60c395789c");
+    assert.equal(manifestOf(ArrayS, array), "127030afceae0c9590ad26ed26521cff170b8024229f28ccd54d647fc218df4c");
+    assert.equal(manifestOf(DictSI, []), "356518ed344e3e210d0a2acb26eef7eff25cd76ba08b1aedd0640af5256cefb0");
   });
 
   test("writes what a merge writes as a manifest directory", () => {

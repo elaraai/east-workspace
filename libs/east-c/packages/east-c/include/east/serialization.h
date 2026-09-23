@@ -282,6 +282,26 @@ bool east_beast2_element_writer_finish(Beast2ElementWriter *w);
 size_t east_beast2_element_writer_segments(const Beast2ElementWriter *w);
 void east_beast2_element_writer_free(Beast2ElementWriter *w);
 
+// Segment output (the C mirror of TypeScript's Beast2SegmentSink): the writer
+// hands each segment over once it is cut, in order, as the standalone blob
+// carving it out of the collection's blob would give — the header, the
+// segment's frame, the terminator, and an index naming the one segment — with
+// its element count and its fence, the first key's canonical bytes (a Set
+// element or a Dict key; empty for an Array). The sink returns false with the
+// message posted to fail the add or finish that wrote the segment. A segment
+// writer frames inline — set_parallel leaves it so — and take() returns
+// nothing.
+typedef struct {
+    void *ctx;
+    bool (*segment)(void *ctx, const uint8_t *blob, size_t len, size_t count, const uint8_t *fence,
+                    size_t fence_len);
+} Beast2SegmentSink;
+Beast2ElementWriter *east_beast2_element_writer_new_segments(EastType *type, int32_t codec_id,
+                                                             const Beast2SegmentSink *sink);
+// The header every segment of a segment writer is written under (borrowed,
+// valid until free); NULL for a blob writer.
+const uint8_t *east_beast2_element_writer_header(const Beast2ElementWriter *w, size_t *len_out);
+
 // Sorted runs (the C mirror of TypeScript's Beast2RunSorter): a Set's or
 // Dict's elements go in in any order and come out as sorted canonical runs.
 // Each element is encoded as it is added, with aliasing scoped to itself, so
@@ -506,6 +526,101 @@ EastValue *east_beast2_open_paged_owned(EastValue *owner, const uint8_t *data, s
 EastValue *east_beast2_open_paged_external(uint8_t *data, size_t len, EastType *type, bool frozen,
                                            void (*release)(void *ctx, uint8_t *data, size_t len),
                                            void *ctx);
+
+// ============================================================================
+// Segment manifests (v5/SPEC.md, "Segment manifests"). A collection may be
+// held as standalone segment blobs — each a v5 blob of one segment under the
+// collection's header — and a manifest naming them in order. A manifest
+// directory is the manifest's file and, in `<file>.segments/`, every object
+// the manifest names — the header and each segment — as `<sha256>.beast2`:
+// the layout e3 stages collection inputs in, and the one every runtime writes.
+// ============================================================================
+
+#define EAST_BEAST2_MANIFEST_KIND "$segments"
+
+// The manifest struct — { kind, level, type, rule, header, entries: [{ hash,
+// fence, count, bytes }] }, the struct TypeScript's CollectionManifestType
+// declares. Interned, like every constructed type.
+EastType *east_beast2_manifest_type(void);
+
+// The manifest `data` holds: 1 with it in *manifest_out (retained); 0 when
+// the data holds something else — not a v5 blob, another root type, or a
+// struct of the manifest's shape with another kind; -1 with the message
+// posted when it is typed as a manifest but does not decode, or names
+// manifests rather than segments (a level above 0), which this build does not
+// read.
+int east_beast2_read_manifest(const uint8_t *data, size_t len, EastValue **manifest_out);
+
+// Where a manifest's segments are read from: open() hands over segment i's
+// standalone blob — and in *handle what close() needs to give it back — or
+// returns false with the message posted; free(), when set, releases ctx once
+// the reader is done with the source. A reader opens a segment for each read
+// that decodes it, and closes it after.
+typedef struct {
+    void *ctx;
+    bool (*open)(void *ctx, size_t i, const uint8_t **data, size_t *len, void **handle);
+    void (*close)(void *ctx, void *handle, const uint8_t *data, size_t len);
+    void (*free)(void *ctx);
+} Beast2SegmentSource;
+
+// Random access over a collection held as a manifest: the pager above, with
+// the counts and fences taken from the manifest's entries — so a keyed read
+// opens exactly the segment it lands in — and each segment from `source`. The
+// manifest is retained. The source is taken: its free() runs with the
+// pager's, or at once when this fails (NULL, message posted).
+Beast2Pages *east_beast2_pages_new_manifest(EastValue *manifest, EastType *type,
+                                            const Beast2SegmentSource *source);
+// A lazy paged value over a manifest, as east_beast2_open_paged_view is over
+// a blob: it holds no bytes of its own, and a hydrate decodes it segment by
+// segment. The shape gate is east_beast2_open_paged_view's and the source is
+// taken as above; NULL when either refuses.
+EastValue *east_beast2_open_paged_manifest(EastValue *manifest, EastType *type, bool frozen,
+                                           const Beast2SegmentSource *source);
+// The whole collection a manifest holds, decoded segment by segment into one
+// value — the value decoding the spliced blob gives. Takes the source.
+EastValue *east_beast2_decode_manifest(EastValue *manifest, EastType *type, bool frozen,
+                                       const Beast2SegmentSource *source);
+// The two above over a manifest directory: `path` is the manifest's file (its
+// decoded `manifest` the caller's), and segment i is
+// `<path>.segments/<hash>.beast2`, mapped for each read.
+EastValue *east_beast2_open_manifest_dir(const char *path, EastValue *manifest, EastType *type,
+                                         bool frozen);
+EastValue *east_beast2_decode_manifest_dir(const char *path, EastValue *manifest, EastType *type,
+                                           bool frozen);
+
+// The canonical writer of a collection as a manifest directory (the C mirror
+// of TypeScript's Beast2ManifestWriter): elements go in as the element writer
+// takes them, and out come the header, each segment the cut rule places, and
+// then the manifest naming them, every object under the SHA-256 of its bytes
+// in lowercase hex. object() receives each object — the header first, then
+// each segment as it is cut; an Array holding two equal segments hands the
+// same one over twice — and manifest() the manifest, last. Each returns false
+// with the message posted, failing the add or finish that wrote it; a finish
+// that fails writes no manifest.
+typedef struct {
+    void *ctx;
+    bool (*object)(void *ctx, const char *hash, const uint8_t *bytes, size_t len);
+    bool (*manifest)(void *ctx, const uint8_t *bytes, size_t len);
+} Beast2ManifestSink;
+typedef struct Beast2ManifestWriter Beast2ManifestWriter;
+Beast2ManifestWriter *east_beast2_manifest_writer_new(EastType *type, int32_t codec_id,
+                                                      const Beast2ManifestSink *sink);
+// The writer of a manifest directory: the manifest at `path`, and every
+// object in `<path>.segments/`, which is created when missing.
+Beast2ManifestWriter *east_beast2_manifest_writer_new_dir(EastType *type, int32_t codec_id,
+                                                          const char *path);
+bool east_beast2_manifest_writer_add(Beast2ManifestWriter *w, EastValue *element);
+bool east_beast2_manifest_writer_add_pair(Beast2ManifestWriter *w, EastValue *key,
+                                          EastValue *value);
+bool east_beast2_manifest_writer_add_encoded(Beast2ManifestWriter *w, const uint8_t *element,
+                                             size_t len, size_t key_len);
+bool east_beast2_manifest_writer_finish(Beast2ManifestWriter *w);
+// Segments written so far; the open one is not counted until it closes.
+size_t east_beast2_manifest_writer_segments(const Beast2ManifestWriter *w);
+void east_beast2_manifest_writer_free(Beast2ManifestWriter *w);
+// One whole Array/Set/Dict value written as a manifest directory at `path`.
+bool east_beast2_write_manifest_dir(EastValue *value, EastType *type, int32_t codec_id,
+                                    const char *path);
 
 // The byte budget of a pager's decoded-segment cache (issue #560): the sum of
 // cached segments' decompressed frame lengths stays at or under the budget

@@ -551,6 +551,14 @@ struct Beast2ElementWriter {
     B2V5Cutter cutter;
     EastValue *last_key; /* retained; the last Set element / Dict key added */
     bool finished;
+    /* Segment output: each segment goes to `sink` as a standalone blob under
+     * `header` rather than into the stream's one blob. sink.segment is NULL
+     * for a blob writer. */
+    Beast2SegmentSink sink;
+    ByteBuffer *header;
+    size_t first_key_len; /* the open segment's first key — its fence */
+    size_t sink_segments; /* segments the sink has taken */
+    bool failed;          /* the sink refused a segment, or one could not be built */
 };
 
 Beast2ElementWriter *east_beast2_element_writer_new(EastType *type, int32_t codec_id)
@@ -575,9 +583,78 @@ Beast2ElementWriter *east_beast2_element_writer_new(EastType *type, int32_t code
     return w;
 }
 
+Beast2ElementWriter *east_beast2_element_writer_new_segments(EastType *type, int32_t codec_id,
+                                                             const Beast2SegmentSink *sink)
+{
+    if (!sink || !sink->segment) {
+        east_builtin_error("beast2 v5: a segment writer needs a sink");
+        return NULL;
+    }
+    Beast2ElementWriter *w = east_beast2_element_writer_new(type, codec_id);
+    if (!w) return NULL;
+    /* Nothing has been written yet, so what the stream holds is the header
+     * every segment is written under. */
+    w->header = east_beast2_writer_take(w->stream);
+    if (!w->header) {
+        east_beast2_element_writer_free(w);
+        east_builtin_error("beast2 v5: out of memory building a segment writer");
+        return NULL;
+    }
+    w->sink = *sink;
+    return w;
+}
+
+const uint8_t *east_beast2_element_writer_header(const Beast2ElementWriter *w, size_t *len_out)
+{
+    if (len_out) *len_out = w && w->header ? w->header->len : 0;
+    return w && w->header ? w->header->data : NULL;
+}
+
 void east_beast2_element_writer_set_parallel(Beast2ElementWriter *w, bool parallel)
 {
-    if (w) east_beast2_writer_set_parallel(w->stream, parallel);
+    /* A segment writer frames each segment as it hands it over. */
+    if (w && !w->sink.segment) east_beast2_writer_set_parallel(w->stream, parallel);
+}
+
+/* Writes the open segment — `len` bytes of its elements — into the blob, or
+ * hands it to the sink as a standalone blob: the header, the segment's frame,
+ * the terminator, and an index naming the one segment, byte for byte what
+ * carving it out of the blob would give. */
+static bool element_writer_emit(Beast2ElementWriter *w, const uint8_t *elements, size_t len)
+{
+    if (w->count == 0) return true;
+    if (!w->sink.segment)
+        return east_beast2_writer_write_encoded(w->stream, w->count, elements, len);
+
+    ByteBuffer *logical = byte_buffer_new(len + 10);
+    ByteBuffer *blob = byte_buffer_new(w->header->len + len + 64);
+    if (!logical || !blob) {
+        byte_buffer_free(logical);
+        byte_buffer_free(blob);
+        east_builtin_error("beast2 v5: out of memory writing a segment");
+        w->failed = true;
+        return false;
+    }
+    write_varint(logical, (uint64_t)w->count);
+    byte_buffer_write_bytes(logical, elements, len);
+    byte_buffer_write_bytes(blob, w->header->data, w->header->len);
+    size_t frame_at = blob->len;
+    b2v5_write_frame(blob, logical->data, logical->len, w->stream->codec);
+    static const uint8_t terminator = 0x00;
+    b2v5_write_frame(blob, &terminator, 1, EAST_BEAST2_CODEC_NONE);
+    size_t count = w->count;
+    b2v5_write_index_footer(blob, blob->len, &frame_at, &count, 1, true);
+    /* An Array has no key order, so its segments have no fence. */
+    size_t fence_len = w->type->kind == EAST_TYPE_ARRAY ? 0 : w->first_key_len;
+    bool ok = w->sink.segment(w->sink.ctx, blob->data, blob->len, count, elements, fence_len);
+    byte_buffer_free(logical);
+    byte_buffer_free(blob);
+    if (!ok) {
+        w->failed = true;
+        return false;
+    }
+    w->sink_segments++;
+    return true;
 }
 
 /* Accounts for the element just appended to the open segment at `start`, and
@@ -590,12 +667,12 @@ static bool element_writer_place(Beast2ElementWriter *w, size_t start, size_t ke
     /* An Array element has no key, so the rule hashes it whole. */
     size_t hashed = w->type->kind == EAST_TYPE_ARRAY ? len : key_len;
     if (b2v5_cutter_starts_segment(&w->cutter, len, element, hashed)) {
-        if (!east_beast2_writer_write_encoded(w->stream, w->count, w->open->data, start))
-            return false;
+        if (!element_writer_emit(w, w->open->data, start)) return false;
         memmove(w->open->data, element, len);
         w->open->len = len;
         w->count = 0;
     }
+    if (w->count == 0) w->first_key_len = key_len;
     w->count++;
     return true;
 }
@@ -617,12 +694,24 @@ static bool element_writer_ascends(Beast2ElementWriter *w, EastValue *key)
 /* Encodes `head` (an Array/Set element or a Dict key) and, for a Dict,
  * `value` as one element of the open segment. A failed encode takes its
  * partial bytes back, leaving the writer as it was. */
-static bool element_writer_encode(Beast2ElementWriter *w, EastValue *head, EastValue *value)
+/* Whether the writer takes another element: not once finished, and not once a
+ * segment has failed to write. */
+static bool element_writer_open(Beast2ElementWriter *w)
 {
     if (w->finished) {
         east_builtin_error("beast2 v5: add() after finish()");
         return false;
     }
+    if (w->failed) {
+        east_builtin_error("beast2 v5: add() after a segment failed to write");
+        return false;
+    }
+    return true;
+}
+
+static bool element_writer_encode(Beast2ElementWriter *w, EastValue *head, EastValue *value)
+{
+    if (!element_writer_open(w)) return false;
     if (w->type->kind != EAST_TYPE_ARRAY && !element_writer_ascends(w, head)) return false;
     size_t start = w->open->len;
     /* Aliasing is scoped to the element, so no REF reaches a neighbour and
@@ -671,10 +760,7 @@ bool east_beast2_element_writer_add_encoded(Beast2ElementWriter *w, const uint8_
                                             size_t len, size_t key_len)
 {
     if (!w || (!element && len > 0)) return false;
-    if (w->finished) {
-        east_builtin_error("beast2 v5: add() after finish()");
-        return false;
-    }
+    if (!element_writer_open(w)) return false;
     size_t start = w->open->len;
     byte_buffer_write_bytes(w->open, element, len);
     if (w->open->len != start + len) {
@@ -692,18 +778,20 @@ ByteBuffer *east_beast2_element_writer_take(Beast2ElementWriter *w)
 bool east_beast2_element_writer_finish(Beast2ElementWriter *w)
 {
     if (!w) return false;
-    if (w->finished) return !w->stream->failed;
+    if (w->finished) return !w->failed && !w->stream->failed;
     w->finished = true;
-    if (!east_beast2_writer_write_encoded(w->stream, w->count, w->open->data, w->open->len))
-        return false;
+    if (w->failed || !element_writer_emit(w, w->open->data, w->open->len)) return false;
     w->count = 0;
     w->open->len = 0;
-    return east_beast2_writer_finish(w->stream);
+    /* A segment writer has handed every segment over; a blob writer ends its
+     * blob. */
+    return w->sink.segment ? true : east_beast2_writer_finish(w->stream);
 }
 
 size_t east_beast2_element_writer_segments(const Beast2ElementWriter *w)
 {
-    return w ? w->stream->seg_count : 0;
+    if (!w) return 0;
+    return w->sink.segment ? w->sink_segments : w->stream->seg_count;
 }
 
 void east_beast2_element_writer_free(Beast2ElementWriter *w)
@@ -712,6 +800,7 @@ void east_beast2_element_writer_free(Beast2ElementWriter *w)
     east_beast2_writer_free(w->stream);
     b2v5_enc_ctx_free(&w->ctx);
     byte_buffer_free(w->open);
+    byte_buffer_free(w->header);
     if (w->last_key) east_value_release(w->last_key);
     free(w);
 }
@@ -1161,7 +1250,118 @@ struct Beast2Pages {
      * input, which no residency figure can give on a mapping. */
     size_t segments_decoded;
     size_t fences_probed;
+    /* A manifest pager: the collection is the manifest's segment blobs, each
+     * opened through `segments` for the read that needs it, and the manifest
+     * (retained) carries the counts and every fence. NULL for a blob pager,
+     * whose segments are frames of `data`. */
+    EastValue *manifest;
+    Beast2SegmentSource segments;
+    bool sm_from_segment; /* `sm` came from a segment's header */
 };
+
+/* Where segment i's frame is for one read: in the blob behind a blob pager,
+ * or in segment i's own blob behind a manifest pager, opened for the read. */
+typedef struct {
+    const uint8_t *data;
+    size_t len;
+    size_t offset;
+    void *handle; /* what the segment source gives back on close */
+    bool opened;
+} B2V5FrameView;
+
+/* The manifest's entries (borrowed) and entry i's fields, by the manifest
+ * type's field order. */
+static EastValue *manifest_entries(EastValue *manifest)
+{
+    return east_struct_get_field_idx(manifest, 5);
+}
+
+static EastValue *manifest_entry_field(EastValue *manifest, size_t i, size_t field)
+{
+    return east_struct_get_field_idx(east_array_get(manifest_entries(manifest), i), field);
+}
+
+/* Opens segment i's frame. A manifest pager opens the segment's blob — the
+ * collection's header, one frame, the terminator and an index of that one
+ * segment — and takes the source map every segment shares from the first it
+ * opens. */
+static bool pages_frame_open(Beast2Pages *p, size_t i, B2V5FrameView *view)
+{
+    memset(view, 0, sizeof(*view));
+    if (!p->manifest) {
+        view->data = p->data;
+        view->len = p->len;
+        view->offset = p->index.offsets[i];
+        return true;
+    }
+    const uint8_t *data = NULL;
+    size_t len = 0;
+    void *handle = NULL;
+    if (!p->segments.open(p->segments.ctx, i, &data, &len, &handle)) return false;
+    char msg[160];
+    B2V5Index ix;
+    int found =
+        len >= 8 && memcmp(data, BEAST2_MAGIC_V5, 8) == 0 ? b2v5_read_index(data, len, &ix) : 0;
+    if (found != 1 || ix.count != 1 || ix.counts[0] != p->index.counts[i]) {
+        if (found == 1) b2v5_index_free(&ix);
+        if (found != -1) {
+            snprintf(msg, sizeof(msg),
+                     "beast2 v5: manifest entry %zu is not a blob of one segment of %zu elements",
+                     i, p->index.counts[i]);
+            east_builtin_error(msg);
+        }
+        p->segments.close(p->segments.ctx, handle, data, len);
+        return false;
+    }
+    view->offset = ix.offsets[0];
+    b2v5_index_free(&ix);
+    if (!p->sm_from_segment) {
+        B2V5Header h;
+        if (!b2v5_read_header(data, len, &h)) {
+            snprintf(msg, sizeof(msg), "beast2 v5: manifest entry %zu has a malformed header", i);
+            east_builtin_error(msg);
+            p->segments.close(p->segments.ctx, handle, data, len);
+            return false;
+        }
+        east_type_release(h.root_type);
+        east_source_map_release(p->sm);
+        p->sm = h.sm;
+        p->sm_from_segment = true;
+    }
+    view->data = data;
+    view->len = len;
+    view->handle = handle;
+    view->opened = true;
+    return true;
+}
+
+static void pages_frame_close(Beast2Pages *p, B2V5FrameView *view)
+{
+    if (view->opened) p->segments.close(p->segments.ctx, view->handle, view->data, view->len);
+    view->opened = false;
+}
+
+/* The prefix sums and the cache budget, once the index is in place. */
+static bool pages_finish_open(Beast2Pages *p)
+{
+    if (p->index.count > 0) {
+        p->cumulative = malloc(p->index.count * sizeof(*p->cumulative));
+        if (!p->cumulative) return false;
+        size_t running = 0;
+        for (size_t i = 0; i < p->index.count; i++) {
+            running += p->index.counts[i];
+            p->cumulative[i] = running;
+        }
+    }
+    p->cache_budget = (size_t)B2V5_PAGES_CACHE_BYTES_DEFAULT;
+    const char *env = getenv("EAST_PAGED_CACHE_BYTES");
+    if (env && *env) {
+        char *end = NULL;
+        unsigned long long budget = strtoull(env, &end, 10);
+        if (end && *end == '\0') p->cache_budget = (size_t)budget;
+    }
+    return true;
+}
 
 Beast2Pages *east_beast2_pages_new(const uint8_t *data, size_t len, EastType *type)
 {
@@ -1222,28 +1422,71 @@ Beast2Pages *east_beast2_pages_new(const uint8_t *data, size_t len, EastType *ty
         east_beast2_pages_free(p);
         return NULL;
     }
-
-    if (p->index.count > 0) {
-        p->cumulative = malloc(p->index.count * sizeof(*p->cumulative));
-        if (!p->cumulative) {
-            east_beast2_pages_free(p);
-            return NULL;
-        }
-        size_t running = 0;
-        for (size_t i = 0; i < p->index.count; i++) {
-            running += p->index.counts[i];
-            p->cumulative[i] = running;
-        }
-    }
-
-    p->cache_budget = (size_t)B2V5_PAGES_CACHE_BYTES_DEFAULT;
-    const char *env = getenv("EAST_PAGED_CACHE_BYTES");
-    if (env && *env) {
-        char *end = NULL;
-        unsigned long long budget = strtoull(env, &end, 10);
-        if (end && *end == '\0') p->cache_budget = (size_t)budget;
+    if (!pages_finish_open(p)) {
+        east_beast2_pages_free(p);
+        return NULL;
     }
     return p;
+}
+
+Beast2Pages *east_beast2_pages_new_manifest(EastValue *manifest, EastType *type,
+                                            const Beast2SegmentSource *source)
+{
+    if (!source || !source->open || !source->close) {
+        east_builtin_error("beast2 v5: a manifest pager needs a segment source");
+        return NULL;
+    }
+    char msg[128];
+    Beast2Pages *p = NULL;
+    EastValue *entries = manifest ? manifest_entries(manifest) : NULL;
+    if (!entries || entries->kind != EAST_VAL_ARRAY || !type) {
+        east_builtin_error("beast2 v5: a manifest pager needs a manifest and a decode type");
+        goto fail;
+    }
+    EastValue *level = east_struct_get_field_idx(manifest, 1);
+    if (!level || level->kind != EAST_VAL_INTEGER || level->data.integer != 0) {
+        east_builtin_error("beast2 v5: the manifest names manifests (a level above 0), which this "
+                           "build does not read");
+        goto fail;
+    }
+    if (!b2v5_is_segmented_root(type)) {
+        east_builtin_error("beast2 v5 segment reading needs an Array, Set or Dict type");
+        goto fail;
+    }
+    p = calloc(1, sizeof(*p));
+    if (!p) goto fail;
+    p->segments = *source;
+    source = NULL; /* the pager's now: freed with it */
+    p->manifest = manifest;
+    east_value_retain(manifest);
+    p->type = type;
+    east_type_retain(type);
+    /* Every segment carries the source map in its header, so it is read from
+     * the first segment opened; until then there is none to read against. */
+    p->sm = east_source_map_new();
+    size_t n = east_array_len(entries);
+    p->index.count = n;
+    p->index.self_contained = true;
+    p->index.offsets = calloc(n ? n : 1, sizeof(size_t));
+    p->index.counts = calloc(n ? n : 1, sizeof(size_t));
+    if (!p->sm || !p->index.offsets || !p->index.counts) goto fail;
+    for (size_t i = 0; i < n; i++) {
+        EastValue *count = manifest_entry_field(manifest, i, 2);
+        if (!count || count->kind != EAST_VAL_INTEGER || count->data.integer <= 0) {
+            snprintf(msg, sizeof(msg), "beast2 v5: manifest entry %zu has no element count", i);
+            east_builtin_error(msg);
+            goto fail;
+        }
+        p->index.counts[i] = (size_t)count->data.integer;
+        p->index.total += p->index.counts[i];
+    }
+    if (!pages_finish_open(p)) goto fail;
+    return p;
+
+fail:
+    if (source && source->free) source->free(source->ctx);
+    east_beast2_pages_free(p);
+    return NULL;
 }
 
 void east_beast2_pages_set_cache_budget(Beast2Pages *p, size_t bytes)
@@ -1275,8 +1518,10 @@ const size_t *east_beast2_pages_counts(Beast2Pages *p, size_t *n_out)
 /* One segment decode, optionally through a column projection (#599). The
  * projected path registers skipped containers as sentinel definitions and a
  * REF crossing the projection boundary posts B2V5_PROJ_ALIAS_MSG — the
- * caller retries whole. */
-static EastValue *pages_decode_segment(Beast2Pages *p, size_t i, const Beast2Projection *pr)
+ * caller retries whole. `weight_out`, when given, receives the segment's
+ * decompressed frame length, what the shared cache budgets it by. */
+static EastValue *pages_decode_segment(Beast2Pages *p, size_t i, const Beast2Projection *pr,
+                                       size_t *weight_out)
 {
     if (!p) return NULL;
     /* Self-contained is checked BEFORE the range check: on a cross-aliased
@@ -1296,20 +1541,24 @@ static EastValue *pages_decode_segment(Beast2Pages *p, size_t i, const Beast2Pro
     }
     if (pr && east_beast2_projection_is_identity((Beast2Projection *)pr)) pr = NULL;
 
+    B2V5FrameView view;
     B2V5Frames f;
     B2V5DecodeCtx ctx;
     B2V5OrderCheck order = {0};
     EastValue *segment = NULL;
     EastValue *result = NULL;
     uint64_t n = 0;
-    size_t sm_mark = p->sm->num_stacks;
 
-    b2v5_frames_init(&f, p->data, p->len, p->index.offsets[i]);
+    if (!pages_frame_open(p, i, &view)) return NULL; /* error already posted */
+    /* Opening a manifest's first segment may have brought the source map in. */
+    size_t sm_mark = p->sm->num_stacks;
+    b2v5_frames_init(&f, view.data, view.len, view.offset);
     b2v5_dec_ctx_init(&ctx, p->sm);
     ctx.frozen = p->frozen;
     ctx.proj_active = pr != NULL;
 
     if (!b2v5_frames_next(&f)) goto done; /* error already posted */
+    if (weight_out) *weight_out = f.chunk_len;
     if (!read_varint_checked(f.chunk, f.chunk_len, &f.chunk_off, &n)) {
         east_builtin_error("beast2 v5: malformed segment header");
         goto done;
@@ -1369,19 +1618,20 @@ done:
     b2v5_order_check_dispose(&order);
     b2v5_dec_ctx_free(&ctx);
     b2v5_frames_dispose(&f);
+    pages_frame_close(p, &view);
     return result;
 }
 
 EastValue *east_beast2_pages_segment(Beast2Pages *p, size_t i)
 {
-    return pages_decode_segment(p, i, p ? p->proj : NULL);
+    return pages_decode_segment(p, i, p ? p->proj : NULL, NULL);
 }
 
 EastValue *east_beast2_pages_segment_projected(Beast2Pages *p, size_t i, const Beast2Projection *pr)
 {
     /* Per-call projections NEVER touch the shared cache: an entry decoded
      * under one mask must not answer an operation needing another. */
-    return pages_decode_segment(p, i, pr);
+    return pages_decode_segment(p, i, pr, NULL);
 }
 
 void east_beast2_pages_set_projection(Beast2Pages *p, const Beast2Projection *pr)
@@ -1396,26 +1646,11 @@ void east_beast2_pages_set_projection(Beast2Pages *p, const Beast2Projection *pr
     p->proj = pr;
 }
 
-/* Segment i's budget weight: its frame's decompressed byte length, an O(1)
- * varint read from the frame header. 0 on a malformed header — the entry
- * then costs nothing against the budget, and the decode itself will post
- * the real error. */
-static size_t pages_frame_weight(Beast2Pages *p, size_t i)
-{
-    size_t off = p->index.offsets[i];
-    uint64_t codec, uncompressed_len, payload_len;
-    if (!read_varint_checked(p->data, p->len, &off, &codec) ||
-        !read_varint_checked(p->data, p->len, &off, &uncompressed_len) ||
-        !read_varint_checked(p->data, p->len, &off, &payload_len))
-        return 0;
-    return (size_t)uncompressed_len;
-}
-
 /* Fetch segment i through the pager's byte-budgeted shared cache. Returns a
  * RETAINED value (caller releases); the cache keeps its own reference. Only
  * the element and keyed paths route through here — the public segment()
  * stays a fresh decode, so a caller mutating its result cannot poison the
- * cache. */
+ * cache. Each entry weighs its decompressed frame length. */
 static EastValue *pages_segment_cached(Beast2Pages *p, size_t i)
 {
     for (size_t k = 0; k < p->cache_count; k++) {
@@ -1425,10 +1660,10 @@ static EastValue *pages_segment_cached(Beast2Pages *p, size_t i)
             return p->cache[k].seg;
         }
     }
-    EastValue *seg = east_beast2_pages_segment(p, i);
+    size_t bytes = 0;
+    EastValue *seg = pages_decode_segment(p, i, p->proj, &bytes);
     if (!seg) return NULL;
 
-    size_t bytes = pages_frame_weight(p, i);
     /* Evict least-recently-used entries until the new one fits. */
     while (p->cache_count > 0 && p->cache_bytes + bytes > p->cache_budget) {
         size_t victim = 0;
@@ -1521,6 +1756,8 @@ void east_beast2_pages_free(Beast2Pages *p)
     east_source_map_release(p->sm);
     b2v5_index_free(&p->index);
     free(p->cumulative);
+    if (p->manifest) east_value_release(p->manifest);
+    if (p->segments.free) p->segments.free(p->segments.ctx);
     free(p);
 }
 
@@ -1554,6 +1791,37 @@ EastValue *east_beast2_pages_fence(Beast2Pages *p, size_t i)
     if (p->fences[i]) {
         east_value_retain(p->fences[i]);
         return p->fences[i];
+    }
+
+    if (p->manifest) {
+        /* A manifest carries every fence in its canonical bare encoding, so
+         * a keyed read opens no segment to find one. */
+        EastValue *bytes = manifest_entry_field(p->manifest, i, 1);
+        EastValue *fence = NULL;
+        size_t at = 0;
+        if (bytes && bytes->kind == EAST_VAL_BLOB) {
+            B2V5DecodeCtx fctx;
+            b2v5_dec_ctx_init(&fctx, p->sm);
+            fctx.frozen = p->frozen;
+            fence = b2v5_decode_value(bytes->data.blob.data, bytes->data.blob.len, &at,
+                                      pages_fence_type(p), &fctx);
+            b2v5_dec_ctx_free(&fctx);
+        }
+        if (fence && at != bytes->data.blob.len) {
+            east_value_release(fence);
+            fence = NULL;
+        }
+        if (!fence) {
+            free(east_builtin_get_error());
+            char msg[96];
+            snprintf(msg, sizeof(msg), "beast2 v5: manifest entry %zu's fence is not one key", i);
+            east_builtin_error(msg);
+            return NULL;
+        }
+        p->fences[i] = fence;     /* the cache owns one reference */
+        east_value_retain(fence); /* and the caller gets their own */
+        p->fences_probed++;
+        return fence;
     }
 
     size_t off = p->index.offsets[i];
@@ -1910,7 +2178,7 @@ EastValue *east_beast2_pages_segment_disjoint_projected(Beast2Pages *p, size_t i
      * verified exactly as in the whole-decode path; the segment itself is a
      * fresh projected decode that never enters the shared cache. */
     if (!pages_verify_fences(p)) return NULL;
-    EastValue *seg = pages_decode_segment(p, i, pr);
+    EastValue *seg = pages_decode_segment(p, i, pr, NULL);
     if (!seg) return NULL;
     if (!pages_tail_guard(p, i, seg)) {
         east_value_release(seg);
@@ -2120,18 +2388,105 @@ EastValue *east_beast2_open_paged_external(uint8_t *data, size_t len, EastType *
     return open_paged_common(data, len, type, frozen, false, NULL, release, ctx);
 }
 
+/* The whole collection behind a manifest pager: every segment decoded into
+ * one container in order, one ascent check running across them — what a
+ * whole read of a manifest is, there being no one blob to decode. */
+static EastValue *pages_decode_whole(Beast2Pages *p, bool frozen)
+{
+    EastValue *whole = b2v5_new_segment_container(p->type, p->index.total);
+    if (!whole) return NULL;
+    if (frozen) east_value_set_frozen(whole);
+    B2V5OrderCheck order = {0};
+    bool ok = true;
+    for (size_t i = 0; ok && i < p->index.count; i++) {
+        B2V5FrameView view;
+        if (!pages_frame_open(p, i, &view)) {
+            ok = false; /* error already posted */
+            break;
+        }
+        size_t sm_mark = p->sm->num_stacks;
+        B2V5Frames f;
+        B2V5DecodeCtx ctx;
+        uint64_t n = 0;
+        b2v5_frames_init(&f, view.data, view.len, view.offset);
+        b2v5_dec_ctx_init(&ctx, p->sm);
+        ctx.frozen = frozen;
+        ok = b2v5_frames_next(&f) && read_varint_checked(f.chunk, f.chunk_len, &f.chunk_off, &n) &&
+             n == (uint64_t)p->index.counts[i] &&
+             b2_container_count_within_bounds(n, p->type, f.chunk_len - f.chunk_off) &&
+             b2v5_decode_elements_into(whole, p->type, n, f.chunk, f.chunk_len, &f.chunk_off, &ctx,
+                                       p->type->kind == EAST_TYPE_ARRAY ? NULL : &order) &&
+             b2v5_chunk_exhausted(&f) && p->sm->num_stacks == sm_mark;
+        b2v5_dec_ctx_free(&ctx);
+        b2v5_frames_dispose(&f);
+        pages_frame_close(p, &view);
+        if (!ok) {
+            /* Keep a specific posted message (the canonical-order violation,
+             * say) over the generic one. */
+            char *specific = east_builtin_get_error();
+            if (specific) {
+                east_builtin_error(specific);
+                free(specific);
+            } else {
+                char msg[96];
+                snprintf(msg, sizeof(msg), "beast2 v5: manifest segment %zu is malformed", i);
+                east_builtin_error(msg);
+            }
+        }
+    }
+    b2v5_order_check_dispose(&order);
+    if (!ok) {
+        east_value_release(whole);
+        return NULL;
+    }
+    p->segments_decoded += p->index.count;
+    return whole;
+}
+
+EastValue *east_beast2_open_paged_manifest(EastValue *manifest, EastType *type, bool frozen,
+                                           const Beast2SegmentSource *source)
+{
+    if (!lazy_shape_gate(type, frozen)) {
+        if (source && source->free) source->free(source->ctx);
+        return NULL;
+    }
+    Beast2Pages *pages = east_beast2_pages_new_manifest(manifest, type, source);
+    if (!pages) return NULL;
+    pages->frozen = frozen;
+    /* No bytes of its own: every read goes through the pager's source. */
+    EastValue *v = east_paged_new(pages, NULL, 0, false, NULL, NULL, NULL);
+    if (!v) {
+        east_beast2_pages_free(pages);
+        return NULL;
+    }
+    if (frozen) east_value_set_frozen(v);
+    return v;
+}
+
+EastValue *east_beast2_decode_manifest(EastValue *manifest, EastType *type, bool frozen,
+                                       const Beast2SegmentSource *source)
+{
+    Beast2Pages *pages = east_beast2_pages_new_manifest(manifest, type, source);
+    if (!pages) return NULL;
+    EastValue *whole = pages_decode_whole(pages, frozen);
+    east_beast2_pages_free(pages);
+    return whole;
+}
+
 EastValue *east_paged_hydrated(EastValue *v)
 {
     if (!v || v->kind != EAST_VAL_PAGED) return v;
     if (v->data.paged.hydrated) return v->data.paged.hydrated;
     /* A frozen open hydrates frozen, so the eager child enforces the same
-     * contract the pager-served reads did. */
-    EastValue *whole =
-        v->data.paged.frozen
-            ? east_beast2_decode_full_frozen(v->data.paged.data, v->data.paged.len,
-                                             east_beast2_pages_type(v->data.paged.pages))
-            : east_beast2_decode_full(v->data.paged.data, v->data.paged.len,
-                                      east_beast2_pages_type(v->data.paged.pages));
+     * contract the pager-served reads did. A manifest has no one blob, so its
+     * pager decodes it segment by segment. */
+    Beast2Pages *pages = v->data.paged.pages;
+    EastValue *whole = pages->manifest ? pages_decode_whole(pages, v->data.paged.frozen)
+                       : v->data.paged.frozen
+                           ? east_beast2_decode_full_frozen(v->data.paged.data, v->data.paged.len,
+                                                            east_beast2_pages_type(pages))
+                           : east_beast2_decode_full(v->data.paged.data, v->data.paged.len,
+                                                     east_beast2_pages_type(pages));
     if (!whole) return NULL;
     /* Iteration locks taken on the wrapper carry over, so a body that
      * hydrates mid-loop still cannot mutate the collection it iterates. */
