@@ -8,7 +8,9 @@
  * ● milestone dots, ◇/◆ decision diamonds (the span `diamond` slot,
  * verbatim), ▲ warn exception triangles. `icon` swaps the kind's default
  * glyph for an FA icon on the `markIcon` slot (12px, still kind-coloured);
- * labels print beside their mark on the `markLabel` slot.
+ * labels print beside their mark on the `markLabel` slot. A mark and its label
+ * both name the mark (`data-mark`), so either opens its popover from the
+ * canvas's one overlay layer (#816).
  */
 
 import type { MouseEvent } from "react";
@@ -18,7 +20,6 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconName, IconPrefix } from "@fortawesome/fontawesome-svg-core";
 import { Plan } from "@elaraai/east-ui/internal";
 import { usePlanDispatch, usePlanResolvers, usePlanScale, type PlanElementRefValue } from "../context.js";
-import { ElementOverlays } from "./ElementOverlays.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 type EventsKindValue = Extract<ValueTypeOf<typeof Plan.Types.Row>["kind"], { type: "events" }>["value"];
@@ -30,11 +31,10 @@ export interface EventsRowProps {
     rowKey: string;
     kind: EventsKindValue;
     styles: Styles;
-    storageKey: string;
 }
 
 /** The event-row plot content — kind-glyph marks + labels. */
-export function EventsRow({ rowKey, kind, styles, storageKey, ctx }: EventsRowProps) {
+export function EventsRow({ rowKey, kind, styles, ctx }: EventsRowProps) {
     const ctxAttr = ctx === true ? "" : undefined;
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
@@ -65,31 +65,27 @@ export function EventsRow({ rowKey, kind, styles, storageKey, ctx }: EventsRowPr
                 const glyph = icon !== undefined && ctx !== true
                     ? (
                         <Box css={styles.markIcon} data-mark={mark.key} data-kind={mark.kind.type} data-plan-frac={frac}
-                            left={`${x * 100}%`} onClick={onClick} cursor="pointer">
+                            left={`${x * 100}%`} onClick={onClick} cursor="pointer" tabIndex={-1}>
                             <FontAwesomeIcon icon={[icon.prefix as IconPrefix, icon.name as IconName]} />
                         </Box>
                     )
                     : mark.kind.type === "decision"
                         ? <Box css={styles.diamond} data-mark={mark.key} data-ctx={ctxAttr} data-plan-frac={frac}
                             data-applied={mark.kind.value.applied ? "" : undefined}
-                            left={`${x * 100}%`} onClick={onClick} cursor="pointer" />
+                            left={`${x * 100}%`} onClick={onClick} cursor="pointer" tabIndex={-1} />
                         : mark.kind.type === "exception"
                             ? <Box css={styles.exceptionTri} data-mark={mark.key} data-ctx={ctxAttr} data-plan-frac={frac}
-                                left={`${x * 100}%`} onClick={onClick} cursor="pointer" />
+                                left={`${x * 100}%`} onClick={onClick} cursor="pointer" tabIndex={-1} />
                             : <Box css={styles.milestoneDot} data-mark={mark.key} data-ctx={ctxAttr} data-plan-frac={frac}
-                                left={`${x * 100}%`} onClick={onClick} cursor="pointer" />;
+                                left={`${x * 100}%`} onClick={onClick} cursor="pointer" tabIndex={-1} />;
                 return (
-                    <ElementOverlays key={mark.key}
-                        elementRef={ref} styles={styles}
-                        storageKey={`${storageKey}.${mark.key}`}>
-                        <Box as="span" display="contents">
-                            {glyph}
-                            {label !== undefined && (
-                                <Box css={styles.markLabel} data-ctx={ctxAttr}
-                                    left={`calc(${x * 100}% + 9px)`}>{label}</Box>
-                            )}
-                        </Box>
-                    </ElementOverlays>
+                    <Box as="span" key={mark.key} display="contents">
+                        {glyph}
+                        {label !== undefined && (
+                            <Box css={styles.markLabel} data-ctx={ctxAttr} data-mark={mark.key}
+                                left={`calc(${x * 100}% + 9px)`}>{label}</Box>
+                        )}
+                    </Box>
                 );
             })}
         </>

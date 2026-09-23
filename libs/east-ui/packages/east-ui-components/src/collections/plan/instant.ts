@@ -70,3 +70,32 @@ export function instantKey(t: PlanInstantValue): string {
         case "ordinal": return `ordinal:${t.value}`;
     }
 }
+
+/**
+ * The instant a {@link instantKey} names — its inverse, so an element can
+ * carry its instant in a DOM attribute and the canvas read it back (#816: a
+ * cell's `data-cell`).
+ *
+ * @param key - A key `instantKey` produced
+ * @returns The instant, or `undefined` for a string no instant produces
+ */
+export function instantOfKey(key: string): PlanInstantValue | undefined {
+    const colon = key.indexOf(":");
+    if (colon < 0) return undefined;
+    const arm = key.slice(0, colon);
+    const rest = key.slice(colon + 1);
+    switch (arm) {
+        case "time": {
+            const ms = Number(rest);
+            return rest !== "" && Number.isFinite(ms) ? timeInstant(new Date(ms)) : undefined;
+        }
+        case "number": {
+            const n = Number(rest);
+            return rest !== "" && !Number.isNaN(n) ? numberInstant(n) : undefined;
+        }
+        case "ordinal":
+            return ordinalInstant(rest);
+        default:
+            return undefined;
+    }
+}

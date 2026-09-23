@@ -13,13 +13,18 @@
  *
  * Group summary strips (§5) are exactly the `heat` arm rendered by
  * {@link HeatCells} — GroupRow delegates here.
+ *
+ * A data row's cell names itself — `data-cell`, its own declared instant —
+ * so the canvas's one overlay layer opens the root's popover and hover card
+ * for it (#816, #743 item 5). A group strip's cells are the band's toggle
+ * instead, and name nothing.
  */
 
 import { variant, type ValueTypeOf } from "@elaraai/east";
 import { Box } from "@chakra-ui/react";
 import { Plan } from "@elaraai/east-ui/internal";
 import { usePlanDispatch, usePlanResolvers, usePlanScale, type PlanElementRefValue } from "../context.js";
-import type { PlanInstantValue } from "../instant.js";
+import { instantKey, type PlanInstantValue } from "../instant.js";
 import type { PlanBucket } from "../scale.js";
 import { maxOf, minOf } from "../reductions.js";
 
@@ -71,6 +76,10 @@ export function HeatCells({ rowKey, cells, styles, ctx, onCellClick }: HeatCells
         if (b === undefined) return undefined;
         return { left: `calc(${b.x0 * 100}% + 1.5px)`, width: `calc(${(b.x1 - b.x0) * 100}% - 3px)`, bucket: b };
     };
+    // A data row's cell is an element — it names its instant, and takes focus
+    // for the keyboard path to its popover. A strip's cell is part of its band.
+    const element = onCellClick === undefined;
+    const cellAttrs = (at: PlanInstantValue) => (element ? { "data-cell": instantKey(at), tabIndex: -1 } : {});
     const clickCell = (at: PlanInstantValue) => (e: React.MouseEvent) => {
         e.stopPropagation();
         if (onCellClick !== undefined) {
@@ -101,6 +110,7 @@ export function HeatCells({ rowKey, cells, styles, ctx, onCellClick }: HeatCells
                     return (
                         <Box key={i} css={styles.heatCell} data-ctx={ctxAttr}
                             data-plan-bucket={box.bucket.index}
+                            {...cellAttrs(c.at)}
                             data-nodata={v === undefined ? "" : undefined}
                             data-warn={v !== undefined && warn !== undefined && v >= warn ? "" : undefined}
                             left={box.left} width={box.width}
@@ -130,6 +140,7 @@ export function HeatCells({ rowKey, cells, styles, ctx, onCellClick }: HeatCells
                     return (
                         <Box key={i} css={styles.weightBar}
                             data-plan-bucket={b.index}
+                            {...cellAttrs(c.at)}
                             data-planned={c.planned ? "" : undefined}
                             left={`calc(${b.x0 * 100}% + 4px)`}
                             width={`calc((${(b.x1 - b.x0) * 100}% - 8px) * ${frac})`}
@@ -149,6 +160,7 @@ export function HeatCells({ rowKey, cells, styles, ctx, onCellClick }: HeatCells
                 return (
                     <Box key={i} css={styles.segmentTrack}
                         data-plan-bucket={b.index}
+                        {...cellAttrs(c.at)}
                         left={`calc(${b.x0 * 100}% + 4px)`}
                         width={`calc(${(b.x1 - b.x0) * 100}% - 8px)`}
                         onClick={clickCell(c.at)}>

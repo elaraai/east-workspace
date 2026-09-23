@@ -42,7 +42,9 @@
  *
  * All eight row kinds render (`rows/*`); review chrome, the drag-target
  * role, element clicks and the keyboard rungs are wired — the reducer's
- * events and the component's dispatches are a closed loop (#569).
+ * events and the component's dispatches are a closed loop (#569). Every
+ * element's popover, hover card and tooltip come from ONE overlay layer the
+ * body delegates to (#816, `root/overlays.tsx`).
  */
 
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
@@ -88,6 +90,7 @@ import { PlanGapBand, renderPlanRow, type PlanRowContext } from "./root/rows.js"
 import { PlanHeader } from "./root/Header.js";
 import { usePlanCursorController } from "./root/cursor.js";
 import { usePlanDropTarget } from "./root/drop.js";
+import { PlanOverlays, createOverlayAnchors, usePlanOverlayHandlers } from "./root/overlays.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
@@ -302,6 +305,13 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     // The hover cursor: direct DOM writes, zero renders (#609).
     const cursorChipRef = useRef<HTMLDivElement | null>(null);
     const cursor = usePlanCursorController(focusBodyRef, cursorChipRef, scale);
+    // The overlay layer (#816): the body listens for every element, and one
+    // popover / hover card / tooltip opens where it is asked.
+    const [anchors] = useState(createOverlayAnchors);
+    const hasPopover = data.popover.type === "some";
+    const hasHover = data.hover.type === "some";
+    const overlayHandlers = usePlanOverlayHandlers(focusBodyRef, controller, anchors,
+        useMemo(() => ({ popover: hasPopover, hover: hasHover }), [hasPopover, hasHover]));
 
     // ── Recipe + layout ───────────────────────────────────────────────────
     const recipe = useSlotRecipe({ key: "plan" });
@@ -363,15 +373,13 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
         truncatedAt: scale?.truncated?.shown,
     }), [derived.diagnostics, target.firstSkipped, controller, paging.sourceError, seek.searchError, scale]);
 
-    // What the element interactions offer — presence only: the controller
-    // runs the latest root's resolvers and callbacks at interaction time.
+    // The element-click funnel, when the root declares any of the five
+    // callbacks — the controller routes a click to the LATEST root's.
     const anyClick = data.onRunClick.type === "some" || data.onEventClick.type === "some"
         || data.onMarkClick.type === "some" || data.onChipClick.type === "some" || data.onCellClick.type === "some";
-    const resolvers = useMemo<PlanResolvers>(() => ({
-        popover: data.popover.type === "some",
-        hover: data.hover.type === "some",
-        onElementClick: anyClick ? controller.elementClick : undefined,
-    }), [data.popover, data.hover, anyClick, controller]);
+    const resolvers = useMemo<PlanResolvers>(
+        () => ({ onElementClick: anyClick ? controller.elementClick : undefined }),
+        [anyClick, controller]);
     // What every row of this render shares (#616: per-row facts are computed
     // from it, and each row's memo skips unless ITS facts moved).
     const rowCtx = useMemo<PlanRowContext>(() => ({
@@ -421,7 +429,15 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
 
     const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
         const t = e.target as HTMLElement;
+        // Keys typed in portalled content — an open popover's body, a toolbar
+        // menu — bubble here through the React tree; they are not the canvas's.
+        if (!(t instanceof Node) || focusBodyRef.current?.contains(t) !== true) return;
         if (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable) return;
+        // Nor is a key something nearer already handled — an open overlay's
+        // Escape (its layer listens on the document, ahead of the canvas), a
+        // widget in an expand render, a nested canvas's own ladder.
+        if (e.defaultPrevented) return;
+        if (overlayHandlers.onKeyDown(e)) return;
         const ev = KEYS[e.key];
         if (ev === undefined) return;
         e.preventDefault();
@@ -451,6 +467,9 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                 data-plan-partial={transport?.partial === true ? "" : undefined}
                 {...(frameFills && { display: "flex", flexDirection: "column", minHeight: 0, height, maxHeight })}
                 onKeyDown={onKeyDown}
+                onClickCapture={overlayHandlers.onClickCapture}
+                onPointerOver={overlayHandlers.onPointerOver}
+                onPointerOut={overlayHandlers.onPointerOut}
             >
                 {narrow ? (
                     <PlanNarrow
@@ -529,6 +548,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                             visibleKeys={focusVisibleKeys} scale={scale} runDates={runDates} />
                     </PlanPartBoundary>
                 )}
+                <PlanOverlays anchors={anchors} styles={styles} storageKey={storageKey} />
             </Box>
         </PlanResolversContext.Provider>
         </PlanCursorContext.Provider>

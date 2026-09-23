@@ -34,7 +34,6 @@ export interface KindPlotProps {
     styles: Styles;
     /** The renderer-side derivations (rollup bands, derived cells / series). */
     derived: PlanDerived;
-    storageKey: string;
     /** Span bar height (20 default / 16 dense). */
     barHeight: number;
     /** Whether this row nests children (a collapsed parent draws 12px bars). */
@@ -50,7 +49,7 @@ export interface KindPlotProps {
 }
 
 /** The plot content for a data row kind (`null` for a group band). */
-export function KindPlot({ v, styles, derived, storageKey, barHeight, hasChildren, ctx, plotHeight, chartExpanded, partial }: KindPlotProps) {
+export function KindPlot({ v, styles, derived, barHeight, hasChildren, ctx, plotHeight, chartExpanded, partial }: KindPlotProps) {
     const kind = v.row.kind;
     const rowKey = v.row.key;
     switch (kind.type) {
@@ -59,7 +58,6 @@ export function KindPlot({ v, styles, derived, storageKey, barHeight, hasChildre
                 <SpanRow rowKey={rowKey} kind={kind.value} styles={styles} ctx={ctx}
                     bands={derived.bands.get(rowKey) ?? []}
                     barHeight={v.collapsed && hasChildren ? 12 : barHeight}
-                    storageKey={`${storageKey}.${rowKey}`}
                     partial={partial} />
             );
         case "chart":
@@ -79,8 +77,7 @@ export function KindPlot({ v, styles, derived, storageKey, barHeight, hasChildre
         }
         case "buckets":
             return (
-                <BucketsRow rowKey={rowKey} kind={kind.value} styles={styles} ctx={ctx}
-                    storageKey={`${storageKey}.${rowKey}`} />
+                <BucketsRow rowKey={rowKey} kind={kind.value} styles={styles} ctx={ctx} />
             );
         case "table": {
             // A declared-aggregate parent renders its derived subtotal
@@ -96,13 +93,11 @@ export function KindPlot({ v, styles, derived, storageKey, barHeight, hasChildre
         }
         case "cards":
             return (
-                <CardsRow rowKey={rowKey} kind={kind.value} styles={styles} ctx={ctx}
-                    storageKey={`${storageKey}.${rowKey}`} />
+                <CardsRow rowKey={rowKey} kind={kind.value} styles={styles} ctx={ctx} />
             );
         case "events":
             return (
-                <EventsRow rowKey={rowKey} kind={kind.value} styles={styles} ctx={ctx}
-                    storageKey={`${storageKey}.${rowKey}`} />
+                <EventsRow rowKey={rowKey} kind={kind.value} styles={styles} ctx={ctx} />
             );
         case "group":
             return null;

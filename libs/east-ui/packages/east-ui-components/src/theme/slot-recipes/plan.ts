@@ -1523,9 +1523,10 @@ export const planSlotRecipe = defineSlotRecipe({
             zIndex: 6,
             pointerEvents: "none",
         },
-        // The generalized element popover / hovercard body (`ElementOverlays`)
-        // — one content geometry for both overlay kinds, so a run's click
-        // surface and its hover surface read as the same family.
+        // The element popover / hover card body (the canvas's one overlay
+        // layer, `collections/plan/root/overlays.tsx`) — one content geometry
+        // for both surfaces, so an element's click surface and its hover
+        // surface read as the same family.
         elementOverlay: {
             padding: "14px 16px",
             minWidth: "240px",

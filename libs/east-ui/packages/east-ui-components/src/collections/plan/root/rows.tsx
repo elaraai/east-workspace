@@ -102,7 +102,6 @@ export function renderPlanRow(v: VisibleRow, ctx: PlanRowContext): ReactNode {
             styles={styles}
             gridTemplate={ctx.gridTemplate}
             barHeight={ctx.barHeight}
-            storageKey={storageKey}
             hasChildren={(ctx.index.children.get(v.row.key)?.length ?? 0) > 0}
             derived={ctx.derived}
             dispatch={ctx.dispatch}

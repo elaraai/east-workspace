@@ -237,6 +237,38 @@ describe("the open element overlay", () => {
         expect(resolved).toEqual(["none", "a", "b"]);
     });
 
+    test("an element already open is not resolved again; a popover takes the surface from a hover card", () => {
+        const resolved: string[] = [];
+        const resolver = (kind: string) => (ref: { value: { run: string } }) => {
+            resolved.push(`${kind}:${ref.value.run}`);
+            return some(BODY);
+        };
+        const { c, notified } = show(root(ROWS, { popover: some(resolver("pop")), hover: some(resolver("hov")) }));
+        c.overlayIntent("hover", runRef("a"), true);
+        const n = notified();
+        c.overlayIntent("hover", runRef("a"), true);
+        expect(resolved).toEqual(["hov:a"]);
+        expect(notified()).toBe(n);
+        c.overlayIntent("popover", runRef("a"), true);
+        expect(c.getSnapshot().overlay.popover).not.toBeNull();
+        expect(c.getSnapshot().overlay.hover).toBeNull();
+        expect(resolved).toEqual(["hov:a", "pop:a"]);
+    });
+
+    test("a tooltip opens with its mark's text and closes; the same mark again changes nothing", () => {
+        const { c, notified } = show(root(ROWS));
+        c.tooltipIntent({ key: "r1|port|0", text: "IN" });
+        expect(c.getSnapshot().overlay.tooltip).toEqual({ key: "r1|port|0", text: "IN" });
+        const n = notified();
+        c.tooltipIntent({ key: "r1|port|0", text: "IN" });
+        expect(notified()).toBe(n);
+        // Another mark with the same text is another anchor.
+        c.tooltipIntent({ key: "r2|port|0", text: "IN" });
+        expect(c.getSnapshot().overlay.tooltip?.key).toBe("r2|port|0");
+        c.tooltipIntent(null);
+        expect(c.getSnapshot().overlay.tooltip).toBeNull();
+    });
+
     test("a resolver that throws opens nothing, and says why", () => {
         const errors: unknown[] = [];
         const original = console.error;

@@ -129,7 +129,7 @@ export const NarrowRowCard = memo(function NarrowRowCard({
                     <RowDiagnostic diagnostic={diagnostic} styles={styles} />
                 ) : (
                     <PlanPartBoundary part={`row ${row.key}`} resetKey={row} styles={styles}>
-                        <KindPlot v={v} styles={styles} derived={derived} storageKey={storageKey}
+                        <KindPlot v={v} styles={styles} derived={derived}
                             barHeight={barHeight} hasChildren={hasChildren}
                             ctx={false} plotHeight={h} chartExpanded={chartExpanded} partial={partial} />
                         {row.kind.type === "chart" && (

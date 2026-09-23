@@ -11,11 +11,12 @@
  * looks are the Planner's — a solid ink ✓ chip for confirmed/actual, the
  * grip-prefixed dashed `plan` chip for proposals; labelled tiles keep the
  * lifecycle axis. A marker rings its CELL (`data-over`) and pins the corner
- * status icon with the message tooltip.
+ * status icon, whose message is its accessible name and the canvas's one
+ * tooltip (#816).
  */
 
 import type { ReactNode } from "react";
-import { Box, Portal, Tooltip } from "@chakra-ui/react";
+import { Box } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
     faCheck, faCircle, faCircleCheck, faCircleInfo, faCircleXmark, faGripVertical, faTriangleExclamation,
@@ -26,7 +27,6 @@ import { variant, type ValueTypeOf } from "@elaraai/east";
 import { Plan } from "@elaraai/east-ui/internal";
 import { usePlanDispatch, usePlanResolvers, usePlanScale, type PlanElementRefValue } from "../context.js";
 import { runStateKey } from "./SpanRow.js";
-import { ElementOverlays } from "./ElementOverlays.js";
 import type { PlanBucket } from "../scale.js";
 import type { PlanInstantValue } from "../instant.js";
 import { appendAll } from "../reductions.js";
@@ -54,12 +54,11 @@ export interface BucketsRowProps {
     rowKey: string;
     kind: BucketsKindValue;
     styles: Styles;
-    storageKey: string;
 }
 
 /** One event chip — the `.chk` / `.pchip` resting looks + labelled tiles. */
-function EventChip({ ev, styles, rowKey, storageKey, ctx }: {
-    ev: BucketEventValue; styles: Styles; rowKey: string; storageKey: string; ctx?: boolean | undefined;
+function EventChip({ ev, styles, rowKey, ctx }: {
+    ev: BucketEventValue; styles: Styles; rowKey: string; ctx?: boolean | undefined;
 }) {
     const dispatch = usePlanDispatch();
     const { onElementClick } = usePlanResolvers();
@@ -73,9 +72,11 @@ function EventChip({ ev, styles, rowKey, storageKey, ctx }: {
     const justify = ev.content.type === "some" && ev.content.value.horizontal.type === "some"
         ? ev.content.value.horizontal.value.type : undefined;
     const color = ev.color.type === "some" ? ev.color.value : undefined;
-    const chip = (
+    return (
         <Box css={styles.tile}
             data-event={ev.key}
+            // Focusable: Enter opens its popover (#816).
+            tabIndex={-1}
             data-ctx={ctx === true ? "" : undefined}
             data-state={stateKey}
             data-tone={ev.tone.type === "some" ? ev.tone.value.type : undefined}
@@ -102,16 +103,10 @@ function EventChip({ ev, styles, rowKey, storageKey, ctx }: {
                 : <FontAwesomeIcon icon={faCheck} />}
         </Box>
     );
-    return (
-        <ElementOverlays elementRef={ref} styles={styles}
-            storageKey={`${storageKey}.${ev.key}`}>
-            {chip}
-        </ElementOverlays>
-    );
 }
 
 /** The bucket-row plot content — the washed bucket × lane cell grid. */
-export function BucketsRow({ rowKey, kind, styles, storageKey, ctx }: BucketsRowProps) {
+export function BucketsRow({ rowKey, kind, styles, ctx }: BucketsRowProps) {
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
     const lanes = kind.lanes;
@@ -201,21 +196,13 @@ export function BucketsRow({ rowKey, kind, styles, storageKey, ctx }: BucketsRow
             >
                 {caption !== undefined && ctx !== true && <Box css={styles.laneLabel}>{caption}</Box>}
                 {events.map((ev) => (
-                    <EventChip key={ev.key} ev={ev} styles={styles} rowKey={rowKey} storageKey={storageKey} ctx={ctx} />
+                    <EventChip key={ev.key} ev={ev} styles={styles} rowKey={rowKey} ctx={ctx} />
                 ))}
                 {marker !== undefined && (
-                    <Tooltip.Root openDelay={150}>
-                        <Tooltip.Trigger asChild>
-                            <Box css={styles.markerIcon} data-status={marker.status.type}>
-                                <FontAwesomeIcon icon={STATUS_ICON[marker.status.type] ?? faCircleInfo} />
-                            </Box>
-                        </Tooltip.Trigger>
-                        <Portal>
-                            <Tooltip.Positioner>
-                                <Tooltip.Content>{marker.message}</Tooltip.Content>
-                            </Tooltip.Positioner>
-                        </Portal>
-                    </Tooltip.Root>
+                    <Box css={styles.markerIcon} data-status={marker.status.type}
+                        data-marker={`${bi}:${li ?? "full"}`} aria-label={marker.message}>
+                        <FontAwesomeIcon icon={STATUS_ICON[marker.status.type] ?? faCircleInfo} />
+                    </Box>
                 )}
             </Box>
         );

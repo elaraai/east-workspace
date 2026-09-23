@@ -7,7 +7,8 @@
  * Cards rows (`Plan Spec.md` §4·K6) — the Roster surface on the shared scale:
  * shift chips spanning whole buckets, wearing the lifecycle looks on the
  * recipe `cardChip` slot's `data-state` axis (confirmed brand tint · proposed
- * dashed · `proposed(removed)` warn strikethrough · estimated ghost).
+ * dashed · `proposed(removed)` warn strikethrough · estimated ghost). A chip's
+ * popover and hover card come from the canvas's one overlay layer (#816).
  */
 
 import { variant, type ValueTypeOf } from "@elaraai/east";
@@ -17,7 +18,6 @@ import type { IconName, IconPrefix } from "@fortawesome/fontawesome-svg-core";
 import { Plan } from "@elaraai/east-ui/internal";
 import { usePlanDispatch, usePlanResolvers, usePlanScale, type PlanElementRefValue } from "../context.js";
 import { runStateKey } from "./SpanRow.js";
-import { ElementOverlays } from "./ElementOverlays.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 type CardsKindValue = Extract<ValueTypeOf<typeof Plan.Types.Row>["kind"], { type: "cards" }>["value"];
@@ -29,11 +29,10 @@ export interface CardsRowProps {
     rowKey: string;
     kind: CardsKindValue;
     styles: Styles;
-    storageKey: string;
 }
 
 /** The cards-row plot content — whole-bucket shift chips. */
-export function CardsRow({ rowKey, kind, styles, storageKey, ctx }: CardsRowProps) {
+export function CardsRow({ rowKey, kind, styles, ctx }: CardsRowProps) {
     const ctxAttr = ctx === true ? "" : undefined;
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
@@ -56,10 +55,12 @@ export function CardsRow({ rowKey, kind, styles, storageKey, ctx }: CardsRowProp
                 const width = Math.max(0, (outside ? f1 : Math.min(1, f1)) - left);
                 const icon = chip.icon.type === "some" ? chip.icon.value : undefined;
                 const ref = variant("chip", { row: rowKey, chip: chip.key }) as PlanElementRefValue;
-                const node = (
-                    <Box css={styles.cardChip}
+                return (
+                    <Box key={chip.key} css={styles.cardChip}
                         data-ctx={ctxAttr}
                         data-chip={chip.key}
+                        // Focusable: Enter opens its popover (#816).
+                        tabIndex={-1}
                         data-plan-frac={left.toFixed(4)}
                         data-state={runStateKey(chip.state)}
                         left={`calc(${left * 100}% + 2px)`}
@@ -73,13 +74,6 @@ export function CardsRow({ rowKey, kind, styles, storageKey, ctx }: CardsRowProp
                         {icon !== undefined && <FontAwesomeIcon icon={[icon.prefix as IconPrefix, icon.name as IconName]} />}
                         <Box as="span" overflow="hidden" textOverflow="ellipsis" minW={0}>{chip.label}</Box>
                     </Box>
-                );
-                return (
-                    <ElementOverlays key={chip.key}
-                        elementRef={ref} styles={styles}
-                        storageKey={`${storageKey}.${chip.key}`}>
-                        {node}
-                    </ElementOverlays>
                 );
             })}
         </>

@@ -70,10 +70,19 @@ export interface PlanOverlay {
     body: PlanOverlayBody;
 }
 
-/** The canvas's open element overlays — at most one of each kind. */
+/** An open tooltip — a labelled mark's own text (a port, a cell marker). */
+export interface PlanTooltip {
+    /** Which mark it belongs to — its row and the mark's own attribute. */
+    key: string;
+    text: string;
+}
+
+/** The canvas's open surfaces — at most one of each kind (#816: one overlay
+ *  layer serves every element). */
 export interface PlanOverlays {
     popover: PlanOverlay | null;
     hover: PlanOverlay | null;
+    tooltip: PlanTooltip | null;
 }
 
 /** Where the persisted scroll anchor is in its restore (#813). */
@@ -134,8 +143,12 @@ export interface PlanController {
     /** An element click — routed to the root's callback for its kind. */
     elementClick(ref: PlanElementRefValue): void;
     /** An element's popover / hover card wants to open or close. Opening runs
-     *  the root's resolver first; only a `some` body opens. */
+     *  the root's resolver first, and only a `some` body opens; an element whose
+     *  surface is already open is not resolved again. A popover takes the
+     *  surface from a hover card. */
     overlayIntent(kind: "popover" | "hover", ref: PlanElementRefValue, open: boolean): void;
+    /** A labelled mark's tooltip opens, or closes (`null`). */
+    tooltipIntent(tip: PlanTooltip | null): void;
     /** A completed drop on the canvas — reported to `onDrag`. */
     drop(event: DragEventValue): void;
     /** The review verbs, by row KEY (#569). */
@@ -176,7 +189,7 @@ export interface PlanController {
     connect(): () => void;
 }
 
-const NO_OVERLAYS: PlanOverlays = { popover: null, hover: null };
+const NO_OVERLAYS: PlanOverlays = { popover: null, hover: null, tooltip: null };
 const NO_ROWS: readonly PlanRowValue[] = [];
 const refEqual = equalFor(Plan.Types.ElementRef);
 
@@ -445,6 +458,9 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
                     if (current !== null && refEqual(current.ref, ref)) overlay = { ...overlay, [kind]: null };
                     return;
                 }
+                // Already open for this element: resolved once per open, never
+                // again while it stays open.
+                if (current !== null && refEqual(current.ref, ref)) return;
                 const resolver = value !== undefined
                     ? getSomeorUndefined(kind === "popover" ? value.popover : value.hover)
                     : undefined;
@@ -458,7 +474,22 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
                 } catch (err) {
                     console.error(`[Plan] ${kind} resolver failed:`, err);
                 }
-                if (body !== undefined) overlay = { ...overlay, [kind]: { ref, body } };
+                if (body === undefined) return;
+                overlay = kind === "popover"
+                    // A click takes the surface: the hover card over the same
+                    // spot would sit on top of what was asked for.
+                    ? { ...overlay, popover: { ref, body }, hover: null }
+                    : { ...overlay, hover: { ref, body } };
+            });
+        },
+        tooltipIntent(tip) {
+            batch(() => {
+                if (tip === null) {
+                    if (overlay.tooltip !== null) overlay = { ...overlay, tooltip: null };
+                    return;
+                }
+                if (overlay.tooltip?.key === tip.key && overlay.tooltip.text === tip.text) return;
+                overlay = { ...overlay, tooltip: tip };
             });
         },
         drop(event) {

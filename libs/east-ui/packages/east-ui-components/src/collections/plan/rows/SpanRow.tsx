@@ -9,17 +9,18 @@
  * and quantity ports. The §4.3 run-state truth table maps `EventStateType` to
  * the recipe `bar` slot's `data-state` axis; `status: warning` adds the
  * `.stuck` warn ring; a run ending past the window keeps its true geometry and
- * mask-fades (`data-runoff`) — never a fabricated end. Popovers / hovercards
- * resolve through the root's generalized resolvers ({@link ElementOverlays});
- * decision diamonds ride the `mark` arm of the element ref.
+ * mask-fades (`data-runoff`) — never a fabricated end. Popovers and hover cards
+ * resolve through the root's generalized resolvers: the canvas's one overlay
+ * layer opens them from a bar's `data-run` or a diamond's `data-mark` (#816),
+ * and a labelled port's tooltip is its `aria-label`. Decision diamonds ride
+ * the `mark` arm of the element ref.
  */
 
 import { useMemo } from "react";
-import { Box, Portal, Tooltip } from "@chakra-ui/react";
+import { Box } from "@chakra-ui/react";
 import { variant, type ValueTypeOf } from "@elaraai/east";
 import { Plan } from "@elaraai/east-ui/internal";
 import { usePlanDispatch, usePlanResolvers, usePlanScale, type PlanElementRefValue } from "../context.js";
-import { ElementOverlays } from "./ElementOverlays.js";
 import { formatDerived } from "../format.js";
 import type { DerivedBand } from "../model.js";
 
@@ -52,14 +53,13 @@ export interface SpanRowProps {
     styles: Styles;
     /** Bar height (20 default / 16 dense; the §8 sheet). */
     barHeight: number;
-    storageKey: string;
     /** Whether the derived bands cover an INCOMPLETE prefix (a paged canvas
      *  still loading) — their captions print `~×2 · 276 t` (#567 D9). */
     partial?: boolean | undefined;
 }
 
 /** The span-row plot content — bars, rollup bands, diamonds, ports. */
-export function SpanRow({ rowKey, kind, bands: rollBands, styles, barHeight, storageKey, partial, ctx }: SpanRowProps) {
+export function SpanRow({ rowKey, kind, bands: rollBands, styles, barHeight, partial, ctx }: SpanRowProps) {
     const ctxAttr = ctx === true ? "" : undefined;
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
@@ -93,8 +93,9 @@ export function SpanRow({ rowKey, kind, bands: rollBands, styles, barHeight, sto
                 const qty = run.quantity.type === "some" ? run.quantity.value : undefined;
                 const moved = run.moved.type === "some" ? Number(run.moved.value) : undefined;
                 const ref = variant("run", { row: rowKey, run: run.key }) as PlanElementRefValue;
-                const bar = (
+                return (
                     <Box
+                        key={run.key}
                         css={styles.bar}
                         data-ctx={ctxAttr}
                         data-state={stateKey}
@@ -102,6 +103,8 @@ export function SpanRow({ rowKey, kind, bands: rollBands, styles, barHeight, sto
                         data-runoff={runoff ? "" : undefined}
                         data-run={run.key}
                         data-plan-frac={left.toFixed(4)}
+                        // Focusable: Enter opens its popover (#816).
+                        tabIndex={-1}
                         left={`${left * 100}%`}
                         width={`${width * 100}%`}
                         // The bar height is a style PROP, and a style prop
@@ -119,13 +122,6 @@ export function SpanRow({ rowKey, kind, bands: rollBands, styles, barHeight, sto
                         {qty !== undefined && <Box as="span" css={styles.barQty}>{qty}</Box>}
                         {moved !== undefined && moved > 0 && <Box as="span" css={styles.barQty}>{`moved ×${moved}`}</Box>}
                     </Box>
-                );
-                return (
-                    <ElementOverlays key={run.key}
-                        elementRef={ref} styles={styles}
-                        storageKey={`${storageKey}.${run.key}`}>
-                        {bar}
-                    </ElementOverlays>
                 );
             })}
             {rollBands.map((band, i) => {
@@ -153,37 +149,19 @@ export function SpanRow({ rowKey, kind, bands: rollBands, styles, barHeight, sto
                 if (x <= scale.renderMin || x >= scale.renderMax) return null;
                 const label = port.label.type === "some" ? port.label.value : undefined;
                 if (label === undefined) return <Box key={`port-${i}`} css={styles.port} left={`${x * 100}%`} />;
-                // The design-system tooltip, never the native `title=` — the
-                // same overlay every other labelled mark uses (#617; the
-                // BucketsRow marker precedent).
-                return (
-                    <Tooltip.Root key={`port-${i}`} openDelay={150}>
-                        <Tooltip.Trigger asChild>
-                            <Box css={styles.port} left={`${x * 100}%`} />
-                        </Tooltip.Trigger>
-                        <Portal>
-                            <Tooltip.Positioner>
-                                <Tooltip.Content>{label}</Tooltip.Content>
-                            </Tooltip.Positioner>
-                        </Portal>
-                    </Tooltip.Root>
-                );
+                // The label is the port's accessible name, and the canvas's
+                // one tooltip shows it on hover (#816) — the design-system
+                // tooltip, never the native `title=` (#617).
+                return <Box key={`port-${i}`} css={styles.port} left={`${x * 100}%`} data-port={i} aria-label={label} />;
             })}
             {kind.decisions.map((dec) => {
                 const x = scale.fracOf(dec.at);
                 if (x <= scale.renderMin || x >= scale.renderMax) return null;
                 const ref = variant("mark", { row: rowKey, mark: dec.key }) as PlanElementRefValue;
-                const diamond = (
-                    <Box css={styles.diamond} data-applied={dec.applied ? "" : undefined} data-ctx={ctxAttr}
-                        data-mark={dec.key} left={`${x * 100}%`}
-                        onClick={(e) => { e.stopPropagation(); onElementClick?.(ref); }} cursor="pointer" />
-                );
                 return (
-                    <ElementOverlays key={dec.key}
-                        elementRef={ref} styles={styles}
-                        storageKey={`${storageKey}.${dec.key}`}>
-                        {diamond}
-                    </ElementOverlays>
+                    <Box key={dec.key} css={styles.diamond} data-applied={dec.applied ? "" : undefined} data-ctx={ctxAttr}
+                        data-mark={dec.key} left={`${x * 100}%`} tabIndex={-1}
+                        onClick={(e) => { e.stopPropagation(); onElementClick?.(ref); }} cursor="pointer" />
                 );
             })}
         </>

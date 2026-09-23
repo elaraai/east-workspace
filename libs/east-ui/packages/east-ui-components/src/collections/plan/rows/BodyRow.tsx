@@ -74,7 +74,6 @@ export interface PlanBodyRowProps {
     gridTemplate: string;
     /** Span bar height (20 default / 16 dense). */
     barHeight: number;
-    storageKey: string;
     /** Whether the row nests children (its caret, and a collapsed parent's
      *  slimmer bars). */
     hasChildren: boolean;
@@ -156,7 +155,7 @@ function sameBodyRow(a: PlanBodyRowProps, b: PlanBodyRowProps): boolean {
 
 /** One body row — a group band, an R1 rail, or a kind row in its shell. */
 export const PlanBodyRow = memo(function PlanBodyRow({
-    v, h, styles, gridTemplate, barHeight, storageKey, hasChildren, derived,
+    v, h, styles, gridTemplate, barHeight, hasChildren, derived,
     dispatch, focusRole, focusTag, axisMode,
     showLinksControl, showExpandControl, partial, review, rowDrop,
     expandBody, expandGutter, bandHeight,
@@ -301,7 +300,7 @@ export const PlanBodyRow = memo(function PlanBodyRow({
             ) : (
                 // One row's render failure stays in that row (#811).
                 <PlanPartBoundary part={`row ${v.row.key}`} resetKey={v.row} styles={styles}>
-                    <KindPlot v={v} styles={styles} derived={derived} storageKey={storageKey}
+                    <KindPlot v={v} styles={styles} derived={derived}
                         barHeight={barHeight} hasChildren={hasChildren} ctx={isCtx}
                         plotHeight={plotH} chartExpanded={chartExpanded_} partial={partial} />
                 </PlanPartBoundary>
