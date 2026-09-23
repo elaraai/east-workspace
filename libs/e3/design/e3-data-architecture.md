@@ -362,7 +362,7 @@ Read first:
 2. **Cut rule v2** (#788), in `boundary.ts`'s `SegmentCutter` and east-c's `B2V5Cutter` (east-py binds the latter):
    - the size-aware keyed rule and the content-defined Array rule, with new rule ids and parity digests (`boundary.spec.ts`, `test_beast2_boundary.c`);
    - parameters fixed by measurement on the benchmark set (§6) and recorded in SPEC with the rule id;
-   - the measurement runs on §6's segmentation benchmarks, which are built in this stage for it, before stage 1 merges;
+   - measured on §6's segmentation benchmarks, built in this stage for it: the starting values stand, and the test is normalized — a quarter of the threshold until the open segment reaches its target, four times it after — which keeps segments near the target (a 95th percentile about 1.5× the median, where the unnormalized test's was 3–4×) at the same stored size and the same one-segment edits;
    - starting values: segments of about 1 MiB logical, a minimum of 256 elements or 64 KiB, and a forced cut at 4096 elements or 8 MiB.
 3. **One encoding.**
    - Remove `batchSize` and `targetSegmentBytes` from the public encoder options (`stream.ts:537-541`).
@@ -384,7 +384,7 @@ Read first:
 10. **SPEC** updated to v2.
 
 Delivered as a stack of five PRs:
-1. per-element aliasing, cut rule v2, one encoding and one Writer;
+1. per-element aliasing, cut rule v2 (normalized, with the segmentation benchmarks that fixed it), one encoding and one Writer;
 2. the RunSorter and the Merger;
 3. Recut, the Writer's per-segment output, and record applies on Recut;
 4. manifests in every runtime;
