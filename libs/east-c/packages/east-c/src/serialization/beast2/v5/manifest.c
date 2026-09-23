@@ -198,6 +198,14 @@ static bool manifest_dir_source(const char *path, EastValue *manifest, Beast2Seg
     return true;
 }
 
+Beast2Pages *east_beast2_pages_new_manifest_dir(const char *path, EastValue *manifest,
+                                                EastType *type)
+{
+    Beast2SegmentSource source;
+    if (!path || !manifest || !manifest_dir_source(path, manifest, &source)) return NULL;
+    return east_beast2_pages_new_manifest(manifest, type, &source);
+}
+
 EastValue *east_beast2_open_manifest_dir(const char *path, EastValue *manifest, EastType *type,
                                          bool frozen)
 {

@@ -362,8 +362,9 @@ set_tests_properties(beast2_runs PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_BI
 # 50,000-element collections and an empty one are written as TypeScript's
 # directories to the byte, every object is named by its SHA-256, and a directory
 # reads back through the manifest pager — lazily, a keyed read opening one
-# segment — or whole. Run under ASan/LSan for the segment source's mappings and
-# the writer's lifetimes, a refused segment included.
+# segment — or whole; and the merge reads manifest directories and writes one.
+# Run under ASan/LSan for the segment source's mappings and the writer's
+# lifetimes, a refused segment included.
 add_executable(test_beast2_manifest tests/test_beast2_manifest.c)
 target_link_libraries(test_beast2_manifest east-c)
 add_test(NAME beast2_manifest COMMAND test_beast2_manifest)

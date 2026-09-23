@@ -88,10 +88,39 @@ static void merge_not_blob_error(const char *who, const uint8_t *data, size_t le
     }
 }
 
+/* The collection type an input holds: a blob's own, or the one its manifest
+ * names, the input then being a manifest directory whose decoded manifest
+ * goes to *manifest_out (retained). Retained; NULL with the message posted
+ * while `data` is still mapped. */
+static EastType *input_type(const char *who, const uint8_t *data, size_t len,
+                            EastValue **manifest_out)
+{
+    *manifest_out = NULL;
+    EastValue *manifest = NULL;
+    int found = east_beast2_read_manifest(data, len, &manifest);
+    if (found == -1) {
+        merge_posted_error(who, "cannot be read");
+        return NULL;
+    }
+    if (found == 1) {
+        EastType *type = east_type_from_value(east_struct_get_field_idx(manifest, 2));
+        if (!type) {
+            east_value_release(manifest);
+            merge_posted_error(who, "its manifest names no type");
+            return NULL;
+        }
+        *manifest_out = manifest;
+        return type;
+    }
+    EastType *type = east_beast2_extract_type(data, len);
+    if (!type) merge_not_blob_error(who, data, len);
+    return type;
+}
+
 /* One input and its current entry. A whole input is read through the
- * sequential reader; a ranged input through the pager, from the segment
- * owning the lower bound, with the strict-ascent state threaded across the
- * segments it decodes. */
+ * sequential reader; a ranged input, or a manifest directory, through the
+ * pager, from the segment owning the lower bound, with the strict-ascent
+ * state threaded across the segments it decodes. */
 typedef struct {
     const char *path;
     uint8_t *data; /* the mapping */
@@ -308,11 +337,9 @@ static bool cursor_open(Merge *m, MergeCursor *c, size_t index, const char *path
         merge_map_error(who, path);
         return false;
     }
-    EastType *type = east_beast2_extract_type(c->data, c->len);
-    if (!type) {
-        merge_not_blob_error(who, c->data, c->len);
-        return false;
-    }
+    EastValue *manifest = NULL;
+    EastType *type = input_type(who, c->data, c->len, &manifest);
+    if (!type) return false;
     bool same = east_type_equal(type, m->type);
     if (!same) {
         char *got = east_print_type(type);
@@ -322,9 +349,22 @@ static bool cursor_open(Merge *m, MergeCursor *c, size_t index, const char *path
         free(got);
         free(expected);
         east_type_release(type);
+        if (manifest) east_value_release(manifest);
         return false;
     }
     east_type_release(type);
+    if (manifest) {
+        /* A manifest directory reads through its pager, whole or ranged: its
+         * fences seek, and it opens only the segments the merge reaches. */
+        c->pages = east_beast2_pages_new_manifest_dir(path, manifest, m->type);
+        east_value_release(manifest);
+        if (!c->pages) {
+            merge_input_error(index, path);
+            return false;
+        }
+        if (m->from && !cursor_seek(m, c, index)) return false;
+        return cursor_advance(m, c, index);
+    }
     /* Every input carries the paging index — what the runners write, and
      * what a seek needs — so a blob without one is refused in the reader's
      * words, east-node's sentence for the same bytes. */
@@ -548,13 +588,11 @@ bool east_merge_blobs(const EastMergeConfig *cfg, EastMergeStats *stats_out)
         merge_map_error(who0, cfg->input_paths[0]);
         return false;
     }
-    EastType *type = east_beast2_extract_type(data0, len0);
-    if (!type) {
-        merge_not_blob_error(who0, data0, len0);
-        input_release_mapping(ctx0, data0, len0);
-        return false;
-    }
+    EastValue *manifest0 = NULL;
+    EastType *type = input_type(who0, data0, len0, &manifest0);
+    if (manifest0) east_value_release(manifest0);
     input_release_mapping(ctx0, data0, len0);
+    if (!type) return false;
     if (type->kind != EAST_TYPE_SET && type->kind != EAST_TYPE_DICT) {
         merge_error("merge: inputs must be Set or Dict blobs, got %s",
                     east_type_kind_name(type->kind));
@@ -605,7 +643,8 @@ bool east_merge_blobs(const EastMergeConfig *cfg, EastMergeStats *stats_out)
     }
     bool writer_open = false;
     if (ok) {
-        ok = emit_writer_open(&m.out, m.type, cfg->output_path);
+        ok = cfg->output_manifest ? emit_writer_open_manifest(&m.out, m.type, cfg->output_path)
+                                  : emit_writer_open(&m.out, m.type, cfg->output_path);
         writer_open = ok;
     }
     if (ok) ok = merge_sources(&m, cur, cfg->num_inputs);

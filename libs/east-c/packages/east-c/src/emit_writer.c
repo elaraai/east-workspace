@@ -30,6 +30,17 @@ static bool emit_writer_drain(EmitWriter *w)
 static bool emit_writer_settle(EmitWriter *w)
 {
     if (!w->key) return true;
+    if (w->manifest) {
+        /* A manifest directory takes each segment as a file as it closes. */
+        bool ok = w->type->kind == EAST_TYPE_DICT
+                      ? east_beast2_manifest_writer_add_pair(w->manifest, w->key, w->value)
+                      : east_beast2_manifest_writer_add(w->manifest, w->key);
+        east_value_release(w->key);
+        if (w->value) east_value_release(w->value);
+        w->key = NULL;
+        w->value = NULL;
+        return ok;
+    }
     size_t before = east_beast2_element_writer_segments(w->writer);
     bool ok = w->type->kind == EAST_TYPE_DICT
                   ? east_beast2_element_writer_add_pair(w->writer, w->key, w->value)
@@ -66,6 +77,14 @@ bool emit_writer_open(EmitWriter *w, EastType *type, const char *path)
     return true;
 }
 
+bool emit_writer_open_manifest(EmitWriter *w, EastType *type, const char *path)
+{
+    memset(w, 0, sizeof(*w));
+    w->type = type;
+    w->manifest = east_beast2_manifest_writer_new_dir(type, EAST_BEAST2_CODEC_DEFLATE, path);
+    return w->manifest != NULL;
+}
+
 bool emit_writer_push(EmitWriter *w, EastValue *key, EastValue *value)
 {
     if (!emit_writer_settle(w)) return false;
@@ -80,6 +99,8 @@ bool emit_writer_push(EmitWriter *w, EastValue *key, EastValue *value)
 
 bool emit_writer_finish(EmitWriter *w)
 {
+    if (w->manifest)
+        return emit_writer_settle(w) && east_beast2_manifest_writer_finish(w->manifest);
     bool ok = emit_writer_settle(w) && east_beast2_element_writer_finish(w->writer);
     ok = emit_writer_drain(w) && ok;
     ok = fclose(w->out) == 0 && ok;
@@ -92,6 +113,7 @@ void emit_writer_close(EmitWriter *w)
 {
     if (w->out) fclose(w->out);
     if (w->writer) east_beast2_element_writer_free(w->writer);
+    if (w->manifest) east_beast2_manifest_writer_free(w->manifest);
     if (w->key) east_value_release(w->key);
     if (w->value) east_value_release(w->value);
     memset(w, 0, sizeof(*w));

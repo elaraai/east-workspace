@@ -4,8 +4,9 @@
  * as are TypeScript's to the byte — the manifest's SHA-256 is pinned, and the
  * manifest names every segment by its own — each object is named by its
  * SHA-256, and a directory reads back, lazily through the manifest pager or
- * whole, as the value it was written from. Run under ASan/LSan for the pager's
- * segment source and the writer's lifetimes, their error paths included.
+ * whole, as the value it was written from; and the merge reads manifest
+ * directories and writes one. Run under ASan/LSan for the pager's segment
+ * source and the writer's lifetimes, their error paths included.
  */
 
 #include <east/compat.h>
@@ -308,6 +309,85 @@ static void test_recognition(void)
     east_value_release(dict);
 }
 
+static bool write_bytes(const char *path, const ByteBuffer *bytes)
+{
+    FILE *f = fopen(path, "wb");
+    if (!f) return false;
+    bool ok = fwrite(bytes->data, 1, bytes->len, f) == bytes->len;
+    return fclose(f) == 0 && ok;
+}
+
+/* The merge reads manifest directories and writes one: the two halves of the
+ * parity Dict merge into TypeScript's directory of the whole, and a key range
+ * of them into the blob of that range, sought through the manifests' fences. */
+static void test_merge(void)
+{
+    char evens_path[256], odds_path[256], merged[256], ranged[256], range_path[256];
+    EastType *type = east_dict_type(&east_string_type, &east_integer_type);
+    EastValue *dict = parity_dict(type, 50000);
+    EastValue *evens = east_dict_new(&east_string_type, &east_integer_type);
+    EastValue *odds = east_dict_new(&east_string_type, &east_integer_type);
+    for (size_t i = 0; i < east_dict_len(dict); i++)
+        east_dict_set(i % 2 ? odds : evens, east_dict_key_at(dict, i), east_dict_val_at(dict, i));
+    path_of(evens_path, sizeof(evens_path), "evens.beast2");
+    path_of(odds_path, sizeof(odds_path), "odds.beast2");
+    CHECK(east_beast2_write_manifest_dir(evens, type, EAST_BEAST2_CODEC_DEFLATE, evens_path) &&
+              east_beast2_write_manifest_dir(odds, type, EAST_BEAST2_CODEC_DEFLATE, odds_path),
+          "writing the halves failed: %s", east_builtin_get_error());
+
+    const char *inputs[2] = {evens_path, odds_path};
+    path_of(merged, sizeof(merged), "merged.beast2");
+    EastMergeConfig cfg = {
+        .input_paths = inputs, .num_inputs = 2, .output_path = merged, .output_manifest = true};
+    EastMergeStats stats;
+    CHECK(east_merge_blobs(&cfg, &stats) && stats.entries == 50000,
+          "merging the manifests failed: %s", east_builtin_get_error());
+    check_directory("merged Dict", merged, DICT_MANIFEST, 38);
+    remove_dir(merged);
+
+    /* [k0010000, k0020000) of the halves, into one blob. */
+    const char *case_names[2] = {"none", "some"};
+    EastType *case_types[2] = {&east_null_type, &east_string_type};
+    EastType *option = east_variant_type(case_names, case_types, 2);
+    const char *field_names[2] = {"from", "to"};
+    EastType *field_types[2] = {option, option};
+    EastType *range_type = east_struct_type(field_names, field_types, 2);
+    EastValue *lo = east_string("k0010000"), *hi = east_string("k0020000");
+    EastValue *bound_fields[2] = {east_variant_new("some", lo, option),
+                                  east_variant_new("some", hi, option)};
+    east_value_release(lo);
+    east_value_release(hi);
+    EastValue *bounds = east_struct_new_owned(field_names, bound_fields, 2, range_type);
+    ByteBuffer *range_bytes = east_beast2_encode_full(bounds, range_type);
+    path_of(range_path, sizeof(range_path), "range.beast2");
+    CHECK(range_bytes && write_bytes(range_path, range_bytes), "writing the range failed");
+    path_of(ranged, sizeof(ranged), "ranged.beast2");
+    cfg = (EastMergeConfig){
+        .input_paths = inputs, .num_inputs = 2, .output_path = ranged, .range_path = range_path};
+    CHECK(east_merge_blobs(&cfg, &stats) && stats.entries == 10000,
+          "the ranged merge of the manifests failed: %s", east_builtin_get_error());
+    EastValue *expected = east_dict_new(&east_string_type, &east_integer_type);
+    for (size_t i = 10000; i < 20000; i++)
+        east_dict_set(expected, east_dict_key_at(dict, i), east_dict_val_at(dict, i));
+    ByteBuffer *want = east_beast2_encode_paged(expected, type, EAST_BEAST2_CODEC_DEFLATE);
+    ByteBuffer *got = read_file(ranged);
+    CHECK(got && want && got->len == want->len && memcmp(got->data, want->data, got->len) == 0,
+          "the ranged merge of the manifests is not the range's blob");
+
+    byte_buffer_free(got);
+    byte_buffer_free(want);
+    byte_buffer_free(range_bytes);
+    east_value_release(expected);
+    east_value_release(bounds);
+    remove(ranged);
+    remove(range_path);
+    remove_dir(evens_path);
+    remove_dir(odds_path);
+    east_value_release(evens);
+    east_value_release(odds);
+    east_value_release(dict);
+}
+
 /* ----- a sink that refuses ------------------------------------------------ */
 
 typedef struct {
@@ -381,6 +461,7 @@ int main(void)
     test_parity_directories();
     test_read_back();
     test_recognition();
+    test_merge();
     test_refused_segment();
     rmdir(g_dir);
 

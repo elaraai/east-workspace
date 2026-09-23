@@ -30,13 +30,17 @@
  * range of a large output reads that range's share of each input, plus at
  * most one segment. An absent bound is open; both absent is the whole merge.
  *
+ * An input may be a manifest directory as well as a blob — its path the
+ * manifest's, read through the manifest pager, whose fences seek without
+ * opening a segment — and the output may be one too (`output_manifest`).
+ *
  * This is the fan-in of a partitioned task's keyed partials: e3 runs it as an
  * ordinary execution on the task's runner, one unit per key range of a group
  * of partials, and never decodes a partial itself. The sink lives in the core
  * library so the east-c CLI and east-py merge through the same code.
  *
  * Errors are posted through east_builtin_error; a failed merge leaves the
- * output unfinalised (no terminator or index).
+ * output unfinalised (no terminator or index, or no manifest).
  */
 
 #include "compiler.h"
@@ -51,6 +55,9 @@ typedef struct {
     size_t num_inputs;
     /* The output file. */
     const char *output_path;
+    /* Write the output as a manifest directory — the manifest at output_path,
+     * its objects in `<output_path>.segments/` — rather than one blob. */
+    bool output_manifest;
     /* Dict inputs: fold an equal key, `acc = merge(key, acc, value)` — a
      * compiled `(K, V, V) -> V` over the inputs' key and value types
      * (borrowed; kept alive by the caller for the merge). NULL: equal keys

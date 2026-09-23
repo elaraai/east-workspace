@@ -13,6 +13,9 @@
  * finishes, so an equal key's fold lands in it in place: the sink and the
  * merge replace `value`, which the writer owns, with the folded one.
  *
+ * The output may instead be a manifest directory — the same segments, each a
+ * file of its own named by its SHA-256, and a manifest naming them.
+ *
  * Internal to the library; the public surfaces are east/emit_sink.h and
  * east/merge.h.
  */
@@ -25,7 +28,8 @@
 typedef struct {
     FILE *out;
     Beast2ElementWriter *writer;
-    EastType *type;   /* borrowed: the output collection type */
+    Beast2ManifestWriter *manifest; /* a manifest directory's writer, in place of both above */
+    EastType *type;                 /* borrowed: the output collection type */
     EastValue *key;   /* owned: the held entry's element or Dict key; NULL when none */
     EastValue *value; /* owned: the held Dict entry's value */
 } EmitWriter;
@@ -33,6 +37,11 @@ typedef struct {
 /* Opens `path` for writing and a writer of `type` on it. False with the
  * message posted (east_builtin_error); the struct is then closed. */
 bool emit_writer_open(EmitWriter *w, EastType *type, const char *path);
+
+/* Opens a manifest directory as the output: the manifest at `path`, its
+ * objects in `<path>.segments/`. False with the message posted; the struct is
+ * then closed. */
+bool emit_writer_open_manifest(EmitWriter *w, EastType *type, const char *path);
 
 /* Writes out the held entry and holds `key` (and, for a Dict, `value`) in its
  * place, retaining them. False with the message posted. */

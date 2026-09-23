@@ -580,9 +580,11 @@ EastValue *east_beast2_open_paged_manifest(EastValue *manifest, EastType *type, 
 // value — the value decoding the spliced blob gives. Takes the source.
 EastValue *east_beast2_decode_manifest(EastValue *manifest, EastType *type, bool frozen,
                                        const Beast2SegmentSource *source);
-// The two above over a manifest directory: `path` is the manifest's file (its
-// decoded `manifest` the caller's), and segment i is
+// The three above over a manifest directory: `path` is the manifest's file
+// (its decoded `manifest` the caller's), and segment i is
 // `<path>.segments/<hash>.beast2`, mapped for each read.
+Beast2Pages *east_beast2_pages_new_manifest_dir(const char *path, EastValue *manifest,
+                                                EastType *type);
 EastValue *east_beast2_open_manifest_dir(const char *path, EastValue *manifest, EastType *type,
                                          bool frozen);
 EastValue *east_beast2_decode_manifest_dir(const char *path, EastValue *manifest, EastType *type,
