@@ -40,9 +40,9 @@ set_tests_properties(cli_merge PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_BINA
 # EAST_LAZY_INPUT_BYTES=1 over checked-in fixtures and pins the lazy
 # contract end to end — the iteration-lock error on a paged $.for, pager
 # error propagation through keyed `has` on a corrupt blob, the
-# mutable-nested shape gate falling back to the eager decode, and the
-# residency of a mapped input (a wide fixture the gate writes itself, hence
-# the east-c link).
+# mutable-nested shape gate falling back to the eager decode, the residency
+# of a mapped input, and a manifest-rooted input paging over its directory
+# (wide fixtures the gate writes itself, hence the east-c link).
 add_executable(test_cli_paged tests/test_cli_paged.c)
 target_link_libraries(test_cli_paged east-c)
 add_test(NAME cli_paged COMMAND test_cli_paged $<TARGET_FILE:east-c-cli>

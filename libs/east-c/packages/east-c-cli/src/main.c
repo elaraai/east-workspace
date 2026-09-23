@@ -316,34 +316,62 @@ static size_t lazy_input_threshold(void)
     return (size_t)64 * 1024 * 1024;
 }
 
+/* The bytes a manifest's collection comes to: the segments it names. A
+ * manifest is a few dozen bytes per segment whatever the collection weighs,
+ * so its own file's size would put any input under the lazy threshold. */
+static size_t manifest_segment_bytes(EastValue *manifest)
+{
+    EastValue *entries = east_struct_get_field_idx(manifest, 5);
+    size_t total = 0;
+    for (size_t i = 0; i < east_array_len(entries); i++) {
+        EastValue *bytes = east_struct_get_field_idx(east_array_get(entries, i), 3);
+        if (bytes && bytes->kind == EAST_VAL_INTEGER && bytes->data.integer > 0)
+            total += (size_t)bytes->data.integer;
+    }
+    return total;
+}
+
+/* Loads a manifest-rooted input: the collection its manifest names, read from
+ * the directory beside it (`<path>.segments/`), lazily when asked — only the
+ * segments the body touches are ever read — else whole. A shape the pager
+ * cannot serve decodes whole, as a blob's does. */
+static EastValue *load_manifest_input(const char *path, EastValue *manifest, EastType *type,
+                                      bool lazy, bool *mapped_out)
+{
+    EastValue *val = lazy ? east_beast2_open_manifest_dir(path, manifest, type, true) : NULL;
+    if (val) {
+        if (mapped_out) *mapped_out = true;
+        return val;
+    }
+    if (lazy) free(east_builtin_get_error());
+    val = east_beast2_decode_manifest_dir(path, manifest, type, true);
+    if (!val) {
+        char *err = east_builtin_get_error();
+        fprintf(stderr, "Error: Failed to decode Beast2 from %s: %s\n", path,
+                err ? err : "the manifest directory does not decode");
+        free(err);
+    }
+    return val;
+}
+
 /* Loads input value `path`, always FROZEN — task inputs are immutable
  * (mutating builtins raise the uniform copy-first error, and frozen
- * collections compare by value). When `want_lazy`, an indexed beast2
- * collection blob opens as a lazy paged value over a mapping of the file
+ * collections compare by value). A beast2 collection input opens lazily when
+ * `force_lazy` (--stream), or when it weighs `threshold` bytes or more (0
+ * disables): an indexed blob as a paged value over a mapping of the file
  * (map_input_file: the input's residency is the page cache and the heap holds
  * one decoded segment at a time — issue #505; the value releases the mapping
- * through input_release_mapping; *mapped_out reports it); anything
- * not pageable (other formats, index-less or aliased blobs, Ref- or
- * function-bearing element shapes) silently decodes whole, exactly like
- * east-node's runner. Non-beast2 formats have no frozen decoder, so the
- * decoded value round-trips through a canonical beast2 encode + frozen
- * decode, like east-py's runner. */
-static EastValue *load_input_value(const char *path, EastType *type, bool want_lazy,
-                                   bool *mapped_out)
+ * through input_release_mapping; *mapped_out reports it), and a manifest over
+ * its directory's segment files. Anything not pageable (other formats,
+ * index-less or aliased blobs, Ref- or function-bearing element shapes)
+ * silently decodes whole, exactly like east-node's runner. Non-beast2 formats
+ * have no frozen decoder, so the decoded value round-trips through a canonical
+ * beast2 encode + frozen decode, like east-py's runner. */
+static EastValue *load_input_value(const char *path, EastType *type, bool force_lazy,
+                                   size_t threshold, bool *mapped_out)
 {
     if (mapped_out) *mapped_out = false;
-    if (!want_lazy || detect_format(path) != FMT_BEAST2 ||
-        (type->kind != EAST_TYPE_ARRAY && type->kind != EAST_TYPE_SET &&
-         type->kind != EAST_TYPE_DICT)) {
-        if (detect_format(path) == FMT_BEAST2) {
-            size_t len = 0;
-            uint8_t *data = read_file_binary(path, &len);
-            if (!data) return NULL;
-            EastValue *val = east_beast2_decode_full_frozen(data, len, type);
-            free(data);
-            if (!val) fprintf(stderr, "Error: Failed to decode Beast2 from %s\n", path);
-            return val;
-        }
+    if (detect_format(path) != FMT_BEAST2) {
         EastValue *plain = load_value(path, type);
         if (!plain) return NULL;
         ByteBuffer *buf = east_beast2_encode_full(plain, type);
@@ -360,15 +388,44 @@ static EastValue *load_input_value(const char *path, EastType *type, bool want_l
     size_t len = 0;
     void *map_ctx = NULL;
     uint8_t *data = map_input_file(path, &len, &map_ctx);
-    if (!data) return load_input_value(path, type, false, mapped_out);
-    EastValue *paged =
-        east_beast2_open_paged_external(data, len, type, true, input_release_mapping, map_ctx);
-    if (paged) {
-        if (mapped_out) *mapped_out = true;
-        return paged; /* the value releases the mapping */
+    if (!data) {
+        /* An empty or unmappable file is read whole, and refused as before. */
+        uint8_t *bytes = read_file_binary(path, &len);
+        if (!bytes) return NULL;
+        EastValue *val = east_beast2_decode_full_frozen(bytes, len, type);
+        free(bytes);
+        if (!val) fprintf(stderr, "Error: Failed to decode Beast2 from %s\n", path);
+        return val;
     }
-    free(east_builtin_get_error());
-    /* Not pageable: decode whole from the mapping, then drop it at once. */
+    bool collection = type->kind == EAST_TYPE_ARRAY || type->kind == EAST_TYPE_SET ||
+                      type->kind == EAST_TYPE_DICT;
+    EastValue *manifest = NULL;
+    int found = collection ? east_beast2_read_manifest(data, len, &manifest) : 0;
+    if (found != 0) {
+        size_t weight = found == 1 ? len + manifest_segment_bytes(manifest) : 0;
+        input_release_mapping(map_ctx, data, len);
+        if (found == -1) {
+            char *err = east_builtin_get_error();
+            fprintf(stderr, "Error: Failed to decode Beast2 from %s: %s\n", path,
+                    err ? err : "the manifest does not decode");
+            free(err);
+            return NULL;
+        }
+        bool lazy = force_lazy || (threshold > 0 && weight >= threshold);
+        EastValue *val = load_manifest_input(path, manifest, type, lazy, mapped_out);
+        east_value_release(manifest);
+        return val;
+    }
+    if (collection && (force_lazy || (threshold > 0 && len >= threshold))) {
+        EastValue *paged =
+            east_beast2_open_paged_external(data, len, type, true, input_release_mapping, map_ctx);
+        if (paged) {
+            if (mapped_out) *mapped_out = true;
+            return paged; /* the value releases the mapping */
+        }
+        free(east_builtin_get_error());
+    }
+    /* Decoded whole from the mapping, which is dropped at once. */
     EastValue *val = east_beast2_decode_full_frozen(data, len, type);
     input_release_mapping(map_ctx, data, len);
     if (!val) fprintf(stderr, "Error: Failed to decode Beast2 from %s\n", path);
@@ -928,15 +985,12 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
         for (int i = 0; i < num_inputs; i++) {
             /* Streamed inputs always open lazily; other collection inputs
              * open lazily at or above the size threshold. */
-            bool want_lazy = false;
+            bool force_lazy = false;
             for (int s = 0; s < num_streams; s++)
-                want_lazy = want_lazy || stream_inputs[s] == i;
-            if (!want_lazy && threshold > 0) {
-                struct stat st;
-                want_lazy = stat(input_files[i], &st) == 0 && (size_t)st.st_size >= threshold;
-            }
+                force_lazy = force_lazy || stream_inputs[s] == i;
             bool mapped = false;
-            args[i] = load_input_value(input_files[i], param_types[i], want_lazy, &mapped);
+            args[i] =
+                load_input_value(input_files[i], param_types[i], force_lazy, threshold, &mapped);
             if (lazy_inputs) lazy_inputs[i] = mapped;
             if (verbose && mapped) {
                 fprintf(stderr, "  input %d: opened lazily — mapped from the file\n", i);

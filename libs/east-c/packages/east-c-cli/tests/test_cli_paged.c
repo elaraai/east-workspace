@@ -26,12 +26,16 @@
  *      whole file resident around a handful of touched pages), so it cannot
  *      pin the segment cost, and it is skipped where it measures nothing —
  *      on Windows both runs read the file whole, and a sanitizer build's
- *      shadow memory dominates RSS.
+ *      shadow memory dominates RSS;
+ *   5. manifests — a manifest-rooted input, as e3 stages one, pages over its
+ *      directory's segment files: one segment decoded for a keyed read, and
+ *      the lazy threshold weighing the segments, not the manifest's file.
  *
  * Runs in the ASan tree too (leak-check's ctest pass), where the spawned
  * CLI is itself instrumented; each case scans the child's stderr for
  * sanitizer reports.
  */
+#include <east/compat.h>
 #include <east/east.h>
 #include <east/type_of_type.h>
 
@@ -179,12 +183,9 @@ static void test_paged_shape_gate(const char *bin, const char *fixtures)
                         "cannot mutate a frozen value (task inputs are immutable)");
 }
 
-/* Writes a Dict<Integer, String> of `rows` wide rows as an uncompressed
- * paged blob (codec none, so wire size is logical size) to `path`; returns
- * the file size or 0 on failure. */
-static size_t write_wide_table(const char *path, size_t rows)
+/* A Dict<Integer, String> of `rows` wide rows. */
+static EastValue *wide_table(EastType *dt, size_t rows)
 {
-    EastType *dt = east_dict_type(&east_integer_type, &east_string_type);
     EastValue *dict = east_dict_new(dt->data.dict.key, dt->data.dict.value);
     char text[260];
     for (size_t i = 0; i < rows; i++) {
@@ -200,6 +201,16 @@ static size_t write_wide_table(const char *path, size_t rows)
         east_value_release(k);
         east_value_release(v);
     }
+    return dict;
+}
+
+/* Writes the wide table of `rows` rows as an uncompressed paged blob (codec
+ * none, so wire size is logical size) to `path`; returns the file size or 0
+ * on failure. */
+static size_t write_wide_table(const char *path, size_t rows)
+{
+    EastType *dt = east_dict_type(&east_integer_type, &east_string_type);
+    EastValue *dict = wide_table(dt, rows);
     ByteBuffer *buf = east_beast2_encode_paged(dict, dt, EAST_BEAST2_CODEC_NONE);
     east_value_release(dict);
     if (!buf) return 0;
@@ -307,6 +318,103 @@ static void test_paged_residency(const char *bin, const char *fixtures)
     remove("paged_err_eager.txt");
 }
 
+/* Removes a manifest directory: the objects its manifest names, the objects
+ * directory, and the manifest. */
+static void remove_manifest_dir(const char *path)
+{
+    char *bytes = NULL;
+    FILE *f = fopen(path, "rb");
+    long len = 0;
+    if (f) {
+        fseek(f, 0, SEEK_END);
+        len = ftell(f);
+        fseek(f, 0, SEEK_SET);
+        bytes = malloc(len > 0 ? (size_t)len : 1);
+        if (bytes) len = (long)fread(bytes, 1, (size_t)len, f);
+        fclose(f);
+    }
+    EastValue *manifest = NULL;
+    if (bytes && east_beast2_read_manifest((uint8_t *)bytes, (size_t)len, &manifest) == 1) {
+        char object[1024];
+        EastValue *entries = east_struct_get_field_idx(manifest, 5);
+        for (size_t i = 0; i <= east_array_len(entries); i++) {
+            /* Each segment, then the header. */
+            EastValue *hash = i < east_array_len(entries)
+                                  ? east_struct_get_field_idx(east_array_get(entries, i), 0)
+                                  : east_struct_get_field_idx(manifest, 4);
+            snprintf(object, sizeof(object), "%s.segments/%s.beast2", path, hash->data.string.data);
+            remove(object);
+        }
+        east_value_release(manifest);
+    }
+    free(bytes);
+    char dir[1024];
+    snprintf(dir, sizeof(dir), "%s.segments", path);
+    rmdir(dir);
+    remove(path);
+}
+
+/* A manifest-rooted input — how e3 stages a collection input for a runner
+ * that opens manifests — pages over its directory's segment files: a keyed
+ * read decodes one segment, the lazy threshold weighs the segments rather
+ * than the manifest's own few kilobytes, and the eager control reads the same
+ * value whole. */
+static void test_paged_manifest(const char *bin, const char *fixtures)
+{
+    const char *table = "paged_wide_manifest.beast2";
+    EastType *dt = east_dict_type(&east_integer_type, &east_string_type);
+    EastValue *dict = wide_table(dt, 160000);
+    bool written = east_beast2_write_manifest_dir(dict, dt, EAST_BEAST2_CODEC_NONE, table);
+    east_value_release(dict);
+    CHECK(written, "the manifest directory was not written");
+    if (!written) return;
+
+    char cmd[2048];
+    snprintf(cmd, sizeof(cmd), LAZY_ENV "\"%s\" run \"%s/paged_has.beast2\" -i \"%s\" -v", bin,
+             fixtures, table);
+    int rc = run_cli(cmd, "manifest_out.txt", "manifest_err.txt");
+    CHECK(rc == 0, "manifest run (lazy): expected exit 0, got %d", rc);
+    check_file_contains("manifest_out.txt", "true");
+    check_file_contains("manifest_err.txt", "input 0: opened lazily");
+    char *err = read_text("manifest_err.txt");
+    if (err) {
+        size_t decoded = 0, segments = 0, fences = 0;
+        bool accounted = parse_paging_account(err, &decoded, &segments, &fences);
+        CHECK(accounted, "the manifest run reports its paging account:\n%s", err);
+        CHECK(!accounted || (segments >= 8 && decoded == 1),
+              "a keyed read of the manifest decoded %zu of %zu segments (expected 1)", decoded,
+              segments);
+        free(err);
+    }
+
+    /* 1 MiB: far above the manifest file, far below its segments. */
+#ifdef _WIN32
+#define MIB_ENV "set EAST_LAZY_INPUT_BYTES=1048576&& "
+#else
+#define MIB_ENV "EAST_LAZY_INPUT_BYTES=1048576 "
+#endif
+    snprintf(cmd, sizeof(cmd), MIB_ENV "\"%s\" run \"%s/paged_has.beast2\" -i \"%s\" -v", bin,
+             fixtures, table);
+    rc = run_cli(cmd, "manifest_out.txt", "manifest_err.txt");
+    CHECK(rc == 0, "manifest run (threshold): expected exit 0, got %d", rc);
+    check_file_contains("manifest_err.txt", "input 0: opened lazily");
+
+    snprintf(cmd, sizeof(cmd), EAGER_ENV "\"%s\" run \"%s/paged_has.beast2\" -i \"%s\" -v", bin,
+             fixtures, table);
+    rc = run_cli(cmd, "manifest_out.txt", "manifest_err.txt");
+    CHECK(rc == 0, "manifest run (eager): expected exit 0, got %d", rc);
+    check_file_contains("manifest_out.txt", "true");
+    char *eager = read_text("manifest_err.txt");
+    if (eager) {
+        CHECK(strstr(eager, "opened lazily") == NULL, "the eager control opened lazily");
+        free(eager);
+    }
+
+    remove_manifest_dir(table);
+    remove("manifest_out.txt");
+    remove("manifest_err.txt");
+}
+
 int main(int argc, char **argv)
 {
     if (argc != 3) {
@@ -319,6 +427,7 @@ int main(int argc, char **argv)
     test_paged_has_corrupt(argv[1], argv[2]);
     test_paged_shape_gate(argv[1], argv[2]);
     test_paged_residency(argv[1], argv[2]);
+    test_paged_manifest(argv[1], argv[2]);
 
     if (failures > 0) {
         fprintf(stderr, "%d failure(s)\n", failures);
