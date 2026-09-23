@@ -407,15 +407,26 @@ which has no key.
   element, whose hash input hashes to `h`:
   - starts a new segment when `c ≥ 4096` or `b ≥ 8 MiB`;
   - otherwise joins the open segment when `c < 256` and `b < 64 KiB`;
-  - otherwise starts a new segment when `h < max(2^22, ⌊b × 4096 / c⌋)`, and
-    joins the open one when not.
+  - otherwise starts a new segment when `h < T`, and joins the open one when
+    not, where `B = max(2^22, ⌊b × 4096 / c⌋)` and `T = ⌊B / 4⌋` while
+    `c < 1024` and `b < 1 MiB`, else `T = min(2^32, 4 × B)`.
 
   An element that starts a segment leaves `c = 1` and `b` its size; one that
   joins adds one to `c` and its size to `b`.
-- The threshold is one element in 1024 until the open segment's average
+- The base `B` is one element in 1024 until the open segment's average
   element size, `b / c`, passes 1 KiB, and rises with that average after, so
-  a segment holds about 1024 narrow elements or about 1 MiB of wide ones. An
-  average of 1 MiB or more makes every element a boundary.
+  a segment holds about 1024 narrow elements or about 1 MiB of wide ones. The
+  test is **normalized** around that target — a quarter of `B` until the open
+  segment holds 1024 elements or 1 MiB, four times it after — so segment sizes
+  gather near the target instead of spreading geometrically. An average of
+  1 MiB or more makes every element a boundary.
+- The parameters were fixed by the segmentation benchmarks
+  (`libs/e3/test/integration/src/segmentation-bench.spec.ts`): narrow rows as a
+  Dict and as an Array, rows of about a kilobyte, and 1 MiB rows, with and
+  without the normalization and at a quarter to twice these sizes. Normalized,
+  the 95th-percentile segment is about 1.5 times the median, where without it
+  it was three to four times; the stored bytes are the same, and a one-row
+  edit or insert still rewrites one segment.
 - So every segment but the last holds at least 256 elements or at least
   64 KiB, and at most 4096 elements. A segment closes once it holds 8 MiB, so
   it passes that by at most its last element, and an element wider than

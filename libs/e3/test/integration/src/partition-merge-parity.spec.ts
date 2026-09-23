@@ -27,8 +27,8 @@
  *   components relies on;
  * - a job over wide rows — `Dict<Integer, Struct{v: String, f0..f149:
  *   Integer}>`, 2,200 rows of 5,380 characters of 64-symbol noise, rows 0–379
- *   one character longer, rows the cut rule measures by their bytes — equals
- *   its twin;
+ *   one character longer, rows the cut rule measures by their bytes — merges
+ *   per key range and equals its twin by value;
  * - a job whose partials each hold more rows than a segment may — so each
  *   spans several segments, the shape whose fan-in runs per key range rather
  *   than once over the component — equals its twin by value;
@@ -487,17 +487,20 @@ describe('partition merge parity', () => {
         assert.deepEqual(head(sinkWritten), head(returned));
       });
 
-      it('wide rows merge to their twin\'s bytes', async () => {
+      it('wide rows merge per key range and equal their twin by value', async () => {
         // 2,200 rows of about 6 KB: the output is cut by bytes, not by count —
         // and so is every partial, which can then span several segments and
-        // merge per key range, one unit each.
+        // merge per key range, one unit each. The ranges' outputs are spliced
+        // as they are, without re-cutting the join between two, so the bytes
+        // there need not be the twin's.
         const lines = await unitLines('wide');
         const units = mergeLines(lines);
         assert.ok(units.length >= 1, lines.join('\n'));
         assert.deepEqual(units, units.map((_, i) => `merge level 1/1 unit ${i + 1}/${units.length} completed`),
           lines.join('\n'));
         const merged = await outputBytes(tasks.wide);
-        assert.deepEqual(merged, await outputBytes(tasks.wideTwin), 'the merged output is the twin\'s bytes');
+        assert.ok(equalFor(WideType)(decodeBeast2For(WideType)(merged), decodeBeast2For(WideType)(await outputBytes(tasks.wideTwin))),
+          'the merged output is the twin\'s value');
         const extents = readBeast2Extents(merged);
         assert.equal(extents.elementCount, WIDE_ROWS);
         assert.ok(extents.offsets.length >= 2, 'the output spans several segments');

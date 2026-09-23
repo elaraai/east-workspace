@@ -44,9 +44,9 @@ from east.serialization.beast2 import (
 
 #: The TypeScript writer's segmentation of the fixtures below: the segment
 #: count, and fnv1a64 over the per-segment counts joined with ','.
-DICT_SEGMENTS, DICT_COUNTS_DIGEST = 34, "16ef9c38c923c55f"
-SET_SEGMENTS, SET_COUNTS_DIGEST = 49, "d9cfbd0cb241b783"
-ARRAY_SEGMENTS, ARRAY_COUNTS_DIGEST = 44, "b3f3e8599f56443d"
+DICT_SEGMENTS, DICT_COUNTS_DIGEST = 38, "2d1d1a2f011d367d"
+SET_SEGMENTS, SET_COUNTS_DIGEST = 44, "617fc98188343a6a"
+ARRAY_SEGMENTS, ARRAY_COUNTS_DIGEST = 43, "4b14a976ccd91c65"
 
 TABLE = DictType(StringType, IntegerType)
 
@@ -91,18 +91,25 @@ def test_boundary_hash_vectors() -> None:
     assert _segment_boundary_hash(b"k0000000") == 0xC8CA7941
 
 
-def test_the_threshold_admits_one_narrow_element_in_the_target_count() -> None:
+def test_the_threshold_is_normalized_around_the_target_count() -> None:
+    # One narrow element in the target count is the base: a quarter of it short
+    # of the target, four times it past.
     narrow = 2**32 // SEGMENT_TARGET_COUNT
-    assert _segment_is_boundary(narrow - 1, SEGMENT_MIN_COUNT, 16 * SEGMENT_MIN_COUNT)
-    assert not _segment_is_boundary(narrow, SEGMENT_MIN_COUNT, 16 * SEGMENT_MIN_COUNT)
+    assert _segment_is_boundary(narrow // 4 - 1, SEGMENT_MIN_COUNT, 16 * SEGMENT_MIN_COUNT)
+    assert not _segment_is_boundary(narrow // 4, SEGMENT_MIN_COUNT, 16 * SEGMENT_MIN_COUNT)
+    assert _segment_is_boundary(narrow * 4 - 1, SEGMENT_TARGET_COUNT, 16 * SEGMENT_TARGET_COUNT)
+    assert not _segment_is_boundary(narrow * 4, SEGMENT_TARGET_COUNT, 16 * SEGMENT_TARGET_COUNT)
 
 
 def test_the_threshold_rises_with_the_average_element_size() -> None:
-    # An average of 64 KiB is one sixteenth of the byte target, so one element
-    # in sixteen starts a segment; at the byte target, every element does.
+    # An average of 64 KiB is one sixteenth of the byte target: a quarter of
+    # that short of the target, four times it once the segment holds 1 MiB; at
+    # an average of the byte target, every element starts a segment.
     wide = 2**32 // 16
-    assert _segment_is_boundary(wide - 1, 2, 2 * 64 * 1024)
-    assert not _segment_is_boundary(wide, 2, 2 * 64 * 1024)
+    assert _segment_is_boundary(wide // 4 - 1, 2, 2 * 64 * 1024)
+    assert not _segment_is_boundary(wide // 4, 2, 2 * 64 * 1024)
+    assert _segment_is_boundary(wide * 4 - 1, 16, 16 * 64 * 1024)
+    assert not _segment_is_boundary(wide * 4, 16, 16 * 64 * 1024)
     assert _segment_is_boundary(0xFFFFFFFF, 1, SEGMENT_TARGET_BYTES)
     assert not _segment_is_boundary(0xFFFFFFFF, 1, SEGMENT_TARGET_BYTES - 1)
 

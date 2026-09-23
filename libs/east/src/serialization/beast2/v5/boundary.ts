@@ -22,7 +22,10 @@
  * open segment's average element size, so a segment holds about
  * {@link SEGMENT_TARGET_COUNT} narrow elements or about
  * {@link SEGMENT_TARGET_BYTES} of wide ones — a collection of 1 MiB blobs is
- * not one 300 MiB segment.
+ * not one 300 MiB segment. And it is **normalized**: the threshold is lower
+ * until the open segment reaches that target and higher after, so segment
+ * sizes gather near the target rather than spreading geometrically, which
+ * bounds what one page read decodes.
  *
  * A Set or Dict hashes each element's key (its fence bytes, what a manifest
  * stores as a segment's first key); an Array, which has no key, hashes the
@@ -135,10 +138,13 @@ export function segmentBoundaryHash(bytes: Uint8Array): number {
  * alone, without the bounds.
  *
  * @remarks
- * The threshold is `2^32 × max(1 / 1024, (bytes / count) / 1 MiB)`: one
+ * The base threshold is `2^32 × max(1 / 1024, (bytes / count) / 1 MiB)`: one
  * narrow element in {@link SEGMENT_TARGET_COUNT}, rising with the segment's
  * average element size so wide elements cut near {@link SEGMENT_TARGET_BYTES}.
- * An average of 1 MiB or more makes every element a boundary.
+ * The test takes a quarter of it until the open segment holds
+ * {@link SEGMENT_TARGET_COUNT} elements or {@link SEGMENT_TARGET_BYTES}, and
+ * four times it after, so segments gather near the target. An average of
+ * 1 MiB or more makes every element a boundary.
  *
  * @param hash - the element's {@link segmentBoundaryHash}
  * @param count - elements in the open segment; at least one
@@ -146,7 +152,10 @@ export function segmentBoundaryHash(bytes: Uint8Array): number {
  * @returns whether the element starts a segment
  */
 export function isSegmentBoundary(hash: number, count: number, bytes: number): boolean {
-  const threshold = Math.max(NARROW_THRESHOLD, Math.floor((bytes * THRESHOLD_PER_BYTE) / count));
+  const base = Math.max(NARROW_THRESHOLD, Math.floor((bytes * THRESHOLD_PER_BYTE) / count));
+  const threshold = count >= SEGMENT_TARGET_COUNT || bytes >= SEGMENT_TARGET_BYTES
+    ? Math.min(2 ** 32, base * 4)
+    : Math.floor(base / 4);
   return hash < threshold;
 }
 

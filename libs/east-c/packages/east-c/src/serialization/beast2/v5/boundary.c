@@ -15,9 +15,11 @@
  * canonical encoding, which per-element aliasing makes a function of the
  * element alone, and the threshold rises with the open segment's average
  * element size: narrow elements cut near EAST_BEAST2_SEGMENT_TARGET_COUNT of
- * them, wide ones near EAST_BEAST2_SEGMENT_TARGET_BYTES. A Set or Dict hashes
- * each element's key (its fence bytes); an Array, which has no key, hashes
- * each element's canonical bytes.
+ * them, wide ones near EAST_BEAST2_SEGMENT_TARGET_BYTES. It is normalized
+ * around that target — lower before it, higher after — so segment sizes gather
+ * near it rather than spreading geometrically. A Set or Dict hashes each
+ * element's key (its fence bytes); an Array, which has no key, hashes each
+ * element's canonical bytes.
  *
  * The constants and the hash are wire state: the TypeScript table in
  * `east/src/serialization/beast2/v5/boundary.ts` is the same table, and a
@@ -84,6 +86,14 @@ bool east_beast2_segment_is_boundary(uint32_t hash, size_t count, size_t bytes)
 {
     uint64_t threshold = ((uint64_t)bytes * B2V5_THRESHOLD_PER_BYTE) / (uint64_t)count;
     if (threshold < B2V5_NARROW_THRESHOLD) threshold = B2V5_NARROW_THRESHOLD;
+    /* A quarter of the threshold until the open segment reaches its target,
+     * four times it after: segments gather near the target. */
+    if (count >= EAST_BEAST2_SEGMENT_TARGET_COUNT || bytes >= EAST_BEAST2_SEGMENT_TARGET_BYTES) {
+        threshold *= 4;
+        if (threshold > ((uint64_t)1 << 32)) threshold = (uint64_t)1 << 32;
+    } else {
+        threshold /= 4;
+    }
     return (uint64_t)hash < threshold;
 }
 

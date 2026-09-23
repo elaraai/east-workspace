@@ -171,18 +171,22 @@ describe("beast2 v5 content-defined boundaries", () => {
   });
 
   describe("the threshold", () => {
-    test("admits one narrow element in the target count", () => {
-      const threshold = 2 ** 32 / SEGMENT_TARGET_COUNT;
-      assert.equal(isSegmentBoundary(threshold - 1, SEGMENT_MIN_COUNT, 16 * SEGMENT_MIN_COUNT), true);
-      assert.equal(isSegmentBoundary(threshold, SEGMENT_MIN_COUNT, 16 * SEGMENT_MIN_COUNT), false);
+    test("is a quarter of one narrow element in the target count short of the target, four times it past", () => {
+      const base = 2 ** 32 / SEGMENT_TARGET_COUNT;
+      assert.equal(isSegmentBoundary(base / 4 - 1, SEGMENT_MIN_COUNT, 16 * SEGMENT_MIN_COUNT), true);
+      assert.equal(isSegmentBoundary(base / 4, SEGMENT_MIN_COUNT, 16 * SEGMENT_MIN_COUNT), false);
+      assert.equal(isSegmentBoundary(base * 4 - 1, SEGMENT_TARGET_COUNT, 16 * SEGMENT_TARGET_COUNT), true);
+      assert.equal(isSegmentBoundary(base * 4, SEGMENT_TARGET_COUNT, 16 * SEGMENT_TARGET_COUNT), false);
     });
 
     test("rises with the open segment's average element size", () => {
-      // An average of 64 KiB is one sixteenth of the byte target, so one
-      // element in sixteen starts a segment.
-      const threshold = 2 ** 32 / 16;
-      assert.equal(isSegmentBoundary(threshold - 1, 2, 2 * 64 * 1024), true);
-      assert.equal(isSegmentBoundary(threshold, 2, 2 * 64 * 1024), false);
+      // An average of 64 KiB is one sixteenth of the byte target: a quarter of
+      // that short of the target, four times it once the segment holds 1 MiB.
+      const base = 2 ** 32 / 16;
+      assert.equal(isSegmentBoundary(base / 4 - 1, 2, 2 * 64 * 1024), true);
+      assert.equal(isSegmentBoundary(base / 4, 2, 2 * 64 * 1024), false);
+      assert.equal(isSegmentBoundary(base * 4 - 1, 16, 16 * 64 * 1024), true);
+      assert.equal(isSegmentBoundary(base * 4, 16, 16 * 64 * 1024), false);
     });
 
     test("makes every element a boundary at an average of the byte target", () => {
@@ -324,10 +328,10 @@ describe("beast2 v5 content-defined boundaries", () => {
       assert.equal(newSegments(before, encodeBeast2PagedFor(type)(edited)), 1);
       // An insert shifts every element after it, but a cut the hash placed
       // stays at its element: only the segments before the first such cut
-      // change. Here the first segment is forced out at the maximum count, a
-      // cut that moves with the insert, so the one after it changes too.
-      assert.ok(openBeast2PagesFor(type)(before).counts[0] === SEGMENT_MAX_COUNT);
-      assert.equal(newSegments(before, encodeBeast2PagedFor(type)([{ id: -1n, name: "first" }, ...rows])), 2);
+      // change — here the first segment's own cut is the hash's, so just the
+      // one.
+      assert.ok(openBeast2PagesFor(type)(before).counts[0]! < SEGMENT_MAX_COUNT);
+      assert.equal(newSegments(before, encodeBeast2PagedFor(type)([{ id: -1n, name: "first" }, ...rows])), 1);
     });
 
     test("cuts wide rows near the byte target rather than at a count", () => {
@@ -508,8 +512,8 @@ describe("beast2 v5 content-defined boundaries", () => {
     test("cuts the 50,000-key Dict where east-c cuts it", () => {
       const blob = encodeBeast2PagedFor(TableKeyedType)(parityTable());
       const pages = openBeast2PagesFor(TableKeyedType)(blob);
-      assert.equal(pages.segmentCount, 34);
-      assert.equal(digestOf(pages.counts), "16ef9c38c923c55f");
+      assert.equal(pages.segmentCount, 38);
+      assert.equal(digestOf(pages.counts), "2d1d1a2f011d367d");
     });
 
     test("cuts the 50,000-element Set where east-c cuts it", () => {
@@ -519,16 +523,16 @@ describe("beast2 v5 content-defined boundaries", () => {
         compareFor(StringType),
       );
       const pages = openBeast2PagesFor(type)(encodeBeast2PagedFor(type)(elements));
-      assert.equal(pages.segmentCount, 49);
-      assert.equal(digestOf(pages.counts), "d9cfbd0cb241b783");
+      assert.equal(pages.segmentCount, 44);
+      assert.equal(digestOf(pages.counts), "617fc98188343a6a");
     });
 
     test("cuts the 50,000-element Array where east-c cuts it", () => {
       const type = ArrayType(StringType);
       const elements = Array.from({ length: 50_000 }, (_, i) => `a${String(i).padStart(7, "0")}`);
       const pages = openBeast2PagesFor(type)(encodeBeast2PagedFor(type)(elements));
-      assert.equal(pages.segmentCount, 44);
-      assert.equal(digestOf(pages.counts), "b3f3e8599f56443d");
+      assert.equal(pages.segmentCount, 43);
+      assert.equal(digestOf(pages.counts), "4b14a976ccd91c65");
     });
   });
 

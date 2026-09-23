@@ -41,12 +41,12 @@ static int failures = 0;
 
 /* The TypeScript writer's segmentation of the fixtures below: the segment
  * count, and fnv1a64 over the per-segment counts joined with ','. */
-#define DICT_SEGMENTS 34
-#define DICT_COUNTS_DIGEST "16ef9c38c923c55f"
-#define SET_SEGMENTS 49
-#define SET_COUNTS_DIGEST "d9cfbd0cb241b783"
-#define ARRAY_SEGMENTS 44
-#define ARRAY_COUNTS_DIGEST "b3f3e8599f56443d"
+#define DICT_SEGMENTS 38
+#define DICT_COUNTS_DIGEST "2d1d1a2f011d367d"
+#define SET_SEGMENTS 44
+#define SET_COUNTS_DIGEST "617fc98188343a6a"
+#define ARRAY_SEGMENTS 43
+#define ARRAY_COUNTS_DIGEST "4b14a976ccd91c65"
 
 /* The reference vectors every FNV-1a 64 implementation agrees on. */
 static void test_hash_vectors(void)
@@ -74,22 +74,33 @@ static void test_boundary_hash_vectors(void)
 
 static void test_threshold(void)
 {
-    /* One narrow element in the target count starts a segment. */
+    /* One narrow element in the target count is the base: a quarter of it
+     * short of the target, four times it past. */
     uint32_t narrow = (uint32_t)(((uint64_t)1 << 32) / EAST_BEAST2_SEGMENT_TARGET_COUNT);
-    CHECK(east_beast2_segment_is_boundary(narrow - 1, EAST_BEAST2_SEGMENT_MIN_COUNT,
+    CHECK(east_beast2_segment_is_boundary(narrow / 4 - 1, EAST_BEAST2_SEGMENT_MIN_COUNT,
                                           16 * EAST_BEAST2_SEGMENT_MIN_COUNT),
-          "the narrow threshold admits one below it");
-    CHECK(!east_beast2_segment_is_boundary(narrow, EAST_BEAST2_SEGMENT_MIN_COUNT,
+          "short of the target, the narrow threshold admits one below a quarter of it");
+    CHECK(!east_beast2_segment_is_boundary(narrow / 4, EAST_BEAST2_SEGMENT_MIN_COUNT,
                                            16 * EAST_BEAST2_SEGMENT_MIN_COUNT),
-          "the narrow threshold refuses itself");
+          "short of the target, the narrow threshold refuses a quarter of itself");
+    CHECK(east_beast2_segment_is_boundary(narrow * 4 - 1, EAST_BEAST2_SEGMENT_TARGET_COUNT,
+                                          16 * EAST_BEAST2_SEGMENT_TARGET_COUNT),
+          "past the target, the narrow threshold admits one below four times it");
+    CHECK(!east_beast2_segment_is_boundary(narrow * 4, EAST_BEAST2_SEGMENT_TARGET_COUNT,
+                                           16 * EAST_BEAST2_SEGMENT_TARGET_COUNT),
+          "past the target, the narrow threshold refuses four times itself");
 
-    /* An average of 64 KiB is one sixteenth of the byte target, so one
-     * element in sixteen starts a segment. */
+    /* An average of 64 KiB is one sixteenth of the byte target: a quarter of
+     * that short of the target, four times it once the segment holds 1 MiB. */
     uint32_t wide = (uint32_t)(((uint64_t)1 << 32) / 16);
-    CHECK(east_beast2_segment_is_boundary(wide - 1, 2, 2 * 64 * 1024),
-          "the wide threshold admits one below it");
-    CHECK(!east_beast2_segment_is_boundary(wide, 2, 2 * 64 * 1024),
-          "the wide threshold refuses itself");
+    CHECK(east_beast2_segment_is_boundary(wide / 4 - 1, 2, 2 * 64 * 1024),
+          "the wide threshold admits one below a quarter of it");
+    CHECK(!east_beast2_segment_is_boundary(wide / 4, 2, 2 * 64 * 1024),
+          "the wide threshold refuses a quarter of itself");
+    CHECK(east_beast2_segment_is_boundary(wide * 4 - 1, 16, 16 * 64 * 1024),
+          "past the byte target, the wide threshold admits one below four times it");
+    CHECK(!east_beast2_segment_is_boundary(wide * 4, 16, 16 * 64 * 1024),
+          "past the byte target, the wide threshold refuses four times itself");
 
     /* At an average of the byte target every element is a boundary. */
     CHECK(east_beast2_segment_is_boundary(0xffffffffu, 1, EAST_BEAST2_SEGMENT_TARGET_BYTES),
