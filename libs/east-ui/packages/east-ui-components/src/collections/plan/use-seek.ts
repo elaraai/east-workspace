@@ -84,18 +84,22 @@ export interface PlanSeekState {
     targetKey: string | undefined;
 }
 
-/** The `.east` literal of a String key is its quoted text; every other query
- *  shape carries its prefix plainly. `undefined` ⇒ nothing to position on.
- *  Shared with the Sheet's key search (`sheet/use-seek.ts`). */
+/** The key a query's run starts at, which the canvas anchors on. The `.east`
+ *  literal of a String key is its quoted text; a prefix is carried plainly; a
+ *  range starts at its lower bound, or at the first row when it is open
+ *  below. `undefined` ⇒ nothing to position on. */
 export function soughtKeyOf(query: DatasetKeyQuery): string | undefined {
     if ("prefix" in query) return query.prefix;
     if ("key" in query) {
         const parsed = parseFor(StringType)(query.key);
         return parsed.success ? (parsed.value as string) : query.key;
     }
-    // A range has no single sought key — it names a run, and the chrome shows
-    // where the run starts rather than a key it landed on.
-    if ("from" in query || "to" in query) return undefined;
+    if ("from" in query || "to" in query) {
+        const from = query.from?.[0];
+        if (from === undefined) return "";
+        const parsed = parseFor(StringType)(from);
+        return parsed.success ? (parsed.value as string) : from;
+    }
     return query.prefix;
 }
 
