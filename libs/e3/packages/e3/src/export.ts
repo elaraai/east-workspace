@@ -414,8 +414,8 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
     const indexes = new SortedMap<string, string>(); // name -> RecordIndexObject hash
     for (const [iname, idef] of Object.entries(rdef.indexes)) {
       const owner = `index "${rname}.${iname}"`;
-      const irHash = (expr: { toIR: () => EastIR<any, any> | AsyncEastIR<any, any> }): string =>
-        addObject(zipfile, Buffer.from(encodeEastIR(link(expr.toIR(), owner, idef.runner))));
+      const irHash = (expr: { toIR(): unknown }): string =>
+        addObject(zipfile, Buffer.from(encodeEastIR(link(expr.toIR() as EastIR<any, any> | AsyncEastIR<any, any>, owner, idef.runner))));
       const indexObject: RecordIndexObject = {
         keyIr: irHash(idef.keyFn),
         multi: idef.multi,

@@ -20,7 +20,7 @@
  * one to the byte.
  */
 
-import type { CallableFunctionExpr, EastType, FunctionExpr, SetType } from '@elaraai/east';
+import type { EastType, FunctionExpr, SetType } from '@elaraai/east';
 import {
   AsyncEastIR, EastTypeType, Expr, NullType, equalFor, printType, toEastTypeValue, walkIR,
 } from '@elaraai/east';
@@ -258,8 +258,8 @@ export function recordIndex<Name extends string, T extends EastType, S extends R
     kind: 'recordIndex',
     name,
     record: rec,
-    keyFn: keyFn as CallableFunctionExpr<any, any>,
-    ...(spec.value !== undefined && { valueFn: spec.value as CallableFunctionExpr<any, any> }),
+    keyFn,
+    ...(spec.value !== undefined && { valueFn: spec.value }),
     multi,
     // The signature read above IS the type the spec's functions declare; the
     // casts only restate it at the TypeScript level.

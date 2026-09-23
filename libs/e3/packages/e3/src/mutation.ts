@@ -175,7 +175,7 @@ export function mutation(
     // Keep the full EastIR bundle (IR + source map) so export.ts can encode
     // with encodeEastIR and preserve source locations.
     body: fn.toIR() as MutationDef['body'],
-    fn: fn as CallableFunctionExpr<any, any>,
+    fn,
     // The extra parameter types are everything after the leading state parameter.
     argTypes: signature.inputs.slice(1),
     runner,
@@ -266,7 +266,7 @@ export function editMutation(
     record: rec,
     form: 'edit',
     body: fn.toIR() as MutationDef['body'],
-    fn: fn as CallableFunctionExpr<any, any>,
+    fn,
     // The extra parameters sit between the leading state and the trailing edit.
     argTypes: signature.inputs.slice(1, -1),
     runner,

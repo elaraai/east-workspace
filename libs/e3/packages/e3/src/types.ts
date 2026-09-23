@@ -14,7 +14,7 @@
  * - **Task**: A transformation that reads input datasets and produces an output dataset
  */
 
-import type { CallableFunctionExpr, EastType, EastIR, AsyncEastIR, ValueTypeOf, variant } from '@elaraai/east';
+import type { EastType, EastIR, AsyncEastIR, ValueTypeOf, variant } from '@elaraai/east';
 import type { MutationForm, TreePath } from '@elaraai/e3-types';
 import type { DatasetSource } from './input.js';
 import type { Runner } from './runner.js';
@@ -208,11 +208,12 @@ export interface RecordIndexDef<
   /** The record this index is over. */
   readonly record: RecordDef<T>;
   /** `(K, V) -> IK`, or `(K, V) -> Set<IK>` when {@link multi}. Kept as the
-   *  expression so export can compose it into the generated programs. */
-  readonly keyFn: CallableFunctionExpr<any, any>;
+   *  expression so export can compose it into the generated programs, which
+   *  reach it through its IR alone — so no call signature is claimed here. */
+  readonly keyFn: { toIR(): unknown };
   /** `(K, V) -> P`, the covering projection; absent when the index carries no
    *  value. */
-  readonly valueFn?: CallableFunctionExpr<any, any>;
+  readonly valueFn?: { toIR(): unknown };
   /** Declared with `keys` rather than `key`: one entry per element of the
    *  returned set, so a row naming five resources appears under five keys. */
   readonly multi: boolean;
@@ -258,8 +259,10 @@ export interface MutationDef<
   /** The EXTRA positional parameter types (the state type comes from the record). */
   readonly argTypes: Args;
   /** The body as an expression, kept beside its IR so export can compose it
-   *  into the generated program rather than re-deriving it from the IR. */
-  readonly fn?: CallableFunctionExpr<any, any>;
+   *  into the generated program rather than re-deriving it from the IR. The
+   *  program reaches it through its IR alone, so no call signature is claimed
+   *  here. */
+  readonly fn?: { toIR(): unknown };
   /** Runtime the reducer runs on; defaults to DEFAULT_RUNNER. */
   readonly runner: Runner;
 }
