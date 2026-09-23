@@ -176,7 +176,7 @@ def create_parser() -> argparse.ArgumentParser:
     # where east-c and east-node name what is missing. Checked in cmd_merge.
     merge_parser.add_argument(
         "-i", "--input", action="append", default=[], type=Path, metavar="FILE",
-        help="An input blob (can be repeated; equal keys fold in this order)",
+        help="An input blob or manifest (can be repeated; equal keys fold in this order)",
     )
     merge_parser.add_argument(
         "-o", "--output", type=Path, metavar="FILE", help="The merged blob",

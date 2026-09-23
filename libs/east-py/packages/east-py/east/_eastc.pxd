@@ -363,6 +363,7 @@ cdef extern from "east/values.h":
 
     EastValue *east_struct_new(const char **names, EastValue **values, size_t count, EastType *type)
     EastValue *east_struct_get_field(EastValue *s, const char *name)
+    EastValue *east_struct_get_field_idx(EastValue *s, size_t idx)
     # field_names is NULL whenever the instance's StructType supplies the names
     # (the common case). Always read names through this.
     const char *east_struct_field_name(const EastValue *s, size_t idx)
@@ -570,6 +571,26 @@ cdef extern from "east/serialization.h":
                           size_t *fences_probed, cbool *hydrated)
     EastType *east_beast2_pages_type(Beast2Pages *p)
 
+    # Segment manifests: a collection held as standalone segment blobs and a
+    # manifest naming them, a manifest directory being the manifest's file
+    # and `<file>.segments/<sha256>.beast2` for every object it names.
+    EastType *east_beast2_manifest_type()
+    int east_beast2_read_manifest(const uint8_t *data, size_t length, EastValue **manifest_out)
+    EastValue *east_beast2_open_manifest_dir(const char *path, EastValue *manifest,
+                                             EastType *type, bint frozen)
+    EastValue *east_beast2_decode_manifest_dir(const char *path, EastValue *manifest,
+                                               EastType *type, bint frozen)
+    ctypedef struct Beast2ManifestWriter:
+        pass
+    Beast2ManifestWriter *east_beast2_manifest_writer_new_dir(EastType *type, int32_t codec_id,
+                                                              const char *path)
+    bint east_beast2_manifest_writer_add(Beast2ManifestWriter *w, EastValue *element)
+    bint east_beast2_manifest_writer_add_pair(Beast2ManifestWriter *w, EastValue *key,
+                                              EastValue *value)
+    bint east_beast2_manifest_writer_finish(Beast2ManifestWriter *w)
+    size_t east_beast2_manifest_writer_segments(const Beast2ManifestWriter *w)
+    void east_beast2_manifest_writer_free(Beast2ManifestWriter *w)
+
     # v5 splice extents — byte geometry for merging blobs (issue #484)
     ctypedef struct Beast2SpliceExtents:
         size_t prefix_end
@@ -749,6 +770,7 @@ cdef extern from "east/merge.h":
         const char **input_paths
         size_t num_inputs
         const char *output_path
+        bint output_manifest
         EastCompiledFn *merge_fn
         bint union_mode
         const char *range_path

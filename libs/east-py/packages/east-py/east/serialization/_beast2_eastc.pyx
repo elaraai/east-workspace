@@ -479,6 +479,171 @@ cpdef unsigned long long _fnv1a64(bytes data):
     return _eastc.east_beast2_fnv1a64(p, len(data))
 
 
+# ─── Segment manifests ────────────────────────────────────────────────────
+#
+# A collection held as standalone segment blobs and a manifest naming them: a
+# manifest directory is the manifest's file and, in `<file>.segments/`, every
+# object it names — the header and each segment — as `<sha256>.beast2`.
+# east-c reads and writes them, so a directory written here is the one east-c
+# and TypeScript write for the same value.
+
+
+def _read_manifest(object data):
+    """The manifest ``data`` holds, as a python value of the manifest struct,
+    or None when it holds anything else. Raises ValueError with east-c's
+    message when it is typed as a manifest and does not decode."""
+    cdef const uint8_t[::1] view = data
+    _ensure_eastc_runtime()
+    cdef const uint8_t* ptr = <const uint8_t*>_EMPTY
+    if view.shape[0] > 0:
+        ptr = &view[0]
+    cdef _eastc.EastValue* manifest = NULL
+    cdef int found = _eastc.east_beast2_read_manifest(ptr, <size_t>view.shape[0], &manifest)
+    if found == -1:
+        _consume_eastc_error("beast2 v5: the manifest does not decode", ValueError)
+    if found == 0:
+        return None
+    try:
+        return c_value_to_py(manifest, _eastc.east_beast2_manifest_type())
+    finally:
+        _eastc.east_value_release(manifest)
+
+
+def _decode_manifest_dir(object py_type, object path):
+    """The whole collection the manifest directory at ``path`` holds, decoded
+    segment by segment — the value its spliced blob decodes to. With
+    ``py_type`` None it decodes as the type the manifest records; a type
+    given must be that one. Raises ValueError when ``path`` holds no
+    manifest, the types differ, or a segment is missing or malformed."""
+    _ensure_eastc_runtime()
+    with open(path, "rb") as f:
+        data = f.read()
+    cdef const uint8_t[::1] view = data
+    cdef const uint8_t* ptr = <const uint8_t*>_EMPTY
+    if view.shape[0] > 0:
+        ptr = &view[0]
+    cdef _eastc.EastValue* manifest = NULL
+    cdef int found = _eastc.east_beast2_read_manifest(ptr, <size_t>view.shape[0], &manifest)
+    if found == -1:
+        _consume_eastc_error("beast2 v5: the manifest does not decode", ValueError)
+    if found == 0:
+        raise ValueError(f"beast2 v5: {path} does not hold a manifest")
+    cdef _eastc.EastType* wire = _eastc.east_type_from_value(
+        _eastc.east_struct_get_field_idx(manifest, 2))
+    cdef _eastc.EastType* declared = NULL
+    cdef _eastc.EastValue* value = NULL
+    cdef bytes c_path
+    try:
+        if wire == NULL:
+            raise ValueError(f"beast2 v5: the manifest at {path} records no type this build reads")
+        if py_type is not None:
+            declared = py_type_to_c(py_type)
+            if not _eastc.east_type_equal(declared, wire):
+                from east.serialization.east_printer import print_type
+                raise ValueError(
+                    "beast2 v5: declared type does not match the manifest — declared "
+                    f"{print_type(py_type)}, the manifest carries "
+                    f"{print_type(_c_type_tag_to_py_type(wire))}")
+        c_path = _c_path(path)
+        value = _eastc.east_beast2_decode_manifest_dir(<const char*>c_path, manifest, wire, False)
+        if value == NULL:
+            _consume_eastc_error("beast2 v5: the manifest directory does not decode", ValueError)
+        return c_value_to_py(value, wire)
+    finally:
+        if value != NULL:
+            _eastc.east_value_release(value)
+        _eastc.east_value_release(manifest)
+        if declared != NULL:
+            _eastc.east_type_release(declared)
+        if wire != NULL:
+            _eastc.east_type_release(wire)
+
+
+cdef class _Beast2ManifestWriterCore:
+    """Owner of one east-c manifest writer over a directory: the manifest at
+    ``path``, every object in ``<path>.segments/``. Elements go in as
+    :class:`_Beast2ElementWriterCore` takes them."""
+
+    cdef _eastc.Beast2ManifestWriter* _w
+    cdef _eastc.EastType* _type
+
+    def __cinit__(self, object py_type, object path, object codec):
+        _ensure_eastc_runtime()
+        cdef int32_t codec_id = _codec_id(codec)
+        cdef bytes c_path = _c_path(path)
+        self._type = py_type_to_c(py_type)
+        self._w = _eastc.east_beast2_manifest_writer_new_dir(self._type, codec_id,
+                                                             <const char*>c_path)
+        if self._w == NULL:
+            _eastc.east_type_release(self._type)
+            self._type = NULL
+            _consume_eastc_error("east-c beast2 manifest writer construction failed")
+
+    def add(self, object element):
+        """Add one element — for a Dict, a ``(key, value)`` pair."""
+        cdef _eastc.EastValue* c_head
+        cdef _eastc.EastValue* c_value
+        cdef bint ok
+        if self._type.kind == _eastc.EAST_TYPE_DICT:
+            key, value = element
+            c_head = py_value_to_c(key, self._type.data.dict.key)
+            try:
+                c_value = py_value_to_c(value, self._type.data.dict.value)
+            except BaseException:
+                _eastc.east_value_release(c_head)
+                raise
+            ok = _eastc.east_beast2_manifest_writer_add_pair(self._w, c_head, c_value)
+            _eastc.east_value_release(c_value)
+        else:
+            c_head = py_value_to_c(element, self._type.data.element)
+            ok = _eastc.east_beast2_manifest_writer_add(self._w, c_head)
+        _eastc.east_value_release(c_head)
+        if not ok:
+            _consume_eastc_error("east-c beast2 manifest writer add failed")
+
+    def add_all(self, object batch):
+        """Add every element of ``batch``, a value of the collection type, in
+        its order — one conversion and a loop in C."""
+        cdef _eastc.EastValue* c_val = py_value_to_c(batch, self._type)
+        cdef bint ok = self._add_each(c_val)
+        _eastc.east_value_release(c_val)
+        if not ok:
+            _consume_eastc_error("east-c beast2 manifest writer add failed")
+
+    cdef bint _add_each(self, _eastc.EastValue* batch) noexcept:
+        cdef size_t i
+        if self._type.kind == _eastc.EAST_TYPE_ARRAY:
+            for i in range(_eastc.east_array_len(batch)):
+                if not _eastc.east_beast2_manifest_writer_add(self._w, _eastc.east_array_get(batch, i)):
+                    return False
+        elif self._type.kind == _eastc.EAST_TYPE_SET:
+            for i in range(_eastc.east_set_len(batch)):
+                if not _eastc.east_beast2_manifest_writer_add(self._w, _eastc.east_set_at(batch, i)):
+                    return False
+        else:
+            for i in range(_eastc.east_dict_len(batch)):
+                if not _eastc.east_beast2_manifest_writer_add_pair(
+                        self._w, _eastc.east_dict_key_at(batch, i), _eastc.east_dict_val_at(batch, i)):
+                    return False
+        return True
+
+    def finish(self):
+        """Write the open segment, then the manifest. A finish that fails
+        writes no manifest."""
+        if not _eastc.east_beast2_manifest_writer_finish(self._w):
+            _consume_eastc_error("east-c beast2 manifest writer finish failed")
+
+    def segments(self):
+        """Segments written so far; the open one is not counted."""
+        return _eastc.east_beast2_manifest_writer_segments(self._w)
+
+    def __dealloc__(self):
+        if self._w != NULL:
+            _eastc.east_beast2_manifest_writer_free(self._w)
+        if self._type != NULL:
+            _eastc.east_type_release(self._type)
+
+
 cdef class _Beast2WriterCore:
     """Thin wrapper over east-c's streaming v5 writer. The Python-facing
     Beast2Writer in east.serialization.beast2 owns the output stream and
@@ -1233,7 +1398,7 @@ cdef bytes _c_path(object path):
 
 
 def _merge_blobs(object input_paths, object output_path, object merge=None,
-                 bint union_mode=False, object range_path=None):
+                 bint union_mode=False, object range_path=None, bint output_manifest=False):
     """Merge sorted Set or Dict blobs of one type into one — east-c's
     ``east_merge_blobs`` (east/merge.h), the very code ``east-c merge`` runs,
     so the two runners write the same bytes (#770). One pass: every input is
@@ -1246,7 +1411,9 @@ def _merge_blobs(object input_paths, object output_path, object merge=None,
     without a fold. With ``range_path`` — a beast2 blob of ``Struct{from:
     Option<K>, to: Option<K>}`` over the inputs' key type, an absent bound
     open — only the keys in ``[from, to)`` merge: every input is sought to
-    the segment owning ``from`` through its fences.
+    the segment owning ``from`` through its fences. An input may be a
+    manifest directory (its manifest's path); with ``output_manifest`` the
+    output is written as one.
 
     Returns ``{"inputs", "entries", "folds"}``. Raises ValueError with
     east-c's message — an input of another type than input 0's, an Array,
@@ -1272,6 +1439,7 @@ def _merge_blobs(object input_paths, object output_path, object merge=None,
     cfg.input_paths = c_paths
     cfg.num_inputs = n
     cfg.output_path = <const char*>out_bytes
+    cfg.output_manifest = output_manifest
     cfg.merge_fn = merge_fn
     cfg.union_mode = union_mode
     cfg.range_path = <const char*>range_bytes if range_path is not None else NULL

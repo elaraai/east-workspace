@@ -279,24 +279,29 @@ def run_program(
     # paged value serves its reads from the mapping, so the input's residency
     # is the page cache and the heap holds one decoded segment at a time.
     # Anything not pageable falls back to the whole (frozen) decode, exactly
-    # like east-node's runner.
-    from east.runtime._compiler_eastc import open_paged_file
+    # like east-node's runner. A file holding a manifest is the collection it
+    # names, its segments in the directory beside it, and it weighs its
+    # segments rather than its own few kilobytes.
+    from east.runtime._compiler_eastc import (
+        load_frozen_manifest,
+        manifest_segment_bytes,
+        open_manifest_file,
+        open_paged_file,
+    )
 
     threshold = _lazy_input_threshold()
     inputs = []
     lazy_inputs: list[int] = []
     for i, (file_path, param_type) in enumerate(zip(input_files, input_types, strict=False)):
+        beast2 = Path(file_path).suffix.lower() in (".beast2", ".beast")
+        collection = getattr(param_type, "type", None) in ("Array", "Set", "Dict")
+        weight = manifest_segment_bytes(file_path) if beast2 and collection else None
+        size = Path(file_path).stat().st_size + (weight or 0)
         lazy = None
-        want_lazy = i in stream_inputs or (
-            threshold > 0 and Path(file_path).stat().st_size >= threshold
-        )
-        if (
-            want_lazy
-            and Path(file_path).suffix.lower() in (".beast2", ".beast")
-            and getattr(param_type, "type", None) in ("Array", "Set", "Dict")
-        ):
+        if beast2 and collection and (i in stream_inputs or (threshold > 0 and size >= threshold)):
             try:
-                lazy = open_paged_file(handle._input_types[i], file_path, frozen=True)
+                opener = open_paged_file if weight is None else open_manifest_file
+                lazy = opener(handle._input_types[i], file_path, frozen=True)
             except (OSError, ValueError):
                 # Not a container of the parameter's type, or a file that
                 # cannot be mapped: the whole decode below reads it and
@@ -307,6 +312,8 @@ def run_program(
             if verbose:
                 print(f"  input {i}: opened lazily — mapped from the file", file=sys.stderr)
             inputs.append(lazy)
+        elif weight is not None:
+            inputs.append(load_frozen_manifest(handle._input_types[i], file_path))
         else:
             inputs.append(_load_frozen_input(handle._input_types[i], file_path, param_type))
 
@@ -398,7 +405,8 @@ def merge_blobs(
     (issue #770), east-c's blob merge behind ``east-c merge`` too, so the two
     runners write the same bytes.
 
-    One pass over the inputs, read segment by segment through a mapping; the
+    One pass over the inputs, read segment by segment through a mapping — an
+    input may be a manifest directory, read through its segment files; the
     output is what ``run --emit`` writes for the same entries emitted
     ascending. Equal keys fold in input order: ``merge`` names an IR file
     holding a ``(K, V, V) -> V`` function, compiled with the run's platforms,

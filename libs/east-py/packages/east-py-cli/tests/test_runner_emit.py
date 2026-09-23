@@ -199,6 +199,38 @@ def test_lazy_input_is_paged_one_segment_at_a_time(tmp_path):
             f"lazy peak {lazy_rss:.1f} MB not below eager peak {eager_rss:.1f} MB")
 
 
+def test_a_manifest_input_pages_over_its_directory(tmp_path, monkeypatch, capsys):
+    # A manifest-rooted input — how e3 stages a collection input for a runner
+    # that opens manifests — pages over its directory's segment files: a keyed
+    # read decodes one segment, the lazy threshold weighs the segments rather
+    # than the manifest's own few hundred bytes, and the eager control reads
+    # the same value whole. The east-c CLI's gate is the same.
+    from east.serialization.beast2 import Beast2ManifestWriter
+
+    table = tmp_path / "wide.beast2"
+    with Beast2ManifestWriter(INT_STR_DICT, table, codec="none") as writer:
+        writer.add_all(EastDict(IntegerType, StringType,
+                                {i: f"row-{i}-" + chr(97 + i % 26) * 190 for i in range(80_000)}))
+
+    def run(threshold: str) -> str:
+        monkeypatch.setenv("EAST_LAZY_INPUT_BYTES", threshold)
+        run_program(FIXTURES / "paged_has.beast2", [], [], [table], verbose=True)
+        out, err = capsys.readouterr()
+        assert out.strip() == "true"
+        return err
+
+    lazy = run("1")
+    assert "input 0: opened lazily" in lazy
+    account = re.search(r"input 0: (\d+) of (\d+) segments decoded", lazy)
+    assert account is not None, lazy
+    decoded, segments = (int(g) for g in account.groups())
+    assert segments >= 8
+    assert decoded == 1, f"a keyed read of the manifest decoded {decoded} of {segments} segments"
+    # 1 MiB: far above the manifest file, far below its segments.
+    assert "input 0: opened lazily" in run(str(1024 * 1024))
+    assert "opened lazily" not in run("0")
+
+
 def test_dict_emit_decodes_with_index(tmp_path):
     out = tmp_path / "out.beast2"
     run_program(FIXTURES / "emit_dict.beast2", [], [], [], out, emit="dict")

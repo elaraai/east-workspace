@@ -537,6 +537,190 @@ def open_paged_file(object east_type, object path, bint frozen=True):
     return hold
 
 
+# ─── Manifest-rooted inputs ──────────────────────────────────────────────
+#
+# A collection input e3 stages as a manifest: the file holds the manifest and
+# its segments sit beside it in `<file>.segments/`, each named by its SHA-256.
+# east-c reads the directory — lazily, a keyed read opening the one segment it
+# lands in, or whole.
+
+
+cdef class _ManifestHold:
+    """A decoded manifest's C value, released with the hold."""
+    cdef _eastc.EastValue* ptr
+
+    def __dealloc__(self):
+        if self.ptr != NULL:
+            _eastc.east_value_release(self.ptr)
+
+
+cdef object _manifest_from_buffer(object buffer):
+    """The manifest ``buffer`` holds, or None when it holds anything else. The
+    view is this function's own, released before the caller closes the
+    buffer."""
+    cdef const uint8_t[::1] view = buffer
+    cdef const uint8_t* ptr = NULL
+    if view.shape[0] > 0:
+        ptr = &view[0]
+    cdef _eastc.EastValue* manifest = NULL
+    cdef int found = _eastc.east_beast2_read_manifest(ptr, <size_t>view.shape[0], &manifest)
+    if found == -1:
+        err = _eastc.east_builtin_get_error()
+        msg = err.decode("utf-8") if err != NULL else "beast2 v5: the manifest does not decode"
+        free(err)
+        raise ValueError(msg)
+    if found == 0:
+        return None
+    cdef _ManifestHold hold = _ManifestHold()
+    hold.ptr = manifest
+    return hold
+
+
+cdef object _manifest_at(object path):
+    """The manifest the file at ``path`` holds, or None. The file is mapped,
+    and nothing past its type section is read unless it is typed as a
+    manifest — a large blob costs a head read to rule out."""
+    import mmap as _mmap
+    import os as _os
+
+    if _os.stat(path).st_size == 0:
+        return None
+    with open(path, "rb") as handle:
+        mapping = _mmap.mmap(handle.fileno(), 0, access=_mmap.ACCESS_READ)
+    try:
+        return _manifest_from_buffer(mapping)
+    finally:
+        mapping.close()
+
+
+def manifest_segment_bytes(object path):
+    """The bytes the collection a manifest-rooted input names comes to — its
+    segments', which is what the lazy-open threshold weighs, a manifest being
+    a few dozen bytes per segment whatever the collection weighs — or None
+    when the file at ``path`` holds no manifest."""
+    _ensure_runtime()
+    hold = _manifest_at(path)
+    if hold is None:
+        return None
+    cdef _eastc.EastValue* entries = _eastc.east_struct_get_field_idx(
+        (<_ManifestHold>hold).ptr, 5)
+    cdef _eastc.EastValue* size
+    cdef size_t i
+    total = 0
+    for i in range(_eastc.east_array_len(entries)):
+        size = _eastc.east_struct_get_field_idx(_eastc.east_array_get(entries, i), 3)
+        if size != NULL and size.kind == _eastc.EAST_VAL_INTEGER and size.data.integer > 0:
+            total += size.data.integer
+    return total
+
+
+cdef int _check_manifest_type(object hold, _eastc.EastType* c_type) except -1:
+    """Raises ValueError, in the words open_paged_file uses for a blob of
+    another type, unless the manifest names exactly ``c_type``."""
+    cdef _eastc.EastType* wire = _eastc.east_type_from_value(
+        _eastc.east_struct_get_field_idx((<_ManifestHold>hold).ptr, 2))
+    if wire != NULL and _eastc.east_type_equal(wire, c_type):
+        _eastc.east_type_release(wire)
+        return 0
+    from east.serialization.east_printer import print_type
+    got = print_type(_c_type_tag_to_py_type(wire)) if wire != NULL else "?"
+    if wire != NULL:
+        _eastc.east_type_release(wire)
+    raise ValueError(
+        f"beast2: cannot open a blob of type {got} as {print_type(_c_type_tag_to_py_type(c_type))}")
+
+
+def open_manifest_file(object east_type, object path, bint frozen=True):
+    """Open a manifest-rooted input as a lazy paged C value over its directory:
+    the manifest's counts and fences answer size and keyed seeks, and each
+    segment file is mapped for the read that decodes it. Returns the hold
+    shape :func:`open_paged_file` returns, or ``None`` when the element shape
+    must decode whole (:func:`load_frozen_manifest`).
+
+    Raises:
+        ValueError: If the file holds no manifest, or one of another type.
+    """
+    import os as _os
+
+    _ensure_runtime()
+    hold = _manifest_at(path)
+    if hold is None:
+        raise ValueError(f"beast2 v5: {path} does not hold a manifest")
+    cdef bint own_type = False
+    cdef _eastc.EastType* c_type = _resolve_c_type(east_type, &own_type)
+    cdef bytes c_path = str(path).encode("mbcs") if _os.name == "nt" else _os.fsencode(path)
+    cdef _eastc.EastValue* v
+    try:
+        _check_manifest_type(hold, c_type)
+        v = _eastc.east_beast2_open_manifest_dir(<const char*>c_path, (<_ManifestHold>hold).ptr,
+                                                 c_type, frozen)
+    except BaseException:
+        if own_type:
+            _eastc.east_type_release(c_type)
+        raise
+    if v == NULL:
+        if own_type:
+            _eastc.east_type_release(c_type)
+        free(_eastc.east_builtin_get_error())
+        return None
+    cdef uintptr_t v_ptr = <uintptr_t>v
+    cdef uintptr_t type_ptr = <uintptr_t>c_type
+    cdef bint own_type_flag = own_type
+
+    class _PagedManifestHold:
+        __slots__ = ("_east_c_paged", "_east_c_paged_type", "_own_type", "_released")
+
+        def __init__(self):
+            self._east_c_paged = v_ptr
+            self._east_c_paged_type = type_ptr
+            self._own_type = own_type_flag
+            self._released = False
+
+        def __del__(self):
+            if self._released:
+                return
+            self._released = True
+            _proxy_value_release(self._east_c_paged)
+            if self._own_type:
+                _proxy_type_release(self._east_c_paged_type)
+
+    return _PagedManifestHold()
+
+
+def load_frozen_manifest(object east_type, object path):
+    """The whole collection a manifest-rooted input names, decoded FROZEN
+    segment by segment — the eager sibling of :func:`open_manifest_file`, and
+    the value the spliced blob would decode to.
+
+    Raises:
+        ValueError: If the file holds no manifest, one of another type, or a
+            segment is missing or malformed.
+    """
+    import os as _os
+
+    _ensure_runtime()
+    hold = _manifest_at(path)
+    if hold is None:
+        raise ValueError(f"beast2 v5: {path} does not hold a manifest")
+    cdef bint own_type = False
+    cdef _eastc.EastType* c_type = _resolve_c_type(east_type, &own_type)
+    cdef bytes c_path = str(path).encode("mbcs") if _os.name == "nt" else _os.fsencode(path)
+    cdef _eastc.EastValue* v
+    try:
+        _check_manifest_type(hold, c_type)
+        v = _eastc.east_beast2_decode_manifest_dir(<const char*>c_path,
+                                                   (<_ManifestHold>hold).ptr, c_type, True)
+    finally:
+        if own_type:
+            _eastc.east_type_release(c_type)
+    if v == NULL:
+        err = _eastc.east_builtin_get_error()
+        msg = err.decode("utf-8") if err != NULL else "beast2 v5: the manifest directory does not decode"
+        free(err)
+        raise ValueError(msg)
+    return _frozen_hold_from(v)
+
+
 def paged_value_ref_count(uintptr_t ptr):
     """The C refcount of a paged value — the close-safety probe (#560): a
     count above the hold's own reference means a function bind or compiled

@@ -52,13 +52,16 @@ from east.serialization._beast2_eastc import (  # type: ignore[import-not-found]
     _beast2_splice_extents,
     _beast2_splice_tail,
     _Beast2ElementWriterCore,
+    _Beast2ManifestWriterCore,
     _Beast2PagesCore,
     _Beast2Projection,
     _Beast2ReaderCore,
     _Beast2RunSorterCore,
     _Beast2WriterCore,
+    _decode_manifest_dir,
     _encode_beast2_paged,
     _encode_beast2_v5,
+    _read_manifest,
     decode_beast2_for,
     decode_beast2_with_header_for,
     encode_beast2_for,
@@ -3375,6 +3378,134 @@ def write_beast2_file(path, collection_type, value, *, codec: str = "deflate") -
         writer.write(value)
 
 
+# ── Segment manifests ─────────────────────────────────────────────────────
+#
+# A collection held as standalone segment blobs and a manifest naming them,
+# the form e3 stores a collection in. A manifest directory is the manifest's
+# file and, in `<file>.segments/`, every object it names — the header and
+# each segment — as `<sha256>.beast2`. east-c reads and writes it, so a
+# directory written here is the one east-c and TypeScript write for the same
+# value.
+
+
+class Beast2ManifestWriter:
+    """Write a collection as a manifest directory, one element at a time.
+
+    Elements go in as :class:`Beast2ElementWriter` takes them, in canonical
+    order, and the segments are the ones it cuts: each is written to
+    ``<path>.segments/`` as a standalone blob under the header they share,
+    named by its SHA-256, and :meth:`close` writes the manifest naming them
+    to ``path``. The directory is a function of the value — the one east-c
+    and TypeScript write for it. A writer left by an exception writes no
+    manifest. Memory is one open segment; east-c's writer does every byte.
+    """
+
+    def __init__(self, collection_type, path, *, codec: str = "deflate"):
+        _check_segmented(collection_type)
+        self.collection_type = collection_type
+        """The declared root collection type (Array/Set/Dict)."""
+        self.path = os.fspath(path)
+        """The manifest's file; the objects it names go in ``<path>.segments/``."""
+        self._core = _Beast2ManifestWriterCore(collection_type, self.path, codec)
+        self._closed = False
+
+    @property
+    def segments(self) -> int:
+        """Segments written so far; the open one is not counted until it
+        closes."""
+        return self._core.segments()
+
+    def add(self, element) -> None:
+        """Add one element — for a Dict, a ``(key, value)`` pair. A Set
+        element or Dict key that does not ascend strictly from the last is
+        refused; an element that fails to encode leaves the writer as it was,
+        and a segment that cannot be written ends it."""
+        if self._closed:
+            raise ValueError("add() after close()")
+        self._core.add(element)
+
+    def add_all(self, batch) -> None:
+        """Add every element of ``batch`` — a value of the declared
+        collection type — in its order, as :meth:`add` would one by one. The
+        loop runs in east-c."""
+        if self._closed:
+            raise ValueError("add_all() after close()")
+        self._core.add_all(batch)
+
+    def close(self) -> None:
+        """Write the open segment, then the manifest. Idempotent."""
+        if not self._closed:
+            self._closed = True
+            self._core.finish()
+
+    def __enter__(self) -> Beast2ManifestWriter:
+        return self
+
+    def __exit__(self, exc_type, *exc) -> None:
+        if exc_type is not None:
+            # Same contract as Beast2Writer.__exit__: never mask the
+            # in-flight error with a finish failure — and no manifest names
+            # a collection that did not finish.
+            self._closed = True
+            return
+        self.close()
+
+
+def read_beast2_manifest(source):
+    """The segment manifest ``source`` holds, or ``None`` when it holds
+    anything else — a value, another root type, or a struct of the
+    manifest's shape carrying another kind. TypeScript's
+    ``readBeast2Manifest``: a blob that turns out to be a value is read no
+    further than its type section.
+
+    Args:
+        source: A path (a manifest's file), or any buffer (``bytes``,
+            ``bytearray``, ``memoryview``, an ``mmap``).
+
+    Returns:
+        The manifest — a struct of ``kind``, ``level``, ``type`` (the
+        collection's type, as an East type value), ``rule``, ``header`` and
+        ``entries``, each entry ``{hash, fence, count, bytes}`` — or ``None``.
+
+    Raises:
+        ValueError: When the data is typed as a manifest but does not decode
+            as one, or names manifests rather than segments.
+    """
+    if isinstance(source, (str, os.PathLike)):
+        path = os.fspath(source)
+        with open(path, "rb") as f:
+            if os.fstat(f.fileno()).st_size == 0:
+                return None
+            with mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as mm:
+                try:
+                    return _read_manifest(mm)
+                except ValueError as exc:
+                    raise ValueError(f"{path}: {exc}") from None
+    return _read_manifest(_as_buffer(source))
+
+
+def load_beast2_manifest(path, collection_type=None):
+    """Decode the whole collection a manifest directory holds — the value
+    its segments spliced into one blob decode to — segment by segment inside
+    east-c, each segment file mapped only while it decodes.
+
+    Args:
+        path: The manifest's file; its segments are read from
+            ``<path>.segments/``.
+        collection_type: The root Array/Set/Dict type. Optional — a manifest
+            records its type; when given it must be that one, and a mismatch
+            fails before anything decodes.
+
+    Returns:
+        The collection.
+
+    Raises:
+        ValueError: When ``path`` holds no manifest, the types differ, or a
+            segment is missing or malformed.
+    """
+    return _decode_manifest_dir(collection_type, os.fspath(path))
+
+
 # ── Splice: merge v5 files without re-encoding (issue #484) ───────────────
 #
 # A self-contained segment's bytes are position-independent by design (REF
@@ -3762,6 +3893,9 @@ __all__ = [
     "write_beast2_file",
     "write_beast2_file_parallel",
     "splice_beast2_files",
+    "Beast2ManifestWriter",
+    "read_beast2_manifest",
+    "load_beast2_manifest",
     "BEAST2_MAGIC_BYTES",
     "BEAST2_V4_MAGIC",
     "BEAST2_V5_MAGIC",
