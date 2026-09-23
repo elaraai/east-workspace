@@ -8,9 +8,12 @@
  *   patch: <type-specific structural patch>  (containers only)
  */
 #include "east/builtins.h"
+#include "east/serialization.h"
 #include "east/types.h"
 #include "east/values.h"
 
+#include <stdarg.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -98,6 +101,84 @@ static EastValue *replace_before(EastValue *v)
 static EastValue *replace_after(EastValue *v)
 {
     return east_struct_get_field(patch_payload(v), "after");
+}
+
+/* ================================================================== */
+/*  Apply conflicts                                                    */
+/* ================================================================== */
+
+/* Signals a conflict — a patch that does not match the value it is applied
+ * to — in the TypeScript reference's words (apply.ts), so a program that
+ * catches or reports one reads the same on every runtime. Returns NULL for
+ * the caller to return. */
+static EastValue *apply_conflict(const char *fmt, ...)
+{
+    va_list ap;
+    va_list again;
+    va_start(ap, fmt);
+    va_copy(again, ap);
+    int n = vsnprintf(NULL, 0, fmt, ap);
+    va_end(ap);
+    char *msg = n >= 0 ? malloc((size_t)n + 1) : NULL;
+    if (msg) {
+        vsnprintf(msg, (size_t)n + 1, fmt, again);
+        east_builtin_error(msg);
+        free(msg);
+    } else {
+        east_builtin_error("Cannot apply patch - the patch does not match the value");
+    }
+    va_end(again);
+    return NULL;
+}
+
+/* A value in East text for a conflict message; the caller frees it. */
+static char *printed(EastValue *v, EastType *type)
+{
+    char *s = east_print_value(v, type);
+    return s ? s : strdup("?");
+}
+
+/* Whether a `replace` checks its `before` against the value first. The
+ * reference compares for every type but a recursive one, whose whole value is
+ * the unit of change, and a function, which has no equality. */
+static bool replace_verifies(EastType *type)
+{
+    if (!type) return false;
+    switch (type->kind) {
+    case EAST_TYPE_RECURSIVE:
+    case EAST_TYPE_FUNCTION:
+    case EAST_TYPE_ASYNC_FUNCTION:
+        return false;
+    default:
+        return true;
+    }
+}
+
+/* A `replace` whose `before` is not the value it is applied to. */
+static EastValue *replace_conflict(EastValue *base, EastValue *before, EastType *type)
+{
+    switch (type->kind) {
+    case EAST_TYPE_ARRAY:
+        return apply_conflict("Cannot apply replace - base array does not match expected");
+    case EAST_TYPE_SET:
+        return apply_conflict("Cannot apply replace - base set does not match expected");
+    case EAST_TYPE_DICT:
+        return apply_conflict("Cannot apply replace - base dict does not match expected");
+    case EAST_TYPE_STRUCT:
+        return apply_conflict("Cannot apply replace - base struct does not match expected");
+    case EAST_TYPE_VARIANT:
+        return apply_conflict("Cannot apply replace - base variant does not match expected");
+    case EAST_TYPE_REF:
+        return apply_conflict("Cannot apply replace - base ref does not match expected");
+    default: {
+        char *expected = printed(before, type);
+        char *found = printed(base, type);
+        apply_conflict("Cannot apply replace - expected %s, found %s", expected, found);
+        free(expected);
+        free(found);
+        return NULL;
+    }
+    }
 }
 
 /* ================================================================== */
@@ -527,51 +608,75 @@ static EastValue *apply_array(EastValue *base, EastValue *patch_val, EastType *t
     for (size_t i = 0; i < base->data.array.len; i++)
         east_array_push(result, base->data.array.items[i]);
 
+    /* A delete or update addresses the element at key + offset; an insert
+     * lands at key. Every operation is checked against the array as it stands
+     * at that point, as the reference does. */
     size_t nops = patch_val->data.array.len;
     for (size_t i = 0; i < nops; i++) {
         EastValue *entry = patch_val->data.array.items[i];
         EastValue *key_v = east_struct_get_field(entry, "key");
         EastValue *offset_v = east_struct_get_field(entry, "offset");
         EastValue *op = east_struct_get_field(entry, "operation");
-        int64_t idx = key_v->data.integer;
+        int64_t key = key_v->data.integer;
         int64_t offset = offset_v ? offset_v->data.integer : 0;
-        int64_t pos = idx + offset;
+        int64_t pos = key + offset;
+        int64_t len = (int64_t)result->data.array.len;
 
         const char *op_tag = east_variant_case_name(op);
         if (strcmp(op_tag, "delete") == 0) {
-            if (pos >= 0 && (size_t)pos < result->data.array.len) {
-                /* Remove element at pos */
-                east_value_release(result->data.array.items[pos]);
-                memmove(&result->data.array.items[pos], &result->data.array.items[pos + 1],
-                        (result->data.array.len - pos - 1) * sizeof(EastValue *));
-                result->data.array.len--;
+            if (pos < 0 || pos >= len) {
+                east_value_release(result);
+                return apply_conflict("Cannot delete at index %lld - array length is %lld",
+                                      (long long)pos, (long long)len);
             }
+            EastValue *held = result->data.array.items[pos];
+            if (!east_value_equal(held, op->data.variant.value)) {
+                char *expected = printed(op->data.variant.value, elem_type);
+                char *found = printed(held, elem_type);
+                apply_conflict("Cannot delete at index %lld - expected %s, found %s",
+                               (long long)pos, expected, found);
+                free(expected);
+                free(found);
+                east_value_release(result);
+                return NULL;
+            }
+            east_value_release(held);
+            memmove(&result->data.array.items[pos], &result->data.array.items[pos + 1],
+                    (result->data.array.len - pos - 1) * sizeof(EastValue *));
+            result->data.array.len--;
         } else if (strcmp(op_tag, "insert") == 0) {
+            if (key < 0 || key > len) {
+                east_value_release(result);
+                return apply_conflict("Cannot insert at index %lld - array length is %lld",
+                                      (long long)key, (long long)len);
+            }
             EastValue *val = op->data.variant.value;
-            /* Insert at pos */
             if (result->data.array.len >= result->data.array.cap) {
                 size_t new_cap = result->data.array.cap ? result->data.array.cap * 2 : 4;
                 result->data.array.items =
                     realloc(result->data.array.items, new_cap * sizeof(EastValue *));
                 result->data.array.cap = new_cap;
             }
-            size_t p = (size_t)pos;
-            if (p > result->data.array.len) p = result->data.array.len;
+            size_t p = (size_t)key;
             memmove(&result->data.array.items[p + 1], &result->data.array.items[p],
                     (result->data.array.len - p) * sizeof(EastValue *));
             result->data.array.items[p] = val;
             east_value_retain(val);
             result->data.array.len++;
         } else if (strcmp(op_tag, "update") == 0) {
-            EastValue *vpatch = op->data.variant.value;
-            if (pos >= 0 && (size_t)pos < result->data.array.len) {
-                EastValue *old = result->data.array.items[pos];
-                EastValue *updated = do_apply(old, vpatch, elem_type);
-                east_value_retain(updated);
-                east_value_release(old);
-                result->data.array.items[pos] = updated;
-                east_value_release(updated);
+            if (pos < 0 || pos >= len) {
+                east_value_release(result);
+                return apply_conflict("Cannot update at index %lld - array length is %lld",
+                                      (long long)pos, (long long)len);
             }
+            EastValue *old = result->data.array.items[pos];
+            EastValue *updated = do_apply(old, op->data.variant.value, elem_type);
+            if (!updated) {
+                east_value_release(result);
+                return NULL;
+            }
+            east_value_release(old);
+            result->data.array.items[pos] = updated;
         }
     }
     return result;
@@ -590,14 +695,30 @@ static EastValue *apply_set(EastValue *base, EastValue *patch_val, EastType *typ
     for (size_t i = 0; i < base->data.set.len; i++)
         east_set_insert(result, east_set_at(base, i));
 
-    /* Apply operations */
+    /* Apply operations: a delete names an element the set holds, an insert
+     * one it does not. */
+    EastType *elem_type = type->data.element;
     for (size_t i = 0; i < patch_val->data.dict.len; i++) {
         EastValue *key = east_dict_key_at(patch_val, i);
         EastValue *op = east_dict_val_at(patch_val, i);
         const char *tag = east_variant_case_name(op);
         if (strcmp(tag, "delete") == 0) {
+            if (!east_set_has(result, key)) {
+                char *shown = printed(key, elem_type);
+                apply_conflict("Cannot delete key %s - key does not exist", shown);
+                free(shown);
+                east_value_release(result);
+                return NULL;
+            }
             east_set_delete(result, key);
         } else if (strcmp(tag, "insert") == 0) {
+            if (east_set_has(result, key)) {
+                char *shown = printed(key, elem_type);
+                apply_conflict("Cannot insert key %s - key already exists", shown);
+                free(shown);
+                east_value_release(result);
+                return NULL;
+            }
             east_set_insert(result, key);
         }
     }
@@ -610,6 +731,7 @@ static EastValue *apply_set(EastValue *base, EastValue *patch_val, EastType *typ
 
 static EastValue *apply_dict(EastValue *base, EastValue *patch_val, EastType *type)
 {
+    EastType *key_type = type->data.dict.key;
     EastType *val_type = type->data.dict.value;
 
     /* Deep copy base */
@@ -617,34 +739,63 @@ static EastValue *apply_dict(EastValue *base, EastValue *patch_val, EastType *ty
     for (size_t i = 0; i < base->data.dict.len; i++)
         east_dict_set(result, east_dict_key_at(base, i), east_dict_val_at(base, i));
 
-    /* Apply operations */
+    /* Apply operations: a delete names a key the dict holds with exactly the
+     * value it holds, an insert a key it does not hold, an update a key it
+     * does. */
     for (size_t i = 0; i < patch_val->data.dict.len; i++) {
         EastValue *key = east_dict_key_at(patch_val, i);
         EastValue *op = east_dict_val_at(patch_val, i);
         const char *tag = east_variant_case_name(op);
+        EastValue *held = east_dict_get(result, key);
 
         if (strcmp(tag, "delete") == 0) {
-            /* Remove key — rebuild without it */
-            EastValue *new_result =
-                east_dict_new(result->data.dict.key_type, result->data.dict.val_type);
-            for (size_t j = 0; j < result->data.dict.len; j++) {
-                if (!east_value_equal(east_dict_key_at(result, j), key))
-                    east_dict_set(new_result, east_dict_key_at(result, j),
-                                  east_dict_val_at(result, j));
+            if (!held) {
+                char *shown = printed(key, key_type);
+                apply_conflict("Cannot delete key %s - key does not exist", shown);
+                free(shown);
+                east_value_release(result);
+                return NULL;
             }
-            east_value_release(result);
-            result = new_result;
+            if (!east_value_equal(held, op->data.variant.value)) {
+                char *shown = printed(key, key_type);
+                char *expected = printed(op->data.variant.value, val_type);
+                char *found = printed(held, val_type);
+                apply_conflict("Cannot delete key %s - expected value %s, found %s", shown,
+                               expected, found);
+                free(shown);
+                free(expected);
+                free(found);
+                east_value_release(result);
+                return NULL;
+            }
+            east_dict_delete(result, key);
         } else if (strcmp(tag, "insert") == 0) {
-            EastValue *val = op->data.variant.value;
-            east_dict_set(result, key, val);
-        } else if (strcmp(tag, "update") == 0) {
-            EastValue *vpatch = op->data.variant.value;
-            EastValue *old = east_dict_get(result, key);
-            if (old) {
-                EastValue *updated = do_apply(old, vpatch, val_type);
-                east_dict_set(result, key, updated);
-                east_value_release(updated);
+            if (held) {
+                char *shown = printed(key, key_type);
+                char *found = printed(held, val_type);
+                apply_conflict("Cannot insert key %s - key already exists with value %s", shown,
+                               found);
+                free(shown);
+                free(found);
+                east_value_release(result);
+                return NULL;
             }
+            east_dict_set(result, key, op->data.variant.value);
+        } else if (strcmp(tag, "update") == 0) {
+            if (!held) {
+                char *shown = printed(key, key_type);
+                apply_conflict("Cannot update key %s - key does not exist", shown);
+                free(shown);
+                east_value_release(result);
+                return NULL;
+            }
+            EastValue *updated = do_apply(held, op->data.variant.value, val_type);
+            if (!updated) {
+                east_value_release(result);
+                return NULL;
+            }
+            east_dict_set(result, key, updated);
+            east_value_release(updated);
         }
     }
     return result;
@@ -666,6 +817,14 @@ static EastValue *apply_struct(EastValue *base, EastValue *patch_val, EastType *
         EastValue *bval = base->data.struct_.field_values[i];
         EastValue *fp = east_struct_get_field(patch_val, names[i]);
         vals[i] = do_apply(bval, fp, ft);
+        if (!vals[i]) {
+            /* A field's patch conflicted — propagate */
+            for (size_t j = 0; j < i; j++)
+                east_value_release(vals[j]);
+            free(names);
+            free(vals);
+            return NULL;
+        }
     }
 
     EastValue *result = east_struct_new(names, vals, nf, NULL);
@@ -682,9 +841,14 @@ static EastValue *apply_struct(EastValue *base, EastValue *patch_val, EastType *
 
 static EastValue *apply_variant(EastValue *base, EastValue *patch_val, EastType *type)
 {
-    /* patch_val is a variant(caseName, casePatch) */
+    /* patch_val is a variant(caseName, casePatch), and patches the value of
+     * that case only */
     const char *case_name = east_variant_case_name(patch_val);
     EastValue *case_patch = patch_val->data.variant.value;
+    const char *base_case = east_variant_case_name(base);
+    if (strcmp(case_name, base_case) != 0)
+        return apply_conflict("Cannot apply patch for case %s to variant with case %s", case_name,
+                              base_case);
 
     /* Find case type */
     EastType *case_type = NULL;
@@ -696,6 +860,7 @@ static EastValue *apply_variant(EastValue *base, EastValue *patch_val, EastType 
     }
 
     EastValue *new_val = do_apply(base->data.variant.value, case_patch, case_type);
+    if (!new_val) return NULL;
     EastValue *result = east_variant_new(case_name, new_val, NULL);
     east_value_release(new_val);
     return result;
@@ -710,6 +875,7 @@ static EastValue *apply_ref(EastValue *base, EastValue *patch_val, EastType *typ
     EastType *inner_type = type->data.element;
     EastValue *old = base->data.ref.value;
     EastValue *updated = do_apply(old, patch_val, inner_type);
+    if (!updated) return NULL;
     EastValue *result = east_ref_new(updated);
     east_value_release(updated);
     return result;
@@ -732,6 +898,10 @@ static EastValue *do_apply(EastValue *base, EastValue *patch, EastType *type)
     }
 
     if (is_tag(patch, "replace")) {
+        /* A replace names the value it replaces; applied to any other it is a
+         * conflict, not a write. */
+        if (replace_verifies(type) && !east_value_equal(base, replace_before(patch)))
+            return replace_conflict(base, replace_before(patch), type);
         EastValue *after = replace_after(patch);
         east_value_retain(after);
         return after;
@@ -746,6 +916,7 @@ static EastValue *do_apply(EastValue *base, EastValue *patch, EastType *type)
     bool replace_only;
     EastType *rt = resolve_type(type, &replace_only);
 
+    /* Every apply below returns NULL on a conflict, with the error set. */
     EastValue *result;
     if (replace_only || !rt) {
         east_value_retain(base);
