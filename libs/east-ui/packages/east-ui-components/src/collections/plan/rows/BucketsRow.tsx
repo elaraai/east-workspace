@@ -29,6 +29,7 @@ import { runStateKey } from "./SpanRow.js";
 import { ElementOverlays } from "./ElementOverlays.js";
 import type { PlanBucket } from "../scale.js";
 import type { PlanInstantValue } from "../instant.js";
+import { appendAll } from "../reductions.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 type BucketsKindValue = Extract<ValueTypeOf<typeof Plan.Types.Row>["kind"], { type: "buckets" }>["value"];
@@ -171,7 +172,7 @@ export function BucketsRow({ rowKey, kind, styles, storageKey, ctx }: BucketsRow
     // event taking the cell must not hide a lane's marker with it (#615).
     const bucketMarkers = (bi: number): MarkerValue[] => {
         const out: MarkerValue[] = [];
-        for (let li = 0; li < laneCount; li++) out.push(...(cellMarkers.get(`${bi}:${li}`) ?? []));
+        for (let li = 0; li < laneCount; li++) appendAll(out, cellMarkers.get(`${bi}:${li}`) ?? []);
         return out;
     };
 
@@ -259,7 +260,7 @@ export function BucketsRow({ rowKey, kind, styles, storageKey, ctx }: BucketsRow
             // spanned bucket, but a dropped event is worse than a
             // repositioned one (#615).
             const laned: BucketEventValue[] = [];
-            for (let li = 0; li < laneCount; li++) laned.push(...(cellEvents.get(`${bi}:${li}`) ?? []));
+            for (let li = 0; li < laneCount; li++) appendAll(laned, cellEvents.get(`${bi}:${li}`) ?? []);
             cells.push(renderCell(b, undefined, [...full, ...laned]));
             return;
         }

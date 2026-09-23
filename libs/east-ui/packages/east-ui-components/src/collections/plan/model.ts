@@ -21,6 +21,8 @@ import { none, some, type ValueTypeOf } from "@elaraai/east";
 import { Plan } from "@elaraai/east-ui/internal";
 import { initialPlanState, type PlanGrain, type PlanUiState, type RowKey } from "./plan-state.js";
 import { instantKey, instantOrder, type PlanAxisKind, type PlanInstantValue } from "./instant.js";
+import { appendAll, maxOf, minOf, peakConcurrency } from "./reductions.js";
+import { formatDerived } from "./format.js";
 
 /** The decoded Plan root value. */
 export type PlanRootValue = ValueTypeOf<typeof Plan.Types.Root>;
@@ -502,7 +504,7 @@ export interface DerivedBand {
     to: PlanInstantValue;
     /** Peak concurrency inside the band. */
     count: number;
-    /** Summed quantity caption (`"146 t"`) — absent unless a unit is declared and every member carries `qty`. */
+    /** Summed quantity caption (`"1,234.5 t"`, through {@link formatDerived}) — absent unless a unit is declared and every member carries `qty`. */
     quantity: string | undefined;
     /** The least-certain member's lifecycle state. */
     state: RunValue["state"];
@@ -544,14 +546,13 @@ function mergeBands(
         }
     }
     return groups.map((g) => {
-        let count = 1;
-        for (const m of g.members) {
-            const c = g.members.filter((x) => startOf(x) <= startOf(m) && endOf(x) > startOf(m)).length;
-            if (c > count) count = c;
-        }
+        // A sweep line, not a per-member filter over every member (O(k²) —
+        // #810). Never below 1: a band holds at least its own member, even
+        // one whose interval covers no instant.
+        const count = Math.max(1, peakConcurrency(g.members.map((m) => ({ start: startOf(m), end: endOf(m) }))));
         const missing = g.members.some((m) => m.qty.type === "none");
         const total = g.members.reduce((acc, m) => acc + (m.qty.type === "some" ? m.qty.value : 0), 0);
-        const quantity = unit !== undefined && !missing ? `${total.toFixed(0)} ${unit}` : undefined;
+        const quantity = unit !== undefined && !missing ? `${formatDerived(total)} ${unit}` : undefined;
         let state = g.members[0]!.state;
         for (const m of g.members) {
             if ((STATE_RANK[m.state.type] ?? 3) < (STATE_RANK[state.type] ?? 3)) state = m.state;
@@ -616,7 +617,8 @@ function groupByInstant<C extends { at: PlanInstantValue }>(
 }
 
 /**
- * Derive per-bucket aggregated heat cells (mean / max / sum; no-data skipped).
+ * Derive per-bucket aggregated heat cells (mean / max / sum; no-data skipped),
+ * each labelled through {@link formatDerived}.
  *
  * @param cells - The children's cells
  * @param mode - The declared aggregate
@@ -636,12 +638,12 @@ export function deriveHeatCells(
         let v: number | undefined;
         if (vals.length > 0) {
             const total = vals.reduce((a, b) => a + b, 0);
-            v = mode === "sum" ? total : mode === "max" ? Math.max(...vals) : total / vals.length;
+            v = mode === "sum" ? total : mode === "max" ? maxOf(vals) : total / vals.length;
         }
         return {
             at: g.at,
             value: v !== undefined ? some(v) : none,
-            label: v !== undefined ? some(v.toFixed(0)) : none,
+            label: v !== undefined ? some(formatDerived(v)) : none,
         };
     });
 }
@@ -669,8 +671,8 @@ export function deriveTableCells(
             const total = vals.reduce((a, b) => a + b, 0);
             v = mode === "sum" ? total
                 : mode === "mean" ? total / vals.length
-                : mode === "min" ? Math.min(...vals)
-                : Math.max(...vals);
+                : mode === "min" ? minOf(vals)
+                : maxOf(vals);
         }
         return {
             at: g.at,
@@ -756,9 +758,9 @@ function inheritedScale(children: readonly PlanRowValue[], mode: string): HeatSc
     const mins = scales.map((s) => s.min);
     const maxs = scales.map((s) => s.max);
     const warns = scales.map((s) => s.warnAt).filter((w): w is number => w !== undefined);
-    const min = mins.every((m): m is number => m !== undefined) ? Math.min(...mins) : undefined;
-    const max = maxs.every((m): m is number => m !== undefined) ? Math.max(...maxs) : undefined;
-    const warnAt = warns.length > 0 ? Math.min(...warns) : undefined;
+    const min = mins.every((m): m is number => m !== undefined) ? minOf(mins) : undefined;
+    const max = maxs.every((m): m is number => m !== undefined) ? maxOf(maxs) : undefined;
+    const warnAt = warns.length > 0 ? minOf(warns) : undefined;
     if (min === undefined && max === undefined && warnAt === undefined) return undefined;
     return { min, max, warnAt };
 }
@@ -768,7 +770,7 @@ function subtreeRuns(index: PlanRowIndex, key: RowKey): RunValue[] {
     const out: RunValue[] = [];
     const walk = (k: RowKey) => {
         for (const child of index.children.get(k) ?? []) {
-            if (child.kind.type === "span") out.push(...child.kind.value.runs);
+            if (child.kind.type === "span") appendAll(out, child.kind.value.runs);
             walk(child.key);
         }
     };

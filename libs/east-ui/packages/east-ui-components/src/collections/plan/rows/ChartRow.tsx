@@ -32,6 +32,7 @@ import { tickFormatter } from "../../../charts/spec/index.js";
 import { usePlanDispatch, usePlanScale } from "../context.js";
 import type { PlanScale } from "../scale.js";
 import type { PlanInstantValue } from "../instant.js";
+import { appendAll, maxOf, minOf } from "../reductions.js";
 import { ToneStrip, type ToneDatum } from "./ToneStrip.js";
 
 type Styles = Record<string, Record<string, unknown>>;
@@ -77,8 +78,8 @@ function yScaleFor(axis: AxisValue | undefined, values: number[], height: number
     let max = dom.max;
     const ticks = axisTicks(axis);
     const all = [...values, ...ticks];
-    if (min === undefined) min = all.length > 0 ? Math.min(...all) : 0;
-    if (max === undefined) max = all.length > 0 ? Math.max(...all) : 1;
+    if (min === undefined) min = all.length > 0 ? minOf(all) : 0;
+    if (max === undefined) max = all.length > 0 ? maxOf(all) : 1;
     if (max <= min) max = min + 1;
     const span = max - min;
     const h = height - 2 * PAD_Y;
@@ -182,7 +183,7 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: Ch
         const rightVals: number[] = [];
         for (const layer of kind.layers) {
             const { side, values } = layerValues(layer);
-            (side === "right" ? rightVals : leftVals).push(...values);
+            appendAll(side === "right" ? rightVals : leftVals, values);
         }
         return {
             leftScale: yScaleFor(left, leftVals, height),
@@ -423,7 +424,7 @@ export function ChartLeftTicks({ kind, styles, height }: { kind: ChartKindValue;
     const values: number[] = [];
     for (const layer of kind.layers) {
         const lv = layerValues(layer);
-        if (lv.side === "left") values.push(...lv.values);
+        if (lv.side === "left") appendAll(values, lv.values);
     }
     const s = yScaleFor(left, values, height);
     const fmt = axisTickFormatter(left);

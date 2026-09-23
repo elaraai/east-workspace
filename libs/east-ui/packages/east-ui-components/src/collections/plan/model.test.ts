@@ -435,7 +435,7 @@ function nestedTableRows(): PlanRowValue[] {
 }
 
 describe("Plan derived heat / table aggregates", () => {
-    test("heat mean skips no-data cells and prints whole-number labels", () => {
+    test("heat mean skips no-data cells and labels through the shared formatter", () => {
         const cells = deriveHeatCells([
             { at: t(W27), value: some(40), label: none },
             { at: t(W27), value: some(60), label: none },
@@ -653,5 +653,117 @@ describe("Plan derived heat / table aggregates", () => {
         expect(cells[0]).toMatchObject({ value: { type: "some", value: 150 } });
         expect(cells[1]).toMatchObject({ value: { type: "some", value: -4 }, text: { type: "none" }, tone: { type: "none" } });
         expect(cells[2]).toMatchObject({ value: { type: "none" } });
+    });
+});
+
+// ── Derivations at scale (#810) ─────────────────────────────────────────────
+
+describe("Plan derivations at scale (#810)", () => {
+    // Past ~125,000 arguments a spread into a call throws RangeError — the
+    // engine's argument limit, measured under vitest on Node 22. 100,000
+    // still survives a spread there, so these run at 250,000: a size the old
+    // spreads cannot survive, so the tests fail on any that comes back.
+    const N = 250_000;
+    const confirmed = variant("confirmed", null);
+    const numRun = (key: string, start: number, end: number) => ({
+        key, start: n(start), end: n(end), label: key,
+        quantity: none, qty: none, state: confirmed, status: none, moved: none, icon: none, popover: none, hovercard: none,
+    }) as unknown as Parameters<typeof deriveBands>[0][number];
+    const span = (runs: unknown[], rollup: boolean) => variant("span", {
+        runs, decisions: [], ports: [],
+        rollup: rollup ? some(variant("union", null)) : none,
+        unit: none, bands: [],
+    });
+
+    test("band counts: touching runs are sequential, identical and nested ones stack, a lone empty run counts 1", () => {
+        const bands = deriveBands([
+            numRun("a", 0, 10),
+            numRun("b", 0, 10),     // identical to a
+            numRun("c", 2, 4),      // nested in both
+            numRun("d", 10, 12),    // touches a / b — a NEW band on a half-open axis
+            numRun("e", 11, 11),    // zero-length, inside d's band
+            numRun("f", 20, 20),    // zero-length, alone
+        ], "union", undefined);
+        expect(bands.map((b) => ({ from: b.from.value, to: b.to.value, count: b.count }))).toEqual([
+            { from: 0, to: 10, count: 3 },
+            { from: 10, to: 12, count: 1 },
+            { from: 20, to: 20, count: 1 },
+        ]);
+    });
+
+    test("a 250,000-run rollup band derives — no RangeError, no quadratic count", () => {
+        // Each run overlaps the next, so the whole subtree is ONE band whose
+        // peak is 2 — the old per-member count was 6×10¹⁰ comparisons here,
+        // and gathering the subtree's runs was a spread.
+        const runs = Array.from({ length: N }, (_, i) => numRun(`r${i}`, i, i + 2));
+        const derived = derivePlan(indexRows([
+            trow("p", undefined, span([], true)),
+            trow("c", "p", span(runs, false)),
+        ]));
+        expect(derived.bands.get("p")).toEqual([
+            expect.objectContaining({ from: n(0), to: n(N + 1), count: 2 }),
+        ]);
+    });
+
+    test("250,000 cells in one bucket aggregate — max / min without a spread", () => {
+        const at = n(1);
+        const heat = Array.from({ length: N }, (_, i) => ({ at, value: some(i % 1000), label: none }));
+        expect(deriveHeatCells(heat as unknown as Parameters<typeof deriveHeatCells>[0], "max"))
+            .toEqual([expect.objectContaining({ value: some(999) })]);
+        const table = Array.from({ length: N }, (_, i) => ({ at, value: some(i - 5), text: none, tone: none }));
+        const cells = table as unknown as Parameters<typeof deriveTableCells>[0];
+        expect(deriveTableCells(cells, "min")).toEqual([expect.objectContaining({ value: some(-5) })]);
+        expect(deriveTableCells(cells, "max")).toEqual([expect.objectContaining({ value: some(N - 6) })]);
+    });
+
+    test("a group strip over 250,000 heat members inherits their widest scale", () => {
+        const heatOn = (min: number, max: number, warnAt: number) => variant("heat", {
+            cells: variant("heat", { cells: [{ at: n(1), value: some(50), label: none }], min: some(min), max: some(max), warnAt: some(warnAt) }),
+            aggregate: none,
+        });
+        const kinds = [heatOn(0, 100, 90), heatOn(-5, 100, 80), heatOn(0, 120, 95)];
+        const member = trow("m", "g", kinds[0]);
+        const rows: PlanRowValue[] = [
+            trow("g", undefined, variant("group", { summary: none, summaryAggregate: some(variant("max", null)), collapsed: none })),
+        ];
+        // One shared kind object per scale — 250,000 rows, not 250,000 kinds.
+        for (let i = 0; i < N; i++) rows.push({ ...member, key: `m${i}`, kind: kinds[i % kinds.length] } as unknown as PlanRowValue);
+        const derived = derivePlan(indexRows(rows));
+        expect(derived.groupMembers.get("g")).toBe(N);
+        expect(derived.groupSummaryScale.get("g")).toEqual({ min: -5, max: 120, warnAt: 80 });
+        expect(derived.groupSummary.get("g")).toEqual([expect.objectContaining({ value: some(50) })]);
+    });
+
+    test("derived numbers print through the shared formatter (en-US): a heat mean labels 0.787, a band total captions 1,234.5 t", () => {
+        const mean = deriveHeatCells([0.82, 0.64, 0.9].map((v) => ({ at: t(W27), value: some(v), label: none })) as unknown as Parameters<typeof deriveHeatCells>[0], "mean");
+        expect(mean[0]!.label).toEqual(some("0.787"));      // was "1" — `toFixed(0)`
+        const bands = deriveBands([
+            mkRun("ra", W27, W29, variant("confirmed", null), 1000),
+            mkRun("rb", W28, W30, variant("confirmed", null), 234.5),
+        ], "union", "t");
+        expect(bands[0]!.quantity).toBe("1,234.5 t");       // was "1235 t"
+    });
+});
+
+// A timing budget is opt-in, never a CI gate: a shared runner's CPU is not a
+// deterministic signal (the e3-ui-cli perf.spec precedent). CI keeps the
+// deterministic proof above — 250,000 members, a count linear in them.
+describe.skipIf(process.env["E3_UI_PERF"] !== "1")("Plan derivations — timing (E3_UI_PERF=1; not a CI gate)", () => {
+    test("a 4,000-run union band derives in < 20 ms", () => {
+        // The review's probe shape: hour-staggered two-day runs, so all 4,000
+        // union into one band with a peak of 48 — 208 ms per derive before.
+        const HOUR = 3_600_000;
+        const t0 = W27.getTime();
+        const runs = Array.from({ length: 4_000 }, (_, i) =>
+            mkRun(`r${i}`, new Date(t0 + i * HOUR), new Date(t0 + (i + 48) * HOUR), variant("confirmed", null), 10));
+        expect(deriveBands(runs, "union", "t")).toEqual([expect.objectContaining({ count: 48 })]);
+        const samples: number[] = [];
+        for (let i = 0; i < 7; i++) {
+            const start = performance.now();
+            deriveBands(runs, "union", "t");
+            samples.push(performance.now() - start);
+        }
+        samples.sort((a, b) => a - b);
+        expect(samples[3]!).toBeLessThan(20);
     });
 });

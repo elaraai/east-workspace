@@ -19,6 +19,7 @@ import { Plan } from "@elaraai/east-ui/internal";
 import { usePlanDispatch, usePlanScale } from "../context.js";
 import { HeatCells } from "./HeatRow.js";
 import { GridSeparators, INDENT_PX } from "./RowShell.js";
+import { membersMeta } from "../format.js";
 import type { HeatScale, PlanRowValue } from "../model.js";
 
 type HeatCellsValue = ValueTypeOf<typeof Plan.Types.HeatCells>;
@@ -55,8 +56,9 @@ export interface GroupRowProps {
     /** The scale those cells inherit from the members (see `model.ts`). */
     summaryScale?: HeatScale | undefined;
     /** Renderer-derived direct-member count — printed as the `"8 rs"` meta
-     *  when the IR declares none (#568: the count is an aggregate like any
-     *  other, so it is derived here rather than baked into the row). */
+     *  ({@link membersMeta}) when the IR declares none (#568: the count is an
+     *  aggregate like any other, so it is derived here rather than baked into
+     *  the row). */
     memberCount?: number | undefined;
     /** Whether the derived numbers cover an INCOMPLETE prefix (a paged canvas
      *  still loading) — the count prints `~8 rs` and the band carries
@@ -72,9 +74,7 @@ export function GroupRow({ row, kind, styles, gridTemplate, height, depth, colla
     // A declared meta line wins; otherwise the derived member count stands in.
     const meta = row.gutter.meta.type === "some"
         ? row.gutter.meta.value
-        : (memberCount !== undefined && memberCount > 0
-            ? `${partial === true ? "~" : ""}${memberCount} rs`
-            : undefined);
+        : (memberCount !== undefined && memberCount > 0 ? membersMeta(memberCount, partial) : undefined);
     const value = row.gutter.value.type === "some" ? row.gutter.value.value : undefined;
     const statusTone = row.status.type === "some" ? row.status.value.type : undefined;
     const summary = collapsed

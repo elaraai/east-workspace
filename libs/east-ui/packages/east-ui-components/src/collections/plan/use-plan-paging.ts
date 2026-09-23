@@ -74,6 +74,7 @@ import {
     readWindows, mergeWindows, originOf, pruneCache,
     type WindowCache,
 } from "./window-reader.js";
+import { maxOf, minOf } from "./reductions.js";
 
 /** Source elements per window. */
 export const PLAN_PAGE_SIZE = 200;
@@ -309,8 +310,8 @@ export function usePlanPaging(
         const landedWindows = value?.resident.map((r) => r.w) ?? [];
         if (landedWindows.length === 0 || total === undefined) return undefined;
         // The SPAN of what landed — not of what was demanded.
-        const lo = Math.min(...landedWindows);
-        const hi = Math.max(...landedWindows);
+        const lo = minOf(landedWindows);
+        const hi = maxOf(landedWindows);
         let elements = 0;
         for (const w of landedWindows) elements += elementsIn({ pageSize: PLAN_PAGE_SIZE, total }, w);
         return {

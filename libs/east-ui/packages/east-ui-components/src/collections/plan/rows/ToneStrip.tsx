@@ -26,6 +26,7 @@
 import { Box } from "@chakra-ui/react";
 import { usePlanScale } from "../context.js";
 import type { PlanInstantValue } from "../instant.js";
+import { maxOf, minOf } from "../reductions.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
@@ -64,8 +65,8 @@ export interface ToneStripProps {
 export function ToneStrip({ data, styles }: ToneStripProps) {
     const scale = usePlanScale();
     const nums = data.filter((d) => d.value !== undefined).map((d) => d.value as number);
-    const min = nums.length > 0 ? Math.min(...nums) : 0;
-    const max = nums.length > 0 ? Math.max(...nums) : 0;
+    const min = nums.length > 0 ? minOf(nums) : 0;
+    const max = nums.length > 0 ? maxOf(nums) : 0;
     const span = max - min;
     return (
         <>

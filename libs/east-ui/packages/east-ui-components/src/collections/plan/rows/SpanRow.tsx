@@ -20,6 +20,7 @@ import { variant, type ValueTypeOf } from "@elaraai/east";
 import { Plan } from "@elaraai/east-ui/internal";
 import { usePlanDispatch, usePlanResolvers, usePlanScale, type PlanElementRefValue } from "../context.js";
 import { ElementOverlays } from "./ElementOverlays.js";
+import { formatDerived } from "../format.js";
 import type { DerivedBand } from "../model.js";
 
 type Styles = Record<string, Record<string, unknown>>;
@@ -133,7 +134,7 @@ export function SpanRow({ rowKey, kind, bands: rollBands, styles, barHeight, sto
                 if (f1 <= 0 || f0 >= 1) return null;
                 const left = Math.max(0, f0);
                 const width = Math.max(0, Math.min(1, f1) - left);
-                const counts = [band.count > 1 ? `×${band.count}` : undefined, band.quantity].filter(Boolean).join(" · ");
+                const counts = [band.count > 1 ? `×${formatDerived(band.count)}` : undefined, band.quantity].filter(Boolean).join(" · ");
                 // A rollup over a partial prefix is an understatement, not a
                 // number — mark it rather than print it as if it were final.
                 const caption = partial === true && counts !== "" ? `~${counts}` : counts;

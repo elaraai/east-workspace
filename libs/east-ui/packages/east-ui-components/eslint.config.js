@@ -39,6 +39,28 @@ export default [
     }
   },
   {
+    // The Plan renderer derives over production row counts. A spread into a
+    // call — `Math.max(...xs)`, `out.push(...xs)`, `new Set(...xs)` — passes
+    // every element as a separate ARGUMENT, and past the engine's argument
+    // limit (~125,000 on Node 22) it throws RangeError: a big band crashed
+    // the canvas (#810). Array and object literals (`[...xs]`, `{...o}`) have
+    // no such limit and stay allowed. The selectors are ESLint's AST syntax:
+    // a `...` spread directly inside a function / constructor call.
+    files: ['src/collections/plan/**/*.ts', 'src/collections/plan/**/*.tsx'],
+    rules: {
+      'no-restricted-syntax': ['error',
+        {
+          selector: 'CallExpression > SpreadElement',
+          message: 'No spread into a call under collections/plan/ — it throws RangeError past ~125,000 elements (#810). Use maxOf / minOf / appendAll from collections/plan/reductions.ts.'
+        },
+        {
+          selector: 'NewExpression > SpreadElement',
+          message: 'No spread into a constructor call under collections/plan/ — it throws RangeError past ~125,000 elements (#810). Build the arguments with a loop.'
+        }
+      ]
+    }
+  },
+  {
     files: ['dev/**/*.ts', 'dev/**/*.tsx'],
     languageOptions: {
       parser: tsparser,

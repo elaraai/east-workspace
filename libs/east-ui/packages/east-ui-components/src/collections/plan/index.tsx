@@ -60,6 +60,7 @@ import {
     windowRestHeight,
     type FocusGap, type PlanBodyItem, type PlanFocusCtx, type PlanRootValue, type PlanRowValue, type VisibleRow,
 } from "./model.js";
+import { appendAll } from "./reductions.js";
 import { EastChakraComponent } from "../../component.js";
 import { useDragTarget, type DragEventValue } from "../../dnd/drag-layer";
 import { type CanDropFn } from "../../dnd/ir-can-drop";
@@ -621,7 +622,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
         if (paging.head === undefined && paging.tail === undefined) return core;
         const out: PlanBodyItem[] = [];
         if (paging.head !== undefined) out.push({ kind: "band", band: paging.head });
-        out.push(...core);
+        appendAll(out, core);
         if (paging.tail !== undefined) out.push({ kind: "band", band: paging.tail });
         return out;
     }, [focusCtx, visible, index, paging.head, paging.tail]);

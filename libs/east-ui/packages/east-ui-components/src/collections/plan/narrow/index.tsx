@@ -46,6 +46,8 @@ import { PlanFooter } from "../shell/Footer.js";
 import { PlanDecisionCell, tagOf, type PlanReview } from "../shell/Review.js";
 import type { PlanTransport } from "../shell/transport.js";
 import { pxOf, rowHeight, type PlanDerived, type PlanRowIndex, type PlanRowValue } from "../model.js";
+import { formatDerived, membersMeta } from "../format.js";
+import { appendAll } from "../reductions.js";
 import type { PlanUiState, RowKey } from "../plan-state.js";
 import { feedTwoFingerPan, newTwoFingerPan } from "./pan.js";
 
@@ -127,7 +129,7 @@ function allDataRows(index: PlanRowIndex): PlanRowValue[] {
     const out: PlanRowValue[] = [];
     for (const root of index.roots) {
         if (root.kind.type !== "group") out.push(root);
-        out.push(...dataRowsUnder(index, root.key));
+        appendAll(out, dataRowsUnder(index, root.key));
     }
     return out;
 }
@@ -307,7 +309,11 @@ export function PlanNarrow({
         const out: RowSection[] = [];
         const other: PlanRowValue[] = [];
         for (const root of index.roots) {
-            if (root.kind.type !== "group") { other.push(root, ...dataRowsUnder(index, root.key)); continue; }
+            if (root.kind.type !== "group") {
+                other.push(root);
+                appendAll(other, dataRowsUnder(index, root.key));
+                continue;
+            }
             const members = derived.groupMembers.get(root.key);
             out.push({
                 key: root.key,
@@ -315,7 +321,7 @@ export function PlanNarrow({
                     scope: root.key,
                     label: root.gutter.label,
                     meta: root.gutter.meta.type === "some" ? root.gutter.meta.value
-                        : (members !== undefined && members > 0 ? `${partial === true ? "~" : ""}${members} rs` : undefined),
+                        : (members !== undefined && members > 0 ? membersMeta(members, partial) : undefined),
                     value: root.gutter.value.type === "some" ? root.gutter.value.value : undefined,
                     tone: root.status.type === "some" ? root.status.value.type : undefined,
                 },
@@ -323,7 +329,7 @@ export function PlanNarrow({
             });
         }
         if (other.length > 0) {
-            out.push({ key: "other", header: { scope: OTHER_SCOPE, label: "Other rows", meta: `${other.length} rs`, value: undefined, tone: undefined }, rows: other });
+            out.push({ key: "other", header: { scope: OTHER_SCOPE, label: "Other rows", meta: membersMeta(other.length, undefined), value: undefined, tone: undefined }, rows: other });
         }
         return out;
     }, [scope, index, ungrouped, hasGroups, derived, partial]);
@@ -440,7 +446,7 @@ export function PlanNarrow({
                     const members = derived.groupMembers.get(row.key);
                     const meta = row.gutter.meta.type === "some"
                         ? row.gutter.meta.value
-                        : (members !== undefined && members > 0 ? `${partial === true ? "~" : ""}${members} rs` : undefined);
+                        : (members !== undefined && members > 0 ? membersMeta(members, partial) : undefined);
                     const value = row.gutter.value.type === "some" ? row.gutter.value.value : undefined;
                     const statusTone = row.status.type === "some" ? row.status.value.type : undefined;
                     return (
@@ -465,12 +471,12 @@ export function PlanNarrow({
                     );
                 })}
                 {hidden.length > 0 && more("groups",
-                    `${hidden.length} more group${hidden.length > 1 ? "s" : ""}${hiddenRs > 0 ? ` · ${hiddenRs} rs` : ""}`)}
+                    `${formatDerived(hidden.length)} more group${hidden.length > 1 ? "s" : ""}${hiddenRs > 0 ? ` · ${membersMeta(hiddenRs, undefined)}` : ""}`)}
                 {ungrouped.length > 0 && (
                     <Box css={styles.narrowCard} data-plan-groupcard="other" onClick={() => openGroup(OTHER_SCOPE)}>
                         <Box css={styles.narrowCardHead}>
                             <Box css={styles.narrowCardTitle} data-group="">Other rows</Box>
-                            <Box as="span" css={styles.gutterMeta}>{`${ungrouped.length} rs`}</Box>
+                            <Box as="span" css={styles.gutterMeta}>{membersMeta(ungrouped.length, undefined)}</Box>
                         </Box>
                     </Box>
                 )}
@@ -503,7 +509,7 @@ export function PlanNarrow({
                     </Box>,
                 );
             }
-            body.push(...shown.map((row) => renderRowCard(row, false)));
+            for (const row of shown) body.push(renderRowCard(row, false));
         }
         const rest = total - (reveal.rows - Math.max(0, budget));
         list = (
@@ -518,13 +524,13 @@ export function PlanNarrow({
                         )}
                         <Box css={styles.narrowScopeTitle}>{scopeGroup !== undefined ? scopeGroup.gutter.label : "Other rows"}</Box>
                         <Box css={styles.narrowScopeMeta}>
-                            {[members !== undefined && members > 0 ? `${members} rs` : undefined, scopeValue].filter(Boolean).join(" · ")}
+                            {[members !== undefined && members > 0 ? membersMeta(members, undefined) : undefined, scopeValue].filter(Boolean).join(" · ")}
                         </Box>
                     </Box>
                 )}
                 {total === 0 && <Box css={styles.narrowEmpty}>No rows</Box>}
                 {body}
-                {rest > 0 && more("rows", `${rest} more row${rest > 1 ? "s" : ""}`)}
+                {rest > 0 && more("rows", `${formatDerived(rest)} more row${rest > 1 ? "s" : ""}`)}
             </>
         );
     } else {
@@ -533,7 +539,7 @@ export function PlanNarrow({
         list = (
             <>
                 {shown.map((row) => renderRowCard(row, true))}
-                {rest > 0 && more("measures", `${rest} more measure${rest > 1 ? "s" : ""}`)}
+                {rest > 0 && more("measures", `${formatDerived(rest)} more measure${rest > 1 ? "s" : ""}`)}
             </>
         );
     }
@@ -570,7 +576,7 @@ export function PlanNarrow({
                         onClick={() => setTab(t.key)}>
                         {t.label}
                         <Box as="span" css={styles.narrowTabCount} data-plan-tabcount={t.count}>
-                            {`${partial === true && t.key !== "groups" ? "~" : ""}${t.count}`}
+                            {`${partial === true && t.key !== "groups" ? "~" : ""}${formatDerived(t.count)}`}
                         </Box>
                     </Box>
                 ))}

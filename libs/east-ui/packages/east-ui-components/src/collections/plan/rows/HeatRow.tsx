@@ -21,6 +21,7 @@ import { Plan } from "@elaraai/east-ui/internal";
 import { usePlanDispatch, usePlanResolvers, usePlanScale, type PlanElementRefValue } from "../context.js";
 import type { PlanInstantValue } from "../instant.js";
 import type { PlanBucket } from "../scale.js";
+import { maxOf, minOf } from "../reductions.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 type HeatCellsValue = ValueTypeOf<typeof Plan.Types.HeatCells>;
@@ -85,8 +86,8 @@ export function HeatCells({ rowKey, cells, styles, ctx, onCellClick }: HeatCells
         const { cells: hc, min, max, warnAt } = cells.value;
         const values = hc.map((c) => (c.value.type === "some" ? c.value.value : undefined));
         const present = values.filter((v): v is number => v !== undefined);
-        const lo = min.type === "some" ? min.value : (present.length > 0 ? Math.min(...present) : 0);
-        const hi = max.type === "some" ? max.value : (present.length > 0 ? Math.max(...present) : 1);
+        const lo = min.type === "some" ? min.value : (present.length > 0 ? minOf(present) : 0);
+        const hi = max.type === "some" ? max.value : (present.length > 0 ? maxOf(present) : 1);
         const warn = warnAt.type === "some" ? warnAt.value : undefined;
         const span = hi - lo;
         return (
