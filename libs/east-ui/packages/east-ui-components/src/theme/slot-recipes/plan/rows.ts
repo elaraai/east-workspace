@@ -20,7 +20,7 @@ import type { SystemStyleObject } from "@chakra-ui/react";
 export const rowsSlots = [
     "row", "gutterCell", "plot", "gridCol", "gridSep", "dropPreview", "gutterName", "gutterSub",
     "gutterValue", "gutterRight", "gutterMeta", "gutterSwatch", "caret", "statusDot",
-    "rowControls", "rowControl", "focusTag", "rail", "focusGap", "focusGapInner", "expandRowBand",
+    "rowControls", "rowControl", "focusTag", "rail", "focusGap", "focusGapInner", "ribbons", "expandRowBand",
     "expandRenderBody", "expandGutterBody", "toneCell", "groupBand", "groupName", "groupMeta",
 ] as const;
 
@@ -30,7 +30,8 @@ export const rowsBase = {
     row: {
         display: "grid",
         position: "relative",
-        borderBottomWidth: "1px",
+        // Inside the row's height — its plot cell is the row less this (#818).
+        borderBottomWidth: "var(--plan-rule-h)",
         borderBottomColor: "border.subtle",
         background: "bg.surface",
         // Selection tint — the one selection colour.
@@ -353,6 +354,49 @@ export const rowsBase = {
             fontWeight: "semibold",
             letterSpacing: "0.06em",
         },
+    },
+    // ── R1 link ribbons (#818) — drawn over the rows in their own
+    //    coordinates (the frame's overlay box); settles in with the rails.
+    //    Geometry is the only thing the renderer writes: the paths, their
+    //    band width, each ribbon's quantity-share opacity. ──
+    ribbons: {
+        position: "absolute",
+        inset: 0,
+        zIndex: 4,
+        pointerEvents: "none",
+        animation: "plan-settle-in 0.22s ease-out 0.3s backwards",
+        "@media (prefers-reduced-motion: reduce)": { animation: "none" },
+        "& svg": { display: "block", overflow: "visible" },
+        // The band and its heads, in the brand.
+        "& [data-plan-ribbon-band]": { fill: "none", stroke: "{colors.brand.600}" },
+        "& [data-plan-ribbon-head]": { fill: "{colors.brand.600}", stroke: "none" },
+        "& [data-plan-ribbon-ink]": {
+            transition: "opacity 120ms",
+            "@media (prefers-reduced-motion: reduce)": { transition: "none" },
+        },
+        // A lit ribbon (hovered) stands out of the family's quantity shading.
+        "& [data-lit] [data-plan-ribbon-ink]": { opacity: 0.72 },
+        // The caption — mono, haloed in the surface so it reads over bars
+        // and grid (the stroke paints first).
+        "& [data-plan-ribbon-caption]": {
+            fontFamily: "mono",
+            fontSize: "8.5px",
+            fontWeight: "semibold",
+            fill: "fg.muted",
+            paintOrder: "stroke",
+            stroke: "bg.surface",
+            strokeWidth: "3px",
+        },
+        // The hit area: a wide transparent stroke along the centerline — the
+        // only part of the layer that takes the pointer.
+        "& [data-link]": {
+            fill: "none",
+            stroke: "transparent",
+            pointerEvents: "stroke",
+            cursor: "pointer",
+        },
+        // The runs a lit ribbon joins — ringed in the brand.
+        "& [data-plan-linkend]": { fill: "none", stroke: "{colors.brand.600}", strokeWidth: "2px" },
     },
     // The developer render region (R2) — fills the canvas below the
     // focused row (every other row hides for the focus); fades in once

@@ -21,6 +21,10 @@
 export interface PlanGeometry {
     /** Span / buckets / cards / table rows — the shared default row. */
     row: number;
+    /** The rule under a row, INSIDE its height: its plot cell is the row less
+     *  this, and a bar centres in the plot cell (the link ribbons register to
+     *  it, #818). */
+    rule: number;
     /** The floor of a row with a two-line gutter (a sub line, or `stacked`). */
     rowStacked: number;
     /** A group band. */
@@ -79,7 +83,7 @@ export interface PlanGeometry {
 }
 
 const DEFAULT: PlanGeometry = {
-    row: 32, rowStacked: 42,
+    row: 32, rule: 1, rowStacked: 42,
     group: 26, groupStrip: 28,
     chartSpark: 32, chartExpanded: 88,
     heatRow: 28, heatInset: 3, heatCellMin: 16,

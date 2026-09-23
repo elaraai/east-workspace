@@ -76,6 +76,8 @@ import {
 import { PlanNarrow, PLAN_NARROW_BELOW } from "./narrow/index.js";
 import type { PlanNarrowPaging } from "./narrow/demand.js";
 import { LinksOverlay } from "./shell/LinksOverlay.js";
+import { ribbonBody } from "./shell/ribbon-layout.js";
+import type { RibbonOff } from "./shell/ribbon-geometry.js";
 import { PlanFooter } from "./shell/Footer.js";
 import type { PlanDiagnostics } from "./shell/Diagnostics.js";
 import { planReviewModel, DECISION_WIDTH } from "./shell/Review.js";
@@ -346,6 +348,22 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     // ── The body ──────────────────────────────────────────────────────────
     const body = usePlanBody(visible, index, derived, paging, focusCtx, heightCtx, dense, chartsExpanded);
     const target = usePlanScrollTarget(body.items, index, derived, scroll);
+    // ── The links layer (R1, #818) ────────────────────────────────────────
+    // Its ribbons are laid out from THIS body — the heights the frame lays the
+    // rows out at — and drawn in the rows' own coordinates, so they follow a
+    // collapse or a landing window in the same render as the rows do.
+    const linksFocus = view.focus?.kind === "links";
+    const ribbonRows = useMemo(
+        () => (linksFocus ? ribbonBody(body.items, body.heights, index, geometry) : undefined),
+        [linksFocus, body.items, body.heights, index, geometry]);
+    // A pinned row renders in the header, above every body row.
+    const pinnedKeys = useMemo(() => new Set(pinned.map((v) => v.row.key)), [pinned]);
+    const beyond = useCallback(
+        (key: string): RibbonOff | undefined => (pinnedKeys.has(key) ? "above" : undefined),
+        [pinnedKeys]);
+    // What a bounded frame's view is read from — its scroll element and the
+    // sticky chrome above its rows.
+    const frameRefs = useMemo(() => ({ scrollElRef, headerRef }), [scrollElRef, headerRef]);
     const reportRange = usePlanRangeReport(body.items, controller);
     // After EVERY commit: what the canvas now shows. A jump keeps the viewport
     // until its landed target has been on screen for a commit — the one in
@@ -516,6 +534,22 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                         scrollElRef={scrollElRef}
                         header={header}
                         footer={<PlanFooter styles={styles} items={data.footer} transport={transport} />}
+                        // R1 ribbons — the K8 vocabulary over the gathered
+                        // family (ribbons need width — never on the narrow
+                        // layout). They are their own part (#811): a throw
+                        // while laying them out loses the ribbons, not the
+                        // canvas. `null` without a links focus, never
+                        // omitted: the rows' box stays put, so no row
+                        // remounts as the ribbons come and go.
+                        overlay={ribbonRows !== undefined && focusVisibleKeys !== undefined ? (
+                            <PlanPartBoundary part="links layer" resetKey={focusVisibleKeys} styles={styles}>
+                                <LinksOverlay styles={styles} links={data.links} visibleKeys={focusVisibleKeys}
+                                    body={ribbonRows} beyond={beyond} scale={scale} runDates={runDates}
+                                    gutterPx={gutterW}
+                                    trailingPx={review !== undefined ? pxOf(DECISION_WIDTH) ?? 0 : 0}
+                                    frame={frameFills ? frameRefs : undefined} />
+                            </PlanPartBoundary>
+                        ) : null}
                         count={body.items.length}
                         // Heights move at a constant count — a chart toggle, a
                         // focus stripping every other row, a band landing as
@@ -548,16 +582,6 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                 {/* The batch foot sits OUTSIDE the scrolling grid so it stays
                     full-width under the canvas (the shared convention). */}
                 {review !== undefined && <ReviewFoot controller={review} storageKey={storageKey} />}
-                {/* R1 ribbons — the K8 vocabulary at the current row set
-                    (ribbons need width — never on the narrow layout). They are
-                    their own part (#811): a throw while routing them loses the
-                    ribbons, not the canvas. */}
-                {!narrow && view.focus?.kind === "links" && focusVisibleKeys !== undefined && (
-                    <PlanPartBoundary part="links layer" resetKey={focusVisibleKeys} styles={styles}>
-                        <LinksOverlay containerRef={focusBodyRef} links={data.links}
-                            visibleKeys={focusVisibleKeys} scale={scale} runDates={runDates} />
-                    </PlanPartBoundary>
-                )}
                 <PlanOverlays anchors={anchors} styles={styles} storageKey={storageKey} />
             </Box>
         </PlanResolversContext.Provider>

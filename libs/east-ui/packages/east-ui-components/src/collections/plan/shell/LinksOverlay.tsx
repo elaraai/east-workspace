@@ -4,281 +4,183 @@
  */
 
 /**
- * The links-focus ribbon overlay (R1) — the K8 ribbon vocabulary at the
- * current row set: one CONSTANT-THICKNESS band per family edge (a stroked
- * centerline S-curve at the span-rect height, ending in a plain triangle
- * head), attached to span SIDES only, drawn once the rails settle (the 300ms
- * choreography). Geometry is measured from the live DOM (`[data-plan-row]` /
- * `[data-run]` rects relative to the overlay), so it holds under both
- * VirtualRows modes; scroll and resize re-measure.
+ * The links-focus ribbon layer (R1) — the K8 ribbon vocabulary at the current
+ * row set: one CONSTANT-THICKNESS band per family edge (a stroked centerline
+ * at half the bar's height, ending in a plain triangle head), attached to the
+ * runs' sides.
  *
- * A linked run OUTSIDE the time window has no bar to anchor to: the ribbon
- * lands on that row's plot edge instead, marked by a full-row-height band
- * fading out at the window edge — the runoff treatment (§4·K1) applied to a
- * link, so "continues beyond the window" reads the same everywhere. Edges
- * whose rows sit railed have nothing to attach to and simply don't draw.
+ * Every endpoint comes from the MODEL (#818, `ribbon-layout.ts`): a row's
+ * place is the body's own height arithmetic, its bar the geometry table's, a
+ * run's x its window fraction across the plot. The layer is drawn inside the
+ * frame's rows (`VirtualRows`' `overlay`), in their coordinates, so it scrolls
+ * with them natively and re-lays out in the same render as they do — a
+ * collapse, a chart toggle, a window landing. Nothing is measured but the
+ * layer's own width (the plot's px) and, in a bounded frame, the view: how far
+ * it has scrolled and how tall it is, which is what clamps an endpoint past an
+ * edge to it, with a stub pointing toward its row.
+ *
+ * A linked run OUTSIDE the time window lands on its row's plot edge, behind a
+ * full-bar-height band fading out at the window edge — the runoff treatment
+ * (§4·K1) applied to a link. Edges whose rows the focus rails are not drawn.
+ *
+ * Each ribbon is hit-testable along its centerline (a wide transparent
+ * stroke): hovering one lights it and rings the two runs it joins, and the
+ * canvas's one tooltip shows its label (`root/overlays.tsx`, the labelled-mark
+ * path). A click reports nothing yet — the element ref gains a `link` arm with
+ * the values child (#824).
  */
 
-import { useEffect, useId, useMemo, useState, type RefObject } from "react";
+import { useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, useCallback, type RefObject } from "react";
 import { Box } from "@chakra-ui/react";
-import { routeRibbon } from "./ribbon-geometry.js";
+import { RIBBON_FADE_W, layoutRibbons, type RibbonBody } from "./ribbon-layout.js";
+import type { RibbonEnd, RibbonOff } from "./ribbon-geometry.js";
 import type { PlanLinkValue } from "../model.js";
 import type { PlanScale } from "../scale.js";
 import type { PlanInstantValue } from "../instant.js";
+import { useElementHeight, useElementWidth } from "../use-element-height.js";
 
+type Styles = Record<string, Record<string, unknown>>;
+
+/** The fade stops' ink — the band's (a gradient stop takes no class). */
 const BRAND = "var(--chakra-colors-brand-600)";
-/** Ribbon fill opacity bounds — share of the largest family quantity. */
-const OPACITY_MIN = 0.16;
-const OPACITY_MAX = 0.38;
-/** The settle delay before first draw (heights animate .38s; overlays wait). */
-const SETTLE_MS = 320;
-/** Width of the off-window fade band (px). */
-const FADE_W = 42;
+/** How far beyond the band the hit area reaches, each side (px). */
+const HIT_REACH = 5;
 
-interface Ribbon {
-    /** The centerline path — STROKED at `width`, so the band keeps one fixed
-     *  thickness along its whole run (never two drifting edge curves). */
-    stroke: string;
-    /** The head path — a plain triangle from band thickness to the tip. */
-    head: string;
-    /** Band thickness (the source span rect's height). */
-    width: number;
-    opacity: number;
-    label: string;
-    lx: number;
-    ly: number;
-    anchor: "start" | "middle" | "end";
-}
-
-/** A full-row fade band at a window edge (an off-window link landing). */
-interface FadeBand {
-    x: number;
-    y: number;
-    h: number;
-    side: "left" | "right";
-}
+const NO_REF: RefObject<HTMLElement | null> = { current: null };
+const NO_LAYOUT: ReturnType<typeof layoutRibbons> = { ribbons: [], fades: [] };
 
 export interface LinksOverlayProps {
-    /** The overlay's positioning parent (the canvas body wrapper) — read when
-     *  the overlay measures, never while it renders. */
-    containerRef: RefObject<HTMLElement | null>;
+    /** The resolved `plan` recipe styles (the `ribbons` slot). */
+    styles: Styles;
     /** The decoded link graph. */
     links: readonly PlanLinkValue[];
     /** The full-height row set (focused row + family) — edges outside it skip. */
     visibleKeys: ReadonlySet<string>;
-    /** The shared scale (off-window detection). */
+    /** The canvas body as the ribbons see it (`ribbonBody`). */
+    body: RibbonBody;
+    /** The side of the rows a row the body does not hold lies past (a pinned row is above them). */
+    beyond: (key: string) => RibbonOff | undefined;
+    /** The shared scale. */
     scale: PlanScale;
-    /** A run's instants by `(rowKey, runKey)` — off-window side resolution. */
+    /** A run's instants by `(rowKey, runKey)`. */
     runDates: (rowKey: string, runKey: string) => { start: PlanInstantValue; end: PlanInstantValue } | undefined;
+    /** The grid's fixed tracks either side of the plot: the gutter, and the review column (px). */
+    gutterPx: number;
+    trailingPx: number;
+    /** A bounded frame's scroll element and the sticky chrome above its rows —
+     *  what the view is read from. Absent for an unbounded frame, which shows
+     *  every row. */
+    frame?: { scrollElRef: RefObject<HTMLElement | null>; headerRef: RefObject<HTMLElement | null> } | undefined;
 }
 
-interface Endpoint {
-    /** The attachment edge's candidate x positions (span left/right edges);
-     *  equal when the side is forced (an off-window landing). */
-    leftX: number;
-    rightX: number;
-    /** The attachment edge's vertical extent — the SPAN RECT's, exactly. */
-    top: number;
-    bottom: number;
-    /** Set when the run sits outside the window — the fade-band side. */
-    off?: FadeBand;
+/**
+ * How far an element has scrolled, followed through its scroll events.
+ *
+ * @param ref - The scroll element
+ * @param active - Whether to follow it at all
+ * @returns Its `scrollTop` (0 while inactive)
+ */
+function useScrollTop(ref: RefObject<HTMLElement | null>, active: boolean): number {
+    const subscribe = useCallback((notify: () => void) => {
+        const el = ref.current;
+        if (!active || el === null) return () => undefined;
+        el.addEventListener("scroll", notify, { passive: true });
+        return () => el.removeEventListener("scroll", notify);
+    }, [ref, active]);
+    return useSyncExternalStore(subscribe, () => (active ? ref.current?.scrollTop ?? 0 : 0), () => 0);
 }
 
-/** Measure one edge endpoint relative to `base` — the run bar's FULL edge
- *  (ribbons register exactly to the span rects), or the row's plot edge at
- *  full row height (+ fade band) when the run sits outside the window. */
-function endpointFor(
-    base: DOMRect,
-    container: HTMLElement,
-    scale: PlanScale,
-    runDates: LinksOverlayProps["runDates"],
-    rowKey: string,
-    runKey: string,
-): Endpoint | null {
-    const row = container.querySelector(`[data-plan-row="${CSS.escape(rowKey)}"]`);
-    if (row === null) return null;
-    const rowRect = row.getBoundingClientRect();
-    if (rowRect.width === 0 && rowRect.height === 0) return null;
-    const run = row.querySelector(`[data-run="${CSS.escape(runKey)}"]`);
-    if (run !== null) {
-        const r = run.getBoundingClientRect();
-        return {
-            leftX: r.left - base.left,
-            rightX: r.right - base.left,
-            top: r.top - base.top,
-            bottom: r.bottom - base.top,
-        };
-    }
-    // No bar — is the run outside the window? Anchor at the plot edge with
-    // the runoff-style fade band, at exactly the SPAN-RECT height and
-    // vertical position (a rendered sibling bar's extent, else the default
-    // 20px bar band centred in the row); otherwise fall back to the row.
-    const plot = row.children[1] ?? row;
-    const p = plot.getBoundingClientRect();
-    const sibling = row.querySelector("[data-run]");
-    let top: number;
-    let bottom: number;
-    if (sibling !== null) {
-        const sr = sibling.getBoundingClientRect();
-        top = sr.top - base.top;
-        bottom = sr.bottom - base.top;
-    } else {
-        const midY = rowRect.top + rowRect.height / 2 - base.top;
-        top = midY - 10;
-        bottom = midY + 10;
-    }
-    const dates = runDates(rowKey, runKey);
-    if (dates !== undefined) {
-        const offLeft = scale.endFracOf(dates.end) <= 0;
-        const offRight = scale.fracOf(dates.start) >= 1;
-        if (offLeft || offRight) {
-            const x = (offLeft ? p.left : p.right) - base.left;
-            return {
-                leftX: x,
-                rightX: x,
-                top,
-                bottom,
-                off: { x: offLeft ? x : x - FADE_W, y: top, h: bottom - top, side: offLeft ? "left" : "right" },
-            };
-        }
-    }
-    return { leftX: rowRect.left - base.left, rightX: rowRect.right - base.left, top, bottom };
-}
-
-/** The links-focus ribbon overlay — mounts over the canvas body. */
-export function LinksOverlay({ containerRef, links, visibleKeys, scale, runDates }: LinksOverlayProps) {
-    const uid = useId();
-    const [ribbons, setRibbons] = useState<Ribbon[]>([]);
-    const [bands, setBands] = useState<FadeBand[]>([]);
-    const [size, setSize] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
-
-    const edges = useMemo(
-        () => links.filter((l) => visibleKeys.has(l.fromRow) && visibleKeys.has(l.toRow)),
-        [links, visibleKeys],
-    );
-
-    useEffect(() => {
-        const container = containerRef.current;
-        if (container === null || edges.length === 0) {
-            setRibbons([]);
-            setBands([]);
-            return;
-        }
-        // Re-measures are COALESCED to one per animation frame and BAIL when
-        // the measured geometry did not move (#616): the handlers used to run
-        // querySelector + getBoundingClientRect per edge and setState a fresh
-        // array on every scroll tick, unthrottled — a re-render per tick even
-        // when nothing had moved.
-        let raf: number | null = null;
-        let lastSig = "";
-        const measure = () => {
-            const base = container.getBoundingClientRect();
-            const maxQty = edges.reduce((m, l) => Math.max(m, Math.abs(l.quantity)), 0);
-            const outR: Ribbon[] = [];
-            const outB: FadeBand[] = [];
-            for (const l of edges) {
-                const from = endpointFor(base, container, scale, runDates, l.fromRow, l.fromRun);
-                const to = endpointFor(base, container, scale, runDates, l.toRow, l.toRun);
-                if (from === null || to === null) continue;
-                if (from.off !== undefined) outB.push(from.off);
-                if (to.off !== undefined) outB.push(to.off);
-                const opacity = maxQty > 0
-                    ? OPACITY_MIN + (Math.abs(l.quantity) / maxQty) * (OPACITY_MAX - OPACITY_MIN)
-                    : OPACITY_MIN;
-                // Semantic routing (pure, offline-testable): the ribbon exits
-                // the source run's END and enters the destination's BEGINNING
-                // in every arrangement — `routeRibbon` picks metro-S vs
-                // loopback from the interval geometry.
-                outR.push({ ...routeRibbon(from, to), opacity, label: l.label });
-            }
-            // Greedy caption de-overlap — full-width bands sharing a source
-            // edge can land their labels on one another; nudge later ones
-            // down a line at a time until clear.
-            const placed: { x: number; y: number }[] = [];
-            for (const r of outR) {
-                while (placed.some((p) => Math.abs(p.x - r.lx) < 60 && Math.abs(p.y - r.ly) < 12)) r.ly += 12;
-                placed.push({ x: r.lx, y: r.ly });
-            }
-            const sig = JSON.stringify([base.width, base.height, outR, outB]);
-            if (sig === lastSig) return;
-            lastSig = sig;
-            setSize({ w: base.width, h: base.height });
-            setRibbons(outR);
-            setBands(outB);
-        };
-        const schedule = () => {
-            if (raf !== null) return;
-            raf = requestAnimationFrame(() => {
-                raf = null;
-                measure();
-            });
-        };
-        // First draw waits for the gather choreography to settle; scroll /
-        // resize re-measure on the next frame (capture — scroll doesn't bubble).
-        const timer = setTimeout(measure, SETTLE_MS);
-        container.addEventListener("scroll", schedule, true);
-        window.addEventListener("resize", schedule);
-        return () => {
-            clearTimeout(timer);
-            if (raf !== null) cancelAnimationFrame(raf);
-            container.removeEventListener("scroll", schedule, true);
-            window.removeEventListener("resize", schedule);
-        };
-    }, [containerRef, edges, scale, runDates]);
-
-    if (ribbons.length === 0 && bands.length === 0) return null;
+/** A ring around the run a lit ribbon joins — in view only. */
+function RunRing({ end, side }: { end: RibbonEnd; side: "from" | "to" }) {
+    if (end.off !== undefined) return null;
     return (
-        <Box
-            position="absolute"
-            inset={0}
-            zIndex={4}
-            pointerEvents="none"
-            data-plan-ribbons
-            animation="plan-settle-in 0.22s ease-out"
-        >
-            <svg width={size.w} height={size.h} style={{ display: "block", overflow: "visible" }}>
-                <defs>
-                    {/* The off-window landing — strongest AT the window edge,
-                        fading inward (the runoff grammar, reversed for an
-                        arrival from beyond the window). */}
-                    <linearGradient id={`${uid}-fade-right`} x1="0" y1="0" x2="1" y2="0">
-                        <stop offset="0" stopColor={BRAND} stopOpacity={0} />
-                        <stop offset="1" stopColor={BRAND} stopOpacity={0.3} />
-                    </linearGradient>
-                    <linearGradient id={`${uid}-fade-left`} x1="0" y1="0" x2="1" y2="0">
-                        <stop offset="0" stopColor={BRAND} stopOpacity={0.3} />
-                        <stop offset="1" stopColor={BRAND} stopOpacity={0} />
-                    </linearGradient>
-                </defs>
-                {bands.map((b, i) => (
-                    <rect key={`band-${i}`} data-plan-linkfade={b.side}
-                        x={b.x} y={b.y} width={FADE_W} height={b.h}
-                        fill={`url(#${uid}-fade-${b.side})`} />
-                ))}
-                {ribbons.map((r, i) => (
-                    <g key={i}>
-                        <g opacity={r.opacity}>
-                            <path d={r.stroke} stroke={BRAND} strokeWidth={r.width} fill="none" />
-                            <path d={r.head} fill={BRAND} stroke="none" />
+        <rect data-plan-linkend={side} x={end.leftX} y={end.top}
+            width={Math.max(2, end.rightX - end.leftX)} height={end.bottom - end.top} rx={2} />
+    );
+}
+
+/** The links-focus ribbon layer — `VirtualRows`' overlay, in the rows' coordinates. */
+export function LinksOverlay({
+    styles, links, visibleKeys, body, beyond, scale, runDates, gutterPx, trailingPx, frame,
+}: LinksOverlayProps) {
+    const uid = useId();
+    const layerRef = useRef<HTMLDivElement | null>(null);
+    // The plot's px are the layer's width less the grid's fixed tracks.
+    const width = useElementWidth(layerRef, true);
+    const plotWidth = width !== undefined ? width - gutterPx - trailingPx : 0;
+    // ── The view (a bounded frame only) — what clamps an endpoint ──
+    // The rows sit under the sticky chrome, so the view in the rows' own
+    // coordinates starts at the scroll offset and is the viewport less that
+    // chrome tall.
+    const bounded = frame !== undefined;
+    const viewportPx = useElementHeight(frame?.scrollElRef ?? NO_REF, bounded);
+    const headerPx = useElementHeight(frame?.headerRef ?? NO_REF, bounded);
+    const scrollTop = useScrollTop(frame?.scrollElRef ?? NO_REF, bounded);
+    const viewTop = bounded && viewportPx !== undefined ? scrollTop : undefined;
+    const viewBottom = bounded && viewportPx !== undefined
+        ? scrollTop + Math.max(0, viewportPx - (headerPx ?? 0))
+        : undefined;
+    const layout = useMemo(() => (plotWidth > 0
+        ? layoutRibbons({
+            links, visibleKeys, body, beyond, runDates, scale,
+            plot: { left: gutterPx, width: plotWidth },
+            viewport: viewTop !== undefined && viewBottom !== undefined ? { top: viewTop, bottom: viewBottom } : undefined,
+        })
+        : NO_LAYOUT), [links, visibleKeys, body, beyond, runDates, scale, gutterPx, plotWidth, viewTop, viewBottom]);
+    // The ribbon under the pointer — lit, with its runs ringed.
+    const [lit, setLit] = useState<number | null>(null);
+    // A lit ribbon that is gone (the focus moved on) lights nothing.
+    useLayoutEffect(() => {
+        if (lit !== null && !layout.ribbons.some((r) => r.link === lit)) setLit(null);
+    }, [lit, layout]);
+
+    const { ribbons, fades } = layout;
+    return (
+        <Box ref={layerRef} css={styles.ribbons} data-plan-ribbons>
+            {(ribbons.length > 0 || fades.length > 0) && (
+                <svg width={width} height={body.height}>
+                    <defs>
+                        {/* The off-window landing — strongest AT the window
+                            edge, fading inward (the runoff grammar, reversed
+                            for an arrival from beyond the window). */}
+                        <linearGradient id={`${uid}-fade-right`} x1="0" y1="0" x2="1" y2="0">
+                            <stop offset="0" stopColor={BRAND} stopOpacity={0} />
+                            <stop offset="1" stopColor={BRAND} stopOpacity={0.3} />
+                        </linearGradient>
+                        <linearGradient id={`${uid}-fade-left`} x1="0" y1="0" x2="1" y2="0">
+                            <stop offset="0" stopColor={BRAND} stopOpacity={0.3} />
+                            <stop offset="1" stopColor={BRAND} stopOpacity={0} />
+                        </linearGradient>
+                    </defs>
+                    {fades.map((b, i) => (
+                        <rect key={`fade-${i}`} data-plan-linkfade={b.side}
+                            x={b.x} y={b.y} width={RIBBON_FADE_W} height={b.h}
+                            fill={`url(#${uid}-fade-${b.side})`} />
+                    ))}
+                    {ribbons.map((r) => (
+                        <g key={r.link} data-plan-link={r.link} data-lit={lit === r.link ? "" : undefined}>
+                            <g data-plan-ribbon-ink opacity={r.opacity}>
+                                <path data-plan-ribbon-band d={r.stroke} strokeWidth={r.width} />
+                                <path data-plan-ribbon-head d={r.head} data-plan-stub={r.to.off} />
+                                {r.tail !== "" && <path data-plan-ribbon-head d={r.tail} data-plan-stub={r.from.off} />}
+                            </g>
+                            {lit === r.link && (
+                                <>
+                                    <RunRing end={r.from} side="from" />
+                                    <RunRing end={r.to} side="to" />
+                                </>
+                            )}
+                            <text data-plan-ribbon-caption x={r.lx} y={r.ly} textAnchor={r.anchor}>{r.label}</text>
+                            {/* The hit area — a wide transparent stroke along
+                                the centerline. Its label is the canvas's
+                                tooltip. */}
+                            <path data-link={r.link} aria-label={r.label} d={r.stroke} strokeWidth={r.width + 2 * HIT_REACH}
+                                onPointerEnter={() => setLit(r.link)}
+                                onPointerLeave={() => setLit((now) => (now === r.link ? null : now))} />
                         </g>
-                        {/* Paint-order halo keeps the caption legible over
-                            bars and grid — dynamic SVG text, like the chart
-                            marks. */}
-                        <text
-                            x={r.lx} y={r.ly} textAnchor={r.anchor}
-                            style={{
-                                font: "600 8.5px var(--chakra-fonts-mono)",
-                                fill: "var(--chakra-colors-fg-muted)",
-                                paintOrder: "stroke",
-                                stroke: "var(--chakra-colors-bg-surface)",
-                                strokeWidth: 3,
-                            }}
-                        >
-                            {r.label}
-                        </text>
-                    </g>
-                ))}
-            </svg>
+                    ))}
+                </svg>
+            )}
         </Box>
     );
 }

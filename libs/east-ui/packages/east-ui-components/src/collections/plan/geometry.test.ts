@@ -47,6 +47,9 @@ describe("the Plan geometry table (#817)", () => {
     });
 
     test("each height the model also computes is drawn from its variable, never a pixel literal", () => {
+        // The rule under a row sits inside its height — its plot cell, where
+        // the link ribbons centre on its bars, is the row less it (#818).
+        expect(slot("row").borderBottomWidth).toBe(v("rule"));
         expect(slot("rail").height).toBe(v("rail"));
         expect(slot("focusGap").height).toBe(v("gap"));
         expect(slot("groupBand").minHeight).toBe(v("group"));

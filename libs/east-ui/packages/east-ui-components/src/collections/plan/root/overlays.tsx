@@ -22,8 +22,8 @@
  * - hovering an element opens the hover card after a short delay, on devices
  *   that can hover; leaving it closes the card unless the pointer moved into
  *   the card;
- * - hovering a labelled port or cell marker shows its `aria-label` as a
- *   tooltip.
+ * - hovering a labelled port, cell marker or link ribbon (#818) shows its
+ *   `aria-label` as a tooltip.
  *
  * The open element and its resolved body live in the controller; the DOM node
  * a surface anchors to lives here, out of the store. A surface anchors with
@@ -49,8 +49,9 @@ type Styles = Record<string, Record<string, unknown>>;
 
 /** The elements a popover or hover card opens from — every element kind's own attribute. */
 export const PLAN_ELEMENT_SELECTOR = "[data-run],[data-event],[data-chip],[data-mark],[data-cell]";
-/** The labelled marks a tooltip reads — their `aria-label` is its text. */
-export const PLAN_TIP_SELECTOR = "[data-port][aria-label],[data-marker][aria-label]";
+/** The labelled marks a tooltip reads — their `aria-label` is its text: ports,
+ *  cell markers, and link ribbons (#818). */
+export const PLAN_TIP_SELECTOR = "[data-port][aria-label],[data-marker][aria-label],[data-link][aria-label]";
 
 /** Hover intent before a card or tooltip opens — long enough to skip pass-through. */
 const OPEN_DELAY_MS = 150;
@@ -116,12 +117,17 @@ export function refOfElement(el: Element): PlanElementRefValue | undefined {
     return at !== undefined ? variant("cell", { row, at }) as PlanElementRefValue : undefined;
 }
 
-/** A labelled mark's identity — its row and the mark's own attribute. */
+/** A labelled mark's identity — its row and the mark's own attribute; a link
+ *  ribbon's, its index in the root's links. */
 function tipOf(el: Element): { key: string; text: string } | undefined {
     const text = el.getAttribute("aria-label");
+    if (text === null) return undefined;
+    // A ribbon spans rows, so it belongs to none — the link is its identity.
+    const link = el.getAttribute("data-link");
+    if (link !== null) return { key: `link|${link}`, text };
     const holder = el.closest("[data-plan-row],[data-plan-card]");
     const row = holder?.getAttribute("data-plan-row") ?? holder?.getAttribute("data-plan-card");
-    if (text === null || row === null || row === undefined) return undefined;
+    if (row === null || row === undefined) return undefined;
     const port = el.getAttribute("data-port");
     return { key: port !== null ? `${row}|port|${port}` : `${row}|marker|${el.getAttribute("data-marker") ?? ""}`, text };
 }

@@ -4,20 +4,23 @@
  *
  * @vitest-environment jsdom
  *
- * Plan row-focus DOM tests — the links focus (R1: rails, gap bands,
- * ribbons) and expand-in-place (R2: the focused row's render and its context
- * strips).
+ * Plan row-focus DOM tests — the links focus (R1: rails, gap bands, and the
+ * ribbons laid out from the model, #818) and expand-in-place (R2: the focused
+ * row's render and its context strips).
  *
- * (Split out of `plan.dom.test.tsx`, #815: every test moved verbatim.)
+ * (Split out of `plan.dom.test.tsx`, #815: its tests moved verbatim; the
+ * ribbon tests are #818's.)
  */
 
 import { describe, test, expect, afterEach } from "vitest";
-import { render, screen, cleanup, fireEvent } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, act, waitFor } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { variant, some, none } from "@elaraai/east";
 import { system } from "../../theme/index.js";
 import { EastChakraPlan, type PlanRootValue, type PlanRowValue } from "./index.js";
 import type { PlanInstantValue } from "./instant.js";
+import { PLAN_GEOMETRY } from "./geometry.js";
+import { setBodyRowMountProbe } from "./rows/BodyRow.js";
 
 // A canvas persists its toggles under its storageKey (#813), and several tests
 // share one — nothing may carry from one test to the next.
@@ -206,6 +209,227 @@ describe("Plan links focus (R1)", () => {
         fireEvent.click(container.querySelector('[data-plan-control="links"]')!);
         fireEvent.keyDown(container.querySelector('[tabindex="0"]')!, { key: "Escape" });
         expect(container.querySelector('[data-plan-rail="x"]')).toBeNull();
+    });
+});
+
+describe("Plan link ribbons (#818)", () => {
+    const link = (from: string, fromRun: string, to: string, toRun: string) => ({
+        fromRow: from, fromRun, toRow: to, toRun, quantity: 34, label: "34 t",
+    });
+    const confirmed = variant("confirmed", null);
+    const JUL13 = new Date("2026-07-13Z");
+    const JUL27 = new Date("2026-07-27Z");
+    // The 12-week window across a 1000px plot, right of the 168px gutter.
+    const xAt = (d: Date) => 168 + ((d.getTime() - W27.getTime()) / (84 * 86_400_000)) * 1000;
+
+    /** A path's last point. */
+    const endOf = (d: string): [number, number] => {
+        const nums = d.trim().split(/[\sMLAZ]+/).filter((s) => s !== "").map(Number);
+        return [nums[nums.length - 2]!, nums[nums.length - 1]!];
+    };
+    /** A triangle's tip — its second vertex. */
+    const tipOf = (d: string): [number, number] => {
+        const nums = d.trim().split(/[\sMLZ]+/).filter((s) => s !== "").map(Number);
+        return [nums[2]!, nums[3]!];
+    };
+
+    /**
+     * jsdom lays nothing out. Give the ribbon layer its width — the 168px
+     * gutter and a 1000px plot — and a bounded frame its viewport and the
+     * sticky header above its rows their heights (TanStack sizes the frame by
+     * `offsetHeight`, the view reads `clientHeight`); every other element keeps
+     * measuring 0.
+     */
+    function stubLayout(viewportPx = 0, headerPx = 0): () => void {
+        const heightOf = (el: HTMLElement) => (el.getAttribute("data-virtual-rows") === "bounded" ? viewportPx
+            : el.hasAttribute("data-plan-header") ? headerPx : 0);
+        const stubs: Record<string, (el: HTMLElement) => number> = {
+            clientWidth: (el) => (el.hasAttribute("data-plan-ribbons") ? 1168 : 0),
+            clientHeight: heightOf,
+            offsetHeight: heightOf,
+        };
+        const saved = Object.keys(stubs).map((k) => [k, Object.getOwnPropertyDescriptor(HTMLElement.prototype, k)] as const);
+        for (const [k, get] of Object.entries(stubs)) {
+            Object.defineProperty(HTMLElement.prototype, k, { configurable: true, get(this: HTMLElement) { return get(this); } });
+        }
+        return () => {
+            for (const [k, d] of saved) {
+                if (d !== undefined) Object.defineProperty(HTMLElement.prototype, k, d);
+                else delete (HTMLElement.prototype as unknown as Record<string, unknown>)[k];
+            }
+        };
+    }
+
+    const focusLinks = (container: HTMLElement, key: string) =>
+        fireEvent.click(container.querySelector(`[data-plan-row="${key}"] [data-plan-control="links"]`)!);
+
+    test("ribbons are laid out from the model the moment the focus opens — no timer, no rect read", async () => {
+        const restore = stubLayout();
+        // Every element the canvas measures from here on.
+        const measured: Element[] = [];
+        const rect = Element.prototype.getBoundingClientRect;
+        try {
+            const { container } = renderPlan(planRoot([
+                planRow("a", spanKind([run("ra", W27, JUL13, confirmed)])),
+                planRow("b", spanKind([run("rb", JUL13, JUL27, confirmed)])),
+            ], { links: [link("a", "ra", "b", "rb")] }), "plan-818-model");
+            Element.prototype.getBoundingClientRect = function (this: Element) {
+                measured.push(this);
+                return rect.call(this);
+            };
+            focusLinks(container, "a");
+            // Nothing awaited, no timer run: the ribbon is already there. It
+            // leaves a's run END at a's bar centre — the middle of its plot
+            // cell, the 32px row less the rule under it...
+            const band = container.querySelector('[data-plan-link="0"] [data-plan-ribbon-band]')!;
+            expect(band.getAttribute("d")!.startsWith(`M ${xAt(JUL13).toFixed(1)} 15.5`)).toBe(true);
+            expect(band.getAttribute("stroke-width")).toBe(String(PLAN_GEOMETRY.default.bar / 2));
+            // ...and arrives at b's run START, at b's bar centre (32 + 15.5).
+            const head = container.querySelector('[data-plan-link="0"] [data-plan-ribbon-head]')!;
+            expect(tipOf(head.getAttribute("d")!)).toEqual([Number(xAt(JUL13).toFixed(1)), 47.5]);
+            // Past the old 320ms settle: still nothing measured by the layer.
+            await act(async () => { await new Promise((r) => setTimeout(r, 400)); });
+            expect(measured.filter((el) => el.closest("[data-plan-body]") !== null)).toEqual([]);
+        } finally {
+            Element.prototype.getBoundingClientRect = rect;
+            restore();
+        }
+    });
+
+    test("a link to a row scrolled out of view ends in a stub pointing toward it, and follows the scroll", () => {
+        // A bounded frame 140px tall under a 40px sticky header: a 100px view
+        // of the rows. a, c, d, e, b stack 32px apart, so b (128–160) lies
+        // past the view's bottom.
+        const restore = stubLayout(140, 40);
+        try {
+            const at = (k: string) => planRow(k, spanKind([run(`r${k}`, W27, JUL13, confirmed)]));
+            const { container } = renderPlan(planRoot(["a", "c", "d", "e", "b"].map(at), {
+                links: [link("a", "ra", "c", "rc"), link("a", "ra", "d", "rd"), link("a", "ra", "e", "re"), link("a", "ra", "b", "rb")],
+                style: { height: "300px" },
+            }), "plan-818-stub");
+            focusLinks(container, "a");
+            const toB = container.querySelector('[data-plan-link="3"]')!;
+            // The ribbon runs to the view's bottom edge and ends in a stub
+            // pointing down, toward b.
+            const down = toB.querySelector('[data-plan-stub="below"]')!;
+            expect(tipOf(down.getAttribute("d")!)[1]).toBe(100);
+            expect(toB.querySelector('[data-plan-stub="above"]')).toBeNull();
+            // Scroll 80px: b comes into view, and a leaves it at the top — the
+            // stub moves to the ribbon's start, pointing up toward a.
+            const frame = container.querySelector<HTMLElement>('[data-virtual-rows="bounded"]')!;
+            Object.defineProperty(frame, "scrollTop", { configurable: true, value: 80 });
+            act(() => { fireEvent.scroll(frame); });
+            expect(toB.querySelector('[data-plan-stub="below"]')).toBeNull();
+            const up = toB.querySelector('[data-plan-stub="above"]')!;
+            expect(tipOf(up.getAttribute("d")!)[1]).toBe(80);
+            // A ribbon with both ends past the top — a to c, both above 80 — is not drawn.
+            expect(container.querySelector('[data-plan-link="0"]')).toBeNull();
+        } finally {
+            restore();
+        }
+    });
+
+    test("collapsing a section re-routes the ribbons in the same render", () => {
+        const restore = stubLayout();
+        try {
+            const { container } = renderPlan(planRoot([
+                planRow("a", spanKind([run("ra", W27, JUL13, confirmed)])),
+                planRow("p", spanKind([run("rp", JUL13, JUL27, confirmed)])),
+                planRow("p1", spanKind([]), { parent: "p" }),
+                planRow("p2", spanKind([]), { parent: "p" }),
+                planRow("p3", spanKind([]), { parent: "p" }),
+                planRow("c", spanKind([run("rc", JUL27, new Date("2026-08-10Z"), confirmed)])),
+            ], { links: [link("a", "ra", "p", "rp"), link("p", "rp", "c", "rc")] }), "plan-818-collapse");
+            focusLinks(container, "p");
+            const toC = () => container.querySelector('[data-plan-link="1"] [data-plan-ribbon-band]')!;
+            // c sits below a, p, and the one ⋯ band standing in for p's three
+            // children: its bar centre is 32 + 32 + 22 + 15.5.
+            expect(container.querySelector('[data-plan-gap="3"]')).toBeTruthy();
+            expect(endOf(toC().getAttribute("d")!)[1]).toBe(101.5);
+            expect(toC().getAttribute("stroke-width")).toBe(String(PLAN_GEOMETRY.default.bar / 2));
+            // Collapse p: its children go, and the band with them.
+            fireEvent.click(container.querySelector('[data-plan-row="p"] > :first-child')!);
+            expect(container.querySelector("[data-plan-gap]")).toBeNull();
+            // The same render: c's end rose by the band's 22px, and p's runs
+            // now draw at its rollup height, so the ribbon out of them thins.
+            expect(endOf(toC().getAttribute("d")!)[1]).toBe(79.5);
+            expect(toC().getAttribute("stroke-width")).toBe(String(PLAN_GEOMETRY.default.rollBar / 2));
+        } finally {
+            restore();
+        }
+    });
+
+    test("hovering a ribbon lights it and rings the two runs it joins", () => {
+        const restore = stubLayout();
+        try {
+            const { container } = renderPlan(planRoot([
+                planRow("a", spanKind([run("ra", W27, JUL13, confirmed)])),
+                planRow("b", spanKind([run("rb", JUL13, JUL27, confirmed)])),
+            ], { links: [link("a", "ra", "b", "rb")] }), "plan-818-hover");
+            focusLinks(container, "a");
+            const g = container.querySelector('[data-plan-link="0"]')!;
+            const hit = g.querySelector('[data-link="0"]')!;
+            expect(g.hasAttribute("data-lit")).toBe(false);
+            fireEvent.pointerEnter(hit);
+            expect(g.hasAttribute("data-lit")).toBe(true);
+            // The rings sit exactly on the two runs' bars: a's in row 0, b's in row 1.
+            const ring = (side: string) => {
+                const el = g.querySelector(`[data-plan-linkend="${side}"]`)!;
+                return ["x", "y", "height"].map((k) => Number(el.getAttribute(k)));
+            };
+            expect(ring("from")).toEqual([168, 5.5, 20]);
+            expect(ring("to")).toEqual([xAt(JUL13), 37.5, 20]);
+            fireEvent.pointerLeave(hit);
+            expect(g.hasAttribute("data-lit")).toBe(false);
+            expect(g.querySelector("[data-plan-linkend]")).toBeNull();
+        } finally {
+            restore();
+        }
+    });
+
+    test("the ribbons come and go without remounting a row", () => {
+        // The layer is drawn in the rows' own box — which must not come and go
+        // with it, or every row would remount as a focus opens and closes.
+        const restore = stubLayout();
+        const mounts: string[] = [];
+        setBodyRowMountProbe((key, phase) => mounts.push(`${phase} ${key}`));
+        try {
+            const { container } = renderPlan(planRoot([
+                planRow("a", spanKind([run("ra", W27, JUL13, confirmed)])),
+                planRow("x", spanKind([])),
+                planRow("b", spanKind([run("rb", JUL13, JUL27, confirmed)])),
+            ], { links: [link("a", "ra", "b", "rb")] }), "plan-818-remount");
+            mounts.length = 0;
+            focusLinks(container, "a");
+            expect(container.querySelector("[data-plan-ribbons]")).toBeTruthy();
+            // x rails — the same row, drawn another way.
+            expect(container.querySelector('[data-plan-rail="x"]')).toBeTruthy();
+            fireEvent.click(container.querySelector("[data-plan-focusback]")!);
+            expect(container.querySelector("[data-plan-ribbons]")).toBeNull();
+            expect(mounts).toEqual([]);
+        } finally {
+            setBodyRowMountProbe(undefined);
+            restore();
+        }
+    });
+
+    test("a ribbon's label shows through the canvas's tooltip", async () => {
+        const restore = stubLayout();
+        try {
+            const { container } = renderPlan(planRoot([
+                planRow("a", spanKind([run("ra", W27, JUL13, confirmed)])),
+                planRow("b", spanKind([run("rb", JUL13, JUL27, confirmed)])),
+            ], { links: [link("a", "ra", "b", "rb")] }), "plan-818-tip");
+            focusLinks(container, "a");
+            const hit = container.querySelector('[data-link="0"]')!;
+            expect(hit.getAttribute("aria-label")).toBe("34 t");
+            fireEvent.pointerOver(hit);
+            await waitFor(() => expect(document.querySelector('[data-plan-overlay="tooltip"]')?.textContent).toBe("34 t"));
+            fireEvent.pointerOut(hit);
+            await waitFor(() => expect(document.querySelector('[data-plan-overlay="tooltip"]')).toBeNull());
+        } finally {
+            restore();
+        }
     });
 });
 

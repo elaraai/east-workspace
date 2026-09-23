@@ -145,3 +145,77 @@ test.describe("Plan geometry (#817)", () => {
         expect(await mismatches(entry)).toEqual([]);
     });
 });
+
+/**
+ * The links-focus ribbons are laid out from the model (#818) — the body's own
+ * heights, the geometry table's bars, the scale across the plot — and never
+ * measured. Here, in a real layout, each must still meet the bars it joins.
+ */
+test.describe("Plan link ribbons (#818)", () => {
+    test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "measured once, at the desktop width");
+
+    /** planSpanRows' six links, in order: [from row, run, to row, run]. Every
+     *  routing case is among them — forward, the loopbacks, a same-row feed,
+     *  and a landing past the window (dsp's run starts where it ends). */
+    const LINKS = [
+        ["L1-M07", "run", "L1-M09", "a"], ["L1-M09", "a", "L1-M09", "b"], ["L1-M09", "b", "L1-M03", "b221"],
+        ["L1-M03", "b214", "L2-M11", "b241"], ["L2-M11", "b241", "L1-M09", "b"], ["L1-M09", "b", "dsp", "d1"],
+    ];
+
+    /** Focus L1-M09's links — every link above touches its family. */
+    async function focusLinks(page: Page): Promise<Locator> {
+        const entry = await openExample(page, "planSpanRows");
+        await entry.locator('[data-plan-row="L1-M09"] [data-plan-control="links"]').click();
+        await expect(entry.locator("[data-plan-ribbons] [data-plan-link]")).toHaveCount(LINKS.length);
+        return entry;
+    }
+
+    test("every ribbon leaves its source run's end and lands on its destination's start, at the bars' centres", async ({ page }) => {
+        const entry = await focusLinks(page);
+        const misses = await entry.evaluate((root, links) => {
+            const svg = root.querySelector("[data-plan-ribbons] svg")!.getBoundingClientRect();
+            const nums = (d: string) => d.split(/[\sMLAZ]+/).filter((s) => s !== "").map(Number);
+            const out: string[] = [];
+            const near = (what: string, got: number, want: number) => {
+                if (Math.abs(got - want) > 0.25) out.push(`${what}: ${got.toFixed(2)} ≠ ${want.toFixed(2)}`);
+            };
+            for (const g of root.querySelectorAll("[data-plan-link]")) {
+                const [fromRow, fromRun, toRow, toRun] = links[Number(g.getAttribute("data-plan-link"))]!;
+                const band = nums(g.querySelector("[data-plan-ribbon-band]")!.getAttribute("d")!);
+                const tip = nums(g.querySelector("[data-plan-ribbon-head]")!.getAttribute("d")!).slice(2, 4);
+                const src = root.querySelector(`[data-plan-row="${fromRow}"] [data-run="${fromRun}"]`)!.getBoundingClientRect();
+                const dst = root.querySelector(`[data-plan-row="${toRow}"] [data-run="${toRun}"]`)!.getBoundingClientRect();
+                // A run starting past the window lands on the plot's edge.
+                const plot = root.querySelector(`[data-plan-row="${toRow}"]`)!.children[1]!.getBoundingClientRect();
+                const edge = `${fromRow}·${fromRun} → ${toRow}·${toRun}`;
+                near(`${edge} start x`, svg.left + band[0]!, src.right);
+                near(`${edge} start y`, svg.top + band[1]!, src.top + src.height / 2);
+                near(`${edge} tip x`, svg.left + tip[0]!, Math.min(dst.left, plot.right));
+                near(`${edge} tip y`, svg.top + tip[1]!, dst.top + dst.height / 2);
+            }
+            return out;
+        }, LINKS);
+        expect(misses).toEqual([]);
+        // The landing past the window reads as the runoff fade.
+        await expect(entry.locator('[data-plan-linkfade="right"]')).toHaveCount(1);
+    });
+
+    test("a ribbon takes the pointer along its band — it lights, rings its runs, and its label is the tooltip", async ({ page }) => {
+        const entry = await focusLinks(page);
+        // A point ON the band's centerline (the hit area is its stroke), in page px.
+        const hit = entry.locator('[data-link="2"]');
+        const at = await hit.evaluate((path: SVGPathElement) => {
+            const p = path.getPointAtLength(path.getTotalLength() / 2);
+            const svg = path.ownerSVGElement!.getBoundingClientRect();
+            return { x: svg.left + p.x, y: svg.top + p.y };
+        });
+        await page.mouse.move(at.x, at.y);
+        const g = entry.locator('[data-plan-link="2"]');
+        await expect(g).toHaveAttribute("data-lit", "");
+        await expect(g.locator("[data-plan-linkend]")).toHaveCount(2);
+        await expect(page.locator('[data-plan-overlay="tooltip"]')).toHaveText("88 t");
+        // Off the band: it dims again.
+        await page.mouse.move(at.x, at.y + 40);
+        await expect(g).not.toHaveAttribute("data-lit", "");
+    });
+});

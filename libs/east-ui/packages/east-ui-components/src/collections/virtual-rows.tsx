@@ -77,6 +77,18 @@ interface VirtualRowsBaseProps {
     header?: ReactNode | undefined;
     /** Trailing content after the rows (e.g. a legend); scrolls with the body. */
     footer?: ReactNode | undefined;
+    /**
+     * Content drawn OVER the rows, in their own coordinates: the frame places
+     * it at the rows' top-left, in a box as wide as they are and as tall as all
+     * of them (the virtual extent), after them in paint order. It scrolls with
+     * the rows natively and renders in the same pass as they do, so geometry
+     * computed from the rows' own heights stays registered to them (the Plan's
+     * link ribbons, #818). The content positions itself (`position: absolute`)
+     * within that box. Omitted, the frame's DOM is unchanged; a collection whose
+     * overlay comes and goes passes `null` while it has none, so the rows' box
+     * — and every row mounted in it — stays put as the overlay appears.
+     */
+    overlay?: ReactNode | undefined;
     /** Total number of body rows. */
     count: number;
     /**
@@ -350,7 +362,7 @@ const measureRect = (el: Element): number => el.getBoundingClientRect().height;
  */
 export function VirtualRows(props: VirtualRowsProps): ReactNode {
     const {
-        header, footer, count, estimateSize, sizes, getItemKey, renderRow, measureRows = true,
+        header, footer, overlay, count, estimateSize, sizes, getItemKey, renderRow, measureRows = true,
         overscan = 4, minWidth, headerZIndex = 3, onScroll, rootCss, fillParent, scrollElRef,
         scrollToIndex, scrollNonce, scrollAlign = "center", onRangeChange, sizeVersion,
         virtualizeUnboundedAt, onAnchorChange, restoreAnchor,
@@ -526,7 +538,10 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
         return (
             <Box css={rootCss}>
                 {header}
-                {everyRow()}
+                {overlay === undefined ? everyRow() : (
+                    // The overlay's box: the rows, and nothing else.
+                    <Box position="relative">{everyRow()}{overlay}</Box>
+                )}
                 {footer}
             </Box>
         );
@@ -579,6 +594,7 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
                     ))}
                 </Box>
             )}
+            {overlay}
         </Box>
     );
     const reporter = onRangeChange !== undefined && virtualized && (
@@ -599,7 +615,11 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
             <Box ref={rootRef} css={rootCss} data-virtual-rows={atScale ? "ancestor" : "watched"}>
                 {header !== undefined && <Box ref={setHeaderEl}>{header}</Box>}
                 {atScale ? virtualWindow() : (
-                    <Box ref={itemsRef} data-virtual-extent={total}>{everyRow()}</Box>
+                    <Box ref={itemsRef} position={overlay !== undefined ? "relative" : undefined}
+                        data-virtual-extent={total}>
+                        {everyRow()}
+                        {overlay}
+                    </Box>
                 )}
                 {footer}
                 {reporter}
