@@ -383,8 +383,9 @@ Read first:
    - Every runtime writes manifest directories, and so does the Merger (item 6).
    - A directory names each segment file by its SHA-256, the hash the store names it by, so each library carries one: `east` a pure-TypeScript SHA-256, east-c the one east-c-std has (moved into east-c, which east-c-std then uses), and east-py C's. The store can then adopt a directory's segments under their names (`adoptFile` takes a known hash).
 9. **The conformance corpus.**
-   - A generator in `libs/east`, the successor to `generate_fixtures.mjs`, writes cases with their expected bytes: values, emission sequences and their runs, merges and re-cuts.
-   - east-c's and east-py's tests consume them, in those libs' CI workflows.
+   - A generator in `libs/east` writes cases with their expected bytes: values, emission sequences and their runs, merges and re-cuts. `make test-export` writes the corpus beside the compliance IR; it is never checked in.
+   - east-c's and east-py's tests consume it, in those libs' CI workflows, which download it as they download the IR.
+   - `generate_fixtures.mjs` and its checked-in runner fixtures stay until stage 3's protocol cases replace them.
 10. **SPEC** updated to v2.
 
 Built in five parts, in this order:
@@ -453,7 +454,7 @@ Changes:
   - `threads` honoured — east-c's own pool is sized to the grant, not the machine;
   - the result written.
 - **`run --snapshot`** writes a unit bundle.
-- **Corpus cases for the protocol:** unit files, their expected outputs and their expected results.
+- **Corpus cases for the protocol:** unit files, their expected outputs and their expected results, exported as stage 1's corpus is. They replace `generate_fixtures.mjs` and the runner fixtures it checks in.
 - **Additive for now:** the old `run` flags and the `merge` command stay until Stage 4 removes their last caller.
 
 Acceptance:
