@@ -55,6 +55,7 @@ from east.serialization._beast2_eastc import (  # type: ignore[import-not-found]
     _Beast2PagesCore,
     _Beast2Projection,
     _Beast2ReaderCore,
+    _Beast2RunSorterCore,
     _Beast2WriterCore,
     _encode_beast2_paged,
     _encode_beast2_v5,
@@ -234,6 +235,62 @@ class Beast2ElementWriter:
             self._closed = True
             return
         self.close()
+
+
+#: The elements a sorted run holds before it closes (pairs, for a Dict), and
+#: the bytes of their canonical encoding — keys and values both. Platform
+#: constants, not settings: where a run closes decides how a repeated key's
+#: values group before they fold, which for a fold over floats decides the
+#: output's bytes. Mirrors east-c's ``EAST_BEAST2_RUN_MAX_*`` and TypeScript's
+#: ``RUN_MAX_*``.
+RUN_MAX_COUNT = 131_072
+RUN_MAX_BYTES = 64 * 1024 * 1024
+
+
+class Beast2RunSorter:
+    """Sort a Set's or Dict's elements, given in any order, into sorted
+    canonical runs.
+
+    Each element is encoded as it is added, so what the sorter holds is
+    bounded by bytes rather than by what the elements decode to. Once it holds
+    :data:`RUN_MAX_COUNT` elements or :data:`RUN_MAX_BYTES` of their encoding,
+    the run closes: its elements sort by key, stably, so a key's values stay
+    in the order they were added; a key added more than once folds with
+    ``merge``, a compiled ``(K, V, V) -> V`` East function (Dict roots), is
+    kept once under ``union`` (Set roots), or is refused; and the run is
+    written as the canonical blob of its value. Runs are numbered from zero in
+    the order they close, and each goes to the sink ``open_run(run)`` returns
+    — anything with ``write(bytes)`` and ``close()``, a file included. A key
+    that repeats across runs is the merge's to fold.
+
+    East-c's sorter does every byte of it, so the runs are the ones east-c
+    and TypeScript write for the same elements.
+    """
+
+    def __init__(self, collection_type, open_run, *, merge=None, union: bool = False,
+                 codec: str = "deflate", parallel: bool = False):
+        self._core = _Beast2RunSorterCore(collection_type, open_run, codec, merge, union)
+        # Frame deflates on east-c's worker pool (issue #763); the bytes are
+        # the inline writer's either way.
+        if parallel:
+            self._core.set_parallel(True)
+
+    @property
+    def runs(self) -> int:
+        """Runs written so far; the open run is not among them until a cap or
+        :meth:`finish` closes it."""
+        return self._core.runs()
+
+    def add(self, element) -> None:
+        """Add one element — for a Dict, a ``(key, value)`` pair. An element
+        that fails to encode leaves the sorter as it was; a run that fails as
+        it closes — a key added twice without a fold, the merge function's
+        error, the sink's — ends the sorter."""
+        self._core.add(element)
+
+    def finish(self) -> None:
+        """Write the open run, if it holds anything. Idempotent."""
+        self._core.finish()
 
 
 def encode_beast2_v5_for(collection_or_value_type, *, codec: str = "deflate",
@@ -3673,6 +3730,9 @@ __all__ = [
     "Beast2DecodeOptions",
     "Beast2Writer",
     "Beast2ElementWriter",
+    "Beast2RunSorter",
+    "RUN_MAX_COUNT",
+    "RUN_MAX_BYTES",
     "encode_beast2_for",
     "decode_beast2_for",
     "encode_beast2_with_header_for",

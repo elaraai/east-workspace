@@ -622,6 +622,134 @@ cdef class _Beast2ElementWriterCore:
             _eastc.east_type_release(self._type)
 
 
+# ─── Sorted runs ──────────────────────────────────────────────────────────
+#
+# east-c's run sorter, so the runs are the bytes east-c and TypeScript write
+# for the same elements. Its sink calls back into python for each run:
+# ``open_run(run)`` returns an object with ``write(bytes)`` and ``close()``.
+# An exception raised there is kept, the C call fails, and the method that
+# made it raises the exception in place of east-c's message.
+
+
+cdef _eastc.cbool _run_sink_open(void* ctx, size_t run) noexcept with gil:
+    cdef _Beast2RunSorterCore core = <_Beast2RunSorterCore>ctx
+    try:
+        core._sink = core._open_run(run)
+        return True
+    except BaseException as exc:
+        return core._keep(exc)
+
+
+cdef _eastc.cbool _run_sink_write(void* ctx, const uint8_t* data, size_t length) noexcept with gil:
+    cdef _Beast2RunSorterCore core = <_Beast2RunSorterCore>ctx
+    try:
+        core._sink.write((<const char*>data)[:length])
+        return True
+    except BaseException as exc:
+        return core._keep(exc)
+
+
+cdef _eastc.cbool _run_sink_close(void* ctx) noexcept with gil:
+    cdef _Beast2RunSorterCore core = <_Beast2RunSorterCore>ctx
+    try:
+        sink, core._sink = core._sink, None
+        sink.close()
+        return True
+    except BaseException as exc:
+        return core._keep(exc)
+
+
+cdef class _Beast2RunSorterCore:
+    """Owner of one east-c run sorter. ``open_run(run)`` returns the sink for
+    run ``run``; ``merge`` is a compiled ``(K, V, V) -> V`` East function
+    (Dict roots) and ``union_mode`` keeps a Set element added again once.
+    Raises TypeError with east-c's message for a root other than a Set or
+    Dict, or a fold that does not fit it."""
+
+    cdef _eastc.Beast2RunSorter* _s
+    cdef _eastc.EastType* _type
+    cdef object _open_run
+    cdef object _sink     # the open run's
+    cdef object _pending  # what a sink raised, for the call that ran it
+    cdef object _merge    # borrowed by the sorter for its lifetime
+
+    def __cinit__(self, object py_type, object open_run, object codec, object merge=None,
+                  bint union_mode=False):
+        _ensure_eastc_runtime()
+        cdef int32_t codec_id = _codec_id(codec)
+        cdef _eastc.EastCompiledFn* merge_fn = NULL
+        if merge is not None:
+            merge_fn = <_eastc.EastCompiledFn*><uintptr_t>merge._eastc_handle._compiled
+        self._open_run = open_run
+        self._merge = merge
+        self._type = py_type_to_c(py_type)
+        cdef _eastc.Beast2RunSink sink
+        sink.ctx = <void*>self
+        sink.open = _run_sink_open
+        sink.write = _run_sink_write
+        sink.close = _run_sink_close
+        self._s = _eastc.east_beast2_run_sorter_new(self._type, codec_id, &sink, merge_fn,
+                                                     union_mode)
+        if self._s == NULL:
+            _eastc.east_type_release(self._type)
+            self._type = NULL
+            _consume_eastc_error("east-c beast2 run sorter construction failed", TypeError)
+
+    cdef bint _keep(self, object exc):
+        self._pending = exc
+        _eastc.east_builtin_error(b"beast2 v5: the run sink failed")
+        return False
+
+    cdef _raise_failure(self, str fallback):
+        exc = self._pending
+        if exc is not None:
+            self._pending = None
+            free(_eastc.east_builtin_get_error())
+            raise exc
+        _consume_eastc_error(fallback)
+
+    def add(self, object element):
+        """Add one element — for a Dict, a ``(key, value)`` pair."""
+        cdef _eastc.EastValue* c_head
+        cdef _eastc.EastValue* c_value
+        cdef bint ok
+        if self._type.kind == _eastc.EAST_TYPE_DICT:
+            key, value = element
+            c_head = py_value_to_c(key, self._type.data.dict.key)
+            try:
+                c_value = py_value_to_c(value, self._type.data.dict.value)
+            except BaseException:
+                _eastc.east_value_release(c_head)
+                raise
+            ok = _eastc.east_beast2_run_sorter_add_pair(self._s, c_head, c_value)
+            _eastc.east_value_release(c_value)
+        else:
+            c_head = py_value_to_c(element, self._type.data.element)
+            ok = _eastc.east_beast2_run_sorter_add(self._s, c_head)
+        _eastc.east_value_release(c_head)
+        if not ok:
+            self._raise_failure("east-c beast2 run sorter add failed")
+
+    def finish(self):
+        if not _eastc.east_beast2_run_sorter_finish(self._s):
+            self._raise_failure("east-c beast2 run sorter finish failed")
+
+    def runs(self):
+        """Runs written so far; the open one is not counted."""
+        return _eastc.east_beast2_run_sorter_runs(self._s)
+
+    def set_parallel(self, bint parallel):
+        """Deflate every run's frames on worker threads; the bytes are the
+        inline writer's either way."""
+        _eastc.east_beast2_run_sorter_set_parallel(self._s, parallel)
+
+    def __dealloc__(self):
+        if self._s != NULL:
+            _eastc.east_beast2_run_sorter_free(self._s)
+        if self._type != NULL:
+            _eastc.east_type_release(self._type)
+
+
 cdef class _Beast2ReaderCore:
     """Thin wrapper over east-c's sequential v5 segment reader. Holds a
     contiguous view of the source bytes for the reader's whole lifetime

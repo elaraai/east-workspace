@@ -50,6 +50,7 @@ set(EAST_C_SOURCES
     src/serialization/beast2/v5/container.c
     src/serialization/beast2/v5/boundary.c
     src/serialization/beast2/v5/stream.c
+    src/serialization/beast2/v5/runs.c
     src/serialization/beast2/v5/project.c
     src/serialization/csv.c
     src/serialization/east_parser.c
@@ -337,6 +338,16 @@ add_test(NAME beast2_boundary COMMAND test_beast2_boundary)
 add_executable(test_beast2_aliasing tests/test_beast2_aliasing.c)
 target_link_libraries(test_beast2_aliasing east-c)
 add_test(NAME beast2_aliasing COMMAND test_beast2_aliasing)
+
+# Sorted runs, pinned against the TypeScript sorter: each run is the canonical
+# blob of its sorted, folded value, runs close at the element and byte caps,
+# the runs of two 300,000-element sequences are TypeScript's to the byte, and
+# merging the runs back is the canonical blob of the whole value. Run under
+# ASan/LSan for the sorter's lifetimes, its error paths included.
+add_executable(test_beast2_runs tests/test_beast2_runs.c)
+target_link_libraries(test_beast2_runs east-c)
+add_test(NAME beast2_runs COMMAND test_beast2_runs)
+set_tests_properties(beast2_runs PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 
 # Beast2 v5 column-projection gate (issue #599): plan validation (subset by
 # name, Dict-key/Set-element/variant-case/function-skip refusals with errors

@@ -456,6 +456,28 @@ cdef extern from "east/serialization.h":
     size_t east_beast2_element_writer_segments(const Beast2ElementWriter *w)
     void east_beast2_element_writer_free(Beast2ElementWriter *w)
 
+    # Sorted runs: a Set's or Dict's elements in any order in, sorted
+    # canonical runs out, each run's bytes handed to the sink's callbacks —
+    # which return C `bool`, hence `cbool`.
+    int EAST_BEAST2_RUN_MAX_COUNT
+    size_t EAST_BEAST2_RUN_MAX_BYTES
+    ctypedef struct Beast2RunSink:
+        void *ctx
+        cbool (*open)(void *ctx, size_t run) noexcept
+        cbool (*write)(void *ctx, const uint8_t *data, size_t length) noexcept
+        cbool (*close)(void *ctx) noexcept
+    ctypedef struct Beast2RunSorter:
+        pass
+    Beast2RunSorter *east_beast2_run_sorter_new(EastType *type, int32_t codec_id,
+                                                const Beast2RunSink *sink,
+                                                EastCompiledFn *merge_fn, bint union_mode)
+    void east_beast2_run_sorter_set_parallel(Beast2RunSorter *s, bint parallel)
+    bint east_beast2_run_sorter_add(Beast2RunSorter *s, EastValue *element)
+    bint east_beast2_run_sorter_add_pair(Beast2RunSorter *s, EastValue *key, EastValue *value)
+    bint east_beast2_run_sorter_finish(Beast2RunSorter *s)
+    size_t east_beast2_run_sorter_runs(const Beast2RunSorter *s)
+    void east_beast2_run_sorter_free(Beast2RunSorter *s)
+
     # The content-defined cut rule (beast2/v5/boundary.c). Bound here rather
     # than reimplemented, so this runtime, east-c and TypeScript cut one value
     # at the same elements — the property the segment-object layout rests on.

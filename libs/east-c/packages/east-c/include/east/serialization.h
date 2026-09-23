@@ -282,6 +282,60 @@ bool east_beast2_element_writer_finish(Beast2ElementWriter *w);
 size_t east_beast2_element_writer_segments(const Beast2ElementWriter *w);
 void east_beast2_element_writer_free(Beast2ElementWriter *w);
 
+// Sorted runs (the C mirror of TypeScript's Beast2RunSorter): a Set's or
+// Dict's elements go in in any order and come out as sorted canonical runs.
+// Each element is encoded as it is added, with aliasing scoped to itself, so
+// what the sorter holds is bounded by bytes rather than by what the elements
+// decode to. A run closes once it holds EAST_BEAST2_RUN_MAX_COUNT elements
+// (pairs, for a Dict) or EAST_BEAST2_RUN_MAX_BYTES of their encoding, keys and
+// values both: its elements sort by key, stably, so a key's values stay in
+// the order they were added; a key added more than once folds, `acc =
+// merge(key, acc, value)` (Dict roots, with merge_fn), is kept once (Set
+// roots, with union_mode), or is refused; and the run is written through the
+// element writer as the canonical blob of its value. A key that repeats across
+// runs is the merge's to fold (east/merge.h).
+//
+// The caps are platform constants, not settings: where a run closes decides
+// how a repeated key's values group before they fold, which for a fold over
+// floats decides the output's bytes, and both caps count what every runtime
+// measures alike, so every runtime closes a run at the same element.
+#define EAST_BEAST2_RUN_MAX_COUNT 131072
+#define EAST_BEAST2_RUN_MAX_BYTES (64u * 1024u * 1024u)
+
+// Where the runs go: open() starts run `run` — runs are numbered from 0 in the
+// order they close — write() takes its next bytes, and close() follows its
+// last, the blob complete. Each returns false with the message posted, which
+// fails the add or finish writing the run; a run that fails is left without
+// its close.
+typedef struct {
+    void *ctx;
+    bool (*open)(void *ctx, size_t run);
+    bool (*write)(void *ctx, const uint8_t *bytes, size_t len);
+    bool (*close)(void *ctx);
+} Beast2RunSink;
+
+// merge_fn (Dict roots) is borrowed, and must be associative: a key's values
+// fold within each run before the runs merge. NULL with the message posted
+// for a root other than a Set or Dict, or a fold that does not fit it.
+typedef struct Beast2RunSorter Beast2RunSorter;
+Beast2RunSorter *east_beast2_run_sorter_new(EastType *type, int32_t codec_id,
+                                            const Beast2RunSink *sink, EastCompiledFn *merge_fn,
+                                            bool union_mode);
+// Frames of every run deflate on a pool, as east_beast2_writer_set_parallel.
+void east_beast2_run_sorter_set_parallel(Beast2RunSorter *s, bool parallel);
+// add() takes a Set element, add_pair() a Dict's key and value. An element
+// that fails to encode leaves the sorter as it was; a run that fails as it is
+// written — a key added twice without a fold, the merge function's error, the
+// sink's — ends the sorter. False with the message posted.
+bool east_beast2_run_sorter_add(Beast2RunSorter *s, EastValue *element);
+bool east_beast2_run_sorter_add_pair(Beast2RunSorter *s, EastValue *key, EastValue *value);
+// Writes the open run, if it holds anything. Idempotent.
+bool east_beast2_run_sorter_finish(Beast2RunSorter *s);
+// Runs written so far; the open one is not counted until a cap or finish()
+// closes it.
+size_t east_beast2_run_sorter_runs(const Beast2RunSorter *s);
+void east_beast2_run_sorter_free(Beast2RunSorter *s);
+
 // Sequential v5 segment reader over a complete blob (the caller keeps `data`
 // alive and unchanged for the reader's lifetime). next() returns one decoded
 // collection per root segment (caller releases), NULL when done or on error —
