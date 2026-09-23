@@ -614,15 +614,22 @@ static ByteBuffer *encode_v5(EastValue *value, EastType *type, int32_t codec_id,
                 return NULL;
             }
             write_varint(logical, (uint64_t)n);
+            /* Aliasing is scoped per root element, as in the streaming
+             * writer; the root stays registered across the resets. */
             if (type->kind == EAST_TYPE_ARRAY) {
-                for (size_t i = 0; i < n && !ctx.failed; i++)
+                for (size_t i = 0; i < n && !ctx.failed; i++) {
+                    b2v5_enc_ctx_begin_element(&ctx);
                     b2v5_encode_value(logical, value->data.array.items[i], type->data.element,
                                       &ctx);
+                }
             } else if (type->kind == EAST_TYPE_SET) {
-                for (size_t i = 0; i < n && !ctx.failed; i++)
+                for (size_t i = 0; i < n && !ctx.failed; i++) {
+                    b2v5_enc_ctx_begin_element(&ctx);
                     b2v5_encode_value(logical, east_set_at(value, i), type->data.element, &ctx);
+                }
             } else {
                 for (size_t i = 0; i < n && !ctx.failed; i++) {
+                    b2v5_enc_ctx_begin_element(&ctx);
                     b2v5_encode_value(logical, east_dict_key_at(value, i), type->data.dict.key,
                                       &ctx);
                     b2v5_encode_value(logical, east_dict_val_at(value, i), type->data.dict.value,

@@ -159,8 +159,16 @@ typedef struct {
     Beast2PtrSlot *map;
     int map_mask;
     int map_count;
+    /* The slots of `map` filled since the last element reset, so the reset
+     * clears exactly those instead of the whole table; `touched_lost` when a
+     * fill could not be recorded (allocation failure), and the next reset
+     * then walks the whole table. */
+    int *touched;
+    size_t touched_count;
+    size_t touched_cap;
+    bool touched_lost;
     size_t def_count;        /* definitions so far (counter) */
-    size_t segment_base_def; /* definitions before the current root segment */
+    size_t segment_base_def; /* definitions before the current root element */
     bool cross_segment_ref;  /* some REF reached below segment_base_def */
     /* Set while encoding inside a struct, variant or function value that
      * holds more than one reference. Those values have no wire identity —
@@ -179,8 +187,13 @@ typedef struct {
 
 void b2v5_enc_ctx_init(B2V5EncodeCtx *ctx, EastSourceMap *header_sm, bool self_contained);
 void b2v5_enc_ctx_free(B2V5EncodeCtx *ctx);
-/* Reset per-segment aliasing scope (self-contained writers, per segment). */
-void b2v5_enc_ctx_begin_segment(B2V5EncodeCtx *ctx);
+/* Scope aliasing to the next root element of a segmented collection: forget
+ * every container the previous element defined, so no REF reaches past the
+ * element it sits in (v5/SPEC.md, "Aliasing scope in a self-contained
+ * collection"). A container registered before the first element — the root of
+ * an indexed whole-value encode — stays. Costs the entries the previous
+ * element added, not the table. */
+void b2v5_enc_ctx_begin_element(B2V5EncodeCtx *ctx);
 /* Register a container definition without writing a tag (the root container
  * of a segmented stream — its NEW tag is framed separately). */
 void b2v5_enc_ctx_register(B2V5EncodeCtx *ctx, EastValue *value);

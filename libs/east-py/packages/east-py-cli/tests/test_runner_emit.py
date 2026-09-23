@@ -610,17 +610,23 @@ def test_the_merge_command_names_a_missing_input_as_the_other_runners_do(tmp_pat
     assert "Input file not found" not in proc.stderr
 
 
-def test_merge_keeps_a_container_two_entries_share(tmp_path):
-    """Two entries of one segment whose values share a container: the writer
-    scopes beast2 aliasing per SEGMENT, so the second occurrence is a REF and
-    a merge of this input alone writes its bytes back exactly. east-py binds
-    east-c's merge, which encoded each entry under its own scope and wrote
-    the shared value twice — a different blob and a different hash for one
-    value, and east-py disagreeing with east-node."""
+def test_merge_writes_a_container_two_entries_share_in_each(tmp_path):
+    """Two entries whose values share a container: writers scope beast2
+    aliasing per root element, so the container is written out in each entry
+    and a merge of this input alone writes its bytes back exactly. The
+    segment-scoped twin is what an older writer left for the same entries,
+    the second one a REF: it still reads, and merges to the same canonical
+    bytes — one value, one hash, whichever writer stored it."""
     aliased = FIXTURES / "merge_aliased.beast2"
     out = tmp_path / "aliased.beast2"
     assert merge_blobs([aliased], [], out) == {"inputs": 1, "entries": 2, "folds": 0}
     assert out.read_bytes() == aliased.read_bytes()
+
+    legacy = FIXTURES / "merge_aliased_segment_scoped.beast2"
+    assert legacy.read_bytes() != aliased.read_bytes()
+    legacy_out = tmp_path / "aliased_legacy.beast2"
+    assert merge_blobs([legacy], [], legacy_out) == {"inputs": 1, "entries": 2, "folds": 0}
+    assert legacy_out.read_bytes() == aliased.read_bytes()
 
 
 def test_the_merge_command_refuses_its_arguments_as_the_other_runners_do(tmp_path):

@@ -194,12 +194,12 @@ static void test_dict_merge(const char *bin, const char *fixtures)
     free(data);
 }
 
-/* A merge scopes beast2 aliasing per OUTPUT SEGMENT, as the emit sink does —
- * so a container two entries of one segment share is written once and
- * referenced, and merging such an input alone writes its bytes back exactly.
- * Encoding each entry under its own scope instead wrote the shared value
- * twice: a bigger blob, a different hash, and east-c disagreeing with its own
- * `run --emit` and with east-node for the same entries. */
+/* A merge scopes beast2 aliasing per root element, as every writer does — so
+ * a container two entries share is written out in each, and merging such an
+ * input alone writes its bytes back exactly. The segment-scoped twin is what
+ * an older writer left for the same entries, the second one a REF: it still
+ * reads, and merges to the same canonical bytes, so one value has one hash
+ * whichever writer stored it. */
 static void test_aliased_entries(const char *bin, const char *fixtures)
 {
     char cmd[4096];
@@ -208,10 +208,21 @@ static void test_aliased_entries(const char *bin, const char *fixtures)
     snprintf(cmd, sizeof(cmd), "\"%s\" merge -i \"%s\" -o merge_out_aliased.beast2", bin, input);
     int rc = run_cli(cmd, "merge_err_aliased.txt");
     CHECK(rc == 0, "aliased merge: expected exit 0, got %d", rc);
-    if (rc != 0) return;
-    CHECK(
-        same_bytes(input, "merge_out_aliased.beast2"),
-        "aliased merge: the shared container must stay one NEW and one REF, as the sink writes it");
+    if (rc == 0) {
+        CHECK(same_bytes(input, "merge_out_aliased.beast2"),
+              "aliased merge: the shared container must be written out in each entry");
+    }
+
+    snprintf(cmd, sizeof(cmd),
+             "\"%s\" merge -i \"%s/merge_aliased_segment_scoped.beast2\" -o "
+             "merge_out_aliased_segment_scoped.beast2",
+             bin, fixtures);
+    rc = run_cli(cmd, "merge_err_aliased_segment_scoped.txt");
+    CHECK(rc == 0, "segment-scoped merge: expected exit 0, got %d", rc);
+    if (rc == 0) {
+        CHECK(same_bytes(input, "merge_out_aliased_segment_scoped.beast2"),
+              "segment-scoped merge: an older writer's REF must merge to the canonical bytes");
+    }
 }
 
 static void test_set_union(const char *bin, const char *fixtures)

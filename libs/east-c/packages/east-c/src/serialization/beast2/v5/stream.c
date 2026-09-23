@@ -443,22 +443,29 @@ bool east_beast2_writer_write(Beast2StreamWriter *w, EastValue *batch)
         if (!writer_accept_keys(w, first, last)) return false;
     }
 
-    b2v5_enc_ctx_begin_segment(&w->ctx);
-
+    /* A self-contained stream scopes aliasing per root element: an element's
+     * bytes then depend on the element alone, whichever objects it shares
+     * with its neighbours. */
+    bool scoped = w->ctx.self_contained;
     ByteBuffer *logical = byte_buffer_new(256);
     if (!logical) return false;
     write_varint(logical, (uint64_t)n);
     switch (w->type->kind) {
     case EAST_TYPE_ARRAY:
-        for (size_t i = 0; i < n && !w->ctx.failed; i++)
+        for (size_t i = 0; i < n && !w->ctx.failed; i++) {
+            if (scoped) b2v5_enc_ctx_begin_element(&w->ctx);
             b2v5_encode_value(logical, batch->data.array.items[i], w->type->data.element, &w->ctx);
+        }
         break;
     case EAST_TYPE_SET:
-        for (size_t i = 0; i < n && !w->ctx.failed; i++)
+        for (size_t i = 0; i < n && !w->ctx.failed; i++) {
+            if (scoped) b2v5_enc_ctx_begin_element(&w->ctx);
             b2v5_encode_value(logical, east_set_at(batch, i), w->type->data.element, &w->ctx);
+        }
         break;
     default:
         for (size_t i = 0; i < n && !w->ctx.failed; i++) {
+            if (scoped) b2v5_enc_ctx_begin_element(&w->ctx);
             b2v5_encode_value(logical, east_dict_key_at(batch, i), w->type->data.dict.key, &w->ctx);
             b2v5_encode_value(logical, east_dict_val_at(batch, i), w->type->data.dict.value,
                               &w->ctx);

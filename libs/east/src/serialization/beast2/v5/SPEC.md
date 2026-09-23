@@ -263,6 +263,36 @@ Every mutable container position starts with a tag byte:
   Streams whose element order is genuinely data belong in an Array typed
   as such.
 
+### Aliasing scope in a self-contained collection
+
+A writer of self-contained segments (below) scopes aliasing per **root
+element** — an Array element, a Set element, or a Dict key/value pair: the
+definition table it looks containers up in starts empty at every root
+element, so no REF reaches a container another root element defined. Sharing
+inside an element is kept; sharing between elements is written out as
+separate definitions. (A Set element or Dict key is an immutable type and
+holds no container, so between elements only Array elements and Dict values
+can ever have shared one.)
+
+Two properties follow, and both are load-bearing:
+
+- **An element's logical bytes depend on the element alone** — never on its
+  neighbours, or on which of their objects it shares. A collection's bytes
+  are fixed by its elements' own encodings, however the elements were
+  produced, grouped or ordered on the way, which is what lets every writer
+  of one collection agree on its content hash.
+- **An encoded element is context-free**, so it can move between segments —
+  sorted, merged, re-cut — by byte copy, without re-encoding.
+
+Readers are unaffected: REF deltas are relative, so a reader resolves them
+the same way whatever scope the writer used. Blobs written before this rule
+scoped aliasing per root segment — an element could REF a container an
+earlier element of its segment defined — and remain valid, since
+`self_contained_segments` promises only that no REF crosses a segment
+(below). A tool that moves encoded elements by byte copy therefore checks,
+as it walks each element, that no REF reaches outside it, and re-encodes the
+segment when one does.
+
 ### Functions
 
 ```
@@ -318,9 +348,11 @@ footer[16]:     u64-LE(index_section_offset) footer_magic[8]
   silently resolving to the wrong container.
 - `self_contained_segments` asserts that no REF delta and no source-map
   delta crosses a root-segment boundary, so each indexed segment decodes
-  independently (and in parallel). Random access requires it; sequential
-  decode is unaffected either way (relative deltas decode identically).
-  Only blobs whose root is Array/Set/Dict may carry an index.
+  independently (and in parallel). Writers that set it also scope aliasing
+  per root element (see *Aliasing scope in a self-contained collection*), a
+  stronger promise no reader relies on. Random access requires the flag;
+  sequential decode is unaffected either way (relative deltas decode
+  identically). Only blobs whose root is Array/Set/Dict may carry an index.
 
 ## Segmentation rules
 
@@ -398,7 +430,7 @@ handed the segments spliced back into one blob.
 ## Writer memory / reader memory
 
 - A streaming writer holds one batch plus its identity map. In
-  self-contained mode the map clears per segment — O(batch). In C, a
+  self-contained mode the map clears per root element — O(element). In C, a
   container with refcount 1 at encode time cannot recur in the walk and
   never enters the identity map, so freshly built/decoded trees track O(1).
 - A sequential whole-value reader is O(value). The segment iterator is

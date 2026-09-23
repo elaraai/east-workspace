@@ -330,6 +330,14 @@ add_executable(test_beast2_boundary tests/test_beast2_boundary.c)
 target_link_libraries(test_beast2_boundary east-c)
 add_test(NAME beast2_boundary COMMAND test_beast2_boundary)
 
+# Aliasing scoped per root element, pinned against the TypeScript encoder:
+# sharing between elements encodes as copies, sharing inside one is kept, and
+# the reset forgets every container even after the identity table grows. Run
+# under ASan/LSan for the reset's slot bookkeeping.
+add_executable(test_beast2_aliasing tests/test_beast2_aliasing.c)
+target_link_libraries(test_beast2_aliasing east-c)
+add_test(NAME beast2_aliasing COMMAND test_beast2_aliasing)
+
 # Beast2 v5 column-projection gate (issue #599): plan validation (subset by
 # name, Dict-key/Set-element/variant-case/function-skip refusals with errors
 # naming the field), projected vs whole segment equality, skipped-definition

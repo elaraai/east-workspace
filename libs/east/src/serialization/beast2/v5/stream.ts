@@ -16,9 +16,10 @@
  *   `elementCount`, per-segment decode via footer + index seeks.
  *
  * Streaming roots are collections (Array/Set/Dict). Writers default to
- * self-contained segments (aliasing scoped per segment) so their output is
- * pageable and parallel-decodable; pass `selfContained: false` to keep
- * whole-stream aliasing at the cost of random access.
+ * self-contained output — aliasing scoped per root element — so segments are
+ * pageable and parallel-decodable and an element's bytes depend on the element
+ * alone; pass `selfContained: false` to keep whole-stream aliasing at the cost
+ * of random access.
  */
 
 import { type EastTypeValue, EastTypeValueType, isTypeValueEqual } from "../../../type_of_type.js";
@@ -77,8 +78,11 @@ type SegmentOrder = { prev: any; has: boolean };
 export type Beast2WriterOptions = {
   /** Per-frame codec. Defaults to `"deflate"`. */
   codec?: Beast2Codec;
-  /** Scope aliasing per segment so the output is pageable and segments decode
-   *  independently. Defaults to `true`. */
+  /** Scope aliasing per root element, so segments decode independently and an
+   *  element's bytes never depend on which objects its neighbours share: the
+   *  same collection encodes to the same bytes however it was built, and an
+   *  encoded element can move between segments by byte copy. Defaults to
+   *  `true`. */
   selfContained?: boolean;
   /** Write the trailing index + footer at {@link Beast2Writer.finish}.
    *  Defaults to `true`. */
@@ -187,12 +191,20 @@ export class Beast2Writer<T extends EastType = EastType> {
     const sourceMap = options?.sourceMap ?? null;
     this.ctx = createV5EncodeContext(sourceMap, this.selfContained);
 
+    // A self-contained stream starts every root element with an empty identity
+    // map, so no REF reaches past the element it sits in: sharing inside an
+    // element is kept, sharing between elements is written out again.
+    const scoped = this.selfContained;
     const typeCtx = new Map<bigint, any>();
     if (this.kind === "Dict") {
       const key = buildV5Encoder((typeValue as any).value.key, typeCtx);
       const val = buildV5Encoder((typeValue as any).value.value, typeCtx);
       this.encodeElems = (value, logical) => {
         for (const [k, v] of value) {
+          if (scoped) {
+            this.ctx.containerIndex.clear();
+            this.ctx.segmentBaseDef = this.ctx.containerCount;
+          }
           key(k, logical, this.ctx);
           val(v, logical, this.ctx);
         }
@@ -200,7 +212,13 @@ export class Beast2Writer<T extends EastType = EastType> {
     } else {
       const elem = buildV5Encoder((typeValue as any).value, typeCtx);
       this.encodeElems = (value, logical) => {
-        for (const item of value) elem(item, logical, this.ctx);
+        for (const item of value) {
+          if (scoped) {
+            this.ctx.containerIndex.clear();
+            this.ctx.segmentBaseDef = this.ctx.containerCount;
+          }
+          elem(item, logical, this.ctx);
+        }
       };
     }
 
@@ -259,11 +277,6 @@ export class Beast2Writer<T extends EastType = EastType> {
     const count = this.kind === "Array" ? (batch as any[]).length : (batch as any).size;
     if (count === 0) return;
     if (this.orderCmp) this.checkAscent(batch);
-
-    if (this.selfContained) {
-      this.ctx.containerIndex.clear();
-      this.ctx.segmentBaseDef = this.ctx.containerCount;
-    }
 
     const logical = new BufferWriter();
     logical.writeVarint(count);

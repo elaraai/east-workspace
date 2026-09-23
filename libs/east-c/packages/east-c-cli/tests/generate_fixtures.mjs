@@ -42,6 +42,7 @@ import {
   StructType,
   compareFor,
   encodeBeast2PagedFor,
+  encodeBeast2SegmentsFor,
   encodeEastIR,
   spliceBeast2,
 } from '@elaraai/east';
@@ -133,6 +134,23 @@ const mergeFoldedPairs = [...mergeFolded]
   .sort(([x], [y]) => x - y)
   .map(([k, v]) => ({ key: BigInt(k), value: v }));
 const mergeDistinct = unionKeys([...mergeKeys.a, ...mergeKeys.b, ...mergeKeys.c].map((k) => BigInt(k)));
+
+/** Two Dict entries whose values share one container. */
+const TagsDict = DictType(IntegerType, StructType({ tags: ArrayType(StringType) }));
+const sharedTags = (() => {
+  const shared = ['x', 'y', 'zzzzzzzzzzzzzzzzzzzz'];
+  return new SortedMap([[1n, { tags: shared }], [2n, { tags: shared }]], intCmp);
+})();
+
+/** The bytes an older writer left for `value`: aliasing scoped per segment —
+ *  what a writer without self-containment writes for one segment — and the
+ *  index flagged self-contained, as that writer flagged every blob. */
+function segmentScoped(type, value) {
+  const blob = encodeBeast2SegmentsFor(type, { selfContained: false })([value]);
+  const view = new DataView(blob.buffer, blob.byteOffset, blob.byteLength);
+  blob[Number(view.getBigUint64(blob.length - 16, true))] = 0x01;
+  return blob;
+}
 
 const fixtures = {
   // Producer: no file inputs, 2500 emissions of i*2 through the trailing
@@ -316,19 +334,14 @@ const fixtures = {
   'merge_set_b.beast2': mergeSetInput('b'),
   'merge_set_c.beast2': mergeSetInput('c'),
   'merge_expected_set.beast2': encodeEastIR(keyEmitter(mergeDistinct)),
-  // Two entries of ONE segment whose values share a container. The paged
-  // writer scopes beast2 aliasing per SEGMENT, so the second occurrence is a
-  // REF, not a second copy — and a merge of this input alone must write
-  // exactly these bytes back, because the merge writes through the emit
-  // sink's own writer and scopes aliasing the same way. east-c used to
-  // encode each entry in its own scope and wrote the shared array twice,
-  // disagreeing with its own sink and with east-node.
-  'merge_aliased.beast2': encodeBeast2PagedFor(
-    DictType(IntegerType, StructType({ tags: ArrayType(StringType) })), { batchSize: 10 })(
-    (() => {
-      const shared = ['x', 'y', 'zzzzzzzzzzzzzzzzzzzz'];
-      return new SortedMap([[1n, { tags: shared }], [2n, { tags: shared }]], intCmp);
-    })()),
+  // Two entries whose values share a container. Writers scope beast2
+  // aliasing per root ELEMENT, so the container is written out in each entry
+  // and the bytes depend on the entries' content alone — a merge of this
+  // input alone writes exactly these bytes back, on every runner. The
+  // segment-scoped twin is what an older writer left for the same value (the
+  // second entry a REF): it still reads, and merges to the canonical bytes.
+  'merge_aliased.beast2': encodeBeast2PagedFor(TagsDict, { batchSize: 10 })(sharedTags),
+  'merge_aliased_segment_scoped.beast2': segmentScoped(TagsDict, sharedTags),
   'merge_empty.beast2': encodeBeast2PagedFor(IntStringDict, { batchSize: 4 })(new SortedMap([], intCmp)),
   'merge_mismatch.beast2': encodeBeast2PagedFor(DictType(StringType, FloatType), { batchSize: 4 })(
     new SortedMap([['x', 1.5]], compareFor(StringType)),

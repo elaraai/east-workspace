@@ -35,6 +35,7 @@ import {
   decodeBeast2For,
   encodeBeast2For,
   encodeBeast2PagedFor,
+  encodeBeast2SegmentsFor,
   toEastTypeValue,
   encodeEastIR,
   none,
@@ -741,24 +742,37 @@ describe('folding emit, the blob merge and the stdin lifeline (#770)', () => {
     }
   });
 
-  it('a container two entries share stays one NEW and one REF', () => {
-    // The writer scopes beast2 aliasing per SEGMENT, so a container two
-    // entries of one segment share is written once and referenced. A merge
-    // of such an input alone must write its bytes back exactly, because the
-    // merge writes through the same writer `run --emit` does. east-c encoded
-    // each entry under its own scope and wrote the shared value twice — a
-    // bigger blob and a different hash for one value, and the two runners
-    // disagreeing; the same fixture is `merge_aliased.beast2` in east-c's
-    // and east-py's suites.
-    const VT = StructType({ tags: ArrayType(StringType) });
+  it('a container two entries share is written for each, and an older blob merges to that form', () => {
+    // The writer scopes beast2 aliasing per root ELEMENT, so a container two
+    // entries share is written out in each: the bytes depend on the entries'
+    // content alone. A merge of such an input writes its bytes back exactly,
+    // because the merge writes through the writer `run --emit` does. A blob
+    // an older writer left — aliasing scoped per segment, the second entry a
+    // REF — still reads, and merges to the same canonical bytes. The same
+    // fixtures are `merge_aliased*.beast2` in east-c's and east-py's suites.
+    const TagsT = DictType(IntegerType, StructType({ tags: ArrayType(StringType) }));
     const shared = ['x', 'y', 'zzzzzzzzzzzzzzzzzzzz'];
+    const value = new SortedMap([[1n, { tags: shared }], [2n, { tags: shared }]], compareFor(IntegerType));
+    const canonical = encodeBeast2PagedFor(TagsT, { batchSize: 10 })(value);
     const inputPath = join(tempDir, 'aliased.beast2');
-    writeFileSync(inputPath, encodeBeast2PagedFor(DictType(IntegerType, VT), { batchSize: 10 })(
-      new SortedMap([[1n, { tags: shared }], [2n, { tags: shared }]], compareFor(IntegerType))));
+    writeFileSync(inputPath, canonical);
 
     const outputPath = join(tempDir, 'aliased-merged.beast2');
     assert.deepEqual(mergeBlobs([inputPath], outputPath), { inputs: 1, entries: 2, folds: 0 });
-    assert.deepEqual(new Uint8Array(readFileSync(outputPath)), new Uint8Array(readFileSync(inputPath)));
+    assert.deepEqual(new Uint8Array(readFileSync(outputPath)), canonical);
+
+    // The older writer's bytes: one segment aliased across its entries — what
+    // a writer without self-containment writes — flagged self-contained, as
+    // that writer flagged every blob.
+    const legacy = encodeBeast2SegmentsFor(TagsT, { selfContained: false })([value]);
+    const view = new DataView(legacy.buffer, legacy.byteOffset, legacy.byteLength);
+    legacy[Number(view.getBigUint64(legacy.length - 16, true))] = 0x01;
+    assert.notDeepEqual(legacy, canonical, 'the older bytes hold a REF the canonical ones do not');
+    const legacyPath = join(tempDir, 'aliased-legacy.beast2');
+    writeFileSync(legacyPath, legacy);
+    const legacyOut = join(tempDir, 'aliased-legacy-merged.beast2');
+    assert.deepEqual(mergeBlobs([legacyPath], legacyOut), { inputs: 1, entries: 2, folds: 0 });
+    assert.deepEqual(new Uint8Array(readFileSync(legacyOut)), canonical);
   });
 
   it('the merge command refuses its arguments in the other runners\' words', () => {

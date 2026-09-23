@@ -29,15 +29,26 @@ void b2v5_enc_ctx_free(B2V5EncodeCtx *ctx)
     ctx->map = NULL;
     ctx->map_mask = 0;
     ctx->map_count = 0;
+    free(ctx->touched);
+    ctx->touched = NULL;
+    ctx->touched_count = 0;
+    ctx->touched_cap = 0;
 }
 
-void b2v5_enc_ctx_begin_segment(B2V5EncodeCtx *ctx)
+/* Records that slot `i` was filled, for the next element reset. */
+static void enc_map_touch(B2V5EncodeCtx *ctx, int i)
 {
-    if (ctx->self_contained) {
-        if (ctx->map) memset(ctx->map, 0, ((size_t)ctx->map_mask + 1) * sizeof(Beast2PtrSlot));
-        ctx->map_count = 0;
+    if (ctx->touched_count == ctx->touched_cap) {
+        size_t cap = ctx->touched_cap ? ctx->touched_cap * 2 : 16;
+        int *grown = realloc(ctx->touched, cap * sizeof(int));
+        if (!grown) {
+            ctx->touched_lost = true;
+            return;
+        }
+        ctx->touched = grown;
+        ctx->touched_cap = cap;
     }
-    ctx->segment_base_def = ctx->def_count;
+    ctx->touched[ctx->touched_count++] = i;
 }
 
 static void enc_map_grow(B2V5EncodeCtx *ctx)
@@ -45,6 +56,9 @@ static void enc_map_grow(B2V5EncodeCtx *ctx)
     int new_mask = ctx->map ? (ctx->map_mask * 2 + 1) : 63;
     Beast2PtrSlot *slots = calloc((size_t)new_mask + 1, sizeof(Beast2PtrSlot));
     if (!slots) return;
+    /* Every entry moves, so the fills recorded against the old table are
+     * recorded again against the new one. */
+    ctx->touched_count = 0;
     if (ctx->map) {
         for (int i = 0; i <= ctx->map_mask; i++) {
             if (!ctx->map[i].key) continue;
@@ -53,6 +67,7 @@ static void enc_map_grow(B2V5EncodeCtx *ctx)
             while (slots[j].key)
                 j = (j + 1) & new_mask;
             slots[j] = ctx->map[i];
+            enc_map_touch(ctx, j);
         }
         free(ctx->map);
     }
@@ -85,6 +100,38 @@ static void enc_map_insert(B2V5EncodeCtx *ctx, EastValue *value, size_t idx)
     ctx->map[i].key = (uintptr_t)value;
     ctx->map[i].idx = idx;
     ctx->map_count++;
+    enc_map_touch(ctx, i);
+}
+
+/* The most entries an element reset carries over. Only containers registered
+ * before the first element survive a reset — the root of an indexed encode,
+ * one at most — so this is never reached; past it, a surviving container
+ * would be written again as NEW, a copy, which still decodes to the value. */
+#define B2V5_KEPT_ACROSS_ELEMENTS 4
+
+void b2v5_enc_ctx_begin_element(B2V5EncodeCtx *ctx)
+{
+    /* A kept entry is re-inserted rather than left in place: every other slot
+     * of its probe run may be cleared here, and a lookup stops at the first
+     * empty slot. */
+    Beast2PtrSlot kept[B2V5_KEPT_ACROSS_ELEMENTS];
+    size_t kept_n = 0;
+    if (ctx->map) {
+        size_t n = ctx->touched_lost ? (size_t)ctx->map_mask + 1 : ctx->touched_count;
+        for (size_t t = 0; t < n; t++) {
+            Beast2PtrSlot *slot = &ctx->map[ctx->touched_lost ? (int)t : ctx->touched[t]];
+            if (!slot->key) continue;
+            if (slot->idx < ctx->segment_base_def && kept_n < B2V5_KEPT_ACROSS_ELEMENTS)
+                kept[kept_n++] = *slot;
+            slot->key = 0;
+        }
+    }
+    ctx->map_count = 0;
+    ctx->touched_count = 0;
+    ctx->touched_lost = false;
+    for (size_t k = 0; k < kept_n; k++)
+        enc_map_insert(ctx, (EastValue *)kept[k].key, kept[k].idx);
+    ctx->segment_base_def = ctx->def_count;
 }
 
 void b2v5_enc_ctx_register(B2V5EncodeCtx *ctx, EastValue *value)

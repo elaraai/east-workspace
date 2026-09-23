@@ -152,8 +152,9 @@ ByteBuffer *east_beast2_encode_v4(EastValue *value, EastType *type);
 
 // Whole-value v5 encode. codec_id compresses data-sized frames
 // (EAST_BEAST2_CODEC_*); with_index appends the paging index + footer for
-// Array/Set/Dict roots. Returns NULL on failure (message via
-// east_builtin_get_error).
+// Array/Set/Dict roots, and then scopes aliasing per root element as the
+// streaming writer does — an index-less encode aliases across the whole
+// value. Returns NULL on failure (message via east_builtin_get_error).
 ByteBuffer *east_beast2_encode_v5(EastValue *value, EastType *type, int32_t codec_id,
                                   bool with_index);
 
@@ -219,7 +220,8 @@ bool east_beast2_segment_boundary_key(const uint8_t *bytes, size_t len);
 // Output bytes accumulate internally; drain with take() (returns a ByteBuffer
 // the caller frees, or NULL when nothing is pending). finish() appends the
 // terminator (and index + footer unless disabled). self_contained scopes
-// aliasing per segment so the output is pageable (the default for paging).
+// aliasing per root element, so the output is pageable and an element's
+// bytes depend on the element alone (the default for paging).
 typedef struct Beast2StreamWriter Beast2StreamWriter;
 Beast2StreamWriter *east_beast2_writer_new(EastType *type, int32_t codec_id, bool self_contained,
                                            bool with_index);

@@ -11,13 +11,11 @@
  * merged entries are written as VALUES through the very call `run --emit`
  * writes its batches through (emit_writer_write), so the file is
  * byte-identical to what that sink writes for the same entries emitted
- * ascending — including the beast2 aliasing, which is scoped per output
- * segment there and so is scoped per output segment here. Writing
- * pre-encoded entries instead, each under its own scope, wrote a container
- * two entries of one segment share as two copies: a different blob, a
- * different hash, and a merge that disagreed with its own sink. Memory is
- * one decoded segment per input plus one open batch; no temporary file is
- * ever written.
+ * ascending — aliasing scoped per entry, as every writer scopes it. An entry
+ * of an older blob, whose writer scoped aliasing per segment and so could
+ * REF a container an earlier entry defined, is decoded whole and so comes
+ * out in the same canonical form. Memory is one decoded segment per input
+ * plus one open batch; no temporary file is ever written.
  *
  * Equal keys across inputs fold in input order: with a merge function (Dict
  * inputs) `acc = merge(key, acc, value)`; in union mode (Set inputs) the

@@ -210,10 +210,10 @@ static bool cursor_load_segment(Merge *m, MergeCursor *c, size_t index)
 /* Advances a cursor to its next entry within the merge's key range, holding
  * the decoded key and value — the merge writes VALUES through the emit
  * sink's own writer, so the output is what the sink writes for the same
- * entries, aliasing and all. Returns false with the message posted. The
- * reader holds each input to the canonical order: a key that does not ascend
- * is its error, prefixed with the input, in the same words on every
- * runtime. */
+ * entries, whatever aliasing scope the input's writer used. Returns false
+ * with the message posted. The reader holds each input to the canonical
+ * order: a key that does not ascend is its error, prefixed with the input,
+ * in the same words on every runtime. */
 static bool cursor_advance(Merge *m, MergeCursor *c, size_t index)
 {
     cursor_drop_entry(c);
@@ -500,8 +500,8 @@ static EastValue *merge_fold(Merge *m, EastValue *key, EastValue *acc, EastValue
 /* Merges the open cursors: a binary min-heap ordered by (key, input index),
  * so equal keys leave in input order. Entries are decoded values, appended to
  * the open batch and encoded by the emit sink's own writer — one aliasing
- * scope per output segment, so a container two entries of one segment share
- * is written once and referenced, exactly as `run --emit` writes it.
+ * scope per entry, so a container two entries share is written out in each,
+ * exactly as `run --emit` writes it.
  *
  * Equal keys fold in place: the flush rule keeps the previous entry in the
  * open batch, so `acc = merge(key, acc, value)` replaces it there, as the
