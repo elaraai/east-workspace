@@ -59,6 +59,14 @@ Lib-specific extras (run `make help` in each):
 | `libs/east-py` | `make typecheck` (mypy), `make check` (lint + typecheck + test), `make coverage`, `make test-conformance` (IR → python → IR round trip over the exported corpus + examples, #627) |
 | `libs/east-ui` | `make design` (serve `app_design_system/` on :5174), `make east-ui-examples-html-<key>` (per-example HTML snapshot), `make east-ui-examples-html-all` |
 
+**Every `make build` type-checks.** A package built by `tsc` type-checks as
+it builds. A package bundled by vite or esbuild strips types without
+checking them, so its `build` script runs `tsc` first — over its sources,
+tests and scripts (`tsconfig.typecheck.json` in `east-ui-components` and
+`e3-ui-components`; `tsconfig.json` in `east-ui-showcase`, the extension
+webview and the `create-*` entries). A type error anywhere in the package
+fails `make build`. A new bundled package does the same (#589).
+
 ---
 
 ## 4. When to use `pnpm` directly

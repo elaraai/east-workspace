@@ -289,7 +289,7 @@ describe("Plan links-focus elision (R1 at scale)", () => {
     test("a LONE unrelated data row stays a rail entry; a run coalesces to ONE gap", () => {
         const rows = [mk("f"), mk("x"), mk("a"), mk("y1"), mk("y2"), mk("y3"), mk("b")];
         const items = elideForFocus(rows.map((r) => visible(r)), indexRows(rows), focusOn("f", ["a", "b"]));
-        expect(items.map((i) => (i.kind === "row" ? i.row.row.key : `gap:${i.gap.rows}`)))
+        expect(items.map((i) => (i.kind === "row" ? i.row.row.key : i.kind === "gap" ? `gap:${i.gap.rows}` : "band")))
             .toEqual(["f", "x", "a", "gap:3", "b"]);
     });
 
@@ -300,7 +300,7 @@ describe("Plan links-focus elision (R1 at scale)", () => {
             mk("g-fam", groupKind), withParent(mk("fam"), "g-fam"),
         ];
         const items = elideForFocus(rows.map((r) => visible(r)), indexRows(rows), focusOn("f", ["fam"]));
-        expect(items.map((i) => (i.kind === "row" ? i.row.row.key : `gap:${i.gap.rows}/${i.gap.groups}`)))
+        expect(items.map((i) => (i.kind === "row" ? i.row.row.key : i.kind === "gap" ? `gap:${i.gap.rows}/${i.gap.groups}` : "band")))
             .toEqual(["f", "gap:2/1", "g-fam", "fam"]);
     });
 

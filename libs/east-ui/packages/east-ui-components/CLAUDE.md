@@ -43,6 +43,11 @@ look up tokens via Chakra semantic tokens (`bg.primary`, `text.muted`,
 `make build`, `make test`, `make lint` from this directory. See
 [`../../../../docs/conventions/MAKEFILE_TARGETS.md`](../../../../docs/conventions/MAKEFILE_TARGETS.md).
 
+`build` type-checks before vite bundles: `pnpm typecheck` runs `tsc` over
+`tsconfig.typecheck.json`, which covers `src` (tests included), `test`,
+`scripts` and the configs — vite and vitest strip types without checking
+them, so this is the only gate that sees a type error (#589).
+
 ## Architecture
 
 ### Rendering pipeline

@@ -50,12 +50,15 @@ function boardValue(overrides: Partial<BoardValue>): BoardValue {
         requirements: none,
         density: none,
         maxVisible: none,
+        height: none,
+        maxHeight: none,
         summary: none,
         canDrop: none,
         onDrag: none,
         onSelect: none,
         onAccept: none,
         onAddAt: none,
+        review: none,
         ...overrides,
     };
 }

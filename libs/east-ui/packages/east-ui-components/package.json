@@ -45,10 +45,10 @@
   ],
   "scripts": {
     "prebuild": "pnpm chakra:typegen",
-    "build": "vite build",
+    "build": "pnpm run typecheck && vite build",
     "chakra:typegen": "chakra typegen src/theme/index.ts --strict",
     "chakra:typegen:watch": "chakra typegen src/theme/index.ts --strict --watch src/theme",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc -p tsconfig.typecheck.json",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "test": "node --import tsx --test-reporter=spec --test test/**/*.spec.ts && vitest run",

@@ -1,0 +1,16 @@
+{
+  // The typecheck gate: sources, tests, scripts and configs. `tsconfig.json`
+  // covers only what the build emits and vite / vitest strip types without
+  // checking them, so `build` runs this first — a type error anywhere in the
+  // package fails `make build` (#589).
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    // The scripts import the lib's shared capture helper by its source path
+    // (`libs/east-ui/scripts/snapshot-capture.mts`).
+    "rootDir": "../..",
+    "allowImportingTsExtensions": true
+  },
+  "include": ["src", "test", "scripts", "*.ts"],
+  "exclude": ["node_modules", "dist", "dev"]
+}

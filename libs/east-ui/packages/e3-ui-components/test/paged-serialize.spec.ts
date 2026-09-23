@@ -34,7 +34,7 @@ import {
 } from "@elaraai/east";
 import type { TreePath } from "@elaraai/e3-types";
 import { DataPagedHandleType } from "@elaraai/e3-ui/internal";
-import type { DatasetPage } from "@elaraai/e3-api-client";
+import type { DatasetFindResult, DatasetPage } from "@elaraai/e3-api-client";
 import { PagedRuntime, createScopedPagedPlatform, type PagedApi } from "../src/platform/paged-runtime.js";
 
 const ws = "ws";
@@ -59,6 +59,9 @@ function localApi(elements: { id: string; v: number }[]): PagedApi {
                 data, totalElements: elements.length, totalBytes: data.length, totalExact: true,
                 segmentCount: 0, offset: window.offset, count: slice.length, hash: "",
             };
+        },
+        async findKey(): Promise<DatasetFindResult> {
+            throw new Error("localApi: these tests never seek");
         },
     };
 }

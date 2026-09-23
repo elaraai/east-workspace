@@ -430,8 +430,9 @@ describe("the copilot", () => {
         expect(run(both, [key("Enter", { meta: true })], ctx).effects.map((e) => e.t)).toEqual(["write.many"]);
         const all = run(both, [key("Enter", { meta: true, shift: true })], ctx);
         expect(all.effects.map((e) => e.t)).toEqual(["write.many", "insert.rows"]);
-        expect((all.effects[1] as { rows: PendingRow[]; rest: PendingRow[] }).rows).toHaveLength(2);
-        expect((all.effects[1] as { rest: PendingRow[] }).rest).toEqual([]);
+        const inserted = all.effects[1] as Extract<SheetEffect, { t: "insert.rows" }>;
+        expect(inserted.rows).toHaveLength(2);
+        expect(inserted.rest).toEqual([]);
         expect(run(both, [{ t: "fill.row" }], ctx).effects[0]).toMatchObject({ t: "write.many", source: "row" });
         // Rows only: ⇥ takes the next one.
         const rowsOnly = run(at, [{ t: "suggest.ready", anchorId: "b", sugg: suggOn("b", {}, [proposal("Painting")]) }], ctx).state;

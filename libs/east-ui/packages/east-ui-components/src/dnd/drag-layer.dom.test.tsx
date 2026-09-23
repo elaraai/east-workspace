@@ -83,6 +83,12 @@ function drag(fromEl: Element, overEl: Element | null, opts?: { altKey?: boolean
     }
 }
 
+/** The one event a drag delivered — asserts there was exactly one. */
+function sole(events: DragEventValue[]): DragEventValue {
+    expect(events).toHaveLength(1);
+    return events[0]!;
+}
+
 const KINDS_ALL = { add: true, move: true, remove: true };
 
 describe("DragLayerProvider", () => {
@@ -98,13 +104,13 @@ describe("DragLayerProvider", () => {
         const cell = getByTestId("cell-patel-thu");
         drag(getByTestId("card-patel"), cell);
 
-        expect(events).toHaveLength(1);
-        expect(events[0].type).toBe("add");
-        if (events[0].type === "add") {
-            expect(events[0].value.from).toEqual({ library: "people", key: "patel" });
-            expect(events[0].value.into.surface).toBe("roster");
-            expect(events[0].value.into.slot).toBe("thu");
-            expect(events[0].value.duplicate).toBe(false);
+        const e = sole(events);
+        expect(e.type).toBe("add");
+        if (e.type === "add") {
+            expect(e.value.from).toEqual({ library: "people", key: "patel" });
+            expect(e.value.into.surface).toBe("roster");
+            expect(e.value.into.slot).toBe("thu");
+            expect(e.value.duplicate).toBe(false);
         }
     });
 
@@ -119,8 +125,9 @@ describe("DragLayerProvider", () => {
         );
         drag(getByTestId("card-cho"), getByTestId("cell-cho-fri"), { altKey: true });
 
-        expect(events).toHaveLength(1);
-        if (events[0].type === "add") expect(events[0].value.duplicate).toBe(true);
+        const e = sole(events);
+        expect(e.type).toBe("add");
+        if (e.type === "add") expect(e.value.duplicate).toBe(true);
     });
 
     test("add: an undeclared library does not connect (no event, no valid marker)", () => {
@@ -153,12 +160,12 @@ describe("DragLayerProvider", () => {
         );
         drag(getByTestId("chip-shift-1"), getByTestId("cell-cho-mon"));
 
-        expect(events).toHaveLength(1);
-        expect(events[0].type).toBe("move");
-        if (events[0].type === "move") {
-            expect(events[0].value.from.event.type).toBe("some");
-            expect(events[0].value.from.event.value).toBe("shift-1");
-            expect(events[0].value.to.row).toBe("cho");
+        const e = sole(events);
+        expect(e.type).toBe("move");
+        if (e.type === "move") {
+            expect(e.value.from.event.type).toBe("some");
+            expect(e.value.from.event.value).toBe("shift-1");
+            expect(e.value.to.row).toBe("cho");
         }
     });
 
@@ -188,9 +195,9 @@ describe("DragLayerProvider", () => {
         );
         drag(getByTestId("chip-SRC-204"), getByTestId("trash"));
 
-        expect(events).toHaveLength(1);
-        expect(events[0].type).toBe("remove");
-        if (events[0].type === "remove") expect(events[0].value.to.type).toBe("trash");
+        const e = sole(events);
+        expect(e.type).toBe("remove");
+        if (e.type === "remove") expect(e.value.to.type).toBe("trash");
     });
 
     test("remove: chip returned to a declared library is a source-sink remove", () => {
@@ -204,8 +211,9 @@ describe("DragLayerProvider", () => {
         );
         drag(getByTestId("chip-SRC-204"), getByTestId("library-materials"));
 
-        expect(events).toHaveLength(1);
-        if (events[0].type === "remove") expect(events[0].value.to.type).toBe("source");
+        const e = sole(events);
+        expect(e.type).toBe("remove");
+        if (e.type === "remove") expect(e.value.to.type).toBe("source");
     });
 
     test("shared trash zone (#267): appears during a remove-capable event drag, delivers remove/trash, and unmounts", () => {
@@ -234,9 +242,9 @@ describe("DragLayerProvider", () => {
         expect(zone!.hasAttribute("data-drop-active")).toBe(true);
         fireEvent.pointerUp(document, { clientX: 10, clientY: 10 });
 
-        expect(events).toHaveLength(1);
-        expect(events[0].type).toBe("remove");
-        if (events[0].type === "remove") expect(events[0].value.to.type).toBe("trash");
+        const e = sole(events);
+        expect(e.type).toBe("remove");
+        if (e.type === "remove") expect(e.value.to.type).toBe("trash");
         expect(document.querySelector("[data-drag-trash]")).toBeNull();
     });
 
@@ -272,14 +280,14 @@ describe("DragLayerProvider", () => {
         );
         drag(getByTestId("edge-t0-end"), getByTestId("cell-2-2024-01-14T00:00:00.000Z"));
 
-        expect(events).toHaveLength(1);
-        expect(events[0].type).toBe("resize");
-        if (events[0].type === "resize") {
-            expect(events[0].value.edge.type).toBe("end");
-            expect(events[0].value.event.slot).toBe("2024-01-14T00:00:00.000Z");
-            expect(events[0].value.event.row).toBe("2");
-            expect(events[0].value.event.event.type).toBe("some");
-            expect(events[0].value.event.event.value).toBe("t0");
+        const e = sole(events);
+        expect(e.type).toBe("resize");
+        if (e.type === "resize") {
+            expect(e.value.edge.type).toBe("end");
+            expect(e.value.event.slot).toBe("2024-01-14T00:00:00.000Z");
+            expect(e.value.event.row).toBe("2");
+            expect(e.value.event.event.type).toBe("some");
+            expect(e.value.event.event.value).toBe("t0");
         }
     });
 
@@ -402,8 +410,8 @@ describe("touch long-press protocol (#353)", () => {
         fireEvent.pointerMove(document, { pointerType: "touch", clientX: 10, clientY: 10 });
         fireEvent.pointerUp(document, { pointerType: "touch", clientX: 10, clientY: 10 });
         expect(card.hasAttribute("data-dragging")).toBe(false);
-        expect(events).toHaveLength(1);
-        expect(events[0].type).toBe("add");
+        const e = sole(events);
+        expect(e.type).toBe("add");
         vi.useRealTimers();
     });
 });
@@ -435,7 +443,7 @@ describe("touch grip fast-path", () => {
         pointAt(cell);
         fireEvent.pointerMove(document, { pointerType: "touch", clientX: 10, clientY: 10 });
         fireEvent.pointerUp(document, { pointerType: "touch", clientX: 10, clientY: 10 });
-        expect(events).toHaveLength(1);
-        expect(events[0].type).toBe("add");
+        const e = sole(events);
+        expect(e.type).toBe("add");
     });
 });

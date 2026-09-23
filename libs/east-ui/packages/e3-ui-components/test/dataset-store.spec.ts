@@ -267,15 +267,15 @@ describe("ReactiveDatasetCache — batch", () => {
 describe("ReactiveDatasetCache — setScheduler", () => {
     test("with scheduler — notify deferred until scheduler fires", async () => {
         const { cache } = newCache();
-        let pending: (() => void) | null = null;
-        cache.setScheduler(notify => { pending = notify; });
+        const scheduled: { notify?: () => void } = {};
+        cache.setScheduler(notify => { scheduled.notify = notify; });
         let calls = 0;
         cache.subscribe(datasetCacheKey(ws, policyPath), () => { calls++; });
         await cache.write(ws, policyPath, bytes(1));
         // Without firing the scheduler, no callback yet.
         assert.equal(calls, 0);
-        assert.ok(pending);
-        pending!();
+        assert.ok(scheduled.notify);
+        scheduled.notify();
         assert.equal(calls, 1);
     });
 
@@ -290,15 +290,16 @@ describe("ReactiveDatasetCache — setScheduler", () => {
 
     test("replacing scheduler mid-flight: in-flight scheduled flush still fires", async () => {
         const { cache } = newCache();
-        let pending: (() => void) | null = null;
-        cache.setScheduler(notify => { pending = notify; });
+        const scheduled: { notify?: () => void } = {};
+        cache.setScheduler(notify => { scheduled.notify = notify; });
         let calls = 0;
         cache.subscribe(datasetCacheKey(ws, policyPath), () => { calls++; });
         await cache.write(ws, policyPath, bytes(1));
         assert.equal(calls, 0);
         // Replace mid-flight — the already-captured pending notify still fires.
         cache.setScheduler(undefined);
-        pending!();
+        assert.ok(scheduled.notify);
+        scheduled.notify();
         assert.equal(calls, 1);
         // Subsequent writes use the new (sync) scheduler.
         await cache.write(ws, policyPath, bytes(2));
