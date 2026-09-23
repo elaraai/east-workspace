@@ -34,7 +34,6 @@ import {
   StringType,
   StructType,
   encodeBeast2For,
-  encodeBeast2PagedFor,
   variant,
 } from '@elaraai/east';
 import e3, { type DatasetSource } from '@elaraai/e3';
@@ -43,7 +42,7 @@ import { DatasetTypeMismatchError } from './errors.js';
 import { packageImport } from './packages.js';
 import { workspaceDeploy, workspaceGetState } from './workspaces.js';
 import { workspaceGetDatasetStatus, workspaceSetDataset } from './trees.js';
-import { createTestRepo, removeTestRepo, createTempDir, removeTempDir } from './test-helpers.js';
+import { createTestRepo, removeTestRepo, createTempDir, removeTempDir, encodeInSegmentsOf } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
 import { objectPath } from './storage/local/localHelpers.js';
 import type { StorageBackend } from './storage/interfaces.js';
@@ -89,7 +88,7 @@ describe('path-initialised inputs', () => {
   /** An indexed delivery of `n` rows on disk. */
   function writeDelivery(file: string, n: number, offset = 0): string {
     const path = join(tempDir, file);
-    writeFileSync(path, encodeBeast2PagedFor(TableType, { batchSize: 8 })(rows(n, offset)));
+    writeFileSync(path, encodeInSegmentsOf(TableType, 8)(rows(n, offset)));
     return path;
   }
 
@@ -153,7 +152,7 @@ describe('path-initialised inputs', () => {
     it('lands on the hash the streaming writer would have produced', async () => {
       await deployTableWorkspace('adopt-hash');
       const file = writeDelivery('table.beast2', 30);
-      const bytes = encodeBeast2PagedFor(TableType, { batchSize: 8 })(rows(30));
+      const bytes = encodeInSegmentsOf(TableType, 8)(rows(30));
 
       const { hash } = await datasetAdoptFile(storage, testRepo, 'ws', [...tablePath], file);
       const written = await storage.objects.write(testRepo, bytes);
@@ -183,7 +182,7 @@ describe('path-initialised inputs', () => {
       // exact-equality rule a type-directed decode needs.
       const DriftedRow = StructType({ id: IntegerType, name: StringType, region: StringType });
       const file = join(tempDir, 'drifted.beast2');
-      writeFileSync(file, encodeBeast2PagedFor(ArrayType(DriftedRow), { batchSize: 8 })(
+      writeFileSync(file, encodeInSegmentsOf(ArrayType(DriftedRow), 8)(
         Array.from({ length: 8 }, (_, i) => ({ id: BigInt(i), name: `row-${i}`, region: 'R1' }))
       ));
 
@@ -241,9 +240,9 @@ describe('path-initialised inputs', () => {
   describe('datasetAdoptObject (the transfer dedup door)', () => {
     it('accepts an object of the declared type and refuses one of another', async () => {
       await deployTableWorkspace('adopt-object');
-      const good = await storage.objects.write(testRepo, encodeBeast2PagedFor(TableType, { batchSize: 8 })(rows(12)));
+      const good = await storage.objects.write(testRepo, encodeInSegmentsOf(TableType, 8)(rows(12)));
       const OtherType = DictType(StringType, IntegerType);
-      const bad = await storage.objects.write(testRepo, encodeBeast2PagedFor(OtherType, { batchSize: 8 })(
+      const bad = await storage.objects.write(testRepo, encodeInSegmentsOf(OtherType, 8)(
         new Map([['a', 1n], ['b', 2n]])
       ));
 
@@ -316,7 +315,7 @@ describe('path-initialised inputs', () => {
 
     it('adopts the delivery at deploy, and re-adopts a changed one on redeploy', async () => {
       const file = join(tempDir, 'delivery.beast2');
-      writeFileSync(file, encodeBeast2PagedFor(TableType, { batchSize: 8 })(rows(24)));
+      writeFileSync(file, encodeInSegmentsOf(TableType, 8)(rows(24)));
       await packageImport(storage, testRepo, await exportWithFileSource('deploy-src', file));
       await workspaceDeploy(storage, testRepo, 'ws', 'deploy-src', '1.0.0');
 
@@ -326,7 +325,7 @@ describe('path-initialised inputs', () => {
 
       // A new delivery under the same path is a new hash — which is exactly
       // what makes change detection exact for its consumers.
-      writeFileSync(file, encodeBeast2PagedFor(TableType, { batchSize: 8 })(rows(30)));
+      writeFileSync(file, encodeInSegmentsOf(TableType, 8)(rows(30)));
       await workspaceDeploy(storage, testRepo, 'ws', 'deploy-src', '1.0.0');
       const second = await workspaceGetDatasetStatus(storage, testRepo, 'ws', [...tablePath], { geometry: true });
       assert.notEqual(second.hash, first.hash);
@@ -335,7 +334,7 @@ describe('path-initialised inputs', () => {
 
     it('fails the deploy with the previous deployment intact when a delivery has drifted', async () => {
       const good = join(tempDir, 'good.beast2');
-      writeFileSync(good, encodeBeast2PagedFor(TableType, { batchSize: 8 })(rows(16)));
+      writeFileSync(good, encodeInSegmentsOf(TableType, 8)(rows(16)));
       await packageImport(storage, testRepo, await exportWithFileSource('deploy-ok', good));
       await workspaceDeploy(storage, testRepo, 'ws', 'deploy-ok', '1.0.0');
       const before = await workspaceGetDatasetStatus(storage, testRepo, 'ws', [...tablePath]);
@@ -343,7 +342,7 @@ describe('path-initialised inputs', () => {
       // A second package whose delivery is simply gone by deploy time. The
       // export validated it; the machine deploying does not have it.
       const missing = join(tempDir, 'vanishes.beast2');
-      writeFileSync(missing, encodeBeast2PagedFor(TableType, { batchSize: 8 })(rows(16)));
+      writeFileSync(missing, encodeInSegmentsOf(TableType, 8)(rows(16)));
       await packageImport(storage, testRepo, await exportWithFileSource('deploy-gone', missing));
       writeFileSync(missing, new Uint8Array([1, 2, 3]));
 
@@ -357,7 +356,7 @@ describe('path-initialised inputs', () => {
 
     it('adopts the deliveries before touching the workspace, so a failed adopt leaves the previous deployment intact', async () => {
       const first = join(tempDir, 'first.beast2');
-      writeFileSync(first, encodeBeast2PagedFor(TableType, { batchSize: 8 })(rows(16)));
+      writeFileSync(first, encodeInSegmentsOf(TableType, 8)(rows(16)));
       await packageImport(storage, testRepo, await exportWithFileSource('deploy-first', first));
       await workspaceDeploy(storage, testRepo, 'ws', 'deploy-first', '1.0.0');
       const before = await workspaceGetDatasetStatus(storage, testRepo, 'ws', [...tablePath]);
@@ -366,7 +365,7 @@ describe('path-initialised inputs', () => {
       // A second package whose delivery is readable and of the declared type,
       // deployed through a store whose adopt fails for an I/O reason.
       const second = join(tempDir, 'second.beast2');
-      writeFileSync(second, encodeBeast2PagedFor(TableType, { batchSize: 8 })(rows(24)));
+      writeFileSync(second, encodeInSegmentsOf(TableType, 8)(rows(24)));
       await packageImport(storage, testRepo, await exportWithFileSource('deploy-second', second));
       const objects = Object.create(storage.objects, {
         adoptFile: { value: async (): Promise<never> => { throw new Error('disk full'); } },
@@ -398,7 +397,7 @@ describe('path-initialised inputs', () => {
       // The API server's contract: a path in the package is the DEVELOPER's,
       // and the CLI completes those inputs over the transfer protocol.
       const missing = join(tempDir, 'developer-only.beast2');
-      writeFileSync(missing, encodeBeast2PagedFor(TableType, { batchSize: 8 })(rows(8)));
+      writeFileSync(missing, encodeInSegmentsOf(TableType, 8)(rows(8)));
       await packageImport(storage, testRepo, await exportWithFileSource('deploy-warn', missing));
       writeFileSync(missing, new Uint8Array([9, 9, 9]));
 
@@ -418,7 +417,7 @@ describe('path-initialised inputs', () => {
       // CAN read a good delivery at the path proves nothing about whose file
       // it is, and must change nothing.
       const readable = join(tempDir, 'readable.beast2');
-      writeFileSync(readable, encodeBeast2PagedFor(TableType, { batchSize: 8 })(rows(8)));
+      writeFileSync(readable, encodeInSegmentsOf(TableType, 8)(rows(8)));
       await packageImport(storage, testRepo, await exportWithFileSource('deploy-remote', readable));
       const objectsBefore = await storage.objects.count(testRepo);
 

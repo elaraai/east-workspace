@@ -200,7 +200,7 @@ static size_t write_wide_table(const char *path, size_t rows)
         east_value_release(k);
         east_value_release(v);
     }
-    ByteBuffer *buf = east_beast2_encode_paged(dict, dt, EAST_BEAST2_CODEC_NONE, 0);
+    ByteBuffer *buf = east_beast2_encode_paged(dict, dt, EAST_BEAST2_CODEC_NONE);
     east_value_release(dict);
     if (!buf) return 0;
     FILE *f = fopen(path, "wb");

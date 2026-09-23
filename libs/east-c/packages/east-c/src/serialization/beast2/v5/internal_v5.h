@@ -205,42 +205,19 @@ void b2v5_encode_value(ByteBuffer *buf, EastValue *value, EastType *type, B2V5En
 /*  Content-defined segment boundaries (boundary.c)                   */
 /* ---------------------------------------------------------------- */
 
-/* Fewest elements (pairs for a Dict) a content-defined segment may hold —
- * below it the hash is not consulted, so a run of boundary keys cannot make a
- * segment too small to amortize its object. The LAST segment is the one
- * exception: it holds whatever is left. */
-#define B2V5_SEGMENT_MIN_COUNT EAST_BEAST2_SEGMENT_MIN_COUNT
-/* The expected segment size in elements: one key in this many hashes to a
- * boundary. Bounds are counts and never bytes — the only byte count a writer
- * knows as it cuts is the compressed one, and deflate output is not
- * byte-identical across zlib builds. */
-#define B2V5_SEGMENT_TARGET_COUNT EAST_BEAST2_SEGMENT_TARGET_COUNT
-/* Most elements a segment may hold: reached when no key in the run hashes to a
- * boundary, which bounds a segment's decode cost whatever the keys are. */
-#define B2V5_SEGMENT_MAX_COUNT EAST_BEAST2_SEGMENT_MAX_COUNT
-/* The low bits of a key's hash that must all be zero for it to start a
- * segment. */
-#define B2V5_SEGMENT_MASK (B2V5_SEGMENT_TARGET_COUNT - 1)
-
-/* The running decision of where a keyed collection's segments begin. Fed each
- * element's key in canonical order; `key_type` is NULL for an Array root, for
- * which there is nothing to run. */
+/* The running decision of where a collection's segments begin: the open
+ * segment's element count and logical bytes. Zero-initialized. */
 typedef struct {
-    EastType *key_type;  /* borrowed from the root type */
-    ByteBuffer *scratch; /* the key's canonical bare encoding, reused */
-    size_t count;        /* elements in the open segment */
+    size_t count; /* elements (pairs) in the open segment */
+    size_t bytes; /* their logical bytes */
 } B2V5Cutter;
 
-/* The key (Dict) or element (Set) type a root collection's fences hold; NULL
- * for an Array root. */
-EastType *b2v5_segment_key_type(EastType *root);
-/* Prepares a cutter for `root`. False on allocation failure (error posted). */
-bool b2v5_cutter_init(B2V5Cutter *cut, EastType *root);
-/* Releases the cutter's scratch buffer. */
-void b2v5_cutter_free(B2V5Cutter *cut);
-/* Accounts for one element and reports whether it starts a new segment. Never
- * true for the collection's first element, which opens segment 0. */
-bool b2v5_cutter_starts_segment(B2V5Cutter *cut, EastValue *key);
+/* Accounts for one element — its logical size, and the bytes the rule hashes
+ * (a Set/Dict element's key fence bytes, an Array element's canonical bytes)
+ * — and reports whether it starts a new segment. Never true for the
+ * collection's first element, which opens segment 0. */
+bool b2v5_cutter_starts_segment(B2V5Cutter *cut, size_t element_bytes, const uint8_t *hash_input,
+                                size_t hash_len);
 
 typedef struct {
     EastValue **defs; /* decoded containers in definition order (borrowed) */

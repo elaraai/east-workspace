@@ -334,7 +334,7 @@ Task → What do you need?
     │   ├─ Hand a buffer to numpy / torch → EastVector/EastMatrix .to_numpy()/.to_torch()
     │   │   (the East arithmetic surface above covers elementwise/reduction/sparse work with the cross-runtime order contract)
     │   ├─ A collection FILE that does not fit in memory (beast2 v5) — start MANAGED:
-    │   │   ├─ Write → write_beast2_file(path, T, value)  (any size; re-batched into segments)
+    │   │   ├─ Write → write_beast2_file(path, T, value)  (any size; the value's canonical segments — the bytes TypeScript and east-c write for it)
     │   │   │   ├─ streaming producer → open_beast2_file(path, T, mode="w") as w: w.write(batch)
     │   │   │   ├─ N CPUs on one table → write_beast2_file_parallel(path, T, partitions, produce)
     │   │   │   │   (build the expensive context BEFORE the call; forked children inherit it COW on Linux/macOS)
@@ -356,7 +356,8 @@ Task → What do you need?
     │   │   │   └─ wide rows, few columns read → column projection is INFERRED from the callback's IR (each segment decodes to
     │   │   │       exactly the struct fields it reads); declare it instead → open_beast2_file(path, project=NARROW)
     │   │   └─ Buffer-level (you hold the bytes, not a path):
-    │   │       ├─ Beast2Writer(T, stream) per-batch · encode_beast2_segments_for(T)(batches)
+    │   │       ├─ the canonical blob → Beast2ElementWriter(T, stream) .add(el)/.add_all(batch) · encode_beast2_paged_for(T)(value)
+    │   │       ├─ segments of your own choosing → Beast2Writer(T, stream) per-batch · encode_beast2_segments_for(T)(batches)
     │   │       ├─ for b in iter_beast2_segments_for(T)(source)  — O(segment); source: bytes/mmap/stream
     │   │       ├─ decode_beast2_with_header_for(T)(blob)  — whole, v4 AND v5
     │   │       ├─ open_beast2_pages_for(T)(source) — .element(n)/.segment(i), ONE segment each ❗borrows the buffer — keep it alive
@@ -1652,27 +1653,31 @@ East.DateTime.print_formatted(dt, "dddd, MMMM D, YYYY h:mm A")  # 'Wednesday, Ma
 
 ### Beast2 streaming — bounded-memory collections (`from east.serialization.beast2 import ...`)
 
-Beast2 v5 encodes a large Array/Set/Dict as an append-only segment stream:
-writer memory is one batch (never the whole collection), decoders accept v4
-and v5 through the same entry points, and each batch becomes one
-independently decodable segment. Use for exports too big to hold, or to
-re-read a huge file one batch at a time.
+Beast2 v5 encodes a large Array/Set/Dict as an append-only stream of
+independently decodable segments: writer memory is one segment (never the
+whole collection), and decoders accept v4 and v5 through the same entry
+points. The canonical writers — the managed file writer,
+`Beast2ElementWriter`, `encode_beast2_paged_for` — cut the segments by one
+content-defined rule, the same in TypeScript and east-c, so a value's bytes
+are its own whoever writes it; `Beast2Writer` makes each batch you give it a
+segment instead. Use for exports too big to hold, or to re-read a huge file
+one segment at a time.
 
 **Managed files — start here (`open_beast2_file` / `write_beast2_file`).**
 Path in, East values out — the file is self-describing, so reads need no
 declared type (writes do; declaring one on a read validates it at open). The
 file object owns the fd + mmap (closes on `with`-exit), east-c does all byte
-work, and segment sizing is managed — no buffers, iterators, or batch sizes
-in user code. The read flavor mirrors the root collection's read surface
-name-for-name.
+work, and the segments are the canonical ones — no buffers, iterators, or
+batch sizes in user code. The read flavor mirrors the root collection's read
+surface name-for-name.
 
 | Signature | Description |
 |-----------|-------------|
-| `write_beast2_file(path, T, value, *, codec="deflate", segment_rows=None)` | One call writes a collection of any size as one indexed v5 file, re-batched into managed-size segments (Array slices; Dict/Set split along sorted order, so segments stay key-disjoint). Managed batching is BYTE-adaptive: a probe seeds rows-per-segment toward ~2 MiB of wire output (capped at 8192 rows), refined from real output, so wide rows still yield right-sized segments; an explicit `segment_rows` pins the row grain instead |
-| `open_beast2_file(path, T, mode="w", *, codec=, segment_rows=)` | Streaming managed writer: `.write()` takes East collections **or** python builtins (list/dict/set), any size, re-batched internally (byte-adaptively, as above); `.segments` counts them |
+| `write_beast2_file(path, T, value, *, codec="deflate")` | One call writes a collection of any size as one indexed v5 file — the canonical blob for the value: segments fall where the content-defined cut rule places them, bounded in both elements and bytes (so wide rows never pile into one segment) and key-disjoint for a Dict/Set. The bytes are what TypeScript and east-c write for the same value, and what `encode_beast2_paged_for(T)(value)` returns |
+| `open_beast2_file(path, T, mode="w", *, codec=)` | Streaming managed writer: `.write()` takes East collections **or** python builtins (list/dict/set), any size, and the batches add up to one canonical blob whatever their sizes (a Set/Dict batch continues strictly ascending from the last); `.segments` counts the segments closed so far |
 | `open_beast2_file(path, T=None)` | Read: returns the root-kind flavor — `Beast2ArrayFile` / `Beast2DictFile` / `Beast2SetFile` — a first-class READ-ONLY East collection VALUE: each subclasses `EastArray`/`EastDict`/`EastSet`, so `isinstance`/`type_of` answer, every eager method works (streamed overrides below; the rest via iteration), mutation raises, and the file binds into functions / passes into compiled calls by reference — keyed reads inside the compiled body answer from the pager, one frame per hit/miss, through a BYTE-budgeted segment cache (`EAST_PAGED_CACHE_BYTES`). `close()` DEFERS while a bind still holds the value. `T` is optional (the self-describing header supplies it — also exposed as `f.wire_type`); a declared `T` is validated against the header, so a mismatch fails at open instead of decoding garbage |
 | `read_beast2_type(source) -> EastType` | The root type embedded in any beast2-full blob (v4 **and** v5), from a path or buffer, no value decoded — regenerate loaders from artifacts alone, or inspect a file you know nothing about |
-| `write_beast2_file_parallel(path, T, partitions, produce, *, processes=, strategy="auto", codec=, segment_rows=, keep_shards=False, verify=False)` | Partitioned parallel write to ONE file: `produce(partition)` runs per worker and returns that partition's batches (or one collection = one batch); each worker writes a private shard and the shards splice **in partition order**, incrementally, as they finish. `strategy="auto"` forks on Linux/macOS — whatever `produce` closes over is inherited copy-on-write, so build the expensive context before the call (and call before starting threads) — and runs inline on Windows: byte-identical output either way. Any worker failure (exception or signal) fails the whole call with the worker's traceback and leaves nothing behind |
+| `write_beast2_file_parallel(path, T, partitions, produce, *, processes=, strategy="auto", codec=, keep_shards=False, verify=False)` | Partitioned parallel write to ONE file: `produce(partition)` runs per worker and returns that partition's batches (or one collection = one batch); each worker writes a private shard, cut canonically from the partition's start, and the shards splice **in partition order**, incrementally, as they finish. `strategy="auto"` forks on Linux/macOS — whatever `produce` closes over is inherited copy-on-write, so build the expensive context before the call (and call before starting threads) — and runs inline on Windows: byte-identical output either way. Any worker failure (exception or signal) fails the whole call with the worker's traceback and leaves nothing behind |
 | `splice_beast2_files(path, T, sources, *, verify=False) -> (segments, elements)` | Merge indexed v5 files into one by **byte copy** — east-c parses the container geometry, `os.sendfile` moves the segment frames, nothing decodes or re-encodes. `sources` may be a lazy generator (shards splice as they complete, in order = row order). Every source must be v5 + indexed + self-contained with an identical type section; refusals name the offending path and leave no destination. Output is indistinguishable from one writer given the same batches; `verify=True` re-walks it with east-c's strict sequential reader |
 | `f.load()` | The whole collection, decoded entirely inside east-c off the mmap — input-side memory stays one segment at any file size (also the mutable escape hatch, like `f.copy()`) |
 | `f.segments()` | DEPRECATED alias — the file IS its collection value, so the eager methods, keyed reads and `load()` subsume the raw segment scan; still works (warning) for per-batch migration code |
@@ -1713,21 +1718,23 @@ with open_beast2_file("table.beast2") as t:       # Dict<String, Float>
 
 | Signature | Description |
 |-----------|-------------|
-| `Beast2Writer(T, stream, *, codec="deflate", self_contained=True, index=True)` | Streaming writer (context manager): `.write(batch)` appends one segment per non-empty batch of `T`; `.close()` writes the terminator + paging index; `.segments` counts batches. Set/Dict batches must arrive in strict ascending East (key) order — segment content is the canonical value, so pre-sort into batches (what `open_beast2_file(mode="w")` does for you) or model arrival order as an Array. **Keep both defaults unless you know otherwise** — `index` writes the trailing offsets and `self_contained` keeps each segment independently decodable; together they are exactly what `open_beast2_pages_for` needs, and turning either off silently forfeits random access. `codec="none"` skips deflate: right for already-compressed payloads or maximum write throughput |
-| `encode_beast2_segments_for(T, **opts) -> (batches) -> bytes` | In-memory convenience over the writer — one segment per non-empty batch |
+| `Beast2ElementWriter(T, stream, *, codec="deflate", parallel=False)` | The canonical writer (context manager): `.add(element)` takes one Array/Set element or one Dict `(key, value)` pair, `.add_all(batch)` every element of a collection (the loop runs in east-c); Set elements and Dict keys strictly ascending in East order. Segments fall where the content-defined cut rule places them — the bytes the managed writer, TypeScript and east-c write for the same value. Memory is one open segment; `.close()` writes the last segment, terminator and index; `.segments` counts the closed ones. An element that does not ascend, or fails to encode, raises and leaves the writer as it was |
+| `encode_beast2_paged_for(T, *, codec="deflate") -> (value) -> bytes` | One whole collection value through the canonical writer — the write-side sibling of `open_beast2_pages_for` |
+| `Beast2Writer(T, stream, *, codec="deflate", self_contained=True, index=True)` | Streaming writer for segments of your own choosing (context manager): `.write(batch)` appends one segment per non-empty batch of `T`; `.close()` writes the terminator + paging index; `.segments` counts batches. Set/Dict batches must arrive in strict ascending East (key) order — segment content is the canonical value, so pre-sort into batches or model arrival order as an Array. **Keep both defaults unless you know otherwise** — `index` writes the trailing offsets and `self_contained` keeps each segment independently decodable; together they are exactly what `open_beast2_pages_for` needs, and turning either off silently forfeits random access. `codec="none"` skips deflate: right for already-compressed payloads or maximum write throughput |
+| `encode_beast2_segments_for(T, **opts) -> (batches) -> bytes` | In-memory convenience over `Beast2Writer` — one segment per non-empty batch |
 | `encode_beast2_v5_for(T, *, codec="deflate", index=False) -> (value) -> bytes` | Whole-value v5 encode (any root type); decode with `decode_beast2_with_header_for` |
 | `iter_beast2_segments_for(T) -> (source) -> iterator` | Yield one decoded collection per segment, O(segment) memory; `source` is bytes / `mmap` / binary stream |
 | `decode_beast2_with_header_for(T) -> (blob) -> value` | Whole decode of v4 **or** v5 blobs (segments concatenate; Set/Dict wire must hold the canonical value — sorted, disjoint segments — and non-canonical blobs are rejected as corrupt) |
 | `read_beast2_index(T, blob) -> (segments, elements) \| None` | O(1) totals from a v5 blob's trailing index |
 | `open_beast2_pages_for(T) -> (source) -> Beast2Pages` | Random access: `.segment_count` `.element_count` `.self_contained` `.counts`, `.segment(i)`, `.element(row)` (also `len()`/`[]`). Seeks via the index and decodes ONE segment — O(segment), not O(blob). ❗Needs a blob written with `index=True` **and** `self_contained=True` (both default); `.element()` is Array roots only. ❗Borrows the source buffer — keep it alive (and an mmap open) for the pages' lifetime, or use `open_beast2_file`, which owns it |
 
-**Batch size (buffer-level `Beast2Writer` only — the managed writer re-batches
-for you).** A batch is simultaneously your memory ceiling, one segment, one
-compression window, and the granularity of random access. ~1000 rows is a good
-default: measured on 5000 struct rows, one row per batch costs **4x the bytes**
-of 1000-per-batch (79,418 vs 20,066), and the curve is flat past ~100.
-`write()` takes a batch, never a row — accumulate and flush yourself (or let
-`open_beast2_file(..., mode="w")` do exactly that).
+**Batch size (`Beast2Writer` only — the canonical writers cut by the rule).**
+A batch is simultaneously your memory ceiling, one segment, one compression
+window, and the granularity of random access. ~1000 rows is a good default:
+measured on 5000 struct rows, one row per batch costs **4x the bytes** of
+1000-per-batch (79,418 vs 20,066), and the curve is flat past ~100. `write()`
+takes a batch, never a row — accumulate and flush yourself, or hand rows to
+`Beast2ElementWriter`, which needs no batch at all.
 
 ```python
 import mmap
@@ -1956,7 +1963,7 @@ lookups = load_reference_tables()          # multi-GB keyed dicts: built ONCE, p
 
 def produce(span):                         # runs in the worker process
     start, count = span                    # yield batches of any size — the managed
-    for chunk in chunk_ranges(start, count, 8192):   # writer re-batches into segments
+    for chunk in chunk_ranges(start, count, 8192):   # writer cuts the canonical segments
         yield compute_rows(lookups, chunk)           # eager methods + East functions: native
 
 write_beast2_file_parallel(
@@ -1975,7 +1982,7 @@ def load_orders(path):
 ```
 
 Shards produced by your own process topology (or on another machine)? Merge
-them directly — same one-writer output guarantee, pure byte copy:
+them directly — a pure byte copy, nothing re-encoded:
 
 ```python
 splice_beast2_files("orders.beast2", ArrayType(ROW), sorted(shard_paths), verify=True)

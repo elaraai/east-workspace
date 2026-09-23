@@ -160,39 +160,51 @@ ByteBuffer *east_beast2_encode_v5(EastValue *value, EastType *type, int32_t code
 
 // Paged whole-value v5 encode (the C mirror of TypeScript's
 // encodeBeast2PagedFor): one Array/Set/Dict value in, a segmented,
-// self-contained, INDEXED blob out. Batching is byte-adaptive — capped at
-// 1,000 elements per segment AND adapted toward target_segment_bytes of wire
-// output (0 = the 2 MiB default), seeded by a small probe and refined per
-// flush — so wide rows still yield right-sized segments. Deterministic per
-// value. Returns NULL on failure (message via east_builtin_get_error).
-// Segments a Set or Dict by the pinned content-defined boundary rule, and an
-// Array by the byte-adaptive batching, when `target_segment_bytes` is 0 (the
-// default every writer uses). A non-zero target asks for a geometry of the
-// caller's own and takes the byte-adaptive path for every root.
-ByteBuffer *east_beast2_encode_paged(EastValue *value, EastType *type, int32_t codec_id,
-                                     size_t target_segment_bytes);
+// self-contained, INDEXED blob out, written through the element writer below
+// — so its segments fall where the content-defined cut rule places them, and
+// the bytes are a function of the value. Returns NULL on failure (message via
+// east_builtin_get_error).
+ByteBuffer *east_beast2_encode_paged(EastValue *value, EastType *type, int32_t codec_id);
 
-// The batch refinement behind the paged encoder: the element count of the
-// next segment, toward `target` bytes of wire per segment, from `body` bytes
-// written over `written` elements — the header left out of `body` — capped at
-// 1,000 elements and at least 1. Every writer of a collection blob sizes its
-// segments with it (the paged encoders here and in TypeScript, the emit sink,
-// the blob merge), so one value segments the same way wherever it is written
-// (issue #770).
-size_t east_beast2_paged_next_batch(size_t target, size_t body, size_t written);
-
-// The content-defined segment boundary's pinned bounds, in elements (pairs
-// for a Dict). Bounds are counts and never bytes: the only byte count a writer
-// knows as it cuts is the compressed one, and deflate output is not
-// byte-identical across zlib builds, so a byte bound could not be part of a
-// rule three runtimes must agree on.
+// The content-defined cut rule's pinned bounds (v5/SPEC.md, "Segmentation
+// rules"): counts in elements (pairs for a Dict), sizes in logical bytes —
+// the canonical encoding before compression, which per-element aliasing makes
+// a function of the element alone and so identical in every runtime. A
+// segment's hash is consulted once it holds MIN_COUNT elements or MIN_BYTES;
+// the threshold makes a segment about TARGET_COUNT narrow elements or
+// TARGET_BYTES of wide ones; one at MAX_COUNT or MAX_BYTES always closes.
 #define EAST_BEAST2_SEGMENT_MIN_COUNT 256
 #define EAST_BEAST2_SEGMENT_TARGET_COUNT 1024
 #define EAST_BEAST2_SEGMENT_MAX_COUNT 4096
+#define EAST_BEAST2_SEGMENT_MIN_BYTES (64u * 1024u)
+#define EAST_BEAST2_SEGMENT_TARGET_BYTES (1024u * 1024u)
+#define EAST_BEAST2_SEGMENT_MAX_BYTES (8u * 1024u * 1024u)
 
-// The 64-bit FNV-1a hash of `bytes` — the key hash the content-defined
-// segment boundary rule is built on, pinned identically in every runtime.
+// The rule ids a manifest records for the segments it names: the hash, the
+// bounds, and the version of the table above. A change to any of them is a
+// new rule id, never a silent re-cut.
+#define EAST_BEAST2_SEGMENT_RULE_KEYED "cdc/keyed/fnv1a-fmix32/256-1024-4096/64K-1M-8M/2"
+#define EAST_BEAST2_SEGMENT_RULE_ARRAY "cdc/array/fnv1a-fmix32/256-1024-4096/64K-1M-8M/2"
+
+// The 64-bit FNV-1a hash of `bytes`, pinned identically in every runtime.
 uint64_t east_beast2_fnv1a64(const uint8_t *bytes, size_t len);
+
+// The boundary hash of an element: the low 32-bit word of its FNV-1a hash,
+// mixed by murmur3's 32-bit finalizer. `bytes` is a Set/Dict element's key
+// fence bytes, or an Array element's canonical bytes.
+uint32_t east_beast2_segment_boundary_hash(const uint8_t *bytes, size_t len);
+
+// The rule's hash test alone: whether an element with boundary hash `hash`
+// starts a segment after an open segment of `count` (at least 1) elements and
+// `bytes` logical bytes. The threshold is 2^32 × max(1 / TARGET_COUNT,
+// (bytes / count) / TARGET_BYTES).
+bool east_beast2_segment_is_boundary(uint32_t hash, size_t count, size_t bytes);
+
+// The whole rule for every element but a collection's first: whether the
+// element whose hashed bytes are `hash_input` starts a segment after an open
+// segment of `count` elements and `bytes` logical bytes.
+bool east_beast2_starts_segment_after(size_t count, size_t bytes, const uint8_t *hash_input,
+                                      size_t len);
 
 // The canonical bare encoding of one value: its v5 value bytes with no
 // container, header or index around them, encoded against a fresh context so
@@ -201,19 +213,13 @@ uint64_t east_beast2_fnv1a64(const uint8_t *bytes, size_t len);
 // with the message posted; the caller frees the buffer.
 ByteBuffer *east_beast2_encode_fence(EastValue *value, EastType *type);
 
-// The element indices at which a Set or Dict's segments begin under the
-// content rule, excluding 0, in ascending order — the whole segmentation of
-// one value in one call, so a caller need not reach into the rule per element.
-// Writes at most `out_cap` of them and returns how many there are; a caller
-// sizing `out` at `count / EAST_BEAST2_SEGMENT_MIN_COUNT + 1` can never be
-// short. Returns SIZE_MAX with the message posted on a non-keyed root, or when
-// `out` was given and too small.
+// The element indices at which a collection's segments begin under the cut
+// rule, excluding 0, in ascending order — the whole segmentation of one value
+// in one call. Writes at most `out_cap` of them and returns how many there
+// are. Returns SIZE_MAX with the message posted on a non-collection root, an
+// element that fails to encode, or when `out` was given and too small.
 size_t east_beast2_segment_starts(EastValue *collection, EastType *type, size_t *out,
                                   size_t out_cap);
-
-// Whether a key's canonical bare encoding starts a content-defined segment,
-// ignoring the count bounds: the rule's hash test alone.
-bool east_beast2_segment_boundary_key(const uint8_t *bytes, size_t len);
 
 // Streaming v5 writer: each write() encodes one batch (a value of the declared
 // Array/Set/Dict type) as one root segment, so writer memory is O(batch).
@@ -221,11 +227,20 @@ bool east_beast2_segment_boundary_key(const uint8_t *bytes, size_t len);
 // the caller frees, or NULL when nothing is pending). finish() appends the
 // terminator (and index + footer unless disabled). self_contained scopes
 // aliasing per root element, so the output is pageable and an element's
-// bytes depend on the element alone (the default for paging).
+// bytes depend on the element alone (the default for paging). Where the
+// segments fall is the caller's choice here; a stored collection is written
+// through the element writer below, which cuts where the rule says.
 typedef struct Beast2StreamWriter Beast2StreamWriter;
 Beast2StreamWriter *east_beast2_writer_new(EastType *type, int32_t codec_id, bool self_contained,
                                            bool with_index);
 bool east_beast2_writer_write(Beast2StreamWriter *w, EastValue *batch);
+// One root segment from elements that are already encoded — `count` elements
+// back to back in `elements`, each in its canonical bytes with aliasing scoped
+// to itself. The bytes are copied before this returns; their order is the
+// caller's to keep (nothing here decodes them to check a Set or Dict's
+// ascent). A zero count writes nothing.
+bool east_beast2_writer_write_encoded(Beast2StreamWriter *w, size_t count, const uint8_t *elements,
+                                      size_t len);
 ByteBuffer *east_beast2_writer_take(Beast2StreamWriter *w);
 bool east_beast2_writer_finish(Beast2StreamWriter *w);
 void east_beast2_writer_free(Beast2StreamWriter *w);
@@ -237,18 +252,35 @@ void east_beast2_writer_free(Beast2StreamWriter *w);
 // that — appending them in order so the bytes are identical to the inline
 // writer's. A single-core host stays inline. take() then returns only the
 // frames already done, and finish() waits for the rest.
-//
-// A caller that sizes its NEXT batch from the bytes emitted so far must not
-// read a lagging count — its segmentation would depend on thread timing.
-// emitted_bounds() brackets the total the writer will have emitted once
-// every submitted frame lands: `lo` is exact for the frames appended, and
-// `hi` adds each in-flight frame's logical bytes plus a header bound (a frame
-// payload never exceeds its logical bytes). Decide at both bounds; when the
-// decisions agree the exact one does too, and when they differ settle()
-// waits for the in-flight frames, after which lo == hi.
 void east_beast2_writer_set_parallel(Beast2StreamWriter *w, bool parallel);
-void east_beast2_writer_emitted_bounds(Beast2StreamWriter *w, size_t *lo, size_t *hi);
-bool east_beast2_writer_settle(Beast2StreamWriter *w);
+
+// The canonical writer of a collection blob (the C mirror of TypeScript's
+// Beast2ElementWriter): elements go in one at a time, in canonical order, and
+// segments come out wherever the content-defined cut rule places them. Each
+// element is encoded as it arrives with aliasing scoped to itself, so the blob
+// is a function of the value — whichever runtime writes it, however its
+// elements were produced. Memory is one open segment. The blob is always
+// self-contained and indexed; drain it with take(), as for the stream writer.
+//
+// add() takes an Array or Set element, add_pair() a Dict's key and value; a
+// Set element or Dict key must ascend strictly from the last in East order.
+// add_encoded() takes an element already in its canonical bytes — for a Dict
+// the key's bytes then the value's, `key_len` the key's length; for a Set the
+// whole element; ignored for an Array — whose order is the caller's to keep.
+// An add that fails leaves the writer as it was, with the message posted.
+typedef struct Beast2ElementWriter Beast2ElementWriter;
+Beast2ElementWriter *east_beast2_element_writer_new(EastType *type, int32_t codec_id);
+void east_beast2_element_writer_set_parallel(Beast2ElementWriter *w, bool parallel);
+bool east_beast2_element_writer_add(Beast2ElementWriter *w, EastValue *element);
+bool east_beast2_element_writer_add_pair(Beast2ElementWriter *w, EastValue *key, EastValue *value);
+bool east_beast2_element_writer_add_encoded(Beast2ElementWriter *w, const uint8_t *element,
+                                            size_t len, size_t key_len);
+ByteBuffer *east_beast2_element_writer_take(Beast2ElementWriter *w);
+// Writes the open segment, then the terminator, index and footer.
+bool east_beast2_element_writer_finish(Beast2ElementWriter *w);
+// Segments written so far; the open one is not counted until it closes.
+size_t east_beast2_element_writer_segments(const Beast2ElementWriter *w);
+void east_beast2_element_writer_free(Beast2ElementWriter *w);
 
 // Sequential v5 segment reader over a complete blob (the caller keeps `data`
 // alive and unchanged for the reader's lifetime). next() returns one decoded

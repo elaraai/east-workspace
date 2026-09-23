@@ -20,9 +20,10 @@ import assert from 'node:assert/strict';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import e3 from '@elaraai/e3';
-import { East, DictType, IntegerType, SortedMap, StringType, compareFor, encodeBeast2PagedFor, variant } from '@elaraai/east';
+import { East, DictType, IntegerType, SortedMap, StringType, compareFor, variant } from '@elaraai/east';
 import { FileSystem } from '@elaraai/east-node-std';
 import { LocalStorage, workspaceGetTaskHash } from '@elaraai/e3-core';
+import { encodeInSegmentsOf } from '@elaraai/e3-core/test';
 import { createTestDir, removeTestDir, runE3Command, spawnE3Command, waitFor } from './helpers.js';
 
 const TableType = DictType(IntegerType, StringType);
@@ -62,7 +63,7 @@ describe('the jobs budget', () => {
     await e3.export(e3.package('budget', '1.0.0', ...plain, held), zip);
     const table = new SortedMap(Array.from({ length: 40 }, (_, i) => [BigInt(i), `row-${i}`] as [bigint, string]), compareFor(IntegerType));
     const tablePath = join(dir, 'table.beast2');
-    writeFileSync(tablePath, encodeBeast2PagedFor(TableType, { batchSize: 10 })(table));
+    writeFileSync(tablePath, encodeInSegmentsOf(TableType, 10)(table));
 
     for (const args of [
       ['repo', 'create', repo],

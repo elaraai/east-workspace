@@ -29,12 +29,12 @@ import {
   IntegerType,
   StringType,
   StructType,
-  encodeBeast2PagedFor,
   printFor,
   readBeast2Extents,
   toEastTypeValue,
   variant,
 } from '@elaraai/east';
+import { encodeInSegmentsOf } from '@elaraai/e3-core/test';
 import { createTestDir, getE3CliPath, removeTestDir, runE3Command } from './helpers.js';
 
 const Row = StructType({ id: IntegerType, name: StringType, score: FloatType });
@@ -77,13 +77,13 @@ describe('e3 dataset set', () => {
     repoDir = join(testDir, 'repo');
 
     const rows = Array.from({ length: ROW_COUNT }, (_, i) => ({ id: BigInt(i), name: `row-${i}`, score: i / 7 }));
-    const good = encodeBeast2PagedFor(ArrayType(Row), { targetSegmentBytes: 4096 })(rows);
+    const good = encodeInSegmentsOf(ArrayType(Row), 100)(rows);
     goodPath = join(testDir, 'TABLE.beast2');
     writeFileSync(goodPath, good);
     segmentCount = readBeast2Extents(good).offsets.length;
     assert.ok(segmentCount > 1, 'the delivery spans several segments');
 
-    const drifted = encodeBeast2PagedFor(ArrayType(DriftedRow), { targetSegmentBytes: 4096 })(
+    const drifted = encodeInSegmentsOf(ArrayType(DriftedRow), 100)(
       rows.map(({ id, name }) => ({ id, name }))
     );
     driftedPath = join(testDir, 'TABLE-drifted.beast2');
@@ -344,7 +344,7 @@ describe('e3 dataset set', () => {
 
       // A new delivery under the same path is a new hash on the next deploy.
       const more = Array.from({ length: ROW_COUNT + 500 }, (_, i) => ({ id: BigInt(i), name: `row-${i}`, score: i / 7 }));
-      deliver(encodeBeast2PagedFor(ArrayType(Row), { targetSegmentBytes: 4096 })(more));
+      deliver(encodeInSegmentsOf(ArrayType(Row), 100)(more));
       const second = await deploy();
       assert.strictEqual(second.exitCode, 0, `redeploy failed: ${second.stderr}\n${second.stdout}`);
       remote = await status();

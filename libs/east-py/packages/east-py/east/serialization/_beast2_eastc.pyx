@@ -349,6 +349,34 @@ cpdef bytes _encode_beast2_v5(object py_type, object value, object codec, bint w
     return result
 
 
+cpdef bytes _encode_beast2_paged(object py_type, object value, object codec):
+    """One collection value as a segmented, self-contained, indexed v5 blob
+    cut by the content-defined rule — east-c's writer, so the bytes are the
+    ones every runtime writes for the value."""
+    _ensure_eastc_runtime()
+    cdef int32_t codec_id = _codec_id(codec)
+    cdef _eastc.EastType* c_type = py_type_to_c(py_type)
+    cdef _eastc.EastValue* c_val
+    cdef _eastc.ByteBuffer* buf
+
+    try:
+        c_val = py_value_to_c(value, c_type)
+    except:
+        _eastc.east_type_release(c_type)
+        raise
+
+    buf = _eastc.east_beast2_encode_paged(c_val, c_type, codec_id)
+    _eastc.east_value_release(c_val)
+    if buf == NULL:
+        _eastc.east_type_release(c_type)
+        _consume_eastc_error("east-c beast2 paged encode returned NULL")
+
+    cdef bytes result = buf.data[:buf.len]
+    _eastc.byte_buffer_free(buf)
+    _eastc.east_type_release(c_type)
+    return result
+
+
 cpdef bytes _encode_beast2_fence(object py_type, object value):
     """The canonical bare encoding of one value — a segment's fence, and what
     the boundary rule hashes. east-c's own encoder, so the bytes are the ones
@@ -377,9 +405,9 @@ cpdef bytes _encode_beast2_fence(object py_type, object value):
 
 
 cpdef list _segment_starts(object py_type, object value):
-    """The element indices at which a Set or Dict's segments begin, excluding
-    0 — the whole segmentation in one east-c call, so the paged encoder stays
-    free of per-element python."""
+    """The element indices at which a collection's segments begin under the
+    cut rule, excluding 0 — the whole segmentation of one value in one east-c
+    call."""
     _ensure_eastc_runtime()
     cdef _eastc.EastType* c_type = py_type_to_c(py_type)
     cdef _eastc.EastValue* c_val
@@ -394,9 +422,9 @@ cpdef list _segment_starts(object py_type, object value):
         _eastc.east_type_release(c_type)
         raise
 
-    # A segment holds at least SEGMENT_MIN_COUNT elements, so this can never
-    # be short (the +2 covers the first partial segment and a rounding).
-    cap = len(value) // 256 + 2
+    # A wide element can close a segment on its own, so every element but
+    # the first may start one.
+    cap = max(len(value), 1)
     out = <size_t*>malloc(cap * sizeof(size_t))
     if out == NULL:
         _eastc.east_value_release(c_val)
@@ -415,14 +443,31 @@ cpdef list _segment_starts(object py_type, object value):
     return result
 
 
-cpdef bint _is_segment_boundary_key(bytes fence):
-    """Whether a key's canonical bytes start a content-defined segment,
-    ignoring the count bounds: the rule's hash test alone."""
+cpdef unsigned int _segment_boundary_hash(bytes data):
+    """The cut rule's hash of an element's hashed bytes: a Set or Dict key's
+    fence bytes, or an Array element's canonical bytes."""
     _ensure_eastc_runtime()
-    if len(fence) == 0:
-        return _eastc.east_beast2_segment_boundary_key(NULL, 0)
-    cdef const uint8_t* data = <const uint8_t*><char*>fence
-    return _eastc.east_beast2_segment_boundary_key(data, len(fence))
+    if len(data) == 0:
+        return _eastc.east_beast2_segment_boundary_hash(NULL, 0)
+    cdef const uint8_t* p = <const uint8_t*><char*>data
+    return _eastc.east_beast2_segment_boundary_hash(p, len(data))
+
+
+cpdef bint _segment_is_boundary(unsigned int hash, size_t count, size_t nbytes):
+    """The rule's hash test alone: whether an element hashing to ``hash``
+    starts a segment after an open one of ``count`` elements and ``nbytes``
+    logical bytes."""
+    return _eastc.east_beast2_segment_is_boundary(hash, count, nbytes)
+
+
+cpdef bint _starts_segment_after(size_t count, size_t nbytes, bytes hash_input):
+    """The whole rule for every element but a collection's first: the bounds,
+    then the hash test on ``hash_input``."""
+    _ensure_eastc_runtime()
+    if len(hash_input) == 0:
+        return _eastc.east_beast2_starts_segment_after(count, nbytes, NULL, 0)
+    cdef const uint8_t* p = <const uint8_t*><char*>hash_input
+    return _eastc.east_beast2_starts_segment_after(count, nbytes, p, len(hash_input))
 
 
 cpdef unsigned long long _fnv1a64(bytes data):
@@ -473,29 +518,106 @@ cdef class _Beast2WriterCore:
 
     def set_parallel(self, bint parallel):
         """Deflate frames on worker threads (issue #763). Before the second
-        segment only; a caller that sizes batches from the bytes emitted must
-        then read them through :meth:`emitted_bounds`."""
+        segment only; the bytes are the inline writer's either way."""
         _eastc.east_beast2_writer_set_parallel(self._w, parallel)
-
-    def emitted_bounds(self):
-        """``(lo, hi)`` bracketing the total bytes the writer will have
-        emitted once every submitted frame lands; ``lo == hi`` when none is in
-        flight."""
-        cdef size_t lo = 0
-        cdef size_t hi = 0
-        _eastc.east_beast2_writer_emitted_bounds(self._w, &lo, &hi)
-        return (lo, hi)
-
-    def settle(self):
-        """Wait for every in-flight frame, after which the bounds are exact."""
-        # The workers are pure C threads and never touch Python, so waiting
-        # with the GIL held cannot deadlock them.
-        if not _eastc.east_beast2_writer_settle(self._w):
-            _consume_eastc_error("east-c beast2 v5 writer settle failed")
 
     def __dealloc__(self):
         if self._w != NULL:
             _eastc.east_beast2_writer_free(self._w)
+        if self._type != NULL:
+            _eastc.east_type_release(self._type)
+
+
+cdef class _Beast2ElementWriterCore:
+    """Thin wrapper over east-c's canonical element writer. The Python-facing
+    Beast2ElementWriter in east.serialization.beast2 owns the output stream
+    and drains pending bytes after every operation."""
+
+    cdef _eastc.Beast2ElementWriter* _w
+    cdef _eastc.EastType* _type
+
+    def __cinit__(self, object py_type, object codec):
+        _ensure_eastc_runtime()
+        cdef int32_t codec_id = _codec_id(codec)
+        self._type = py_type_to_c(py_type)
+        self._w = _eastc.east_beast2_element_writer_new(self._type, codec_id)
+        if self._w == NULL:
+            _eastc.east_type_release(self._type)
+            self._type = NULL
+            _consume_eastc_error("east-c beast2 element writer construction failed")
+
+    def add(self, object element):
+        """Add one element — for a Dict, a ``(key, value)`` pair."""
+        cdef _eastc.EastValue* c_head
+        cdef _eastc.EastValue* c_value
+        cdef bint ok
+        if self._type.kind == _eastc.EAST_TYPE_DICT:
+            key, value = element
+            c_head = py_value_to_c(key, self._type.data.dict.key)
+            try:
+                c_value = py_value_to_c(value, self._type.data.dict.value)
+            except BaseException:
+                _eastc.east_value_release(c_head)
+                raise
+            ok = _eastc.east_beast2_element_writer_add_pair(self._w, c_head, c_value)
+            _eastc.east_value_release(c_value)
+        else:
+            c_head = py_value_to_c(element, self._type.data.element)
+            ok = _eastc.east_beast2_element_writer_add(self._w, c_head)
+        _eastc.east_value_release(c_head)
+        if not ok:
+            _consume_eastc_error("east-c beast2 element writer add failed")
+
+    def add_all(self, object batch):
+        """Add every element of ``batch``, a value of the collection type, in
+        its order — one conversion and a loop in C, however many elements."""
+        cdef _eastc.EastValue* c_val = py_value_to_c(batch, self._type)
+        cdef bint ok = self._add_each(c_val)
+        _eastc.east_value_release(c_val)
+        if not ok:
+            _consume_eastc_error("east-c beast2 element writer add failed")
+
+    cdef bint _add_each(self, _eastc.EastValue* batch) noexcept:
+        cdef size_t i
+        if self._type.kind == _eastc.EAST_TYPE_ARRAY:
+            for i in range(_eastc.east_array_len(batch)):
+                if not _eastc.east_beast2_element_writer_add(self._w, _eastc.east_array_get(batch, i)):
+                    return False
+        elif self._type.kind == _eastc.EAST_TYPE_SET:
+            for i in range(_eastc.east_set_len(batch)):
+                if not _eastc.east_beast2_element_writer_add(self._w, _eastc.east_set_at(batch, i)):
+                    return False
+        else:
+            for i in range(_eastc.east_dict_len(batch)):
+                if not _eastc.east_beast2_element_writer_add_pair(
+                        self._w, _eastc.east_dict_key_at(batch, i), _eastc.east_dict_val_at(batch, i)):
+                    return False
+        return True
+
+    def take(self):
+        cdef _eastc.ByteBuffer* buf = _eastc.east_beast2_element_writer_take(self._w)
+        if buf == NULL:
+            return b""
+        cdef bytes result = buf.data[:buf.len]
+        _eastc.byte_buffer_free(buf)
+        return result
+
+    def finish(self):
+        if not _eastc.east_beast2_element_writer_finish(self._w):
+            _consume_eastc_error("east-c beast2 element writer finish failed")
+
+    def set_parallel(self, bint parallel):
+        """Deflate frames on worker threads (issue #763); where the segments
+        fall never depends on it."""
+        _eastc.east_beast2_element_writer_set_parallel(self._w, parallel)
+
+    def segments(self):
+        """Segments closed so far; the open one is not counted."""
+        return _eastc.east_beast2_element_writer_segments(self._w)
+
+    def __dealloc__(self):
+        if self._w != NULL:
+            _eastc.east_beast2_element_writer_free(self._w)
         if self._type != NULL:
             _eastc.east_type_release(self._type)
 
@@ -750,7 +872,7 @@ cdef class _Beast2PagesCore:
 # The streamTask emit capability over east-c's library sink
 # (east/emit_sink.h) — the very code the east-c CLI runs, so the two runners
 # write the same bytes for the same emissions. Everything per row happens in
-# C: batching, the ascending check, the --merge / --union folds of adjacent
+# C: the cut, the ascending check, the --merge / --union folds of adjacent
 # equal keys, and the duplicate and out-of-order messages. _EmitSinkCore
 # owns the EastEmitSink*; _EmitSink (east-py-cli) validates the emit
 # parameter. _merge_blobs below is the fan-in's twin: east-c's blob merge
@@ -950,9 +1072,9 @@ cdef class _EmitSinkCore:
         _eastc.eval_result_free(&r)
 
     def finish(self):
-        """Flush the open batch and write the terminator and index. On
-        failure the output is left unfinalized and EastError carries the
-        sink's message."""
+        """Write the held entry, then the terminator and index. On failure
+        the output is left unfinalized and EastError carries the sink's
+        message."""
         cdef char* err
         if _eastc.east_emit_sink_finish(self._sink):
             return
@@ -988,9 +1110,9 @@ def _merge_blobs(object input_paths, object output_path, object merge=None,
     ``east_merge_blobs`` (east/merge.h), the very code ``east-c merge`` runs,
     so the two runners write the same bytes (#770). One pass: every input is
     read segment by segment through a mapping, a heap over the inputs yields
-    keys in East order, and the output goes through the emit sink's segment
-    writer, byte-identical to what ``run --emit`` writes for the same entries
-    emitted ascending. Equal keys fold in input order — ``merge`` (a compiled
+    keys in East order, and the output goes through the emit sink's writer,
+    byte-identical to what ``run --emit`` writes for the same entries emitted
+    ascending. Equal keys fold in input order — ``merge`` (a compiled
     ``(K, V, V) -> V`` East function) on Dict inputs, ``union_mode`` (the
     first element stands) on Set inputs — and are the duplicate error
     without a fold. With ``range_path`` — a beast2 blob of ``Struct{from:

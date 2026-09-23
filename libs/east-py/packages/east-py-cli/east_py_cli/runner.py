@@ -99,7 +99,7 @@ class _EmitSink:
     write the same bytes for the same emissions.
 
     The compiled body calls the sink's function value once per row with no
-    python in the loop: batching, the ascending check and the folds all run
+    python in the loop: the cut, the ascending check and the folds all run
     in C, in one pass — segments stream straight to the output file, and
     memory is one open segment whatever the output's size. Set and Dict
     emissions must ascend in East order: an out-of-order key is an error,
@@ -157,7 +157,7 @@ class _EmitSink:
         self._core.emit(*args)
 
     def finish(self) -> None:
-        """Finalize the output: the open batch, the terminator and the
+        """Finalize the output: the held entry, the terminator and the
         index. Raises EastError with the sink's message and leaves the output
         unfinalized."""
         self._core.finish()
@@ -328,7 +328,7 @@ def run_program(
     # Output
     if sink is not None:
         # The sink wrote the output incrementally; the (Null) return value is
-        # unused. Finishing writes the open batch, the terminator, index and
+        # unused. Finishing writes the held entry, the terminator, index and
         # footer.
         sink.finish()
         if verbose:

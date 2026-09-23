@@ -288,11 +288,9 @@ add_test(NAME gc_pacing COMMAND test_gc_pacing)
 
 # Frame-pool gate (issue #763): the v5 writer deflates frames on worker
 # threads and appends them in order. A pooled paged encode must be
-# byte-identical to the serial algorithm — including its segmentation, which
-# is refined from the bytes emitted and so must be decided through the
-# writer's bounds — at byte targets that pin the element cap and targets that
-# keep the refinement live; in-flight frames must stay within the ring bound;
-# and an abandoned writer must free its workers' buffers. Run under ASan/LSan
+# byte-identical to the same elements through an element writer that never
+# pools; in-flight frames must stay within the ring bound; and an abandoned
+# writer must free its workers' buffers. Run under ASan/LSan
 # (run_leak_check.sh) for the pool's lifetimes.
 add_executable(test_beast2_frame_pool tests/test_beast2_frame_pool.c)
 target_link_libraries(test_beast2_frame_pool east-c)
@@ -325,7 +323,9 @@ add_executable(test_beast2_hardening tests/test_beast2_hardening.c)
 target_link_libraries(test_beast2_hardening east-c)
 add_test(NAME beast2_hardening COMMAND test_beast2_hardening)
 
-# The content-defined segment boundary, pinned against the TypeScript encoder
+# The content-defined cut rule and the element writer, pinned against the
+# TypeScript writer: the hashes, the threshold, and where three 50,000-element
+# collections are cut.
 add_executable(test_beast2_boundary tests/test_beast2_boundary.c)
 target_link_libraries(test_beast2_boundary east-c)
 add_test(NAME beast2_boundary COMMAND test_beast2_boundary)
@@ -370,10 +370,9 @@ target_link_libraries(test_paged_value east-c)
 add_test(NAME paged_value COMMAND test_paged_value)
 
 # Emit sink gate (issues #507, #770): the library sink behind `run --emit`
-# sizes its segments with the paged encoder's refinement — the header left out
-# of the average, pinned at a first-segment size where a header-inclusive
-# average would choose a different second batch — folds adjacent equal keys
-# under --merge / --union to the bytes the flag-less sink writes for the
+# writes the bytes the paged encoder writes for the same value — on rows wide
+# enough that the cut rule's byte-aware threshold binds — folds adjacent equal
+# keys under --merge / --union to the bytes the flag-less sink writes for the
 # folded sequence, and refuses a duplicate or out-of-order key with the
 # canonical message, leaving the output unfinalised. Run under ASan/LSan for
 # the sink's lifetimes, the error paths included.

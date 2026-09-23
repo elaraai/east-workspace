@@ -29,7 +29,7 @@ from east import (
 from east.runtime._compiler_eastc import paged_value_is_hydrated, paged_value_ref_count
 from east.runtime.errors import EastError
 from east.runtime.platform import PlatformFunction
-from east.serialization.beast2 import encode_beast2_v5_for, write_beast2_file
+from east.serialization.beast2 import Beast2Writer, encode_beast2_v5_for
 
 from east_py_std import fs_impl, fs_open_beast
 
@@ -42,10 +42,13 @@ check = East.platform("check", [TABLE], IntegerType)
 
 
 def _write_table(path) -> None:
-    write_beast2_file(
-        path, TABLE,
-        EastDict(IntegerType, ROW, {i: {"id": i, "name": f"row-{i}"} for i in range(N)}),
-        segment_rows=50)
+    """The table in segments of 50 rows — the test's geometry rather than the
+    cut rule's, which holds 300 narrow rows in one — so a keyed read touches
+    one segment of many."""
+    with open(path, "wb") as stream, Beast2Writer(TABLE, stream) as writer:
+        for start in range(0, N, 50):
+            writer.write(EastDict(IntegerType, ROW, {
+                i: {"id": i, "name": f"row-{i}"} for i in range(start, start + 50)}))
 
 
 def _check(d):

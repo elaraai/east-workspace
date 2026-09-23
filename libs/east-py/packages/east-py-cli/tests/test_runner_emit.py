@@ -7,11 +7,11 @@
 The IR fixtures in ``tests/fixtures`` are generated from the TypeScript side
 by ``libs/east-c/packages/east-c-cli/tests/generate_fixtures.mjs`` and mirror
 ``east-node-cli/src/runner.spec.ts``, so all three runners are pinned against
-the same programs. ``events.beast2`` is written by the TS paged writer, which
-makes the stream-fold case a cross-runtime decode of TS-writer bytes.
+the same programs. ``events.beast2`` is written by the TS writer, which makes
+the stream-fold case a cross-runtime decode of TS-writer bytes.
 
 These cases exercise the whole seam end to end: ``_EmitSink`` (output
-validation) over east-c's library sink (batching, the ascending check and its
+validation) over east-c's library sink (the cut, the ascending check and its
 duplicate-key and out-of-order errors — issues #518, #770 — and finalization:
 terminator + index + footer), and the native function value that carries the
 sink's ``emit`` into the compiled body (issue #560 phase 2). One case drives
@@ -49,6 +49,7 @@ from east import (
 from east.runtime.errors import EastError
 from east.serialization.beast2 import (
     decode_beast2_with_header_for,
+    encode_beast2_paged_for,
     encode_beast2_v5_for,
     open_beast2_pages_for,
     read_beast2_index,
@@ -261,18 +262,18 @@ def test_stream_index_rejected_on_a_zero_input_program(tmp_path):
         )
 
 
-def test_wide_rows_rebatch_toward_the_segment_byte_target(tmp_path):
-    # 1500 × ~4 KiB rows: the first batch fills the element cap, and the
-    # byte-adaptive refinement must shrink subsequent batches — a row-count
-    # sink would put all remaining rows in one grossly oversized segment.
+def test_wide_rows_cut_near_the_segment_byte_target(tmp_path):
+    # 1500 × ~4 KiB rows: the cut rule's byte-aware threshold closes segments
+    # near the byte target — a count-only rule would hold a thousand rows in
+    # one. The sink writes exactly the canonical blob for the rows.
     out = tmp_path / "wide.beast2"
     run_program(FIXTURES / "emit_wide.beast2", [], [], [], out, emit="array")
 
     pages = open_beast2_pages_for(ArrayType(StringType))(out.read_bytes())
     assert pages.element_count == 1500
-    assert pages.segment_count >= 2
-    # Batches after the cap-sized first one target ~2 MiB / ~4 KiB ≈ 512 rows.
-    assert max(pages.counts[1:]) < 1000
+    assert pages.segment_count > 4
+    rows = [f"{'x' * 4096}-{i}" for i in range(1500)]
+    assert out.read_bytes() == encode_beast2_paged_for(ArrayType(StringType))(rows)
 
 
 def test_lazy_paged_input_pins(tmp_path, monkeypatch):
@@ -360,8 +361,8 @@ MERGE_CONCAT = FIXTURES / "emit_merge_concat.beast2"
 def test_folding_sink_writes_the_folded_sequence_byte_for_byte(tmp_path, program):
     # Issue #770: with --merge (dict) or --union (set) the sink folds adjacent
     # equal keys in emission order, and the output is byte-identical to what
-    # the flag-less sink writes for the folded sequence — key 999 folding
-    # into a full batch's last entry included.
+    # the flag-less sink writes for the folded sequence — folds into the
+    # entries the output's segments start at included.
     kind = "dict" if program.startswith("emit_merge") else "set"
     expected = tmp_path / "expected.beast2"
     run_program(FIXTURES / f"{program}_folded.beast2", [], [], [], expected, emit=kind)

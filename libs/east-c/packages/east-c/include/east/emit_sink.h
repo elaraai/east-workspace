@@ -5,31 +5,29 @@
  * The streaming emit sink behind `run --emit` (issues #507, #770).
  *
  * A body's trailing parameter is a runner-provided function value; each call
- * appends one element (a key/value pair for dict outputs) to a streaming
- * beast2 v5 writer on the output file, in one pass with O(batch) memory. The
- * sink lives in the core library so every runner that embeds east-c — the
- * east-c CLI and east-py — writes the same bytes through the same code.
+ * appends one element (a key/value pair for dict outputs) to the canonical
+ * element writer on the output file, in one pass with memory for one open
+ * segment. The sink lives in the core library so every runner that embeds
+ * east-c — the east-c CLI and east-py — writes the same bytes through the same
+ * code.
  *
  * Set and Dict emissions must ascend strictly in East (key) order: segment
  * content is the canonical value split at segment boundaries, and the sink
- * writes each batch straight to the file as it fills. An out-of-order key
- * ends the emission with an error; a re-keying producer partitions its input
- * and merges the sorted partials instead (east/merge.h), which is the
- * orchestrator's step, never the sink's. Segments are sized by the paged
- * encoder's refinement (src/emit_writer.h), so the file is byte-identical to
- * what every other writer produces for the same value.
+ * writes each entry through to the file. An out-of-order key ends the
+ * emission with an error; a re-keying producer partitions its input and
+ * merges the sorted partials instead (east/merge.h), which is the
+ * orchestrator's step, never the sink's. Segments fall where the
+ * content-defined cut rule places them (src/emit_writer.h), so the file is
+ * byte-identical to what every other writer produces for the same value.
  *
  * Duplicate Set/Dict keys are an error unless the sink folds them: with a
  * merge function (dict sinks) an equal key folds into the previous entry,
  * `acc = merge(key, acc, value)`, in emission order; with union mode (set
- * sinks) an equal element collapses into the previous one. Either way the
- * file is byte-identical to what the non-folding sink writes for the
- * already-folded sequence.
- *
- * A batch is flushed when it is full and the next element will not fold into
- * it (or at finish) — never on the insert that fills it — which segments
- * exactly as flushing on that insert would, and lets an equal key fold into
- * a full batch's last entry.
+ * sinks) an equal element collapses into the previous one. The latest entry
+ * is held back until the next one arrives (or the sink finishes), so a fold
+ * lands in it in place and only settled entries are written: the file is
+ * byte-identical to what the non-folding sink writes for the already-folded
+ * sequence.
  *
  * Errors are posted through east_builtin_error: a failed east_emit_sink_new or
  * east_emit_sink_finish leaves the message for east_builtin_get_error, and the
@@ -83,7 +81,7 @@ EastEmitSink *east_emit_sink_new(const EastEmitSinkConfig *cfg);
  * returned value; the sink must outlive it. NULL on allocation failure. */
 EastValue *east_emit_sink_function(EastEmitSink *sink, EastType *fn_type);
 
-/* Flushes the final batch and writes the terminator + index. On failure the
+/* Writes the held entry, then the terminator + index. On failure the
  * output is left unfinalized — no terminator or index — and the message is
  * posted. */
 bool east_emit_sink_finish(EastEmitSink *sink);

@@ -5,8 +5,8 @@
 
 /*
  * Regenerates the checked-in `--emit` and `merge` test fixtures: tiny East
- * IR programs (beast2-encoded, source map included) plus TS-paged-written
- * input blobs, shared verbatim by the east-c ctest gates (tests/test_cli_emit.c,
+ * IR programs (beast2-encoded, source map included) plus TS-written input
+ * blobs, shared verbatim by the east-c ctest gates (tests/test_cli_emit.c,
  * tests/test_cli_merge.c) and the east-py-cli pytest suite
  * (libs/east-py/packages/east-py-cli/tests/fixtures). Keeping the TS writer
  * as the fixture source makes every native-runner test that READS these
@@ -44,6 +44,7 @@ import {
   encodeBeast2PagedFor,
   encodeBeast2SegmentsFor,
   encodeEastIR,
+  openBeast2PagesFor,
   spliceBeast2,
 } from '@elaraai/east';
 
@@ -57,6 +58,9 @@ const emitInt = FunctionType([IntegerType], NullType);
 const emitPair = FunctionType([IntegerType, StringType], NullType);
 
 const PairT = StructType({ key: IntegerType, value: StringType });
+const IntStringDict = DictType(IntegerType, StringType);
+const IntSet = SetType(IntegerType);
+const intCmp = compareFor(IntegerType);
 
 /** A dict producer emitting the given (key, value) pairs in order. */
 function pairEmitter(pairs) {
@@ -76,13 +80,40 @@ function keyEmitter(keys) {
   }).toIR();
 }
 
-/** The fold contract's emission sequence (#770), as keys: 0..1199 in order
- *  with adjacent duplicates — every third key twice, and key 999, the last
- *  entry of a full 1000-element batch, four times. */
+/** The element indices at which a blob's segments start, excluding 0. */
+function segmentStarts(type, blob) {
+  const starts = new Set();
+  let at = 0;
+  for (const count of openBeast2PagesFor(type)(blob).counts.slice(0, -1)) starts.add((at += count));
+  return starts;
+}
+
+/** A collection written in `size`-element segments — the fixture's own
+ *  geometry, not the cut rule's, so a small input still spans several
+ *  segments for the ranged and lazy reads to cross. `chunk` builds one
+ *  segment's value from its slice of `items`. */
+function segmented(type, size, items, chunk) {
+  const batches = [];
+  for (let i = 0; i < items.length; i += size) batches.push(chunk(items.slice(i, i + size)));
+  return encodeBeast2SegmentsFor(type)(batches);
+}
+
+/** The keys of the fold contract's output, and the ones its segments start
+ *  at. Its entries are narrow, so the cut falls by key and count alone and a
+ *  Set of the keys starts its segments where the folded Dict does. */
+const FOLD_KEYS = 5000;
+const foldStarts = segmentStarts(
+  IntSet,
+  encodeBeast2PagedFor(IntSet)(new SortedSet(Array.from({ length: FOLD_KEYS }, (_, k) => BigInt(k)), intCmp)),
+);
+
+/** The fold contract's emission sequence (#770), as keys: 0..4999 in order
+ *  with adjacent duplicates — every third key twice, and every key the
+ *  output starts a segment at four times, so folds land on those entries. */
 function foldSequence() {
   const ascending = [];
-  for (let k = 0; k < 1200; k++) {
-    const copies = 1 + (k % 3 === 0 ? 1 : 0) + (k % 1000 === 999 ? 2 : 0);
+  for (let k = 0; k < FOLD_KEYS; k++) {
+    const copies = 1 + (k % 3 === 0 ? 1 : 0) + (foldStarts.has(k) ? 2 : 0);
     for (let c = 0; c < copies; c++) ascending.push(BigInt(k));
   }
   return ascending;
@@ -106,6 +137,17 @@ function unionKeys(keys) {
 const foldKeys = foldSequence();
 const ascendingPairs = foldPairs(foldKeys);
 
+// The claim foldStarts rests on, checked against the folded output itself.
+{
+  const folded = encodeBeast2PagedFor(IntStringDict)(
+    new SortedMap(ascendingPairs.folded.map(({ key, value }) => [key, value]), intCmp),
+  );
+  const starts = segmentStarts(IntStringDict, folded);
+  if (starts.size === 0 || starts.size !== foldStarts.size || [...starts].some((k) => !foldStarts.has(k))) {
+    throw new Error(`the folded output starts segments at ${[...starts]}, not ${[...foldStarts]}`);
+  }
+}
+
 /** The blob merge's inputs (#770): three sorted Dicts whose keys overlap —
  *  a = 0..19, b = 10..29, c = {5, 15, 25, 40} — each value naming its input,
  *  and their fold under the concatenating merge in input order. */
@@ -114,17 +156,12 @@ const mergeKeys = {
   b: Array.from({ length: 20 }, (_, k) => k + 10),
   c: [5, 15, 25, 40],
 };
-const IntStringDict = DictType(IntegerType, StringType);
-const intCmp = compareFor(IntegerType);
 function mergeInput(name) {
-  return encodeBeast2PagedFor(IntStringDict, { batchSize: 4 })(
-    new SortedMap(mergeKeys[name].map((k) => [BigInt(k), `${name}${k}`]), intCmp),
-  );
+  return segmented(IntStringDict, 4, mergeKeys[name].map((k) => [BigInt(k), `${name}${k}`]),
+    (chunk) => new SortedMap(chunk, intCmp));
 }
 function mergeSetInput(name) {
-  return encodeBeast2PagedFor(SetType(IntegerType), { batchSize: 4 })(
-    new SortedSet(mergeKeys[name].map((k) => BigInt(k)), intCmp),
-  );
+  return segmented(IntSet, 4, mergeKeys[name].map((k) => BigInt(k)), (chunk) => new SortedSet(chunk, intCmp));
 }
 const mergeFolded = new Map();
 for (const name of ['a', 'b', 'c']) {
@@ -202,10 +239,9 @@ const fixtures = {
     }).toIR(),
   ),
 
-  // Wide-row producer: 1500 emissions of ~4 KiB strings. The first batch
-  // fills the element cap, and byte-adaptive re-batching must then shrink
-  // subsequent batches toward the segment byte target — a runner that
-  // re-batches by row count alone writes grossly oversized segments.
+  // Wide-row producer: 1500 emissions of ~4 KiB strings. The cut rule's
+  // byte-aware threshold closes segments near the byte target — a runner
+  // that cut by row count alone would hold a thousand rows, 4 MiB, in one.
   'emit_wide.beast2': encodeEastIR(
     East.function([FunctionType([StringType], NullType)], NullType, ($, emit) => {
       $.for(East.Array.range(0n, 1500n), ($, i) => {
@@ -235,10 +271,9 @@ const fixtures = {
   })(),
 
   // The fold's input: [0..2500), written segmented + indexed by the TS
-  // paged writer (500 elements per segment).
-  'events.beast2': encodeBeast2PagedFor(ArrayType(IntegerType), { batchSize: 500 })(
-    Array.from({ length: 2500 }, (_, i) => BigInt(i)),
-  ),
+  // writer, 500 elements per segment.
+  'events.beast2': segmented(ArrayType(IntegerType), 500, Array.from({ length: 2500 }, (_, i) => BigInt(i)),
+    (chunk) => chunk),
 
   // ---- Lazy paged-input pins (#516) ----------------------------------
 
@@ -246,37 +281,25 @@ const fixtures = {
   // raise the uniform copy-first error on a lazily-opened input, refused
   // before any hydration.
   'paged_for_mutate.beast2': encodeEastIR(
-    East.function([DictType(IntegerType, StringType)], NullType, ($, d) => {
+    East.function([IntStringDict], NullType, ($, d) => {
       $.for(d, (_$, _v, _k) => d.insert(999n, 'x'));
       return null;
     }).toIR(),
   ),
-  'paged_table.beast2': encodeBeast2PagedFor(DictType(IntegerType, StringType), { batchSize: 2 })(
-    new SortedMap(
-      Array.from({ length: 10 }, (_, i) => [BigInt(i), `row-${i}`]),
-      compareFor(IntegerType),
-    ),
-  ),
+  'paged_table.beast2': segmented(IntStringDict, 2, Array.from({ length: 10 }, (_, i) => [BigInt(i), `row-${i}`]),
+    (chunk) => new SortedMap(chunk, intCmp)),
 
   // A corrupt paged blob (a high key range spliced BEFORE a low one, so the
   // fences are not disjoint ascending): a keyed `has` on it must propagate
   // the pager error, never answer `false`.
   'paged_has.beast2': encodeEastIR(
-    East.function([DictType(IntegerType, StringType)], BooleanType, (_$, d) => d.has(5n)).toIR(),
+    East.function([IntStringDict], BooleanType, (_$, d) => d.has(5n)).toIR(),
   ),
   'paged_corrupt.beast2': spliceBeast2([
-    encodeBeast2PagedFor(DictType(IntegerType, StringType), { batchSize: 2 })(
-      new SortedMap(
-        Array.from({ length: 6 }, (_, i) => [BigInt(i + 1000), `row-${i + 1000}`]),
-        compareFor(IntegerType),
-      ),
-    ),
-    encodeBeast2PagedFor(DictType(IntegerType, StringType), { batchSize: 2 })(
-      new SortedMap(
-        Array.from({ length: 6 }, (_, i) => [BigInt(i), `row-${i}`]),
-        compareFor(IntegerType),
-      ),
-    ),
+    segmented(IntStringDict, 2, Array.from({ length: 6 }, (_, i) => [BigInt(i + 1000), `row-${i + 1000}`]),
+      (chunk) => new SortedMap(chunk, intCmp)),
+    segmented(IntStringDict, 2, Array.from({ length: 6 }, (_, i) => [BigInt(i), `row-${i}`]),
+      (chunk) => new SortedMap(chunk, intCmp)),
   ]),
 
   // The collapsed shape gate: a nested-container element type opens lazily
@@ -294,14 +317,11 @@ const fixtures = {
       },
     ).toIR(),
   ),
-  'paged_nested.beast2': encodeBeast2PagedFor(
+  'paged_nested.beast2': segmented(
     DictType(IntegerType, StructType({ xs: ArrayType(IntegerType) })),
-    { batchSize: 2 },
-  )(
-    new SortedMap(
-      [[1n, { xs: [1n, 2n] }], [2n, { xs: [] }], [3n, { xs: [3n] }]],
-      compareFor(IntegerType),
-    ),
+    2,
+    [[1n, { xs: [1n, 2n] }], [2n, { xs: [] }], [3n, { xs: [3n] }]],
+    (chunk) => new SortedMap(chunk, intCmp),
   ),
 
   // ---- Folding sinks and the lifeline (#770) ---------------------------
@@ -321,7 +341,7 @@ const fixtures = {
 
   // ---- The blob merge (#770) --------------------------------------------
 
-  // Sorted inputs written by the TS paged writer in four-entry segments;
+  // Sorted inputs written by the TS writer in four-entry segments;
   // `merge --merge` over the three Dicts and `merge --union` over the three
   // Sets must write exactly the bytes `run --emit` writes for the folded
   // (respectively distinct) sequence emitted ascending. An empty input, and a
@@ -340,10 +360,10 @@ const fixtures = {
   // input alone writes exactly these bytes back, on every runner. The
   // segment-scoped twin is what an older writer left for the same value (the
   // second entry a REF): it still reads, and merges to the canonical bytes.
-  'merge_aliased.beast2': encodeBeast2PagedFor(TagsDict, { batchSize: 10 })(sharedTags),
+  'merge_aliased.beast2': encodeBeast2PagedFor(TagsDict)(sharedTags),
   'merge_aliased_segment_scoped.beast2': segmentScoped(TagsDict, sharedTags),
-  'merge_empty.beast2': encodeBeast2PagedFor(IntStringDict, { batchSize: 4 })(new SortedMap([], intCmp)),
-  'merge_mismatch.beast2': encodeBeast2PagedFor(DictType(StringType, FloatType), { batchSize: 4 })(
+  'merge_empty.beast2': encodeBeast2PagedFor(IntStringDict)(new SortedMap([], intCmp)),
+  'merge_mismatch.beast2': encodeBeast2PagedFor(DictType(StringType, FloatType))(
     new SortedMap([['x', 1.5]], compareFor(StringType)),
   ),
 

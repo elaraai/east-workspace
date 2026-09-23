@@ -9,9 +9,9 @@
  *   1. producer      — `run --emit array`: 2500 emissions land segmented
  *                      + indexed (pages open, exact counts, keyed reads);
  *   2. stream fold   — `run --emit array --stream 0 -i events.beast2`:
- *                      running sums over a TS-paged-written input blob, so
- *                      this case is also a cross-runtime decode of
- *                      TS-writer bytes;
+ *                      running sums over a TS-written input blob, so this
+ *                      case is also a cross-runtime decode of TS-writer
+ *                      bytes;
  *   3. dict producer — `run --emit dict`: 1000 ascending pairs decode with
  *                      exact size and keyed content;
  *   4. out-of-order  — `run --emit dict` on a descending emitter: exit 1,
@@ -23,8 +23,8 @@
  *   6. fold contract — `--merge` (dict) and `--union` (set) over ascending
  *                      sequences with adjacent duplicates write exactly the
  *                      bytes the flag-less sink writes for the folded
- *                      sequence — including a fold into the last entry of a
- *                      full batch;
+ *                      sequence — including folds into the entries the
+ *                      output's segments start at;
  *   7. lifeline      — with --exit-with-parent the runner exits once its
  *                      stdin pipe closes, mid-computation (bounded wait,
  *                      10 s); on Windows over a synchronous pipe and over
@@ -331,9 +331,9 @@ static void test_fold_contract(const char *bin, const char *fixtures)
 {
     /* Issue #770: with --merge (dict) or --union (set) the sink folds
      * adjacent equal keys in emission order, and the file is byte-identical
-     * to what the flag-less sink writes for the folded sequence. The
-     * sequences fold key 999 — the last entry of a full 1000-element batch —
-     * four times, which the flush rule keeps in the open batch. */
+     * to what the flag-less sink writes for the folded sequence. Every key
+     * the output starts a segment at is emitted four times, so those folds
+     * land in the entry the sink holds back at a cut. */
     static const char *programs[] = {"emit_merge_ascending", "emit_union_ascending"};
     for (size_t i = 0; i < 2; i++) {
         const char *program = programs[i];

@@ -33,7 +33,7 @@ import {
   isSegmentedRoot,
 } from "./codec.js";
 import { Beast2Writer } from "./stream.js";
-import type { Beast2Codec } from "./frames.js";
+import { type Beast2Codec, FRAME_HEADER_MAX } from "./frames.js";
 import {
   type Beast2Extents,
   type Beast2RangedExtents,
@@ -42,6 +42,7 @@ import {
   TAG_OR_TERMINATOR_FRAME,
   isBeast2SyncRangeReader,
   isTagOrTerminatorFrame,
+  readExact,
   readU64LE,
   readBeast2ExtentsSync,
 } from "./range.js";
@@ -135,6 +136,38 @@ export function readBeast2Extents(data: Uint8Array | Beast2SyncRangeReader, opti
 /** The end offset of segment `i`'s frame. */
 function segmentEnd(extents: Beast2Extents, i: number): number {
   return i + 1 < extents.offsets.length ? extents.offsets[i + 1]! : extents.segmentsEnd;
+}
+
+/**
+ * Each segment's logical size: the bytes its elements encode to before
+ * compression, which is what the cut rule measures a segment by and what
+ * `isContentCut` checks a stored segmentation against.
+ *
+ * Read from the frame headers alone. A frame declares its uncompressed length
+ * up front, and a segment frame holds its element count's varint and then its
+ * elements, so nothing is inflated or decoded; through a reader, each segment
+ * costs one read of a frame header.
+ *
+ * @param source - the whole blob, or synchronous ranged access to it
+ * @param extents - the blob's extents, when already read
+ * @returns each segment's logical size, in segment order
+ * @throws {Error} When the blob is not a segmented, indexed v5 collection, or a
+ *   frame header is malformed.
+ */
+export function readBeast2SegmentLogicalBytes(source: Uint8Array | Beast2SyncRangeReader, extents?: Beast2Extents): number[] {
+  const ranged = isBeast2SyncRangeReader(source);
+  const ext = extents ?? (ranged ? readBeast2ExtentsSync(source) : readBeast2Extents(source));
+  const sizes: number[] = new Array(ext.offsets.length);
+  for (let i = 0; i < ext.offsets.length; i++) {
+    const start = ext.offsets[i]!;
+    const length = Math.min(FRAME_HEADER_MAX, segmentEnd(ext, i) - start);
+    const reader = new BufferReader(ranged ? readExact(source, start, length) : source.subarray(start, start + length), 0);
+    reader.readVarint();  // codec
+    let countVarint = 1;
+    for (let v = ext.counts[i]!; v >= 0x80; v = Math.floor(v / 128)) countVarint++;
+    sizes[i] = reader.readVarint() - countVarint;
+  }
+  return sizes;
 }
 
 /**

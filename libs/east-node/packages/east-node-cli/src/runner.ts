@@ -347,10 +347,9 @@ function disorderMessage(kind: 'set' | 'dict', printKey: (v: unknown) => string,
 }
 
 /**
- * Builds the emit capability: a host function value that re-batches elements
- * byte-adaptively and appends segments to the output file through a
- * streaming writer ({@link EmitFileWriter}) — one pass, with one open batch
- * in memory whatever the output's size.
+ * Builds the emit capability: a host function value that appends elements to
+ * the output file through the canonical writer ({@link EmitFileWriter}) — one
+ * pass, with one open segment in memory whatever the output's size.
  *
  * Set/Dict emissions must ascend in East (key) order (issue #770): a key
  * below the previous one is an error naming both, in the same words on every
@@ -386,14 +385,13 @@ function createEmitSink(kind: EmitKind, emitParamType: EastTypeValue, outputPath
         kind === 'set' ? variant('Set', emitInputs[0]!) as EastTypeValue :
         variant('Array', emitInputs[0]!) as EastTypeValue;
 
-    // Canonical-order tracking per element, ahead of the writer's own
-    // batch-level check, so an adjacent duplicate or an out-of-order key
-    // names the offending emit call and can never collapse silently inside a
-    // batch container.
+    // Canonical-order tracking per element, ahead of the writer's own check,
+    // so an adjacent duplicate or an out-of-order key names the offending emit
+    // call in the words every runner uses.
     const orderCmp = kind === 'array' ? null : compareFor(emitInputs[0] as any) as (a: unknown, b: unknown) => number;
     const printKey = kind === 'array' ? null : printFor(emitInputs[0] as any) as (v: unknown) => string;
 
-    const out = new EmitFileWriter(kind, outTypeValue, outputPath);
+    const out = new EmitFileWriter(outTypeValue, outputPath);
     let hasLast = false;
     let lastKey: unknown;
 
@@ -406,8 +404,8 @@ function createEmitSink(kind: EmitKind, emitParamType: EastTypeValue, outputPath
                 return null;
             }
             if (order === 0 && merge !== null) {
-                // The flush rule keeps the last entry in the open batch, so
-                // the fold lands in place.
+                // The writer holds the last entry back until the next one
+                // arrives, so the fold lands in place.
                 out.foldLast((last) => {
                     const [k, acc] = last as [unknown, unknown];
                     return [k, merge(key, acc, args[1])];
@@ -484,9 +482,9 @@ function writeOutput(filePath: string, value: unknown, type: unknown): void {
     switch (ext) {
         case '.beast2':
         case '.beast': {
-            // Collection-rooted outputs are ALWAYS segmented + indexed
-            // (byte-adaptive segments) so e3's paged dataset reads can seek —
-            // one uniform encoding per logical value, at every size.
+            // Collection-rooted outputs are ALWAYS segmented + indexed, cut by
+            // the content-defined rule, so e3's paged dataset reads can seek —
+            // one encoding per logical value, at every size.
             const encoder = isCollectionRoot(type as EastTypeValue)
                 ? encodeBeast2PagedFor(type as any)
                 : encodeBeast2For(type as any);

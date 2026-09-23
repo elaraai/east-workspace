@@ -45,6 +45,12 @@ export const COMPRESSION_THRESHOLD = 64;
  *  against decompression bombs and absurd allocations on corrupt input. */
 export const MAX_FRAME_UNCOMPRESSED = 1 << 30;
 
+/** An upper bound on a frame's header: varint(codec) + varint(uncompressed
+ *  length) + varint(payload length). A frame's payload never exceeds its
+ *  logical bytes ({@link writeFrame} stores codec `none` when deflate does not
+ *  shrink), so logical + this bounds a frame not yet written. */
+export const FRAME_HEADER_MAX = 21;
+
 /** Resolves a codec name to its wire id. */
 export function codecId(codec: Beast2Codec): number {
   return codec === "deflate" ? CODEC_DEFLATE : CODEC_NONE;

@@ -359,7 +359,9 @@ footer[16]:     u64-LE(index_section_offset) footer_magic[8]
 Where a collection's root segments end is not part of what a reader
 validates — any segmentation decodes to the same value — but it decides the
 bytes, so a store that addresses segments individually needs it to be a rule.
-Each rule has an id, which a segment manifest records (below).
+Each rule has an id, which a segment manifest records (below). Every writer of
+a stored collection cuts by the current rules, and no encoder option changes
+them; the earlier rules are listed because stored manifests name them.
 
 ### Fence bytes
 
@@ -369,29 +371,80 @@ table so no container REF can fire. They depend on the key and nothing else,
 and they are what the keyed rule hashes and what a manifest stores as a
 segment's first key.
 
-### `cdc/fnv1a64/256-1024-4096/1` — Set and Dict roots
+### Logical size
 
-- A **boundary key** is one whose fence bytes' FNV-1a 64-bit hash (offset
-  basis `0xcbf29ce484222325`, prime `0x100000001b3`) has its low 10 bits zero.
-  Only the hash's low 32-bit word decides, and it evolves on its own, since
-  the prime's 2^40 term never reaches it.
-- Walking the elements in canonical order with `c`, the elements in the open
-  segment (0 at the start):
-  - when `c = 4096`, the element starts a new segment and `c = 1`;
-  - otherwise, when `c < 256` or the element is not a boundary key, it joins
-    the open segment and `c` increases by one;
-  - otherwise it starts a new segment and `c = 1`.
-- So a segment holds 256 to 4096 elements, except the last, which holds what
-  is left. A cut falls *before* the boundary key, so the key that decided a
-  cut is the fence of the segment it starts.
-- The rule is a pure function of the value: nothing about the writer — the
-  codec, the compressed size, how elements were batched — enters it.
+An element's **logical size** is the length of its logical encoding as a
+writer of self-contained segments produces it, with aliasing scoped to the
+element (see *Aliasing scope in a self-contained collection*), so it depends
+on the element alone. A Dict element is a key/value pair, and its size is the
+key's and the value's together. Sizes are measured before compression, so the
+codec never enters a cut.
 
-### `pos/1000-2MiB/1` — Array roots
+### `cdc/keyed/fnv1a-fmix32/256-1024-4096/64K-1M-8M/2` — Set and Dict roots, and `cdc/array/fnv1a-fmix32/256-1024-4096/64K-1M-8M/2` — Array roots
 
-Segments of at most 1000 elements, refined toward 2 MiB of written wire bytes
-each, as the paged encoders of TypeScript and C both batch. Where a cut falls
-depends on every element before it, so one edit moves every later cut.
+The two rules are one test over different bytes. An element's **hash input**
+is its fence bytes under a Set or Dict root — the key alone, so updating a
+Dict value never moves a cut — and its logical encoding under an Array root,
+which has no key.
+
+- The **boundary hash** of a byte string is the low 32-bit word of its FNV-1a
+  64-bit hash (offset basis and prime as in *Type section*), mixed by
+  murmur3's 32-bit finalizer. The low word evolves on its own, since the
+  prime's 2^40 term never reaches it, so it runs in 32-bit arithmetic:
+
+  ```
+  h = 0x84222325                                  the offset basis's low word
+  for each byte x:  h = (h XOR x) × 0x1b3 mod 2^32  the prime's low word
+  h = h XOR (h >> 16);  h = h × 0x85ebca6b mod 2^32
+  h = h XOR (h >> 13);  h = h × 0xc2b2ae35 mod 2^32
+  h = h XOR (h >> 16)
+  ```
+
+  Over raw bytes: `""` hashes to `0x2c773e2c`, `"a"` to `0xa3eabd3f`, and
+  `"foobar"` to `0x1f341994`.
+- Walk the elements in canonical order, with `c` elements and `b` logical
+  bytes in the open segment. The first element opens segment 0. Each later
+  element, whose hash input hashes to `h`:
+  - starts a new segment when `c ≥ 4096` or `b ≥ 8 MiB`;
+  - otherwise joins the open segment when `c < 256` and `b < 64 KiB`;
+  - otherwise starts a new segment when `h < max(2^22, ⌊b × 4096 / c⌋)`, and
+    joins the open one when not.
+
+  An element that starts a segment leaves `c = 1` and `b` its size; one that
+  joins adds one to `c` and its size to `b`.
+- The threshold is one element in 1024 until the open segment's average
+  element size, `b / c`, passes 1 KiB, and rises with that average after, so
+  a segment holds about 1024 narrow elements or about 1 MiB of wide ones. An
+  average of 1 MiB or more makes every element a boundary.
+- So every segment but the last holds at least 256 elements or at least
+  64 KiB, and at most 4096 elements. A segment closes once it holds 8 MiB, so
+  it passes that by at most its last element, and an element wider than
+  8 MiB is a segment of its own. The last segment holds what is left.
+- A cut falls *before* the deciding element, so a keyed segment's first key
+  is the key that decided its boundary, and a keyed segmentation can be
+  checked from its fences, counts and logical sizes alone. An Array
+  segmentation cannot: the bytes that decided it are whole elements, which no
+  fence carries.
+- Where a cut falls depends only on the elements since the previous cut, so
+  an edit moves the cuts after it only as far as the first cut the old and
+  the new value share. The rule is a pure function of the value: nothing
+  about the writer — the codec, the compressed size, how the elements were
+  produced or batched — enters it.
+
+### Earlier rules
+
+Writers no longer cut by these. A manifest may name one; a store writing to
+such a collection lays it out again under the current rule rather than
+re-cutting part of it, since a re-cut region lines up with the segments
+around it only when both were cut by one rule.
+
+- `cdc/fnv1a64/256-1024-4096/1` — Set and Dict roots. A boundary key was one
+  whose fence bytes' FNV-1a 64-bit hash had its low 10 bits zero, and a
+  segment held 256 to 4096 elements, cut before a boundary key; the last held
+  what was left.
+- `pos/1000-2MiB/1` — Array roots. Segments of at most 1000 elements, refined
+  toward 2 MiB of written wire bytes each. Where a cut fell depended on every
+  element before it, so one edit moved every later cut.
 
 ## Segment manifests
 
@@ -429,10 +482,12 @@ handed the segments spliced back into one blob.
 
 ## Writer memory / reader memory
 
-- A streaming writer holds one batch plus its identity map. In
-  self-contained mode the map clears per root element — O(element). In C, a
-  container with refcount 1 at encode time cannot recur in the walk and
-  never enters the identity map, so freshly built/decoded trees track O(1).
+- A writer of the canonical segments holds one open segment of encoded
+  elements; a writer handed its segments as batches holds one batch. Either
+  holds an identity map, which in self-contained mode clears per root element
+  — O(element). In C, a container with refcount 1 at encode time cannot recur
+  in the walk and never enters the identity map, so freshly built/decoded
+  trees track O(1).
 - A sequential whole-value reader is O(value). The segment iterator is
   O(segment) decoded state (plus one pointer per container definition in
   non-self-contained streams). A paging reader is O(segment) per access.

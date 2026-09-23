@@ -24,14 +24,14 @@ import { spawnSync } from 'node:child_process';
 import {
   ArrayType, DictType, IntegerType, StringType,
   some, none,
-  decodeBeast2For, encodeBeast2For, encodeBeast2PagedFor, encodeEastIR, openBeast2PagesFor,
+  decodeBeast2For, encodeBeast2For, encodeEastIR, openBeast2PagesFor,
   EastIR,
 } from '@elaraai/east';
 import { input, streamTask, runnerToVariant, type Runner, type TaskDef } from '@elaraai/e3';
 import { TaskObjectType, type TaskObject } from '@elaraai/e3-types';
 import { taskExecute } from './LocalTaskRunner.js';
 import { objectWrite } from '../storage/local/LocalObjectStore.js';
-import { createTestRepo, removeTestRepo } from '../test-helpers.js';
+import { createTestRepo, removeTestRepo, encodeInSegmentsOf } from '../test-helpers.js';
 import { LocalStorage } from '../storage/local/index.js';
 import type { StorageBackend } from '../storage/interfaces.js';
 
@@ -99,7 +99,7 @@ describe('streamTask through taskExecute', () => {
 
   async function writeEvents(): Promise<string> {
     const eventsArr = Array.from({ length: 2500 }, (_, i) => BigInt(i));
-    return storage.objects.write(repo, encodeBeast2PagedFor(EventsType, { batchSize: 500 })(eventsArr));
+    return storage.objects.write(repo, encodeInSegmentsOf(EventsType, 500)(eventsArr));
   }
 
   async function assertFoldOutput(outputHash: string): Promise<void> {

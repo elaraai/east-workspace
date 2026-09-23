@@ -41,13 +41,7 @@
  * exit is unaffected either way.
  */
 
-import type { Beast2Codec } from "./frames.js";
-
-/** An upper bound on a frame's header: varint(codec) + varint(uncompressed
- *  length) + varint(payload length). A frame's payload never exceeds its
- *  logical bytes (`writeFrame` stores codec `none` when deflate does not
- *  shrink), so logical + this bounds a frame not yet written. */
-export const FRAME_HEADER_MAX = 21;
+import { type Beast2Codec, FRAME_HEADER_MAX } from "./frames.js";
 
 /** Status cell values. */
 const PENDING = 0;
@@ -56,8 +50,6 @@ const FAILED = 2;
 
 /** A frame being deflated on a worker. */
 export interface PendingFrame {
-  /** The logical bytes the frame carries — its payload's upper bound. */
-  readonly logicalLength: number;
   /** Whether the frame is ready, without blocking. */
   ready(): boolean;
   /**
@@ -252,7 +244,6 @@ class WorkerFramePool implements FramePool {
     this.lastActivity = Date.now();
     let taken = false;
     return {
-      logicalLength: logical.length,
       ready: () => Atomics.load(status, 0) !== PENDING,
       take: () => {
         try {

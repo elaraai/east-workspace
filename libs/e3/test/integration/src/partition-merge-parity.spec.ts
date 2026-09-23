@@ -25,10 +25,10 @@
  * - a blob the sink writes and a blob a returned value writes, of one type,
  *   share their header bytes, which the splice of merged and unmerged
  *   components relies on;
- * - a job over the refinement-window rows — `Dict<Integer, Struct{v: String,
- *   f0..f149: Integer}>`, 2,200 rows of 5,380 characters of 64-symbol noise,
- *   rows 0–379 one character longer, the shape at which one runner's batch
- *   refinement once diverged by a single entry — equals its twin;
+ * - a job over wide rows — `Dict<Integer, Struct{v: String, f0..f149:
+ *   Integer}>`, 2,200 rows of 5,380 characters of 64-symbol noise, rows 0–379
+ *   one character longer, rows the cut rule measures by their bytes — equals
+ *   its twin;
  * - a job whose partials each hold more rows than a segment may — so each
  *   spans several segments, the shape whose fan-in runs per key range rather
  *   than once over the component — equals its twin by value;
@@ -37,8 +37,8 @@
  *   how many runners ran at once.
  *
  * Across the runners, the same rows give the same bytes: the re-keyed Dict,
- * the Set and both refinement-window outputs are byte-identical on every
- * runner.
+ * the Set, the wide rows and the per-key-range output are byte-identical on
+ * every runner.
  *
  * A runner is on PATH when `<runner> version` exits 0 in this process's
  * environment, which the CLI passes on to the runners it spawns. CI builds all
@@ -68,6 +68,7 @@ import {
   readBeast2Extents,
 } from '@elaraai/east';
 import { LocalStorage, workspaceGetDatasetHash } from '@elaraai/e3-core';
+import { encodeInSegmentsOf } from '@elaraai/e3-core/test';
 import { createTestDir, removeTestDir, runE3Command } from './helpers.js';
 
 const TableType = DictType(IntegerType, StructType({ text: StringType }));
@@ -78,7 +79,7 @@ const PairType = StructType({ key: IntegerType, value: AggType });
 const PairsType = ArrayType(PairType);
 const SortedKeysType = ArrayType(IntegerType);
 
-/** The refinement-window row: a wide string beside 150 integer fields. */
+/** The wide row: a long string beside 150 integer fields. */
 const WIDE_FIELDS = 150;
 const WideRowType = StructType({
   v: StringType,
@@ -95,10 +96,9 @@ const WIDE_ROWS = 2200;
 const WIDE_CHARS = 5380;
 const WIDE_LONGER_ROWS = 380;
 /** The per-key-range fan-in's rows: narrow, and enough of them that a
- *  partition holds more than one segment can. A Set or Dict's segments are cut
- *  by the content rule — at most {@link SEGMENT_MAX_COUNT} elements, whatever
- *  they weigh — so what makes a partial span several segments is how many rows
- *  it holds, never how wide they are. */
+ *  partition holds more than one segment can. A segment of narrow rows holds
+ *  at most {@link SEGMENT_MAX_COUNT} of them, so a partial of more spans
+ *  several segments whatever its keys hash to. */
 const RANGED_ROWS = 10_000;
 const RANGED_CHARS = 40;
 /** `ranged`'s byte target — half of `ranged_scrambled`'s segments per
@@ -133,7 +133,7 @@ function makeTable(): SortedMap<bigint, { text: string }> {
 
 type WideRow = { v: string } & Record<string, bigint | string>;
 
-/** The refinement-window rows, keyed by id: rows 0–379 one character longer. */
+/** The wide rows, keyed by id: rows 0–379 one character longer. */
 function makeWideRows(): { key: bigint; value: WideRow }[] {
   const next = noise(54321);
   const rows: { key: bigint; value: WideRow }[] = [];
@@ -176,7 +176,7 @@ function expectedPairs(table: SortedMap<bigint, { text: string }>, key: (id: big
  * one key range (the fourth wraps around the group's whole range) and touch no
  * other group's, so the partials form three components.
  * `disjoint` maps ids to `id / 2`, which keeps each partition's keys to its
- * own range. `wide` re-keys the refinement-window rows from an array in
+ * own range. `wide` re-keys the wide rows from an array in
  * scrambled order, so every partial spans the whole key space. Values fold by
  * summing the counts and keeping the first row's text — associative, and
  * sensitive to the order the values fold in. Each job's twin streams the
@@ -334,15 +334,15 @@ describe('partition merge parity', () => {
     const scrambled = wideRows.map((_, i) => wideRows[Number((BigInt(i) * 7919n) % BigInt(WIDE_ROWS))]!);
     const sortedKeys = [...table.keys()].map(rekey).sort(ascending);
     const files: Record<string, Uint8Array> = {
-      table: encodeBeast2PagedFor(TableType, { batchSize: ROWS / PARTITIONS })(table),
+      table: encodeInSegmentsOf(TableType, ROWS / PARTITIONS)(table),
       rekeyed_pairs: encodeBeast2PagedFor(PairsType)(expectedPairs(table, rekey)),
       grouped_pairs: encodeBeast2PagedFor(PairsType)(expectedPairs(table, groupedKey)),
       disjoint_pairs: encodeBeast2PagedFor(PairsType)(expectedPairs(table, (id) => id / 2n)),
       sorted_keys: encodeBeast2PagedFor(SortedKeysType)(sortedKeys),
-      wide_scrambled: encodeBeast2PagedFor(WidePairsType, { batchSize: 200 })(scrambled),
-      wide_sorted: encodeBeast2PagedFor(WidePairsType, { batchSize: 200 })(wideRows),
-      ranged_scrambled: encodeBeast2PagedFor(PairsType, { batchSize: 500 })(rangedScrambled),
-      ranged_sorted: encodeBeast2PagedFor(PairsType, { batchSize: 500 })(rangedRows),
+      wide_scrambled: encodeInSegmentsOf(WidePairsType, 200)(scrambled),
+      wide_sorted: encodeInSegmentsOf(WidePairsType, 200)(wideRows),
+      ranged_scrambled: encodeInSegmentsOf(PairsType, 500)(rangedScrambled),
+      ranged_sorted: encodeInSegmentsOf(PairsType, 500)(rangedRows),
     };
     // Half the ranged input's segments per partition: greedy packing cuts
     // once the next segment would exceed the target.
@@ -487,17 +487,20 @@ describe('partition merge parity', () => {
         assert.deepEqual(head(sinkWritten), head(returned));
       });
 
-      it('the refinement-window rows merge to their twin\'s bytes', async () => {
-        // 2,200 rows: the merge's second segment is sized from the first's
-        // bytes, and rows 0–379 being one character longer is the shape at
-        // which one runner's refinement once landed one entry apart.
+      it('wide rows merge to their twin\'s bytes', async () => {
+        // 2,200 rows of about 6 KB: the output is cut by bytes, not by count —
+        // and so is every partial, which can then span several segments and
+        // merge per key range, one unit each.
         const lines = await unitLines('wide');
-        assert.deepEqual(mergeLines(lines), ['merge level 1/1 unit 1/1 completed']);
+        const units = mergeLines(lines);
+        assert.ok(units.length >= 1, lines.join('\n'));
+        assert.deepEqual(units, units.map((_, i) => `merge level 1/1 unit ${i + 1}/${units.length} completed`),
+          lines.join('\n'));
         const merged = await outputBytes(tasks.wide);
         assert.deepEqual(merged, await outputBytes(tasks.wideTwin), 'the merged output is the twin\'s bytes');
         const extents = readBeast2Extents(merged);
         assert.equal(extents.elementCount, WIDE_ROWS);
-        assert.ok(extents.offsets.length >= 2, 'the output spans the refinement window');
+        assert.ok(extents.offsets.length >= 2, 'the output spans several segments');
         written.set(name, { rekeyed: await outputBytes(tasks.rekeyed), keys: await outputBytes(tasks.keys), wide: merged, ranged: await outputBytes(tasks.ranged) });
       });
 
@@ -544,7 +547,7 @@ describe('partition merge parity', () => {
     for (const [name, outputs] of rest) {
       assert.deepEqual(outputs.rekeyed, first[1].rekeyed, `${name}'s merged Dict differs from ${first[0]}'s`);
       assert.deepEqual(outputs.keys, first[1].keys, `${name}'s merged Set differs from ${first[0]}'s`);
-      assert.deepEqual(outputs.wide, first[1].wide, `${name}'s refinement-window output differs from ${first[0]}'s`);
+      assert.deepEqual(outputs.wide, first[1].wide, `${name}'s wide-row output differs from ${first[0]}'s`);
       assert.deepEqual(outputs.ranged, first[1].ranged, `${name}'s per-key-range merged output differs from ${first[0]}'s`);
     }
   });

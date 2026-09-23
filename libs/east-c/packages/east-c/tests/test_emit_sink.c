@@ -1,16 +1,16 @@
 /*
  * Emit sink gate (issues #507, #770): the library sink behind `run --emit`.
  *
- *   1. segmentation — the sink sizes its segments with the paged encoder's
- *      refinement, the header left out of the average. Pinned where it
- *      matters: at a first-segment size where a header-inclusive average
- *      would choose a different second batch (found by a deterministic
- *      search over the first rows' widths, under a type whose header is
- *      wide enough that nearly every width qualifies), the sink's second
- *      segment holds exactly what east_beast2_paged_next_batch says;
+ *   1. segmentation — the sink's file is byte-identical to what the paged
+ *      encoder writes for the same value: one value segments the same
+ *      wherever it is written. Pinned on rows wide enough that the cut rule's
+ *      byte-aware threshold binds, so the cuts depend on the rows' sizes as
+ *      well as their keys, and on rows so wide a segment holds a handful;
  *   2. folds — --merge folds adjacent equal dict keys in emission order and
  *      --union collapses adjacent equal set elements, and the file is
- *      byte-identical to the flag-less sink's for the folded sequence;
+ *      byte-identical to the flag-less sink's for the folded sequence — at
+ *      the segment boundaries too, where the held entry is the one a cut
+ *      falls at;
  *   3. errors — a duplicate key without a fold, and an out-of-order key,
  *      end the emission with the canonical messages, and the output is left
  *      unfinalised (no index).
@@ -84,31 +84,16 @@ static char *emit(EastValue *fn, EastValue **args, size_t n)
 
 /* ----- 1. segmentation ------------------------------------------------ */
 
-/* Dict<Integer, Struct{<8192-char name>: String}>: the field name makes the
- * blob's type section — its header — about 8 KiB, so a batch refinement that
- * counted the header in its average would shift it by about 8 bytes per
- * element over a 1,000-element batch, past the boundary between one
- * second-batch size and the next for almost every first-segment size. */
-#define WIDE_NAME_LEN 8192
-#define ROW_CHARS 4000
-#define FIRST_BATCH 1000
-#define ROWS 2100
-
-static EastType *wide_row_type(void)
+/* Dict<Integer, Struct{text: String}>. */
+static EastType *row_type_of(void)
 {
-    static char *name = NULL;
-    if (!name) {
-        name = malloc(WIDE_NAME_LEN + 1);
-        memset(name, 'n', WIDE_NAME_LEN);
-        name[WIDE_NAME_LEN] = '\0';
-    }
-    const char *names[1] = {name};
+    const char *names[1] = {"text"};
     EastType *types[1] = {&east_string_type};
     return east_struct_type(names, types, 1);
 }
 
 /* Incompressible text of `chars` symbols from a 64-symbol alphabet, from a
- * running LCG state — deterministic, so the search reproduces exactly. */
+ * running LCG state — deterministic, so every run writes the same rows. */
 static EastValue *noise_row(EastType *row_type, size_t chars, uint32_t *seed)
 {
     static const char alphabet[] =
@@ -122,35 +107,37 @@ static EastValue *noise_row(EastType *row_type, size_t chars, uint32_t *seed)
     EastValue *v = east_string_len(text, chars);
     free(text);
     EastValue *fields[1] = {v};
-    const char *names[1] = {row_type->data.struct_.fields[0].name};
+    const char *names[1] = {"text"};
     EastValue *row = east_struct_new(names, fields, 1, row_type);
     east_value_release(v);
     return row;
 }
 
-/* Emits ROWS rows through a dict sink, the first `k` of them one symbol
- * wider, into `path`. */
-static bool emit_wide_rows(const char *path, size_t k)
+/* Emits `rows` rows of `chars` symbols through a dict sink at `path`, the
+ * first `wider` of them one symbol wider, and returns the value emitted. */
+static EastValue *emit_rows(const char *path, size_t rows, size_t chars, size_t wider,
+                            uint32_t seed)
 {
-    EastType *row_type = wide_row_type();
+    EastType *row_type = row_type_of();
     EastType *dict_type = east_dict_type(&east_integer_type, row_type);
     EastType *fn_inputs[2] = {&east_integer_type, row_type};
     EastType *fn_type = east_function_type(fn_inputs, 2, &east_null_type);
     EastEmitSinkConfig cfg = {.kind = EAST_EMIT_DICT, .out_type = dict_type, .output_path = path};
     EastEmitSink *sink = east_emit_sink_new(&cfg);
     CHECK(sink != NULL, "segmentation: the sink did not open");
-    if (!sink) return false;
+    if (!sink) return NULL;
     EastValue *fn = east_emit_sink_function(sink, fn_type);
-    uint32_t seed = 12345;
-    bool ok = true;
-    for (size_t i = 0; i < ROWS && ok; i++) {
+    EastValue *emitted = east_dict_new(&east_integer_type, row_type);
+    bool ok = fn != NULL && emitted != NULL;
+    for (size_t i = 0; i < rows && ok; i++) {
         EastValue *key = east_integer((int64_t)i);
-        EastValue *row = noise_row(row_type, ROW_CHARS + (i < k ? 1u : 0u), &seed);
+        EastValue *row = noise_row(row_type, chars + (i < wider ? 1u : 0u), &seed);
         EastValue *args[2] = {key, row};
         char *err = emit(fn, args, 2);
         CHECK(err == NULL, "segmentation: emit %zu failed: %s", i, err ? err : "");
         ok = err == NULL;
         free(err);
+        if (ok) east_dict_set(emitted, key, row);
         east_value_release(key);
         east_value_release(row);
     }
@@ -158,125 +145,68 @@ static bool emit_wide_rows(const char *path, size_t k)
         ok = east_emit_sink_finish(sink);
         CHECK(ok, "segmentation: finish failed");
     }
-    east_value_release(fn);
+    if (fn) east_value_release(fn);
     east_emit_sink_free(sink);
-    return ok;
-}
-
-/* The value emit_wide_rows emits, built directly: the same rows in the same
- * order from the same LCG, so the two encodings below are of ONE value. */
-static EastValue *build_wide_dict(EastType *row_type, size_t k)
-{
-    EastValue *dict = east_dict_new(&east_integer_type, row_type);
-    if (!dict) return NULL;
-    uint32_t seed = 12345;
-    for (size_t i = 0; i < ROWS; i++) {
-        EastValue *key = east_integer((int64_t)i);
-        EastValue *row = noise_row(row_type, ROW_CHARS + (i < k ? 1u : 0u), &seed);
-        east_dict_set(dict, key, row);
-        east_value_release(key);
-        east_value_release(row);
+    if (!ok && emitted) {
+        east_value_release(emitted);
+        emitted = NULL;
     }
-    return dict;
+    return emitted;
 }
 
-/* The sink's file must be byte-identical to what the paged encoder writes for
- * the same value: one value segments the same wherever it is written (#770).
- *
- * That is the whole contract. The `k` sweep varies the width of the leading
- * rows, which is what used to move the boundaries: the sink opened at the
- * element cap where the encoder probed its first entries, and the refinement
- * had to average over the BODY alone or a different second batch followed.
- * Under the content-defined rule a keyed output's boundaries come from its
- * keys, so none of those can move them — which is the point, and what the
- * sweep now asserts row-width by row-width. The Array path still refines from
- * emitted bytes; `test_beast2_frame_pool` holds that one to its serial
- * oracle. */
+/* The sink's file at `path` against the paged encode of `value`; returns the
+ * file's segment count. */
+static size_t check_against_paged(const char *what, const char *path, EastValue *value)
+{
+    EastType *dict_type = east_dict_type(&east_integer_type, row_type_of());
+    size_t len = 0;
+    uint8_t *data = read_file(path, &len);
+    ByteBuffer *paged = east_beast2_encode_paged(value, dict_type, EAST_BEAST2_CODEC_DEFLATE);
+    CHECK(data != NULL && paged != NULL, "%s: no output to compare", what);
+    size_t segments = 0;
+    if (data && paged) {
+        CHECK(paged->len == len && memcmp(paged->data, data, len) == 0,
+              "%s: the sink wrote %zu bytes where the paged encoder writes %zu for the same "
+              "value — one value must segment the same wherever it is written",
+              what, len, paged->len);
+        Beast2SpliceExtents *ext = east_beast2_splice_extents(data, len);
+        if (ext) {
+            segments = ext->segment_count;
+            east_beast2_splice_extents_free(ext);
+        }
+    }
+    if (paged) byte_buffer_free(paged);
+    free(data);
+    return segments;
+}
+
+/* Rows of about 4 KB: the open segment's average size lifts the threshold
+ * above the narrow one, so segments close near the byte target, and widening
+ * the leading rows moves the cuts the sink must follow. */
 static void test_segmentation(void)
 {
     const char *path = "emit_sink_gate_segments.beast2";
-    for (size_t k = 0; k <= FIRST_BATCH; k += 7) {
-        if (!emit_wide_rows(path, k)) return;
-        size_t len = 0;
-        uint8_t *data = read_file(path, &len);
-        CHECK(data != NULL, "segmentation: no output written");
-        if (!data) return;
-
-        EastType *row_type = wide_row_type();
-        EastType *dict_type = east_dict_type(&east_integer_type, row_type);
-        EastValue *value = build_wide_dict(row_type, k);
-        ByteBuffer *paged =
-            value ? east_beast2_encode_paged(value, dict_type, EAST_BEAST2_CODEC_DEFLATE, 0) : NULL;
-        CHECK(paged != NULL, "segmentation: the paged encode failed (k = %zu)", k);
-        if (paged) {
-            CHECK(paged->len == len && memcmp(paged->data, data, len) == 0,
-                  "segmentation: the sink wrote %zu bytes where the paged encoder writes %zu "
-                  "for the same value (k = %zu) — one value must segment the same wherever it "
-                  "is written",
-                  len, paged->len, k);
-            byte_buffer_free(paged);
-        }
-        if (value) east_value_release(value);
-        free(data);
+    static const size_t wider[] = {0, 1, 7, 64, 700, 2100};
+    for (size_t w = 0; w < sizeof wider / sizeof wider[0]; w++) {
+        EastValue *value = emit_rows(path, 2100, 4000, wider[w], 12345);
+        if (!value) return;
+        size_t segments = check_against_paged("segmentation", path, value);
+        CHECK(segments > 4, "segmentation: 8 MB of rows is %zu segments", segments);
+        east_value_release(value);
     }
     remove(path);
 }
 
-/* Elements so wide that the probe sizes a segment BELOW the probe's own
- * count: the entries already held must go out in refined-size segments, as
- * the paged encoder pumps its probe through the refined size. Without that
- * drain the first segment would be the 16 the probe measured. */
-static void test_segmentation_below_probe(void)
+/* Rows of about 300 KB, a few to a segment: the byte target, not the count,
+ * closes every segment. */
+static void test_segmentation_wide_rows(void)
 {
-    const char *path = "emit_sink_gate_huge.beast2";
-    const size_t chars = 300000; /* ~300 KB a row: 2 MiB / row < EMIT_PROBE_BATCH */
-    const size_t rows = 40;
-    EastType *row_type = wide_row_type();
-    EastType *dict_type = east_dict_type(&east_integer_type, row_type);
-    EastType *fn_inputs[2] = {&east_integer_type, row_type};
-    EastType *fn_type = east_function_type(fn_inputs, 2, &east_null_type);
-    EastEmitSinkConfig cfg = {.kind = EAST_EMIT_DICT, .out_type = dict_type, .output_path = path};
-    EastEmitSink *sink = east_emit_sink_new(&cfg);
-    CHECK(sink != NULL, "below-probe: the sink did not open");
-    if (!sink) return;
-    EastValue *fn = east_emit_sink_function(sink, fn_type);
-    EastValue *expected = east_dict_new(&east_integer_type, row_type);
-    uint32_t seed = 999;
-    bool ok = fn != NULL && expected != NULL;
-    for (size_t i = 0; i < rows && ok; i++) {
-        EastValue *key = east_integer((int64_t)i);
-        EastValue *row = noise_row(row_type, chars, &seed);
-        EastValue *args[2] = {key, row};
-        char *err = emit(fn, args, 2);
-        CHECK(err == NULL, "below-probe: emit %zu failed: %s", i, err ? err : "");
-        ok = err == NULL;
-        free(err);
-        if (ok) east_dict_set(expected, key, row);
-        east_value_release(key);
-        east_value_release(row);
-    }
-    if (ok) {
-        ok = east_emit_sink_finish(sink);
-        CHECK(ok, "below-probe: finish failed");
-    }
-    east_value_release(fn);
-    east_emit_sink_free(sink);
-    if (ok) {
-        size_t len = 0;
-        uint8_t *data = read_file(path, &len);
-        ByteBuffer *paged =
-            east_beast2_encode_paged(expected, dict_type, EAST_BEAST2_CODEC_DEFLATE, 0);
-        CHECK(data != NULL && paged != NULL, "below-probe: no output to compare");
-        if (data && paged) {
-            CHECK(paged->len == len && memcmp(paged->data, data, len) == 0,
-                  "below-probe: the sink wrote %zu bytes where the paged encoder writes %zu for "
-                  "the same value — the probed entries must drain at the refined size",
-                  len, paged->len);
-        }
-        if (paged) byte_buffer_free(paged);
-        free(data);
-    }
-    if (expected) east_value_release(expected);
+    const char *path = "emit_sink_gate_wide.beast2";
+    EastValue *value = emit_rows(path, 40, 300000, 0, 999);
+    if (!value) return;
+    size_t segments = check_against_paged("wide rows", path, value);
+    CHECK(segments > 4, "wide rows: 12 MB of rows is %zu segments", segments);
+    east_value_release(value);
     remove(path);
 }
 
@@ -386,9 +316,8 @@ static bool has_index(const char *path, EastType *type)
 
 static void test_folds(void)
 {
-    /* Adjacent equal keys fold in emission order; the first key's fold lands
-     * in a batch that is otherwise full at the cap, exercising the flush
-     * rule's "never on the insert that fills it". */
+    /* Adjacent equal keys fold in emission order into the entry the sink
+     * holds back. */
     bool finished = false;
     static const Pair merged[] = {{1, "a"}, {1, "b"}, {2, "c"}, {2, "d"}, {2, "e"}, {3, "f"}};
     char *err = emit_pairs("emit_sink_gate_merge.beast2", merged, 6, true, &finished);
@@ -417,6 +346,32 @@ static void test_folds(void)
     }
     free(data);
 
+    /* Every key twice, across many segments: some folds land on the entry a
+     * segment starts at, and the file is still the folded sequence's. */
+    enum { KEYS = 12000 };
+    Pair *twice = malloc(2 * KEYS * sizeof(Pair));
+    Pair *once = malloc(KEYS * sizeof(Pair));
+    for (int64_t k = 0; k < KEYS; k++) {
+        twice[2 * k] = (Pair){k, "left-"};
+        twice[2 * k + 1] = (Pair){k, "right"};
+        once[k] = (Pair){k, "left-right"};
+    }
+    err = emit_pairs("emit_sink_gate_merge_many.beast2", twice, 2 * KEYS, true, &finished);
+    CHECK(err == NULL && finished, "merge across segments: the fold failed: %s", err ? err : "");
+    free(err);
+    err = emit_pairs("emit_sink_gate_folded_many.beast2", once, KEYS, false, &finished);
+    CHECK(err == NULL && finished, "merge across segments: the control failed: %s", err ? err : "");
+    free(err);
+    CHECK(same_bytes("emit_sink_gate_merge_many.beast2", "emit_sink_gate_folded_many.beast2"),
+          "merge across segments: the folded output differs from the folded sequence's");
+    data = read_file("emit_sink_gate_merge_many.beast2", &len);
+    Beast2SpliceExtents *ext = data ? east_beast2_splice_extents(data, len) : NULL;
+    CHECK(ext && ext->segment_count > 2, "merge across segments: too few segments");
+    if (ext) east_beast2_splice_extents_free(ext);
+    free(data);
+    free(twice);
+    free(once);
+
     static const int64_t elements[] = {1, 1, 2, 3, 3, 3};
     err = emit_keys("emit_sink_gate_union.beast2", elements, 6, true, &finished);
     CHECK(err == NULL && finished, "union: expected the union to succeed, got %s",
@@ -431,6 +386,8 @@ static void test_folds(void)
           "the distinct sequence");
     remove("emit_sink_gate_merge.beast2");
     remove("emit_sink_gate_folded.beast2");
+    remove("emit_sink_gate_merge_many.beast2");
+    remove("emit_sink_gate_folded_many.beast2");
     remove("emit_sink_gate_union.beast2");
     remove("emit_sink_gate_distinct.beast2");
 }
@@ -488,7 +445,7 @@ int main(void)
     east_set_thread_context(platform, builtins);
 
     test_segmentation();
-    test_segmentation_below_probe();
+    test_segmentation_wide_rows();
     test_folds();
     test_errors();
 

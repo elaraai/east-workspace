@@ -70,16 +70,19 @@ describe('datasetWrite segmentation', () => {
   it('stores large arrays segmented, indexed, and decode-equal', async () => {
     const Row = StructType({ id: IntegerType, name: StringType });
     const AT = ArrayType(Row);
-    const value = Array.from({ length: 2500 }, (_, i) => ({ id: BigInt(i), name: `row-${i % 97}` }));
+    const value = Array.from({ length: 10_000 }, (_, i) => ({ id: BigInt(i), name: `row-${i % 97}` }));
     const hash = await datasetWrite(storage, repoPath, value, AT);
     const segments = await DatasetSegments.open(storage, repoPath, hash);
 
-    assert.strictEqual(segments.segmentCount, 3);
-    assert.strictEqual(segments.elementCount, 2500);
+    // Where the segments fall is the cut rule's decision; ten thousand rows
+    // are more than one segment may hold.
+    assert.ok(segments.segmentCount > 1);
+    assert.strictEqual(segments.elementCount, 10_000);
     // A window spanning segments is spliced from the segment objects it
     // touches and decodes as one blob.
+    const edge = segments.counts[0]!;
     const window = openBeast2PagesFor(AT)(await segments.span(0, segments.segmentCount));
-    assert.ok(equalFor(AT)(window.slice(900, 200), value.slice(900, 1100)), 'window spans segments');
+    assert.ok(equalFor(AT)(window.slice(edge - 100, 200), value.slice(edge - 100, edge + 100)), 'window spans segments');
     assert.ok(equalFor(AT)(decodeBeast2For(AT)(await readDatasetWhole(storage, repoPath, hash)), value), 'whole decode equals input');
   });
 

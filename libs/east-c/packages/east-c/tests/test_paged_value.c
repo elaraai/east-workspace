@@ -46,8 +46,41 @@ static int failures = 0;
         }                                                                                          \
     } while (0)
 
-/* An Array<Integer> of 0..n-1, paged-encoded with tiny segments. Returns a
- * malloc'd copy of the wire bytes (open_paged takes ownership). */
+/* Elements (pairs) per segment: the test's geometry rather than the cut
+ * rule's, which would hold these small fixtures in one segment, so the pager
+ * is read across segment boundaries. */
+#define ELEMENTS_PER_SEGMENT 8
+
+/* A self-contained, indexed blob of `value` (an Array or Dict) in segments of
+ * ELEMENTS_PER_SEGMENT. */
+static ByteBuffer *encode_in_segments(EastValue *value, EastType *type)
+{
+    Beast2StreamWriter *w = east_beast2_writer_new(type, EAST_BEAST2_CODEC_DEFLATE, true, true);
+    if (!w) return NULL;
+    size_t n = type->kind == EAST_TYPE_ARRAY ? east_array_len(value) : east_dict_len(value);
+    bool ok = true;
+    for (size_t i = 0; ok && i < n; i += ELEMENTS_PER_SEGMENT) {
+        size_t end = i + ELEMENTS_PER_SEGMENT < n ? i + ELEMENTS_PER_SEGMENT : n;
+        EastValue *batch = type->kind == EAST_TYPE_ARRAY
+                               ? east_array_new(type->data.element)
+                               : east_dict_new(type->data.dict.key, type->data.dict.value);
+        for (size_t k = i; k < end; k++) {
+            if (type->kind == EAST_TYPE_ARRAY)
+                east_array_push(batch, east_array_get(value, k));
+            else
+                east_dict_set(batch, east_dict_key_at(value, k), east_dict_val_at(value, k));
+        }
+        ok = east_beast2_writer_write(w, batch);
+        east_value_release(batch);
+    }
+    ok = ok && east_beast2_writer_finish(w);
+    ByteBuffer *buf = ok ? east_beast2_writer_take(w) : NULL;
+    east_beast2_writer_free(w);
+    return buf;
+}
+
+/* An Array<Integer> of 0..n-1 in small segments. Returns a malloc'd copy of
+ * the wire bytes (open_paged takes ownership). */
 static uint8_t *encode_int_array(size_t n, size_t *len_out)
 {
     EastType *at = east_array_type(&east_integer_type);
@@ -57,7 +90,7 @@ static uint8_t *encode_int_array(size_t n, size_t *len_out)
         east_array_push(arr, v);
         east_value_release(v);
     }
-    ByteBuffer *buf = east_beast2_encode_paged(arr, at, EAST_BEAST2_CODEC_DEFLATE, 64);
+    ByteBuffer *buf = encode_in_segments(arr, at);
     east_value_release(arr);
     if (!buf) return NULL;
     uint8_t *data = malloc(buf->len);
@@ -67,7 +100,7 @@ static uint8_t *encode_int_array(size_t n, size_t *len_out)
     return data;
 }
 
-/* A Dict<Integer, String> of i -> "row-i", paged-encoded. */
+/* A Dict<Integer, String> of i -> "row-i" in small segments. */
 static uint8_t *encode_int_dict(size_t n, size_t *len_out)
 {
     EastType *dt = east_dict_type(&east_integer_type, &east_string_type);
@@ -81,7 +114,7 @@ static uint8_t *encode_int_dict(size_t n, size_t *len_out)
         east_value_release(k);
         east_value_release(v);
     }
-    ByteBuffer *buf = east_beast2_encode_paged(dict, dt, EAST_BEAST2_CODEC_DEFLATE, 64);
+    ByteBuffer *buf = encode_in_segments(dict, dt);
     east_value_release(dict);
     if (!buf) return NULL;
     uint8_t *data = malloc(buf->len);
@@ -239,7 +272,7 @@ static void test_equivalence_and_hydration(void)
 }
 
 /* A Dict<Integer, Struct{xs: Array<Integer>}> — the nested-container shape
- * the unfrozen gate refuses — paged-encoded with tiny segments. */
+ * the unfrozen gate refuses — in small segments. */
 static uint8_t *encode_nested_dict(size_t n, EastType *nested, size_t *len_out)
 {
     EastType *row_type = nested->data.dict.value;
@@ -258,7 +291,7 @@ static uint8_t *encode_nested_dict(size_t n, EastType *nested, size_t *len_out)
         east_value_release(k);
         east_value_release(row);
     }
-    ByteBuffer *buf = east_beast2_encode_paged(dict, nested, EAST_BEAST2_CODEC_DEFLATE, 64);
+    ByteBuffer *buf = encode_in_segments(dict, nested);
     east_value_release(dict);
     if (!buf) return NULL;
     uint8_t *data = malloc(buf->len);
@@ -498,7 +531,7 @@ static void test_owned_open(void)
     }
 
     /* Everything above read through the Blob's bytes without touching them:
-     * the paged encode is deterministic, so a fresh encode is the oracle. */
+     * the encode is deterministic, so a fresh encode is the oracle. */
     size_t again_len = 0;
     uint8_t *again = encode_int_dict(300, &again_len);
     CHECK(again != NULL && again_len == blob->data.blob.len &&
@@ -755,7 +788,7 @@ static void test_open_beast_builtin(void)
         east_value_release(rk);
         east_value_release(row);
     }
-    ByteBuffer *rbuf = east_beast2_encode_paged(cells, rt, EAST_BEAST2_CODEC_DEFLATE, 64);
+    ByteBuffer *rbuf = encode_in_segments(cells, rt);
     east_value_release(cells);
     CHECK(rbuf != NULL, "ref paged encode failed");
     if (rbuf) {

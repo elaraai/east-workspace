@@ -16,7 +16,7 @@ platform bridge module.
 """
 
 from libc.stddef cimport size_t
-from libc.stdint cimport int32_t, int64_t, uint8_t, uint64_t
+from libc.stdint cimport int32_t, int64_t, uint8_t, uint32_t, uint64_t
 
 
 # ─── stdbool.h ────────────────────────────────────────────────
@@ -428,6 +428,9 @@ cdef extern from "east/serialization.h":
     # BEAST2 v5 — segment-terminated record stream (issue #416)
     ByteBuffer *east_beast2_encode_v5(EastValue *value, EastType *type, int32_t codec_id,
                                       bint with_index)
+    # One collection value as a segmented, indexed blob, cut by the
+    # content-defined rule — the canonical bytes for the value.
+    ByteBuffer *east_beast2_encode_paged(EastValue *value, EastType *type, int32_t codec_id)
 
     ctypedef struct Beast2StreamWriter:
         pass
@@ -439,17 +442,31 @@ cdef extern from "east/serialization.h":
     void east_beast2_writer_free(Beast2StreamWriter *w)
     void east_beast2_writer_set_parallel(Beast2StreamWriter *w, bint parallel)
 
-    # The content-defined segment boundary (beast2/v5/boundary.c): where a Set
-    # or Dict's segments begin. Bound here rather than reimplemented, so this
-    # runtime, east-c and TypeScript cut one value at the same keys — the
-    # property the segment-object layout rests on.
+    # The canonical writer of a collection blob: elements in, in canonical
+    # order, and segments out wherever the content-defined rule places them.
+    ctypedef struct Beast2ElementWriter:
+        pass
+    Beast2ElementWriter *east_beast2_element_writer_new(EastType *type, int32_t codec_id)
+    void east_beast2_element_writer_set_parallel(Beast2ElementWriter *w, bint parallel)
+    bint east_beast2_element_writer_add(Beast2ElementWriter *w, EastValue *element)
+    bint east_beast2_element_writer_add_pair(Beast2ElementWriter *w, EastValue *key,
+                                             EastValue *value)
+    ByteBuffer *east_beast2_element_writer_take(Beast2ElementWriter *w)
+    bint east_beast2_element_writer_finish(Beast2ElementWriter *w)
+    size_t east_beast2_element_writer_segments(const Beast2ElementWriter *w)
+    void east_beast2_element_writer_free(Beast2ElementWriter *w)
+
+    # The content-defined cut rule (beast2/v5/boundary.c). Bound here rather
+    # than reimplemented, so this runtime, east-c and TypeScript cut one value
+    # at the same elements — the property the segment-object layout rests on.
     uint64_t east_beast2_fnv1a64(const uint8_t *bytes, size_t length)
-    bint east_beast2_segment_boundary_key(const uint8_t *bytes, size_t length)
+    uint32_t east_beast2_segment_boundary_hash(const uint8_t *bytes, size_t length)
+    bint east_beast2_segment_is_boundary(uint32_t hash, size_t count, size_t nbytes)
+    bint east_beast2_starts_segment_after(size_t count, size_t nbytes, const uint8_t *hash_input,
+                                          size_t length)
     ByteBuffer *east_beast2_encode_fence(EastValue *value, EastType *type)
     size_t east_beast2_segment_starts(EastValue *collection, EastType *type, size_t *out,
                                       size_t out_cap)
-    void east_beast2_writer_emitted_bounds(Beast2StreamWriter *w, size_t *lo, size_t *hi)
-    bint east_beast2_writer_settle(Beast2StreamWriter *w)
 
     ctypedef struct Beast2SegmentReader:
         pass

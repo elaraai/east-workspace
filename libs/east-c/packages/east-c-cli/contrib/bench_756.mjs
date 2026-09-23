@@ -58,5 +58,5 @@ for (let i = 0; i < NROWS; i++) {
   }
   rows.push({ key: keys[i], label: `row-${i}`, parts });
 }
-writeFileSync(join(out, 'rows.beast2'), encodeBeast2PagedFor(ArrayType(RowT), { batchSize: 200 })(rows));
+writeFileSync(join(out, 'rows.beast2'), encodeBeast2PagedFor(ArrayType(RowT))(rows));
 console.log(`wrote ${out}: ${NROWS} rows, ${NARR} arrays x ${NITEMS} items each`);

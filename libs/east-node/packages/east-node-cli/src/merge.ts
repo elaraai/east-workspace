@@ -13,7 +13,8 @@
  * keys in East order, and the output is written through the same segment
  * writer as `run --emit`, so the file is byte-identical to what that sink
  * writes for the same entries emitted ascending. Memory is one decoded
- * segment per input plus one open batch; no temporary file is ever written.
+ * segment per input plus one open output segment; no temporary file is ever
+ * written.
  *
  * Equal keys across inputs fold in input order: with a merge function (Dict
  * inputs) `acc = merge(key, acc, value)`; in union mode (Set inputs) the
@@ -337,7 +338,7 @@ export function mergeBlobs(inputPaths: readonly string[], outputPath: string, op
         };
         for (let i = (heap.length >> 1) - 1; i >= 0; i--) siftDown(i);
 
-        out = new EmitFileWriter(kind, type, outputPath);
+        out = new EmitFileWriter(type, outputPath);
         let entries = 0;
         let folds = 0;
         // The current key's entry is held until a greater key arrives, so

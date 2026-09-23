@@ -27,7 +27,6 @@ import {
   compareFor,
   decodeBeast2For,
   encodeBeast2For,
-  encodeBeast2PagedFor,
   encodeEastIR,
   equalFor,
   none,
@@ -57,7 +56,7 @@ import {
 import type { ExecutionResult } from './LocalTaskRunner.js';
 import { inputsHash } from '../executions.js';
 import { uuidv7 } from '../uuid.js';
-import { createTestRepo, removeTestRepo } from '../test-helpers.js';
+import { createTestRepo, removeTestRepo, encodeInSegmentsOf } from '../test-helpers.js';
 import { LocalStorage } from '../storage/local/index.js';
 import type { StorageBackend } from '../storage/interfaces.js';
 
@@ -97,7 +96,7 @@ describe('steps', () => {
   });
 
   async function store(value: Out, batchSize = 4): Promise<string> {
-    return storage.objects.write(repo, encodeBeast2PagedFor(OutType, { batchSize })(value));
+    return storage.objects.write(repo, encodeInSegmentsOf(OutType, batchSize)(value));
   }
 
   const mergeFn = East.function([IntegerType, IntegerType, IntegerType], IntegerType, ($, _key, a, b) => a.add(b));
@@ -676,7 +675,7 @@ describe('steps', () => {
         for (const [key] of decodeBeast2For(OutType)(await storage.objects.read(repo, inputs[1]!))) elements.add(key % 5n);
       }
       const sorted = [...elements].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-      const outputHash = await storage.objects.write(repo, encodeBeast2PagedFor(SetOut, { batchSize: 4 })(new Set(sorted)));
+      const outputHash = await storage.objects.write(repo, encodeInSegmentsOf(SetOut, 4)(new Set(sorted)));
       return { ...base, state: 'success', outputHash, exitCode: 0, error: null };
     };
     const task = parentTask('union');

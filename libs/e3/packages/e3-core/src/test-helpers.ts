@@ -13,10 +13,45 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import yauzl from 'yauzl';
+import { compareFor, encodeBeast2SegmentsFor, isVariant, toEastTypeValue, type EastType, type EastTypeValue } from '@elaraai/east';
 import { repoInit } from './storage/local/repository.js';
 
 // Re-export InMemoryStorage for test consumers
 export { InMemoryStorage } from './storage/in-memory/InMemoryStorage.js';
+
+/**
+ * Builds an encoder that writes a collection as a blob of `size`-element
+ * segments, in canonical order.
+ *
+ * @remarks
+ * The geometry is the test's, not the cut rule's, which would hold a small
+ * fixture in one segment: partition planning, paged windows and key searches
+ * need several segments to have anything to decide. The blob is a valid
+ * canonical-order collection that is not cut canonically — what a writer
+ * outside e3 may hand the store.
+ *
+ * @param type - the collection type (Array, Set or Dict)
+ * @param size - elements (pairs, for a Dict) per segment
+ * @returns a function encoding a collection value; a plain Set or Map is
+ *   sorted into canonical order first
+ */
+export function encodeInSegmentsOf(type: EastType | EastTypeValue, size: number): (value: unknown) => Uint8Array {
+  const typeValue = isVariant(type) ? (type as EastTypeValue) : toEastTypeValue(type as EastType);
+  const encode = encodeBeast2SegmentsFor(typeValue);
+  const kind = typeValue.type;
+  const cmp = kind === 'Array' ? null : compareFor((kind === 'Set' ? typeValue.value : (typeValue.value as { key: EastTypeValue }).key) as never) as (a: unknown, b: unknown) => number;
+  return (value) => {
+    const items = kind === 'Array' ? [...(value as unknown[])]
+      : kind === 'Set' ? [...(value as Set<unknown>)].sort(cmp!)
+      : [...(value as Map<unknown, unknown>)].sort((a, b) => cmp!(a[0], b[0]));
+    const batches: unknown[] = [];
+    for (let i = 0; i < items.length; i += size) {
+      const chunk = items.slice(i, i + size);
+      batches.push(kind === 'Dict' ? new Map(chunk as [unknown, unknown][]) : kind === 'Set' ? new Set(chunk) : chunk);
+    }
+    return encode(batches as never);
+  };
+}
 
 /**
  * Creates a temporary directory for testing

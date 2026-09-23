@@ -8,14 +8,14 @@
  * collections, as every runner writes them — and one canonical blob out, in
  * a single pass: every input is read segment by segment through a mapping,
  * a heap over the inputs' current entries yields keys in East order, and the
- * merged entries are written as VALUES through the very call `run --emit`
- * writes its batches through (emit_writer_write), so the file is
- * byte-identical to what that sink writes for the same entries emitted
- * ascending — aliasing scoped per entry, as every writer scopes it. An entry
- * of an older blob, whose writer scoped aliasing per segment and so could
- * REF a container an earlier entry defined, is decoded whole and so comes
- * out in the same canonical form. Memory is one decoded segment per input
- * plus one open batch; no temporary file is ever written.
+ * merged entries are written as VALUES through the very writer `run --emit`
+ * writes through (src/emit_writer.h), so the file is byte-identical to what
+ * that sink writes for the same entries emitted ascending — aliasing scoped
+ * per entry, as every writer scopes it. An entry of an older blob, whose
+ * writer scoped aliasing per segment and so could REF a container an earlier
+ * entry defined, is decoded whole and so comes out in the same canonical
+ * form. Memory is one decoded segment per input plus one open output
+ * segment; no temporary file is ever written.
  *
  * Equal keys across inputs fold in input order: with a merge function (Dict
  * inputs) `acc = merge(key, acc, value)`; in union mode (Set inputs) the

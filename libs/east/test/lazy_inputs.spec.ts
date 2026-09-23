@@ -28,16 +28,29 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  East, Expr, equalFor, IRType, toJSONFor, some, none,
-  encodeBeast2PagedFor, decodeBeast2For, openBeast2LazyFor, isBeast2LazySafe,
+  East, Expr, equalFor, compareFor, IRType, toJSONFor, some, none,
+  encodeBeast2SegmentsFor, decodeBeast2For, openBeast2LazyFor, isBeast2LazySafe,
   ArrayType, SetType, DictType, IntegerType, FloatType, StringType, NullType, StructType, OptionType,
   type EastType,
 } from "../src/index.js";
 import { Builtins, type BuiltinName } from "../src/builtins.js";
 
-/** Multi-segment even for tiny corpus collections, so segment boundaries
+/** A collection input as a blob of two-element segments in canonical order —
+ *  multi-segment even for the tiny corpus collections, so segment boundaries
  *  and fence lookups are exercised, not just the single-segment fast path. */
-const SWEEP_BATCH = { batchSize: 2 };
+function sweepBlob(type: EastType, value: unknown): Uint8Array {
+  const t = type as { type: string; key?: EastType };
+  const cmp = t.type === "Array" ? null : compareFor(t.key!) as (a: unknown, b: unknown) => number;
+  const items = t.type === "Array" ? [...(value as unknown[])]
+    : t.type === "Set" ? [...(value as Set<unknown>)].sort(cmp!)
+    : [...(value as Map<unknown, unknown>)].sort((a, b) => cmp!(a[0], b[0]));
+  const batches: unknown[] = [];
+  for (let i = 0; i < items.length; i += 2) {
+    const chunk = items.slice(i, i + 2);
+    batches.push(t.type === "Dict" ? new Map(chunk as [unknown, unknown][]) : t.type === "Set" ? new Set(chunk) : chunk);
+  }
+  return encodeBeast2SegmentsFor(type)(batches as never);
+}
 
 /** Builtins whose only collection input is a compile-time literal the fluent
  *  surface constructs itself (datetime format tokens parsed from a format
@@ -136,7 +149,7 @@ async function sweep(c: SweepCase, mentioned: Set<string>): Promise<void> {
   const lazyArgs = [...c.inputs];
   for (const i of positions) {
     const t = fnType.inputs[i]!;
-    const blob = encodeBeast2PagedFor(t, SWEEP_BATCH)(c.inputs[i] as never);
+    const blob = sweepBlob(t, c.inputs[i]);
     eagerArgs[i] = decodeBeast2For(t)(blob);
     // The runner policy: lazy only for shape-gate-safe types. A corpus case
     // whose eligibility does not match its declared intent has silently
@@ -515,7 +528,7 @@ describe("lazy inputs — builtin corpus sweep (#510)", () => {
 describe("lazy inputs — iteration semantics (#510)", () => {
   const Table = DictType(IntegerType, StringType);
   const table = new Map<bigint, string>(Array.from({ length: 10 }, (_, i) => [BigInt(i), `row-${i}`]));
-  const tableBlob = encodeBeast2PagedFor(Table, SWEEP_BATCH)(table);
+  const tableBlob = sweepBlob(Table, table);
   const openers = [
     ["eager", decodeBeast2For(Table)],
     ["lazy", openBeast2LazyFor(Table)],
@@ -549,7 +562,7 @@ describe("lazy inputs — iteration semantics (#510)", () => {
   test("hydration mid-loop keeps the in-flight iteration yielding the canonical sequence", () => {
     const Tags = SetType(StringType);
     const tags = new Set(Array.from({ length: 9 }, (_, i) => `tag-${i}`));
-    const blob = encodeBeast2PagedFor(Tags, SWEEP_BATCH)(tags);
+    const blob = sweepBlob(Tags, tags);
     const fn = East.function([Tags, Tags], ArrayType(StringType), ($, s, other) => {
       const seen = $.let([], ArrayType(StringType));
       $.for(s, ($, k) => {

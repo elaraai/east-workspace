@@ -43,6 +43,7 @@ import {
   isVariant,
   openBeast2PagesFor,
   readBeast2Extents,
+  readBeast2SegmentLogicalBytes,
   segmentKeyTypeOf,
   segmentRuleFor,
   toEastTypeValue,
@@ -129,8 +130,9 @@ export function encodeDatasetBlob(
  * and re-encoded once, because a value that is not cut canonically would
  * otherwise give two equal values two different manifests.
  *
- * Array roots have no key to hash, so their segmentation is a property of the
- * writer rather than of the value and is adopted as it stands.
+ * An Array's cut hashes whole elements, which no fence carries, so it cannot
+ * be checked without a decode and is adopted as it stands; every runtime's
+ * writer cuts an Array by the rule too.
  *
  * @param blob - a segmented, indexed v5 collection blob
  * @param sink - writes one object and returns its hash
@@ -147,14 +149,14 @@ export async function cutDatasetBlob(blob: Uint8Array, sink: SegmentSink): Promi
   const keyType = segmentKeyTypeOf(typeValue);
   const fence = keyType === null ? null : encodeBeast2FenceFor(keyType);
   let source = blob;
-  // An Array root has no key to hash, so its fences are empty and there is
-  // nothing to check: its segmentation is the writer's, and adopted as it is.
+  // An Array root has no key, so its fences are empty and there is nothing to
+  // check them against: its segmentation is adopted as it is.
   let fences: Uint8Array[] = [];
 
   if (fence !== null) {
     const pages = openBeast2PagesFor(typeValue)(source);
     fences = Array.from({ length: pages.segmentCount }, (_, i) => fence(pages.fence(i)));
-    if (!isContentCut(fences, [...pages.counts])) {
+    if (!isContentCut(fences, [...pages.counts], readBeast2SegmentLogicalBytes(source, extents))) {
       // Not cut by the rule: the only way to reach the canonical segmentation
       // is to lay the value out again. Costs one decode + one encode, once,
       // and every later write of an equal value is a byte-copy carve.

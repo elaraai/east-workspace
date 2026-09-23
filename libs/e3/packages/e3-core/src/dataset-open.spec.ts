@@ -16,13 +16,13 @@ import { dirname } from 'node:path';
 import {
   DictType, IntegerType, SetType, StringType, StructType, ArrayType,
   SortedMap, SortedSet, compareFor, decodeBeast2For, openBeast2PagesFor,
-  SEGMENT_MAX_COUNT, SEGMENT_MIN_COUNT, SEGMENT_RULE_KEYED, SEGMENT_RULE_POSITIONAL,
+  SEGMENT_MAX_COUNT, SEGMENT_MIN_COUNT, SEGMENT_RULE_ARRAY, SEGMENT_RULE_KEYED,
   toEastTypeValue,
 } from '@elaraai/east';
 import { COLLECTION_MANIFEST_KIND, decodeCollectionManifest, manifestElementCount } from '@elaraai/e3-types';
 import { DatasetSegments, readDatasetWhole, readManifest, cutDatasetIntoStore } from './dataset-open.js';
 import { datasetWrite } from './trees.js';
-import { createTestRepo, removeTestRepo } from './test-helpers.js';
+import { createTestRepo, removeTestRepo, encodeInSegmentsOf } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
 import type { StorageBackend } from './storage/interfaces.js';
 
@@ -93,11 +93,11 @@ describe('the segment-object layout', () => {
       assert.deepEqual(decodeBeast2For(RowType)(await storage.objects.read(repo, hash)), { id: 1n, name: 'one' });
     });
 
-    it('marks an Array root with the positional rule and empty fences', async () => {
+    it('marks an Array root with the Array rule and empty fences', async () => {
       const rows = Array.from({ length: 5_000 }, (_, i) => ({ id: BigInt(i), name: `row-${i}` }));
       const hash = await datasetWrite(storage, repo, rows, ArrayType(RowType));
       const manifest = decodeCollectionManifest(await storage.objects.read(repo, hash));
-      assert.equal(manifest.rule, SEGMENT_RULE_POSITIONAL);
+      assert.equal(manifest.rule, SEGMENT_RULE_ARRAY);
       for (const entry of manifest.entries) assert.equal(entry.fence.byteLength, 0);
     });
 
@@ -254,9 +254,8 @@ describe('the segment-object layout', () => {
 
     it('re-cuts a blob that was not cut by the rule', async () => {
       const value = table(20_000);
-      const positional = (await import('@elaraai/east'))
-        .encodeBeast2PagedFor(TableType, { batchSize: 1_000 })(value);
-      const cut = await cutDatasetIntoStore(storage, repo, positional);
+      const byCount = encodeInSegmentsOf(TableType, 1_000)(value);
+      const cut = await cutDatasetIntoStore(storage, repo, byCount);
       const manifest = decodeCollectionManifest(await storage.objects.read(repo, cut));
       for (let i = 0; i < manifest.entries.length - 1; i++) {
         assert.ok(Number(manifest.entries[i]!.count) >= SEGMENT_MIN_COUNT);

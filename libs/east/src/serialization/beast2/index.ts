@@ -47,14 +47,12 @@ export type { Beast2Codec } from "./v5/frames.js";
 export {
   Beast2Writer,
   type Beast2WriterOptions,
+  Beast2ElementWriter,
+  type Beast2ElementWriterOptions,
+  type Beast2ElementOf,
   encodeBeast2SegmentsFor,
   encodeBeast2PagedFor,
   type Beast2PagedEncodeOptions,
-  BEAST2_PAGED_BATCH_DEFAULT,
-  BEAST2_PAGED_PROBE_BATCH,
-  BEAST2_PAGED_TARGET_BYTES_DEFAULT,
-  type Beast2SegmentBoundary,
-  usesContentBoundary,
   iterBeast2SegmentsFor,
   Beast2Pages,
   openBeast2PagesFor,
@@ -62,6 +60,7 @@ export {
 export {
   type Beast2Extents,
   readBeast2Extents,
+  readBeast2SegmentLogicalBytes,
   carveBeast2,
   spliceBeast2,
   rebuildBeast2,
@@ -97,17 +96,22 @@ export {
   SEGMENT_MIN_COUNT,
   SEGMENT_TARGET_COUNT,
   SEGMENT_MAX_COUNT,
+  SEGMENT_MIN_BYTES,
+  SEGMENT_TARGET_BYTES,
+  SEGMENT_MAX_BYTES,
   SEGMENT_RULE_KEYED,
-  SEGMENT_RULE_POSITIONAL,
+  SEGMENT_RULE_ARRAY,
   SegmentCutter,
-  fnv1a64,
-  isSegmentBoundaryKey,
+  segmentBoundaryHash,
+  isSegmentBoundary,
+  startsSegmentAfter,
   isContentCut,
   segmentRuleFor,
   segmentKeyTypeOf,
   encodeBeast2FenceFor,
   decodeBeast2FenceFor,
 } from "./v5/boundary.js";
+export { fnv1a64 } from "./shared.js";
 import { readIndex, MAGIC_BYTES_V5 } from "./v5/codec.js";
 import type { Beast2SyncRangeReader } from "./v5/range.js";
 

@@ -413,7 +413,7 @@ describe('path-initialised inputs (source variants)', () => {
     const file = path.join(tempDir, name);
     const rows = new Map<string, bigint>();
     for (let i = 0; i < n; i++) rows.set(`k${String(i).padStart(4, '0')}`, BigInt(i));
-    fs.writeFileSync(file, encodeBeast2PagedFor(type as typeof RowsType, { batchSize: 8 })(rows));
+    fs.writeFileSync(file, encodeBeast2PagedFor(type as typeof RowsType)(rows));
     return file;
   }
 
@@ -469,7 +469,7 @@ describe('path-initialised inputs (source variants)', () => {
   it('refuses a delivery whose type differs from the declared one, naming the input and the field', async () => {
     const Drifted = DictType(StringType, StringType);
     const file = path.join(tempDir, 'drifted.beast2');
-    fs.writeFileSync(file, encodeBeast2PagedFor(Drifted, { batchSize: 8 })(new Map([['a', 'x']])));
+    fs.writeFileSync(file, encodeBeast2PagedFor(Drifted)(new Map([['a', 'x']])));
     const table = input('drifted', RowsType, variant('file', file));
 
     await assert.rejects(

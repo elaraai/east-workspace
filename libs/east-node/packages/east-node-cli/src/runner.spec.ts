@@ -30,7 +30,6 @@ import {
   StructType,
   East,
   SortedMap,
-  SortedSet,
   compareFor,
   decodeBeast2For,
   encodeBeast2For,
@@ -93,14 +92,15 @@ describe('runner output encoding', () => {
   }
 
   it('writes large collection outputs segmented and indexed', async () => {
-    const output = await runToOutput(2500n);
+    const output = await runToOutput(20_000n);
     const AT = ArrayType(IntegerType);
     const pages = openBeast2PagesFor(AT)(output);
-    assert.equal(pages.segmentCount, 3);
-    assert.equal(pages.elementCount, 2500);
+    assert.ok(pages.segmentCount > 1);
+    assert.equal(pages.elementCount, 20_000);
     assert.ok(pages.selfContained);
-    const expected = Array.from({ length: 2500 }, (_, i) => BigInt(i));
-    assert.deepEqual(pages.slice(900, 200), expected.slice(900, 1100), 'window spans segments');
+    const expected = Array.from({ length: 20_000 }, (_, i) => BigInt(i));
+    const edge = pages.counts[0]!;
+    assert.deepEqual(pages.slice(edge - 100, 200), expected.slice(edge - 100, edge + 100), 'window spans segments');
     assert.deepEqual(decodeBeast2For(AT)(output), expected, 'whole decode equals the result');
   });
 
@@ -159,7 +159,7 @@ describe('runner streaming execution', () => {
     const AT = ArrayType(IntegerType);
     const events = Array.from({ length: 2500 }, (_, i) => BigInt(i));
     const inputPath = join(tempDir, 'events.beast2');
-    writeFileSync(inputPath, encodeBeast2PagedFor(AT, { batchSize: 500 })(events));
+    writeFileSync(inputPath, encodeBeast2SegmentsFor(AT)([0, 500, 1000, 1500, 2000].map((at) => events.slice(at, at + 500))));
 
     const fn = East.function(
       [AT, FunctionType([IntegerType], NullType)],
@@ -235,7 +235,8 @@ describe('runner streaming execution', () => {
       compareFor(IntegerType),
     );
     const inputPath = join(tempDir, 'table.beast2');
-    writeFileSync(inputPath, encodeBeast2PagedFor(DT, { batchSize: 250 })(table));
+    const entries = [...table];
+    writeFileSync(inputPath, encodeBeast2SegmentsFor(DT)(Array.from({ length: 8 }, (_, i) => new Map(entries.slice(i * 250, (i + 1) * 250)))));
 
     const fn = East.function([DT], StringType, ($, table) => table.get(1234n));
     const outputPath = join(tempDir, 'output.beast2');
@@ -253,7 +254,8 @@ describe('runner streaming execution', () => {
       compareFor(IntegerType),
     );
     const inputPath = join(tempDir, 'table.beast2');
-    writeFileSync(inputPath, encodeBeast2PagedFor(DT, { batchSize: 100 })(table));
+    const entries = [...table];
+    writeFileSync(inputPath, encodeBeast2SegmentsFor(DT)(Array.from({ length: 5 }, (_, i) => new Map(entries.slice(i * 100, (i + 1) * 100)))));
     const fn = East.function([DT], StringType, ($, table) => table.get(42n));
     const outputPath = join(tempDir, 'output.beast2');
 
@@ -397,8 +399,8 @@ describe('folding emit, the blob merge and the stdin lifeline (#770)', () => {
 
   /** The fold contract's emission sequence, as keys — the sequence
    *  generate_fixtures.mjs writes for east-c and east-py: 0..1199 in order
-   *  with adjacent duplicates, every third key twice, and key 999 — the last
-   *  entry of a full 1000-element batch — four times. */
+   *  with adjacent duplicates, every third key twice, and key 999 four
+   *  times. */
   function foldSequence(): bigint[] {
     const keys: bigint[] = [];
     for (let k = 0; k < 1200; k++) {
@@ -433,10 +435,9 @@ describe('folding emit, the blob merge and the stdin lifeline (#770)', () => {
   }
 
   it('--merge writes the folded ascending sequence\'s bytes', async () => {
-    // The fold is over ADJACENT equal keys, and lands in place — key 999
-    // into a full batch's last entry included — so the output is
-    // byte-identical to what the flag-less sink writes for the folded
-    // sequence.
+    // The fold is over ADJACENT equal keys, and lands in place, so the
+    // output is byte-identical to what the flag-less sink writes for the
+    // folded sequence.
     const pairs = foldSequence().map((key, i) => ({ key, value: `${i};` }));
     const folded = new Map<bigint, string>();
     for (const { key, value } of pairs) folded.set(key, (folded.get(key) ?? '') + value);
@@ -475,22 +476,32 @@ describe('folding emit, the blob merge and the stdin lifeline (#770)', () => {
   // ---- The blob merge ---------------------------------------------------
 
   /** Three sorted Dict inputs whose keys overlap — a = 0..19, b = 10..29,
-   *  c = {5, 15, 25, 40} — each value naming its input, written by the paged
-   *  writer in four-entry segments; the fixtures east-c and east-py merge. */
+   *  c = {5, 15, 25, 40} — each value naming its input, written in four-entry
+   *  segments; the fixtures east-c and east-py merge. */
   const mergeKeys = {
     a: Array.from({ length: 20 }, (_, k) => BigInt(k)),
     b: Array.from({ length: 20 }, (_, k) => BigInt(k + 10)),
     c: [5n, 15n, 25n, 40n],
   };
+  /** Ascending entries as a blob of four-entry segments: a geometry chosen
+   *  here rather than by the cut rule, so a range bound can fall inside a
+   *  segment, on a fence, and between segments. */
+  function inFours(type: typeof DT | typeof ST, entries: unknown[]): Uint8Array {
+    const batches: unknown[] = [];
+    for (let i = 0; i < entries.length; i += 4) {
+      const chunk = entries.slice(i, i + 4);
+      batches.push(type.type === 'Dict' ? new Map(chunk as [unknown, unknown][]) : new Set(chunk));
+    }
+    return encodeBeast2SegmentsFor(toEastTypeValue(type))(batches as never);
+  }
   function writeDictInput(name: 'a' | 'b' | 'c'): string {
     const path = join(tempDir, `in_${name}.beast2`);
-    writeFileSync(path, encodeBeast2PagedFor(DT, { batchSize: 4 })(
-      new SortedMap(mergeKeys[name].map((k) => [k, `${name}${k}`] as [bigint, string]), compareFor(IntegerType))));
+    writeFileSync(path, inFours(DT, mergeKeys[name].map((k) => [k, `${name}${k}`])));
     return path;
   }
   function writeSetInput(name: 'a' | 'b' | 'c'): string {
     const path = join(tempDir, `set_${name}.beast2`);
-    writeFileSync(path, encodeBeast2PagedFor(ST, { batchSize: 4 })(new SortedSet(mergeKeys[name], compareFor(IntegerType))));
+    writeFileSync(path, inFours(ST, mergeKeys[name]));
     return path;
   }
 
@@ -551,8 +562,8 @@ describe('folding emit, the blob merge and the stdin lifeline (#770)', () => {
     // error, prefixed with the input — the same sentence east-c and east-py give.
     const descending = join(tempDir, 'descending.beast2');
     writeFileSync(descending, spliceBeast2([
-      encodeBeast2PagedFor(DT, { batchSize: 2 })(new SortedMap([[1000n, 'x'], [1001n, 'y']], compareFor(IntegerType))),
-      encodeBeast2PagedFor(DT, { batchSize: 2 })(new SortedMap([[1n, 'a'], [2n, 'b']], compareFor(IntegerType))),
+      encodeBeast2PagedFor(DT)(new SortedMap([[1000n, 'x'], [1001n, 'y']], compareFor(IntegerType))),
+      encodeBeast2PagedFor(DT)(new SortedMap([[1n, 'a'], [2n, 'b']], compareFor(IntegerType))),
     ]));
     assert.throws(
       () => mergeBlobs([descending], join(tempDir, 'desc.beast2')),
@@ -620,13 +631,12 @@ describe('folding emit, the blob merge and the stdin lifeline (#770)', () => {
   /** An input holding only its keys in the range — the sliced twin a ranged merge must equal. */
   function writeDictSlice(name: 'a' | 'b' | 'c', from: bigint | null, to: bigint | null): string {
     const path = join(tempDir, `in_${name}_${from}_${to}.beast2`);
-    writeFileSync(path, encodeBeast2PagedFor(DT, { batchSize: 4 })(
-      new SortedMap(mergeKeys[name].filter((k) => inRange(k, from, to)).map((k) => [k, `${name}${k}`] as [bigint, string]), compareFor(IntegerType))));
+    writeFileSync(path, inFours(DT, mergeKeys[name].filter((k) => inRange(k, from, to)).map((k) => [k, `${name}${k}`])));
     return path;
   }
   function writeSetSlice(name: 'a' | 'b' | 'c', from: bigint | null, to: bigint | null): string {
     const path = join(tempDir, `set_${name}_${from}_${to}.beast2`);
-    writeFileSync(path, encodeBeast2PagedFor(ST, { batchSize: 4 })(new SortedSet(mergeKeys[name].filter((k) => inRange(k, from, to)), compareFor(IntegerType))));
+    writeFileSync(path, inFours(ST, mergeKeys[name].filter((k) => inRange(k, from, to))));
     return path;
   }
 
@@ -711,13 +721,10 @@ describe('folding emit, the blob merge and the stdin lifeline (#770)', () => {
     // One value segments the same wherever it is written (#770): a task that
     // RETURNS a collection writes it through encodeBeast2PagedFor, one that
     // emits or merges writes it through this writer, and a content-addressed
-    // store must see one blob. The writer opened at the element cap where the
-    // encoder probes its first entries, so rows above a segment's share got
-    // one oversized first segment and every later boundary shifted.
-    //
-    // Incompressible rows, from a deterministic LCG: deflate shrinks anything
-    // patterned back under the byte target, and then every batch is the cap
-    // and the two agree no matter what.
+    // store must see one blob. Both cut through the library's element writer;
+    // wide rows are where a cut by count and a cut by bytes part ways, so the
+    // rows here are wide, and incompressible (a deterministic LCG), so the
+    // frames are as wide as the rows.
     let seed = 12345;
     const noise = (chars: number): string => {
       const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
@@ -734,7 +741,7 @@ describe('folding emit, the blob merge and the stdin lifeline (#770)', () => {
       const value = new SortedMap(rows, compareFor(IntegerType));
       const paged = encodeBeast2PagedFor(DT)(value);
       const path = join(tempDir, `segments-${width}.beast2`);
-      const writer = new EmitFileWriter('dict', toEastTypeValue(DT), path);
+      const writer = new EmitFileWriter(toEastTypeValue(DT), path);
       for (const [key, text] of rows) writer.push([key, text]);
       writer.finishClose();
       assert.deepEqual(new Uint8Array(readFileSync(path)), paged,
@@ -753,7 +760,7 @@ describe('folding emit, the blob merge and the stdin lifeline (#770)', () => {
     const TagsT = DictType(IntegerType, StructType({ tags: ArrayType(StringType) }));
     const shared = ['x', 'y', 'zzzzzzzzzzzzzzzzzzzz'];
     const value = new SortedMap([[1n, { tags: shared }], [2n, { tags: shared }]], compareFor(IntegerType));
-    const canonical = encodeBeast2PagedFor(TagsT, { batchSize: 10 })(value);
+    const canonical = encodeBeast2PagedFor(TagsT)(value);
     const inputPath = join(tempDir, 'aliased.beast2');
     writeFileSync(inputPath, canonical);
 
@@ -986,7 +993,8 @@ describe('frozen inputs', () => {
       compareFor(IntegerType),
     );
     const inputPath = join(tempDir, 'nested.beast2');
-    writeFileSync(inputPath, encodeBeast2PagedFor(NestedT, { batchSize: 2 })(table));
+    const entries = [...table];
+    writeFileSync(inputPath, encodeBeast2SegmentsFor(NestedT)([new Map(entries.slice(0, 2)), new Map(entries.slice(2))]));
     return inputPath;
   }
 

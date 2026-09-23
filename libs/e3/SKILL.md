@@ -559,7 +559,7 @@ const ingest = e3.streamTask('ingest', {
 Array/Set outputs. An Array output stores its elements in emission order. A
 Set or Dict output must be emitted in **ascending key order** (East's total
 order): the runner writes the output in one pass, segment by segment, with
-one open batch in memory whatever the output's size, and an out-of-order key
+one open segment in memory whatever the output's size, and an out-of-order key
 fails the task — `beast2 v5: Dict key emitted out of order: 1 after 2 —
 Set/Dict emissions must ascend in East order`, the same words on every
 runtime. Duplicate Dict keys / Set elements are a runtime error unless
@@ -759,13 +759,14 @@ const pkg = e3.package('planning', '1.0.0', plans, reschedule, e3.patchMutation(
 `e3.editTypeOf(recordType)` is the edit capability's type — the struct of three
 East functions an edit body declares as its last parameter.
 
-Costs are counted in segments, and a Dict or Set record is cut into segments by
-key — about a thousand entries each, whatever an entry weighs. Rows of a few
-hundred bytes make segments of tens of kilobytes; rows that carry large blobs or
-big nested collections make segments of many megabytes, and reading or
-rewriting one such row costs its whole segment. Keep the fields a view pages and
-an edit touches in narrow rows, and a bulky payload in a second record keyed the
-same way.
+Costs are counted in segments. A Dict or Set record is cut into segments by
+key, and the cut weighs each entry's encoded size as well as counting it: narrow
+rows share a segment with many others, while rows that carry large blobs or big
+nested collections get segments of a few rows, down to one row each. Reading or
+rewriting a row costs its segment, so a one-row edit stays cheap however wide
+the rows are. A view that pages a record still reads every field of each row it
+shows, so keep a bulky payload the view does not display in a second record
+keyed the same way.
 
 ### e3.recordIndex(name, record, spec)
 

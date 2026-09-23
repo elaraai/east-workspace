@@ -20,7 +20,7 @@ import {
   variant, some, none,
   StringType, IntegerType, NullType, StructType, DictType, ArrayType, SetType,
   East, SortedMap, compareFor, equalFor,
-  encodeBeast2For, decodeBeast2For, encodeBeast2PagedFor, encodeBeast2SegmentsFor, encodeEastIR, readBeast2Extents,
+  encodeBeast2For, decodeBeast2For, encodeBeast2SegmentsFor, encodeEastIR, readBeast2Extents,
   IRType, EastIR,
 } from '@elaraai/east';
 import { input, partitionTask, runnerToVariant, type Runner, type TaskDef } from '@elaraai/e3';
@@ -53,7 +53,7 @@ import { uuidv7 } from '../uuid.js';
 import { objectWrite } from '../storage/local/LocalObjectStore.js';
 import { repoGc } from '../storage/local/gc.js';
 import { cutDatasetIntoStore, readDatasetWhole } from '../dataset-open.js';
-import { createTestRepo, removeTestRepo } from '../test-helpers.js';
+import { createTestRepo, removeTestRepo, encodeInSegmentsOf } from '../test-helpers.js';
 import { LocalStorage } from '../storage/local/index.js';
 import type { StorageBackend } from '../storage/interfaces.js';
 
@@ -141,7 +141,7 @@ describe('partitionTaskExecute', () => {
 
   it('carves, runs per partition, and splices an identity body back byte-identically', async () => {
     const table = makeTable(1000);
-    const tableBlob = encodeBeast2PagedFor(TableType, { batchSize: 100 })(table);
+    const tableBlob = encodeInSegmentsOf(TableType, 100)(table);
     const tableHash = await storage.objects.write(repo, tableBlob);
     const fnIrHash = await createDummyFnIr();
     // targetPartitionBytes of 1 cuts at every segment: 10 partitions.
@@ -162,7 +162,7 @@ describe('partitionTaskExecute', () => {
     const fnIrHash = await createDummyFnIr();
     const taskHash = await createPartitionTask({ copyIndex: 1, partitions: 1, targetPartitionBytes: 1 });
 
-    const v1 = encodeBeast2PagedFor(TableType, { batchSize: 100 })(makeTable(1000));
+    const v1 = encodeInSegmentsOf(TableType, 100)(makeTable(1000));
     const v1Hash = await storage.objects.write(repo, v1);
     const first = await taskExecute(storage, repo, taskHash, [fnIrHash, v1Hash]);
     assert.equal(first.state, 'success', first.error ?? '');
@@ -171,7 +171,7 @@ describe('partitionTaskExecute', () => {
     // Append 100 rows: the first ten 100-row segments stay byte-identical,
     // so their slice executions cache-hit; only the new tail partition and
     // the new logical identity execute.
-    const v2 = encodeBeast2PagedFor(TableType, { batchSize: 100 })(makeTable(1100));
+    const v2 = encodeInSegmentsOf(TableType, 100)(makeTable(1100));
     const v2Hash = await storage.objects.write(repo, v2);
     const second = await taskExecute(storage, repo, taskHash, [fnIrHash, v2Hash]);
     assert.equal(second.state, 'success', second.error ?? '');
@@ -183,7 +183,7 @@ describe('partitionTaskExecute', () => {
     const fnIrHash = await createDummyFnIr();
     const taskHash = await createPartitionTask({ copyIndex: 1, partitions: 1, targetPartitionBytes: 1 });
 
-    const v1Hash = await storage.objects.write(repo, encodeBeast2PagedFor(TableType, { batchSize: 100 })(makeTable(1000)));
+    const v1Hash = await storage.objects.write(repo, encodeInSegmentsOf(TableType, 100)(makeTable(1000)));
     const first = await taskExecute(storage, repo, taskHash, [fnIrHash, v1Hash]);
     assert.equal(first.state, 'success', first.error ?? '');
     assert.equal(await executionCount(taskHash), 11);
@@ -197,7 +197,7 @@ describe('partitionTaskExecute', () => {
       compareFor(IntegerType),
     );
     shifted.set(500n, { id: 500n, name: 'inserted' });
-    const v2Hash = await storage.objects.write(repo, encodeBeast2PagedFor(TableType, { batchSize: 100 })(shifted));
+    const v2Hash = await storage.objects.write(repo, encodeInSegmentsOf(TableType, 100)(shifted));
     const second = await taskExecute(storage, repo, taskHash, [fnIrHash, v2Hash]);
     assert.equal(second.state, 'success', second.error ?? '');
     assert.equal(second.outputHash, v2Hash);
@@ -209,7 +209,7 @@ describe('partitionTaskExecute', () => {
 
   it('folds partials pairwise in a fixed tree when combine is present', async () => {
     const table = makeTable(1000);
-    const tableBlob = encodeBeast2PagedFor(TableType, { batchSize: 100 })(table);
+    const tableBlob = encodeInSegmentsOf(TableType, 100)(table);
     const tableHash = await storage.objects.write(repo, tableBlob);
     const fnIrHash = await createDummyFnIr();
     // A take-left combine: each merge execution copies its first partial
@@ -239,7 +239,7 @@ describe('partitionTaskExecute', () => {
 
   it('merge mode assembles disjoint shards by byte copy, with no runner-side fold', async () => {
     const table = makeTable(1000);
-    const tableBlob = encodeBeast2PagedFor(TableType, { batchSize: 100 })(table);
+    const tableBlob = encodeInSegmentsOf(TableType, 100)(table);
     const tableHash = await storage.objects.write(repo, tableBlob);
     const fnIrHash = await createDummyFnIr();
     const mergeFn = East.function([IntegerType, RowType, RowType], RowType, ($, _k, a, _b) => $.return(a));
@@ -264,10 +264,10 @@ describe('partitionTaskExecute', () => {
 
   it('merge mode refuses to merge colliding shards on the custom runtime', async () => {
     const table = makeTable(1000);
-    const tableHash = await storage.objects.write(repo, encodeBeast2PagedFor(TableType, { batchSize: 100 })(table));
+    const tableHash = await storage.objects.write(repo, encodeInSegmentsOf(TableType, 100)(table));
     // Every partition copies the same broadcast blob: ten shards with
     // identical key ranges, which only merge units on a stock runner merge.
-    const broadcastHash = await storage.objects.write(repo, encodeBeast2PagedFor(TableType, { batchSize: 100 })(makeTable(50)));
+    const broadcastHash = await storage.objects.write(repo, encodeInSegmentsOf(TableType, 100)(makeTable(50)));
     const fnIrHash = await createDummyFnIr();
     const mergeFn = East.function([IntegerType, RowType, RowType], RowType, ($, _k, a, _b) => $.return(a));
     const taskHash = await createPartitionTask({
@@ -306,7 +306,7 @@ describe('partitionTaskExecute', () => {
   }
 
   it('merges colliding keyed partials on the task runner through a merge tree, logging every unit', async () => {
-    const tableHash = await storage.objects.write(repo, encodeBeast2PagedFor(TableType, { batchSize: 100 })(makeTable(1000)));
+    const tableHash = await storage.objects.write(repo, encodeInSegmentsOf(TableType, 100)(makeTable(1000)));
     // Every partition counts its rows onto the same seven keys: the ten
     // partials overlap everywhere, so they form one component, merged by one
     // unit of the runner's `merge` command.
@@ -421,11 +421,11 @@ describe('partitionTaskExecute', () => {
             return origRead(r, h);
           };
 
-          const observed: { rows: number; partitions: number; peakDecodedSegments: number; compiledFunctions: number; units: number }[] = [];
+          const observed: { rows: number; partitions: number; ranges: number; peakDecodedSegments: number; compiledFunctions: number; units: number }[] = [];
           for (const rows of [400, 3200]) {
             for (const partitions of [4, 20]) {
               const table = makeTable(rows);
-              const tableHash = await storage.objects.write(repo, encodeBeast2PagedFor(TableType, { batchSize: rows / partitions })(table));
+              const tableHash = await storage.objects.write(repo, encodeInSegmentsOf(TableType, rows / partitions)(table));
               let result: Awaited<ReturnType<typeof taskExecute>> | undefined;
               wholeReads.clear();
               const stats = await partitionAssemblyStats(async () => {
@@ -435,7 +435,11 @@ describe('partitionTaskExecute', () => {
 
               const dataObjects = new Set<string>([tableHash, result!.outputHash!]);
               const planHash = await storage.refs.executionPlanRead!(repo, taskHash, result!.inputsHash);
-              for (const slices of decodePartitionPlan(await origRead(repo, planHash!)).slices) for (const slice of slices) dataObjects.add(slice);
+              const plan = decodePartitionPlan(await origRead(repo, planHash!));
+              for (const slices of plan.slices) for (const slice of slices) dataObjects.add(slice);
+              // A partial that spans several segments cuts the component into
+              // key ranges, each merged by its own tree.
+              const ranges = plan.merges.reduce((sum, merge) => sum + Math.max(1, merge.ranges.length), 0);
               const unitTasks = new Set<string>([taskHash]);
               for (const line of await logLines(taskHash, result!)) unitTasks.add(/task=([0-9a-f]{64})/.exec(line)![1]!);
               for (const unitTask of unitTasks) {
@@ -451,13 +455,13 @@ describe('partitionTaskExecute', () => {
               const output = decodeBeast2For(TableType)(await storage.objects.read(repo, result!.outputHash!));
               assert.ok(equalFor(TableType)(output, expected), `${rows} rows, ${partitions} partitions`);
 
-              observed.push({ rows, partitions, ...stats });
+              observed.push({ rows, partitions, ranges, ...stats });
             }
           }
 
           for (const run of observed) {
             assert.equal(run.compiledFunctions, 0, `no merge function compiled in process (${run.rows} rows, ${run.partitions} partitions)`);
-            assert.equal(run.units, plannedUnits(run.partitions), `the planned tree (${run.rows} rows, ${run.partitions} partitions)`);
+            assert.equal(run.units, run.ranges * plannedUnits(run.partitions), `the planned tree per range (${run.rows} rows, ${run.partitions} partitions, ${run.ranges} ranges)`);
             assert.equal(run.peakDecodedSegments, observed[0]!.peakDecodedSegments,
               `decoded segments held at once must not grow with rows or partitions: ${JSON.stringify(observed)}`);
           }
@@ -466,7 +470,7 @@ describe('partitionTaskExecute', () => {
   });
 
   it('merges Set partials by union on the task runner', async () => {
-    const tableHash = await storage.objects.write(repo, encodeBeast2PagedFor(TableType, { batchSize: 100 })(makeTable(300)));
+    const tableHash = await storage.objects.write(repo, encodeInSegmentsOf(TableType, 100)(makeTable(300)));
     const keys = partitionTask('keys', {
       partitions: [input('table', TableType)],
       output: SetType(IntegerType),
@@ -486,7 +490,7 @@ describe('partitionTaskExecute', () => {
   });
 
   it('merge mode stores an empty collection when every partial is empty', async () => {
-    const tableHash = await storage.objects.write(repo, encodeBeast2PagedFor(TableType, { batchSize: 100 })(makeTable(200)));
+    const tableHash = await storage.objects.write(repo, encodeInSegmentsOf(TableType, 100)(makeTable(200)));
     const nothing = partitionTask('nothing', {
       partitions: [input('table', TableType)],
       output: DictType(IntegerType, IntegerType),
@@ -508,10 +512,10 @@ describe('partitionTaskExecute', () => {
 
   it('rejects splice-mode shards that do not ascend disjointly, naming the remedy', async () => {
     const table = makeTable(1000);
-    const tableHash = await storage.objects.write(repo, encodeBeast2PagedFor(TableType, { batchSize: 100 })(table));
+    const tableHash = await storage.objects.write(repo, encodeInSegmentsOf(TableType, 100)(table));
     // Every partition's body copies the same broadcast blob, so adjacent
     // shards hold identical key ranges — a splice-contract violation.
-    const broadcast = encodeBeast2PagedFor(TableType, { batchSize: 100 })(makeTable(50));
+    const broadcast = encodeInSegmentsOf(TableType, 100)(makeTable(50));
     const broadcastHash = await storage.objects.write(repo, broadcast);
     const fnIrHash = await createDummyFnIr();
     const taskHash = await createPartitionTask({ copyIndex: 2, partitions: 1, targetPartitionBytes: 1 });
@@ -524,12 +528,12 @@ describe('partitionTaskExecute', () => {
 
   it('co-partitions a secondary at the primary boundaries, re-encoding only split edges', async () => {
     const primary = makeTable(1000);
-    const primaryHash = await storage.objects.write(repo, encodeBeast2PagedFor(TableType, { batchSize: 100 })(primary));
+    const primaryHash = await storage.objects.write(repo, encodeInSegmentsOf(TableType, 100)(primary));
     // The secondary covers a sub-range with segment boundaries that do NOT
     // line up with the primary's fences, so most partition boundaries land
     // inside its segments and exercise the edge rebuild.
     const secondary = makeTable(500, 250);
-    const secondaryBlob = encodeBeast2PagedFor(TableType, { batchSize: 100 })(secondary);
+    const secondaryBlob = encodeInSegmentsOf(TableType, 100)(secondary);
     const secondaryHash = await storage.objects.write(repo, secondaryBlob);
     const fnIrHash = await createDummyFnIr();
     // Each partition's body copies its SECONDARY slice (staged input 2).
@@ -559,7 +563,7 @@ describe('partitionTaskExecute', () => {
       entries.push([id, { id, name: `row-${i}-${salt}` }]);
     }
     const table = new SortedMap(entries, compareFor(IntegerType));
-    const tableBlob = encodeBeast2PagedFor(TableType, { batchSize: 2000 })(table);
+    const tableBlob = encodeInSegmentsOf(TableType, 2000)(table);
     const tableHash = await storage.objects.write(repo, tableBlob);
     const fnIrHash = await createDummyFnIr();
     const taskHash = await createPartitionTask({ copyIndex: 1, partitions: 1, targetPartitionBytes: 1 });
@@ -645,7 +649,7 @@ describe('partitionTaskExecute', () => {
 
   it('degrades to whole reads behind the same path when the backend has no ranged reads', async () => {
     const table = makeTable(1000);
-    const tableHash = await storage.objects.write(repo, encodeBeast2PagedFor(TableType, { batchSize: 100 })(table));
+    const tableHash = await storage.objects.write(repo, encodeInSegmentsOf(TableType, 100)(table));
     const fnIrHash = await createDummyFnIr();
     const taskHash = await createPartitionTask({ copyIndex: 1, partitions: 1, targetPartitionBytes: 1 });
     (storage.objects as { readRange?: unknown }).readRange = undefined;
@@ -657,7 +661,7 @@ describe('partitionTaskExecute', () => {
 
   it('a single-partition plan short-circuits to one standard execution under the logical identity', async () => {
     const table = makeTable(1000);
-    const tableHash = await storage.objects.write(repo, encodeBeast2PagedFor(TableType, { batchSize: 100 })(table));
+    const tableHash = await storage.objects.write(repo, encodeInSegmentsOf(TableType, 100)(table));
     const fnIrHash = await createDummyFnIr();
     // A huge byte target packs every segment into one partition.
     const taskHash = await createPartitionTask({ copyIndex: 1, partitions: 1, targetPartitionBytes: 1 << 30 });
@@ -700,7 +704,7 @@ describe('partitionTaskExecute', () => {
   }
 
   it('records the completed plan and reuses its slices on a forced re-run', async () => {
-    const tableHash = await storage.objects.write(repo, encodeBeast2PagedFor(TableType, { batchSize: 100 })(makeTable(1000)));
+    const tableHash = await storage.objects.write(repo, encodeInSegmentsOf(TableType, 100)(makeTable(1000)));
     const fnIrHash = await createDummyFnIr();
     const taskHash = await createPartitionTask({ copyIndex: 1, partitions: 1, targetPartitionBytes: 1 });
 
@@ -734,7 +738,7 @@ describe('partitionTaskExecute', () => {
   });
 
   it('carves again when a slice the recorded plan names no longer exists', async () => {
-    const tableHash = await storage.objects.write(repo, encodeBeast2PagedFor(TableType, { batchSize: 100 })(makeTable(1000)));
+    const tableHash = await storage.objects.write(repo, encodeInSegmentsOf(TableType, 100)(makeTable(1000)));
     const fnIrHash = await createDummyFnIr();
     const taskHash = await createPartitionTask({ copyIndex: 1, partitions: 1, targetPartitionBytes: 1 });
 
@@ -765,7 +769,7 @@ describe('partitionTaskExecute', () => {
   });
 
   it('carves a partition when a worker picks it up, and records the plan with what was carved', async () => {
-    const tableHash = await storage.objects.write(repo, encodeBeast2PagedFor(TableType, { batchSize: 100 })(makeTable(1000)));
+    const tableHash = await storage.objects.write(repo, encodeInSegmentsOf(TableType, 100)(makeTable(1000)));
     const fnIrHash = await createDummyFnIr();
     const failFn = East.function(
       [ArrayType(StringType), StringType],
@@ -793,7 +797,7 @@ describe('partitionTaskExecute', () => {
   it('runs a unit through executeUnit only when the execution cache misses', async () => {
     const fnIrHash = await createDummyFnIr();
     const taskHash = await createPartitionTask({ copyIndex: 1, partitions: 1, targetPartitionBytes: 1 });
-    const v1Hash = await storage.objects.write(repo, encodeBeast2PagedFor(TableType, { batchSize: 100 })(makeTable(1000)));
+    const v1Hash = await storage.objects.write(repo, encodeInSegmentsOf(TableType, 100)(makeTable(1000)));
     const first = await taskExecute(storage, repo, taskHash, [fnIrHash, v1Hash]);
     assert.equal(first.state, 'success', first.error ?? '');
 
@@ -810,7 +814,7 @@ describe('partitionTaskExecute', () => {
 
     // An append leaves the first ten slices byte-identical: only the new
     // tail partition misses the cache.
-    const v2Hash = await storage.objects.write(repo, encodeBeast2PagedFor(TableType, { batchSize: 100 })(makeTable(1100)));
+    const v2Hash = await storage.objects.write(repo, encodeInSegmentsOf(TableType, 100)(makeTable(1100)));
     const appended = await run([fnIrHash, v2Hash], {});
     assert.equal(appended.state, 'success', appended.error ?? '');
     assert.equal(appended.outputHash, v2Hash);
@@ -831,7 +835,7 @@ describe('partitionTaskExecute', () => {
     // far downstream, if at all.
     const fnIrHash = await createDummyFnIr();
     const taskHash = await createPartitionTask({ copyIndex: 1, partitions: 1, targetPartitionBytes: 1 });
-    const tableHash = await storage.objects.write(repo, encodeBeast2PagedFor(TableType, { batchSize: 100 })(makeTable(1000)));
+    const tableHash = await storage.objects.write(repo, encodeInSegmentsOf(TableType, 100)(makeTable(1000)));
     const task = decodeTaskObject(await storage.objects.read(repo, taskHash));
 
     let unit = 0;
@@ -852,7 +856,7 @@ describe('partitionTaskExecute', () => {
   });
 
   it('spliceBlobs splices stored blobs in order, and refuses keys that do not ascend', async () => {
-    const encode = encodeBeast2PagedFor(TableType, { batchSize: 100 });
+    const encode = encodeInSegmentsOf(TableType, 100);
     const lowHash = await storage.objects.write(repo, encode(makeTable(250)));
     const highHash = await storage.objects.write(repo, encode(makeTable(250, 250)));
 
@@ -870,7 +874,7 @@ describe('partitionTaskExecute', () => {
     // Ten partitions whose bodies each sleep long enough to overlap, under a
     // budget of two: the pool is as wide as the budget, and the budget — not
     // the pool — bounds the runners in flight.
-    const tableHash = await storage.objects.write(repo, encodeBeast2PagedFor(TableType, { batchSize: 100 })(makeTable(1000)));
+    const tableHash = await storage.objects.write(repo, encodeInSegmentsOf(TableType, 100)(makeTable(1000)));
     const fnIrHash = await createDummyFnIr();
     const sleepyCopy = East.function(
       [ArrayType(StringType), StringType],
@@ -891,7 +895,7 @@ describe('partitionTaskExecute', () => {
 
   it('reports per-unit progress across the fan-out and every combine level', async () => {
     const table = makeTable(1000);
-    const tableHash = await storage.objects.write(repo, encodeBeast2PagedFor(TableType, { batchSize: 100 })(table));
+    const tableHash = await storage.objects.write(repo, encodeInSegmentsOf(TableType, 100)(table));
     const fnIrHash = await createDummyFnIr();
     const combineFn = East.function([TableType, TableType], TableType, ($, a, _b) => $.return(a));
     const taskHash = await createPartitionTask({
@@ -930,7 +934,7 @@ describe('partitionTaskExecute', () => {
     const fnIrHash = await createDummyFnIr();
     const taskHash = await createPartitionTask({ copyIndex: 1, partitions: 1, targetPartitionBytes: 1 });
 
-    const v1Hash = await storage.objects.write(repo, encodeBeast2PagedFor(TableType, { batchSize: 100 })(makeTable(1000)));
+    const v1Hash = await storage.objects.write(repo, encodeInSegmentsOf(TableType, 100)(makeTable(1000)));
     const first = await taskExecute(storage, repo, taskHash, [fnIrHash, v1Hash]);
     assert.equal(first.state, 'success', first.error ?? '');
     assert.equal(await executionCount(taskHash), 11);
@@ -966,7 +970,7 @@ describe('partitionTaskExecute', () => {
     // re-carving is deterministic, so identities re-match afterwards.
     await repoGc(new LocalStorage(dirname(repo)), repo, { minAge: 0 });
 
-    const v2Hash = await storage.objects.write(repo, encodeBeast2PagedFor(TableType, { batchSize: 100 })(makeTable(1100)));
+    const v2Hash = await storage.objects.write(repo, encodeInSegmentsOf(TableType, 100)(makeTable(1100)));
     const second = await taskExecute(storage, repo, taskHash, [fnIrHash, v2Hash]);
     assert.equal(second.state, 'success', second.error ?? '');
     assert.equal(second.outputHash, v2Hash);
@@ -977,7 +981,7 @@ describe('partitionTaskExecute', () => {
 
   it('a failed partition names the LOWEST failing index and carries the runner error tail', async () => {
     const table = makeTable(1000);
-    const tableHash = await storage.objects.write(repo, encodeBeast2PagedFor(TableType, { batchSize: 100 })(table));
+    const tableHash = await storage.objects.write(repo, encodeInSegmentsOf(TableType, 100)(table));
     const fnIrHash = await createDummyFnIr();
     // Every slice execution fails with a distinctive stderr line.
     const failFn = East.function(
@@ -1001,7 +1005,7 @@ describe('partitionTaskExecute', () => {
 
   it('a failed combine step records `failed` with the exit code, not an orchestrator error', async () => {
     const table = makeTable(1000);
-    const tableHash = await storage.objects.write(repo, encodeBeast2PagedFor(TableType, { batchSize: 100 })(table));
+    const tableHash = await storage.objects.write(repo, encodeInSegmentsOf(TableType, 100)(table));
     const fnIrHash = await createDummyFnIr();
     // Slice executions see 2 staged inputs (fnIr + slice) and copy; combine
     // executions see 3 (combineIr + two partials) and fail with exit 7.
@@ -1037,7 +1041,7 @@ describe('partitionTaskExecute', () => {
   });
 
   it('records a partitioned run aborted mid-partition as cancelled, the unit and the logical execution alike', async () => {
-    const tableHash = await storage.objects.write(repo, encodeBeast2PagedFor(TableType, { batchSize: 100 })(makeTable(1000)));
+    const tableHash = await storage.objects.write(repo, encodeInSegmentsOf(TableType, 100)(makeTable(1000)));
     const fnIrHash = await createDummyFnIr();
     // Each partition announces itself, then sleeps while the marker exists.
     const marker = join(repo, 'sleep-while-this-exists');
@@ -1090,7 +1094,7 @@ describe('partitionTaskExecute', () => {
     // later run re-planned and re-carved from scratch.
     const fnIrHash = await createDummyFnIr();
     const taskHash = await createPartitionTask({ copyIndex: 1, partitions: 1, targetPartitionBytes: 1 });
-    const tableHash = await storage.objects.write(repo, encodeBeast2PagedFor(TableType, { batchSize: 100 })(makeTable(1000)));
+    const tableHash = await storage.objects.write(repo, encodeInSegmentsOf(TableType, 100)(makeTable(1000)));
     const result = await taskExecute(storage, repo, taskHash, [fnIrHash, tableHash]);
     assert.equal(result.state, 'success', result.error ?? '');
 
@@ -1128,7 +1132,7 @@ describe('partitionTaskExecute', () => {
       Array.from({ length: segments * 5 }, (_, i) =>
         [BigInt(i), { id: BigInt(i), name: noise(4096) }] as [bigint, { id: bigint; name: string }]),
       compareFor(IntegerType));
-    const hash = await storage.objects.write(repo, encodeBeast2PagedFor(TableType, { batchSize: 5 })(wide));
+    const hash = await storage.objects.write(repo, encodeInSegmentsOf(TableType, 5)(wide));
     const blob = await PartitionBlob.open(storage, repo, hash);
     resetPrefetchedRangePeak();
     resetDecodedSegmentPeak();
@@ -1172,13 +1176,13 @@ describe('partitionTaskExecute', () => {
       Array.from({ length: 12 }, (_, i) => [{ a: BigInt(i), b: 0n }, `p-${i}`]);
     const primary = new SortedMap(primaryEntries, compareFor(AB));
     const primaryHash = await storage.objects.write(
-      repo, encodeBeast2PagedFor(DictType(AB, StringType), { batchSize: 2 })(primary));
+      repo, encodeInSegmentsOf(DictType(AB, StringType), 2)(primary));
     // b-major canonical order with `a` values that DESCEND across fences.
     const secondaryEntries: [{ b: bigint; a: bigint }, string][] =
       Array.from({ length: 12 }, (_, i) => [{ b: BigInt(i), a: BigInt(11 - i) }, `s-${i}`]);
     const secondary = new SortedMap(secondaryEntries, compareFor(BA));
     const secondaryHash = await storage.objects.write(
-      repo, encodeBeast2PagedFor(DictType(BA, StringType), { batchSize: 2 })(secondary));
+      repo, encodeInSegmentsOf(DictType(BA, StringType), 2)(secondary));
     const fnIrHash = await createDummyFnIr();
     const taskHash = await createPartitionTask({ copyIndex: 2, partitions: 2, targetPartitionBytes: 1 });
 
@@ -1198,7 +1202,7 @@ describe('partitionTaskExecute', () => {
     const rows = (n: number): [{ b: bigint; a: bigint }, string][] =>
       Array.from({ length: n }, (_, i) => [{ b: BigInt(i), a: BigInt(n - 1 - i) }, `p-${i}`]);
     const write = (n: number, batchSize: number): Promise<string> => storage.objects.write(
-      repo, encodeBeast2PagedFor(DictType(BA, StringType), { batchSize })(new SortedMap(rows(n), compareFor(BA))));
+      repo, encodeInSegmentsOf(DictType(BA, StringType), batchSize)(new SortedMap(rows(n), compareFor(BA))));
     const primaryHash = await write(12, 2);
     const secondaryHash = await write(12, 3);
     const fnIrHash = await createDummyFnIr();
@@ -1221,7 +1225,7 @@ describe('partitionTaskExecute', () => {
       return { key: BigInt(at), name: `row-${at}` };
     });
     const arrayHash = await storage.objects.write(
-      repo, encodeBeast2PagedFor(ArrayType(PairType), { batchSize: 40 })(scrambled));
+      repo, encodeInSegmentsOf(ArrayType(PairType), 40)(scrambled));
     const fnIrHash = await createDummyFnIr();
     const taskHash = await createPartitionTask({ copyIndex: 1, partitions: 1, targetPartitionBytes: 1 });
 
@@ -1239,7 +1243,7 @@ describe('partitionTaskExecute', () => {
         [{ group: BigInt(Math.floor(i / 150)), id: BigInt(i) }, `row-${i}`] as [{ group: bigint; id: bigint }, string]),
       compareFor(GroupKeyType),
     );
-    const tableHash = await storage.objects.write(repo, encodeBeast2PagedFor(DictType(GroupKeyType, StringType), { batchSize: 100 })(table));
+    const tableHash = await storage.objects.write(repo, encodeInSegmentsOf(DictType(GroupKeyType, StringType), 100)(table));
     const fnIrHash = await createDummyFnIr();
     // The projection reads `key.group` after calling a platform function no
     // runtime provides: compiling it would fail, so the run succeeding pins
@@ -1265,7 +1269,7 @@ describe('partitionTaskExecute', () => {
       Array.from({ length: 200 }, (_, i) => [{ group: BigInt(i >> 4), id: BigInt(i) }, `row-${i}`] as [{ group: bigint; id: bigint }, string]),
       compareFor(GroupKeyType),
     );
-    const tableHash = await storage.objects.write(repo, encodeBeast2PagedFor(DictType(GroupKeyType, StringType), { batchSize: 50 })(table));
+    const tableHash = await storage.objects.write(repo, encodeInSegmentsOf(DictType(GroupKeyType, StringType), 50)(table));
     const fnIrHash = await createDummyFnIr();
     const byFn = East.function([GroupKeyType], IntegerType, (_$, key) => key.group.add(1n));
     const taskHash = await createPartitionTask({ copyIndex: 1, partitions: 1, targetPartitionBytes: 1, by: encodeEastIR(byFn.toIR()) });
@@ -1287,8 +1291,8 @@ describe('partitionTaskExecute', () => {
       compareFor(WideKeyType),
     );
     const secondary = new SortedMap<Shared, bigint>(groups.map((g) => [g, g.period] as [Shared, bigint]), compareFor(SharedKeyType));
-    const primaryHash = await storage.objects.write(repo, encodeBeast2PagedFor(DictType(WideKeyType, IntegerType), { batchSize: 4 })(primary));
-    const secondaryHash = await storage.objects.write(repo, encodeBeast2PagedFor(DictType(SharedKeyType, IntegerType), { batchSize: 5 })(secondary));
+    const primaryHash = await storage.objects.write(repo, encodeInSegmentsOf(DictType(WideKeyType, IntegerType), 4)(primary));
+    const secondaryHash = await storage.objects.write(repo, encodeInSegmentsOf(DictType(SharedKeyType, IntegerType), 5)(secondary));
     const fnIrHash = await createDummyFnIr();
     // The SDK builds an identity `by` over the shared key fields.
     const byFn = East.function([SharedKeyType], SharedKeyType, (_$, key) => key);

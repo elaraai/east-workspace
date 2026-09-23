@@ -81,12 +81,11 @@ static void test_shared_dict_parity(void)
     EastType *type = east_dict_type(&east_string_type, tags);
     EastValue *dict = tags_by_name(true);
 
-    ByteBuffer *blob = east_beast2_encode_paged(dict, type, EAST_BEAST2_CODEC_NONE, 0);
+    ByteBuffer *blob = east_beast2_encode_paged(dict, type, EAST_BEAST2_CODEC_NONE);
     CHECK(blob != NULL, "paged encode failed: %s", east_builtin_get_error());
     if (blob) {
         char digest[32];
-        snprintf(digest, sizeof(digest), "%016" PRIx64,
-                 east_beast2_fnv1a64(blob->data, blob->len));
+        snprintf(digest, sizeof(digest), "%016" PRIx64, east_beast2_fnv1a64(blob->data, blob->len));
         CHECK(strcmp(digest, SHARED_DICT_DIGEST) == 0,
               "shared-value Dict encodes differently from TypeScript: digest %s (expected %s)",
               digest, SHARED_DICT_DIGEST);
@@ -107,8 +106,8 @@ static void test_dict_sharing_is_content(void)
     EastValue *shared = tags_by_name(true);
     EastValue *copies = tags_by_name(false);
 
-    ByteBuffer *a = east_beast2_encode_paged(shared, type, EAST_BEAST2_CODEC_DEFLATE, 0);
-    ByteBuffer *b = east_beast2_encode_paged(copies, type, EAST_BEAST2_CODEC_DEFLATE, 0);
+    ByteBuffer *a = east_beast2_encode_paged(shared, type, EAST_BEAST2_CODEC_DEFLATE);
+    ByteBuffer *b = east_beast2_encode_paged(copies, type, EAST_BEAST2_CODEC_DEFLATE);
     CHECK(same_bytes(a, b), "paged: a Dict whose values share an array encodes differently "
                             "from one holding copies");
     byte_buffer_free(a);
@@ -142,8 +141,8 @@ static void test_array_sharing_is_content(void)
         east_value_release(copy);
     }
 
-    ByteBuffer *a = east_beast2_encode_paged(shared, type, EAST_BEAST2_CODEC_DEFLATE, 0);
-    ByteBuffer *b = east_beast2_encode_paged(copies, type, EAST_BEAST2_CODEC_DEFLATE, 0);
+    ByteBuffer *a = east_beast2_encode_paged(shared, type, EAST_BEAST2_CODEC_DEFLATE);
+    ByteBuffer *b = east_beast2_encode_paged(copies, type, EAST_BEAST2_CODEC_DEFLATE);
     CHECK(same_bytes(a, b), "an Array whose elements are one array encodes differently from "
                             "one holding copies");
     byte_buffer_free(a);
@@ -172,7 +171,7 @@ static void test_sharing_inside_an_element(void)
     EastValue *pairs = east_array_new(pair);
     east_array_push(pairs, element);
 
-    ByteBuffer *blob = east_beast2_encode_paged(pairs, type, EAST_BEAST2_CODEC_NONE, 0);
+    ByteBuffer *blob = east_beast2_encode_paged(pairs, type, EAST_BEAST2_CODEC_NONE);
     CHECK(blob != NULL, "paged encode failed: %s", east_builtin_get_error());
     if (blob) {
         EastValue *decoded = east_beast2_decode_full(blob->data, blob->len, type);
@@ -231,8 +230,8 @@ static void test_reset_after_the_table_grows(void)
         east_value_release(copy_row);
     }
 
-    ByteBuffer *a = east_beast2_encode_paged(shared, type, EAST_BEAST2_CODEC_NONE, 0);
-    ByteBuffer *b = east_beast2_encode_paged(copies, type, EAST_BEAST2_CODEC_NONE, 0);
+    ByteBuffer *a = east_beast2_encode_paged(shared, type, EAST_BEAST2_CODEC_NONE);
+    ByteBuffer *b = east_beast2_encode_paged(copies, type, EAST_BEAST2_CODEC_NONE);
     CHECK(same_bytes(a, b), "a container a large element shared leaked into a later element");
     byte_buffer_free(a);
     byte_buffer_free(b);

@@ -41,7 +41,6 @@
 typedef struct {
     ByteBuffer *logical; /* owned input; the worker frees it */
     ByteBuffer *frame;   /* owned output, NULL until done (or on OOM) */
-    size_t logical_len;  /* kept for the consumer's in-flight bound */
     bool done;
 } B2V5FrameJob;
 
@@ -169,25 +168,13 @@ struct Beast2StreamWriter {
     size_t seg_cap;
     EastValue *last_key; /* retained; greatest Set element / Dict key written */
     /* Frame parallelism (#763). Off unless the caller opts in with
-     * east_beast2_writer_set_parallel — a caller that sizes its batches
-     * from the bytes emitted must read them through the bounds API, or its
-     * segmentation would depend on thread timing. */
+     * east_beast2_writer_set_parallel. */
     bool parallel;
-    B2V5FramePool *pool;     /* created on the second segment */
-    size_t seg_appended;     /* segments whose frames are in `pending` */
-    size_t inflight_logical; /* logical bytes submitted but not appended */
-    size_t inflight_frames;  /* frames submitted but not appended */
-    size_t peak_inflight;    /* high-water mark of inflight_frames (gate) */
-    /* settle() calls that found frames in flight. A caller whose batch
-     * decisions keep landing between the bounds settles on nearly every
-     * segment, which makes the pool pure overhead; the writer then demotes
-     * itself to inline framing (see writer_push_segment). */
-    size_t settles_inflight;
+    B2V5FramePool *pool;    /* created on the second segment */
+    size_t seg_appended;    /* segments whose frames are in `pending` */
+    size_t inflight_frames; /* frames submitted but not appended */
+    size_t peak_inflight;   /* high-water mark of inflight_frames (gate) */
 };
-
-/* Demote a pool that keeps being settled once at least this many segments
- * have been written... */
-#define B2V5_POOL_DEMOTE_MIN_SEGMENTS 8
 
 Beast2StreamWriter *east_beast2_writer_new(EastType *type, int32_t codec_id, bool self_contained,
                                            bool with_index)
@@ -252,14 +239,12 @@ static bool writer_pool_append(Beast2StreamWriter *w, bool wait_all, size_t min_
             break;
         }
         ByteBuffer *frame = job->frame;
-        size_t logical_len = job->logical_len;
         job->frame = NULL;
         job->done = false;
         pool->appended++;
         east_mutex_unlock(&pool->lock);
 
         appended_now++;
-        w->inflight_logical -= logical_len;
         w->inflight_frames--;
         if (frame) {
             w->seg_offsets[w->seg_appended++] = w->total_emitted;
@@ -315,19 +300,6 @@ static bool writer_push_segment(Beast2StreamWriter *w, ByteBuffer *logical, size
         if (cpus >= 2) w->pool = b2v5_pool_new(w->codec, cpus);
         if (!w->pool) w->parallel = false;
     }
-    /* ...and when at least half of them needed a settle. Framing strategy
-     * never changes a byte, so demoting is always safe: drain what is in
-     * flight (the frames land in order), stop the workers, frame inline. */
-    if (w->pool && w->seg_count >= B2V5_POOL_DEMOTE_MIN_SEGMENTS &&
-        w->settles_inflight * 2 >= w->seg_count) {
-        if (!writer_pool_append(w, true, 0)) {
-            byte_buffer_free(logical);
-            return false;
-        }
-        b2v5_pool_free(w->pool);
-        w->pool = NULL;
-        w->parallel = false;
-    }
 
     if (!w->pool) {
         w->seg_offsets[w->seg_appended++] = w->total_emitted;
@@ -351,17 +323,14 @@ static bool writer_push_segment(Beast2StreamWriter *w, ByteBuffer *logical, size
             return false;
         }
     }
-    size_t logical_len = logical->len;
     east_mutex_lock(&pool->lock);
     B2V5FrameJob *job = &pool->ring[pool->submitted % pool->cap];
     job->logical = logical;
     job->frame = NULL;
-    job->logical_len = logical_len;
     job->done = false;
     pool->submitted++;
     east_cond_signal(&pool->work);
     east_mutex_unlock(&pool->lock);
-    w->inflight_logical += logical_len;
     w->inflight_frames++;
     if (w->inflight_frames > w->peak_inflight) w->peak_inflight = w->inflight_frames;
     return true;
@@ -486,6 +455,26 @@ wrong_kind:
     return false;
 }
 
+bool east_beast2_writer_write_encoded(Beast2StreamWriter *w, size_t count, const uint8_t *elements,
+                                      size_t len)
+{
+    if (!w) return false;
+    if (w->finished || w->failed) {
+        east_builtin_error("beast2 v5: write() after finish()");
+        return false;
+    }
+    if (count == 0) return true;
+    ByteBuffer *logical = byte_buffer_new(len + 10);
+    if (!logical) {
+        east_builtin_error("beast2 v5: out of memory framing a segment");
+        w->failed = true;
+        return false;
+    }
+    write_varint(logical, (uint64_t)count);
+    byte_buffer_write_bytes(logical, elements, len);
+    return writer_push_segment(w, logical, count); /* takes ownership */
+}
+
 ByteBuffer *east_beast2_writer_take(Beast2StreamWriter *w)
 {
     if (!w) return NULL;
@@ -534,30 +523,6 @@ void east_beast2_writer_set_parallel(Beast2StreamWriter *w, bool parallel)
     if (w && !w->pool) w->parallel = parallel;
 }
 
-void east_beast2_writer_emitted_bounds(Beast2StreamWriter *w, size_t *lo, size_t *hi)
-{
-    if (!w) {
-        if (lo) *lo = 0;
-        if (hi) *hi = 0;
-        return;
-    }
-    /* Opportunistically settle what is already done, so the bounds are as
-     * tight as they can be without waiting. */
-    if (w->pool) writer_pool_append(w, false, 0);
-    if (lo) *lo = w->total_emitted;
-    if (hi)
-        *hi = w->total_emitted + w->inflight_logical +
-              w->inflight_frames * (size_t)B2V5_FRAME_HEADER_MAX;
-}
-
-bool east_beast2_writer_settle(Beast2StreamWriter *w)
-{
-    if (!w) return false;
-    if (!w->pool) return !w->failed;
-    if (w->inflight_frames > 0) w->settles_inflight++;
-    return writer_pool_append(w, true, 0);
-}
-
 void east_beast2_writer_free(Beast2StreamWriter *w)
 {
     if (!w) return;
@@ -574,150 +539,218 @@ void east_beast2_writer_free(Beast2StreamWriter *w)
 }
 
 /* ================================================================== */
+/*  Canonical element writer                                           */
+/* ================================================================== */
+
+struct Beast2ElementWriter {
+    Beast2StreamWriter *stream; /* frames the segments this writer cuts */
+    EastType *type;             /* borrowed from the stream writer */
+    B2V5EncodeCtx ctx;          /* aliasing scoped per element */
+    ByteBuffer *open;           /* the open segment's elements, back to back */
+    size_t count;               /* elements (pairs) in the open segment */
+    B2V5Cutter cutter;
+    EastValue *last_key; /* retained; the last Set element / Dict key added */
+    bool finished;
+};
+
+Beast2ElementWriter *east_beast2_element_writer_new(EastType *type, int32_t codec_id)
+{
+    Beast2StreamWriter *stream = east_beast2_writer_new(type, codec_id, true, true);
+    if (!stream) return NULL;
+    Beast2ElementWriter *w = calloc(1, sizeof(*w));
+    ByteBuffer *open = byte_buffer_new(4096);
+    if (!w || !open) {
+        free(w);
+        byte_buffer_free(open);
+        east_beast2_writer_free(stream);
+        east_builtin_error("beast2 v5: out of memory building an element writer");
+        return NULL;
+    }
+    w->stream = stream;
+    w->type = stream->type;
+    w->open = open;
+    b2v5_enc_ctx_init(&w->ctx, NULL, true);
+    w->ctx.def_count = 1;
+    w->ctx.segment_base_def = 1;
+    return w;
+}
+
+void east_beast2_element_writer_set_parallel(Beast2ElementWriter *w, bool parallel)
+{
+    if (w) east_beast2_writer_set_parallel(w->stream, parallel);
+}
+
+/* Accounts for the element just appended to the open segment at `start`, and
+ * when the cut rule starts a segment at it, writes out the segment it closes
+ * and carries the element to the front of the next. */
+static bool element_writer_place(Beast2ElementWriter *w, size_t start, size_t key_len)
+{
+    const uint8_t *element = w->open->data + start;
+    size_t len = w->open->len - start;
+    /* An Array element has no key, so the rule hashes it whole. */
+    size_t hashed = w->type->kind == EAST_TYPE_ARRAY ? len : key_len;
+    if (b2v5_cutter_starts_segment(&w->cutter, len, element, hashed)) {
+        if (!east_beast2_writer_write_encoded(w->stream, w->count, w->open->data, start))
+            return false;
+        memmove(w->open->data, element, len);
+        w->open->len = len;
+        w->count = 0;
+    }
+    w->count++;
+    return true;
+}
+
+/* The strict-ascent check of a Set element or Dict key against the last. */
+static bool element_writer_ascends(Beast2ElementWriter *w, EastValue *key)
+{
+    if (!w->last_key || east_value_compare(w->last_key, key) < 0) return true;
+    east_builtin_error(w->type->kind == EAST_TYPE_SET
+                           ? "beast2 v5: Set elements must arrive strictly ascending in East "
+                             "order — the blob holds the canonical value; sort them first, or "
+                             "write arrival order as an Array"
+                           : "beast2 v5: Dict keys must arrive strictly ascending in East order — "
+                             "the blob holds the canonical value; sort them first, or write "
+                             "arrival order as an Array");
+    return false;
+}
+
+/* Encodes `head` (an Array/Set element or a Dict key) and, for a Dict,
+ * `value` as one element of the open segment. A failed encode takes its
+ * partial bytes back, leaving the writer as it was. */
+static bool element_writer_encode(Beast2ElementWriter *w, EastValue *head, EastValue *value)
+{
+    if (w->finished) {
+        east_builtin_error("beast2 v5: add() after finish()");
+        return false;
+    }
+    if (w->type->kind != EAST_TYPE_ARRAY && !element_writer_ascends(w, head)) return false;
+    size_t start = w->open->len;
+    /* Aliasing is scoped to the element, so no REF reaches a neighbour and
+     * the element's bytes depend on it alone. */
+    b2v5_enc_ctx_begin_element(&w->ctx);
+    EastType *head_type =
+        w->type->kind == EAST_TYPE_DICT ? w->type->data.dict.key : w->type->data.element;
+    b2v5_encode_value(w->open, head, head_type, &w->ctx);
+    size_t key_len = w->open->len - start;
+    if (value && !w->ctx.failed)
+        b2v5_encode_value(w->open, value, w->type->data.dict.value, &w->ctx);
+    if (w->ctx.failed) {
+        w->open->len = start;
+        w->ctx.failed = false;
+        return false;
+    }
+    if (w->type->kind != EAST_TYPE_ARRAY) {
+        east_value_retain(head);
+        if (w->last_key) east_value_release(w->last_key);
+        w->last_key = head;
+    }
+    return element_writer_place(w, start, key_len);
+}
+
+bool east_beast2_element_writer_add(Beast2ElementWriter *w, EastValue *element)
+{
+    if (!w || !element) return false;
+    if (w->type->kind == EAST_TYPE_DICT) {
+        east_builtin_error("beast2 v5: a Dict writer takes pairs (add_pair)");
+        return false;
+    }
+    return element_writer_encode(w, element, NULL);
+}
+
+bool east_beast2_element_writer_add_pair(Beast2ElementWriter *w, EastValue *key, EastValue *value)
+{
+    if (!w || !key || !value) return false;
+    if (w->type->kind != EAST_TYPE_DICT) {
+        east_builtin_error("beast2 v5: only a Dict writer takes pairs");
+        return false;
+    }
+    return element_writer_encode(w, key, value);
+}
+
+bool east_beast2_element_writer_add_encoded(Beast2ElementWriter *w, const uint8_t *element,
+                                            size_t len, size_t key_len)
+{
+    if (!w || (!element && len > 0)) return false;
+    if (w->finished) {
+        east_builtin_error("beast2 v5: add() after finish()");
+        return false;
+    }
+    size_t start = w->open->len;
+    byte_buffer_write_bytes(w->open, element, len);
+    if (w->open->len != start + len) {
+        east_builtin_error("beast2 v5: out of memory adding an element");
+        return false;
+    }
+    return element_writer_place(w, start, w->type->kind == EAST_TYPE_SET ? len : key_len);
+}
+
+ByteBuffer *east_beast2_element_writer_take(Beast2ElementWriter *w)
+{
+    return w ? east_beast2_writer_take(w->stream) : NULL;
+}
+
+bool east_beast2_element_writer_finish(Beast2ElementWriter *w)
+{
+    if (!w) return false;
+    if (w->finished) return !w->stream->failed;
+    w->finished = true;
+    if (!east_beast2_writer_write_encoded(w->stream, w->count, w->open->data, w->open->len))
+        return false;
+    w->count = 0;
+    w->open->len = 0;
+    return east_beast2_writer_finish(w->stream);
+}
+
+size_t east_beast2_element_writer_segments(const Beast2ElementWriter *w)
+{
+    return w ? w->stream->seg_count : 0;
+}
+
+void east_beast2_element_writer_free(Beast2ElementWriter *w)
+{
+    if (!w) return;
+    east_beast2_writer_free(w->stream);
+    b2v5_enc_ctx_free(&w->ctx);
+    byte_buffer_free(w->open);
+    if (w->last_key) east_value_release(w->last_key);
+    free(w);
+}
+
+/* ================================================================== */
 /*  Paged whole-value encode                                           */
 /* ================================================================== */
 
-#define B2V5_PAGED_BATCH_DEFAULT 1000
-#define B2V5_PAGED_TARGET_BYTES_DEFAULT (2 * 1024 * 1024)
-#define B2V5_PAGED_PROBE_BATCH 16
-
-/* Build a batch container holding elements [i, j) of value, in canonical
- * order (btree walks are already sorted, so the writer's ascent check passes
- * by construction). */
-static EastValue *paged_batch(EastValue *value, EastType *type, size_t i, size_t j)
-{
-    EastValue *batch = b2v5_new_segment_container(type, j - i);
-    if (!batch) return NULL;
-    if (type->kind == EAST_TYPE_ARRAY) {
-        for (size_t k = i; k < j; k++)
-            east_array_push(batch, value->data.array.items[k]);
-    } else if (type->kind == EAST_TYPE_SET) {
-        for (size_t k = i; k < j; k++)
-            east_set_insert(batch, east_set_at(value, k));
-    } else {
-        for (size_t k = i; k < j; k++)
-            east_dict_set(batch, east_dict_key_at(value, k), east_dict_val_at(value, k));
-    }
-    return batch;
-}
-
-/* The batch refinement every collection writer shares (serialization.h):
- * `body` wire bytes over `written` elements, toward `target` bytes per
- * segment, clamped to the element cap. Non-increasing in `body`, which is
- * what makes a bounded decision exact. */
-size_t east_beast2_paged_next_batch(size_t target, size_t body, size_t written)
-{
-    double avg = written > 0 ? (double)body / (double)written : 1.0;
-    if (avg < 1.0) avg = 1.0;
-    size_t nb = (size_t)((double)target / avg);
-    return nb < 1 ? 1 : nb > B2V5_PAGED_BATCH_DEFAULT ? (size_t)B2V5_PAGED_BATCH_DEFAULT : nb;
-}
-
-ByteBuffer *east_beast2_encode_paged(EastValue *value, EastType *type, int32_t codec_id,
-                                     size_t target_segment_bytes)
+ByteBuffer *east_beast2_encode_paged(EastValue *value, EastType *type, int32_t codec_id)
 {
     if (!value || !type) return NULL;
     if (!b2v5_is_segmented_root(type)) {
         east_builtin_error("beast2 v5: paged encode holds Array, Set or Dict values");
         return NULL;
     }
-    size_t target =
-        target_segment_bytes ? target_segment_bytes : (size_t)B2V5_PAGED_TARGET_BYTES_DEFAULT;
-    size_t n = type->kind == EAST_TYPE_ARRAY ? value->data.array.len
-               : type->kind == EAST_TYPE_SET ? value->data.set.len
-                                             : value->data.dict.len;
-
-    /* A Set or Dict is cut by the content rule: whether a segment starts
-     * depends only on the keys since the last boundary, so there is no probe,
-     * no byte measurement and no refinement — and every runtime's encode of
-     * this value lands on the same segments. A caller that names a byte target
-     * is asking for a geometry of its own and gets the positional path, as the
-     * TypeScript encoder's `targetSegmentBytes` does. */
-    if (type->kind != EAST_TYPE_ARRAY && target_segment_bytes == 0) {
-        B2V5Cutter cut;
-        if (!b2v5_cutter_init(&cut, type)) return NULL;
-        Beast2StreamWriter *kw = east_beast2_writer_new(type, codec_id, true, true);
-        if (!kw) {
-            b2v5_cutter_free(&cut);
-            return NULL;
-        }
-        east_beast2_writer_set_parallel(kw, true);
-        bool kok = true;
-        size_t start = 0;
-        for (size_t k = 0; k < n && kok; k++) {
-            EastValue *key =
-                type->kind == EAST_TYPE_SET ? east_set_at(value, k) : east_dict_key_at(value, k);
-            if (!b2v5_cutter_starts_segment(&cut, key)) continue;
-            EastValue *batch = paged_batch(value, type, start, k);
-            kok = batch && east_beast2_writer_write(kw, batch);
-            if (batch) east_value_release(batch);
-            start = k;
-        }
-        if (kok && start < n) {
-            EastValue *batch = paged_batch(value, type, start, n);
-            kok = batch && east_beast2_writer_write(kw, batch);
-            if (batch) east_value_release(batch);
-        }
-        if (kok) kok = east_beast2_writer_finish(kw);
-        ByteBuffer *kout = kok ? east_beast2_writer_take(kw) : NULL;
-        east_beast2_writer_free(kw);
-        b2v5_cutter_free(&cut);
-        return kout;
-    }
-
-    /* Probe: a throwaway scratch encode of the first few elements measures
-     * the average wire size and seeds the batch size. */
-    size_t next_batch = B2V5_PAGED_BATCH_DEFAULT;
-    size_t probe_n = n < B2V5_PAGED_PROBE_BATCH ? n : (size_t)B2V5_PAGED_PROBE_BATCH;
-    if (probe_n > 0) {
-        Beast2StreamWriter *scratch = east_beast2_writer_new(type, codec_id, true, true);
-        if (!scratch) return NULL;
-        size_t header = scratch->total_emitted;
-        EastValue *pb = paged_batch(value, type, 0, probe_n);
-        bool ok = pb && east_beast2_writer_write(scratch, pb);
-        if (pb) east_value_release(pb);
-        size_t body = scratch->total_emitted - header;
-        east_beast2_writer_free(scratch);
-        if (!ok) return NULL;
-        next_batch = east_beast2_paged_next_batch(target, body, probe_n);
-    }
-
-    Beast2StreamWriter *w = east_beast2_writer_new(type, codec_id, true, true);
+    Beast2ElementWriter *w = east_beast2_element_writer_new(type, codec_id);
     if (!w) return NULL;
-    /* Frames deflate on worker threads (#763); the batch refinement below
-     * reads the emitted total through bounds so the segmentation — and so
-     * every byte — is exactly the inline writer's. */
-    east_beast2_writer_set_parallel(w, true);
-    size_t header = w->total_emitted;
-    size_t written = 0;
-    size_t i = 0;
+    /* Frames deflate on worker threads (#763); where the segments fall never
+     * depends on it. */
+    east_beast2_element_writer_set_parallel(w, true);
     bool ok = true;
-    while (i < n && ok) {
-        size_t j = i + next_batch;
-        if (j > n) j = n;
-        EastValue *batch = paged_batch(value, type, i, j);
-        ok = batch && east_beast2_writer_write(w, batch);
-        if (batch) east_value_release(batch);
-        if (!ok) break;
-        written += j - i;
-        i = j;
-        /* Refine toward the target as real output accumulates. The decision
-         * is monotone in the emitted total, so agreeing decisions at both
-         * bounds ARE the exact decision; otherwise wait for the frames. */
-        size_t lo, hi;
-        east_beast2_writer_emitted_bounds(w, &lo, &hi);
-        size_t at_lo = east_beast2_paged_next_batch(target, lo - header, written);
-        size_t at_hi = east_beast2_paged_next_batch(target, hi - header, written);
-        if (at_lo != at_hi) {
-            ok = east_beast2_writer_settle(w);
-            east_beast2_writer_emitted_bounds(w, &lo, &hi);
-            at_lo = east_beast2_paged_next_batch(target, lo - header, written);
-        }
-        next_batch = at_lo;
+    switch (type->kind) {
+    case EAST_TYPE_ARRAY:
+        for (size_t i = 0; ok && i < value->data.array.len; i++)
+            ok = east_beast2_element_writer_add(w, value->data.array.items[i]);
+        break;
+    case EAST_TYPE_SET:
+        for (size_t i = 0; ok && i < value->data.set.len; i++)
+            ok = east_beast2_element_writer_add(w, east_set_at(value, i));
+        break;
+    default:
+        for (size_t i = 0; ok && i < value->data.dict.len; i++)
+            ok = east_beast2_element_writer_add_pair(w, east_dict_key_at(value, i),
+                                                     east_dict_val_at(value, i));
+        break;
     }
-    if (ok) ok = east_beast2_writer_finish(w);
-    ByteBuffer *out = ok ? east_beast2_writer_take(w) : NULL;
-    east_beast2_writer_free(w);
+    if (ok) ok = east_beast2_element_writer_finish(w);
+    ByteBuffer *out = ok ? east_beast2_element_writer_take(w) : NULL;
+    east_beast2_element_writer_free(w);
     return out;
 }
 

@@ -2,7 +2,8 @@
 
 > Status: **proposal** · 2026-09-04 · revised 2026-09-22 (§9–§11: secondary
 > indexes, the mutation delta, steps for records; §7.3 corrected; §12–§17
-> renumbered from §9–§14) · 2026-09-23 (§8.7 rule 3: the byte bound decided)
+> renumbered from §9–§14) · 2026-09-23 (§8.7 rule 3: the byte bound decided,
+> then shipped as the size-aware rule `/2`)
 > Audience: e3 maintainers. Companion to [`e3-records.md`](./e3-records.md)
 > (the records spec) and [`e3-records-storage.md`](./e3-records-storage.md)
 > (the storage decision record). Resolves the §13 open question *"Redeploy
@@ -657,11 +658,10 @@ whole-value term grows with row count (~20 s at 729k rows); the segment term
 does not.
 
 **Segment split/merge.** Inserts grow a segment, deletes shrink it. Split a
-rebuilt segment exceeding 2× `BEAST2_PAGED_TARGET_BYTES_DEFAULT` (2 MiB) or 2×
-`BEAST2_PAGED_BATCH_DEFAULT` (1000 elements) at its median key — free, since
-`rebuildBeast2` already takes an *iterable of batches*; merge with the follower
-below ½. Constants pinned and parity-fixtured local↔cloud (inherited from #413
-D2). The result is a self-balancing one-level index over segments — the prolly
+rebuilt segment exceeding twice the paged encoder's segment target, in bytes or
+in elements, at its median key — free, since `rebuildBeast2` already takes an
+*iterable of batches*; merge with the follower below ½. Constants pinned and
+parity-fixtured local↔cloud (inherited from #413 D2). The result is a self-balancing one-level index over segments — the prolly
 tree of the storage decision record, on a format that already exists and is
 already compliance-tested in all three runtimes. Under §8.7 rule 3 the boundary
 is content-defined: split and merge are simply what re-running the rule over the
@@ -862,10 +862,10 @@ system.
 ### 8.3 The 5 MiB floor is the real engineering constraint
 
 S3 requires every multipart part except the last to be ≥ 5 MiB (max 10,000
-parts). Segments target 2 MiB (`BEAST2_PAGED_TARGET_BYTES_DEFAULT`) and are
-frequently *far* smaller — #635 measured a ~12 KB mean frame at 400k rows,
-because the 1000-element batch cap binds long before the byte target for narrow
-rows. So **one segment cannot be one part**, and the plan must be coalesced:
+parts). Segments are bounded well below that and are frequently *far* smaller —
+#635 measured a ~12 KB mean frame at 400k rows, because for narrow rows the
+element count bounds a segment long before its bytes do. So **one segment
+cannot be one part**, and the plan must be coalesced:
 
 1. Merge adjacent `copy` parts into single ranges (always sound — they are
    contiguous ranges of the same object).
@@ -1046,48 +1046,60 @@ longer applies; they stay in this document as the considered alternative until
    pure function of the value, never of edit history: equal values produce
    equal manifests, and two states diff in O(changed segments).
 
-   **Resolved (2026-09-22), rule id `cdc/fnv1a64/256-1024-4096/1`.** Walking a
-   Set or Dict's keys in canonical order, a new segment begins at key *k* when
-   the open segment already holds at least `MIN = 256` elements and either
-   `fnv1a64(canonical bare encoding of k) & 1023 == 0` — so segments average
-   `TARGET = 1024` elements — or the open segment has reached `MAX = 4096`.
-   Array roots have no key to hash and keep the paged encoder's byte-adaptive
-   batching under the id `pos/1000-2MiB/1`; their segmentation is a property of
-   the writer rather than of the value.
+   **Resolved (2026-09-22) as `cdc/fnv1a64/256-1024-4096/1`, superseded
+   (2026-09-23) by the size-aware rules `cdc/keyed/fnv1a-fmix32/256-1024-4096/64K-1M-8M/2`
+   and `cdc/array/fnv1a-fmix32/256-1024-4096/64K-1M-8M/2`**, which
+   `libs/east/src/serialization/beast2/v5/SPEC.md` ("Segmentation rules")
+   states exactly. Walking the elements in canonical order, a new segment
+   begins at element *e* when the open segment has reached `MAX = 4096`
+   elements or 8 MiB of logical bytes, or when it holds at least `MIN = 256`
+   elements or 64 KiB and *e*'s boundary hash falls under a threshold — one
+   element in `TARGET = 1024` for narrow elements, rising with the open
+   segment's average element size so that wide ones cut near 1 MiB. A Set or
+   Dict hashes each key's canonical bare encoding, an Array each element's
+   canonical bytes, so Array segmentation is a property of the value too.
+   `/1` cut Set and Dict roots by the hash alone, counting elements, and Array
+   roots positionally (`pos/1000-2MiB/1`).
 
    Three things about that shape are load-bearing.
 
    - **The cut falls before the boundary key, not after it**, so the key that
      decided a boundary IS that segment's fence — which the manifest already
      stores and a bare blob's reader already probes. A reader can therefore
-     answer *"was this cut by the rule?"* from the segment index alone, which
-     is what lets a conforming runner's output be carved into segment objects
-     by byte copy rather than decoded and re-encoded. The test is necessary
-     rather than sufficient — a writer that skipped a boundary key inside a
-     segment cannot be caught without decoding it — and that is enough: the
-     writers are the three runtimes' encoders, and a positionally batched blob
-     fails it almost surely.
-   - **The bounds are element counts, never bytes.** The only byte count a
-     writer knows as it cuts is the compressed one, and deflate output is not
-     byte-identical across zlib builds, so a byte bound could not be part of a
-     rule three runtimes must agree on. The exposure this leaves is wide rows:
-     at the 53 B/row of the sizes below a segment is ~52 KiB, but a row holding
-     a nested collection at 10 KB makes a 1024-element segment ~10 MB, and a
-     segment is the unit of every random read and of every one-row rewrite —
-     measured, a `Dict<String, Blob>` of 300 one-MiB blobs is a single 300 MiB
-     segment. *Decided 2026-09-23: shipped count-only.* A plain cap on logical
-     (pre-deflate) bytes, deterministic as it would be, is the wrong fix: for
-     wide rows its cuts land more often than the 256 elements a hash cut
-     needs, so they never line up with the hash cuts again, and one row
-     growing by a byte re-cuts every segment after it — a wide-row mutation
-     becomes O(state), the cost this layout exists to remove. A bound that
-     keeps edit locality has to make the boundary test itself size-aware,
-     which is #788; it lands under a new rule id, and a manifest cut under an
-     older one is re-cut whole on its first write.
+     answer *"was this cut by the rule?"* for a Set or Dict from the fences,
+     the counts and each segment's logical size, which its frame header
+     declares — nothing is decoded — and that is what lets a conforming
+     runner's output be carved into segment objects by byte copy rather than
+     decoded and re-encoded. The test is necessary rather than sufficient — a
+     writer that skipped a boundary key inside a segment cannot be caught
+     without decoding it — and that is enough: the writers are the three
+     runtimes' encoders, and a blob cut any other way fails it almost surely.
+     An Array's deciding bytes are whole elements, which no fence carries, so
+     its segmentation is adopted as it stands.
+   - **The bounds count logical bytes as well as elements, and the boundary
+     test itself is size-aware.** A byte bound must be one three runtimes agree
+     on, so it counts *logical* (pre-deflate) bytes: scoping aliasing per root
+     element makes an element's canonical encoding a function of the element
+     alone, where a compressed size depends on its neighbours. Under `/1`,
+     which counted elements only, a row holding a nested collection at 10 KB
+     made a 1024-element segment ~10 MB, and a `Dict<String, Blob>` of 300
+     one-MiB blobs was a single 300 MiB segment — and a segment is the unit of
+     every random read and of every one-row rewrite. A plain cap on logical
+     bytes would have been the wrong fix: for wide rows its cuts land more
+     often than the minimum a hash cut needs, so they never line up with the
+     hash cuts again, and one row growing by a byte re-cuts every segment after
+     it — a wide-row mutation becomes O(state), the cost this layout exists to
+     remove. Raising the hash threshold with the open segment's average
+     element size keeps every cut a function of the elements since the
+     previous one, so edits stay local, and the 300-blob Dict is 300 segments
+     of one blob each. A manifest cut under `/1` is laid out again whole on
+     its first write, once (#788).
    - **FNV-1a rather than SHA-256**, because it is one multiply and one xor per
-     byte with no state beyond a 64-bit accumulator, so every runtime
-     reproduces it in a few lines and the per-element cost stays under the
-     key's own encode. It carries no security claim: a key chosen to avoid
+     byte with no state beyond a 32-bit accumulator — the low word of the
+     64-bit hash evolves on its own — so every runtime reproduces it in a few
+     lines and the per-element cost stays under the key's own encode; murmur3's
+     finalizer then spreads every input bit over the word before the threshold
+     compares it. It carries no security claim: a key chosen to avoid
      boundaries only lengthens a segment as far as `MAX`.
 4. **The manifest carries now what a second index level and a changed boundary
    rule will need** — BEAST2 is positional, so adding these later is another
@@ -2112,7 +2124,8 @@ apply, which is the user-visible capability of this revision.
   boundary key. See §8.7 rule 3 for why each is what it is. The sub-question
   of a byte bound is decided there too (2026-09-23): not a plain cap on
   logical bytes, which would cost wide-row edits their locality, but a
-  size-aware boundary test under a new rule id — #788.
+  size-aware boundary test under a new rule id — #788, shipped as the `/2`
+  rules, which cut Arrays by content as well.
 - **Header byte identity across runtimes (§8.7 rule 2).** `spliceBeast2` needs
   byte-identical header prefixes, and type sections are not guaranteed
   byte-identical across independently built encoders (§8.4). The manifest pins

@@ -13,24 +13,37 @@
 
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { IntegerType, StringType, ArrayType, SetType, DictType, StructType } from "../../../types.js";
+import { IntegerType, StringType, ArrayType, SetType, DictType, StructType, type EastType } from "../../../types.js";
 import { compareFor, equalFor } from "../../../comparison.js";
 import { SortedMap, SortedSet, isFrozenValue } from "../../../index.js";
 import {
   decodeBeast2For,
   encodeBeast2For,
-  encodeBeast2PagedFor,
+  encodeBeast2SegmentsFor,
   openBeast2LazyFor,
   openBeast2PagesFor,
   readBeast2Extents,
   readBeast2ExtentsRanged,
   readBeast2ExtentsSync,
+  type Beast2Codec,
   type Beast2SyncRangeReader,
 } from "../index.js";
 
 const RowType = StructType({ id: IntegerType, name: StringType });
 const TableType = DictType(IntegerType, RowType);
-const PAGED = { batchSize: 100 };
+
+/** A collection in canonical order as a blob of `size`-element segments — a
+ *  geometry chosen here rather than by the cut rule, so the accounting below
+ *  can name the segment each read lands in. */
+function paged(type: EastType, value: Iterable<unknown>, size = 100, codec?: Beast2Codec): Uint8Array {
+  const items = [...value];
+  const batches: unknown[] = [];
+  for (let i = 0; i < items.length; i += size) {
+    const chunk = items.slice(i, i + size);
+    batches.push(type.type === "Dict" ? new Map(chunk as [unknown, unknown][]) : type.type === "Set" ? new Set(chunk) : chunk);
+  }
+  return encodeBeast2SegmentsFor(type, codec === undefined ? undefined : { codec })(batches as never);
+}
 
 /** Rows whose names carry a hash suffix, so the deflated blob outgrows the
  *  64 KiB tail probe: the I/O accounting below only means something when the
@@ -65,7 +78,7 @@ class CountingReader implements Beast2SyncRangeReader {
 
 describe("Beast2 v5 — sync range reader: extents", () => {
   test("the sync extents equal the whole-blob and the async ranged reads", async () => {
-    const blob = encodeBeast2PagedFor(TableType, PAGED)(makeTable(6000));
+    const blob = paged(TableType, makeTable(6000));
     assert.ok(blob.length > 64 * 1024 + 4096, `fixture must outgrow the tail probe (${blob.length} bytes)`);
     const whole = readBeast2Extents(blob);
     const reader = new CountingReader(blob);
@@ -91,7 +104,7 @@ describe("Beast2 v5 — sync range reader: extents", () => {
   });
 
   test("a tiny tail probe takes the second tail read and still agrees", () => {
-    const blob = encodeBeast2PagedFor(TableType, { batchSize: 5 })(makeTable(400));
+    const blob = paged(TableType, makeTable(400), 5);
     const reader = new CountingReader(blob);
     const ext = readBeast2Extents(reader, { tailProbeBytes: 16 });
     assert.equal(ext.offsets.length, 80);
@@ -109,7 +122,7 @@ describe("Beast2 v5 — sync range reader: extents", () => {
 
 describe("Beast2 v5 — sync range reader: pages and lazy values", () => {
   const table = makeTable(6000);
-  const blob = encodeBeast2PagedFor(TableType, PAGED)(table);
+  const blob = paged(TableType, table);
   const extents = readBeast2Extents(blob);
   const segments = extents.offsets.length;
 
@@ -162,7 +175,7 @@ describe("Beast2 v5 — sync range reader: pages and lazy values", () => {
   test("array index reads and set membership fetch one frame each", () => {
     const Rows = ArrayType(StringType);
     const rows = Array.from({ length: 260 }, (_, i) => `row-${i}`);
-    const rowsBlob = encodeBeast2PagedFor(Rows, PAGED)(rows);
+    const rowsBlob = paged(Rows, rows);
     const rowsExt = readBeast2Extents(rowsBlob);
     const rowsReader = new CountingReader(rowsBlob);
     const lazyRows = openBeast2LazyFor(Rows)(rowsReader);
@@ -173,7 +186,7 @@ describe("Beast2 v5 — sync range reader: pages and lazy values", () => {
 
     const Tags = SetType(StringType);
     const tags = new SortedSet(Array.from({ length: 300 }, (_, i) => `tag-${String(i).padStart(4, "0")}`), compareFor(StringType));
-    const tagsBlob = encodeBeast2PagedFor(Tags, PAGED)(tags);
+    const tagsBlob = paged(Tags, tags);
     const tagsExt = readBeast2Extents(tagsBlob);
     const tagsReader = new CountingReader(tagsBlob);
     const lazyTags = openBeast2LazyFor(Tags)(tagsReader);
@@ -200,7 +213,7 @@ describe("Beast2 v5 — sync range reader: pages and lazy values", () => {
     };
     const table = wide(4000);
     for (const codec of ["none", "deflate"] as const) {
-      const blob = encodeBeast2PagedFor(TableType, { batchSize: 500, codec })(table);
+      const blob = paged(TableType, table, 500, codec);
       const ext = readBeast2Extents(blob);
       const reader = new CountingReader(blob);
       const lazy = openBeast2LazyFor(TableType)(reader);

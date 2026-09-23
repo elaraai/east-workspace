@@ -250,8 +250,9 @@ Task → What do you need?
             ├─ Whole value → encodeBeast2For(T)(value) / decodeBeast2For(T)(blob)
             │   └─ Don't know the type? → decodeBeast2(blob) → { type, value }
             ├─ Collection too big for memory
-            │   ├─ Write → new Beast2Writer(T, sink); w.write(batch); w.finish()  — memory is ONE batch; Set/Dict batches must ascend in East key order
-            │   │   └─ already in memory → encodeBeast2SegmentsFor(T)(batches)
+            │   ├─ Write → new Beast2ElementWriter(T, sink); w.add(element); w.finish()  — memory is ONE segment; the cut rule places the segments, so the bytes are the value's own; Set elements / Dict [k, v] pairs ascend in East key order
+            │   │   ├─ already in memory → encodeBeast2PagedFor(T)(value)
+            │   │   └─ segments of your own choosing → new Beast2Writer(T, sink).write(batch) / encodeBeast2SegmentsFor(T)(batches)
             │   ├─ Read a batch at a time → iterBeast2SegmentsFor(T)(blob)   — O(segment)
             │   └─ Read whole (segments concatenate) → decodeBeast2For(T)(blob)
             ├─ Random access by row → openBeast2PagesFor(T)(blob) → .elementCount, .segment(i), .element(row), .slice(offset, limit), .get(key)
@@ -637,9 +638,10 @@ no call-site change to adopt a newer container.
 | `decodeBeast2ForAsync(T, opts?): (blob) => Promise<…>` | Same as `decodeBeast2For`, but decompresses via the platform's native `DecompressionStream` — an optional speed-up for large blobs in browsers |
 | `encodeEastIR(eastIR)` / `decodeEastIR(blob)` | A program plus its source map, so `loc_id`s stay resolvable across processes |
 | **Collections larger than memory** (v5) |
-| `new Beast2Writer(T, sink, opts?)` | Append-only writer. `.write(batch)` emits one segment per non-empty batch — peak memory is ONE batch, never the collection; `.finish()` writes the terminator and paging index; `.segments` counts batches. `sink` is `(bytes: Uint8Array) => void`. Set/Dict batches must arrive in strict ascending East (key) order — segment content is the canonical value, so pre-sort, or model arrival order as an Array |
-| `encodeBeast2SegmentsFor(T, opts?): (batches) => Uint8Array` | In-memory convenience over the writer |
-| `encodeBeast2PagedFor(T, opts?): (value) => Uint8Array` | Encode ONE whole collection value segmented + indexed — the write-side sibling of `openBeast2PagesFor`, for values that will be read paged later. Batches adapt to `opts.targetSegmentBytes` of wire output (capped at `opts.batchSize` elements), so wide rows still yield right-sized segments. Same wire form as the writer; bytes differ from the whole-value encode of the same value |
+| `new Beast2ElementWriter(T, sink, opts?)` | The canonical writer. `.add(element)` takes one Array/Set element or one Dict `[key, value]` pair — Set elements and Dict keys strictly ascending in East order — and segments come out where the content-defined cut rule places them, bounded in both elements and bytes, so wide rows never pile into one segment and a one-row edit re-cuts only the segments around it. Memory is one open segment; `.finish()` writes the last segment, terminator and index; `.segments` counts the closed ones. The bytes are a function of the value, identical from east-c and east-py. `opts.codec`, `opts.parallel` |
+| `encodeBeast2PagedFor(T, opts?): (value) => Uint8Array` | ONE whole collection value through the element writer — the write-side sibling of `openBeast2PagesFor`, and what every runner writes for a collection output. Plain `Map`/`Set` inputs are sorted first. `opts.codec` |
+| `new Beast2Writer(T, sink, opts?)` | Append-only writer for segments of your own choosing: `.write(batch)` emits one segment per non-empty batch — peak memory is ONE batch; `.finish()` writes the terminator and paging index; `.segments` counts batches. `sink` is `(bytes: Uint8Array) => void`. Set/Dict batches must arrive in strict ascending East (key) order |
+| `encodeBeast2SegmentsFor(T, opts?): (batches) => Uint8Array` | In-memory convenience over `Beast2Writer` |
 | `iterBeast2SegmentsFor(T, opts?): (blob) => Generator` | Yields one decoded collection per segment — O(segment) decoded memory |
 | `openBeast2PagesFor(T, opts?): (source) => Beast2Pages` | Random access: `.elementCount` and `.segmentCount` are O(1) from the trailing index; `.segment(i)`, `.element(row)` (Array roots) and `.slice(offset, limit)` (every root kind — Set/Dict windows address the canonical sorted order; clamps like `Array.slice`) decode only the segments they touch; `.get(key)` looks up one Set element / Dict value via the verified segment fences. `source` is the blob or a `Beast2SyncRangeReader` |
 | `openBeast2LazyFor(T, opts?): (source) => ValueTypeOf<T>` | An ordinary `SortedMap` / `SortedSet` / array served from the index: `size`, keyed reads and single-pass iteration decode one segment at a time; any other operation hydrates once, so the value is observationally the eager decode. `opts.frozen` opens it frozen (mutation refused, value semantics under `Is`), which is what `blob.openBeast` and `FileSystem.openBeast` do. `isBeast2LazySafe(T, { frozen })` is the element-shape gate (only `Ref`- and function-bearing shapes decode whole when frozen) |
@@ -650,15 +652,15 @@ no call-site change to adopt a newer container.
 import { createWriteStream } from "node:fs";
 import {
     ArrayType, StructType, StringType, IntegerType,
-    Beast2Writer, iterBeast2SegmentsFor, openBeast2PagesFor, decodeBeast2For,
+    Beast2ElementWriter, iterBeast2SegmentsFor, openBeast2PagesFor, decodeBeast2For,
 } from "@elaraai/east";
 
 const Rows = ArrayType(StructType({ id: IntegerType, name: StringType }));
 
 // Write a collection that never exists in memory in full.
 const out = createWriteStream("rows.beast2");
-const writer = new Beast2Writer(Rows, bytes => out.write(bytes));
-for (const batch of batches) writer.write(batch);   // one segment each
+const writer = new Beast2ElementWriter(Rows, bytes => out.write(bytes));
+for (const row of rows) writer.add(row);            // the cut rule places the segments
 writer.finish();
 
 const blob = new Uint8Array(readFileSync("rows.beast2"));
@@ -678,9 +680,14 @@ pages.element(4_000_000);                           // decodes ONE segment
 **Notes:**
 - Segments always **concatenate** — for Set/Dict the wire holds the canonical
   value (strictly ascending, disjoint segments, no duplicate keys), so writers
-  reject out-of-order batches and decoders reject non-canonical blobs as
-  corrupt. Encoders sort plain `Map`/`Set` inputs, so the same logical value
-  always produces the same bytes.
+  reject out-of-order elements and decoders reject non-canonical blobs as
+  corrupt.
+- **One encoding per value.** `Beast2ElementWriter` and `encodeBeast2PagedFor`
+  cut every collection by the same content-defined rule, in TypeScript,
+  east-c and east-py alike, so equal values are equal bytes and share their
+  segments in a content-addressed store. `Beast2Writer` and
+  `encodeBeast2SegmentsFor` write the batches you give them instead — every
+  reader reads that too.
 - `write()` skips empty batches, so a segment count is never zero.
 - Streaming and paging are v5-only — v4 cannot be appended to, by construction.
 - The writer defaults to self-contained segments plus an index, which is what

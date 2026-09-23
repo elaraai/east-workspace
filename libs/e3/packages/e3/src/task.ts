@@ -850,9 +850,10 @@ type StreamTaskArgs<
  * and no partial recompute.
  *
  * `emit` is a runner-implemented function value: `emit(key, value)` for Dict
- * outputs, `emit(element)` for Array/Set outputs. The streaming writer
- * re-batches emissions byte-adaptively and writes the output in one pass,
- * with one open batch in memory whatever the output's size. An Array output
+ * outputs, `emit(element)` for Array/Set outputs. The streaming writer cuts
+ * the emissions into the canonical segments as they arrive and writes the
+ * output in one pass, with one open segment in memory whatever the output's
+ * size. An Array output
  * takes its elements in emission order; a Set or Dict output must be emitted
  * in ascending key order, and an out-of-order key fails the task (`beast2
  * v5: Dict key emitted out of order: 1 after 2 — Set/Dict emissions must

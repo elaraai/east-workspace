@@ -37,6 +37,7 @@ import {
   openBeast2PagesFor,
   readBeast2Extents,
   readBeast2ExtentsRanged,
+  readBeast2SegmentLogicalBytes,
   readBeast2Type,
   segmentKeyTypeOf,
   spliceBeast2Tail,
@@ -509,8 +510,13 @@ export async function cutDatasetObject(storage: StorageBackend, repo: string, ha
   const fenceOf = keyType === null ? null : encodeBeast2FenceFor(keyType);
   const fences: Uint8Array[] = [];
   if (fenceOf !== null) {
-    for (let i = 0; i < segments.segmentCount; i++) fences.push(fenceOf(await segments.fence(i)));
-    if (!isContentCut(fences, segments.counts)) {
+    const sizes: number[] = [];
+    for (let i = 0; i < segments.segmentCount; i++) {
+      const segment = await segments.segment(i);
+      fences.push(fenceOf(openBeast2PagesFor(typeValue)(segment).fence(0)));
+      sizes.push(readBeast2SegmentLogicalBytes(segment)[0]!);
+    }
+    if (!isContentCut(fences, segments.counts, sizes)) {
       // Not cut by the rule: only laying the value out again reaches the
       // canonical segmentation, and that needs it whole.
       return cutDatasetIntoStore(storage, repo, await readDatasetWhole(storage, repo, opened.hash));

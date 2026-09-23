@@ -33,9 +33,13 @@ export type Beast2DecodeOptions = {
  *  the function encoders/decoders of both codec versions. */
 export const irTypeValue = toEastTypeValue(IRType);
 
-const FNV_OFFSET = 0xcbf29ce484222325n;
-const FNV_PRIME = 0x100000001b3n;
-const U64_MASK = 0xffffffffffffffffn;
+/** FNV-1a 64-bit offset basis, as its high and low 32-bit words. */
+const FNV_OFFSET_HIGH = 0xcbf29ce4;
+const FNV_OFFSET_LOW = 0x84222325;
+/** The FNV-1a 64-bit prime is 2^40 + 0x1b3: a hash times it is the hash times
+ *  0x1b3 plus the hash shifted up 40 bits, which is what lets it run in 32-bit
+ *  words. */
+const FNV_PRIME_LOW = 0x1b3;
 
 /**
  * Computes the FNV-1a 64-bit hash of a byte array.
@@ -44,16 +48,25 @@ const U64_MASK = 0xffffffffffffffffn;
  * byte-for-byte across the TS, C, and Python runtimes) and as the key of the
  * type-table section caches (#417).
  *
+ * @remarks
+ * Computed in two 32-bit words rather than one BigInt: the low word times
+ * 0x1b3 stays under 2^41, so its carry into the high word is exact in a
+ * double, and the prime's 2^40 term reaches the high word as the low word
+ * shifted up 8.
+ *
  * @param bytes - the bytes to hash
  * @returns the 64-bit hash
  */
 export function fnv1a64(bytes: Uint8Array): bigint {
-  let hash = FNV_OFFSET;
+  let high = FNV_OFFSET_HIGH;
+  let low = FNV_OFFSET_LOW;
   for (let i = 0; i < bytes.length; i++) {
-    hash ^= BigInt(bytes[i]!);
-    hash = (hash * FNV_PRIME) & U64_MASK;
+    low = (low ^ bytes[i]!) >>> 0;
+    const product = low * FNV_PRIME_LOW;
+    high = (Math.imul(high, FNV_PRIME_LOW) + Math.floor(product / 0x100000000) + (low << 8)) >>> 0;
+    low = product >>> 0;
   }
-  return hash;
+  return (BigInt(high) << 32n) | BigInt(low);
 }
 
 // Shared empty set for compile_internal's compilingNodes parameter (avoids per-call allocation)

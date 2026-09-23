@@ -186,7 +186,7 @@ describe('loadInputLazy — the input pages from its file descriptor', () => {
     const dir = mkdtempSync(join(tmpdir(), 'enc-lazy-'));
     try {
       const path = join(dir, 'table.beast2');
-      writeFileSync(path, encodeBeast2PagedFor(DT, { batchSize: 250 })(table));
+      writeFileSync(path, encodeBeast2PagedFor(DT)(table));
       const value = loadInputLazy(path) as SortedMap<bigint, string>;
       assert.ok(value instanceof SortedMap);
       assert.ok(isFrozenValue(value));

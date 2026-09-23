@@ -4,18 +4,14 @@
  */
 
 /**
- * The parallel frame writer (issue #763), held to the serial algorithm.
+ * The parallel frame writer (issue #763), held to the inline writer.
  *
- * A pooled writer puts the same frames on the wire in the same order, so the
- * one thing that could move is the SEGMENTATION: the paged encoder sizes each
- * batch from the bytes emitted so far, and with frames still deflating on
- * workers those bytes are only known within bounds. The encoder decides at
- * both bounds and settles when they disagree. The oracle below is the serial
- * algorithm as it stood before #763 — a writer that never pools, refined from
- * the bytes its sink actually received — and every case must match it byte
- * for byte: at a target that pins the element cap (bounds always agree) and at
- * targets small enough that the refinement is live on every batch (bounds
- * often disagree).
+ * A pooled writer deflates frames on worker threads and puts them on the wire
+ * in submission order, assigning index offsets as they land. Where segments
+ * fall is decided from the elements alone, never from bytes emitted, so the
+ * oracle is simply the same elements through a writer that never pools: every
+ * case must match it byte for byte, across a pool's retirement and a worker's
+ * loss.
  *
  * Throughput is printed under `EAST_POOL_BENCH=1`, never asserted.
  */
@@ -26,8 +22,8 @@ import { ArrayType, DictType, IntegerType, StringType } from "../../../types.js"
 import { compareFor } from "../../../comparison.js";
 import { SortedMap } from "../../../index.js";
 import {
+  Beast2ElementWriter,
   Beast2Writer,
-  BEAST2_PAGED_BATCH_DEFAULT,
   decodeBeast2For,
   encodeBeast2PagedFor,
 } from "../index.js";
@@ -44,8 +40,8 @@ function rng(seed: number): () => number {
   };
 }
 
-/** Strings of widely varying width — the running average moves, so the
- *  refinement is exercised. Well past the pool's 8 MiB start threshold. */
+/** Strings of widely varying width, well past the pool's 8 MiB start
+ *  threshold in total. */
 function strings(n: number, seed: number): string[] {
   const next = rng(seed);
   const out: string[] = new Array(n);
@@ -58,36 +54,13 @@ function strings(n: number, seed: number): string[] {
   return out;
 }
 
-/** The serial paged encode exactly as it stood before #763. */
-function serialPaged<T>(type: Parameters<typeof encodeBeast2PagedFor>[0], items: T[], makeBatch: (items: T[]) => unknown, target: number): Uint8Array {
+/** The elements through an element writer that never pools. */
+function inlineEncode(type: ConstructorParameters<typeof Beast2ElementWriter>[0], elements: Iterable<unknown>): Uint8Array {
   const chunks: Uint8Array[] = [];
-  let bytes = 0;
-  const probeN = Math.min(16, items.length);
-  let next = BEAST2_PAGED_BATCH_DEFAULT;
-  if (probeN > 0) {
-    let scratch = 0;
-    const probe = new Beast2Writer(type, (b) => { scratch += b.length; });
-    const header = scratch;
-    probe.write(makeBatch(items.slice(0, probeN)) as never);
-    const avg = Math.max(1, (scratch - header) / probeN);
-    next = Math.max(1, Math.min(BEAST2_PAGED_BATCH_DEFAULT, Math.floor(target / avg)));
-  }
-  const writer = new Beast2Writer(type, (b) => { chunks.push(b); bytes += b.length; });
-  const header = bytes;
-  let written = 0;
-  for (let i = 0; i < items.length;) {
-    const j = Math.min(items.length, i + next);
-    writer.write(makeBatch(items.slice(i, j)) as never);
-    written += j - i;
-    i = j;
-    const avg = Math.max(1, (bytes - header) / written);
-    next = Math.max(1, Math.min(BEAST2_PAGED_BATCH_DEFAULT, Math.floor(target / avg)));
-  }
+  const writer = new Beast2ElementWriter(type, (b) => { chunks.push(b); });
+  for (const element of elements) writer.add(element);
   writer.finish();
-  const out = new Uint8Array(bytes);
-  let pos = 0;
-  for (const c of chunks) { out.set(c, pos); pos += c.length; }
-  return out;
+  return concat(chunks);
 }
 
 /** Resolves after `ms` milliseconds. */
@@ -113,34 +86,22 @@ function firstDifference(a: Uint8Array, b: Uint8Array): number {
 }
 
 describe("beast2 v5 parallel frame writer", () => {
-  const TARGETS = [2 * 1024 * 1024, 64 * 1024, 4096];
-
-  test("a pooled Array encode is byte-identical to the serial algorithm", () => {
+  test("a pooled Array encode is byte-identical to the inline one", () => {
     const items = strings(24_000, 0x5eed);
     const type = ArrayType(StringType);
-    for (const target of TARGETS) {
-      const pooled = encodeBeast2PagedFor(type, { targetSegmentBytes: target })(items);
-      const serial = serialPaged(type, items, (batch) => batch, target);
-      assert.equal(firstDifference(pooled, serial), -1, `target ${target}: pooled and serial bytes differ`);
-    }
+    assert.equal(firstDifference(encodeBeast2PagedFor(type)(items), inlineEncode(type, items)), -1, "pooled and inline bytes differ");
   });
 
-  test("a pooled Dict encode is byte-identical to the serial algorithm, and decodes", () => {
+  test("a pooled Dict encode is byte-identical to the inline one, and decodes", () => {
     const values = strings(20_000, 0xd1c7);
     const cmp = compareFor(IntegerType);
     const entries = values.map((v, i) => [BigInt(i * 3), v] as [bigint, string]);
     const type = DictType(IntegerType, StringType);
-    const value = new SortedMap(entries, cmp);
-    for (const target of TARGETS) {
-      const pooled = encodeBeast2PagedFor(type, { targetSegmentBytes: target })(value);
-      const serial = serialPaged(type, entries, (batch) => new Map(batch), target);
-      assert.equal(firstDifference(pooled, serial), -1, `target ${target}: pooled and serial bytes differ`);
-      if (target === TARGETS[0]) {
-        const decoded = decodeBeast2For(type)(pooled);
-        assert.equal(decoded.size, entries.length);
-        assert.equal(decoded.get(3n * 777n), values[777]);
-      }
-    }
+    const pooled = encodeBeast2PagedFor(type)(new SortedMap(entries, cmp));
+    assert.equal(firstDifference(pooled, inlineEncode(type, entries)), -1, "pooled and inline bytes differ");
+    const decoded = decodeBeast2For(type)(pooled);
+    assert.equal(decoded.size, entries.length);
+    assert.equal(decoded.get(3n * 777n), values[777]);
   });
 
   test("the pool is created on a multi-core Node host", () => {
@@ -155,7 +116,7 @@ describe("beast2 v5 parallel frame writer", () => {
     const type = ArrayType(StringType);
     framePool(); // start-up is once per process; keep it out of the timing
     const t0 = performance.now();
-    const serial = serialPaged(type, items, (batch) => batch, 2 * 1024 * 1024);
+    const serial = inlineEncode(type, items);
     const t1 = performance.now();
     const pooled = encodeBeast2PagedFor(type)(items);
     const t2 = performance.now();
@@ -174,9 +135,8 @@ describe("beast2 v5 parallel frame writer", () => {
     try {
       const type = ArrayType(StringType);
       const items = strings(24_000, 0x1d1e);
-      const target = 64 * 1024;
-      const serial = serialPaged(type, items, (batch) => batch, target);
-      assert.equal(firstDifference(encodeBeast2PagedFor(type, { targetSegmentBytes: target })(items), serial), -1);
+      const serial = inlineEncode(type, items);
+      assert.equal(firstDifference(encodeBeast2PagedFor(type)(items), serial), -1);
 
       // The check runs on a timer, so wait for the retirement rather than for
       // a fixed time — a loaded host delays timers.
@@ -184,7 +144,7 @@ describe("beast2 v5 parallel frame writer", () => {
       while (framePool() === before && Date.now() < deadline) await sleep(25);
       assert.notEqual(framePool(), before, "the idle pool retired and a new one started");
       assert.equal(
-        firstDifference(encodeBeast2PagedFor(type, { targetSegmentBytes: target })(items), serial),
+        firstDifference(encodeBeast2PagedFor(type)(items), serial),
         -1,
         "the new pool writes the same bytes",
       );
@@ -284,12 +244,11 @@ describe("beast2 v5 parallel frame writer", () => {
     inline.finish();
     assert.equal(firstDifference(concat(survivorChunks), concat(inlineChunks)), -1, "a writer that outlives the loss writes the inline bytes");
 
-    // ...and a new encode writes exactly the serial bytes.
-    const target = 64 * 1024;
+    // ...and a new encode writes exactly the inline bytes.
     assert.equal(
-      firstDifference(encodeBeast2PagedFor(type, { targetSegmentBytes: target })(items), serialPaged(type, items, (batch) => batch, target)),
+      firstDifference(encodeBeast2PagedFor(type)(items), inlineEncode(type, items)),
       -1,
-      "inline framing after the loss is byte-identical to the serial algorithm",
+      "framing after the loss is byte-identical to the inline writer",
     );
   });
 });

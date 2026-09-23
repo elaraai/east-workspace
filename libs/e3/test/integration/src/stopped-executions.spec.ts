@@ -34,7 +34,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import e3, { type Runner } from '@elaraai/e3';
-import { DictType, IntegerType, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2PagedFor, equalFor, variant } from '@elaraai/east';
+import { DictType, IntegerType, SortedMap, StringType, compareFor, decodeBeast2For, equalFor, variant } from '@elaraai/east';
 import { FileSystem } from '@elaraai/east-node-std';
 import {
   DataflowAbortedError,
@@ -47,6 +47,7 @@ import {
   workspaceStatus,
   type TaskCompletedCallback,
 } from '@elaraai/e3-core';
+import { encodeInSegmentsOf } from '@elaraai/e3-core/test';
 import { createTestDir, processTree, removeTestDir, runE3Command, spawnE3Command, waitFor } from './helpers.js';
 
 const TableType = DictType(IntegerType, StringType);
@@ -121,7 +122,7 @@ describe('stopped executions', () => {
     const zip = join(dir, 'held.zip');
     await e3.export(e3.package('held', '1.0.0', held), zip);
     const tablePath = join(dir, 'table.beast2');
-    writeFileSync(tablePath, encodeBeast2PagedFor(TableType, { batchSize: 10 })(table));
+    writeFileSync(tablePath, encodeInSegmentsOf(TableType, 10)(table));
 
     for (const args of [
       ['repo', 'create', repo],
