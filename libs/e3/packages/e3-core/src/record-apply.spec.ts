@@ -23,12 +23,16 @@ import assert from 'node:assert/strict';
 import { dirname } from 'node:path';
 import {
   DictType, IntegerType, SetType, SortedMap, SortedSet, StringType, StructType,
-  compareFor, decodeBeast2For, toEastTypeValue, variant, type EastType, type ValueTypeOf,
+  carveBeast2, compareFor, decodeBeast2For, encodeBeast2FenceFor, openBeast2PagesFor,
+  readBeast2Extents, toEastTypeValue, variant, type EastType, type ValueTypeOf,
 } from '@elaraai/east';
-import { encodeDatasetBlob, mutationDeltaType, type DeltaTarget } from '@elaraai/e3-types';
+import {
+  COLLECTION_MANIFEST_KIND, encodeCollectionManifest, encodeDatasetBlob, mutationDeltaType,
+  type CollectionManifestEntry, type DeltaTarget,
+} from '@elaraai/e3-types';
 import { DatasetSegments, cutDatasetIntoStore } from './dataset-open.js';
 import { DeltaConflictError, applyDelta } from './record-apply.js';
-import { createTestRepo, removeTestRepo } from './test-helpers.js';
+import { createTestRepo, encodeInSegmentsOf, removeTestRepo } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
 import type { StorageBackend } from './index.js';
 
@@ -273,6 +277,52 @@ describe('applying a mutation delta', () => {
     const filled = await applyPlans(emptied,
       [...before].map(([key, value]) => [key, variant('insert', value)] as [unknown, unknown]));
     assert.equal(filled, hash, 'filling an empty record back up reproduces its manifest');
+  });
+
+  it('lays a record cut under an earlier rule out again on its first write', async () => {
+    // What a store written before the current rule holds: segments cut some
+    // other way, under a manifest naming the rule they were cut by. A run
+    // re-cut under the current rule cannot line up with segments around it
+    // that were cut by another.
+    const before = plansOf(3_000);
+    const blob = encodeInSegmentsOf(PlansType, 700)(before);
+    const extents = readBeast2Extents(blob);
+    const pages = openBeast2PagesFor(PlansType)(blob);
+    const fenceOf = encodeBeast2FenceFor(StringType);
+    const entries: CollectionManifestEntry[] = [];
+    for (let i = 0; i < extents.counts.length; i++) {
+      const segment = carveBeast2(blob, i, i + 1, extents);
+      entries.push({
+        hash: await storage.objects.write(repo, segment),
+        fence: fenceOf(pages.fence(i)),
+        count: BigInt(extents.counts[i]!),
+        bytes: BigInt(segment.byteLength),
+      });
+    }
+    const hash = await storage.objects.write(repo, encodeCollectionManifest({
+      kind: COLLECTION_MANIFEST_KIND,
+      level: 0n,
+      type: toEastTypeValue(PlansType),
+      rule: 'cdc/fnv1a64/256-1024-4096/1',
+      header: await storage.objects.write(repo, blob.subarray(0, extents.prefixEnd)),
+      entries,
+    }));
+
+    const after = new SortedMap(before, compareFor(StringType));
+    after.delete(id(1_234));
+    assert.equal(
+      await applyPlans(hash, [[id(1_234), variant('delete', row(1_234))]]),
+      await store(PlansType, after));
+  });
+
+  it('lays a record held as one legacy blob out again on its first write', async () => {
+    const before = plansOf(3_000);
+    const hash = await storage.objects.write(repo, encodeInSegmentsOf(PlansType, 700)(before));
+    const after = new SortedMap(before, compareFor(StringType));
+    after.delete(id(1_234));
+    assert.equal(
+      await applyPlans(hash, [[id(1_234), variant('delete', row(1_234))]]),
+      await store(PlansType, after));
   });
 
   it('agrees with the door for a Set target', async () => {

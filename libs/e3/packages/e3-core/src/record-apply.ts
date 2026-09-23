@@ -26,8 +26,6 @@
 
 import {
   ConflictError,
-  SEGMENT_MAX_COUNT,
-  SEGMENT_MIN_COUNT,
   SortedMap,
   SortedSet,
   applyFor,
@@ -36,12 +34,14 @@ import {
   decodeBeast2For,
   encodeBeast2FenceFor,
   encodeBeast2PagedFor,
-  isSegmentBoundaryKey,
   openBeast2PagesFor,
   readBeast2Extents,
+  readBeast2SegmentLogicalBytes,
   segmentKeyTypeOf,
   segmentRuleFor,
+  startsSegmentAfter,
   variant,
+  type Beast2Extents,
   type EastTypeValue,
 } from '@elaraai/east';
 import {
@@ -50,7 +50,7 @@ import {
   type CollectionManifest,
   type CollectionManifestEntry,
 } from '@elaraai/e3-types';
-import { DatasetSegments } from './dataset-open.js';
+import { DatasetSegments, cutDatasetIntoStore } from './dataset-open.js';
 import type { StorageBackend } from './storage/interfaces.js';
 
 /** One arm of a delta: the target it addresses and its ops in key order. */
@@ -200,6 +200,20 @@ async function applyArm(
   const encodeRun = encodeBeast2PagedFor(typeValue) as (value: unknown) => Uint8Array;
   const sink = (bytes: Uint8Array): Promise<string> => storage.objects.write(repo, bytes);
 
+  if (segments.manifest?.rule !== segmentRuleFor(typeValue)) {
+    // Cut under another rule — an earlier version of this one, or a legacy
+    // blob's own geometry. A re-cut run lines up with the segments around it
+    // only when both were cut by the same rule, so the first write lays the
+    // whole value out under the current one, once; the writes after it are
+    // incremental again.
+    const ops = new SortedMap<unknown, unknown>(undefined, keyCompare);
+    for (const [key, op] of arm.ops) ops.set(key, op);
+    const before = segments.segmentCount === 0
+      ? emptyOf(typeValue, keyCompare)
+      : decodeRun(await segments.span(0, segments.segmentCount));
+    return cutDatasetIntoStore(storage, repo, encodeRun(applyOps(apply, arm.target, before, ops)));
+  }
+
   // Which segment each touched key falls in. A key before every fence lands in
   // segment 0 and one past them all in the last, so an insert always has a
   // segment to join — that is what makes a growing collection re-cut rather
@@ -257,19 +271,12 @@ async function applyArm(
       const before = segments.segmentCount === 0
         ? emptyOf(typeValue, keyCompare)
         : decodeRun(await segments.span(lo, Math.min(hi, segments.segmentCount)));
-      let after: unknown;
-      try {
-        after = apply(before, variant('patch', ops));
-      } catch (err) {
-        if (err instanceof ConflictError) throw new DeltaConflictError(arm.target, err.message);
-        throw err;
-      }
-      const blob = encodeRun(after);
+      const blob = encodeRun(applyOps(apply, arm.target, before, ops));
       const extents = readBeast2Extents(blob);
       const counts = [...extents.counts];
       const empty = counts.length === 0 || counts.every((c) => c === 0);
       if (hi < segments.segmentCount
-        && (glued.has(hi) || !endsClean(counts, empty, await fenceBytes(segments, hi, fenceOf)))) {
+        && (glued.has(hi) || !endsClean(blob, extents, empty, await fenceBytes(segments, hi, fenceOf)))) {
         hi++;
         continue;
       }
@@ -323,18 +330,33 @@ async function applyArm(
   return sink(encodeCollectionManifest(manifest));
 }
 
+/** A run with the arm's ops applied; an op that disagrees with the run is the
+ *  stale-write conflict, reported against the target. */
+function applyOps(
+  apply: (value: unknown, patch: unknown) => unknown,
+  target: string,
+  before: unknown,
+  ops: SortedMap<unknown, unknown>,
+): unknown {
+  try {
+    return apply(before, variant('patch', ops));
+  } catch (err) {
+    if (err instanceof ConflictError) throw new DeltaConflictError(target, err.message);
+    throw err;
+  }
+}
+
 /** Whether a re-cut run leaves the cutter where the old cut left it — so that
  *  the element after the run starts a segment there too, and every segment
  *  past the run is unchanged. */
-function endsClean(counts: readonly number[], empty: boolean, nextFence: Uint8Array): boolean {
+function endsClean(blob: Uint8Array, extents: Beast2Extents, empty: boolean, nextFence: Uint8Array): boolean {
   // Emptying a run deletes the fence it began at, which glued it to the
   // segment before — so a run that empties is one that begins the value, and
   // whatever follows it becomes the value's first element and opens its first
   // segment.
   if (empty) return true;
-  const last = counts[counts.length - 1]!;
-  return last >= SEGMENT_MAX_COUNT
-    || (last >= SEGMENT_MIN_COUNT && isSegmentBoundaryKey(nextFence));
+  const last = extents.counts.length - 1;
+  return startsSegmentAfter(extents.counts[last]!, readBeast2SegmentLogicalBytes(blob, extents)[last]!, nextFence);
 }
 
 /** Segment `i`'s fence in canonical bare bytes — free from a manifest, which
