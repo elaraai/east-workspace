@@ -461,9 +461,11 @@ around it only when both were cut by one rule.
 
 A collection can be stored as one standalone blob per root segment plus a
 manifest naming them in order. Equal values then name equal segments, and a
-one-row edit re-cuts one of them. The TypeScript runtime pages a manifest
-directly (`Beast2Pages` over a `Beast2ManifestSource`); east-c and east-py are
-handed the segments spliced back into one blob.
+one-row edit re-cuts one of them. Every runtime pages a manifest directly,
+taking counts and fences from its entries and opening a segment only for a
+read that decodes it: TypeScript's `Beast2Pages` over a
+`Beast2ManifestSource`, east-c's `east_beast2_pages_new_manifest` over a
+segment source, and east-py through east-c.
 
 - A **segment blob** for segment `i` of a segmented, indexed,
   self-contained blob is: the blob's header bytes up to and including the root
@@ -479,19 +481,30 @@ handed the segments spliced back into one blob.
   level:   Integer     0 — entries name segment blobs (nesting is reserved)
   type:    EastType    the root collection type
   rule:    String      the id of the rule the segments were cut under
-  header:  String      the store hash of the header bytes the segments share
+  header:  String      the hash of the header bytes the segments share
   entries: Array<{ hash: String, fence: Blob, count: Integer, bytes: Integer }>
   ```
 
-  with, per segment: the segment blob's store hash, its first key's fence
-  bytes (empty for an Array root), its element (pair) count, and its size in
-  bytes.
+  with, per segment: the segment blob's hash, its first key's fence bytes
+  (empty for an Array root), its element (pair) count, and its size in bytes.
+  The manifest itself is a whole-value blob: deflate frames, no index.
+- Every hash a manifest holds is the **SHA-256** of the object's bytes in
+  lowercase hex, the name a store gives the object, so each runtime carries
+  one: `v5/sha256.ts` in TypeScript, and east-c's, which east-py binds.
 - A reader recognises a manifest by its root type's exact field names, in
   that order, and then by `kind`. A struct of the same shape with another
-  `kind` is not a manifest.
-- **On disk**, a manifest at `path` names its segments as the sibling files
-  `path.segments/<hash>.beast2`. A runner that opens manifests pages through
-  such a file, reading only the segments it touches.
+  `kind` is not a manifest. A manifest whose `level` is not 0 is refused.
+- **On disk**, a manifest directory is the manifest's file at `path` and, in
+  `path.segments/`, the objects it names as `<hash>.beast2`: each segment blob,
+  and the header's bytes under `header`. A reader opens only the segments; the
+  header is written so that a store holds every object a manifest names. A
+  runner that opens manifests pages through the directory, reading only the
+  segments it touches.
+- **Writers.** A canonical writer writes the header object first, then each
+  segment as it is cut, then the manifest, so a manifest never names an object
+  not yet written, and a writer that fails writes none. TypeScript's
+  `Beast2ManifestWriter` hands the objects and the manifest to a sink; east-c's
+  writes a directory, as east-py's does through it.
 
 ## Sorted runs and merges
 
@@ -520,7 +533,8 @@ which east-py binds).
   its elements cut by the segmentation rules, as any writer of that value
   writes them.
 - **Merging.** A merge reads sorted Set or Dict collections of one type,
-  blobs or manifests, and writes the canonical blob of their union. A key
+  blobs or manifests, and writes the canonical blob of their union, or the
+  union as a manifest and its segments. A key
   several inputs hold folds in input order, as within a run, and a merge over
   a key range `[from, to)` merges just those keys. Merging a producer's runs
   in run order folds every key's values in the order they were added, grouped

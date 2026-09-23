@@ -46,6 +46,13 @@ east-c run task.beast2 -i rows.beast2 -i more.beast2 --stream 0 --stream 1 \
     --emit dict -o out.beast2 -v
 ```
 
+A collection input may also be a manifest directory, the form e3 stages a
+stored collection in: the input file holds a manifest, and each segment it
+names is a standalone blob in `<file>.segments/<sha256>.beast2`. It opens
+over those files — lazily, a read opening only the segments it reaches, or
+whole — and counts as the size of its segments when the runner decides
+whether to open it lazily.
+
 Dict and Set emissions must ascend in East order. The sink writes one pass,
 segment by segment, with one open batch in memory whatever the size of the
 output, and a key below the previous one is an error naming both:
@@ -73,12 +80,12 @@ sink writes without the flag for the already-folded sequence.
 ### Merging blobs
 
 `merge` combines sorted Set or Dict blobs of one type — the files `run --emit`
-writes — into one, in a single pass over the inputs: every input is read
-segment by segment, equal keys across inputs fold in input order (`--merge`
-on Dict inputs, `--union` on Set inputs; without a fold an equal key is an
-error), and the output is byte-identical to what `run --emit` writes for the
-same entries emitted ascending. This is how e3 assembles a partitioned task's
-keyed partials; all three runners write the same bytes.
+writes, or manifest directories — into one, in a single pass over the inputs:
+every input is read segment by segment, equal keys across inputs fold in input
+order (`--merge` on Dict inputs, `--union` on Set inputs; without a fold an
+equal key is an error), and the output is byte-identical to what `run --emit`
+writes for the same entries emitted ascending. This is how e3 assembles a
+partitioned task's keyed partials; all three runners write the same bytes.
 
 ```bash
 # Dict partials: fold the values of equal keys, in input order
