@@ -22,7 +22,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Box, Flex, Text } from '@chakra-ui/react';
 import { useQueryClient } from '@tanstack/react-query';
 import { ApiError, datasetFindKey, datasetGetPage } from '@elaraai/e3-api-client';
-import type { RequestOptions } from '@elaraai/e3-api-client';
+import type { DatasetPage, RequestOptions } from '@elaraai/e3-api-client';
 import { none, some, variant, decodeBeast2For, type EastTypeValue } from '@elaraai/east';
 import { ValueTree } from '@elaraai/east-ui';
 import { pruneRetainedPages } from '@elaraai/east-ui/internal';
@@ -37,8 +37,32 @@ import { DatasetKeySearch, type DatasetKeyMatchRange, type DatasetKeyQuery } fro
 import { DownloadButton, formatSize } from './DatasetPreview.js';
 import { pagingDebug } from '../debug.js';
 
-/** Elements fetched per page — one remote window per scroll-ahead page. */
+/** Elements REQUESTED per page — one remote window per scroll-ahead page.
+ *  The server may serve fewer (it trims pages of wide rows to a byte
+ *  budget); the preview then addresses pages by what it serves — see
+ *  {@link servedPageSize}. */
 const PAGE_SIZE = 500;
+
+/**
+ * The page size to address pages by, given one landed page (#829).
+ *
+ * The server trims every page of a dataset to the same byte budget, so a page
+ * that came back SHORT while the dataset has more beyond it tells the size
+ * every later page will be served at. Addressing pages by the requested size
+ * instead would start page `p + 1` past the trimmed page's end and skip the
+ * rows between for good. A short FINAL page is only the data ending.
+ *
+ * @param requested - Elements the page asked for
+ * @param page - The landed page's placement
+ * @returns The size to address pages by from here on
+ */
+export function servedPageSize(
+    requested: number,
+    page: Pick<DatasetPage, 'offset' | 'count' | 'totalElements'>,
+): number {
+    const trimmed = page.count < requested && page.offset + page.count < page.totalElements;
+    return trimmed ? Math.max(1, page.count) : requested;
+}
 
 /** Loaded pages retained around the current window. Materialized rows are
  *  heavy (each row's whole value becomes ValueTree node IR — wide rows run
@@ -126,6 +150,12 @@ export const PagedDatasetPreview = memo(function PagedDatasetPreview({
     /** Key-search jump target — the tree's controlled scrollToRow (#520). */
     const [jumpRow, setJumpRow] = useState<number | undefined>(undefined);
     const inflightRef = useRef(new Set<number>());
+    // The size pages are addressed by — requested at PAGE_SIZE, then whatever
+    // the server actually serves (#829). The ref is what an in-flight load
+    // checks when it lands: a page fetched at a size since abandoned covers
+    // the wrong rows.
+    const [pageSize, setPageSize] = useState(PAGE_SIZE);
+    const pageSizeRef = useRef(PAGE_SIZE);
 
     // A new value (content hash) invalidates every page.
     useEffect(() => {
@@ -135,31 +165,44 @@ export const PagedDatasetPreview = memo(function PagedDatasetPreview({
         setError(null);
         setJumpRow(undefined);
         inflightRef.current.clear();
+        pageSizeRef.current = PAGE_SIZE;
+        setPageSize(PAGE_SIZE);
     }, [path, hash]);
 
     const loadPage = useCallback((pageIdx: number) => {
         if (inflightRef.current.has(pageIdx)) return;
+        const size = pageSizeRef.current;
         inflightRef.current.add(pageIdx);
         setLoadingCount((n) => n + 1);
-        pagingDebug(`fetch p${pageIdx} (offset=${pageIdx * PAGE_SIZE}, limit=${PAGE_SIZE}, hash=${hash.slice(0, 8)})`);
+        pagingDebug(`fetch p${pageIdx} (offset=${pageIdx * size}, limit=${size}, hash=${hash.slice(0, 8)})`);
         const pathParts = path.split('.').filter(Boolean).map((v) => variant('field', v));
         const reqOpts = requestOptions ?? { token: null };
         queryClient.fetchQuery({
-            queryKey: ['datasetPage', apiUrl, repo, workspace, path, hash, `p${pageIdx}`],
+            queryKey: ['datasetPage', apiUrl, repo, workspace, path, hash, `p${pageIdx}@${size}`],
             // Hash-pinned: the URL is a pure function of the bytes, so any
             // HTTP cache between here and the server can hold it immutably.
-            queryFn: () => datasetGetPage(apiUrl, repo, workspace, pathParts, { offset: pageIdx * PAGE_SIZE, limit: PAGE_SIZE, hash }, reqOpts),
+            queryFn: () => datasetGetPage(apiUrl, repo, workspace, pathParts, { offset: pageIdx * size, limit: size, hash }, reqOpts),
             staleTime: Infinity, // pages of one content hash are immutable
         }).then((page) => {
+            if (size !== pageSizeRef.current) return; // addressed at an abandoned size — the tree re-asks
             const decoded = decodeBeast2For(type)(page.data);
             const rows = pageRows(type, decoded, page.offset);
             pagingDebug(`p${pageIdx} ok: count=${page.count} rows=${rows.length} offset=${page.offset} total=${page.totalElements} segs=${page.segmentCount}`,
                 rows.length > 0 ? `first=${JSON.stringify(rows[0]!.label ?? '(derived)')}` : '(empty)');
-            if (page.count < PAGE_SIZE && page.offset + page.count < page.totalElements) {
-                pagingDebug(`p${pageIdx} SHORT page: server clamped ${PAGE_SIZE} → ${page.count}`);
-            }
             setTotals({ elements: page.totalElements, bytes: page.totalBytes });
-            setPages((prev) => new Map(prev).set(pageIdx, rows));
+            const served = servedPageSize(size, page);
+            if (served === size) {
+                setPages((prev) => new Map(prev).set(pageIdx, rows));
+                return;
+            }
+            // Trimmed: every later page is served at this size, so address
+            // pages by it. Page 0 keeps its place — `[0, served)` is exactly
+            // what it holds; a later page re-learning (a server that did not
+            // trim uniformly) drops everything and the tree re-asks.
+            pagingDebug(`p${pageIdx} SHORT page: served ${page.count} of ${size} — addressing pages by ${served}`);
+            pageSizeRef.current = served;
+            setPageSize(served);
+            setPages(pageIdx === 0 ? new Map([[0, rows]]) : new Map());
         }).catch((err: unknown) => {
             pagingDebug(`p${pageIdx} FAILED:`, err);
             if (err instanceof ApiError && err.code === 'dataset_not_indexed') {
@@ -181,8 +224,8 @@ export const PagedDatasetPreview = memo(function PagedDatasetPreview({
     }, [totals, error, loadPage]);
 
     const onNeedRows = useCallback((startRow: number, endRow: number) => {
-        const first = Math.max(0, Math.floor(startRow / PAGE_SIZE));
-        const last = Math.max(first, Math.ceil(endRow / PAGE_SIZE) - 1);
+        const first = Math.max(0, Math.floor(startRow / pageSize));
+        const last = Math.max(first, Math.ceil(endRow / pageSize) - 1);
         const missing: number[] = [];
         for (let p = first; p <= last; p++) {
             if (!pages.has(p)) missing.push(p);
@@ -193,7 +236,7 @@ export const PagedDatasetPreview = memo(function PagedDatasetPreview({
         // re-flatten stay bounded however far the user roams.
         setPages((prev) => pruneRetainedPages(prev, first, last, MAX_RETAINED_PAGES));
         for (const p of missing) loadPage(p);
-    }, [pages, loadPage]);
+    }, [pages, loadPage, pageSize]);
 
     // Key search (#520): queries resolve server-side against the segment
     // fences; results and popup windows are hash-pinned and immutable, so
@@ -242,12 +285,12 @@ export const PagedDatasetPreview = memo(function PagedDatasetPreview({
     const paging = useMemo<ValueTreePaging | null>(() => (
         totals === null ? null : {
             totalRows: totals.elements,
-            pageSize: PAGE_SIZE,
+            pageSize,
             pages,
             onNeedRows,
             scrollToRow: jumpRow,
         }
-    ), [totals, pages, onNeedRows, jumpRow]);
+    ), [totals, pageSize, pages, onNeedRows, jumpRow]);
 
     if (error !== null) {
         // The server refusing for its own safety (read cap) is not a

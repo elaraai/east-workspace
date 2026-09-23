@@ -3,9 +3,12 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
+import { describe, test as hostTest } from "node:test";
+import assert from "node:assert/strict";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { ArrayType, DictType, East, IntegerType, StringType, StructType, variant, some, none } from "@elaraai/east";
+import { ArrayType, DictType, East, IntegerType, OptionType, StringType, StructType, variant, some, none } from "@elaraai/east";
 import { Paged } from "@elaraai/east-ui";
+import { Plan, Table } from "@elaraai/east-ui/internal";
 import * as ex from "./paged-source.examples.js";
 
 /** A 50-row positional fixture, generated at MODULE scope so the East bodies
@@ -19,10 +22,15 @@ const WIDE_ROWS = Array.from({ length: 50 }, (_, i) => ({
  *  order is checked at an arbitrary offset rather than only at the head. */
 const WIDE_DICT = new Map(WIDE_ROWS.map(r => [r.id, { n: r.n }] as const));
 
+/** A canvas window for the trimmed-source tests — the Plan's paged arm
+ *  requires one, and nothing here depends on where it sits. */
+const TRIM_WINDOW = { min: new Date("2026-07-06T00:00:00Z"), max: new Date("2026-09-28T00:00:00Z") };
+
 describeEast("Row-source contract (#567)", (test) => {
     Assert.examples(test, {
         pagedSourceCanvas: ex.pagedSourceCanvas,
         pagedTableSource: ex.pagedTableSource,
+        pagedSourceTrimmed: ex.pagedSourceTrimmed,
         pagedSourceWindows: ex.pagedSourceWindows,
     });
 
@@ -208,4 +216,117 @@ describeEast("Row-source contract (#567)", (test) => {
         $(Assert.equal(hit.unwrap("some").row, 37n));
         $(Assert.equal(src.page(hit.unwrap("some").row, 1n).unwrap("some").has("r37"), true));
     });
+
+    // ── Trimmed sources (#829) ───────────────────────────────────────────
+    // A source may serve FEWER elements than a window asks for while it still
+    // has more — e3 trims every page to a byte budget. `pageLimit` is the
+    // in-memory twin, and every component's derived `page` must still hand
+    // its renderer WHOLE windows, or a window's tail is never asked for.
+
+    test("pageLimit trims every window — short before the end, and the pieces tile", $ => {
+        const WideRow = StructType({ id: StringType, n: IntegerType });
+        const rows = $.const(WIDE_ROWS, ArrayType(WideRow));
+        const src = $.let(Paged.of("trimmed", rows, { pageLimit: 7 }));
+        // The total is the source's, whatever a window serves.
+        $(Assert.equal(src.total().unwrap("some"), 50n));
+        // Asked for 20, served 7 — the source still has more.
+        const w0 = $.let(src.page(0n, 20n));
+        $(Assert.equal(w0.unwrap("some").length(), 7n));
+        // The rest is addressable exactly where the short window stopped.
+        const w1 = $.let(src.page(7n, 20n));
+        $(Assert.equal(w1.unwrap("some").get(0n).id, "r07"));
+        // A request under the cap is served whole; the tail still clamps, and
+        // only past the end is the window EMPTY.
+        const small = $.let(src.page(10n, 3n));
+        $(Assert.equal(small.unwrap("some").length(), 3n));
+        const tail = $.let(src.page(49n, 20n));
+        $(Assert.equal(tail.unwrap("some").length(), 1n));
+        const past = $.let(src.page(50n, 20n));
+        $(Assert.equal(past.unwrap("some").length(), 0n));
+    });
+
+    test("pageLimit trims a KEYED source too, in canonical key order", $ => {
+        const WideVal = StructType({ n: IntegerType });
+        const entries = $.const(WIDE_DICT, DictType(StringType, WideVal));
+        const src = $.let(Paged.of("trimmed", entries, { pageLimit: 7 }));
+        const w0 = $.let(src.page(0n, 20n));
+        $(Assert.equal(w0.unwrap("some").size(), 7n));
+        $(Assert.equal(w0.unwrap("some").has("r06"), true));
+        $(Assert.equal(w0.unwrap("some").has("r07"), false));
+        const w1 = $.let(src.page(7n, 20n));
+        $(Assert.equal(w1.unwrap("some").has("r07"), true));
+    });
+
+    test("a Table over a trimmed ARRAY source gets WHOLE windows — the tail is read, not dropped", $ => {
+        const WideRow = StructType({ id: StringType, n: IntegerType });
+        const rows = $.const(WIDE_ROWS, ArrayType(WideRow));
+        const src = $.let(Paged.of("trimmed", rows, { pageLimit: 7 }));
+        const table = $.let(Table.Root(src, ["id", "n"]));
+        const derived = $.let(table.unwrap().unwrap("Table").rows.unwrap("paged"));
+        // 20 asked, 7 served per piece: the derived window re-requests the
+        // rest, three pieces deep, and hands back all 20.
+        const w0 = $.let(derived.page(0n, 20n));
+        $(Assert.equal(w0.unwrap("some").length(), 20n));
+        // The next window starts at 20 — nothing between 7 and 19 was lost.
+        const w1 = $.let(derived.page(20n, 20n));
+        $(Assert.equal(w1.unwrap("some").length(), 20n));
+        // The final window is partial (the source ends), and past the end is
+        // the EMPTY window — never `none`.
+        const w2 = $.let(derived.page(40n, 20n));
+        $(Assert.equal(w2.unwrap("some").length(), 10n));
+        const past = $.let(derived.page(60n, 20n));
+        $(Assert.equal(past.unwrap("some").length(), 0n));
+    });
+
+    test("a Plan over a trimmed KEYED source gets WHOLE windows", $ => {
+        const WideVal = StructType({ n: IntegerType });
+        const entries = $.const(WIDE_DICT, DictType(StringType, WideVal));
+        const src = $.let(Paged.of("trimmed", entries, { pageLimit: 7 }));
+        const series = $.const([
+            Plan.series.span(WideVal, { key: "entries", title: "Entries", label: (_r, k) => k, runs: () => [] }),
+        ], ArrayType(Plan.Types.Series(WideVal)));
+        const axis = $.const(Plan.axis({ window: TRIM_WINDOW, resolution: "week" }));
+        const plan = $.let(Plan.Root({ axis, data: src, series }));
+        const derived = $.let(plan.unwrap().unwrap("Plan").rows.unwrap("paged"));
+        // One row per entry: a whole window is 20 rows, keyed r00…r19.
+        const w0 = $.let(derived.page(0n, 20n));
+        $(Assert.equal(w0.unwrap("some").size(), 20n));
+        $(Assert.equal(w0.unwrap("some").has("r19"), true));
+        $(Assert.equal(w0.unwrap("some").has("r20"), false));
+        const w2 = $.let(derived.page(40n, 20n));
+        $(Assert.equal(w2.unwrap("some").size(), 10n));
+    });
+
+    test("a piece still in flight holds the whole derived window at `none`", $ => {
+        const Row = StructType({ id: StringType, n: IntegerType });
+        const rows = $.const(WIDE_ROWS, ArrayType(Row));
+        // A source that trims to 7 and has only its first piece in hand —
+        // every later piece is still on the wire.
+        const firstPieceOnly = $.const(East.function(
+            [IntegerType, IntegerType], OptionType(ArrayType(Row)),
+            ($, offset, limit) => {
+                const piece = $.let(none, OptionType(ArrayType(Row)));
+                const served = $.let(limit.less(7n).ifElse(() => limit, () => 7n), IntegerType);
+                $.if(offset.equal(0n), ($) => { $.assign(piece, some(rows.slice(0n, served))); });
+                return piece;
+            }));
+        const knownTotal = $.const(East.function([], OptionType(IntegerType), (_$) => some(50n)));
+        const src = $.let({ id: "slow", page: firstPieceOnly, total: knownTotal, seek: none }, Paged.Types.Source(ArrayType(Row)));
+        const table = $.let(Table.Root(src, ["id", "n"]));
+        const derived = $.let(table.unwrap().unwrap("Table").rows.unwrap("paged"));
+        // Serving the landed 7 as the window would drop 8…19 for good; the
+        // window waits, and re-fires when the piece lands.
+        $(Assert.equal(derived.page(0n, 20n).hasTag("none"), true));
+        // A window the landed piece covers on its own is whole already.
+        $(Assert.equal(derived.page(0n, 5n).unwrap("some").length(), 5n));
+    });
 }, { platformFns: TestImpl });
+
+describe("Paged.of refusals (#829)", () => {
+    const rows = East.value([{ id: "a" }], ArrayType(StructType({ id: StringType })));
+    hostTest("a pageLimit that is not a positive integer is refused, naming the value", () => {
+        assert.throws(() => Paged.of("p", rows, { pageLimit: 0 }), /pageLimit.*positive integer.*got 0/);
+        assert.throws(() => Paged.of("p", rows, { pageLimit: -3 }), /got -3/);
+        assert.throws(() => Paged.of("p", rows, { pageLimit: 2.5 }), /got 2\.5/);
+    });
+});

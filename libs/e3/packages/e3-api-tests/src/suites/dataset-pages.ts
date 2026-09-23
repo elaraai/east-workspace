@@ -53,6 +53,22 @@ function makeRows(n: number): { id: bigint; name: string }[] {
   return Array.from({ length: n }, (_, i) => ({ id: BigInt(i), name: `row-${i % 97}` }));
 }
 
+/** A deterministic, incompressible string of `n` printable characters
+ *  (xorshift32) — a wide row the blob writer cannot shrink, so the page byte
+ *  budget sees its real width. A repeated string would not do: the writer
+ *  stores it in a few bytes and no page is ever trimmed. */
+function noise(seed: number, n: number): string {
+  let x = (Math.imul(seed + 1, 2654435761) >>> 0) || 1;
+  const chars = new Array<string>(n);
+  for (let i = 0; i < n; i++) {
+    x ^= x << 13; x >>>= 0;
+    x ^= x >>> 17;
+    x ^= x << 5; x >>>= 0;
+    chars[i] = String.fromCharCode(33 + (x % 94));
+  }
+  return chars.join('');
+}
+
 /** Asserts `fn` rejects with an {@link ApiError} whose server-side detail
  *  text matches `detail` (the client keeps the error type in `message` and
  *  the human text in `details`). */
@@ -249,6 +265,48 @@ export function datasetPageTests(setup: TestSetup<TestContext>): void {
       assert.equal(stale.status, 409);
       assert.equal(stale.headers.get('X-Content-SHA256'), hash);
       assert.equal(stale.headers.get('Cache-Control'), 'no-store');
+    });
+
+    it('pages of wide rows are trimmed to the same count on every non-final page, and tile the dataset', async (t) => {
+      const ctx = await withTablePackage(t);
+      const opts = await ctx.opts();
+
+      // ~80 KB of incompressible text per row: 100 rows is well past the
+      // default page byte budget, so every page is trimmed below what it asks
+      // for. Readers rely on the trim being UNIFORM across one dataset's
+      // pages — the dataset preview learns the served size from its first
+      // page, and a component's derived windows re-request the rest (#829).
+      const rows = Array.from({ length: 150 }, (_, i) => ({ id: BigInt(i), name: noise(i, 80_000) }));
+      // Big enough to go up through the transfer protocol, which takes an
+      // INDEXED blob (the form the server stores every collection in).
+      await datasetSet(ctx.config.baseUrl, ctx.repoName, 'pages-ws', rowsPath, encodeBeast2For(RowsType, { index: true })(rows), opts);
+
+      const requested = 100;
+      const counts: number[] = [];
+      let blobBytes = 0;
+      let offset = 0;
+      while (offset < rows.length) {
+        const page = await datasetGetPage(ctx.config.baseUrl, ctx.repoName, 'pages-ws', rowsPath, { offset, limit: requested }, opts);
+        assert.equal(page.offset, offset);
+        assert.ok(page.count >= 1, `a page at ${offset} served nothing`);
+        // Each page is exactly the next slice — no gap, no overlap.
+        assert.ok(
+          equalFor(RowsType)(decodeBeast2For(RowsType)(page.data), rows.slice(offset, offset + page.count)),
+          `page at ${offset} is the next ${page.count} rows`);
+        counts.push(page.count);
+        blobBytes = page.totalBytes;
+        offset += page.count;
+      }
+      assert.equal(offset, rows.length, 'the pages tile the whole dataset');
+
+      const [first, ...rest] = counts;
+      assert.ok(first! < requested, `wide rows are trimmed below the ${requested} requested (served ${first}; stored blob ${blobBytes} bytes)`);
+      const nonFinal = counts.slice(0, -1);
+      assert.ok(nonFinal.length >= 2, `expected several full pages, got counts ${counts.join(', ')}`);
+      for (const count of nonFinal) {
+        assert.equal(count, first, `every non-final page serves the same count (${counts.join(', ')})`);
+      }
+      assert.ok(rest[rest.length - 1]! <= first!, 'the final page holds the remainder');
     });
 
     it('the requested limit is clamped and the actual count reported', async (t) => {

@@ -1,14 +1,14 @@
 {
   "version": 2,
   "stats": {
-    "totalEntries": 1171,
+    "totalEntries": 1172,
     "totalFiles": 195,
     "packages": {
       "east": 551,
       "east-node-std": 55,
       "east-node-io": 63,
       "east-py-datascience": 94,
-      "east-ui": 346,
+      "east-ui": 347,
       "e3-ui": 39,
       "e3": 11,
       "e3-ui-cli": 7,
@@ -31078,6 +31078,39 @@
         "tsx"
       ],
       "source": "// The SAME row-source contract over a positional component — a \n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const UnitRow = StructType({ unit: StringType, line: StringType, tonnes: FloatType });\n        const units = $.const([\n            { unit: \"L1-M07\", line: \"Line 1\", tonnes: 64.0 },\n            { unit: \"L1-M09\", line: \"Line 1\", tonnes: 112.0 },\n            { unit: \"L2-M11\", line: \"Line 2\", tonnes: 92.0 },\n            { unit: \"L2-M12\", line: \"Line 2\", tonnes: 88.0 },\n        ], ArrayType(UnitRow));\n        // POSITIONAL: an array source, so no key accessor and no `seek` — an\n        // Array's stream order has nothing to binary-search.\n        const source = $.const(Paged.of(\"units\", units));\n        return <Table data={source} columns={[\"unit\", \"line\", \"tonnes\"]} />;\n    })"
+    },
+    {
+      "id": "east-ui:paged-source.examples.tsx:pagedSourceTrimmed",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/paged-source.examples.tsx",
+      "suite": "",
+      "test": "A source that serves SHORT windows still gives a component WHOLE ones — ",
+      "keywords": [
+        "Paged",
+        "of",
+        "pageLimit",
+        "trim",
+        "trimmed",
+        "short window",
+        "byte budget",
+        "whole windows",
+        "paged",
+        "source",
+        "Table",
+        "row-source",
+        "contract",
+        "offline"
+      ],
+      "imports": [
+        "import {",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Paged, Plan, Table } from \"@elaraai/east-ui\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// A source that serves SHORT windows still gives a component WHOLE ones — \n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const UnitRow = StructType({ unit: StringType, line: StringType, tonnes: FloatType });\n        const units = $.const(TRIMMED_UNITS, ArrayType(UnitRow));\n        // At most 25 elements per window, whatever the table asks for.\n        const source = $.const(Paged.of(\"units\", units, { pageLimit: 25 }));\n        return <Table data={source} columns={[\"unit\", \"line\", \"tonnes\"]} />;\n    })"
     },
     {
       "id": "east-ui:paged-source.examples.tsx:pagedSourceWindows",

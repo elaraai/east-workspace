@@ -118,6 +118,31 @@ export const pagedTableSource = example({
     inputs: [],
 });
 
+/** 120 positional units — six windows' worth at a 25-element trim, so the
+ *  derived windows below each re-request five pieces. Module scope, for the
+ *  same reason as {@link WIDE_UNITS}. */
+const TRIMMED_UNITS = Array.from({ length: 120 }, (_, i) => ({
+    unit: `L${1 + (i % 4)}-U${String(i).padStart(3, "0")}`,
+    line: `Line ${1 + (i % 4)}`,
+    tonnes: 40 + (i % 80),
+}));
+
+export const pagedSourceTrimmed = example({
+    keywords: [
+        "Paged", "of", "pageLimit", "trim", "trimmed", "short window", "byte budget",
+        "whole windows", "paged", "source", "Table", "row-source", "contract", "offline",
+    ],
+    description: "A source that serves SHORT windows still gives a component WHOLE ones — `pageLimit` trims every window the way e3 trims pages of wide elements to its byte budget, and the component's derived `page` re-requests whatever a trimmed window left out, so no element is ever skipped. Set `pageLimit` in examples and tests to exercise the path a dataset of wide rows takes in production",
+    fn: East.function([], UIComponentType, ($) => {
+        const UnitRow = StructType({ unit: StringType, line: StringType, tonnes: FloatType });
+        const units = $.const(TRIMMED_UNITS, ArrayType(UnitRow));
+        // At most 25 elements per window, whatever the table asks for.
+        const source = $.const(Paged.of("units", units, { pageLimit: 25 }));
+        return <Table data={source} columns={["unit", "line", "tonnes"]} />;
+    }),
+    inputs: [],
+});
+
 export const pagedSourceWindows = example({
     keywords: [
         "Paged", "of", "paged", "window", "windows", "band", "transport", "footer",
