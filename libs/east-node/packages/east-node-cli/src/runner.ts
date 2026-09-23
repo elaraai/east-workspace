@@ -19,7 +19,7 @@ import {
 import type { PlatformFunction, EastTypeValue } from '@elaraai/east/internal';
 import { printTypeValue } from '@elaraai/east/internal';
 import { EmitFileWriter, type EmitKind } from './emit-writer.js';
-import { lazyInputBytesRead, loadEastIR, loadInput, loadInputLazy } from './loader.js';
+import { inputBytes, lazyInputBytesRead, loadEastIR, loadInput, loadInputLazy } from './loader.js';
 
 function now(): bigint { return process.hrtime.bigint(); }
 function elapsed(start: bigint, end: bigint): number { return Number(end - start) / 1e6; }
@@ -196,13 +196,15 @@ export async function runProgram(
     // lazily; other beast2 collection inputs open lazily at or above the
     // size threshold, so a sparse read into a huge indexed input stops
     // paying a whole decode — and because frozen collapses the shape gate,
-    // nested-container element shapes open lazily too.
+    // nested-container element shapes open lazily too. The size is the
+    // value's: an input staged as a manifest is a small file naming large
+    // ones.
     const threshold = lazyThreshold(opts);
     const inputs: unknown[] = [];
     const lazyInputs: number[] = [];
     for (let i = 0; i < inputPaths.length; i++) {
         const wantLazy = streamInputs.includes(i) ||
-            (threshold > 0 && statSync(inputPaths[i]!).size >= threshold);
+            (threshold > 0 && inputBytes(inputPaths[i]!) >= threshold);
         const lazy = wantLazy ? loadInputLazy(inputPaths[i]!) : undefined;
         if (lazy !== undefined) {
             lazyInputs.push(i);
@@ -211,11 +213,11 @@ export async function runProgram(
         inputs.push(lazy !== undefined ? lazy : loadInput(inputPaths[i]!, inputTypes[i]!));
     }
     /** The verbose summary's account of each lazy input: what paging came
-     *  to, against the file's size. */
+     *  to, against the size of the value. */
     const reportLazyReads = (): void => {
         for (const i of lazyInputs) {
             const read = lazyInputBytesRead(inputs[i]);
-            if (read !== undefined) console.error(`  input ${i}: ${formatSize(read)} read of ${formatFileSize(inputPaths[i]!)}`);
+            if (read !== undefined) console.error(`  input ${i}: ${formatSize(read)} read of ${formatSize(inputBytes(inputPaths[i]!))}`);
         }
     };
     if (emitSink) inputs.push(emitSink.emit);

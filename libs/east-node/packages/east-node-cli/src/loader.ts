@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { closeSync, existsSync, fstatSync, openSync, readFileSync, readSync } from 'fs';
+import { closeSync, existsSync, fstatSync, openSync, readFileSync, readSync, statSync } from 'fs';
 import { createRequire } from 'module';
 import * as path from 'path';
 import { extname } from 'path';
@@ -493,6 +493,35 @@ export function segmentDirFor(filePath: string): string {
     return `${filePath}.segments`;
 }
 
+/**
+ * The bytes an input stands for: the collection a manifest-rooted file names
+ * — the manifest and every segment file — or any other file's own size.
+ *
+ * @remarks
+ * What the lazy-open threshold and the verbose account measure. A manifest is
+ * a few dozen bytes per segment whatever the collection weighs, so its file's
+ * size would put a multi-gigabyte input under any threshold and decode it
+ * whole. The manifest is recognised through a positioned reader, so a large
+ * blob is never read to learn that it is not one.
+ *
+ * @param filePath - Path to the input file
+ * @returns the byte count
+ */
+export function inputBytes(filePath: string): number {
+    if (getFileFormat(filePath) !== 'beast2') return statSync(filePath).size;
+    const open = openCounted();
+    try {
+        const reader = open.reader(filePath);
+        const manifest = readBeast2Manifest(reader);
+        if (manifest === null) return reader.size;
+        return manifest.entries.reduce((sum, entry) => sum + Number(entry.bytes), reader.size);
+    } catch {
+        return statSync(filePath).size;
+    } finally {
+        open.closeAll();
+    }
+}
+
 /** Opens a manifest-rooted input as a lazy collection over its segment files.
  *  Returns `undefined` when the element shape is not lazy-safe or a segment
  *  the manifest names is missing — the caller falls back to the eager load,
@@ -515,10 +544,11 @@ function openManifestLazy(filePath: string, manifest: CollectionManifest, open: 
     const source: Beast2ManifestSource = {
         manifest,
         segment(i) {
-            // One descriptor per segment, opened the first time the body
-            // reaches it and held for the value's life: a body that touches
-            // three segments of fifteen hundred opens three files.
-            return readers[i] ??= open.reader(path.join(dir, `${entries[i]!.hash}.beast2`));
+            // A segment file is opened for each read and closed after it: a
+            // body that iterates every segment of a large record would
+            // otherwise hold a descriptor per segment for the value's life,
+            // and run out of them.
+            return readers[i] ??= open.segment(path.join(dir, `${entries[i]!.hash}.beast2`));
         },
     };
     const value = openBeast2LazyFor(typeValue, { frozen: true })(source) as object;
@@ -531,14 +561,29 @@ function openManifestLazy(filePath: string, manifest: CollectionManifest, open: 
 interface CountedOpener {
     /** A positioned reader over `file`, counting every byte it serves. */
     reader(file: string): Beast2SyncRangeReader;
+    /** A positioned reader over one of a manifest's segment files, counting
+     *  every byte it serves and holding no descriptor between reads. */
+    segment(file: string): Beast2SyncRangeReader;
     /** Hands the descriptors to `value`, closed when it is collected. */
     own(value: object): void;
     /** Closes everything — the open did not produce a value. */
     closeAll(): void;
 }
 
+/** Exactly `length` bytes of `handle` from `offset`. */
+function readRange(handle: number, offset: number, length: number): Uint8Array {
+    const out = new Uint8Array(length);
+    let done = 0;
+    while (done < length) {
+        const n = readSync(handle, out, done, length - done, offset + done);
+        if (n === 0) throw new Error(`beast2: short read at offset ${offset + done}`);
+        done += n;
+    }
+    return out;
+}
+
 /** The descriptors and the byte counter a lazy input shares across its
- *  file and, for a manifest, every segment file it opens. */
+ *  file and, for a manifest, every segment file it reads. */
 function openCounted(): CountedOpener {
     const handles: number[] = [];
     let bytesRead = 0;
@@ -549,15 +594,24 @@ function openCounted(): CountedOpener {
             return {
                 size: fstatSync(handle).size,
                 read(offset, length) {
-                    const out = new Uint8Array(length);
-                    let done = 0;
-                    while (done < length) {
-                        const n = readSync(handle, out, done, length - done, offset + done);
-                        if (n === 0) throw new Error(`beast2: short read at offset ${offset + done}`);
-                        done += n;
-                    }
+                    const out = readRange(handle, offset, length);
                     bytesRead += length;
                     return out;
+                },
+            };
+        },
+        segment(file) {
+            return {
+                size: statSync(file).size,
+                read(offset, length) {
+                    const handle = openSync(file, 'r');
+                    try {
+                        const out = readRange(handle, offset, length);
+                        bytesRead += length;
+                        return out;
+                    } finally {
+                        closeSync(handle);
+                    }
                 },
             };
         },
