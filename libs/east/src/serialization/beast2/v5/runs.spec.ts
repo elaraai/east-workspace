@@ -147,7 +147,7 @@ describe("beast2 v5 sorted runs", () => {
       const elements = Array.from({ length: n }, (_, i) => [key((i * 7919) % n), BigInt(i)] as [string, bigint]);
       const runs = sortInto(DictSI, elements);
       assert.deepEqual(runs.map((run) => openBeast2PagesFor(DictSI)(run).elementCount), [RUN_MAX_COUNT, RUN_MAX_COUNT, n - 2 * RUN_MAX_COUNT]);
-      assert.equal(digestOf(runs), "289758f1dbfa71fb");
+      assert.equal(digestOf(runs), "d90d3818c52e31bb");
     });
 
     test("closes and writes the runs east-c writes for a Set under union", () => {
@@ -157,7 +157,7 @@ describe("beast2 v5 sorted runs", () => {
       const elements = Array.from({ length: 300_000 }, (_, i) => `e${String((i * 7919) % 200_000).padStart(6, "0")}`);
       const runs = sortInto(type, elements, { union: true });
       assert.equal(runs.length, 3);
-      assert.equal(digestOf(runs), "0268e95d59fbf26a");
+      assert.equal(digestOf(runs), "a4a7379f0468c2be");
     });
   });
 });

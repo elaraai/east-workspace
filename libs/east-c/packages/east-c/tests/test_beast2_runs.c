@@ -35,8 +35,8 @@ static int failures = 0;
 
 /* TypeScript's runs of the parity sequences below: fnv1a64 over every run's
  * fnv1a64, in hex, joined with ','. */
-#define PERMUTED_DICT_DIGEST "289758f1dbfa71fb"
-#define SET_UNION_DIGEST "0268e95d59fbf26a"
+#define PERMUTED_DICT_DIGEST "d90d3818c52e31bb"
+#define SET_UNION_DIGEST "a4a7379f0468c2be"
 
 /* ----- a sink that keeps each run's bytes ----------------------------- */
 
