@@ -23,13 +23,13 @@ EastValue *east_json_decode_with_error(const char *json, EastType *type, char **
  * so a caller that maps a file reads it at whatever residency the kernel
  * chooses rather than on the heap.
  *
- * STRICT: it accepts exactly what `jsonSchemaFor(T)` describes — what the
- * ENCODER emits — rather than what `east_json_decode` tolerates. An integer
+ * STRICT: it accepts exactly what `jsonSchemaFor(T)` describes. An integer
  * must be a quoted decimal in i64 range with no leading zeros and no sign on
- * zero; a timestamp must carry an explicit `+00:00`, not `Z` and not a numeric
- * offset, in years 0001..9999; a blob's hex must be lowercase; a string must
- * be well-formed UTF-8 (a malformed sequence is refused, never repaired). A
- * float parses the same under any LC_NUMERIC (east_strtod_c).
+ * zero; a timestamp is any RFC 3339 date-time (what the schema's format
+ * "date-time" names, read through the parser east_json_decode shares) whose
+ * instant falls in years 0001..9999; a blob's hex must be lowercase; a string
+ * must be well-formed UTF-8 (a malformed sequence is refused, never
+ * repaired). A float parses the same under any LC_NUMERIC (east_strtod_c).
  *
  * Every refusal is "<pointer>: <message>" — an array element located by its
  * index, an object member by its name, RFC 6901-escaped — and the message is

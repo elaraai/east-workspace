@@ -135,20 +135,93 @@ const REJECTED: [string, EastType, string, string][] = [
         '/0/v: "9223372036854775808" is not a 64-bit integer in East JSON\'s form'],
     ["an unsigned 64-bit id", IntStruct, '{"v":"18446744073709551615"}',
         '/0/v: "18446744073709551615" is not a 64-bit integer in East JSON\'s form'],
-    ["DateTime with a Z suffix", DateStruct, '{"v":"2022-06-29T13:43:00.123Z"}',
-        '/0/v: "2022-06-29T13:43:00.123Z" is not East JSON\'s UTC date-time form'],
-    ["DateTime with a numeric offset", DateStruct, '{"v":"2022-06-29T13:43:00.123+05:00"}',
-        '/0/v: "2022-06-29T13:43:00.123+05:00" is not East JSON\'s UTC date-time form'],
-    ["DateTime without milliseconds", DateStruct, '{"v":"2022-06-29T13:43:00+00:00"}',
-        '/0/v: "2022-06-29T13:43:00+00:00" is not East JSON\'s UTC date-time form'],
+    // DateTime: anything but an RFC 3339 date-time, the text the schema's
+    // `format: "date-time"` names. The first cases are the invalid ones of the
+    // JSON-Schema-Test-Suite's own format corpus (draft2020-12
+    // optional/format/date-time.json), so a validator that passes the suite
+    // and this reader agree on every one.
+    ["DateTime with a Z after its offset", DateStruct, '{"v":"1963-06-19T08:30:06.28123+01:00Z"}',
+        '/0/v: "1963-06-19T08:30:06.28123+01:00Z" is not an RFC 3339 date-time'],
+    ["DateTime written as a US date", DateStruct, '{"v":"06/19/1963 08:30:06 PST"}',
+        '/0/v: "06/19/1963 08:30:06 PST" is not an RFC 3339 date-time'],
+    ["DateTime as an ISO 8601 ordinal date", DateStruct, '{"v":"2013-350T01:01:01"}',
+        '/0/v: "2013-350T01:01:01" is not an RFC 3339 date-time'],
+    ["DateTime with an unpadded month", DateStruct, '{"v":"1963-6-19T08:30:06.283185Z"}',
+        '/0/v: "1963-6-19T08:30:06.283185Z" is not an RFC 3339 date-time'],
+    ["DateTime with an unpadded day", DateStruct, '{"v":"1963-06-1T08:30:06.283185Z"}',
+        '/0/v: "1963-06-1T08:30:06.283185Z" is not an RFC 3339 date-time'],
+    ["DateTime with a Bengali digit in its date", DateStruct, '{"v":"1963-06-1৪T00:00:00Z"}',
+        '/0/v: "1963-06-1৪T00:00:00Z" is not an RFC 3339 date-time'],
+    ["DateTime with a Bengali digit in its time", DateStruct, '{"v":"1963-06-11T0৪:00:00Z"}',
+        '/0/v: "1963-06-11T0৪:00:00Z" is not an RFC 3339 date-time'],
+    ["DateTime with an extended year", DateStruct, '{"v":"+11963-06-19T08:30:06.283185Z"}',
+        '/0/v: "+11963-06-19T08:30:06.283185Z" is not an RFC 3339 date-time'],
+    ["DateTime with an hour-only offset", DateStruct, '{"v":"1985-04-12T23:20:50+01"}',
+        '/0/v: "1985-04-12T23:20:50+01" is not an RFC 3339 date-time'],
+    ["DateTime with a trailing newline", DateStruct, '{"v":"1985-04-12T23:20:50Z\\n"}',
+        '/0/v: "1985-04-12T23:20:50Z\\n" is not an RFC 3339 date-time'],
+    ["DateTime without seconds", DateStruct, '{"v":"1985-04-12T23:20Z"}',
+        '/0/v: "1985-04-12T23:20Z" is not an RFC 3339 date-time'],
+    ["DateTime with text after its offset", DateStruct, '{"v":"1985-04-12T23:20:50Ztail"}',
+        '/0/v: "1985-04-12T23:20:50Ztail" is not an RFC 3339 date-time'],
+    ["DateTime past a leap second", DateStruct, '{"v":"1998-12-31T23:59:61Z"}',
+        '/0/v: "1998-12-31T23:59:61Z" is not an RFC 3339 date-time'],
+    ["a leap second on the wrong minute", DateStruct, '{"v":"1998-12-31T23:58:60Z"}',
+        '/0/v: "1998-12-31T23:58:60Z" is not an RFC 3339 date-time'],
+    ["a leap second on the wrong hour", DateStruct, '{"v":"1998-12-31T22:59:60Z"}',
+        '/0/v: "1998-12-31T22:59:60Z" is not an RFC 3339 date-time'],
+    ["DateTime with offset hour 24", DateStruct, '{"v":"1990-12-31T15:59:59-24:00"}',
+        '/0/v: "1990-12-31T15:59:59-24:00" is not an RFC 3339 date-time'],
+    ["DateTime at hour 24", DateStruct, '{"v":"1990-12-31T24:00:00Z"}',
+        '/0/v: "1990-12-31T24:00:00Z" is not an RFC 3339 date-time'],
+    ["DateTime at minute 60", DateStruct, '{"v":"1990-12-31T15:60:00Z"}',
+        '/0/v: "1990-12-31T15:60:00Z" is not an RFC 3339 date-time'],
+    ["DateTime with offset minute 60", DateStruct, '{"v":"1990-12-31T10:00:00+10:60"}',
+        '/0/v: "1990-12-31T10:00:00+10:60" is not an RFC 3339 date-time'],
+    ["a leap second at hour 24", DateStruct, '{"v":"2016-12-31T24:59:60+01:00"}',
+        '/0/v: "2016-12-31T24:59:60+01:00" is not an RFC 3339 date-time'],
+    ["DateTime at minute 60 beside an offset", DateStruct, '{"v":"1985-04-12T23:60:00+00:01"}',
+        '/0/v: "1985-04-12T23:60:00+00:01" is not an RFC 3339 date-time'],
+    ["a day February 1990 does not have, beside an offset", DateStruct, '{"v":"1990-02-31T15:59:59.123-08:00"}',
+        '/0/v: "1990-02-31T15:59:59.123-08:00" is not a real date'],
+    ["February 30 in a leap year", DateStruct, '{"v":"2020-02-30T00:00:00Z"}',
+        '/0/v: "2020-02-30T00:00:00Z" is not a real date'],
+    ["February 29 in 2021", DateStruct, '{"v":"2021-02-29T00:00:00Z"}',
+        '/0/v: "2021-02-29T00:00:00Z" is not a real date'],
+    ["February 29 in the century year 0100", DateStruct, '{"v":"0100-02-29T00:00:00Z"}',
+        '/0/v: "0100-02-29T00:00:00Z" is not a real date'],
+    ["February 29 in the century year 2100", DateStruct, '{"v":"2100-02-29T00:00:00Z"}',
+        '/0/v: "2100-02-29T00:00:00Z" is not a real date'],
+    // ...and East's own: RFC 3339 has no space for the T, no empty fraction,
+    // no surrounding space, no missing offset and no colon-less one.
+    ["DateTime with a space for the T", DateStruct, '{"v":"2022-06-29 13:43:00Z"}',
+        '/0/v: "2022-06-29 13:43:00Z" is not an RFC 3339 date-time'],
+    ["DateTime with an empty fraction", DateStruct, '{"v":"2022-06-29T13:43:00.Z"}',
+        '/0/v: "2022-06-29T13:43:00.Z" is not an RFC 3339 date-time'],
+    ["DateTime with leading spaces", DateStruct, '{"v":"  2022-06-29T13:43:00.123Z"}',
+        '/0/v: "  2022-06-29T13:43:00.123Z" is not an RFC 3339 date-time'],
+    ["DateTime without an offset", DateStruct, '{"v":"2022-06-29T13:43:00.123"}',
+        '/0/v: "2022-06-29T13:43:00.123" is not an RFC 3339 date-time'],
+    ["DateTime with a colon-less offset", DateStruct, '{"v":"2022-06-29T13:43:00+0530"}',
+        '/0/v: "2022-06-29T13:43:00+0530" is not an RFC 3339 date-time'],
+    ["DateTime in month 13", DateStruct, '{"v":"2022-13-29T13:43:00.123+00:00"}',
+        '/0/v: "2022-13-29T13:43:00.123+00:00" is not an RFC 3339 date-time'],
     ["a day February does not have", DateStruct, '{"v":"2026-02-30T00:00:00.000+00:00"}',
         '/0/v: "2026-02-30T00:00:00.000+00:00" is not a real date'],
     ["a day April does not have", DateStruct, '{"v":"2026-04-31T00:00:00.000+00:00"}',
         '/0/v: "2026-04-31T00:00:00.000+00:00" is not a real date'],
     ["February 29 in a common year", DateStruct, '{"v":"2025-02-29T00:00:00.000+00:00"}',
         '/0/v: "2025-02-29T00:00:00.000+00:00" is not a real date'],
+    // The instants outside years 0001-9999, which python cannot hold: written
+    // there, or carried there by an offset or a leap second.
     ["year zero", DateStruct, '{"v":"0000-01-01T00:00:00.000+00:00"}',
-        '/0/v: "0000-01-01T00:00:00.000+00:00" is not East JSON\'s UTC date-time form'],
+        '/0/v: "0000-01-01T00:00:00.000+00:00" is outside DateTime\'s range, 0001-01-01T00:00:00.000Z to 9999-12-31T23:59:59.999Z'],
+    ["an offset that lands in year zero", DateStruct, '{"v":"0001-01-01T00:00:00+00:01"}',
+        '/0/v: "0001-01-01T00:00:00+00:01" is outside DateTime\'s range, 0001-01-01T00:00:00.000Z to 9999-12-31T23:59:59.999Z'],
+    ["an offset that lands in year 10000", DateStruct, '{"v":"9999-12-31T23:59:59-00:01"}',
+        '/0/v: "9999-12-31T23:59:59-00:01" is outside DateTime\'s range, 0001-01-01T00:00:00.000Z to 9999-12-31T23:59:59.999Z'],
+    ["a leap second at the end of year 9999", DateStruct, '{"v":"9999-12-31T23:59:60Z"}',
+        '/0/v: "9999-12-31T23:59:60Z" is outside DateTime\'s range, 0001-01-01T00:00:00.000Z to 9999-12-31T23:59:59.999Z'],
     ["DateTime as a number", DateStruct, '{"v":0}',
         "/0/v: expected DateTime as a string, got a number"],
     ["Blob in uppercase hex", BlobStruct, '{"v":"0xDEADBEEF"}',
@@ -322,6 +395,38 @@ const ACCEPTED: [EastType, string][] = [
     [IntStruct, '{\n\t"v" : "1"\n}'],
 ];
 
+/**
+ * RFC 3339 date-times and the UTC instant each one is. The valid cases of the
+ * JSON-Schema-Test-Suite's `format: "date-time"` corpus come first — a leap
+ * second reading as the Unix time its fields add up to, digits past the
+ * millisecond dropped — then East's own: the encoder's form, the offsets, the
+ * range's two ends, and a lowercase `t` read at its time rather than at
+ * midnight.
+ */
+const DATETIMES_READ: [string, Date][] = [
+    ["1963-06-19T08:30:06.283185Z", new Date("1963-06-19T08:30:06.283Z")],
+    ["1963-06-19T08:30:06Z", new Date("1963-06-19T08:30:06.000Z")],
+    ["1937-01-01T12:00:27.87+00:20", new Date("1937-01-01T11:40:27.870Z")],
+    ["1990-12-31T15:59:50.123-08:00", new Date("1990-12-31T23:59:50.123Z")],
+    ["1998-12-31T23:59:60Z", new Date("1999-01-01T00:00:00.000Z")],
+    ["1998-12-31T15:59:60.123-08:00", new Date("1999-01-01T00:00:00.123Z")],
+    ["1963-06-19t08:30:06.283185z", new Date("1963-06-19T08:30:06.283Z")],
+    ["1985-04-12T00:59:59.999999999999999Z", new Date("1985-04-12T00:59:59.999Z")],
+    ["2021-02-28T00:00:00Z", new Date("2021-02-28T00:00:00.000Z")],
+    ["2020-02-29T00:00:00Z", new Date("2020-02-29T00:00:00.000Z")],
+    ["0400-02-29T00:00:00Z", new Date("0400-02-29T00:00:00.000Z")],
+    ["2022-06-29T13:43:00.123+00:00", new Date("2022-06-29T13:43:00.123Z")],
+    ["2022-06-29T13:43:00.5Z", new Date("2022-06-29T13:43:00.500Z")],
+    ["2022-06-29T13:43:00.123-00:00", new Date("2022-06-29T13:43:00.123Z")],
+    ["2022-06-29T18:43:00.123+05:00", new Date("2022-06-29T13:43:00.123Z")],
+    ["2000-01-01T00:30:00+01:00", new Date("1999-12-31T23:30:00.000Z")],
+    ["2000-01-01T00:00:00+23:59", new Date("1999-12-31T00:01:00.000Z")],
+    ["1969-12-31T23:59:59.9999Z", new Date("1969-12-31T23:59:59.999Z")],
+    ["0001-01-01T00:00:00Z", new Date("0001-01-01T00:00:00.000Z")],
+    ["9999-12-31T23:59:59.999999Z", new Date("9999-12-31T23:59:59.999Z")],
+    ["2022-06-29t13:43:00.123z", new Date("2022-06-29T13:43:00.123Z")],
+];
+
 const LinkedListType = RecursiveType((self: any) => VariantType({
     nil: NullType,
     cons: StructType({ head: IntegerType, tail: self }),
@@ -351,6 +456,7 @@ describeEast("Json platform functions", (test) => {
         jsonReadText: ex.jsonReadText,
         jsonReadObjectAsEntries: ex.jsonReadObjectAsEntries,
         jsonReadOptional: ex.jsonReadOptional,
+        jsonReadTimestamps: ex.jsonReadTimestamps,
     });
 
     test("open of a missing path throws", $ => {
@@ -440,6 +546,17 @@ describeEast("Json platform functions", (test) => {
             const handle = $.let(Json.openText(doc, ""));
             $(Json.next(type, handle));
             $(Assert.equal(Json.more(handle), false));
+            $(Json.close(handle));
+        });
+    }
+
+    // One compliance test per RFC 3339 date-time, pinning the instant it reads
+    // as, so a runtime that reads the text at a different time fails by name.
+    for (const [text, want] of DATETIMES_READ) {
+        const doc = JSON.stringify([{ v: text }]);
+        test(`reads the RFC 3339 date-time ${text} as ${want.toISOString()}, on every runtime`, $ => {
+            const handle = $.let(Json.openText(doc, ""));
+            $(Assert.equal(Json.next(DateStruct, handle).v, want));
             $(Json.close(handle));
         });
     }
@@ -549,8 +666,10 @@ describeEast("Json platform functions", (test) => {
 
 describe("the reader accepts exactly what jsonSchemaFor describes", () => {
     // The invariant the contract rests on. The schema pins what the ENCODER
-    // emits, so the encoder's own output is the accept corpus, and the decoder's
-    // historic tolerances are the reject corpus.
+    // emits for every scalar but DateTime, whose schema is RFC 3339's
+    // `date-time`, so the accept corpus is the encoder's own output and the
+    // RFC 3339 cases, and the reject corpus is the decoder's historic
+    // tolerances and everything RFC 3339 excludes.
     const RowType = StructType({
         id: IntegerType, name: StringType, at: DateTimeType, ratio: FloatType,
         ok: BooleanType, note: OptionType(StringType), tags: SetType(StringType),
@@ -602,6 +721,13 @@ describe("the reader accepts exactly what jsonSchemaFor describes", () => {
 
     unitTest("accepts February 29 in a leap year", () => {
         assert.ok(accepts(DateStruct, '{"v":"2024-02-29T00:00:00.000+00:00"}'));
+    });
+
+    unitTest("reads every RFC 3339 date-time as the instant it names", () => {
+        for (const [text, want] of DATETIMES_READ) {
+            const got = read(DateTimeType, JSON.stringify(text)) as Date;
+            assert.equal(got.getTime(), want.getTime(), `${text} should read as ${want.toISOString()}`);
+        }
     });
 
     unitTest("accepts an object's fields in any order", () => {

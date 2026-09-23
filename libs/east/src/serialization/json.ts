@@ -225,6 +225,130 @@ export function jsonFlatOptionPayload(
   return payload;
 }
 
+/**
+ * The first and last instants a DateTime holds on every runtime, in epoch
+ * milliseconds: `0001-01-01T00:00:00.000Z` and `9999-12-31T23:59:59.999Z`.
+ * Python's `datetime` starts at year 1, so an instant outside them has no
+ * value there.
+ */
+const DATETIME_MIN_MS = -62_135_596_800_000;
+const DATETIME_MAX_MS = 253_402_300_799_999;
+
+/** `n` ASCII digits of `text` at `at`, as a number; -1 when any is not one — never a Unicode digit class. */
+function asciiDigits(text: string, at: number, n: number): number {
+  let value = 0;
+  for (let i = 0; i < n; i++) {
+    const c = text.charCodeAt(at + i);
+    if (!(c >= 0x30 && c <= 0x39)) return -1;
+    value = value * 10 + (c - 0x30);
+  }
+  return value;
+}
+
+/** Days from 1970-01-01 to a proleptic Gregorian date — Howard Hinnant's days_from_civil, as east-c computes it. */
+function daysFromCivil(year: number, month: number, day: number): number {
+  const y = month <= 2 ? year - 1 : year;
+  const era = Math.trunc((y >= 0 ? y : y - 399) / 400);
+  const yoe = y - era * 400;
+  const doy = Math.trunc((153 * (month > 2 ? month - 3 : month + 9) + 2) / 5) + day - 1;
+  const doe = yoe * 365 + Math.trunc(yoe / 4) - Math.trunc(yoe / 100) + doy;
+  return era * 146097 + doe - 719468;
+}
+
+/**
+ * Reads RFC 3339 date-time text as epoch milliseconds.
+ *
+ * @internal Not an authoring API — `parseJson`, `decodeJSONFor` and the
+ * strict reader apply it on their own. It is exported only so the east-node-std
+ * reader parses a DateTime with the same function as the codec, rather than a
+ * copy that could drift; east-c carries the same parser for itself and python.
+ *
+ * @param text - The contents of the JSON string
+ * @returns The instant in epoch milliseconds, or the first fault found, in
+ * this order: `"shape"` when the text is not RFC 3339's `date-time`
+ * production; `"field"` when a field or the offset is out of its bounds, or a
+ * `:60` is not at 23:59 UTC; `"calendar"` when the written month has no such
+ * day; `"range"` when the instant falls outside `0001-01-01T00:00:00.000Z` to
+ * `9999-12-31T23:59:59.999Z`
+ *
+ * @remarks
+ * This is the `date-time` that JSON Schema's `format: "date-time"` names
+ * (RFC 3339 §5.6), which is what `jsonSchemaFor` publishes for a DateTime: a
+ * `T` or `t`, any number of fractional digits, and `Z`, `z` or a `±HH:MM`
+ * offset, written in ASCII digits and nothing else. The offset is applied, so
+ * the instant is UTC. Fractional digits past the third are dropped — the
+ * floor, so nothing carries into the next second. A leap second reads as the
+ * Unix time its fields add up to, so `23:59:60.500Z` is `00:00:00.500Z` of the
+ * next day. Whether the written day exists is judged on the written date: an
+ * offset cannot make 30 February real.
+ */
+export function jsonParseDateTime(text: string): number | "shape" | "field" | "calendar" | "range" {
+  // YYYY-MM-DD, then T or t, then HH:MM:SS.
+  const year = asciiDigits(text, 0, 4);
+  const month = asciiDigits(text, 5, 2);
+  const day = asciiDigits(text, 8, 2);
+  const hour = asciiDigits(text, 11, 2);
+  const minute = asciiDigits(text, 14, 2);
+  const second = asciiDigits(text, 17, 2);
+  const t = text[10];
+  if (year < 0 || text[4] !== "-" || month < 0 || text[7] !== "-" || day < 0
+      || (t !== "T" && t !== "t") || hour < 0 || text[13] !== ":" || minute < 0
+      || text[16] !== ":" || second < 0) {
+    return "shape";
+  }
+
+  // An optional fraction of at least one digit, of which three are kept.
+  let at = 19;
+  let millis = 0;
+  if (text[at] === ".") {
+    const first = ++at;
+    while (asciiDigits(text, at, 1) >= 0) {
+      if (at - first < 3) millis = millis * 10 + (text.charCodeAt(at) - 0x30);
+      at++;
+    }
+    const digits = at - first;
+    if (digits === 0) return "shape";
+    for (let i = digits; i < 3; i++) millis *= 10;
+  }
+
+  // Z, z, or ±HH:MM — and nothing after it.
+  let sign = 0;
+  let offsetHours = 0;
+  let offsetMinutes = 0;
+  const z = text[at];
+  if (z === "Z" || z === "z") {
+    at += 1;
+  } else if (z === "+" || z === "-") {
+    sign = z === "-" ? -1 : 1;
+    offsetHours = asciiDigits(text, at + 1, 2);
+    offsetMinutes = asciiDigits(text, at + 4, 2);
+    if (offsetHours < 0 || text[at + 3] !== ":" || offsetMinutes < 0) return "shape";
+    at += 6;
+  } else {
+    return "shape";
+  }
+  if (at !== text.length) return "shape";
+
+  if (month < 1 || month > 12 || day < 1 || day > 31 || hour > 23 || minute > 59
+      || second > 60 || offsetHours > 23 || offsetMinutes > 59) {
+    return "field";
+  }
+  const offset = sign * (offsetHours * 60 + offsetMinutes);
+  // RFC 3339 §5.7: a leap second is 23:59:60 in UTC, whatever the offset.
+  if (second === 60 && (((hour * 60 + minute - offset) % 1440) + 1440) % 1440 !== 23 * 60 + 59) {
+    return "field";
+  }
+  const leap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+  const daysInMonth = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1]!;
+  if (day > daysInMonth) return "calendar";
+
+  const ms = daysFromCivil(year, month, day) * 86_400_000
+    + (hour * 3600 + minute * 60 + second) * 1000 + millis
+    - offset * 60_000;
+  if (ms < DATETIME_MIN_MS || ms > DATETIME_MAX_MS) return "range";
+  return ms;
+}
+
 export function encodeJSONFor(type: EastTypeValue): (x: any) => Uint8Array
 export function encodeJSONFor<T extends EastType>(type: T): (x: ValueTypeOf<T>) => Uint8Array
 export function encodeJSONFor(type: EastTypeValue | EastType): (x: any) => Uint8Array {
@@ -338,8 +462,8 @@ export function toJSONFor(
         // Always use UTC timezone (+00:00) for consistency
         return (date: Date, _ctx?: JSONEncodeValueContext) => {
             // Pad the year like east-c's "%04d": a year below 1000 written bare
-            // ("500-01-01T…") fails the decoder's own \d{4} check, so it would
-            // not survive its own round trip.
+            // ("500-01-01T…") is not RFC 3339's four-digit year, which the
+            // decoder requires, so it would not survive its own round trip.
             const y = date.getUTCFullYear();
             const year = y < 0 ? `-${(-y).toString().padStart(3, '0')}` : y.toString().padStart(4, '0');
             const month = (date.getUTCMonth() + 1).toString().padStart(2, '0');
@@ -663,37 +787,22 @@ function createJSONDecoder(
             if (typeof value !== "string") {
                 throw new JSONDecodeError(`expected string for DateTime, got ${JSON.stringify(value)}`);
             }
-            // Require RFC 3339 date-time format with timezone (see RFC 3339 Section 5.6)
-            // Per RFC 3339 Section 4.3, "unqualified local time" is unacceptable for interchange
-            // Timezone must be either 'Z' (UTC) or numeric offset (e.g., '+05:00' or '-08:00')
-            // Format: YYYY-MM-DDTHH:mm:ss.sss(Z|±HH:mm)
-            const iso8601WithTimezone = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}(Z|[+-]\d{2}:\d{2})$/;
-            if (!iso8601WithTimezone.test(value)) {
-                throw new JSONDecodeError(`expected ISO 8601 date string with timezone (e.g. "2022-06-29T13:43:00.123Z" or "2022-06-29T13:43:00.123+05:00"), got ${JSON.stringify(value)}`);
+            // Any RFC 3339 date-time — what the schema's `format: "date-time"`
+            // names — through the one parser the strict reader shares, so the
+            // two can never disagree about a timestamp. `new Date(text)` is not
+            // used: it rolls 30 February into 2 March and hour 24 into the next
+            // day rather than refusing them.
+            const ms = jsonParseDateTime(value);
+            if (ms === "shape") {
+                throw new JSONDecodeError(`expected RFC 3339 date-time string (e.g. "2022-06-29T13:43:00.123Z" or "2022-06-29T13:43:00.123+05:00"), got ${JSON.stringify(value)}`);
             }
-            // `new Date` rejects month 13 and hour 25 but rolls a day its month
-            // does not have — 2026-02-30 becomes 2 March — so the calendar has
-            // to be checked before the value is trusted. The offset cannot
-            // change whether the written day exists, so this reads the literal.
-            const y = Number(value.slice(0, 4));
-            const mo = Number(value.slice(5, 7));
-            const d = Number(value.slice(8, 10));
-            const h = Number(value.slice(11, 13));
-            const mi = Number(value.slice(14, 16));
-            const sec = Number(value.slice(17, 19));
-            const leap = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
-            const daysInMonth = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-            // Hour 24 is the one `new Date` normalises rather than rejecting
-            // (it rolls to 00:00 the next day), so the time of day is bounded
-            // here as well — east-c bounds all three.
-            if (mo < 1 || mo > 12 || d < 1 || d > daysInMonth[mo - 1]!
-                || h > 23 || mi > 59 || sec > 59) {
+            if (ms === "range") {
+                throw new JSONDecodeError(`date outside DateTime's range 0001-01-01T00:00:00.000Z to 9999-12-31T23:59:59.999Z, got ${JSON.stringify(value)}`);
+            }
+            if (typeof ms !== "number") {
                 throw new JSONDecodeError(`invalid date string, got ${JSON.stringify(value)}`);
             }
-            const date = new Date(value);
-            if (isNaN(date.getTime())) {
-                throw new JSONDecodeError(`invalid date string, got ${JSON.stringify(value)}`);
-            }
+            const date = new Date(ms);
             if (frozen) {
                 Object.freeze(date);
             }

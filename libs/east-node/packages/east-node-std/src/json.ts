@@ -101,11 +101,11 @@ export const json_more = East.platform("json_more", [StringType], BooleanType);
  * encoding, naming the RFC 6901 pointer of the offending node
  *
  * @remarks
- * Strict: it accepts exactly what `jsonSchemaFor(T)` describes, which is what
- * the ENCODER emits rather than what the historic decoder tolerated. An
- * integer must be a quoted decimal in i64 range — not `"0x10"`, not `" 7 "`,
- * not `"007"`; a timestamp must carry an explicit `+00:00`, not `Z` and not a
- * numeric offset; a blob's hex must be lowercase.
+ * Strict: it accepts exactly what `jsonSchemaFor(T)` describes. An integer
+ * must be a quoted decimal in i64 range — not `"0x10"`, not `" 7 "`, not
+ * `"007"`; a timestamp is any RFC 3339 date-time (`format: "date-time"`) —
+ * `Z` or an offset, any number of fractional digits — read as UTC, truncated
+ * to milliseconds, in years 0001–9999; a blob's hex must be lowercase.
  *
  * When the container is a JSON object, `T` must be a `Struct` of exactly `key`
  * and `value`, in either order, and each member arrives as one of those —

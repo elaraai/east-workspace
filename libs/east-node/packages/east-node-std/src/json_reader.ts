@@ -8,6 +8,7 @@ import {
     SortedMap,
     SortedSet,
     jsonFlatOptionPayload,
+    jsonParseDateTime,
     matrix,
     none,
     ref,
@@ -44,7 +45,6 @@ const MAX_DEPTH = 2048;
 const QUOTE_MAX = 200;
 
 const INTEGER_RE = new RegExp(EAST_JSON_PATTERNS.integer);
-const DATETIME_RE = new RegExp(EAST_JSON_PATTERNS.datetime);
 const BLOB_RE = new RegExp(EAST_JSON_PATTERNS.blob);
 
 const TAB = 0x09, LF = 0x0a, CR = 0x0d, SPACE = 0x20;
@@ -782,16 +782,17 @@ export class JsonReader {
                 this.skipSpace();
                 if (this.peek() !== QUOTE) this.fail(`expected DateTime as a string, got ${this.describe()}`);
                 const text = this.readString();
-                if (!DATETIME_RE.test(text)) {
-                    this.fail(`${quote(text)} is not East JSON's UTC date-time form`);
+                // Any RFC 3339 date-time — what `format: "date-time"` in the
+                // published schema names — through the parser the codec uses,
+                // so parseJson and this reader agree on every timestamp.
+                const ms = jsonParseDateTime(text);
+                if (typeof ms === "number") return new Date(ms);
+                if (ms === "calendar") this.fail(`${quote(text)} is not a real date`);
+                if (ms === "range") {
+                    this.fail(`${quote(text)} is outside DateTime's range, 0001-01-01T00:00:00.000Z to 9999-12-31T23:59:59.999Z`);
                 }
-                const date = parseUtcDateTime(text);
-                // The pattern bounds each field independently but cannot rule
-                // out a day the month does not have. `new Date` will not either
-                // — it rolls 30 February into 2 March rather than failing — so
-                // the fields are checked against what came back.
-                if (date === null) this.fail(`${quote(text)} is not a real date`);
-                return date;
+                this.fail(`${quote(text)} is not an RFC 3339 date-time`);
+                break;
             }
 
             case "Blob": {
@@ -1052,44 +1053,6 @@ export class JsonReader {
 
 function isDigit(b: number): boolean {
     return b >= ZERO && b <= NINE;
-}
-
-/**
- * East JSON's UTC date-time text as a `Date`, or null when the calendar has no
- * such day.
- *
- * @param text - Text already known to match the date-time pattern
- * @returns The date, or null for a day the month does not have
- *
- * @remarks
- * `new Date` cannot be trusted to reject an impossible date: it rolls
- * `2026-02-30` into `2026-03-02` and `2025-02-29` into `2025-03-01`, so a
- * NaN check lets a payload through and stores a different day than it sent.
- * The fields are read back off the constructed date instead.
- */
-function parseUtcDateTime(text: string): Date | null {
-    const year = Number(text.slice(0, 4));
-    const month = Number(text.slice(5, 7));
-    const day = Number(text.slice(8, 10));
-    const hour = Number(text.slice(11, 13));
-    const minute = Number(text.slice(14, 16));
-    const second = Number(text.slice(17, 19));
-    const millis = Number(text.slice(20, 23));
-    // The pattern already pins the year to 0001..9999, the range every runtime
-    // shares (python's datetime starts at year 1); this guards the arithmetic.
-    if (year < 1) return null;
-    // Date.UTC maps years 0-99 into the 1900s, so a one- or two-digit year has
-    // to be set explicitly. The base year is a leap year so that 02-29 always
-    // constructs, and the read-back below is what then rejects it in a common
-    // year — `new Date` rolls 2025-02-29 into 2025-03-01 rather than failing.
-    const date = new Date(Date.UTC(2000, month - 1, day, hour, minute, second, millis));
-    date.setUTCFullYear(year);
-    if (date.getUTCFullYear() !== year
-        || date.getUTCMonth() !== month - 1
-        || date.getUTCDate() !== day) {
-        return null;
-    }
-    return date;
 }
 
 function pointerOf(path: string[]): string {

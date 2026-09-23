@@ -209,14 +209,18 @@ const total = East.function([StringType], IntegerType, ($, path) => {
   materialises the array however good the reader is. Point at the array, and
   read the envelope separately with `Json.value(MetaType, path, "/meta")`;
   a member AFTER the array costs a scan, not a parse.
-- **It is strict, and deliberately stricter than `parseJson`.** It accepts
-  exactly what `jsonSchemaFor(T)` describes — what the ENCODER emits — so a
+- **It is strict.** It accepts exactly what `jsonSchemaFor(T)` describes, so a
   producer validating against the published schema cannot send something that
   is then rejected. An `Integer` must be a quoted decimal in i64 range: not
   `"0x10"`, `"0b101"`, `" 7 "`, `"007"`, `"-0"`, nor a bare JSON number. A
-  `DateTime` must carry an explicit `+00:00`, not `Z` and not a numeric offset,
-  and a day its month does not have (`2026-02-30`) is refused rather than
-  rolled forward. A `Blob`'s hex must be lowercase.
+  `DateTime` is any RFC 3339 date-time — the schema's `format: "date-time"` —
+  with `Z` or any offset (read as the UTC instant), a `t` or `z` in either
+  case, any number of fractional digits (past the millisecond dropped) and a
+  leap second read as the Unix time its fields add up to; a day its month does
+  not have (`2026-02-30`) is refused rather than rolled forward, and so is an
+  instant outside years 0001–9999. `parseJson` reads a `DateTime` through the
+  same parser. A `Blob`'s hex must be lowercase, where `parseJson` also takes
+  uppercase.
 - **An `Option<T>` is `null` or `T`'s own encoding** wherever `T` can never
   itself encode as `null`: a row's `note: Option<String>` reads `none` from
   `"note": null` and `some` from `"note": "x"`, and the tagged
@@ -259,9 +263,11 @@ const total = East.function([StringType], IntegerType, ($, path) => {
 - **Strings are validated UTF-8.** A malformed byte sequence (an overlong
   encoding, an encoded surrogate, a byte past U+10FFFF) is `invalid UTF-8 in
   string` — never repaired to U+FFFD, never passed through — and a
-  `\uD83D\uDE00` escape pair joins into one code point. A `DateTime` year
-  runs 0001–9999, the range every runtime represents.
-- **Three things the schema cannot say, so they are stated here.** A `Ref` that
+  `\uD83D\uDE00` escape pair joins into one code point.
+- **What the schema cannot say, so it is stated here.** A `DateTime`'s instant
+  must fall in years 0001–9999, the range every runtime represents
+  (`format: "date-time"` admits year 0000, and an offset can carry a time past
+  either end), and its digits past the millisecond are dropped. A `Ref` that
   the encoder wrote as `{"$ref": …}` (a repeated target) is not readable — as
   with `Array`/`Set`/`Dict` aliasing, a value with shared references does not
   validate against its own published schema. A `Dict` with two entries carrying

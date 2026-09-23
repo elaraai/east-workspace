@@ -116,24 +116,60 @@ int main(void)
         CHECK(!accepts(rejected_int[i], int_struct), "Integer should refuse %s", rejected_int[i]);
     }
 
-    CHECK(accepts("{\"v\":\"2024-02-29T00:00:00.000+00:00\"}", date_struct),
-          "DateTime should accept a leap day");
-    CHECK(accepts("{\"v\":\"1970-01-01T00:00:00.000+00:00\"}", date_struct),
-          "DateTime should accept the epoch");
-    CHECK(accepts("{\"v\":\"0001-01-01T00:00:00.000+00:00\"}", date_struct),
-          "DateTime should accept the first year");
+    /* A DateTime is any RFC 3339 date-time — what the schema's format
+     * "date-time" names — read as the UTC instant it is. The value is checked,
+     * not just the acceptance: east-c once read a lowercase "t" as midnight. */
+    {
+        const struct {
+            const char *doc;
+            int64_t epoch_ms;
+        } dates[] = {
+            {"{\"v\":\"2024-02-29T00:00:00.000+00:00\"}", INT64_C(1709164800000)},
+            {"{\"v\":\"1970-01-01T00:00:00.000+00:00\"}", INT64_C(0)},
+            {"{\"v\":\"0001-01-01T00:00:00.000+00:00\"}", INT64_C(-62135596800000)},
+            {"{\"v\":\"9999-12-31T23:59:59.999999Z\"}", INT64_C(253402300799999)},
+            {"{\"v\":\"2022-06-29T13:43:00.123Z\"}", INT64_C(1656510180123)},
+            {"{\"v\":\"2022-06-29T18:43:00.123+05:00\"}", INT64_C(1656510180123)},
+            {"{\"v\":\"2022-06-29T05:43:00.123-08:00\"}", INT64_C(1656510180123)},
+            {"{\"v\":\"2022-06-29t13:43:00.123z\"}", INT64_C(1656510180123)},
+            {"{\"v\":\"2022-06-29T13:43:00.123456789Z\"}", INT64_C(1656510180123)},
+            {"{\"v\":\"2022-06-29T13:43:00Z\"}", INT64_C(1656510180000)},
+            {"{\"v\":\"2022-06-29T13:43:00.5Z\"}", INT64_C(1656510180500)},
+            {"{\"v\":\"1969-12-31T23:59:59.9999Z\"}", INT64_C(-1)},
+            {"{\"v\":\"1998-12-31T23:59:60Z\"}", INT64_C(915148800000)},
+            {"{\"v\":\"1998-12-31T15:59:60.123-08:00\"}", INT64_C(915148800123)},
+        };
+        for (size_t i = 0; i < sizeof dates / sizeof *dates; i++) {
+            char *err = NULL;
+            EastValue *v = read_doc(dates[i].doc, strlen(dates[i].doc), date_struct, &err);
+            CHECK(v != NULL, "DateTime should accept %s: %s", dates[i].doc, err ? err : "");
+            if (v) {
+                EastValue *d = east_struct_get_field(v, "v");
+                CHECK(d && d->kind == EAST_VAL_DATETIME && d->data.datetime == dates[i].epoch_ms,
+                      "%s reads as %lld, got %lld", dates[i].doc, (long long)dates[i].epoch_ms,
+                      d ? (long long)d->data.datetime : 0LL);
+                east_value_release(v);
+            }
+            free(err);
+        }
+    }
 
     const char *rejected_date[] = {
-        "{\"v\":\"2022-06-29T13:43:00.123Z\"}",      /* the decoder takes Z */
-        "{\"v\":\"2022-06-29T13:43:00.123+05:00\"}", /* and any offset */
-        "{\"v\":\"2022-06-29T13:43:00+00:00\"}",     /* no milliseconds */
-        "{\"v\":\"2026-02-30T00:00:00.000+00:00\"}", /* a day February lacks */
-        "{\"v\":\"2026-04-31T00:00:00.000+00:00\"}", /* a day April lacks */
-        "{\"v\":\"2025-02-29T00:00:00.000+00:00\"}", /* Feb 29 in a common year */
-        "{\"v\":\"0000-01-01T00:00:00.000+00:00\"}", /* year 0, below the shared range */
-        "{\"v\":\"2022-13-29T13:43:00.123+00:00\"}", /* month 13 */
-        "{\"v\":\"2022-06-29T24:43:00.123+00:00\"}", /* hour 24 */
-        "{\"v\":\"2022-06-29 13:43:00.123+00:00\"}", /* space, not T */
+        "{\"v\":\"2026-02-30T00:00:00.000+00:00\"}",   /* a day February lacks */
+        "{\"v\":\"2026-04-31T00:00:00.000+00:00\"}",   /* a day April lacks */
+        "{\"v\":\"2025-02-29T00:00:00.000+00:00\"}",   /* Feb 29 in a common year */
+        "{\"v\":\"0000-01-01T00:00:00.000+00:00\"}",   /* year 0, below the shared range */
+        "{\"v\":\"0001-01-01T00:00:00+00:01\"}",       /* carried below it by the offset */
+        "{\"v\":\"9999-12-31T23:59:60Z\"}",            /* carried past it by a leap second */
+        "{\"v\":\"2022-13-29T13:43:00.123+00:00\"}",   /* month 13 */
+        "{\"v\":\"2022-06-29T24:43:00.123+00:00\"}",   /* hour 24 */
+        "{\"v\":\"1998-12-31T23:58:60Z\"}",            /* a leap second off 23:59 UTC */
+        "{\"v\":\"2022-06-29 13:43:00.123+00:00\"}",   /* space, not T */
+        "{\"v\":\"2022-06-29T13:43:00.123\"}",         /* no offset */
+        "{\"v\":\"2022-06-29T13:43:00+0530\"}",        /* a colon-less offset */
+        "{\"v\":\"2022-06-29T13:43:00.Z\"}",           /* an empty fraction */
+        "{\"v\":\"  2022-06-29T13:43:00.123Z\"}",      /* leading spaces */
+        "{\"v\":\"1963-06-1\xE0\xA7\xAAT00:00:00Z\"}", /* a Bengali four */
     };
     for (size_t i = 0; i < sizeof rejected_date / sizeof *rejected_date; i++) {
         CHECK(!accepts(rejected_date[i], date_struct), "DateTime should refuse %s",
@@ -175,8 +211,11 @@ int main(void)
                  "/v: \"a\\\"b\" is not a 64-bit integer in East JSON's form");
     refuses_with("{\"v\":\"2026-02-30T00:00:00.000+00:00\"}", date_struct,
                  "/v: \"2026-02-30T00:00:00.000+00:00\" is not a real date");
-    refuses_with("{\"v\":\"2022-06-29T13:43:00.123Z\"}", date_struct,
-                 "/v: \"2022-06-29T13:43:00.123Z\" is not East JSON's UTC date-time form");
+    refuses_with("{\"v\":\"2022-06-29 13:43:00Z\"}", date_struct,
+                 "/v: \"2022-06-29 13:43:00Z\" is not an RFC 3339 date-time");
+    refuses_with("{\"v\":\"0000-01-01T00:00:00Z\"}", date_struct,
+                 "/v: \"0000-01-01T00:00:00Z\" is outside DateTime's range, "
+                 "0001-01-01T00:00:00.000Z to 9999-12-31T23:59:59.999Z");
     refuses_with("{\"v\":\"a\\qb\"}", string_struct, "/v: invalid escape \"\\q\"");
     refuses_with("{\"v\":\"a\x01"
                  "b\"}",

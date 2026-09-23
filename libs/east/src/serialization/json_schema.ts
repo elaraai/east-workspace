@@ -83,27 +83,6 @@ function integerPattern(): string {
   return `^(?:0|(?:${boundedDigitPattern(I64_MAX)})|-(?:${boundedDigitPattern(I64_MIN_ABS)}))$`;
 }
 
-/**
- * The canonical text `DateTime` encodes to — always UTC, always three
- * fractional digits, always an explicit `+00:00` offset.
- *
- * @remarks
- * Stricter than the decoder, deliberately: the decoder also accepts a `Z`
- * suffix and any numeric offset, neither of which the encoder ever emits.
- * The year is pinned to `0001`–`9999`, the range every runtime reads (python's
- * datetime starts at year 1), so `0000` is refused by the validator rather
- * than only by the reader. Every digit class is spelled `[0-9]`, never `\d`:
- * a validator built on python's `re` reads `\d` as any Unicode digit, so a
- * timestamp written in Arabic-Indic digits would pass a partner's check and
- * then fail on receipt. Calendar-impossible dates such as `2026-02-30` still
- * match — no regex a schema can carry rules them out — and are rejected when
- * the date is constructed.
- */
-const DATETIME_PATTERN =
-  "^(?:000[1-9]|00[1-9][0-9]|0[1-9][0-9]{2}|[1-9][0-9]{3})" +
-  "-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])" +
-  "T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]\\.[0-9]{3}\\+00:00$";
-
 /** The canonical text `Blob` encodes to — `0x` and an even count of lowercase hex. */
 const BLOB_PATTERN = "^0x(?:[0-9a-f]{2})*$";
 
@@ -116,15 +95,16 @@ const FLOAT_SPECIALS = ["-0.0", "-Infinity", "Infinity", "NaN"];
  * @remarks
  * Published so a reader can enforce precisely what {@link jsonSchemaFor}
  * describes — the contract and the check are then one definition, not two that
- * have to be kept in step by hand. Each is stricter than the historic decoder,
- * which also accepts hexadecimal and whitespace-padded integers, a `Z` suffix
- * or any numeric offset on a timestamp, and uppercase hex blobs.
+ * have to be kept in step by hand. The blob form is stricter than the
+ * whole-document decoder, which also takes uppercase hex.
+ *
+ * A `DateTime` has no pattern here: its schema is `format: "date-time"`, the
+ * RFC 3339 date-time, whose calendar and leap-second rules no regex carries,
+ * and every decoder reads exactly that.
  */
 export const EAST_JSON_PATTERNS = {
   /** Decimal i64, no leading zeros, no sign on zero. */
   get integer(): string { return integerPattern(); },
-  /** RFC 3339 in UTC with three fractional digits and an explicit `+00:00`. */
-  datetime: DATETIME_PATTERN,
   /** `0x` followed by an even count of lowercase hex digits. */
   blob: BLOB_PATTERN,
   /** The non-finite floats, as strings, in the order the schema lists them. */
@@ -163,12 +143,15 @@ function defsKeyword(draft: JsonSchemaDraft): string {
  * `AsyncFunction` — naming the offending type
  *
  * @remarks
- * The schema describes what `East.String.printJson` emits and what a strict
- * reader accepts, so a producer validating against it cannot send a payload
- * that would then be rejected. It pins the **encoder's** canonical output
- * rather than the decoder's tolerance: the decoder accepts hexadecimal and
- * whitespace-padded integers, a `Z` suffix on timestamps and uppercase hex
- * blobs, and none of those appear here.
+ * The schema describes what a strict reader accepts, so a producer validating
+ * against it cannot send a payload that would then be rejected. For an
+ * `Integer` or a `Blob` that is the **encoder's** canonical text, pinned by a
+ * pattern — the whole-document decoder also takes uppercase hex, which never
+ * appears here. A `DateTime` is `format: "date-time"`: RFC 3339's
+ * `date-time`, with `Z` or any offset and any number of fractional digits,
+ * which every runtime reads as the UTC instant it names (truncated to the
+ * millisecond, in years 0001–9999). `East.String.printJson` writes one form of
+ * it, UTC with three fractional digits and `+00:00`.
  *
  * An `Option<T>` whose payload can never encode as `null` is described as it
  * encodes — `oneOf` the draft's `null` and `T`'s own schema, annotated
@@ -235,12 +218,12 @@ function schemaOf(t: EastTypeValue, ctx: DefsContext): JsonSchema {
       };
 
     case "DateTime":
-      return {
-        type: "string",
-        format: "date-time",
-        pattern: DATETIME_PATTERN,
-        "x-east-type": "DateTime",
-      };
+      // The standard format, not a regex: every decoder reads any RFC 3339
+      // date-time, so the contract is the one a partner's tooling already
+      // knows. Two things it cannot say are stated in the docs instead — the
+      // instant must fall in years 0001–9999, and digits past the millisecond
+      // are dropped.
+      return { type: "string", format: "date-time", "x-east-type": "DateTime" };
 
     case "Blob":
       return { type: "string", pattern: BLOB_PATTERN, "x-east-type": "Blob" };
