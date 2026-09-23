@@ -886,6 +886,8 @@ export class Beast2Pages<T extends EastType = EastType> {
   /** First key/element of each segment, in segment order (Set/Dict only). */
   private fences: any[] | null = null;
   private fenceDec: ((reader: BufferReader, ctx: V5DecodeContext) => any) | null = null;
+  /** The decoder of a manifest's stored fence bytes, built on first use. */
+  private manifestFenceDec: ((bytes: Uint8Array) => any) | null = null;
   /** Decoded segments kept hot for the element and keyed read paths, keyed
    *  by segment index in LRU order (mirrors east-c's `B2V5_PAGES_LRU`).
    *  Only {@link element} and {@link get} route through it — the public
@@ -1072,9 +1074,11 @@ export class Beast2Pages<T extends EastType = EastType> {
     // A manifest stores every fence already, so a bisect over one reads no
     // segment bytes at all — the whole point of carrying them.
     if (this.manifestSource !== null) {
-      const entry = this.manifestSource.manifest.entries[i]!;
-      const keyType = this.kind === "Dict" ? (this.typeValue as any).value.key : (this.typeValue as any).value;
-      return decodeBeast2FenceFor(keyType, this.platform)(entry.fence);
+      if (!this.manifestFenceDec) {
+        const keyType = this.kind === "Dict" ? (this.typeValue as any).value.key : (this.typeValue as any).value;
+        this.manifestFenceDec = decodeBeast2FenceFor(keyType, this.platform);
+      }
+      return this.manifestFenceDec(this.manifestSource.manifest.entries[i]!.fence);
     }
     if (!this.fenceDec) {
       const keyType = this.kind === "Dict" ? (this.typeValue as any).value.key : (this.typeValue as any).value;
