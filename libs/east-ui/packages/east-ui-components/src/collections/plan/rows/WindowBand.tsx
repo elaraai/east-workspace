@@ -20,7 +20,8 @@
  */
 
 import { Box } from "@chakra-ui/react";
-import { bandElements, type PlanBand } from "../use-plan-paging.js";
+import { bandElements, type PlanBand, type PlanWindowFailure } from "../use-plan-paging.js";
+import { formatDerived } from "../format.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
@@ -52,6 +53,53 @@ export function WindowBand({ band, styles, loading }: WindowBandProps) {
             aria-busy={loading ? "true" : undefined}
         >
             <Box css={styles.windowBandCaption}>{caption}</Box>
+        </Box>
+    );
+}
+
+/**
+ * What a failed window's band (and the narrow layout's failure card) says —
+ * which source elements could not be read, 1-based like the transport line,
+ * and why.
+ *
+ * @param failure - The failed window
+ * @returns The caption
+ */
+export function failureCaption(failure: PlanWindowFailure): string {
+    return `Elements ${formatDerived(failure.from + 1)}–${formatDerived(failure.to + 1)} could not be read — ${failure.error}`;
+}
+
+export interface WindowFailureBandProps {
+    failure: PlanWindowFailure;
+    styles: Styles;
+    /** Ask the window again. */
+    onRetry: (w: number) => void;
+}
+
+/**
+ * A window whose read failed (#811) — one band where its rows would be, with
+ * the reason and a Retry. Every other window keeps landing around it: a
+ * failure belongs to its window, never to the canvas.
+ *
+ * @param props - The failure, the recipe styles and the retry callback
+ * @returns The failed window's band
+ */
+export function WindowFailureBand({ failure, styles, onRetry }: WindowFailureBandProps) {
+    return (
+        <Box
+            css={styles.windowBand}
+            height={`${failure.px}px`}
+            data-plan-failed={failure.w}
+            data-plan-px={Math.round(failure.px)}
+            role="alert"
+        >
+            <Box css={styles.windowBandCaption}>
+                <Box as="span">{failureCaption(failure)}</Box>
+                <Box as="button" css={styles.windowRetry} data-plan-retry={failure.w}
+                    onClick={(e: React.MouseEvent) => { e.stopPropagation(); onRetry(failure.w); }}>
+                    Retry
+                </Box>
+            </Box>
         </Box>
     );
 }

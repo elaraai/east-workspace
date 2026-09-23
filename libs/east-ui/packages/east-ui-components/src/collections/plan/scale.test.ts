@@ -137,15 +137,27 @@ describe('planScale — time axis', () => {
     });
 
     describe('truncation (MAX_PLAN_BUCKETS)', () => {
+        it('a truncated scale SAYS so — the toolbar shows it, never a console warning alone (#811)', () => {
+            const min = d("2026-01-01T00:00:00Z");
+            const max = new Date(Date.UTC(2026, 0, 1) + 600 * 86_400_000);
+            const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+            const scale = planScale({ kind: "time", window: { min, max }, resolution: "day" })!;
+            expect(warn).not.toHaveBeenCalled();
+            warn.mockRestore();
+            expect(scale.truncated).toEqual({ shown: MAX_PLAN_BUCKETS });
+            // A window that fits is not truncated — on every axis kind.
+            expect(time("2026-06-29T00:00:00Z", "2026-09-21T00:00:00Z", "week").truncated).toBeUndefined();
+            expect(planScale({ kind: "number", window: { min: 0, max: 499 }, step: 1 })!.truncated).toBeUndefined();
+            expect(planScale({ kind: "number", window: { min: 0, max: 501 }, step: 1 })!.truncated).toEqual({ shown: MAX_PLAN_BUCKETS });
+            expect(planScale({ kind: "ordinal", values: ["A", "B"] })!.truncated).toBeUndefined();
+        });
+
         it('bucketOf answers −1 past the last bucket instead of piling into the final column (#618)', () => {
             // 600 days at day resolution truncates the GRID to 500 buckets;
             // the window — and the continuous axis — stays 600 days wide.
             const min = d("2026-01-01T00:00:00Z");
             const max = new Date(Date.UTC(2026, 0, 1) + 600 * 86_400_000);
-            const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
             const scale = planScale({ kind: "time", window: { min, max }, resolution: "day" })!;
-            expect(warn).toHaveBeenCalledOnce();
-            warn.mockRestore();
             expect(scale.n).toBe(MAX_PLAN_BUCKETS);
             const lastEnd = dateOf(scale.buckets[MAX_PLAN_BUCKETS - 1]!.end);
             // Inside the covered range: the last bucket, as before.
@@ -192,9 +204,7 @@ describe('planScale — time axis', () => {
         it('the right overscan starts at the COVERED edge of a truncated axis (#618)', () => {
             const min = d("2026-01-01T00:00:00Z");
             const max = new Date(Date.UTC(2026, 0, 1) + 600 * 86_400_000);
-            const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
             const scale = planScale({ kind: "time", window: { min, max }, resolution: "day" })!;
-            warn.mockRestore();
             const lastEnd = dateOf(scale.buckets[scale.n - 1]!.end);
             const b = scale.renderBucketOf(t(lastEnd))!;
             expect(b.index).toBe(scale.n);

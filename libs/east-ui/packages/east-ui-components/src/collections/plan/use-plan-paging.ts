@@ -46,6 +46,13 @@
  * the cursor and "60% of the way down" means the same element when the gesture
  * ends as when it began.
  *
+ * # A failure belongs to its window (#811)
+ *
+ * A window whose read throws becomes a {@link PlanWindowFailure} — one error
+ * band at its ledger slot, with a Retry — while every other window keeps
+ * landing. A `total()` that throws is the SOURCE's failure and surfaces as
+ * `sourceError` for the chrome; neither ever replaces the canvas.
+ *
  * @packageDocumentation
  */
 
@@ -53,7 +60,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { equivalentFor } from "@elaraai/east";
 import { Plan } from "@elaraai/east-ui/internal";
 import { useTrackedEvaluation } from "../../reactive/index.js";
-import type { PlanBand, PlanRootValue, PlanRowValue } from "./model.js";
+import type { PlanBand, PlanRootValue, PlanRowValue, PlanWindowFailure } from "./model.js";
 
 /** The decoded `paged` arm — the derived source at the canvas-row type. */
 export type PlanPagedSourceValue = Extract<PlanRootValue["rows"], { type: "paged" }>["value"];
@@ -63,7 +70,7 @@ export type PlanPagedSourceValue = Extract<PlanRootValue["rows"], { type: "paged
  *  rows are derived WITH (#809). */
 const pagedSourceEquivalent = equivalentFor(Plan.Types.Root.fields.rows.cases.paged);
 import {
-    createLedger, observeWindow, documentHeight, elementAtOffset, offsetOfWindow, elementsIn,
+    createLedger, observeWindow, documentHeight, elementAtOffset, offsetOfWindow, elementsIn, slotHeight,
     type WindowLedger,
 } from "./window-ledger.js";
 import {
@@ -72,14 +79,19 @@ import {
 } from "./window-residency.js";
 import {
     readWindows, mergeWindows, originOf, pruneCache,
-    type WindowCache,
+    type WindowCache, type WindowFailures,
 } from "./window-reader.js";
 import { maxOf, minOf } from "./reductions.js";
 
 /** Source elements per window. */
 export const PLAN_PAGE_SIZE = 200;
 
-export type { PlanBand } from "./model.js";
+/** The shortest a failed window's band renders (#811) — its reason and its
+ *  Retry must stay legible even in a short last window, or before any window
+ *  has taught the ledger its geometry. */
+export const FAILED_BAND_MIN_PX = 64;
+
+export type { PlanBand, PlanWindowFailure } from "./model.js";
 
 /** Where the viewport is, in the caller's own terms. */
 export type PlanViewport =
@@ -92,7 +104,9 @@ export type PlanViewport =
          *  driver can only name the window adjacent to the run — a far
          *  scrollbar drag then walks the gap instead of rebasing (#612). */
         px?: number | undefined;
-    };
+    }
+    /** A failed window's band — it names its own window (#811). */
+    | { kind: "window"; w: number };
 
 export interface PlanPagingOptions {
     /**
@@ -126,8 +140,11 @@ export interface PlanPaging {
     resident: { from: number; to: number; elements: number } | undefined;
     /** Whether a requested window is still in flight. */
     loading: boolean;
-    /** Why the source could not be read, when it could not be. */
-    error: string | undefined;
+    /** The resident windows whose read failed, ascending (#811). */
+    failures: PlanWindowFailure[];
+    /** Why the SOURCE could not be read — its `total()` threw — when it could
+     *  not be. Chrome, never a canvas replacement (#811). */
+    sourceError: string | undefined;
     /** Bump for `VirtualRows`' `sizeVersion` — heights change at constant count. */
     sizeVersion: number;
     /** Tell the driver where the viewport is. */
@@ -136,15 +153,22 @@ export interface PlanPaging {
     jumpToElement: (element: number) => void;
     /** Drop any pending jump pin — a cleared search has no target (#614). */
     clearJump: () => void;
+    /** Ask a failed window again — drops its failure record and re-reads (#811). */
+    retry: (w: number) => void;
 }
+
+/** No failed windows — one shared list, so an unfailed canvas's memos hold. */
+const NO_FAILURES: PlanWindowFailure[] = [];
 
 const IDLE: PlanPaging = {
     rows: [], origin: new Map(), head: undefined, tail: undefined,
-    total: undefined, resident: undefined, loading: false, error: undefined,
+    total: undefined, resident: undefined, loading: false,
+    failures: NO_FAILURES, sourceError: undefined,
     sizeVersion: 0,
     reportViewport: () => {},
     jumpToElement: () => {},
     clearJump: () => {},
+    retry: () => {},
 };
 
 /** One line naming why a source read failed. */
@@ -172,6 +196,9 @@ export function usePlanPaging(
     const [viewportWindow, setViewportWindow] = useState(0);
     const [isScrolling, setIsScrolling] = useState(false);
     const [sizeVersion, setSizeVersion] = useState(0);
+    // Bumped by a Retry: the evaluation re-runs and asks the window whose
+    // failure record the Retry just dropped.
+    const [retrySeq, setRetrySeq] = useState(0);
 
     // Read-once cache of DERIVED rows, keyed by the source that derived them.
     // The id alone cannot key it: the derived `page` wraps the series
@@ -182,38 +209,45 @@ export function usePlanPaging(
     // equivalent — the resident windows re-read (the runtime still holds their
     // raw pages), while the ledger keeps its measured heights, so nothing
     // jumps. Reset here rather than in an effect so a swapped source cannot
-    // serve the previous one's rows for a frame.
-    const cacheRef = useRef<{ source: PlanPagedSourceValue | undefined; cache: WindowCache }>({ source: undefined, cache: new Map() });
+    // serve the previous one's rows for a frame. The failure record (#811)
+    // belongs to the same source and goes with it: a new source is asked
+    // afresh.
+    const cacheRef = useRef<{ source: PlanPagedSourceValue | undefined; cache: WindowCache; failures: WindowFailures }>(
+        { source: undefined, cache: new Map(), failures: new Map() });
     const originRef = useRef<ReadonlyMap<string, number>>(new Map());
 
     const read = useCallback(() => {
         if (source === undefined) return undefined;
         const filledBy = cacheRef.current.source;
         if (filledBy === undefined || !pagedSourceEquivalent(filledBy, source)) {
-            cacheRef.current = { source, cache: new Map() };
+            cacheRef.current = { source, cache: new Map(), failures: new Map() };
         }
         let total: number | undefined;
-        let error: string | undefined;
+        let sourceError: string | undefined;
         try {
             const t = source.total();
             if (t.type === "some") total = Number(t.value);
         } catch (err) {
             console.error("[Plan] paged source total failed:", err);
-            error = readFailure(err);
+            sourceError = readFailure(err);
         }
         const wanted = residentWindows(residency);
-        const result = readWindows(source, wanted, cacheRef.current.cache, PLAN_PAGE_SIZE);
+        const result = readWindows(source, wanted, cacheRef.current.cache, PLAN_PAGE_SIZE, cacheRef.current.failures);
         return {
             total,
             resident: result.resident,
             loading: result.loading,
-            error: error ?? result.error,
+            failed: result.failed,
+            sourceError,
         };
-    }, [source, residency]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- retrySeq re-runs the read after a Retry dropped a failure record; the record itself lives in the ref
+    }, [source, residency, retrySeq]);
 
     const { result } = useTrackedEvaluation(read);
     const value = result.ok ? result.value : undefined;
-    const readError = result.ok ? value?.error : readFailure(result.error);
+    // `read` catches every source call itself, so an evaluation that still
+    // failed is the source's failure too — chrome, like a throwing `total()`.
+    const sourceError = result.ok ? value?.sourceError : readFailure(result.error);
 
     // ── The source's size defines the geometry ────────────────────────────
     const total = value?.total;
@@ -226,7 +260,7 @@ export function usePlanPaging(
         // the author's derived source is what needs fixing (sign the id).
         if (ledger.total > 0) {
             console.warn(`[Plan] paged source ${source !== undefined ? `"${source.id}" ` : ""}changed total() ${ledger.total} → ${total} under one id — same id must serve same rows; dropping cached windows.`);
-            cacheRef.current = { source: cacheRef.current.source, cache: new Map() };
+            cacheRef.current = { source: cacheRef.current.source, cache: new Map(), failures: new Map() };
         }
         setLedger(createLedger(total, PLAN_PAGE_SIZE));
         setResidency(NO_RESIDENCY);
@@ -266,8 +300,11 @@ export function usePlanPaging(
         if (next === residency) return;
         setResidency(next);
         // Whatever left the run leaves the cache with it — this is the half of
-        // eviction that actually frees memory.
-        pruneCache(cacheRef.current.cache, new Set(residentWindows(next)));
+        // eviction that actually frees memory. A failure record leaves too: a
+        // window demanded again later is asked afresh (#811).
+        const keep = new Set(residentWindows(next));
+        pruneCache(cacheRef.current.cache, keep);
+        pruneCache(cacheRef.current.failures, keep);
         setSizeVersion((v) => v + 1);
     }, [source, ledger, residency, viewportWindow, isScrolling, policy]);
 
@@ -306,6 +343,22 @@ export function usePlanPaging(
         return { head, tail };
     }, [residency, ledger, total]);
 
+    // Each failed window as its band (#811): at its ledger slot, floored so the
+    // reason and the Retry stay legible — a short last window, or a window 0
+    // that failed before any landing taught the ledger a geometry at all.
+    const failed = value?.failed;
+    const failures = useMemo<PlanWindowFailure[]>(() => {
+        // One shared empty list: every evaluation reads a fresh `failed`
+        // array, and the body items key on this one's identity.
+        if (failed === undefined || failed.length === 0) return NO_FAILURES;
+        return failed.map(({ w, error }) => {
+            const known = total !== undefined && w < ledger.windows;
+            const from = w * PLAN_PAGE_SIZE;
+            const to = (known ? Math.min(total, (w + 1) * PLAN_PAGE_SIZE) : (w + 1) * PLAN_PAGE_SIZE) - 1;
+            return { w, from, to, px: Math.max(FAILED_BAND_MIN_PX, known ? slotHeight(ledger, w) : 0), error };
+        });
+    }, [failed, ledger, total]);
+
     const resident = useMemo(() => {
         const landedWindows = value?.resident.map((r) => r.w) ?? [];
         if (landedWindows.length === 0 || total === undefined) return undefined;
@@ -325,6 +378,7 @@ export function usePlanPaging(
     const reportViewport = useCallback((at: PlanViewport, scrolling: boolean) => {
         setIsScrolling(scrolling);
         setViewportWindow((current) => {
+            if (at.kind === "window") return at.w;
             if (at.kind === "band") {
                 // With a pixel offset into the band, the window under the
                 // scrollbar thumb resolves exactly: the band's top is a ledger
@@ -363,6 +417,11 @@ export function usePlanPaging(
         setResidency((r) => unpinAll(r));
     }, []);
 
+    const retry = useCallback((w: number) => {
+        cacheRef.current.failures.delete(w);
+        setRetrySeq((n) => n + 1);
+    }, []);
+
     // A pin protects the jump target only until it LANDS — then it drops, as
     // `window-residency`'s own doc always promised. Leaving it would keep one
     // window trim-exempt for the session per search (#614).
@@ -385,11 +444,13 @@ export function usePlanPaging(
         total,
         resident,
         loading: value?.loading ?? false,
-        error: readError,
+        failures,
+        sourceError,
         sizeVersion,
         reportViewport,
         jumpToElement,
         clearJump,
+        retry,
     };
 }
 

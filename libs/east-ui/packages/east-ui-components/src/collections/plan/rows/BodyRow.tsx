@@ -26,6 +26,8 @@ import { RowShell, type PlanRowDrop } from "./RowShell.js";
 import { GroupRow } from "./GroupRow.js";
 import { ChartLeftTicks } from "./ChartRow.js";
 import { KindPlot } from "./KindPlot.js";
+import { PlanPartBoundary } from "./PartBoundary.js";
+import { RowDiagnostic } from "./RowDiagnostic.js";
 import { PlanDecisionCell, tagOf, type PlanReview } from "../shell/Review.js";
 import type { PlanDerived, PlanRowIndex, VisibleRow } from "../model.js";
 import type { PlanEvent } from "../plan-state.js";
@@ -121,6 +123,9 @@ export const PlanBodyRow = memo(function PlanBodyRow({
 }: PlanBodyRowProps) {
     bodyRowRenderProbe?.(v.row.key);
     const kind = v.row.kind;
+    // A row that cannot be placed on the axis renders in place as its
+    // diagnostic (#811) — gutter kept, marks replaced by the reason.
+    const diagnostic = derived.diagnostics.get(v.row.key);
 
     // R1 rails — unrelated rows collapse to 11px, never removed: order,
     // scroll and the status dot survive, and the rail itself returns.
@@ -146,7 +151,7 @@ export const PlanBodyRow = memo(function PlanBodyRow({
                 summaryCells={derived.groupSummary.get(v.row.key)}
                 summaryScale={derived.groupSummaryScale.get(v.row.key)}
                 memberCount={derived.groupMembers.get(v.row.key)}
-                partial={partial} />
+                partial={partial} diagnostic={diagnostic} />
         );
     }
 
@@ -180,8 +185,9 @@ export const PlanBodyRow = memo(function PlanBodyRow({
             : undefined,
         // Only the kinds that hold droppable objects register a cell —
         // a chart / heat / table row is inert to a drag by construction,
-        // not by predicate (see `DROPPABLE_KINDS`).
-        drop: DROPPABLE_KINDS.has(kind.type) ? rowDrop : undefined,
+        // not by predicate (see `DROPPABLE_KINDS`). A diagnostic row places
+        // nothing, so nothing can land on it either.
+        drop: DROPPABLE_KINDS.has(kind.type) && diagnostic === undefined ? rowDrop : undefined,
     } as const;
     // The per-kind SHELL differences — caret, toggle, emphasis, the chart's
     // gutter ticks. The plot content itself is one switch shared with the
@@ -223,8 +229,11 @@ export const PlanBodyRow = memo(function PlanBodyRow({
                 onCaretClick: expandable ? () => dispatch({ t: "chart.toggle", key: v.row.key }) : undefined,
                 // A STRIP carries no value axis — its plot re-encodes as a
                 // tone strip (`ToneStrip`), so the gutter ticks would label a
-                // scale that is not there, stacked in 16px.
-                gutterOverlay: isCtx ? undefined : <ChartLeftTicks kind={kind.value} styles={styles} height={plotH} />,
+                // scale that is not there, stacked in 16px. A diagnostic row
+                // draws no marks, so it has no value axis either.
+                gutterOverlay: isCtx || diagnostic !== undefined
+                    ? undefined
+                    : <ChartLeftTicks kind={kind.value} styles={styles} height={plotH} />,
             };
             break;
         }
@@ -240,9 +249,16 @@ export const PlanBodyRow = memo(function PlanBodyRow({
     }
     return (
         <RowShell {...shellBase} height={h} {...shellExtras}>
-            <KindPlot v={v} styles={styles} derived={derived} storageKey={storageKey}
-                barHeight={barHeight} hasChildren={hasChildren} ctx={isCtx}
-                plotHeight={plotH} chartExpanded={chartExpanded_} partial={partial} />
+            {diagnostic !== undefined ? (
+                <RowDiagnostic diagnostic={diagnostic} styles={styles} ctx={isCtx} />
+            ) : (
+                // One row's render failure stays in that row (#811).
+                <PlanPartBoundary part={`row ${v.row.key}`} resetKey={v.row} styles={styles}>
+                    <KindPlot v={v} styles={styles} derived={derived} storageKey={storageKey}
+                        barHeight={barHeight} hasChildren={hasChildren} ctx={isCtx}
+                        plotHeight={plotH} chartExpanded={chartExpanded_} partial={partial} />
+                </PlanPartBoundary>
+            )}
         </RowShell>
     );
 });

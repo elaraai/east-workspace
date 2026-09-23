@@ -86,6 +86,12 @@ export interface VirtualRowsProps {
      */
     scrollToIndex?: number | undefined;
     /**
+     * Bump to apply `scrollToIndex` AGAIN at an unchanged index — a control
+     * the user can press twice ("show me the first skipped row", then scroll
+     * away, then press it again) is a second request, not a no-op.
+     */
+    scrollNonce?: number | undefined;
+    /**
      * How `scrollToIndex` brings its row into view (default `"center"` — a
      * jump to a sought row). `"auto"` scrolls the least distance that makes the
      * row visible and leaves an already-visible row where it is — what a
@@ -147,7 +153,7 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
     const {
         header, footer, count, estimateSize, renderRow, measureRows = true,
         overscan = 4, minWidth, headerZIndex = 3, onScroll, rootCss, fillParent, scrollElRef,
-        scrollToIndex, scrollAlign = "center", onRangeChange, sizeVersion,
+        scrollToIndex, scrollNonce, scrollAlign = "center", onRangeChange, sizeVersion,
     } = props;
     const h = parseCssSize(props.height);
     const mh = parseCssSize(props.maxHeight);
@@ -174,14 +180,14 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
         measureElement: (el) => el?.getBoundingClientRect().height,
     });
 
-    // Bring a requested row into view. Keyed on the index alone, so a row set
-    // that grows underneath a standing target (paged windows landing) does not
-    // re-scroll on every frame.
+    // Bring a requested row into view. Keyed on the index (and the explicit
+    // re-request nonce) alone, so a row set that grows underneath a standing
+    // target (paged windows landing) does not re-scroll on every frame.
     useEffect(() => {
         if (scrollToIndex === undefined || !bounded) return;
         virtualizer.scrollToIndex(scrollToIndex, { align: scrollAlign });
-        // eslint-disable-next-line react-hooks/exhaustive-deps -- the target index is the trigger
-    }, [scrollToIndex]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- the target index and the nonce are the trigger
+    }, [scrollToIndex, scrollNonce]);
 
     // Heights changed without the count changing — bust TanStack's measurement
     // memo, which does not watch `estimateSize` (see `sizeVersion`).

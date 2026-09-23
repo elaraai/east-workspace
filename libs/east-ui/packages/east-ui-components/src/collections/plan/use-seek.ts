@@ -82,6 +82,9 @@ export interface PlanSeekState {
     search: PlanSearch | undefined;
     /** The canvas row key to scroll to, once it has loaded. */
     targetKey: string | undefined;
+    /** Why the last search failed — its `seek` threw — until the next search
+     *  or a clear (#811: the toolbar states it; the canvas carries on). */
+    searchError: string | undefined;
 }
 
 /** The `.east` literal of a String key is its quoted text; every other query
@@ -127,6 +130,8 @@ export function usePlanSeek(
     const [query, setQuery] = useState<unknown>(null);
     /** The key the query sought, and where its run started in the source. */
     const [sought, setSought] = useState<{ key: string; row: number } | null>(null);
+    /** Why the last search failed, if it did (#811). */
+    const [searchError, setSearchError] = useState<string | undefined>(undefined);
     // What `listRange` reads — REFS, not the state above. The control awaits
     // `onFind` and then calls the `onListRange` it captured BEFORE `find()`'s
     // state committed, so a state-derived closure answers from the previous
@@ -166,6 +171,9 @@ export function usePlanSeek(
         if (waiting === null) return;
         if (!result.ok) {
             pending.current = null;
+            // The search's own failure — stated in the toolbar, never the
+            // canvas's (#811). The control's promise rejects as before.
+            setSearchError(result.error instanceof Error ? result.error.message : String(result.error));
             waiting.reject(result.error);
             return;
         }
@@ -193,6 +201,7 @@ export function usePlanSeek(
         pending.current = { resolve, reject };
         soughtKeyRef.current = soughtKeyOf(q) ?? "";
         setSought({ key: soughtKeyRef.current, row: 0 });
+        setSearchError(undefined);
         setQuery(toSeekQuery(q));
     }), []);
 
@@ -224,6 +233,7 @@ export function usePlanSeek(
         soughtKeyRef.current = "";
         setQuery(null);
         setSought(null);
+        setSearchError(undefined);
         // The driver's pin protects the jump target until it lands; a cleared
         // search has no target, so its pin goes with it (#614).
         clearJump();
@@ -240,5 +250,6 @@ export function usePlanSeek(
         // positioning on the k-th match needs the element→window origin map
         // that #577 introduces.
         targetKey: run[0]?.key,
+        searchError,
     };
 }

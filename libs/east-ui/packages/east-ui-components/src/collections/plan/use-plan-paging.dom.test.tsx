@@ -18,7 +18,7 @@ import { render, screen, cleanup, act, waitFor } from "@testing-library/react";
 import { some, none } from "@elaraai/east";
 import type { PlanRowValue } from "./model.js";
 import type { PlanPagedSourceValue } from "./use-plan-paging.js";
-import { usePlanPaging, PLAN_PAGE_SIZE, type PlanViewport } from "./use-plan-paging.js";
+import { usePlanPaging, PLAN_PAGE_SIZE, FAILED_BAND_MIN_PX, type PlanViewport } from "./use-plan-paging.js";
 
 afterEach(cleanup);
 
@@ -268,12 +268,104 @@ describe("paging driver — pins and totals (#614)", () => {
 });
 
 describe("paging driver — an unreadable source", () => {
-    test("reports the reason instead of an empty canvas", async () => {
+    test("reports the reason — the SOURCE's for `total()`, and window 0's own failure (#811)", async () => {
         const boom = (): never => { throw new Error("no paging service"); };
         const bad = { id: "bad", page: boom, total: boom, seek: none } as unknown as PlanPagedSourceValue;
-        render(<Harness src={bad} />);
-        await waitFor(() => expect(latest?.error).toMatch(/no paging service/));
-        expect(text("rows")).toBe("");
+        const err = vi.spyOn(console, "error").mockImplementation(() => {});
+        try {
+            render(<Harness src={bad} />);
+            await waitFor(() => expect(latest?.sourceError).toMatch(/no paging service/));
+            // The bootstrap window failed as a WINDOW — a band with a reason,
+            // floored to legible height since no geometry is known yet.
+            expect(latest?.failures).toEqual([
+                { w: 0, from: 0, to: PLAN_PAGE_SIZE - 1, px: FAILED_BAND_MIN_PX, error: "no paging service" },
+            ]);
+            expect(text("rows")).toBe("");
+        } finally {
+            err.mockRestore();
+        }
+    });
+});
+
+describe("paging driver — a failed window (#811)", () => {
+    /** Window 1 throws while `failing` holds; the rest land (2 rows each). */
+    function flaky(windows: number) {
+        const asked: number[] = [];
+        const state = { failing: true };
+        const value = {
+            id: "flaky-driver",
+            page: (offset: bigint) => {
+                const w = Number(offset) / PLAN_PAGE_SIZE;
+                asked.push(w);
+                if (w === 1 && state.failing) throw new Error("fetch failed: 503");
+                const pad = String(w).padStart(4, "0");
+                return some(new Map([`w${pad}r000`, `w${pad}r001`].map((key) =>
+                    [key, { key, parent: none } as unknown as PlanRowValue])));
+            },
+            total: () => some(BigInt(windows * PLAN_PAGE_SIZE)),
+            seek: none,
+        } as unknown as PlanPagedSourceValue;
+        return { value, asked, state };
+    }
+
+    test("the failure is reported at its window's ledger slot; its neighbours land", async () => {
+        const { value } = flaky(50);
+        const err = vi.spyOn(console, "error").mockImplementation(() => {});
+        try {
+            render(<Harness src={value} />);
+            await waitFor(() => expect(latest?.failures.map((f) => f.w)).toEqual([1]));
+            await waitFor(() => expect(text("rows")).toContain("w0002r000"));
+            expect(text("rows")).toContain("w0000r000");
+            expect(text("rows")).not.toContain("w0001");
+            const f = latest!.failures[0]!;
+            expect(f).toMatchObject({ from: 200, to: 399, error: "fetch failed: 503" });
+            // The band IS window 1's ledger slot: window 0 measured 2 rows ×
+            // 32px over 200 elements, and the frozen slot rate floors at 1px
+            // per element — 200px, above the legibility floor.
+            expect(f.px).toBe(200);
+            expect(f.px).toBeGreaterThan(FAILED_BAND_MIN_PX);
+        } finally {
+            err.mockRestore();
+        }
+    });
+
+    test("the failed window is not re-asked on its own; Retry asks it again and lands its rows", async () => {
+        const { value, asked, state } = flaky(50);
+        const err = vi.spyOn(console, "error").mockImplementation(() => {});
+        try {
+            const { rerender } = render(<Harness src={value} />);
+            await waitFor(() => expect(latest?.failures.map((f) => f.w)).toEqual([1]));
+            const askedBefore = asked.filter((w) => w === 1).length;
+            // Another evaluation — an equivalent rebuilt source re-runs the
+            // read — does not hammer the failed window.
+            rerender(<Harness src={{ ...value }} />);
+            await act(async () => { await Promise.resolve(); });
+            expect(latest?.failures.map((f) => f.w)).toEqual([1]);
+            expect(asked.filter((w) => w === 1).length).toBe(askedBefore);
+
+            state.failing = false;
+            act(() => { latest!.retry(1); });
+            await waitFor(() => expect(text("rows")).toContain("w0001r000"));
+            expect(latest?.failures).toEqual([]);
+            expect(asked.filter((w) => w === 1).length).toBe(askedBefore + 1);
+        } finally {
+            err.mockRestore();
+        }
+    });
+
+    test("a failed window's band names its window as the viewport", async () => {
+        const { value } = flaky(50);
+        const err = vi.spyOn(console, "error").mockImplementation(() => {});
+        try {
+            render(<Harness src={value} />);
+            await waitFor(() => expect(latest?.failures.map((f) => f.w)).toEqual([1]));
+            // Over the failed band the demand centres on window 1 — the ring
+            // [0, 3] — rather than wherever the last row report left it.
+            report({ kind: "window", w: 1 });
+            await waitFor(() => expect(text("resident")).toBe("0-800"));
+        } finally {
+            err.mockRestore();
+        }
     });
 });
 

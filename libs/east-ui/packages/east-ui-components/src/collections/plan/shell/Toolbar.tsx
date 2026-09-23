@@ -26,6 +26,7 @@ import { SliceEditPopover } from "../../../slice/edit/index.js";
 import { EastChakraPickPanel } from "../../../pick/panel/index.js";
 import { SliceDensityContext } from "../../../slice/density.js";
 import { transportLabel, type PlanTransport } from "./transport.js";
+import { PlanDiagnosticChips, hasDiagnostics, type PlanDiagnostics } from "./Diagnostics.js";
 import type { PlanSearch } from "../use-seek.js";
 
 /** Narrowing affordances whose meaning CHANGES on a paged canvas: they narrow
@@ -76,10 +77,13 @@ export interface PlanToolbarProps {
     /** The bound series library (#590) — mounts the right-edge Series button,
      *  which opens the library in the shared slice-editor popover. */
     pick?: PickBindValue | undefined;
+    /** The canvas's local failures, as chips (#811) — skipped rows, a source
+     *  or search failure, a truncated axis. */
+    diagnostics?: PlanDiagnostics | undefined;
 }
 
 /** The 44px toolbar band. */
-export function PlanToolbar({ styles, slice, affordances, resolution, resolutions, transport, search, pick }: PlanToolbarProps) {
+export function PlanToolbar({ styles, slice, affordances, resolution, resolutions, transport, search, pick, diagnostics }: PlanToolbarProps) {
     const dispatch = usePlanDispatch();
     const btn = useRecipe({ key: "button" });
     const [libraryOpen, setLibraryOpen] = useState(false);
@@ -160,6 +164,7 @@ export function PlanToolbar({ styles, slice, affordances, resolution, resolution
                     />
                 )}
             </Box>
+            {hasDiagnostics(diagnostics) && <PlanDiagnosticChips diagnostics={diagnostics} styles={styles} />}
             {/* The right edge: the summary line, then the library button. Both
                 are trailing chrome, so they share one auto-margined group
                 rather than each claiming `marginLeft: auto` and fighting. */}

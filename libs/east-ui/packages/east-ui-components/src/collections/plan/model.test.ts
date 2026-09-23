@@ -12,10 +12,10 @@ import { describe, test, expect } from "vitest";
 import { some, none, variant } from "@elaraai/east";
 import {
     rowHeight, deriveBands, deriveHeatCells, deriveTableCells, deriveLinkFamily, derivePlan, elideForFocus, indexRows, linkedRowKeys,
-    pxOf, windowRestHeight, axisKindMismatches, dataExtent,
-    HEAT_ROW_H, ROW_H, ROW_H_STACKED, GROUP_STRIP_H, GROUP_H, STRIP_H,
+    pxOf, windowRestHeight, axisKindMismatches, dataExtent, placeFailures, firstDiagnosticItem,
+    HEAT_ROW_H, ROW_H, ROW_H_DENSE, ROW_H_STACKED, GROUP_STRIP_H, GROUP_H, STRIP_H,
     RAIL_H,
-    type PlanLinkValue, type PlanRowValue, type VisibleRow,
+    type PlanBodyItem, type PlanLinkValue, type PlanRowValue, type PlanWindowFailure, type VisibleRow,
 } from "./model.js";
 import type { PlanInstantValue } from "./instant.js";
 
@@ -742,6 +742,138 @@ describe("Plan derivations at scale (#810)", () => {
             mkRun("rb", W28, W30, variant("confirmed", null), 234.5),
         ], "union", "t");
         expect(bands[0]!.quantity).toBe("1,234.5 t");       // was "1235 t"
+    });
+});
+
+// ── Failure is local (#811) ─────────────────────────────────────────────────
+
+describe("Plan diagnostic rows (#811)", () => {
+    const numRun = (key: string, start: PlanInstantValue, end: PlanInstantValue, qty: number) => ({
+        key, start, end, label: key, quantity: none, qty: some(qty),
+        state: variant("confirmed", null), status: none, moved: none, icon: none,
+    });
+    const span = (runs: unknown[], rollup?: boolean) => variant("span", {
+        runs, decisions: [], ports: [],
+        rollup: rollup === true ? some(variant("union", null)) : none,
+        unit: rollup === true ? some("t") : none,
+    });
+    const heatAt = (at: PlanInstantValue, v: number, scale?: [number, number]) => variant("heat", {
+        cells: variant("heat", {
+            cells: [{ at, value: some(v), label: none }],
+            min: scale !== undefined ? some(scale[0]) : none,
+            max: scale !== undefined ? some(scale[1]) : none,
+            warnAt: none,
+        }),
+        aggregate: none,
+    });
+    /** A number-axis canvas where every declared parent has one child on
+     *  the axis's arm and one on ANOTHER (time) arm. */
+    const mixedRows = () => [
+        trow("p", undefined, span([], true)),
+        trow("ok", "p", span([numRun("r", n(1), n(3), 5)])),
+        trow("bad", "p", span([numRun("x", t(W27), t(W29), 7)])),
+        trow("hp", undefined, variant("heat", {
+            cells: variant("heat", { cells: [], min: none, max: none, warnAt: none }),
+            aggregate: some(variant("mean", null)),
+        })),
+        trow("h1", "hp", heatAt(n(1), 10)),
+        trow("h2", "hp", heatAt(t(W27), 90)),
+        trow("g", undefined, variant("group", { summary: none, summaryAggregate: some(variant("max", null)), collapsed: none })),
+        trow("h3", "g", heatAt(n(1), 20, [0, 100])),
+        trow("h4", "g", heatAt(t(W27), 99, [-50, 500])),
+    ];
+
+    test("a row on another arm is recorded — and derives NOTHING into any parent; it still counts as a member", () => {
+        const derived = derivePlan(indexRows(mixedRows()), undefined, "number");
+        expect([...derived.diagnostics]).toEqual([
+            ["bad", { kind: "axis", found: "time", expected: "number" }],
+            ["h2", { kind: "axis", found: "time", expected: "number" }],
+            ["h4", { kind: "axis", found: "time", expected: "number" }],
+        ]);
+        // The rollup band is the placeable child's alone — not "12 t".
+        expect(derived.bands.get("p")).toEqual([expect.objectContaining({ from: n(1), to: n(3), count: 1, quantity: "5 t" })]);
+        // The aggregate has one bucket on the axis, not a second at a time instant.
+        expect(derived.heatCells.get("hp")).toEqual([expect.objectContaining({ at: n(1), value: some(10) })]);
+        // The strip and its inherited scale come from the placeable member only.
+        expect(derived.groupSummary.get("g")).toEqual([expect.objectContaining({ at: n(1), value: some(20) })]);
+        expect(derived.groupSummaryScale.get("g")).toEqual({ min: 0, max: 100, warnAt: undefined });
+        // ...while the band still counts both members: the skipped one renders.
+        expect(derived.groupMembers.get("g")).toBe(2);
+    });
+
+    test("without an axis kind nothing is diagnosed (the ledger measures raw windows the same way)", () => {
+        expect(derivePlan(indexRows(mixedRows())).diagnostics.size).toBe(0);
+    });
+
+    test("a diagnostic row is one line at the shared default; a diagnosed group keeps its band, not a strip", () => {
+        const rows = [
+            trow("heatbad", undefined, heatAt(t(W27), 1)),
+            trow("grp", undefined, variant("group", {
+                summary: some(variant("heat", { cells: [{ at: t(W27), value: some(1), label: none }], min: none, max: none, warnAt: none })),
+                summaryAggregate: none, collapsed: some(true),
+            })),
+        ];
+        const index = indexRows(rows);
+        const derived = derivePlan(index, undefined, "number");
+        const heatV = visible(index.byKey.get("heatbad")!);
+        const grpV = visible(index.byKey.get("grp")!, { collapsed: true });
+        // At rest a heat row is 28px; as a diagnostic it is the one-line default.
+        expect(rowHeight(heatV, false, new Set())).toBe(HEAT_ROW_H);
+        expect(rowHeight(heatV, false, new Set(), undefined, derived)).toBe(ROW_H);
+        expect(rowHeight(heatV, true, new Set(), undefined, derived)).toBe(ROW_H_DENSE);
+        // A collapsed group with a strip is 28px; diagnosed, its strip cannot
+        // be placed, so it is the plain band.
+        expect(rowHeight(grpV, false, new Set())).toBe(GROUP_STRIP_H);
+        expect(rowHeight(grpV, false, new Set(), undefined, derived)).toBe(GROUP_H);
+        // The ledger measures the window the way it renders — as a diagnostic.
+        expect(windowRestHeight([rows[0]!], "resource", false)).toBe(HEAT_ROW_H);
+        expect(windowRestHeight([rows[0]!], "resource", false, "number")).toBe(ROW_H);
+    });
+
+    test("a MIXED row stretches no fitted window — it renders as a diagnostic, not its marks", () => {
+        const mixed = variant("span", {
+            runs: [numRun("r", n(1), n(3), 1)],
+            decisions: [{ key: "d", at: t(W27), applied: false }],
+            ports: [], rollup: none, unit: none,
+        });
+        const rows = [trow("mixed", undefined, mixed), trow("fine", undefined, span([numRun("f", n(5), n(9), 1)]))];
+        expect(dataExtent(rows, "number")).toEqual({ min: 5, max: 9 });
+    });
+});
+
+describe("Plan failed-window placement (#811)", () => {
+    const rowItem = (key: string, collapsed = false): PlanBodyItem =>
+        ({ kind: "row", row: { row: trow(key, undefined, spanKind), depth: 0, collapsed } });
+    const failure = (w: number): PlanWindowFailure => ({ w, from: w * 200, to: w * 200 + 199, px: 200, error: "boom" });
+    const keys = (items: readonly PlanBodyItem[]) => items.map((i) =>
+        (i.kind === "row" ? i.row.row.key : i.kind === "failed" ? `F${i.failure.w}` : i.kind));
+
+    test("each band goes after the last row of an EARLIER window — at the head, in a seam, at the tail", () => {
+        // G is a parent windows 1 and 3 both emit: attributed to the LATER
+        // one, it walks first but must not anchor window 2's seam early.
+        const items = [rowItem("G"), rowItem("a"), rowItem("b"), rowItem("c")];
+        const origin = new Map([["G", 3], ["a", 1], ["b", 1], ["c", 3]]);
+        const placed = placeFailures(items, [failure(5), failure(2), failure(0)], origin);
+        expect(keys(placed)).toEqual(["F0", "G", "a", "b", "F2", "c", "F5"]);
+        // Nothing failed: the very same items.
+        expect(placeFailures(items, [], origin)).toBe(items);
+    });
+
+    test("the chip seeks the first diagnostic row — or the collapsed group hiding it", () => {
+        const rows = [
+            trow("G", undefined, variant("group", { summary: none, summaryAggregate: none, collapsed: none })),
+            trow("bad", "G", spanKind),
+            trow("x", undefined, spanKind),
+            trow("bad2", undefined, spanKind),
+        ];
+        const index = indexRows(rows);
+        const diag = new Map([["bad", { kind: "axis" as const, found: "time" as const, expected: "number" as const }],
+            ["bad2", { kind: "axis" as const, found: "time" as const, expected: "number" as const }]]);
+        // G collapsed: its band is the first thing on screen that holds one.
+        expect(firstDiagnosticItem([rowItem("G", true), rowItem("x"), rowItem("bad2")], index, diag)).toBe(0);
+        // G open: the row itself.
+        expect(firstDiagnosticItem([rowItem("G"), rowItem("bad"), rowItem("x"), rowItem("bad2")], index, diag)).toBe(1);
+        expect(firstDiagnosticItem([rowItem("x")], index, new Map())).toBeUndefined();
     });
 });
 

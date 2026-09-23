@@ -13,9 +13,12 @@ import { describe, test, expect, vi } from "vitest";
 import { variant, some, none } from "@elaraai/east";
 import type { PlanRowValue } from "./model.js";
 import type { PlanPagedSourceValue } from "./use-plan-paging.js";
-import { readWindows, mergeWindows, originOf, pruneCache, type WindowCache } from "./window-reader.js";
+import { readWindows, mergeWindows, originOf, pruneCache, type WindowCache, type WindowFailures } from "./window-reader.js";
 
 const PAGE = 200;
+
+/** A fresh failure record — every read below owns one, as the driver does. */
+const noFailures = (): WindowFailures => new Map();
 
 /** A row carrying only what these tests read. */
 function row(key: string): PlanRowValue {
@@ -51,14 +54,15 @@ describe("window reader — once each", () => {
         const data = new Map([[0, [row("a"), row("b")]], [1, [row("c")]]]);
         const { source, reads } = fakeSource(data, new Set([0, 1]));
         const cache: WindowCache = new Map();
+        const failures = noFailures();
 
-        const first = readWindows(source, [0, 1], cache, PAGE);
+        const first = readWindows(source, [0, 1], cache, PAGE, failures);
         expect(first.resident.map((r) => r.w)).toEqual([0, 1]);
         expect(reads).toEqual([0, 1]);
 
         // Every later evaluation reads NOTHING — the windows are immutable.
-        readWindows(source, [0, 1], cache, PAGE);
-        readWindows(source, [0, 1], cache, PAGE);
+        readWindows(source, [0, 1], cache, PAGE, failures);
+        readWindows(source, [0, 1], cache, PAGE, failures);
         expect(reads).toEqual([0, 1]);
     });
 
@@ -67,20 +71,21 @@ describe("window reader — once each", () => {
         const landed = new Set<number>();
         const { source, reads } = fakeSource(data, landed);
         const cache: WindowCache = new Map();
+        const failures = noFailures();
 
-        const pending = readWindows(source, [3], cache, PAGE);
+        const pending = readWindows(source, [3], cache, PAGE, failures);
         expect(pending.loading).toBe(true);
         expect(pending.resident).toEqual([]);
 
-        readWindows(source, [3], cache, PAGE);
+        readWindows(source, [3], cache, PAGE, failures);
         expect(reads).toEqual([3, 3]);      // asked again while in flight
 
         landed.add(3);
-        const arrived = readWindows(source, [3], cache, PAGE);
+        const arrived = readWindows(source, [3], cache, PAGE, failures);
         expect(arrived.loading).toBe(false);
         expect(arrived.resident.map((r) => r.w)).toEqual([3]);
 
-        readWindows(source, [3], cache, PAGE);
+        readWindows(source, [3], cache, PAGE, failures);
         expect(reads).toEqual([3, 3, 3]);   // and never again
     });
 
@@ -92,26 +97,67 @@ describe("window reader — once each", () => {
         const { source } = fakeSource(data, new Set([5, 7]));
         const cache: WindowCache = new Map();
 
-        const result = readWindows(source, [5, 6, 7], cache, PAGE);
+        const result = readWindows(source, [5, 6, 7], cache, PAGE, noFailures());
         expect(result.resident.map((r) => r.w)).toEqual([5, 7]);
         expect(result.loading).toBe(true);      // 6 is still coming
     });
+});
 
-    test("a throwing window is reported, and the others still read", () => {
+describe("window reader — a failure belongs to its window (#811)", () => {
+    /** Window 1 throws while `failing` holds; every other window lands. */
+    function flakySource() {
+        const reads: number[] = [];
+        const state = { failing: true };
         const source = {
-            id: "test",
+            id: "flaky",
             page: (offset: bigint) => {
-                if (Number(offset) / PAGE === 1) throw new Error("no paging service");
-                return some(new Map([["k", row("k")]]));
+                const w = Number(offset) / PAGE;
+                reads.push(w);
+                if (w === 1 && state.failing) throw new Error("fetch failed: 503");
+                return some(new Map([[`k${w}`, row(`k${w}`)]]));
             },
             total: () => some(2000n),
             seek: none,
         } as unknown as PlanPagedSourceValue;
+        return { source, reads, state };
+    }
+
+    test("a throwing window is reported against ITS index, and the others still read", () => {
+        const { source } = flakySource();
         const spy = vi.spyOn(console, "error").mockImplementation(() => {});
         try {
-            const result = readWindows(source, [0, 1, 2], new Map(), PAGE);
-            expect(result.error).toMatch(/no paging service/);
+            const failures = noFailures();
+            const result = readWindows(source, [0, 1, 2], new Map(), PAGE, failures);
+            expect(result.failed).toEqual([{ w: 1, error: "fetch failed: 503" }]);
             expect(result.resident.map((r) => r.w)).toEqual([0, 2]);
+            expect(result.loading).toBe(false);
+            expect([...failures]).toEqual([[1, "fetch failed: 503"]]);
+        } finally {
+            spy.mockRestore();
+        }
+    });
+
+    test("a failed window is NOT asked again each evaluation — only once its record is dropped (Retry)", () => {
+        const { source, reads, state } = flakySource();
+        const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+        try {
+            const cache: WindowCache = new Map();
+            const failures = noFailures();
+            readWindows(source, [0, 1], cache, PAGE, failures);
+            // Every later evaluation reports the failure from the record —
+            // a failing source is not hammered once per frame.
+            const again = readWindows(source, [0, 1], cache, PAGE, failures);
+            readWindows(source, [0, 1], cache, PAGE, failures);
+            expect(reads).toEqual([0, 1]);
+            expect(again.failed).toEqual([{ w: 1, error: "fetch failed: 503" }]);
+
+            // The source recovers and the record is dropped — what Retry does.
+            state.failing = false;
+            failures.delete(1);
+            const retried = readWindows(source, [0, 1], cache, PAGE, failures);
+            expect(reads).toEqual([0, 1, 1]);
+            expect(retried.failed).toEqual([]);
+            expect(retried.resident.map((r) => r.w)).toEqual([0, 1]);
         } finally {
             spy.mockRestore();
         }
@@ -171,5 +217,11 @@ describe("window reader — pruning", () => {
         const dropped = pruneCache(cache, new Set([1, 2]));
         expect(dropped).toBe(2);
         expect([...cache.keys()].sort((a, b) => a - b)).toEqual([1, 2]);
+    });
+
+    test("an evicted window's FAILURE goes too — demanded again later, it is asked afresh (#811)", () => {
+        const failures: WindowFailures = new Map([[3, "boom"], [8, "boom"]]);
+        expect(pruneCache(failures, new Set([3, 4]))).toBe(1);
+        expect([...failures.keys()]).toEqual([3]);
     });
 });

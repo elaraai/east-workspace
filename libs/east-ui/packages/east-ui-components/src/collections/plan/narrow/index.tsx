@@ -26,6 +26,11 @@
  * brush does not mount: the window rides the slice range chip and the pan,
  * the resolution a Week chip. A paged source shows its resident prefix and
  * says so in the footer.
+ *
+ * Failures stay local here too (#811): a card whose row cannot be placed
+ * shows its diagnostic, a card whose plot throws shows its own fallback, a
+ * window whose read failed is a card with the reason and a Retry at the top
+ * of the list, and the chip row carries the diagnostics chips.
  */
 
 import { useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type PointerEvent, type ReactNode } from "react";
@@ -42,10 +47,14 @@ import { KindPlot } from "../rows/KindPlot.js";
 import { ChartLeftTicks } from "../rows/ChartRow.js";
 import { HeatCells } from "../rows/HeatRow.js";
 import { derivedSummaryArm } from "../rows/GroupRow.js";
+import { PlanPartBoundary } from "../rows/PartBoundary.js";
+import { RowDiagnostic } from "../rows/RowDiagnostic.js";
+import { failureCaption } from "../rows/WindowBand.js";
 import { PlanFooter } from "../shell/Footer.js";
+import { PlanDiagnosticChips, hasDiagnostics, type PlanDiagnostics } from "../shell/Diagnostics.js";
 import { PlanDecisionCell, tagOf, type PlanReview } from "../shell/Review.js";
 import type { PlanTransport } from "../shell/transport.js";
-import { pxOf, rowHeight, type PlanDerived, type PlanRowIndex, type PlanRowValue } from "../model.js";
+import { pxOf, rowHeight, type PlanDerived, type PlanRowIndex, type PlanRowValue, type PlanWindowFailure } from "../model.js";
 import { formatDerived, membersMeta } from "../format.js";
 import { appendAll } from "../reductions.js";
 import type { PlanUiState, RowKey } from "../plan-state.js";
@@ -109,6 +118,13 @@ export interface PlanNarrowProps {
     partial: boolean | undefined;
     /** A bounded frame — the list scrolls inside it. */
     fill: boolean;
+    /** What the canvas carried on past (#811) — the chip row states it. The
+     *  rows chip does not seek here: the narrow list has no scroll target. */
+    diagnostics?: PlanDiagnostics | undefined;
+    /** Windows whose read failed (#811) — a card each, with a Retry. */
+    failures?: readonly PlanWindowFailure[] | undefined;
+    /** Ask a failed window again. */
+    onRetry?: ((w: number) => void) | undefined;
 }
 
 /** The DATA rows beneath a key, tree order, any depth (group bands skipped). */
@@ -254,6 +270,7 @@ export function PlanNarrow({
     styles, index, derived, ui, dense, barHeight, storageKey,
     slice, affordances, resolution, resolutions, transport, footer, review,
     expandBody, expandGutterBody, canExpand, partial, fill,
+    diagnostics, failures, onRetry,
 }: PlanNarrowProps) {
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
@@ -378,6 +395,9 @@ export function PlanNarrow({
         const value = gutter.value.type === "some" ? gutter.value.value : undefined;
         const meta = gutter.meta.type === "some" ? gutter.meta.value : undefined;
         const statusTone = row.status.type === "some" ? row.status.value.type : undefined;
+        // A row that cannot be placed shows its diagnostic in the card body
+        // (#811) — no marks, and no value ticks for marks that are not there.
+        const diagnostic = derived.diagnostics.get(row.key);
         return (
             <Box key={row.key} css={styles.narrowCard} data-plan-card={row.key}
                 data-selected={selected ? "" : undefined}
@@ -399,24 +419,34 @@ export function PlanNarrow({
                 {sub !== undefined && <Box css={styles.narrowCardSub}>{sub}</Box>}
                 {drilled && expandGutterBody !== null && (
                     <Box css={styles.expandGutterBody} data-plan-expandgutter marginX="12px" marginBottom="8px">
-                        <EastChakraComponent value={expandGutterBody} storageKey={`${storageKey}.${row.key}.expandgutter`} />
+                        <PlanPartBoundary part="expand gutter" resetKey={expandGutterBody} styles={styles}>
+                            <EastChakraComponent value={expandGutterBody} storageKey={`${storageKey}.${row.key}.expandgutter`} />
+                        </PlanPartBoundary>
                     </Box>
                 )}
                 <Box css={styles.narrowCardBody} height={`${h}px`} data-plan-cardbody={row.kind.type}>
                     {!isChart && <GridSeparators styles={styles} />}
-                    <KindPlot v={v} styles={styles} derived={derived} storageKey={storageKey}
-                        barHeight={barHeight} hasChildren={(index.children.get(row.key)?.length ?? 0) > 0}
-                        ctx={false} plotHeight={h} chartExpanded={chartExpanded} partial={partial} />
-                    {row.kind.type === "chart" && (
-                        <Box css={styles.narrowTicks}>
-                            <ChartLeftTicks kind={row.kind.value} styles={styles} height={h} />
-                        </Box>
+                    {diagnostic !== undefined ? (
+                        <RowDiagnostic diagnostic={diagnostic} styles={styles} />
+                    ) : (
+                        <PlanPartBoundary part={`row ${row.key}`} resetKey={row} styles={styles}>
+                            <KindPlot v={v} styles={styles} derived={derived} storageKey={storageKey}
+                                barHeight={barHeight} hasChildren={(index.children.get(row.key)?.length ?? 0) > 0}
+                                ctx={false} plotHeight={h} chartExpanded={chartExpanded} partial={partial} />
+                            {row.kind.type === "chart" && (
+                                <Box css={styles.narrowTicks}>
+                                    <ChartLeftTicks kind={row.kind.value} styles={styles} height={h} />
+                                </Box>
+                            )}
+                        </PlanPartBoundary>
                     )}
                     {nowLine}
                 </Box>
                 {drilled && (
                     <Box css={styles.narrowRender} data-plan-expandrender height={`${renderPx}px`}>
-                        <EastChakraComponent value={expandBody} storageKey={`${storageKey}.${row.key}.expand`} />
+                        <PlanPartBoundary part="expand render" resetKey={expandBody} styles={styles}>
+                            <EastChakraComponent value={expandBody} storageKey={`${storageKey}.${row.key}.expand`} />
+                        </PlanPartBoundary>
                     </Box>
                 )}
                 {review !== undefined && review.hasRowVerbs && (
@@ -463,7 +493,13 @@ export function PlanNarrow({
                             {arm !== undefined && (
                                 <Box css={styles.narrowCardBody} height={`${GROUP_STRIP_H}px`} data-plan-cardbody="group">
                                     <GridSeparators styles={styles} />
-                                    <HeatCells rowKey={row.key} cells={arm} styles={styles} onCellClick={() => openGroup(row.key)} />
+                                    {derived.diagnostics.has(row.key) ? (
+                                        <RowDiagnostic diagnostic={derived.diagnostics.get(row.key)!} styles={styles} />
+                                    ) : (
+                                        <PlanPartBoundary part={`group ${row.gutter.label}`} resetKey={arm} styles={styles}>
+                                            <HeatCells rowKey={row.key} cells={arm} styles={styles} onCellClick={() => openGroup(row.key)} />
+                                        </PlanPartBoundary>
+                                    )}
                                     {nowLine}
                                 </Box>
                             )}
@@ -557,15 +593,21 @@ export function PlanNarrow({
         ...(hasMeasures ? [{ key: "measures" as const, label: "Measures", count: chartRows.length }] : []),
     ];
 
+    // The narrow list has no virtualizer to scroll, so the rows chip states
+    // the count without offering to seek (#811).
+    const narrowDiagnostics = diagnostics !== undefined ? { ...diagnostics, onSeekSkipped: undefined } : undefined;
+    const sliceChips = slice !== undefined && (railKinds.length > 0 || resolutions.length > 0);
+
     return (
         <Box css={styles.narrowRoot} data-plan-narrow data-plan-fill={fill ? "" : undefined}>
-            {slice !== undefined && (railKinds.length > 0 || resolutions.length > 0) && (
+            {(sliceChips || hasDiagnostics(narrowDiagnostics)) && (
                 <Box css={styles.narrowChips} data-slot="narrowChips">
-                    {railKinds.length > 0 && <SliceRailCluster slice={slice} affordanceKinds={railKinds} />}
-                    {resolutions.length > 0 && (
+                    {slice !== undefined && railKinds.length > 0 && <SliceRailCluster slice={slice} affordanceKinds={railKinds} />}
+                    {slice !== undefined && resolutions.length > 0 && (
                         <ResolutionChip resolution={resolution} resolutions={resolutions}
                             onPick={(r) => dispatch({ t: "resolution.set", resolution: r })} />
                     )}
+                    {hasDiagnostics(narrowDiagnostics) && <PlanDiagnosticChips diagnostics={narrowDiagnostics} styles={styles} />}
                 </Box>
             )}
             <Box css={tabStyles.list} role="tablist" data-slot="narrowTabs" data-part="list" flexShrink={0}>
@@ -585,6 +627,19 @@ export function PlanNarrow({
                 onPointerDown={onPointerDown} onPointerMove={onPointerMove}
                 onPointerUp={onPointerEnd} onPointerCancel={onPointerEnd}>
                 <NarrowRuler styles={styles} />
+                {/* A window whose read failed (#811) — its reason and a Retry,
+                    above whatever did land. */}
+                {(failures ?? []).map((f) => (
+                    <Box key={`failed-${f.w}`} css={styles.narrowCard} data-plan-failed={f.w} role="alert">
+                        <Box css={styles.narrowCardHead}>
+                            <Box css={styles.partError}>{failureCaption(f)}</Box>
+                            <Box as="button" css={styles.windowRetry} data-plan-retry={f.w}
+                                onClick={(e: React.MouseEvent) => { e.stopPropagation(); onRetry?.(f.w); }}>
+                                Retry
+                            </Box>
+                        </Box>
+                    </Box>
+                ))}
                 {list}
             </Box>
             <PlanFooter styles={styles} items={footer} transport={transport} />

@@ -266,6 +266,12 @@ export function rowHeight(
     const twoLine = (v.row.gutter.stacked.type === "some" && v.row.gutter.stacked.value)
         || v.row.gutter.sub.type === "some";
     const floor = (h: number) => (twoLine ? Math.max(h, ROW_H_STACKED) : h);
+    // A diagnostic row (#811) draws its message, never its marks — one line
+    // at the shared default; a diagnosed group keeps its band and drops the
+    // strip it cannot place.
+    if (derived?.diagnostics.has(v.row.key) === true) {
+        return kind.type === "group" ? GROUP_H : floor(dense ? ROW_H_DENSE : ROW_H);
+    }
     switch (kind.type) {
         case "group": {
             const hasStrip = v.collapsed
@@ -327,21 +333,25 @@ export function rowHeight(
  *
  * A window is a complete forest (#577: any union of whole windows is
  * orphan-free), so its own index derives everything {@link rowHeight}
- * consults — including a subtotal parent's derived positions.
+ * consults — including a subtotal parent's derived positions and which rows
+ * are diagnostic rows (#811), which render at their own height.
  *
  * @param windowRows - One window's rows, as the source served them
  * @param grain - The DECLARED grain (`value.grain`; user grain is transient)
  * @param dense - The declared density
+ * @param axisKind - The axis kind — a row on another arm measures as the
+ *   diagnostic row it renders as
  * @returns The at-rest pixel height of the window's body rows
  */
 export function windowRestHeight(
     windowRows: ReadonlyArray<PlanRowValue>,
     grain: PlanGrain,
     dense: boolean,
+    axisKind?: PlanAxisKind,
 ): number {
     const index = indexRows(windowRows);
     const rest = initialPlanState(grain, index.initiallyCollapsed);
-    const derived = derivePlan(index);
+    const derived = derivePlan(index, undefined, axisKind);
     return visibleRows(index, rest).reduce(
         (sum, v) => sum + rowHeight(v, dense, rest.chartsExpanded, undefined, derived), 0);
 }
@@ -410,9 +420,10 @@ export function forEachInstant(row: PlanRowValue, visit: (t: PlanInstantValue, e
 
 /**
  * Every instant a row set touches ON the axis's arm, as numbers — the
- * fit-to-data window fallback. Instants of another arm are skipped (they are
- * the mismatch diagnostic's business, not the axis's); an ordinal axis has
- * no extent to fit (its list is its window).
+ * fit-to-data window fallback. A row carrying ANY instant of another arm is
+ * skipped whole: it renders as a diagnostic row (#811), never its marks, so
+ * none of its instants may stretch the window. An ordinal axis has no extent
+ * to fit (its list is its window).
  *
  * @param rows - The decoded rows
  * @param kind - The axis kind
@@ -423,12 +434,18 @@ export function dataExtent(rows: ReadonlyArray<PlanRowValue>, kind: PlanAxisKind
     let min = Infinity;
     let max = -Infinity;
     for (const row of rows) {
+        let lo = Infinity;
+        let hi = -Infinity;
+        let offArm = false;
         forEachInstant(row, (t) => {
-            if (t.type !== kind) return;
+            if (t.type !== kind) { offArm = true; return; }
             const n = instantOrder(t);
-            if (n < min) min = n;
-            if (n > max) max = n;
+            if (n < lo) lo = n;
+            if (n > hi) hi = n;
         });
+        if (offArm) continue;
+        if (lo < min) min = lo;
+        if (hi > max) max = hi;
     }
     if (!Number.isFinite(min) || !Number.isFinite(max) || max < min) return undefined;
     return { min, max };
@@ -445,8 +462,11 @@ export interface PlanAxisMismatch {
 /**
  * The rows whose instants do NOT ride the axis's arm — the Planner's
  * single-axis-kind rule, enforced at render time (#631). A mixed arm is a
- * diagnostic naming the row and the axis kind, never a silent misplacement:
- * the canvas refuses to draw until the data agrees with its declaration.
+ * diagnostic naming the row and the arm it carries, never a silent
+ * misplacement — and it belongs to THAT row (#811): the row renders in place
+ * as a diagnostic row and derives nothing, while the rest of the canvas keeps
+ * drawing. (It used to replace the whole canvas, so one bad row arriving in a
+ * paged window mid-scroll made everything vanish.)
  *
  * @param index - The row-tree index
  * @param kind - The axis kind
@@ -765,17 +785,31 @@ function inheritedScale(children: readonly PlanRowValue[], mode: string): HeatSc
     return { min, max, warnAt };
 }
 
-/** Every span run across a subtree (any depth). */
-function subtreeRuns(index: PlanRowIndex, key: RowKey): RunValue[] {
+/** Every span run across a subtree (any depth), skipping the runs of
+ *  diagnostic rows — a row that cannot be placed rolls up nothing (#811). */
+function subtreeRuns(index: PlanRowIndex, key: RowKey, diagnosed: ReadonlyMap<RowKey, PlanRowDiagnostic>): RunValue[] {
     const out: RunValue[] = [];
     const walk = (k: RowKey) => {
         for (const child of index.children.get(k) ?? []) {
-            if (child.kind.type === "span") appendAll(out, child.kind.value.runs);
+            if (child.kind.type === "span" && !diagnosed.has(child.key)) appendAll(out, child.kind.value.runs);
             walk(child.key);
         }
     };
     walk(key);
     return out;
+}
+
+/**
+ * Why a row cannot be drawn where it is (#811) — it renders in place as a
+ * diagnostic row carrying this, and derives nothing.
+ *
+ * @property found - The arm the row's instants ride (the first one found)
+ * @property expected - The arm the axis speaks
+ */
+export interface PlanRowDiagnostic {
+    kind: "axis";
+    found: PlanAxisKind;
+    expected: PlanAxisKind;
 }
 
 /** The per-value derived numbers, computed once per decoded root. */
@@ -797,6 +831,9 @@ export interface PlanDerived {
      *  Derived here, not baked into the IR: a group parent synthesized per
      *  paged window would otherwise carry THAT window's count (#568). */
     groupMembers: ReadonlyMap<RowKey, number>;
+    /** The rows that render as diagnostic rows, by key (#811) — excluded
+     *  from every band, aggregate, subtotal and strip above. */
+    diagnostics: ReadonlyMap<RowKey, PlanRowDiagnostic>;
 }
 
 /**
@@ -815,26 +852,44 @@ export interface PlanDerived {
  * unreachable from the roots and derive nothing, exactly as they render
  * nothing (`visibleRows` walks the same tree).
  *
+ * With the axis kind given, a row whose instants ride another arm is a
+ * DIAGNOSTIC row (#811): it is recorded in `diagnostics`, derives nothing of
+ * its own, and contributes nothing to any parent's band, aggregate, subtotal
+ * or strip — it still counts as a member, since it still renders.
+ *
  * @param index - The row-tree index
  * @param ordinal - The ordinal axis's value → index map (orders ordinal cells; omit on other axes)
+ * @param axisKind - The axis kind; omit to diagnose nothing
  * @returns Every derived number, keyed by row
  */
-export function derivePlan(index: PlanRowIndex, ordinal?: ReadonlyMap<string, number>): PlanDerived {
+export function derivePlan(
+    index: PlanRowIndex,
+    ordinal?: ReadonlyMap<string, number>,
+    axisKind?: PlanAxisKind,
+): PlanDerived {
     const bands = new Map<RowKey, DerivedBand[]>();
     const heatCells = new Map<RowKey, HeatCellValue[]>();
     const tableSeries = new Map<RowKey, TableSeriesValue[]>();
     const groupSummary = new Map<RowKey, HeatCellValue[]>();
     const groupSummaryScale = new Map<RowKey, HeatScale>();
     const groupMembers = new Map<RowKey, number>();
+    const diagnostics = new Map<RowKey, PlanRowDiagnostic>();
+    if (axisKind !== undefined) {
+        for (const m of axisKindMismatches(index, axisKind)) {
+            diagnostics.set(m.row, { kind: "axis", found: m.found, expected: axisKind });
+        }
+    }
+    const placeable = (row: PlanRowValue): boolean => !diagnostics.has(row.key);
     // A row's effective cells — its own, or (for declared parents) its
-    // already-derived cells from the bottom-up walk.
+    // already-derived cells from the bottom-up walk. A diagnostic row has none.
     const resolvedHeatCells = (row: PlanRowValue): readonly HeatCellValue[] => {
+        if (!placeable(row)) return [];
         const own = heatCellsOf(row);
         if (own.length > 0) return own;
         return heatCells.get(row.key) ?? [];
     };
     const resolvedTableSeries = (row: PlanRowValue): readonly TableSeriesValue[] => {
-        if (row.kind.type !== "table") return [];
+        if (row.kind.type !== "table" || !placeable(row)) return [];
         const own = tableRollupSeries(row.kind.value.series);
         if (own.length > 0) return own;
         return tableSeries.get(row.key) ?? [];
@@ -845,9 +900,13 @@ export function derivePlan(index: PlanRowIndex, ordinal?: ReadonlyMap<string, nu
         // cells, which must already be in the maps.
         for (const child of children) visit(child);
         const kind = row.kind;
+        if (kind.type === "group") groupMembers.set(row.key, children.length);
+        // A diagnostic row draws its message, not its marks — nothing of its
+        // own to derive.
+        if (!placeable(row)) return;
         if (kind.type === "span" && kind.value.rollup.type === "some") {
             const unit = kind.value.unit.type === "some" ? kind.value.unit.value : undefined;
-            const runs = [...kind.value.runs, ...subtreeRuns(index, row.key)];
+            const runs = [...kind.value.runs, ...subtreeRuns(index, row.key, diagnostics)];
             bands.set(row.key, deriveBands(runs, kind.value.rollup.value.type, unit, ordinal));
         }
         if (kind.type === "heat" && kind.value.aggregate.type === "some"
@@ -862,18 +921,15 @@ export function derivePlan(index: PlanRowIndex, ordinal?: ReadonlyMap<string, nu
                 tableSeries.set(row.key, deriveTableSeries(positions, kind.value.aggregate.value.type, ordinal));
             }
         }
-        if (kind.type === "group") {
-            groupMembers.set(row.key, children.length);
-            if (kind.value.summaryAggregate.type === "some") {
-                const mode = kind.value.summaryAggregate.value.type;
-                groupSummary.set(row.key, deriveHeatCells(children.flatMap(resolvedHeatCells), mode, ordinal));
-                const scale = inheritedScale(children, mode);
-                if (scale !== undefined) groupSummaryScale.set(row.key, scale);
-            }
+        if (kind.type === "group" && kind.value.summaryAggregate.type === "some") {
+            const mode = kind.value.summaryAggregate.value.type;
+            groupSummary.set(row.key, deriveHeatCells(children.flatMap(resolvedHeatCells), mode, ordinal));
+            const scale = inheritedScale(children.filter(placeable), mode);
+            if (scale !== undefined) groupSummaryScale.set(row.key, scale);
         }
     };
     for (const root of index.roots) visit(root);
-    return { bands, heatCells, tableSeries, groupSummary, groupSummaryScale, groupMembers };
+    return { bands, heatCells, tableSeries, groupSummary, groupSummaryScale, groupMembers, diagnostics };
 }
 
 // ── The R1 link graph (renderer-derived over the decoded `links` edges) ─────
@@ -915,8 +971,30 @@ export interface PlanBand {
     px: number;
 }
 
+/**
+ * A resident window whose read FAILED (#811) — one error band where the
+ * window's rows would be, carrying the reason and a Retry.
+ *
+ * The failure belongs to its window: every other window keeps landing and
+ * rendering around it.
+ */
+export interface PlanWindowFailure {
+    /** The window index. */
+    w: number;
+    /** First source element the window covers. */
+    from: number;
+    /** Last source element the window covers (inclusive). */
+    to: number;
+    /** The band's pixel height — the window's ledger slot, floored so the
+     *  reason and the Retry stay legible in a short last window. */
+    px: number;
+    /** Why the read failed. */
+    error: string;
+}
+
 /** One line of the canvas body: a row, the R2 developer render, an elided run
- *  (R1), or an unloaded run of the source (#577).
+ *  (R1), an unloaded run of the source (#577), or a window whose read failed
+ *  (#811).
  *
  *  The R2 developer render is NOT an item here — it renders inside the
  *  focused row, which grows to hold it (see {@link PlanFocusCtx.renderPx}).
@@ -925,7 +1003,80 @@ export interface PlanBand {
 export type PlanBodyItem =
     | { kind: "row"; row: VisibleRow }
     | { kind: "gap"; gap: FocusGap }
-    | { kind: "band"; band: PlanBand };
+    | { kind: "band"; band: PlanBand }
+    | { kind: "failed"; failure: PlanWindowFailure };
+
+/**
+ * Place each failed window's band where its rows would be (#811): after the
+ * last row that came from an EARLIER window, or first when none did.
+ *
+ * @remarks
+ * Windows serve source elements in key order and the canvas walks its rows in
+ * key order, so a window's rows sit between its neighbours' — its band goes
+ * in the seam. A parent every window re-emits is attributed to the LATEST
+ * window that emitted it (`originOf`) and so never anchors a seam early; its
+ * earlier windows' children do. (Series banked apart by `keyPrefix` interleave
+ * windows, so a failed window there marks the seam of the last bank only —
+ * the per-block ledger of #823 is what gives each bank its own.)
+ *
+ * @param items - The body items, rows in visible order
+ * @param failures - The failed windows
+ * @param origin - Which window each resident row came from
+ * @returns The items with a `failed` band placed per failure (the same array
+ *   when there are none)
+ */
+export function placeFailures(
+    items: readonly PlanBodyItem[],
+    failures: readonly PlanWindowFailure[],
+    origin: ReadonlyMap<RowKey, number>,
+): readonly PlanBodyItem[] {
+    if (failures.length === 0) return items;
+    // Item index a failure's band goes AFTER (−1: before every item).
+    const after = new Map<number, PlanWindowFailure[]>();
+    for (const f of [...failures].sort((a, b) => a.w - b.w)) {
+        let at = -1;
+        items.forEach((it, i) => {
+            if (it.kind !== "row") return;
+            const w = origin.get(it.row.row.key);
+            if (w !== undefined && w < f.w) at = i;
+        });
+        const list = after.get(at);
+        if (list !== undefined) list.push(f);
+        else after.set(at, [f]);
+    }
+    const out: PlanBodyItem[] = [];
+    for (const f of after.get(-1) ?? []) out.push({ kind: "failed", failure: f });
+    items.forEach((it, i) => {
+        out.push(it);
+        for (const f of after.get(i) ?? []) out.push({ kind: "failed", failure: f });
+    });
+    return out;
+}
+
+/**
+ * The body item the diagnostics chip seeks to (#811): the first diagnostic
+ * row in body order — or, when a collapsed group hides it, that group's band.
+ *
+ * @param items - The body items, in order
+ * @param index - The row-tree index
+ * @param diagnostics - The diagnostic rows (`PlanDerived.diagnostics`)
+ * @returns The item index, or `undefined` when no diagnostic row is reachable
+ */
+export function firstDiagnosticItem(
+    items: readonly PlanBodyItem[],
+    index: PlanRowIndex,
+    diagnostics: ReadonlyMap<RowKey, PlanRowDiagnostic>,
+): number | undefined {
+    if (diagnostics.size === 0) return undefined;
+    const holders = ancestorsOf(index, new Set(diagnostics.keys()));
+    for (let i = 0; i < items.length; i++) {
+        const it = items[i]!;
+        if (it.kind !== "row") continue;
+        const key = it.row.row.key;
+        if (diagnostics.has(key) || (it.row.collapsed && holders.has(key))) return i;
+    }
+    return undefined;
+}
 
 /** Status severity rank — higher is worse; gaps wear the worst hidden tone. */
 const TONE_RANK: Record<string, number> = { info: 1, neutral: 1, success: 0, warning: 2, danger: 3 };

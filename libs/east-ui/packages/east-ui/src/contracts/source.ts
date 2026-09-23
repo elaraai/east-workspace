@@ -164,6 +164,14 @@ export type SeekQueryType = typeof SeekQueryType;
  * {@link buildRowSource}'s derived `page` re-requests whatever a trimmed page
  * left out, so every window it serves is whole.
  *
+ * A window that CANNOT be read — a failed fetch, a page that does not decode —
+ * makes `page` THROW its reason; it never reads `none`, which means in flight,
+ * and a reader waiting on it would wait forever (#811). A component shows the
+ * failure where that window's rows would be and asks again when the user
+ * retries. A source may rate-limit repeat attempts (e3 relaunches a failed
+ * window on a read at least two seconds later), and an authoring error — a
+ * dataset that cannot be paged — keeps throwing. `seek` follows the same rule.
+ *
  * @typeParam C - The collection type one window carries.
  * @param c - The collection type value.
  * @returns The concrete `StructType` of a paged source over `c`.
@@ -175,11 +183,12 @@ export type SeekQueryType = typeof SeekQueryType;
  *   itself. Two sources with the same `id` must serve the same rows.
  * @property page - `(offset, limit)` → that window's elements as a value of the
  *   collection type; `none` while in flight, an EMPTY collection at exhaustion,
- *   and possibly fewer than `limit` elements before it (see above).
+ *   and possibly fewer than `limit` elements before it (see above). Throws when
+ *   the window cannot be read.
  * @property total - The source's total element count, once known; `none` until then.
  * @property seek - The source's key-search capability ({@link SeekType}) —
  *   `none` when the source is not key-ordered (an Array-backed source cannot
- *   seek; there is nothing to binary-search).
+ *   seek; there is nothing to binary-search). A search that fails throws.
  */
 export const PagedSourceType = <C extends EastType>(c: C) => StructType({
     id:    StringType,

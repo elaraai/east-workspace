@@ -60,8 +60,9 @@ export interface PlanWindow {
 const DAY_MS = 86_400_000;
 
 /** Hard ceiling on derived buckets — every bucket is a ruler tick and a grid
- *  column per row, so an absurd window × fine resolution truncates (with a
- *  warning) rather than locking the tab (the Planner convention). */
+ *  column per row, so an absurd window × fine resolution truncates rather than
+ *  locking the tab (the Planner convention). The scale says so
+ *  (`PlanScale.truncated`) and the toolbar shows it (#811). */
 export const MAX_PLAN_BUCKETS = 500;
 
 /** Whole periods rendered beyond each window edge (#619) — the slide distance
@@ -173,6 +174,13 @@ export interface PlanScale {
     resolution: PlanResolution | undefined;
     /** Bucket count (`n = window ÷ period`, clipped buckets included). */
     n: number;
+    /**
+     * Set when the window holds more periods than {@link MAX_PLAN_BUCKETS}: the
+     * grid covers only the first `shown` buckets of it. The toolbar says so
+     * ("showing the first 500 buckets — zoom in", #811) — a silently
+     * truncated axis reads as data that stops.
+     */
+    truncated: { shown: number } | undefined;
     /** The buckets, in order. */
     buckets: ReadonlyArray<PlanBucket>;
     /** Continuous position: window fraction of an instant, clamped to [0, 1]. */
@@ -253,8 +261,6 @@ interface Domain {
     endInclusive: boolean;
     resolution: PlanResolution | undefined;
     now: number | undefined;
-    /** The period name for the truncation warning. */
-    unit: string;
 }
 
 function timeDomain(spec: Extract<PlanScaleSpec, { kind: "time" }>): Domain {
@@ -275,7 +281,6 @@ function timeDomain(spec: Extract<PlanScaleSpec, { kind: "time" }>): Domain {
         endInclusive: false,
         resolution: spec.resolution,
         now: spec.now?.getTime(),
-        unit: spec.resolution,
     };
 }
 
@@ -298,7 +303,6 @@ function numberDomain(spec: Extract<PlanScaleSpec, { kind: "number" }>): Domain 
         endInclusive: false,
         resolution: undefined,
         now: spec.now,
-        unit: `step-${step}`,
     };
 }
 
@@ -323,7 +327,6 @@ function ordinalDomain(spec: Extract<PlanScaleSpec, { kind: "ordinal" }>): Domai
         endInclusive: true,
         resolution: undefined,
         now: spec.now !== undefined ? index.get(spec.now) : undefined,
-        unit: "value",
     };
 }
 
@@ -387,9 +390,6 @@ export function planScale(spec: PlanScaleSpec): PlanScale | undefined {
             x1: fracOfN(clippedEnd),
             label: dom.label(start),
         });
-    }
-    if (truncated) {
-        console.warn(`[Plan] axis truncated at ${MAX_PLAN_BUCKETS} ${dom.unit} buckets — narrow the window or coarsen the resolution.`);
     }
     if (buckets.length === 0) return undefined;
 
@@ -496,6 +496,7 @@ export function planScale(spec: PlanScaleSpec): PlanScale | undefined {
         window: { min: dom.fromN(minN), max: dom.fromN(maxN) },
         resolution: dom.resolution,
         n: buckets.length, buckets,
+        truncated: truncated ? { shown: buckets.length } : undefined,
         xOf, fracOf, endFracOf, bucketOf, bucketAtFrac, snap, floor, offset,
         toNumber: toN, fromNumber: dom.fromN,
         nowFrac, renderMin, renderMax, renderBucketOf,

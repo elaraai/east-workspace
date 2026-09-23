@@ -19,8 +19,10 @@ import { Plan } from "@elaraai/east-ui/internal";
 import { usePlanDispatch, usePlanScale } from "../context.js";
 import { HeatCells } from "./HeatRow.js";
 import { GridSeparators, INDENT_PX } from "./RowShell.js";
+import { PlanPartBoundary } from "./PartBoundary.js";
+import { RowDiagnostic } from "./RowDiagnostic.js";
 import { membersMeta } from "../format.js";
-import type { HeatScale, PlanRowValue } from "../model.js";
+import type { HeatScale, PlanRowDiagnostic, PlanRowValue } from "../model.js";
 
 type HeatCellsValue = ValueTypeOf<typeof Plan.Types.HeatCells>;
 type HeatCellValue = ValueTypeOf<typeof Plan.Types.HeatCell>;
@@ -65,10 +67,14 @@ export interface GroupRowProps {
      *  `data-plan-partial` (#567 D9). The author's own `meta` is never
      *  rewritten: it is their text, not a derivation. */
     partial?: boolean | undefined;
+    /** Set when the band's own declared strip rides another arm than the axis
+     *  (#811): the band keeps its toggle and its members, and its plot says
+     *  why it shows no strip. */
+    diagnostic?: PlanRowDiagnostic | undefined;
 }
 
 /** One group band — full-width strip on the shared template. */
-export function GroupRow({ row, kind, styles, gridTemplate, height, depth, collapsed, summaryCells, summaryScale, memberCount, partial }: GroupRowProps) {
+export function GroupRow({ row, kind, styles, gridTemplate, height, depth, collapsed, summaryCells, summaryScale, memberCount, partial, diagnostic }: GroupRowProps) {
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
     // A declared meta line wins; otherwise the derived member count stands in.
@@ -77,7 +83,7 @@ export function GroupRow({ row, kind, styles, gridTemplate, height, depth, colla
         : (memberCount !== undefined && memberCount > 0 ? membersMeta(memberCount, partial) : undefined);
     const value = row.gutter.value.type === "some" ? row.gutter.value.value : undefined;
     const statusTone = row.status.type === "some" ? row.status.value.type : undefined;
-    const summary = collapsed
+    const summary = collapsed && diagnostic === undefined
         ? (kind.summary.type === "some"
             ? kind.summary.value
             : (summaryCells !== undefined && summaryCells.length > 0 ? derivedSummaryArm(summaryCells, summaryScale) : undefined))
@@ -110,15 +116,16 @@ export function GroupRow({ row, kind, styles, gridTemplate, height, depth, colla
                 )}
             </Box>
             <Box css={styles.plot}>
+                {diagnostic !== undefined && <RowDiagnostic diagnostic={diagnostic} styles={styles} />}
                 {summary !== undefined && (
-                    <>
+                    <PlanPartBoundary part={`group ${row.gutter.label}`} resetKey={summary} styles={styles}>
                         <GridSeparators styles={styles} />
                         {/* The strip's cells are part of the BAND: clicking
                             them toggles the group like the rest of it, rather
                             than selecting a group key nothing displays (#615). */}
                         <HeatCells rowKey={row.key} cells={summary} styles={styles}
                             onCellClick={() => dispatch({ t: "group.toggle", key: row.key })} />
-                    </>
+                    </PlanPartBoundary>
                 )}
                 {scale.nowFrac !== undefined && <Box css={styles.nowLine} left={`${scale.nowFrac * 100}%`} />}
             </Box>

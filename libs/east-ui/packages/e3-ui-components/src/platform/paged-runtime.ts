@@ -19,6 +19,14 @@
  * immutable once loaded: a dataset that changes content is a new bind, not a
  * mutated window, so there is no invalidation path here.
  *
+ * A window whose fetch FAILED is not in flight, so it does not read `none`:
+ * the read throws the reason (#811). `none` there made every consumer spin
+ * "Loading…" forever over a dataset that was never going to arrive. A later
+ * read relaunches a transient failure once the retry gap has passed — which
+ * is what a component's Retry is — and a permanent one (an authoring error)
+ * keeps throwing its reason without refetching. Key searches follow the same
+ * rule.
+ *
  * Deliberately NOT routed through {@link ReactiveDatasetCache}: that cache is
  * for whole dataset values (synchronous reads of everything ever loaded, a
  * write pipeline, a status poll). A paged source is precisely the thing you
@@ -127,6 +135,19 @@ interface PageEntry {
     failedAtMs?: number;
     /** The failure is an authoring error, so retrying can never help. */
     permanent?: boolean;
+    /** Why the last attempt failed — what a read of the failed entry throws. */
+    error?: string;
+}
+
+/** One line naming why an attempt failed. */
+function failureOf(err: unknown): string {
+    return err instanceof Error ? err.message : String(err);
+}
+
+/** A failed entry's read: throw its reason — never `none`, which reads as
+ *  "still in flight" and spins a consumer's loading state forever (#811). */
+function throwFailure(entry: PageEntry, what: string): never {
+    throw new Error(entry.error ?? `Data.bindPaged: ${what} could not be read`);
 }
 
 /** Minimum gap between retries of a window whose fetch failed. */
@@ -377,7 +398,10 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
                 this.notify(key);
             };
             if (!api) {
-                settle(e => { e.status = "failed"; e.failedAtMs = this.now(); });
+                settle(e => {
+                    e.status = "failed"; e.failedAtMs = this.now();
+                    e.error = "Data.bindPaged: no PagedApi installed";
+                });
                 console.error("Data.bindPaged: no PagedApi installed");
                 return;
             }
@@ -386,22 +410,26 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
                 page = await api.getPage(workspace, path, { offset, limit });
             } catch (err) {
                 const permanent = isPermanentPageError(err);
-                settle(e => { e.status = "failed"; e.failedAtMs = this.now(); e.permanent = permanent; });
-                console.error(
-                    permanent
-                        ? `Data.bindPaged: ${datasetPathToString(path)} is not a pageable dataset — ` +
-                          `bind a collection (Array / Set / Dict), or use Data.bind for a whole value:`
-                        : `Data.bindPaged: fetch failed for ${key}:`,
-                    err,
-                );
+                const reason = permanent
+                    ? `Data.bindPaged: ${datasetPathToString(path)} is not a pageable dataset — ` +
+                      `bind a collection (Array / Set / Dict), or use Data.bind for a whole value`
+                    : `Data.bindPaged: fetch failed for ${datasetPathToString(path)} ` +
+                      `elements ${offset}–${offset + limit - 1}: ${failureOf(err)}`;
+                settle(e => {
+                    e.status = "failed"; e.failedAtMs = this.now(); e.permanent = permanent;
+                    e.error = reason;
+                });
+                console.error(`${reason}:`, err);
                 return;
             }
             let decoded: unknown;
             try {
                 decoded = decodeBeast2For(sourceType)(page.data);
             } catch (err) {
-                settle(e => { e.status = "failed"; e.failedAtMs = this.now(); });
-                console.error(`Data.bindPaged: decode failed for ${key}:`, err);
+                const reason = `Data.bindPaged: could not decode ${datasetPathToString(path)} ` +
+                    `elements ${offset}–${offset + limit - 1}: ${failureOf(err)}`;
+                settle(e => { e.status = "failed"; e.failedAtMs = this.now(); e.error = reason; });
+                console.error(`${reason}:`, err);
                 return;
             }
             settle(e => { e.status = "loaded"; e.window = decoded; e.total = page.totalElements; });
@@ -450,7 +478,10 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
                 this.notify(key);
             };
             if (!api) {
-                settle(e => { e.status = "failed"; e.failedAtMs = this.now(); });
+                settle(e => {
+                    e.status = "failed"; e.failedAtMs = this.now();
+                    e.error = "Data.bindPaged: no PagedApi installed";
+                });
                 console.error("Data.bindPaged: no PagedApi installed");
                 return;
             }
@@ -459,8 +490,12 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
                 settle(e => { e.status = "loaded"; e.range = range; });
             } catch (err) {
                 const permanent = isPermanentPageError(err);
-                settle(e => { e.status = "failed"; e.failedAtMs = this.now(); e.permanent = permanent; });
-                console.error(`Data.bindPaged: key search failed for ${key}:`, err);
+                const reason = `Data.bindPaged: key search failed for ${datasetPathToString(path)}: ${failureOf(err)}`;
+                settle(e => {
+                    e.status = "failed"; e.failedAtMs = this.now(); e.permanent = permanent;
+                    e.error = reason;
+                });
+                console.error(`${reason}:`, err);
             }
         })();
     }
@@ -487,6 +522,9 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
                         this.touchWindow(key);
                         return variant("some", entry.window);
                     }
+                    // Failed (and not relaunched by this read): not in flight,
+                    // so not `none` — the reason (#811).
+                    if (entry.status === "failed") throwFailure(entry, `elements ${offset}–${offset + limit - 1}`);
                     return variant("none", null);
                 }),
             DataPagedPrimitives.total.implement((_sourceType: EastTypeValue) =>
@@ -508,6 +546,9 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
                     this.track(key);
                     this.ensureSeek(workspace, path, query, key);
                     const entry = this.entry(key);
+                    // A failed search throws its reason (#811) — the same rule
+                    // `page` follows; `none` would read as still searching.
+                    if (entry.status === "failed") throwFailure(entry, "the key search");
                     // `none` is "still searching" — the same in-flight
                     // convention `page` uses, so the chrome shows nothing
                     // rather than a wrong answer while the fences are walked.

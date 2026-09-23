@@ -349,13 +349,17 @@ function bindData<T extends EastType>(
  *   as a value of the dataset's own type. `none` means the window is still in
  *   flight — the call re-fires when it lands (use inside `Reactive.Root`). An
  *   EMPTY window means the source is exhausted at that offset, so a reader
- *   that walks offsets terminates on `some([])`, never on `none`.
+ *   that walks offsets terminates on `some([])`, never on `none`. A window
+ *   whose fetch FAILED throws its reason rather than reading `none` (#811);
+ *   a read at least two seconds after the failure fetches it again (a
+ *   component's Retry), and a dataset that cannot be paged keeps throwing.
  * @property total - The source's total element count, once any window has
  *   landed; `none` until then.
  * @property seek - Key search over the dataset, backed by the server's fence
  *   search (`datasetFindKey`). `none` for an Array-typed dataset: stream order
  *   has nothing to binary-search. Decided at bind time from the dataset's own
- *   type, so a component renders the affordance only where it works.
+ *   type, so a component renders the affordance only where it works. A search
+ *   that failed throws its reason, like a failed window.
  */
 export const DataPagedHandleType = <T extends EastType | string>(t: T) => StructType({
     id:    StringType,
@@ -409,8 +413,9 @@ const data_page = East.genericPlatform(
 const data_page_total = East.genericPlatform(
     "data_page_total", ["T"], [...PAGED_DESCRIPTOR], OptionType(IntegerType), { optional: true });
 // Key search rides the SAME in-flight convention as a window: `none` while the
-// server's fence search is running, `some(range)` when it lands. The row it
-// returns is a global element index in the row space `data_page` windows serve.
+// server's fence search is running, `some(range)` when it lands — and, like a
+// window, a THROW when it failed (#811). The row it returns is a global
+// element index in the row space `data_page` windows serve.
 const data_page_seek = East.genericPlatform(
     "data_page_seek", ["T"], [...PAGED_DESCRIPTOR, SeekQueryType], OptionType(SeekRangeType), { optional: true });
 
@@ -421,12 +426,14 @@ const data_page_seek = East.genericPlatform(
  * @internal Not for direct use — author against {@link Data.bindPaged}.
  */
 export const DataPagedPrimitives = {
-    /** `data_page([T], source, offset, limit) -> Option<T>` — one window (`none` = in flight). */
+    /** `data_page([T], source, offset, limit) -> Option<T>` — one window
+     *  (`none` = in flight; throws when the window's fetch failed). */
     page: data_page,
     /** `data_page_total([T], source) -> Option<Integer>` — total elements, once known. */
     total: data_page_total,
     /** `data_page_seek([T], source, query) -> Option<SeekRange>` — where a key
-     *  query lands in the source's row order (`none` = search in flight). */
+     *  query lands in the source's row order (`none` = search in flight;
+     *  throws when the search failed). */
     seek: data_page_seek,
 } as const;
 
@@ -449,7 +456,9 @@ export const DataPagedPrimitives = {
  * against the dataset's own type — no blobs, no beast2, no manual fetch in
  * user code. A window still in flight reads `none` and the call re-fires when
  * it lands, so use it inside `Reactive.Root`; an empty window means the source
- * is exhausted, which is how a walking reader terminates.
+ * is exhausted, which is how a walking reader terminates. A window whose fetch
+ * failed throws its reason (#811) — the Plan shows it as that window's error
+ * band with a Retry, and a Table as its "could not be read" message.
  *
  * Unlike {@link Data.bind}, a paged source is NOT preloaded or polled as a
  * whole value — it is declared in the UI task's manifest under `pages`, which

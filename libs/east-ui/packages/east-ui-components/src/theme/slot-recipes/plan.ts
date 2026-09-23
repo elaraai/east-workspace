@@ -55,10 +55,12 @@ export const planSlotRecipe = defineSlotRecipe({
         "milestoneDot", "exceptionTri", "markIcon", "markLabel", "tableCellText", "tableCellPart",
         // overlays
         "nowLine", "cursorLine", "cursorChip", "elementOverlay",
-        // diagnostics (no window / unreadable source)
-        "diagnostic",
-        // paged canvas: the unloaded run above / below the resident one
-        "windowBand", "windowBandCaption",
+        // diagnostics (no window) and local failures (#811): a row that cannot
+        // be placed, a part that could not render, the toolbar's chip icon
+        "diagnostic", "rowDiagnostic", "partError", "diagnostics", "diagnosticChip", "chipIcon",
+        // paged canvas: the unloaded run above / below the resident one, and
+        // a window whose read failed (with its Retry)
+        "windowBand", "windowBandCaption", "windowRetry",
         // the narrow layout (§10 / #570): chips · tabs · ruler · card list
         "narrowRoot", "narrowChips", "narrowTabCount", "narrowRuler", "narrowRulerTrack", "narrowRulerTick",
         "narrowScope", "narrowScopeTitle", "narrowScopeMeta", "narrowBack", "narrowList",
@@ -526,15 +528,84 @@ export const planSlotRecipe = defineSlotRecipe({
             cursor: "pointer",
             "&:hover": { background: "{colors.brandTint}" },
         },
-        // A canvas that cannot draw says WHY, in the body's own frame: no
-        // window declared, or a source that could not be read. `data-plan-error`
-        // is the second, louder case.
+        // A canvas that cannot draw says WHY, in the body's own frame — the one
+        // case left is a window it cannot resolve. Everything a ROW or a
+        // WINDOW can get wrong stays with that row or window (#811).
         diagnostic: {
             padding: "20px",
             fontFamily: "mono",
             fontSize: "10px",
             color: "fg.subtle",
-            "&[data-plan-error]": { color: "{colors.status.neg}" },
+        },
+        // A row whose instants ride another arm than the axis (#811) — it
+        // keeps its gutter and its place, and its plot says why it draws
+        // nothing, over the 45° hatch the canvas already speaks for "no data
+        // here" (warn-tinted: this is the data's fault, not an absence).
+        rowDiagnostic: {
+            position: "absolute",
+            inset: 0,
+            display: "flex",
+            alignItems: "center",
+            padding: "0 10px",
+            minWidth: 0,
+            overflow: "hidden",
+            fontFamily: "mono",
+            fontSize: "10px",
+            fontWeight: "medium",
+            color: "{colors.status.warn}",
+            whiteSpace: "nowrap",
+            textOverflow: "ellipsis",
+            backgroundImage:
+                "repeating-linear-gradient(45deg, transparent 0 3px, color-mix(in srgb, {colors.status.warn} 12%, transparent) 3px 4px)",
+            // A 16px strip keeps the hatch — the message would not fit.
+            "&[data-ctx]": { color: "transparent" },
+        },
+        // A part that could not render (#811) — one line naming it, where the
+        // part would have been. In a row's plot (or a card body) it fills the
+        // cell the marks would have filled; in an overlay it is the body.
+        partError: {
+            display: "flex",
+            alignItems: "center",
+            padding: "6px 10px",
+            minWidth: 0,
+            overflow: "hidden",
+            fontFamily: "mono",
+            fontSize: "10px",
+            fontWeight: "medium",
+            color: "{colors.status.neg}",
+            whiteSpace: "nowrap",
+            textOverflow: "ellipsis",
+            "[data-plan-row] &, [data-plan-group] &, [data-plan-card] &": { position: "absolute", inset: 0, padding: "0 10px" },
+        },
+        // The diagnostics cluster (#811) — it gives way before the toolbar's
+        // controls do, wrapping its chips rather than crushing a segment.
+        diagnostics: {
+            display: "inline-flex",
+            alignItems: "center",
+            flexWrap: "wrap",
+            gap: "6px",
+            minWidth: 0,
+            flexShrink: 1,
+        },
+        // A toolbar diagnostics chip (#811), layered over the shared `chip`
+        // recipe: a reason can be a whole sentence, so it truncates rather
+        // than pushing the toolbar's other clusters off the edge. Only the
+        // rows-skipped chip is a button (it seeks); the rest just state.
+        diagnosticChip: {
+            maxWidth: "360px",
+            minWidth: 0,
+            flexShrink: 1,
+            cursor: "default",
+            "&:is(button)": { cursor: "pointer" },
+            "& > span": { overflow: "hidden", textOverflow: "ellipsis" },
+        },
+        // The glyph on a toolbar diagnostics chip (#811) — the chip itself is
+        // the shared `chip` recipe; the status rides the glyph, never a
+        // saturated fill (the chip vocabulary's rule).
+        chipIcon: {
+            fontSize: "10px",
+            color: "{colors.status.warn}",
+            "&[data-tone='danger']": { color: "{colors.status.neg}" },
         },
         // A run of source elements that is not resident (#577). Sized by the
         // ledger, so replacing it with rows — or putting it back — moves
@@ -549,6 +620,13 @@ export const planSlotRecipe = defineSlotRecipe({
             borderBottomColor: "border.subtle",
             backgroundImage:
                 "repeating-linear-gradient(to bottom, transparent 0 31px, {colors.border.subtle} 31px 32px)",
+            // A window whose read FAILED (#811) — the same slab, the rule
+            // replaced by a faint negative wash: rows belong here and could
+            // not be read.
+            "&[data-plan-failed]": {
+                backgroundImage: "none",
+                background: "color-mix(in srgb, {colors.status.neg} 5%, {colors.bg.panel})",
+            },
         },
         // Sticky, so it stays legible wherever you are inside a band that may
         // be thousands of pixels tall.
@@ -569,6 +647,39 @@ export const planSlotRecipe = defineSlotRecipe({
             letterSpacing: "0.06em",
             textTransform: "uppercase",
             color: "fg.subtle",
+            // The failure caption wraps its reason (a message is not a count)
+            // and wears the negative ink.
+            "[data-plan-failed] &": {
+                height: "auto",
+                minHeight: "22px",
+                padding: "4px 12px",
+                flexWrap: "wrap",
+                textTransform: "none",
+                letterSpacing: "0.02em",
+                color: "{colors.status.neg}",
+                background: "transparent",
+            },
+        },
+        // The failed window's Retry — a mono pill in the band's caption.
+        windowRetry: {
+            fontFamily: "mono",
+            fontSize: "9px",
+            fontWeight: "semibold",
+            letterSpacing: "0.08em",
+            textTransform: "uppercase",
+            color: "brand.fg",
+            background: "bg.surface",
+            borderWidth: "1px",
+            borderStyle: "solid",
+            borderColor: "border.strong",
+            borderRadius: "3px",
+            padding: "2px 8px",
+            cursor: "pointer",
+            flexShrink: 0,
+            "&:hover": { background: "bg.panel" },
+            // The narrow layout's failure card: the reason on the left, the
+            // Retry at the card head's right edge.
+            "[data-plan-narrow] &": { marginLeft: "auto" },
         },
         focusGapInner: {
             display: "flex",

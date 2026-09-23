@@ -22,7 +22,15 @@
  * every window read / write speaks the slice arm that kind maps to
  * (`axis.ts`): `datetime`, `float` / `integer`, or none (an ordinal list is
  * its own window). Every row's instants must ride the axis's arm; a row that
- * does not is a diagnostic, never a misplacement.
+ * does not is a diagnostic ROW, never a misplacement.
+ *
+ * A failure stays where it happened (#811): a row that cannot be placed
+ * renders in place as its diagnostic, a window whose read failed renders as
+ * an error band with a Retry, and a part that throws while rendering (a row's
+ * plot, an overlay body, the expand render, the links layer) shows its own
+ * one-line fallback. The toolbar counts what it can — skipped rows, a source
+ * or search failure, a truncated axis. Nothing a row or a source does
+ * replaces the canvas.
  *
  * All eight row kinds render (`rows/*`); review chrome, the drag-target
  * role, element clicks and the keyboard rungs are wired — the reducer's
@@ -47,7 +55,8 @@ import { PlanScaleContext, PlanDispatchContext, PlanCursorContext, PlanResolvers
 import { usePlanPaging } from "./use-plan-paging.js";
 import { usePlanSeek } from "./use-seek.js";
 import { useElementHeight } from "./use-element-height.js";
-import { WindowBand } from "./rows/WindowBand.js";
+import { WindowBand, WindowFailureBand } from "./rows/WindowBand.js";
+import { PlanPartBoundary } from "./rows/PartBoundary.js";
 import { resolutionInterval, type PlanResolution, type PlanScale } from "./scale.js";
 import { axisNow, axisResolutions, ordinalIndexOf, rangeArmOf, rangeOf, resolveScale, sliceWindowOf } from "./axis.js";
 import type { PlanInstantValue } from "./instant.js";
@@ -56,8 +65,8 @@ import {
     type PlanEffect, type PlanEvent,
 } from "./plan-state.js";
 import {
-    GAP_H, axisKindMismatches, derivePlan, deriveLinkFamily, elideForFocus, indexRows, linkedRowKeys, pinnedRows, pxOf, rowHeight, visibleRows,
-    windowRestHeight,
+    GAP_H, derivePlan, deriveLinkFamily, elideForFocus, firstDiagnosticItem, indexRows, linkedRowKeys, pinnedRows,
+    placeFailures, pxOf, rowHeight, visibleRows, windowRestHeight,
     type FocusGap, type PlanBodyItem, type PlanFocusCtx, type PlanRootValue, type PlanRowValue, type VisibleRow,
 } from "./model.js";
 import { appendAll } from "./reductions.js";
@@ -73,6 +82,7 @@ import { FocusBar } from "./shell/FocusBar.js";
 import { LinksOverlay } from "./shell/LinksOverlay.js";
 import { PlanRuler, chipAnchor } from "./shell/Ruler.js";
 import { PlanFooter } from "./shell/Footer.js";
+import { hasDiagnostics, type PlanDiagnostics } from "./shell/Diagnostics.js";
 import {
     usePlanReview, PlanDecisionHeader, DECISION_WIDTH,
 } from "./shell/Review.js";
@@ -124,16 +134,19 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     // the measure canonical.
     const dense = getSomeorUndefined(getSomeorUndefined(value.style)?.density)?.type === "compact";
     const initGrain = getSomeorUndefined(value.grain)?.type ?? "resource";
+    // The axis KIND (#631) — every window read below speaks its slice arm,
+    // and a row whose instants ride another arm is a diagnostic row (#811).
+    const axisKind = data.axis.type;
     // The ledger's window height (#613): the height the window renders AT
     // REST — declared collapse applied, chart expansion at its declared
-    // state, no focus context, pinned rows excluded. The ledger freezes a
-    // window's first measurement and seeds its frozen slot rate from the
-    // very first one, so the recorded number must not depend on transient
-    // UI state — a window landing during an expand focus must not record
-    // strip-compressed rows.
+    // state, no focus context, pinned rows excluded, diagnostic rows at their
+    // own height. The ledger freezes a window's first measurement and seeds
+    // its frozen slot rate from the very first one, so the recorded number
+    // must not depend on transient UI state — a window landing during an
+    // expand focus must not record strip-compressed rows.
     const heightOf = useCallback(
-        (rows: readonly PlanRowValue[]) => windowRestHeight(rows, initGrain, dense),
-        [initGrain, dense]);
+        (rows: readonly PlanRowValue[]) => windowRestHeight(rows, initGrain, dense, axisKind),
+        [initGrain, dense, axisKind]);
     const paging = usePlanPaging(pagedSource, { heightOf });
     // The inline arm is the canvas's KEYED collection (#568) — decoded as a
     // SortedMap, so its values are already in canonical key order.
@@ -162,7 +175,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     // Key search over the source (`search` becomes seek — #567 D9's affordance
     // table). A jump asks the driver to rebase on the matched ELEMENT; the
     // canvas then positions by key, since a leaf row's key IS its data key.
-    const { search, targetKey } = usePlanSeek(pagedSource, rows, paging.jumpToElement, paging.clearJump);
+    const { search, targetKey, searchError } = usePlanSeek(pagedSource, rows, paging.jumpToElement, paging.clearJump);
 
     // ── Review chrome (#569) — ACTIONS only. The verdict is not held here:
     //    it lives wherever the author's callback wrote it and arrives back as
@@ -186,8 +199,6 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     const pick = useMemo(() => getSomeorUndefined(value.pick), [value.pick]);
 
     // ── Window + resolution: slice state ▸ axis ▸ fit-to-data (§3/§8) ─────
-    // The axis KIND (#631) — every window read below speaks its slice arm.
-    const axisKind = data.axis.type;
     // Keyed on the DOMAIN NUMBERS, never on the range object. `slice.read()`
     // decodes fresh state on every render, so `sliceState.range` has a new
     // identity each time even when the window has not moved. Keying the memo
@@ -218,12 +229,12 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     // derivations sort cells by it (nothing else needs it).
     const ordinalIndex = useMemo(() => ordinalIndexOf(data.axis), [data.axis]);
     // Renderer-side derivations (§4.2 — the Table idiom): the IR declares
-    // rollups / aggregates / summaries; the numbers are computed here.
-    const derived = useMemo(() => derivePlan(index, ordinalIndex), [index, ordinalIndex]);
-    // The Planner's single-axis-kind rule (#631): every instant on the canvas
-    // must ride the axis's arm. A row that does not is diagnosed below —
-    // named, with the arm it carries — instead of being drawn somewhere wrong.
-    const mismatches = useMemo(() => axisKindMismatches(index, axisKind), [index, axisKind]);
+    // rollups / aggregates / summaries; the numbers are computed here. The
+    // Planner's single-axis-kind rule (#631) rides along: a row whose
+    // instants ride another arm is a DIAGNOSTIC row (#811) — it renders in
+    // place with the arm it carries, derives nothing, and the rest of the
+    // canvas draws. (One such row used to replace the whole canvas.)
+    const derived = useMemo(() => derivePlan(index, ordinalIndex, axisKind), [index, ordinalIndex, axisKind]);
     // The R1 link graph — rows an edge touches grow the `links` control.
     const linkedKeys = useMemo(() => linkedRowKeys(data.links), [data.links]);
     // A run's instants by (row, run) — the overlay's off-window resolution.
@@ -612,10 +623,13 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
         [focusCtx, expandRenderPx]);
     // R1 at scale — the links-focus body elides runs of unrelated rows into
     // gap bands (a lone straggler keeps its rail; see `elideForFocus`).
-    const bodyItems = useMemo<PlanBodyItem[]>(() => {
-        const core: PlanBodyItem[] = focusCtx?.kind === "links"
+    const bodyItems = useMemo<readonly PlanBodyItem[]>(() => {
+        const rowItems: PlanBodyItem[] = focusCtx?.kind === "links"
             ? elideForFocus(visible, index, focusCtx)
             : visible.map((row) => ({ kind: "row", row }));
+        // A window whose read failed is ONE band where its rows would be
+        // (#811) — every other window keeps landing around it.
+        const core = placeFailures(rowItems, paging.failures, paging.origin);
         // The unloaded remainder of a paged source, above and below (#577). Each
         // band is sized by the ledger, so the rows that replace it occupy the
         // same space and nothing below moves.
@@ -625,7 +639,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
         appendAll(out, core);
         if (paging.tail !== undefined) out.push({ kind: "band", band: paging.tail });
         return out;
-    }, [focusCtx, visible, index, paging.head, paging.tail]);
+    }, [focusCtx, visible, index, paging.failures, paging.origin, paging.head, paging.tail]);
 
     // The viewport, in the driver's terms — which ROW (or which band) it sits
     // on. The item under the viewport CENTER when the frame can resolve one
@@ -655,17 +669,42 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                 isScrolling);
         }
         else if (item.kind === "row") reportViewport({ kind: "row", key: item.row.row.key }, isScrolling);
+        // A failed window's band names its own window (#811).
+        else if (item.kind === "failed") reportViewport({ kind: "window", w: item.failure.w }, isScrolling);
         // A links-focus gap band names no window — leave the demand where it is.
     }, [bodyItems, reportViewport]);
     // Where a key search has positioned the canvas. Resolved against the
     // VISIBLE body (a match inside a collapsed group has no row to scroll to),
     // and only once that row has actually loaded.
-    const scrollToIndex = useMemo(() => {
+    const searchIndex = useMemo(() => {
         if (targetKey === undefined) return undefined;
         // `it.row` is the VisibleRow envelope; the row value is `it.row.row`.
         const i = bodyItems.findIndex((it) => it.kind === "row" && it.row.row.key === targetKey);
         return i >= 0 ? i : undefined;
     }, [bodyItems, targetKey]);
+    // ...or where the diagnostics chip asked to go (#811): the first skipped
+    // row, or the collapsed group hiding it. The latest request wins — a
+    // search that lands takes the viewport back — and the nonce lets the
+    // chip scroll there again after the user has moved away.
+    const firstSkipped = useMemo(
+        () => firstDiagnosticItem(bodyItems, index, derived.diagnostics),
+        [bodyItems, index, derived.diagnostics]);
+    const [scrollOwner, setScrollOwner] = useState<"search" | "skipped">("search");
+    const [skippedSeq, setSkippedSeq] = useState(0);
+    useEffect(() => { if (targetKey !== undefined) setScrollOwner("search"); }, [targetKey]);
+    const seekSkipped = useCallback(() => {
+        setScrollOwner("skipped");
+        setSkippedSeq((n) => n + 1);
+    }, []);
+    const scrollToIndex = scrollOwner === "skipped" ? firstSkipped : searchIndex;
+    // What the toolbar reports (#811) — everything the canvas carried on past.
+    const diagnostics = useMemo<PlanDiagnostics>(() => ({
+        skipped: derived.diagnostics.size,
+        onSeekSkipped: firstSkipped !== undefined ? seekSkipped : undefined,
+        sourceError: paging.sourceError,
+        searchError,
+        truncatedAt: scale?.truncated?.shown,
+    }), [derived.diagnostics, firstSkipped, seekSkipped, paging.sourceError, searchError, scale]);
 
     // The thin per-row adapter: compute this row's PRIMITIVE facts and hand
     // them to the memoized `PlanBodyRow` (#616). The canvas still renders on
@@ -725,12 +764,22 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                 review={review}
                 rowDrop={rowDrop}
                 {...(isFocal ? {
-                    expandBody: <EastChakraComponent value={expandBody}
-                        storageKey={`${storageKey}.${v.row.key}.expand`} />,
+                    // The author's render is its own part (#811): a throw
+                    // while rendering it stays inside the focused row.
+                    expandBody: (
+                        <PlanPartBoundary part="expand render" resetKey={expandBody} styles={styles}>
+                            <EastChakraComponent value={expandBody}
+                                storageKey={`${storageKey}.${v.row.key}.expand`} />
+                        </PlanPartBoundary>
+                    ),
                     bandHeight: rowHeight(v, dense, ui.chartsExpanded, undefined, derived),
                     ...(expandGutterBody !== null ? {
-                        expandGutter: <EastChakraComponent value={expandGutterBody}
-                            storageKey={`${storageKey}.${v.row.key}.expandgutter`} />,
+                        expandGutter: (
+                            <PlanPartBoundary part="expand gutter" resetKey={expandGutterBody} styles={styles}>
+                                <EastChakraComponent value={expandGutterBody}
+                                    storageKey={`${storageKey}.${v.row.key}.expandgutter`} />
+                            </PlanPartBoundary>
+                        ),
                     } : {}),
                 } : {})}
             />
@@ -765,32 +814,12 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     const resolutions = useMemo(() => axisResolutions(data.axis), [data.axis]);
     const now = useMemo(() => axisNow(data.axis), [data.axis]);
 
-    // A paged source that could not be READ outranks every other diagnostic:
-    // there is no offline stand-in for `Data.bindPaged` (paging is a server
-    // capability), so this is what a bound canvas shows outside a workspace —
-    // the reason, not a blank axis that reads as an empty dataset (#567 D10).
-    if (paging.error !== undefined) {
-        return (
-            <Box css={styles.diagnostic} data-plan-empty data-plan-error>
-                {`NO ROWS — the paged source could not be read. ${paging.error}`}
-            </Box>
-        );
-    }
-
-    // A row whose instants ride another arm than the axis is refused with
-    // the row named (#631) — the canvas cannot position it truthfully, and
-    // drawing everything else would hide that it is missing.
-    if (mismatches.length > 0) {
-        const first = mismatches[0]!;
-        const more = mismatches.length > 1 ? ` (and ${mismatches.length - 1} more)` : "";
-        return (
-            <Box css={styles.diagnostic} data-plan-empty data-plan-mismatch={first.row}>
-                {`AXIS MISMATCH — the axis is ${axisKind}, but row "${first.row}" carries ${first.found} instants${more}. ` +
-                    "Every instant on a canvas must ride its axis's arm (Plan.at.* / a field of the matching type)."}
-            </Box>
-        );
-    }
-
+    // A source that cannot be READ no longer replaces the canvas (#811): its
+    // windows fail one by one, each as its own band with the reason and a
+    // Retry, and a failing `total()` is a toolbar chip. Outside a workspace
+    // (#567 D10 — there is no offline stand-in for `Data.bindPaged`) that is
+    // window 0's band saying why, not a blank axis reading as an empty
+    // dataset. Likewise a row on another arm is its own diagnostic row.
     if (scale === undefined) {
         return (
             <Box css={styles.diagnostic} data-plan-empty>
@@ -823,11 +852,12 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
 
                 The series library (#590) is the same argument a third time: a
                 pickable canvas needs its trigger whether or not a slice was
-                ever bound. */}
-            {(chrome !== undefined || search !== undefined || pick !== undefined) && (
+                ever bound — and the diagnostics (#811) a fourth: a canvas that
+                carried on past a failure must say so, slice or no slice. */}
+            {(chrome !== undefined || search !== undefined || pick !== undefined || hasDiagnostics(diagnostics)) && (
                 <PlanToolbar styles={styles} slice={slice} affordances={affordances}
                     resolution={scale.resolution ?? ""} resolutions={resolutions}
-                    transport={transport} search={search} pick={pick} />
+                    transport={transport} search={search} pick={pick} diagnostics={diagnostics} />
             )}
             {/* The brush mounts only where the slice's range domain speaks
                 the axis's arm — the band decides that itself (#631). */}
@@ -913,6 +943,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                             expandBody={expandBody} expandGutterBody={expandGutterBody}
                             canExpand={expandRenderFn !== undefined}
                             partial={transport?.partial} fill={frameFills}
+                            diagnostics={diagnostics} failures={paging.failures} onRetry={paging.retry}
                         />
                     ) : (
                         <VirtualRows
@@ -928,6 +959,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                             // seams (#533).
                             measureRows={false}
                             scrollToIndex={scrollToIndex}
+                            scrollNonce={scrollOwner === "skipped" ? skippedSeq : undefined}
                             onRangeChange={pagedSource !== undefined ? reportRange : undefined}
                             // A band becoming rows changes heights without
                             // changing the count, which TanStack's measurement
@@ -945,6 +977,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                                 if (item === undefined) return 32;
                                 if (item.kind === "gap") return GAP_H;
                                 if (item.kind === "band") return Math.max(1, item.band.px);
+                                if (item.kind === "failed") return item.failure.px;
                                 return rowHeight(item.row, dense, ui.chartsExpanded, heightCtx, derived);
                             }}
                             renderRow={(i) => {
@@ -953,6 +986,9 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                                 if (item.kind === "gap") return renderGap(item.gap);
                                 if (item.kind === "band") {
                                     return <WindowBand band={item.band} styles={styles} loading={paging.loading} />;
+                                }
+                                if (item.kind === "failed") {
+                                    return <WindowFailureBand failure={item.failure} styles={styles} onRetry={paging.retry} />;
                                 }
                                 return renderVisible(item.row);
                             }}
@@ -968,9 +1004,13 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                     {/* R1 ribbons — the K8 vocabulary at the current row set
                         (ribbons need width — never on the narrow layout). */}
                     {!narrow && ui.focus?.kind === "links" && focusVisibleKeys !== undefined && (
-                        <LinksOverlay container={focusBodyRef.current}
-                            links={data.links} visibleKeys={focusVisibleKeys}
-                            scale={scale} runDates={runDates} />
+                        // The ribbons are their own part (#811): a throw while
+                        // routing them loses the ribbons, not the canvas.
+                        <PlanPartBoundary part="links layer" resetKey={focusVisibleKeys} styles={styles}>
+                            <LinksOverlay container={focusBodyRef.current}
+                                links={data.links} visibleKeys={focusVisibleKeys}
+                                scale={scale} runDates={runDates} />
+                        </PlanPartBoundary>
                     )}
                 </Box>
             </PlanResolversContext.Provider>

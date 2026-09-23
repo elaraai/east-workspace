@@ -28,6 +28,14 @@
  * tracked, and #580's fix means each newly-discovered one actually gets a
  * subscription.
  *
+ * # A failure belongs to its window (#811)
+ *
+ * A read that THROWS — a failed fetch, a series body that throws on one
+ * element — is recorded against that window in a caller-owned failure map and
+ * the rest of the run reads on. The failed window is not asked again on every
+ * evaluation (a failing source would be hammered once per frame); it is asked
+ * again when the caller drops its record — a Retry, or eviction.
+ *
  * @packageDocumentation
  */
 
@@ -45,13 +53,17 @@ export type WindowRows = ReadonlyMap<string, PlanRowValue>;
 /** The caller-owned read-once cache, keyed by window index. */
 export type WindowCache = Map<number, WindowRows>;
 
+/** The caller-owned failure record — why each failed window's read threw,
+ *  keyed by window index (#811). */
+export type WindowFailures = Map<number, string>;
+
 export interface ReadResult {
     /** Every requested window that is resident, in request order. */
     resident: { w: number; rows: WindowRows }[];
     /** Whether any requested window is still in flight. */
     loading: boolean;
-    /** Why a read failed, when one did. */
-    error: string | undefined;
+    /** Every requested window whose read failed, in request order. */
+    failed: { w: number; error: string }[];
 }
 
 /** One line naming why a source read failed. */
@@ -67,23 +79,27 @@ function readFailure(err: unknown): string {
  * in flight: residency is a set, and a window that has landed is renderable
  * whether or not its neighbour has. A gap inside the run simply means the run
  * is not yet complete — the caller renders what it has and the band covers the
- * rest.
+ * rest. A window whose read throws is the same kind of gap, with a reason
+ * (#811): it is recorded in `failures` and reported, and not read again while
+ * its record stands.
  *
  * @param source - The decoded `paged` arm
  * @param windows - Window indices to read, ascending
  * @param cache - The caller's read-once cache (mutated: it is a cache)
  * @param pageSize - Elements per window
- * @returns The resident windows, whether any are in flight, and any error
+ * @param failures - The caller's failure record (mutated: a new failure is recorded)
+ * @returns The resident windows, whether any are in flight, and the failed ones
  */
 export function readWindows(
     source: PlanPagedSourceValue,
     windows: readonly number[],
     cache: WindowCache,
     pageSize: number,
+    failures: WindowFailures,
 ): ReadResult {
     const resident: { w: number; rows: WindowRows }[] = [];
+    const failed: { w: number; error: string }[] = [];
     let loading = false;
-    let error: string | undefined;
 
     for (const w of windows) {
         const known = cache.get(w);
@@ -91,12 +107,19 @@ export function readWindows(
             resident.push({ w, rows: known });
             continue;
         }
+        const recorded = failures.get(w);
+        if (recorded !== undefined) {
+            failed.push({ w, error: recorded });
+            continue;
+        }
         let win: ReturnType<PlanPagedSourceValue["page"]>;
         try {
             win = source.page(BigInt(w * pageSize), BigInt(pageSize));
         } catch (err) {
             console.error(`[Plan] paged source page ${w} failed:`, err);
-            error ??= readFailure(err);
+            const error = readFailure(err);
+            failures.set(w, error);
+            failed.push({ w, error });
             continue;
         }
         if (win.type !== "some") {
@@ -110,7 +133,7 @@ export function readWindows(
         resident.push({ w, rows });
     }
 
-    return { resident, loading, error };
+    return { resident, loading, failed };
 }
 
 /**
@@ -151,9 +174,11 @@ export function originOf(windows: readonly { w: number; rows: WindowRows }[]): M
     return origin;
 }
 
-/** Drop cached windows outside the resident set — the memory half of eviction.
+/** Drop per-window entries outside the resident set — the memory half of
+ *  eviction for the row cache, and the reset for the failure record (a failed
+ *  window that leaves the run is asked afresh when it is demanded again).
  *  Returns how many were dropped. */
-export function pruneCache(cache: WindowCache, keep: ReadonlySet<number>): number {
+export function pruneCache(cache: Map<number, unknown>, keep: ReadonlySet<number>): number {
     let dropped = 0;
     for (const w of [...cache.keys()]) {
         if (keep.has(w)) continue;

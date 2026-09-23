@@ -13,12 +13,17 @@
  * the author's per-ref decision, decided at interaction time. Without
  * declared resolvers the wrapper is a pass-through (no overlay machinery
  * mounts).
+ *
+ * A resolver that THROWS resolves nothing (the call is caught); a body that
+ * throws while RENDERING shows its one-line fallback inside the overlay
+ * (#811) — neither ever reaches the canvas around it.
  */
 
 import { useState, type ReactNode } from "react";
 import { Box, HoverCard, Popover, Portal } from "@chakra-ui/react";
 import { usePlanResolvers, type PlanElementRefValue, type PlanElementResolver } from "../context.js";
 import { EastChakraComponent } from "../../../component.js";
+import { PlanPartBoundary } from "./PartBoundary.js";
 
 /** A resolved overlay body (the resolver's some-value). */
 type BodyValue = Extract<ReturnType<PlanElementResolver>, { type: "some" }>["value"];
@@ -77,7 +82,9 @@ export function ElementOverlays({ elementRef, styles, storageKey, children }: El
         <Portal>
             <HoverCard.Positioner>
                 <HoverCard.Content css={styles.elementOverlay}>
-                    <EastChakraComponent value={hov.body} storageKey={`${storageKey}.hover`} />
+                    <PlanPartBoundary part="hover card" resetKey={hov.body} styles={styles}>
+                        <EastChakraComponent value={hov.body} storageKey={`${storageKey}.hover`} />
+                    </PlanPartBoundary>
                 </HoverCard.Content>
             </HoverCard.Positioner>
         </Portal>
@@ -87,7 +94,9 @@ export function ElementOverlays({ elementRef, styles, storageKey, children }: El
             <Popover.Positioner>
                 <Popover.Content css={styles.elementOverlay}>
                     <Popover.Body padding={0}>
-                        <EastChakraComponent value={pop.body} storageKey={`${storageKey}.popover`} />
+                        <PlanPartBoundary part="popover" resetKey={pop.body} styles={styles}>
+                            <EastChakraComponent value={pop.body} storageKey={`${storageKey}.popover`} />
+                        </PlanPartBoundary>
                     </Popover.Body>
                 </Popover.Content>
             </Popover.Positioner>

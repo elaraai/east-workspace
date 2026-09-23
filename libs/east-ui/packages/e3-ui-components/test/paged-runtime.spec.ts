@@ -90,6 +90,12 @@ function gatedApi() {
             assert.ok(next, "expected an in-flight page request");
             next.reject(err);
         },
+        /** Answer the oldest in-flight fetch with bytes that do not decode. */
+        releaseCorrupt() {
+            const next = pending.shift();
+            assert.ok(next, "expected an in-flight page request");
+            next.resolve({ ...page([], next.window, 1), data: new Uint8Array([0xff, 0x00, 0x13]) });
+        },
         get inFlight() { return pending.length; },
         finds,
         /** Answer the oldest in-flight key search. */
@@ -230,45 +236,72 @@ describe("PagedRuntime", () => {
         assert.ok(keys.includes(pagedTotalKey(ws, opsPath)), "total key tracked");
     });
 
-    test("a failed window retries, but only after the rate-limit gap", async () => {
+    test("a failed window THROWS its reason — it is not in flight (#811) — and retries only after the gap", async () => {
         const g = gatedApi();
         const runtime = new TestPagedRuntime();
         runtime.initialize(g.api, ws);
+        const quiet = silenceErrors();
+        try {
+            callPage(runtime, rowsTypeValue, opsPath, 0n, 2n);
+            g.fail(new Error("network"));
+            await settle();
+            assert.equal(g.calls.length, 1);
 
-        callPage(runtime, rowsTypeValue, opsPath, 0n, 2n);
-        g.fail(new Error("network"));
-        await settle();
-        assert.equal(g.calls.length, 1);
+            // Inside the gap: the read says WHY — `none` would read as still in
+            // flight and spin the consumer forever — and a polling reader does
+            // not hammer the failing server.
+            runtime.clockMs = 500;
+            assert.throws(() => callPage(runtime, rowsTypeValue, opsPath, 0n, 2n), /fetch failed/);
+            assert.throws(() => callPage(runtime, rowsTypeValue, opsPath, 0n, 2n), /network/);
+            assert.equal(g.calls.length, 1, "retry suppressed inside the gap");
 
-        // Inside the gap: a polling reader must not hammer a failing server.
-        runtime.clockMs = 500;
-        callPage(runtime, rowsTypeValue, opsPath, 0n, 2n);
-        assert.equal(g.calls.length, 1, "retry suppressed inside the gap");
+            // Past the gap: the read (a Retry) relaunches — in flight again.
+            runtime.clockMs = 5000;
+            assert.equal((callPage(runtime, rowsTypeValue, opsPath, 0n, 2n) as { type: string }).type, "none");
+            assert.equal(g.calls.length, 2, "retry allowed after the gap");
 
-        // Past the gap: one more attempt.
-        runtime.clockMs = 5000;
-        callPage(runtime, rowsTypeValue, opsPath, 0n, 2n);
-        assert.equal(g.calls.length, 2, "retry allowed after the gap");
-
-        g.release([{ id: "a", v: 1.0 }], 1);
-        await settle();
-        assert.equal((callPage(runtime, rowsTypeValue, opsPath, 0n, 2n) as { type: string }).type, "some");
+            g.release([{ id: "a", v: 1.0 }], 1);
+            await settle();
+            assert.equal((callPage(runtime, rowsTypeValue, opsPath, 0n, 2n) as { type: string }).type, "some");
+        } finally {
+            quiet.restore();
+        }
     });
 
-    test("a `dataset_not_pageable` failure is permanent — never retried", async () => {
+    test("a `dataset_not_pageable` failure is permanent — it keeps throwing its reason, never retried", async () => {
         // Binding a non-collection dataset is an authoring mistake; retrying it
         // forever would just spam the console and the server.
         const g = gatedApi();
         const runtime = new TestPagedRuntime();
         runtime.initialize(g.api, ws);
+        const quiet = silenceErrors();
+        try {
+            callPage(runtime, rowsTypeValue, opsPath, 0n, 2n);
+            g.fail(Object.assign(new Error("not pageable"), { code: "dataset_not_pageable" }));
+            await settle();
 
-        callPage(runtime, rowsTypeValue, opsPath, 0n, 2n);
-        g.fail(Object.assign(new Error("not pageable"), { code: "dataset_not_pageable" }));
-        await settle();
+            runtime.clockMs = 60_000;
+            assert.throws(() => callPage(runtime, rowsTypeValue, opsPath, 0n, 2n), /is not a pageable dataset/);
+            assert.throws(() => callPage(runtime, rowsTypeValue, opsPath, 0n, 2n), /bind a collection/);
+            assert.equal(g.calls.length, 1, "an authoring error is never retried");
+        } finally {
+            quiet.restore();
+        }
+    });
 
-        runtime.clockMs = 60_000;
-        callPage(runtime, rowsTypeValue, opsPath, 0n, 2n);
-        assert.equal(g.calls.length, 1, "an authoring error is never retried");
+    test("a window that does not DECODE throws its reason too", async () => {
+        const g = gatedApi();
+        const runtime = new TestPagedRuntime();
+        runtime.initialize(g.api, ws);
+        const quiet = silenceErrors();
+        try {
+            callPage(runtime, rowsTypeValue, opsPath, 0n, 2n);
+            g.releaseCorrupt();
+            await settle();
+            assert.throws(() => callPage(runtime, rowsTypeValue, opsPath, 0n, 2n), /could not decode/);
+        } finally {
+            quiet.restore();
+        }
     });
 
     test("windows are per (offset, limit) — different windows are different channels", async () => {
@@ -417,28 +450,41 @@ describe("PagedRuntime — key search (#574)", () => {
         );
     });
 
-    test("a failed search is rate-limited, exactly like a failed window", async () => {
+    test("a failed search throws its reason and is rate-limited, exactly like a failed window (#811)", async () => {
         // The search chrome polls while the user types; a failing server must
-        // not be hammered once per keystroke-frame.
+        // not be hammered once per keystroke-frame — and a failed search must
+        // not read as "still searching".
         const g = gatedApi();
         const runtime = new TestPagedRuntime();
         runtime.initialize(g.api, ws);
+        const quiet = silenceErrors();
+        try {
+            callSeek(runtime, KeyedType, variant("prefix", "ka"));
+            g.failFind(new Error("network"));
+            await settle();
+            assert.equal(g.finds.length, 1);
 
-        callSeek(runtime, KeyedType, variant("prefix", "ka"));
-        g.failFind(new Error("network"));
-        await settle();
-        assert.equal(g.finds.length, 1);
+            runtime.clockMs = 500;
+            assert.throws(() => callSeek(runtime, KeyedType, variant("prefix", "ka")), /key search failed.*network/);
+            assert.equal(g.finds.length, 1, "retry suppressed inside the gap");
 
-        runtime.clockMs = 500;
-        callSeek(runtime, KeyedType, variant("prefix", "ka"));
-        assert.equal(g.finds.length, 1, "retry suppressed inside the gap");
+            runtime.clockMs = 5000;
+            assert.equal((callSeek(runtime, KeyedType, variant("prefix", "ka")) as { type: string }).type, "none");
+            assert.equal(g.finds.length, 2, "retry allowed after the gap");
 
-        runtime.clockMs = 5000;
-        callSeek(runtime, KeyedType, variant("prefix", "ka"));
-        assert.equal(g.finds.length, 2, "retry allowed after the gap");
-
-        g.releaseFind(true, 1, 1);
-        await settle();
-        assert.equal((callSeek(runtime, KeyedType, variant("prefix", "ka")) as { type: string }).type, "some");
+            g.releaseFind(true, 1, 1);
+            await settle();
+            assert.equal((callSeek(runtime, KeyedType, variant("prefix", "ka")) as { type: string }).type, "some");
+        } finally {
+            quiet.restore();
+        }
     });
 });
+
+/** Swallow the runtime's `console.error` failure logs for a test that drives
+ *  failures on purpose; `restore()` puts the real one back. */
+function silenceErrors(): { restore: () => void } {
+    const real = console.error;
+    console.error = () => {};
+    return { restore: () => { console.error = real; } };
+}
