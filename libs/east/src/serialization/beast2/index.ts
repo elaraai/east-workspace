@@ -77,6 +77,19 @@ export {
 } from "./v5/geometry.js";
 export { openBeast2LazyFor, isBeast2LazySafe, type Beast2LazySafeOptions } from "./v5/lazy.js";
 export {
+  RUN_MAX_COUNT,
+  RUN_MAX_BYTES,
+  Beast2RunSorter,
+  type Beast2RunSink,
+  type Beast2RunSorterOptions,
+} from "./v5/runs.js";
+export {
+  mergeBeast2For,
+  type Beast2MergeSource,
+  type Beast2MergeOptions,
+  type Beast2MergeStats,
+} from "./v5/merge.js";
+export {
   COLLECTION_MANIFEST_KIND,
   CollectionManifestType,
   CollectionManifestEntryType,

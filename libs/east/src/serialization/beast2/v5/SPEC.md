@@ -480,6 +480,40 @@ handed the segments spliced back into one blob.
   `path.segments/<hash>.beast2`. A runner that opens manifests pages through
   such a file, reading only the segments it touches.
 
+## Sorted runs and merges
+
+A producer that cannot hand its elements over in canonical order — a re-key,
+an index built in another order than its source's — writes them as **sorted
+runs**, and a **merge** combines the runs into the canonical blob of the whole
+value. Where a run closes decides how a repeated key's values group before
+they fold, and so the bytes of a fold over floats; both are therefore rules
+(TypeScript `v5/runs.ts` and `v5/merge.ts`; east-c `v5/runs.c` and `merge.c`,
+which east-py binds).
+
+- **Closing a run.** Elements are added to the open run one at a time, each
+  encoded as it is added. The run closes once it holds 131072 elements (pairs,
+  for a Dict) or 64 MiB of their logical bytes — checked after each element,
+  so the element that reaches either cap is the run's last — and whatever is
+  open when the producer finishes closes as the last run. Runs are numbered
+  from 0 in the order they close. Both caps are constants of the format, not
+  settings.
+- **Sorting a run.** A run's elements sort by key in East order, and equal
+  keys by the order they were added. A key added more than once then folds: a
+  Dict's values fold `acc = merge(key, acc, value)`, starting from the first
+  value added and in the order added, and the entry keeps the first key's
+  bytes; a Set's equal elements collapse to the first under union. Without a
+  fold, a repeated key is refused.
+- **Writing a run.** A run is the canonical blob of its sorted, folded value —
+  its elements cut by the segmentation rules, as any writer of that value
+  writes them.
+- **Merging.** A merge reads sorted Set or Dict collections of one type,
+  blobs or manifests, and writes the canonical blob of their union. A key
+  several inputs hold folds in input order, as within a run, and a merge over
+  a key range `[from, to)` merges just those keys. Merging a producer's runs
+  in run order folds every key's values in the order they were added, grouped
+  by run, so with an associative merge function the result is the value a
+  single run would have held.
+
 ## Writer memory / reader memory
 
 - A writer of the canonical segments holds one open segment of encoded
@@ -488,6 +522,9 @@ handed the segments spliced back into one blob.
   — O(element). In C, a container with refcount 1 at encode time cannot recur
   in the walk and never enters the identity map, so freshly built/decoded
   trees track O(1).
+- A run sorter holds its open run — under 64 MiB of encoded elements, plus the
+  element that reaches the cap — and each of its elements' decoded keys. A
+  merge holds one decoded segment per input and one open output segment.
 - A sequential whole-value reader is O(value). The segment iterator is
   O(segment) decoded state (plus one pointer per container definition in
   non-self-contained streams). A paging reader is O(segment) per access.
