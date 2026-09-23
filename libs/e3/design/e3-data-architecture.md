@@ -133,6 +133,7 @@ TaskObject = {
 4. **One encoding per value:** no encoder option switches the cut rule (F6).
 5. **The deterministic DEFLATE encoder** is specified (F27).
 6. **The manifest** is specified (F7): `$segments`, the rule id, the header, entries `{hash, fence, count, bytes}`, and `level` reserved as 0.
+7. **Strings order by code point** in every runtime, which is the order of their UTF-8 bytes (#836).
 
 **Primitives:**
 
@@ -383,17 +384,21 @@ Read first:
    - Every runtime writes manifest directories, and so does the Merger (item 6).
    - A directory names each segment file by its SHA-256, the hash the store names it by, so each library carries one: `east` a pure-TypeScript SHA-256, east-c the one east-c-std has (moved into east-c, which east-c-std then uses), and east-py C's. The store can then adopt a directory's segments under their names (`adoptFile` takes a known hash).
 9. **The conformance corpus.**
-   - A generator in `libs/east` writes cases with their expected bytes: values, emission sequences and their runs, merges and re-cuts. `make test-export` writes the corpus beside the compliance IR; it is never checked in.
+   - A generator in `libs/east` writes cases with their expected bytes: values, emission sequences and their runs, and merges. `make test-export` writes the corpus beside the compliance IR; it is never checked in.
    - east-c's and east-py's tests consume it, in those libs' CI workflows, which download it as they download the IR.
+   - Re-cuts are checked in TypeScript, the one runtime with a Recut: `Recut(pieces) == Writer(whole)` over every corpus value.
    - `generate_fixtures.mjs` and its checked-in runner fixtures stay until stage 3's protocol cases replace them.
-10. **SPEC** updated to v2.
+10. **String order** (#836). TypeScript's `compareFor` ordered strings by UTF-16 code unit, while east-c and east-py order them by code point. So a Set or Dict that held a character above U+FFFF beside one in U+E000–U+FFFF was written in two orders, and each runtime refused the other's blob.
+    - TypeScript moves to code points, keeping `x < y` unless both strings hold a code unit at or above U+D800.
+    - SPEC states the rule (§3.4, rule 7), and the corpus pins it.
+11. **SPEC** updated to v2.
 
 Built in five parts, in this order:
 1. per-element aliasing, cut rule v2 (normalized, with the segmentation benchmarks that fixed it), one encoding and one Writer;
 2. the RunSorter and the Merger;
 3. Recut, the Writer's per-segment output, and record applies on Recut;
 4. manifests in every runtime;
-5. the corpus, SPEC v2, and the acceptance tests not yet written.
+5. the corpus, string order, SPEC v2, and the acceptance tests not yet written.
 
 Acceptance:
 - A `Dict<String, Blob>` of 300 × 1 MiB is stored in segments near the size target, not in one segment.
