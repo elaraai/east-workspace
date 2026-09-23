@@ -138,10 +138,10 @@ TaskObject = {
 
 | Primitive | Contract | TypeScript (`east`) | C (`east-c`) |
 |---|---|---|---|
-| Writer | ascending elements → canonical segments, to a blob or a manifest directory | `v5/stream.ts` | `v5/stream.c` |
+| Writer | ascending elements → canonical segments: to a blob, or segment by segment as standalone segment blobs (what a manifest directory and Recut are written from) | `v5/stream.ts` | `v5/stream.c` |
 | RunSorter | elements in any order → sorted canonical runs. A byte-capped buffer of encoded elements, sorted stably by (key, emission order); equal keys folded with `merge` or refused; a set unions | new `v5/runs.ts` | new `v5/runs.c` |
 | Merger | k sorted collections (manifests or blobs) → one; optionally over one key range; equal keys fold in input order | moved from east-node-cli `merge.ts` | `src/merge.c` (exists) |
-| Recut | canonical pieces in order → the canonical whole. Byte-copies every run of segments the rule would cut the same way and re-cuts across seams; also re-cuts a region after its elements change | new `v5/recut.ts`, generalising e3-core `record-apply.ts` `applyArm` (F24) | not needed: only e3-core re-cuts |
+| Recut | pieces in order → the canonical whole, segment by segment. A piece is a run of segments the Writer wrote, given by reference, or elements. A segment the whole shares with its piece is copied without being read; only seams and elements are re-cut. Async, because its callers read segments from the store | new `v5/recut.ts`, replacing e3-core `record-apply.ts`'s private re-cut (F24) | not needed: only e3-core re-cuts |
 | Splice / carve | streamed, over manifests and blobs | `v5/geometry.ts` | existing |
 | Manifest read/write | the `$segments` object and the sibling-segment directory convention | `v5/manifest.ts` | new |
 | Lazy readers | paged values over a blob or a manifest | `v5/lazy.ts`, `v5/stream.ts` | existing, plus a manifest source |
@@ -189,7 +189,7 @@ One function in e3-core, `storeCollection`, is the only way a collection reaches
 |---|---|
 | a stock runner's output directory (manifest and segments) | links the segments and writes the manifest; the runner's Writer is corpus-pinned, so its cuts are the rule's |
 | the runs of a unit graph | assembled by the engine (§3.7), re-cut at the seams, written as one manifest |
-| a beast2 byte stream: an external file, an API `PUT` body, a custom task's output, a pre-cutover blob | Recut in one streaming pass: segments the rule would cut the same way are byte-copied, the rest re-encoded; never decoded whole |
+| a beast2 byte stream: an external file, an API `PUT` body, a custom task's output, a pre-cutover blob | re-encoded through Recut in one streaming pass, a segment at a time, never decoded whole. Nothing from outside is byte-copied: checking a foreign segment costs a re-encode, since its cuts, aliasing, codec and compressor all enter its bytes, and a canonical one re-encodes to the same bytes |
 | a small value in memory (`datasetWrite`, export defaults) | Writer → manifest |
 
 It checks the declared type, as `dataset-type.ts` does today, and never decodes a value whole (F21). Every door routes through it:
@@ -235,7 +235,7 @@ Every task execution is a **unit graph**, built by one engine and persisted in t
 - **Mutations** run the generated program as one `run` unit through the same executor as tasks: execution records, logs, the budget and cancellation. The mutation API invokes it outside the dataflow graph.
   - The program reads the record's manifest lazily (F25) and emits the delta as a `dict`.
   - A stale write is a `$conflict` entry in the delta, which sorts first, instead of an error-message prefix read from stderr (F8).
-  - The delta is applied with the Merger and Recut over the touched segments, inside the existing compare-and-swap loop. `record-apply.ts`'s private re-cut goes (F24).
+  - The delta is applied with the Merger and Recut over the touched segments, inside the existing compare-and-swap loop. Applies run through Recut from stage 1, which deletes `record-apply.ts`'s private re-cut (F24).
 
 ### 3.8 Scheduling: cores and memory
 
@@ -362,6 +362,7 @@ Read first:
 2. **Cut rule v2** (#788), in `boundary.ts`'s `SegmentCutter` and east-c's `B2V5Cutter` (east-py binds the latter):
    - the size-aware keyed rule and the content-defined Array rule, with new rule ids and parity digests (`boundary.spec.ts`, `test_beast2_boundary.c`);
    - parameters fixed by measurement on the benchmark set (§6) and recorded in SPEC with the rule id;
+   - the measurement runs on §6's segmentation benchmarks, which are built in this stage for it, before stage 1 merges;
    - starting values: segments of about 1 MiB logical, a minimum of 256 elements or 64 KiB, and a forced cut at 4096 elements or 8 MiB.
 3. **One encoding.**
    - Remove `batchSize` and `targetSegmentBytes` from the public encoder options (`stream.ts:537-541`).
@@ -371,13 +372,23 @@ Read first:
 5. **RunSorter** (new), in TypeScript and C, with east-py bound to C (§3.4).
    - Its buffer cap is a platform constant, counting encoded key and value bytes.
    - Revive the #770 spill's sort; its raw run format becomes canonical segments.
-6. **The Merger in the libraries:** east-node-cli's `merge.ts` moves to `east`; its inputs may be manifests and its output a manifest directory.
-7. **Recut** (new, TypeScript), generalising `applyArm` (F24).
-8. **Manifests in every runtime.** east-c opens a manifest as a lazy paged value, using the `.segments/` sibling convention (`processExec.ts:181-190`). Every runtime writes manifest directories (F11).
+6. **The Merger in the libraries:** east-node-cli's `merge.ts` moves to `east`; its inputs may be manifests. Its manifest-directory output comes with item 8.
+7. **Recut** (new, TypeScript), generalising `applyArm` (F24):
+   - its interface is async: pieces in order, each a run of the Writer's segments given by reference (count, fence, a read) or elements; the whole comes out segment by segment, each one either carried from a piece or newly written;
+   - the Writer gains the per-segment output Recut writes through, the in-memory half of item 8's manifest directories;
+   - e3-core's record apply moves onto Recut here, brought forward from stage 4b, and `record-apply.ts`'s private re-cut is deleted.
+8. **Manifests in every runtime.** east-c opens a manifest as a lazy paged value, using the `.segments/` sibling convention (`processExec.ts:181-190`). Every runtime writes manifest directories (F11), and so does the Merger (item 6).
 9. **The conformance corpus.**
    - A generator in `libs/east`, the successor to `generate_fixtures.mjs`, writes cases with their expected bytes: values, emission sequences and their runs, merges and re-cuts.
    - east-c's and east-py's tests consume them, in those libs' CI workflows.
 10. **SPEC** updated to v2.
+
+Delivered as a stack of five PRs:
+1. per-element aliasing, cut rule v2, one encoding and one Writer;
+2. the RunSorter and the Merger;
+3. Recut, the Writer's per-segment output, and record applies on Recut;
+4. manifests in every runtime;
+5. the corpus, SPEC v2, and the acceptance tests not yet written.
 
 Acceptance:
 - A `Dict<String, Blob>` of 300 × 1 MiB is stored in segments near the size target, not in one segment.
@@ -470,7 +481,7 @@ A short stack:
 - **4b — records.**
   - Index builds and mutations on the engine (§3.7).
   - `$conflict` in the delta.
-  - The Merger and Recut for applies.
+  - The Merger for applies. Recut already applies them, from stage 1.
 - **4c — deletions.**
   - SDK:
     - `partitionTask` and its types;
@@ -566,6 +577,7 @@ A benchmark harness in `libs/e3/test/`, alongside `partition-scale.spec.ts`, run
 
 - **Re-key:** a long collection of wide rows (a nested struct per row), re-keyed to a key unrelated to its order, with a `merge` that folds equal keys. The bound: peak memory at most `jobs × (the RunSorter's cap + a runner's baseline) + e3's baseline`, plus whatever the body itself holds, independent of the input's size.
 - **Wide rows:** the 300 × 1 MiB Dict from #788.
+- **Narrow rows and edits:** a long collection of narrow rows, and one-row edits to it and to the wide rows: segment sizes, page-read time, compression, and bytes rewritten per edit. Built in stage 1 with the wide rows, where the two fix the cut rule's parameters.
 - **Deliveries:** two deliveries differing in one row (Stage 2 acceptance).
 - **Automatic:** the re-key written as `toDict` in an `e3.task` (Stage 6 acceptance).
 
