@@ -76,7 +76,7 @@ export const SEGMENT_MAX_COUNT = 4096;
 
 /** The low bits of a key's hash that must all be zero for the key to end a
  *  segment — `SEGMENT_TARGET_COUNT - 1`, so one key in the target ends one. */
-const SEGMENT_MASK = BigInt(SEGMENT_TARGET_COUNT - 1);
+const SEGMENT_MASK = SEGMENT_TARGET_COUNT - 1;
 
 /**
  * The boundary rule id Set/Dict segments are cut under, stamped into every
@@ -94,12 +94,13 @@ export const SEGMENT_RULE_KEYED = "cdc/fnv1a64/256-1024-4096/1";
  */
 export const SEGMENT_RULE_POSITIONAL = "pos/1000-2MiB/1";
 
-/** FNV-1a 64-bit offset basis. */
-const FNV_OFFSET = 0xcbf29ce484222325n;
-/** FNV-1a 64-bit prime. */
-const FNV_PRIME = 0x100000001b3n;
-/** 64-bit wrap mask. */
-const U64 = 0xffffffffffffffffn;
+/** FNV-1a 64-bit offset basis, as its high and low 32-bit words. */
+const FNV_OFFSET_HIGH = 0xcbf29ce4;
+const FNV_OFFSET_LOW = 0x84222325;
+/** The FNV-1a 64-bit prime is 2^40 + 0x1b3: a hash times it is the hash times
+ *  0x1b3 plus the hash shifted up 40 bits, which is what lets it run in 32-bit
+ *  words. */
+const FNV_PRIME_LOW = 0x1b3;
 
 /**
  * The 64-bit FNV-1a hash of `bytes`.
@@ -112,26 +113,42 @@ const U64 = 0xffffffffffffffffn;
  * the boundary is a layout decision, and a key chosen to avoid boundaries only
  * lengthens a segment as far as {@link SEGMENT_MAX_COUNT}.
  *
+ * Computed in two 32-bit words rather than one BigInt, which a per-byte
+ * multiply makes the dominant cost of cutting a collection: the low word times
+ * 0x1b3 stays under 2^41, so its carry into the high word is exact in a double,
+ * and the prime's 2^40 term reaches the high word as the low word shifted up 8.
+ *
  * @param bytes - the bytes to hash
  * @returns the 64-bit hash
  */
 export function fnv1a64(bytes: Uint8Array): bigint {
-  let hash = FNV_OFFSET;
+  let high = FNV_OFFSET_HIGH;
+  let low = FNV_OFFSET_LOW;
   for (let i = 0; i < bytes.length; i++) {
-    hash = ((hash ^ BigInt(bytes[i]!)) * FNV_PRIME) & U64;
+    low = (low ^ bytes[i]!) >>> 0;
+    const product = low * FNV_PRIME_LOW;
+    high = (Math.imul(high, FNV_PRIME_LOW) + Math.floor(product / 0x100000000) + (low << 8)) >>> 0;
+    low = product >>> 0;
   }
-  return hash;
+  return (BigInt(high) << 32n) | BigInt(low);
 }
 
 /**
  * Whether a key's canonical bytes start a content-defined segment, ignoring
  * the count bounds — the rule's hash test alone.
  *
+ * @remarks
+ * Only the hash's low bits decide, and FNV-1a's low 32-bit word evolves on its
+ * own — the prime's 2^40 term never reaches it — so the test runs that word
+ * alone, in 32-bit integer arithmetic, once per key of every collection cut.
+ *
  * @param keyBytes - the key's canonical encoding ({@link encodeBeast2FenceFor})
  * @returns whether this key is a boundary key
  */
 export function isSegmentBoundaryKey(keyBytes: Uint8Array): boolean {
-  return (fnv1a64(keyBytes) & SEGMENT_MASK) === 0n;
+  let low = FNV_OFFSET_LOW | 0;
+  for (let i = 0; i < keyBytes.length; i++) low = Math.imul(low ^ keyBytes[i]!, FNV_PRIME_LOW);
+  return (low & SEGMENT_MASK) === 0;
 }
 
 /**
@@ -178,16 +195,36 @@ export function segmentKeyTypeOf(type: EastType | EastTypeValue): EastTypeValue 
  * against a fresh context, so no container REF can ever fire and a key's bytes
  * depend on the key alone, never on what preceded it in the blob. The bytes are
  * not self-describing — the reader supplies the type, which a manifest carries.
+ * Each call returns bytes of its own, sized to the key.
  *
  * @param type - the value's type
  * @returns a function encoding one value to its canonical bytes
  */
 export function encodeBeast2FenceFor<T extends EastType>(type: T | EastTypeValue): (value: unknown) => Uint8Array {
+  const encode = bareEncoderFor(type);
+  return (value) => encode(value).slice();
+}
+
+/**
+ * The bare encoder behind {@link encodeBeast2FenceFor}, writing into one reused
+ * writer: each call returns a view of its encoding that the next call
+ * overwrites.
+ *
+ * @remarks
+ * What the cutter hashes and forgets once per key of every collection cut,
+ * where a writer allocated per key was most of the rule's cost.
+ *
+ * @param type - the value's type
+ * @returns a function encoding one value into the shared writer
+ */
+function bareEncoderFor(type: EastType | EastTypeValue): (value: unknown) => Uint8Array {
   const encode = buildV5Encoder(asTypeValue(type));
+  const writer = new BufferWriter(256);
   return (value) => {
-    const writer = new BufferWriter();
+    // An encode that threw left its bytes behind; the next key starts clean.
+    if (writer.size !== 0) writer.pop();
     encode(value, writer, createV5EncodeContext(null, true));
-    return writer.toUint8Array();
+    return writer.pop();
   };
 }
 
@@ -243,7 +280,7 @@ export class SegmentCutter {
    * @param keyType - the collection's key (Dict) or element (Set) type
    */
   constructor(keyType: EastType | EastTypeValue) {
-    this.fence = encodeBeast2FenceFor(keyType);
+    this.fence = bareEncoderFor(keyType);
   }
 
   /**

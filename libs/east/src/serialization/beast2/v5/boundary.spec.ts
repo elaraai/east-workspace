@@ -86,6 +86,32 @@ describe("beast2 v5 content-defined boundaries", () => {
       const hash = fnv1a64(new Uint8Array(4096).fill(0xff));
       assert.ok(hash >= 0n && hash <= 0xffffffffffffffffn);
     });
+
+    test("agrees with the byte-by-byte 64-bit hash, and the boundary test with its low bits", () => {
+      // The hash runs in 32-bit words and the boundary test in the low word
+      // alone; both must be the plain 64-bit recurrence, or every runtime's
+      // cuts move.
+      const reference = (bytes: Uint8Array): bigint => {
+        let hash = 0xcbf29ce484222325n;
+        for (const byte of bytes) hash = ((hash ^ BigInt(byte)) * 0x100000001b3n) & 0xffffffffffffffffn;
+        return hash;
+      };
+      let seed = 0x9e3779b9;
+      let boundaries = 0;
+      for (let n = 0; n < 20_000; n++) {
+        const bytes = new Uint8Array(1 + (n % 40));
+        for (let i = 0; i < bytes.length; i++) {
+          seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+          bytes[i] = seed >>> 24;
+        }
+        const hash = reference(bytes);
+        assert.equal(fnv1a64(bytes), hash);
+        const boundary = (hash & 1023n) === 0n;
+        assert.equal(isSegmentBoundaryKey(bytes), boundary);
+        if (boundary) boundaries++;
+      }
+      assert.ok(boundaries > 5, `the corpus must hold boundary keys to agree on, got ${boundaries}`);
+    });
   });
 
   describe("the rule id", () => {
@@ -115,6 +141,18 @@ describe("beast2 v5 content-defined boundaries", () => {
       // A second encode through the same closure must not carry state from the
       // first — a container REF would make a key's bytes depend on its position.
       assert.deepEqual(encode(row), encode(row));
+    });
+
+    test("are the key's own bytes, which the next encode leaves alone", () => {
+      // The encoder reuses one writer across keys; what it hands back is kept
+      // — in a manifest, a cache of fences — so it must be a copy of the key's
+      // bytes and nothing more.
+      const encode = encodeBeast2FenceFor(StringType);
+      const first = encode("first");
+      const kept = first.slice();
+      encode("a much longer second key, long enough to overwrite a shared buffer");
+      assert.deepEqual(first, kept);
+      assert.equal(first.buffer.byteLength, first.byteLength, "a fence holds only its own bytes");
     });
 
     test("refuse trailing bytes", () => {
