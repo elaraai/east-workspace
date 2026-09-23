@@ -27,15 +27,14 @@
  * can import it without a circular dependency. Since the data-interface
  * redesign (`Plan Data Interface.md` §3.2/§3.3) that includes the WHOLE row
  * vocabulary: elements (runs, bucket events, chips, event marks, decisions),
- * the row kind, the row itself and templates carry **no
- * `UIComponentType` and no per-element UI embeds** — rich surfaces resolve
- * through the ROOT's `popover` / `hover` / `expandRender` functions over
- * {@link PlanElementRefType} / row refs, so a row is
- * a storable, pageable dataset element. Only the root, review and the
- * resolver signatures stay UIComponent-coupled (`./ir.ts`, mirrored inline
- * with the recursion `node` in the `Plan` arm of `component.ts` — every
- * factory-built value is subtype-checked against the arm when the `Plan`
- * variant is constructed, so drift fails the specs).
+ * the row kind and the row itself carry **no `UIComponentType` and no
+ * per-element UI embeds** — rich surfaces resolve through the ROOT's
+ * `popover` / `hover` / `expandRender` functions over
+ * {@link PlanElementRefType} / row refs, so a row is a storable, pageable
+ * dataset element. Only the root, review and the resolver signatures stay
+ * UIComponent-coupled (`./ir.ts`, mirrored inline with the recursion `node`
+ * in the `Plan` arm of `component.ts`; the plan spec holds the two to one
+ * East type).
  *
  * @packageDocumentation
  */
@@ -866,7 +865,7 @@ export const PlanStyleType = StructType({
 export type PlanStyleType = typeof PlanStyleType;
 
 // ============================================================================
-// Templates + links — the plain vocabulary
+// Links + expand — the plain vocabulary
 // ============================================================================
 
 

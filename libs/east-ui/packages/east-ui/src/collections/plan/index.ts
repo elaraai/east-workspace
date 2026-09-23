@@ -11,22 +11,32 @@
  * heat/table rows (Matrix cells / bucketed numerals), cards rows (Roster
  * chips) and event rows — sliced and reviewed as one surface.
  *
+ * A canvas is DEFINED as `data` + `series`: a keyed source of raw rows, and
+ * one `Plan.series.*` value per row series whose accessors derive the canvas
+ * rows (`Plan.pick` makes the list pickable). The kind factories (`Plan.span`
+ * / `buckets` / … / `group`) build the rows no dataset holds, placed by a
+ * `Plan.series.rows` entry.
+ *
  * Rows are **flat and KEYED** in the IR (`Dict<String, PlanRow>`) with
- * `parent` keys; the kind factories nest via `rows:` / `groupBy`, and the
- * declared aggregates — span rollup bands (union / byStatus, `×k` peak
- * concurrency, summed quantities, pessimistic certainty), per-bucket heat
- * `mean`/`max`/`sum`, table subtotals, strip summaries and member counts — are
- * derived renderer-side from the tree the `parent` keys encode. Every factory
- * returns the row's **subtree** (`ExprType<PlanRowsCollectionType>`), so
- * factories compose: a nested `rows:` input is just other factories' results,
- * and a repeated key is one row, not two (#568).
+ * `parent` keys; the kind factories nest via `rows:`, the span / heat / table
+ * series via `groupBy`, and the declared aggregates — span rollup bands
+ * (union / byStatus, `×k` peak concurrency, summed quantities, pessimistic
+ * certainty), per-bucket heat `mean`/`max`/`sum`, table subtotals, strip
+ * summaries and member counts — are derived renderer-side from the tree the
+ * `parent` keys encode. Every kind factory returns the row's **subtree**
+ * (`ExprType<PlanRowsCollectionType>`), so factories compose: a nested `rows:`
+ * input is just other factories' results, and a repeated key is one row, not
+ * two (#568).
  *
  * The module is the namespace assembler over the split sources:
- * `types.ts` (UIComp-free data) · `ir.ts` (resolved IR types) ·
- * `builders.ts` (value/cell builders) · `assemble.ts` (row envelope + eager
- * engines) · `factories.ts` (kind factories + chart consumption) ·
- * `data-forms.ts` (the accessor config surfaces + grouping engine) · `root.ts`
- * (templates + `Plan.Root`).
+ * `types.ts` (the UIComponent-free row vocabulary) · `ir.ts` (the root and
+ * review types at `UIComponentType`) · `builders.ts` (the axis, instant,
+ * element and cell builders) · `assemble.ts` (the row envelope, subtree
+ * re-parenting and group parents) · `factories.ts` (the kind factories and
+ * chart-layer consumption) · `data-forms.ts` (the accessor configs and the
+ * groupBy engine behind the series) · `series.ts` (`Plan.series.*` and their
+ * application to `data`) · `pick.ts` (`Plan.pick` / `Plan.pickItems`) ·
+ * `root.ts` (`Plan.Root`).
  *
  * @packageDocumentation
  */
@@ -393,8 +403,9 @@ export interface PlanNamespace {
     layer: typeof createLayer;
     /** Pins a chart row to an explicit pixel height. */
     fixed: typeof createFixedHeight;
-    /** Binds the canvas's row series to a persisted pick (#590) — the library
-     *  lists sections and kinds, and `Pick.active` feeds the survivors back. */
+    /** Binds the canvas's row series to a persisted pick (#590) — pass it as
+     *  `<Plan pick>` and the canvas shows the picked series and mounts the
+     *  library, which lists sections and kinds. */
     pick: typeof createPlanPick;
     /** The library entries for the canvas's series — no state binding. */
     pickItems: typeof createPlanPickItems;
@@ -518,13 +529,14 @@ export interface PlanNamespace {
 
 /**
  * The `Plan` namespace — the axis-aligned composite canvas. Assemble a
- * Plan with `Plan.Root` (the `<Plan>` tag), declare the axis with
- * `Plan.axis` (`time`) / `Plan.axis.number` / `Plan.axis.ordinal`, build
+ * Plan with `Plan.Root` (the `<Plan>` tag) over `data` + `series` (one
+ * `Plan.series.*` value per row series, or a `Plan.pick` handle), declare the
+ * axis with `Plan.axis` (`time`) / `Plan.axis.number` / `Plan.axis.ordinal`,
+ * place content with the value builders (`Plan.run` / `event` / `chip` /
+ * `mark` / …, instants via `Plan.at.*` when written as data), build one-off
  * rows with the kind factories (`Plan.span` / `buckets` / `chart` / `heat` /
- * `table` / `cards` / `events` / `group`, or drive them from data with
- * `Plan.series.*`), place content with the value builders (`Plan.run` /
- * `event` / `chip` / `mark` / …, instants via `Plan.at.*` when written as
- * data), and reach every East type via `Plan.Types.*`.
+ * `table` / `cards` / `events` / `group`) inside `Plan.series.rows`, and
+ * reach every East type via `Plan.Types.*`.
  */
 export const Plan: PlanNamespace = {
     Root: createPlanRoot,

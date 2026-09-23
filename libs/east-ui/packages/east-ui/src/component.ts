@@ -953,9 +953,11 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
     // lanes, chart layers, heat / table cells, chips and event marks — flat
     // rows with `parent` keys. Rows are PURE DATA (`PlanRowType` — no UI, no
     // functions; pageable), so the arm references the named types directly;
-    // only the root's resolver slots (`popover` / `hover` / `expandRender`)
-    // and the review summary ride the recursion `node` — mirror
-    // `PlanRootType` in `collections/plan/ir.ts`.
+    // only the root's resolver slots (`popover` / `hover` / `expandRender` /
+    // `expandGutter`) and the review summary ride the recursion `node`.
+    // `PlanRootType` (`collections/plan/ir.ts`) is this arm's named twin — the
+    // renderer decodes through it — and `test/collections/plan.spec.ts` holds
+    // the two to one East type (#814).
     Plan: StructType({
         // Inline rows OR the derived paged source (§3.8) — pure data both ways.
         rows: PlanRowsType,

@@ -90,10 +90,10 @@ export type PlanReviewConfig = ReviewConfig<PlanRowRefType>;
  *
  * @typeParam K - The canvas's axis kind — inferred from `axis`
  * @property axis - The shared axis declaration (`Plan.axis` / `.time` / `.number` / `.ordinal`)
- * @property rows - The canvas rows — kind-factory results (flattened subtrees); exclusive with `data`/`series`
- * @property data - The raw data source (a `Dict<String, R>` value/expression, or a paged source of one); pairs with `series`
+ * @property data - The raw data source (a `Dict<String, R>` value/expression, or a paged source of one); pairs with `series` or `pick`
  * @property series - The row series over `data` — `Plan.series.*` values (declared order resolves key collisions; rows sit in KEY order); exclusive with `pick`
  * @property pick - A bound series library (`Plan.pick`) — the canvas shows the picked series and mounts the library panel; exclusive with `series`
+ * @property links - The link graph (R1) — run-edge quantity links (`Plan.link` values)
  * @property grain - Initial grain (`"group"` / `"resource"`; default resource)
  * @property popover - Generalized click-popover resolver over the element ref (`none` result ⇒ no surface)
  * @property hover - Generalized hovercard resolver over the element ref (`none` result ⇒ no surface)
@@ -104,7 +104,7 @@ export type PlanReviewConfig = ReviewConfig<PlanRowRefType>;
  * @property footer - Status-footer items
  * @property id - DnD target identity
  * @property sources - Library ids accepted for `add` drags
- * @property onDrag - The shared drag funnel (every drag kind)
+ * @property onDrag - The shared drag funnel — a library card dropped on a row reports an `add`
  * @property canDrop - IR-level drop veto (the ⊘ stage)
  * @property onSelect - Row click (selection)
  * @property onRunClick - Span bar click
@@ -142,7 +142,7 @@ export interface PlanConfig<K extends PlanAxisKindLiteral = PlanAxisKindLiteral>
      *  set row order on screen: the canvas is one keyed collection
      *  (`PlanRowsCollectionType` is a `Dict`, decoded as a `SortedMap`), so
      *  rows sit in canonical KEY order however the series are listed. Order
-     *  rows by keying them for it — a `prefix` per series, or ordered data
+     *  rows by keying them for it — a `keyPrefix` per series, or ordered data
      *  keys (`"10-line1"`, `"20-line2"`).
      *
      *  Literal one-off chrome rides a `Plan.series.rows` entry.
@@ -212,7 +212,8 @@ export interface PlanConfig<K extends PlanAxisKindLiteral = PlanAxisKindLiteral>
     id?: string;
     /** Library ids accepted for `add` drags (omit = no adds). */
     sources?: string[];
-    /** The shared drag funnel — runs, chips, tiles, templates and reorders all report through it. */
+    /** The shared drag funnel (`contracts/drag.ts`) — a library card dropped on a row reports an
+     *  `add` here. Nothing on the canvas starts a drag, so `move` / `resize` / `remove` never arrive. */
     onDrag?: SubtypeExprOrValue<FunctionType<[DragEventType], NullType>>;
     /** IR-level drop veto — `false` ⇒ the ⊘ invalid stage; a throwing predicate fails open. */
     canDrop?: SubtypeExprOrValue<FunctionType<[DragEventType], BooleanType>>;

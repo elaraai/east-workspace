@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, StringType, StructType, VariantType, none, some, variant } from "@elaraai/east";
+import { ArrayType, BooleanType, DateTimeType, DictType, East, EastTypeType, FloatType, FunctionType, IntegerType, NullType, OptionType, StringType, StructType, VariantType, none, some, toEastTypeValue, variant } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Chart, Plan, Text, type PlanSeriesValue } from "@elaraai/east-ui/internal";
 import { EventStateType, Format, StatusValueType, UIComponentType } from "@elaraai/east-ui";
@@ -15,6 +15,11 @@ const W29 = new Date("2026-07-13T00:00:00Z");
 const W30 = new Date("2026-07-20T00:00:00Z");
 const W31 = new Date("2026-07-27T00:00:00Z");
 const END = new Date("2026-09-21T00:00:00Z");
+
+// The Plan arm as `component.ts` spells it, and its named twin in `ir.ts`, as
+// East TYPE VALUES — the form the arm-equality test compares them in (#814).
+const PLAN_ARM = toEastTypeValue(UIComponentType.node.cases.Plan);
+const PLAN_ROOT = toEastTypeValue(Plan.Types.Root);
 
 describeEast("Plan", (test) => {
     Assert.examples(test, {
@@ -29,6 +34,8 @@ describeEast("Plan", (test) => {
         planEventRows: ex.planEventRows,
         planGroupedRows: ex.planGroupedRows,
         planSeriesData: ex.planSeriesData,
+        planLiteralRows: ex.planLiteralRows,
+        planPick: ex.planPick,
         planLibraryDnd: ex.planLibraryDnd,
         planRowDrop: ex.planRowDrop,
         planFill: ex.planFill,
@@ -77,6 +84,28 @@ describeEast("Plan", (test) => {
         $(Assert.equal(root.style.unwrap("some").gutterWidth.unwrap("some"), "168px"));
         // Empty data × no series ⇒ an empty inline canvas (a keyed collection).
         $(Assert.equal(root.rows.unwrap("inline").size(), 0n));
+    });
+
+    test("the component.ts Plan arm and PlanRootType are one East type (#814)", $ => {
+        // `component.ts` spells the arm inline, because its resolver slots
+        // need the recursion `node`; `ir.ts` names the same shape at the
+        // resolved `UIComponentType`, and the renderer decodes the arm's values
+        // through that name. Neither is built from the other. `Plan.Root`
+        // constructs the arm, so a field the arm gains alone fails the build —
+        // but a field, or a field type, that only `PlanRootType` has reaches
+        // the renderer silently. This is the check that notices.
+        const arm = $.const(PLAN_ARM, EastTypeType);
+        const root = $.const(PLAN_ROOT, EastTypeType);
+        const armFields = $.let(arm.unwrap().unwrap("Struct"));
+        const rootFields = $.let(root.unwrap().unwrap("Struct"));
+        // The same fields in the same order — a missing one shows in the diff.
+        $(Assert.equal(armFields.map((_$, f) => f.name), rootFields.map((_$, f) => f.name)));
+        // The same type in every field — a drifted field is named, not printed
+        // (a field type that mentions `UIComponentType` prints all of it).
+        $(Assert.equal(
+            rootFields.filter((_$, f, i) => East.equal(f.type, armFields.get(i).type).not()).map((_$, f) => f.name),
+            [],
+        ));
     });
 
     test("review config defaults the column and rerun labels", $ => {

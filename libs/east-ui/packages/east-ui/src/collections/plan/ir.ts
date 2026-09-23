@@ -6,12 +6,12 @@
 /**
  * The Plan's resolved UIComponent-coupled IR — since the data-interface
  * redesign only the ROOT and the review config touch `UIComponentType`; the
- * whole row vocabulary (elements, kinds, rows, templates) is pure
- * data in `./types.ts`. These are the named twins of the `Plan` arm in
- * `component.ts` (which spells the SAME shapes inline with the recursion
- * `node`). Keep the two in lockstep: every factory builds values of these
- * types and `Plan.Root` constructs the variant against the arm, so any
- * drift fails the specs at build time.
+ * whole row vocabulary (elements, kinds, rows) is pure data in `./types.ts`.
+ * These are the named twins of the `Plan` arm in `component.ts`, which spells
+ * the SAME shapes inline with the recursion `node`. The renderer decodes the
+ * arm's values through {@link PlanRootType}, so the two must be one East
+ * type: `test/collections/plan.spec.ts` compares them as East type values,
+ * and a field (or a field type) on only one side fails it.
  *
  * @packageDocumentation
  */

@@ -33,8 +33,8 @@ import { Badge, Box, Chart, Configurator, Format, Library, Plan, Progress, React
 // canvas vocabulary from the raw fields client-side: labels, quantity
 // displays, element values via the `Plan.run`/`chip`/`event` expression
 // builders) + the root RESOLVER functions (`popover` / `hover` /
-// `expandRender`). The kind factories are subtree vocabulary only —
-// library-template `make` bodies and `Plan.series.rows` one-off chrome.
+// `expandRender`). The kind factories are subtree vocabulary only — the
+// one-off chrome a `Plan.series.rows` entry places (`planLiteralRows`).
 // Fixtures are defined INLINE in each example's fn body (the automated docs
 // extract only the fn body) and DERIVED with East expressions — a `week(n)`
 // ISO-week function plus `East.Array.generate` — never hand-written per
@@ -1578,9 +1578,10 @@ export const planSeriesData = example({
             ] }) }],
         ]), DictType(StringType, OpsRow));
         // The series — real East values bound in the body, typed by the
-        // constructor; canvas order = series order. The accessors are where
-        // raw fields become canvas vocabulary: labels, quantity displays and
-        // chip text all derive CLIENT-SIDE inside each series's stored make.
+        // constructor. The accessors are where raw fields become canvas
+        // vocabulary: labels, quantity displays and chip text all derive
+        // CLIENT-SIDE, inside each series' `derive`. Rows sit in KEY order;
+        // the series order only settles two series emitting one key.
         const series = $.const([
             Plan.series.rows(OpsRow, { key: "chrome", title: "Milestones", subtitle: "one-off chrome" },
                 [Plan.events({ key: "ms", label: "MILESTONES", id: true, marks: [
@@ -1627,6 +1628,140 @@ export const planSeriesData = example({
             />
         );
     }),
+    inputs: [],
+});
+
+// ============================================================================
+// planLiteralRows — the kind factories: rows no dataset holds
+// ============================================================================
+
+export const planLiteralRows = example({
+    keywords: [
+        "Plan", "span", "Plan.span", "literal", "rows", "series.rows", "chrome", "one-off",
+        "kind factory", "subtree", "nested", "parent", "rollup", "union", "bands", "run",
+    ],
+    description: "Literal rows — `Plan.span` builds a one-off subtree (a shutdown parent rolling up two trades' runs) that `Plan.series.rows` places beside the data-driven series",
+    fn: East.function([], UIComponentType, ($) => {
+        // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
+        const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
+            const w1 = $.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
+            return w1.addWeeks(n.subtract(1n));
+        }));
+        const JobRow = StructType({
+            batch: StringType, start: DateTimeType, end: DateTimeType, state: EventStateType,
+        });
+        const MachineRow = StructType({ jobs: ArrayType(JobRow) });
+        const machines = $.const(new Map([
+            ["L1-M03", { jobs: [{ batch: "B-214", start: week(28n), end: week(31n), state: variant("in-progress", null) }] }],
+            ["L1-M04", { jobs: [{ batch: "B-208", start: week(27n), end: week(30n), state: variant("actual", null) }] }],
+        ]), DictType(StringType, MachineRow));
+        const series = $.const([
+            Plan.series.span(MachineRow, {
+                key: "machines", title: "Machines",
+                label: (_r, k) => k, id: true,
+                runs: r => r.jobs.map((_$, j) => Plan.run({
+                    key: j.batch, start: j.start, end: j.end,
+                    label: East.str`RUN · ${j.batch}`, state: j.state,
+                })),
+            }),
+            // Rows no dataset holds — the planned shutdown, written out once.
+            // `Plan.span` nests: the parent DECLARES its rollup and the canvas
+            // derives the band from its two rows' runs. The canvas is in key
+            // order, so these keys place the subtree after the machines.
+            Plan.series.rows(MachineRow, { key: "works", title: "Planned works", subtitle: "literal rows" }, [
+                Plan.span({
+                    key: "shutdown", label: "SHUTDOWN", rollup: "union", rows: [
+                        Plan.span({ key: "shutdown-elec", label: "Electrical", runs: [
+                            Plan.run({ key: "iso", start: week(33n), end: week(34n), label: "ISOLATE", state: "confirmed" }),
+                        ] }),
+                        Plan.span({ key: "shutdown-mech", label: "Mechanical", runs: [
+                            Plan.run({ key: "reline", start: week(34n), end: week(36n), label: "RELINE", state: "recommended" }),
+                        ] }),
+                    ],
+                }),
+            ]),
+        ], ArrayType(Plan.Types.Series(MachineRow)));
+        const axis = $.const(Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n) }));
+        return (
+            <Plan
+                axis={axis}
+                data={machines}
+                series={series}
+            />
+        );
+    }),
+    inputs: [],
+});
+
+// ============================================================================
+// planPick — the series library, minimally (#590)
+// ============================================================================
+
+export const planPick = example({
+    keywords: [
+        "Plan", "pick", "Plan.pick", "Pick", "library", "panel", "series", "hidden",
+        "toggle", "eye", "show", "hide", "choose", "persisted", "Reactive", "State", "#590",
+    ],
+    description: "The series library, minimally — `Plan.pick` binds which series show, and `<Plan pick>` mounts the library beside the canvas",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
+            const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
+                const w1 = $.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
+                return w1.addWeeks(n.subtract(1n));
+            }));
+            const JobRow = StructType({
+                batch: StringType, start: DateTimeType, end: DateTimeType, state: EventStateType,
+            });
+            const OpsRow = StructType({
+                series: StringType, jobs: ArrayType(JobRow), cells: ArrayType(Plan.Types.HeatCell),
+            });
+            const noJobs = $.const([], ArrayType(JobRow));
+            const noCells = $.const([], ArrayType(Plan.Types.HeatCell));
+            const pcts = $.const([46.0, 58.0, 66.0, 72.0, 84.0, 96.0], ArrayType(FloatType));
+            const cells = $.let(East.Array.generate(6n, Plan.Types.HeatCell, (_$, i) => ({
+                at: Plan.at.time(week(i.multiply(2n).add(27n))), value: some(pcts.get(i)), label: none,
+            })));
+            const ops = $.const(new Map([
+                ["L1-M03", { series: "machines", cells: noCells,
+                             jobs: [{ batch: "B-214", start: week(28n), end: week(31n), state: variant("in-progress", null) }] }],
+                ["L1-M04", { series: "machines", cells: noCells,
+                             jobs: [{ batch: "B-208", start: week(27n), end: week(30n), state: variant("actual", null) }] }],
+                ["L2-load", { series: "load", cells, jobs: noJobs }],
+            ]), DictType(StringType, OpsRow));
+            // Every series that COULD show — the library lists these.
+            const all = $.const([
+                Plan.series.span(OpsRow, {
+                    key: "machines", title: "Machine jobs", subtitle: "one row per machine",
+                    match: r => r.series.equal("machines"),
+                    label: (_r, k) => k, id: true,
+                    runs: r => r.jobs.map((_$, j) => Plan.run({
+                        key: j.batch, start: j.start, end: j.end,
+                        label: East.str`RUN · ${j.batch}`, state: j.state,
+                    })),
+                }),
+                Plan.series.heat(OpsRow, {
+                    key: "load", title: "Line load", subtitle: "% per fortnight",
+                    match: r => r.series.equal("load"),
+                    label: (_r, k) => k,
+                    cells: r => Plan.heatCells(r.cells, { min: 0, max: 100 }),
+                }),
+            ], ArrayType(Plan.Types.Series(OpsRow)));
+            // The handle is STATE — which series are switched off, persisted
+            // under its key — so it lives inside the Reactive. "load" starts off.
+            const shown = $.let(Plan.pick("ex.plan.pick", all, { hidden: ["load"] }));
+            const axis = $.const(Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n) }));
+            // `pick` REPLACES `series`: the canvas shows the picked series and
+            // mounts the library itself, so nothing else is wired.
+            return (
+                <Plan
+                    axis={axis}
+                    data={ops}
+                    pick={shown}
+                />
+            );
+        }}</Reactive>
+    )),
     inputs: [],
 });
 

@@ -39,13 +39,9 @@ import { createPickBind, pickItems, type PickHandle, type PickItemType, type Pic
 import { PlanSeriesType, applySeriesValue, type PlanSeriesInput, type PlanSeriesValue } from "./series.js";
 
 /**
- * The FA glyph each row kind declares.
- *
- * @remarks
- * `PlanTemplateKindType` has documented this set since the template model, and
- * nothing has ever rendered it — the library is the first surface that does.
- * `group` and `rows` are not template kinds and so are not in that set; they
- * take the marks that read as "a section" and "a hand-built list".
+ * The FA glyph the library shows for each series arm — the row kind's glyph
+ * for the seven kinds; `group` and `rows` take the marks that read as "a
+ * section" and "a hand-built list".
  */
 const KIND_ICONS: Record<string, string> = {
     span:    "bars-staggered",
@@ -156,17 +152,80 @@ function planPickOptions(
  * accessor — every arm carries the same four fields, so matching four times
  * would build four copies of the same traversal.
  *
+ * The handle is STATE (`State.bind` underneath), so it is built inside a
+ * `Reactive`. Pass it to the canvas as `pick`, in place of `series`: the Plan
+ * shows the picked series and mounts the library panel itself.
+ *
  * @param key - The store key; also the persistence key
  * @param all - Every series that COULD show
  * @param options - Data for counts, and the initial hidden set ({@link PlanPickOptions})
- * @returns A pick handle over the series type
+ * @returns A pick handle over the series type — the canvas's `pick` prop
  *
  * @example
  * ```tsx
- * const shown = $.let(Plan.pick("ops.series", all, { data: ops }));
+ * // .tsx file with the `@jsxImportSource @elaraai/east-ui` pragma
+ * import { ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, StringType, StructType, none, some, variant } from "@elaraai/east";
+ * import { EventStateType, Plan, Reactive, UIComponentType } from "@elaraai/east-ui";
  *
- * <Pick.Panel value={shown} title="Series" />
- * <Plan axis={axis} data={ops} series={Pick.active(shown)} />
+ * const canvas = East.function([], UIComponentType, (_$) => (
+ *     <Reactive>{$ => {
+ *         // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
+ *         const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
+ *             const w1 = $.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
+ *             return w1.addWeeks(n.subtract(1n));
+ *         }));
+ *         const JobRow = StructType({
+ *             batch: StringType, start: DateTimeType, end: DateTimeType, state: EventStateType,
+ *         });
+ *         const OpsRow = StructType({
+ *             series: StringType, jobs: ArrayType(JobRow), cells: ArrayType(Plan.Types.HeatCell),
+ *         });
+ *         const noJobs = $.const([], ArrayType(JobRow));
+ *         const noCells = $.const([], ArrayType(Plan.Types.HeatCell));
+ *         const pcts = $.const([46.0, 58.0, 66.0, 72.0, 84.0, 96.0], ArrayType(FloatType));
+ *         const cells = $.let(East.Array.generate(6n, Plan.Types.HeatCell, (_$, i) => ({
+ *             at: Plan.at.time(week(i.multiply(2n).add(27n))), value: some(pcts.get(i)), label: none,
+ *         })));
+ *         const ops = $.const(new Map([
+ *             ["L1-M03", { series: "machines", cells: noCells,
+ *                          jobs: [{ batch: "B-214", start: week(28n), end: week(31n), state: variant("in-progress", null) }] }],
+ *             ["L1-M04", { series: "machines", cells: noCells,
+ *                          jobs: [{ batch: "B-208", start: week(27n), end: week(30n), state: variant("actual", null) }] }],
+ *             ["L2-load", { series: "load", cells, jobs: noJobs }],
+ *         ]), DictType(StringType, OpsRow));
+ *         // Every series that COULD show — the library lists these.
+ *         const all = $.const([
+ *             Plan.series.span(OpsRow, {
+ *                 key: "machines", title: "Machine jobs", subtitle: "one row per machine",
+ *                 match: r => r.series.equal("machines"),
+ *                 label: (_r, k) => k, id: true,
+ *                 runs: r => r.jobs.map((_$, j) => Plan.run({
+ *                     key: j.batch, start: j.start, end: j.end,
+ *                     label: East.str`RUN · ${j.batch}`, state: j.state,
+ *                 })),
+ *             }),
+ *             Plan.series.heat(OpsRow, {
+ *                 key: "load", title: "Line load", subtitle: "% per fortnight",
+ *                 match: r => r.series.equal("load"),
+ *                 label: (_r, k) => k,
+ *                 cells: r => Plan.heatCells(r.cells, { min: 0, max: 100 }),
+ *             }),
+ *         ], ArrayType(Plan.Types.Series(OpsRow)));
+ *         // The handle is STATE — which series are switched off, persisted
+ *         // under its key — so it lives inside the Reactive. "load" starts off.
+ *         const shown = $.let(Plan.pick("ex.plan.pick", all, { hidden: ["load"] }));
+ *         const axis = $.const(Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n) }));
+ *         // `pick` REPLACES `series`: the canvas shows the picked series and
+ *         // mounts the library itself, so nothing else is wired.
+ *         return (
+ *             <Plan
+ *                 axis={axis}
+ *                 data={ops}
+ *                 pick={shown}
+ *             />
+ *         );
+ *     }}</Reactive>
+ * ));
  * ```
  */
 export function createPlanPick(
@@ -182,19 +241,6 @@ export function createPlanPick(
 }
 
 /**
- * The library entries for a Plan's series — described, with NO state binding.
- *
- * @remarks
- * {@link createPlanPick} builds its `items` from the same accessors, so proving
- * this proves the bound path too. Split out because `State.bind` is not
- * runnable in a `describeEast` spec (`TestImpl` carries no State runtime), and
- * identity / kind icons / counts are exactly the part worth asserting.
- *
- * @param all - Every series that COULD show
- * @param options - Data for counts ({@link PlanPickOptions})
- * @returns One descriptor per series, in declaration order
- */
-/**
  * A stable signature of WHICH series a canvas is built from.
  *
  * @remarks
@@ -203,24 +249,26 @@ export function createPlanPick(
  * SUBSET of the series serves different rows than one built from all of them —
  * so its id has to say so.
  *
- * That requirement is not theoretical: the window cache invalidates on
- * `source.id` alone (`use-plan-paging.ts`), and resident windows are immutable
- * and served without re-calling `page`. Without a signature, toggling a series
- * off leaves the previous rows on screen indefinitely
- * (`use-plan-paging.dom.test.tsx` pins both halves of this).
+ * The Plan's own window cache no longer rests on it. Since #809 the paging
+ * driver keeps resident windows only for an EQUIVALENT source — the same id
+ * AND the same `page` function, compared by IR and captures
+ * (`equivalentFor`) — and a pick toggle rebuilds `page` over a different
+ * series list, so the cache drops under an unchanged id too
+ * (`use-plan-paging.dom.test.tsx` pins both halves). The signature keeps the
+ * id itself honest for every reader of the contract that goes by `id`.
  *
- * **This makes the key a load-bearing identity on a paged canvas.** The
- * signature is the joined keys, so it assumes a key NAMES a series: same keys ⇒
- * same rows. Two consequences worth knowing:
+ * The signature is the joined keys, so it assumes a key NAMES a series: same
+ * keys ⇒ same rows. Two consequences worth knowing:
  *
- * - Two series sharing a key are safe HERE, because they share one entry in the
- *   hidden set and so toggle together — the active list is both-in or both-out,
- *   and the signature moves either way. They break the LIBRARY instead (one
- *   switch, two labels — `Pick.Panel` reports it).
- * - A key that stays put while the series it names CHANGES is the real hazard:
- *   the id does not move, the cache is not dropped, and resident windows keep
- *   serving rows built by the previous pipeline. Keys must be stable AND
- *   identifying, which is what they were for.
+ * - Two series sharing a key share one entry in the hidden set and so toggle
+ *   together — the active list is both-in or both-out, and the signature
+ *   moves either way. They break the LIBRARY instead (one switch, two labels
+ *   — `Pick.Panel` reports it).
+ * - A key that stays put while the series it names CHANGES leaves the id
+ *   unmoved, so the contract's "same id ⇒ same rows" no longer holds for
+ *   anything keyed on the id. (The Plan's own cache still drops: the rebuilt
+ *   `page` is not equivalent.) Keys must be stable AND identifying, which is
+ *   what they were for.
  *
  * Row keys are a separate layer with its own rule: two series emitting the same
  * ROW key resolve LAST_WINS inside `applySeries`, deterministically by series
@@ -244,6 +292,19 @@ export function seriesSignature(all: PlanSeriesInput): ExprType<StringType> {
     ) as ExprType<StringType>;
 }
 
+/**
+ * The library entries for a Plan's series — described, with NO state binding.
+ *
+ * @remarks
+ * {@link createPlanPick} builds its `items` from the same accessors, so proving
+ * this proves the bound path too. Split out because `State.bind` is not
+ * runnable in a `describeEast` spec (`TestImpl` carries no State runtime), and
+ * identity / kind icons / counts are exactly the part worth asserting.
+ *
+ * @param all - Every series that COULD show
+ * @param options - Data for counts ({@link PlanPickOptions})
+ * @returns One descriptor per series, in declaration order
+ */
 export function createPlanPickItems(
     all: PlanSeriesInput,
     options?: PlanPickOptions,
