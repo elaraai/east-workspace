@@ -182,6 +182,21 @@ interface VirtualRowsBaseProps {
      * cannot do.
      */
     scrollElRef?: React.MutableRefObject<HTMLDivElement | null> | undefined;
+    /**
+     * Where a bounded frame's scroll comes to rest (#813): the first row
+     * showing under the header, and how many px of it are scrolled past —
+     * reported once a scroll settles, so a collection can persist its place
+     * as a ROW (a pixel offset does not survive the rows above it changing —
+     * the Table's #143 rule). The frame's first rest, which no scroll chose,
+     * is not reported.
+     */
+    onAnchorChange?: ((anchor: { index: number; offset: number }) => void) | undefined;
+    /**
+     * Bring an anchor back: row `index` at the top of a bounded frame (just
+     * under its header), `offset` px into it. Applied whenever the value
+     * changes — a collection sets it once, when it has found the anchor's row.
+     */
+    restoreAnchor?: { index: number; offset: number } | undefined;
     /** Extra props / styles for the outer element (root recipe styles, width). */
     rootCss?: Record<string, unknown> | undefined;
     /**
@@ -338,7 +353,7 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
         header, footer, count, estimateSize, sizes, getItemKey, renderRow, measureRows = true,
         overscan = 4, minWidth, headerZIndex = 3, onScroll, rootCss, fillParent, scrollElRef,
         scrollToIndex, scrollNonce, scrollAlign = "center", onRangeChange, sizeVersion,
-        virtualizeUnboundedAt,
+        virtualizeUnboundedAt, onAnchorChange, restoreAnchor,
     } = props;
     const h = parseCssSize(props.height);
     const mh = parseCssSize(props.maxHeight);
@@ -423,6 +438,35 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
         virtualizer.scrollToIndex(scrollToIndex, { align: scrollAlign });
         // eslint-disable-next-line react-hooks/exhaustive-deps -- the target index, the nonce and going live are the trigger
     }, [scrollToIndex, scrollNonce, virtualized]);
+
+    // Where a bounded frame's scroll rests, reported when a scroll SETTLES
+    // (#813) — the row showing just under the header (the item starts carry
+    // the header's height as the scroll margin) and the px scrolled past it.
+    // `settling` tells a settle from the frame's first rest.
+    const settling = useRef(false);
+    useEffect(() => {
+        if (!bounded || onAnchorChange === undefined) return;
+        if (virtualizer.isScrolling) {
+            settling.current = true;
+            return;
+        }
+        if (!settling.current) return;
+        settling.current = false;
+        const top = (virtualizer.scrollOffset ?? 0) + itemsOffset;
+        const item = virtualizer.getVirtualItemForOffset(top);
+        if (item !== undefined) onAnchorChange({ index: item.index, offset: Math.max(0, top - item.start) });
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- a scroll settling is the trigger
+    }, [virtualizer.isScrolling]);
+
+    // Bring an anchor back: its row's start, less the header the rows sit
+    // under, plus how far into the row the scroll had rested.
+    useEffect(() => {
+        if (restoreAnchor === undefined || !bounded) return;
+        const item = virtualizer.measurementsCache[restoreAnchor.index];
+        if (item === undefined) return;
+        virtualizer.scrollToOffset(item.start - itemsOffset + restoreAnchor.offset, { align: "start" });
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- the anchor is the trigger
+    }, [restoreAnchor]);
 
     // Heights changed without the count changing — bust TanStack's measurement
     // memo, which does not watch `estimateSize` (see `sizeVersion`).

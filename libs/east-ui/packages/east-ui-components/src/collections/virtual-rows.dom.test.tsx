@@ -280,6 +280,37 @@ describe("VirtualRows — keys, exact sizes, a watched header (#812)", () => {
         expect(extentOf(container)).toBe(1_000 * ROW_H);
     });
 
+    test("a settled scroll reports the row resting at the top and how far into it; a restore puts it back (#813)", async () => {
+        const anchors: { index: number; offset: number }[] = [];
+        const frame = (restore?: { index: number; offset: number }) => (
+            <ChakraProvider value={system}>
+                <VirtualRows height="200px" maxHeight={undefined} count={100} sizes={Array.from({ length: 100 }, () => ROW_H)}
+                    measureRows={false} overscan={2} onAnchorChange={(a) => anchors.push(a)} restoreAnchor={restore}
+                    renderRow={(i) => <div>row {i}</div>} />
+            </ChakraProvider>
+        );
+        const { container, rerender } = render(frame());
+        const scrollEl = container.firstElementChild as HTMLElement;
+        // The frame's first rest is no scroll the user chose — nothing reported.
+        expect(anchors).toEqual([]);
+        // Scroll 10px into row 20 and let it settle (TanStack clears its
+        // scrolling flag 150ms after the last scroll event).
+        scrollEl.scrollTop = 20 * ROW_H + 10;
+        fireEvent.scroll(scrollEl);
+        await act(async () => { await new Promise((r) => setTimeout(r, 250)); });
+        expect(anchors[anchors.length - 1]).toEqual({ index: 20, offset: 10 });
+
+        // A restore scrolls the frame so that row sits at the top again.
+        const scrolled: number[] = [];
+        Object.defineProperty(scrollEl, "scrollTo", {
+            configurable: true,
+            value: (arg: ScrollToOptions) => { scrolled.push(arg.top ?? -1); },
+        });
+        Object.defineProperty(scrollEl, "scrollHeight", { configurable: true, get: () => 100 * ROW_H });
+        rerender(frame({ index: 40, offset: 6 }));
+        expect(scrolled).toEqual([40 * ROW_H + 6]);
+    });
+
     test("a header that grows moves the scroll margin — the range follows the rows down", () => {
         // A ResizeObserver the test fires, and the rows' offset below the
         // header as the frame measures it.

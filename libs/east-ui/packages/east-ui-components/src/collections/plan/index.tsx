@@ -49,10 +49,11 @@ import { DensityProvider } from "../../contracts/density.js";
 import { useContainerBelow } from "../../contracts/adaptive.js";
 import { useSliceReactivity } from "../../slice/use-slice-reactivity.js";
 import { useDataStable } from "../../hooks/useDataStable.js";
+import { usePersistedState } from "../../hooks/usePersistedState.js";
 import { boundRangeDomain } from "../../platform/slice/index.js";
 import { VirtualRows } from "../virtual-rows.js";
 import { PlanScaleContext, PlanDispatchContext, PlanCursorContext, PlanResolversContext, type PlanCursor, type PlanResolvers, type PlanElementRefValue } from "./context.js";
-import { usePlanPaging } from "./use-plan-paging.js";
+import { PLAN_PAGE_SIZE, usePlanPaging } from "./use-plan-paging.js";
 import { usePlanSeek } from "./use-seek.js";
 import { useElementHeight } from "./use-element-height.js";
 import { WindowBand, WindowFailureBand } from "./rows/WindowBand.js";
@@ -118,6 +119,63 @@ const EXPAND_FLOOR_PX = 88;
 const VIRTUALIZE_UNBOUNDED_AT = 400;
 /** The rows a scale with a stated window is resolved over — none (#812). */
 const NO_ROWS: readonly PlanRowValue[] = [];
+
+/** Where a bounded canvas's scroll rests (#813) — a row, never pixels. */
+interface PlanAnchor {
+    /** The first body item showing under the header (its `bodyItemKey`). */
+    key: string;
+    /** How many px of it are scrolled past. */
+    offset: number;
+    /** Its body index — the clamped fallback when the key is gone. */
+    index: number;
+    /** The source window its row came from, on a paged canvas — where a
+     *  remount that has not loaded the row yet looks for it. */
+    window: number | null;
+}
+
+/** What the canvas persists under its `storageKey` (#813) — the user's own
+ *  toggles and place, never the selection. */
+interface PlanPersisted {
+    /** The collapse of each row the user toggled (`true` = collapsed). */
+    collapse: Array<[string, boolean]>;
+    /** The chart rows the user expanded. */
+    charts: string[];
+    /** Where the scroll rests, once the user has scrolled a bounded frame. */
+    anchor: PlanAnchor | null;
+}
+
+const NOT_PERSISTED: PlanPersisted = { collapse: [], charts: [], anchor: null };
+
+/**
+ * The persisted state, read defensively: storage outlives versions and anyone
+ * can write it, so each part is taken only in the shape this version writes
+ * and dropped otherwise — never trusted into the store.
+ */
+function persistedOf(stored: unknown): PlanPersisted {
+    if (typeof stored !== "object" || stored === null) return NOT_PERSISTED;
+    const { collapse, charts, anchor } = stored as Partial<Record<keyof PlanPersisted, unknown>>;
+    const okCollapse = Array.isArray(collapse) && collapse.every((e) =>
+        Array.isArray(e) && e.length === 2 && typeof e[0] === "string" && typeof e[1] === "boolean");
+    const okCharts = Array.isArray(charts) && charts.every((k) => typeof k === "string");
+    const a = anchor as Partial<PlanAnchor> | null | undefined;
+    const okAnchor = typeof a === "object" && a !== null && typeof a.key === "string"
+        && Number.isFinite(a.offset) && Number.isInteger(a.index)
+        && (a.window === null || Number.isInteger(a.window));
+    return {
+        collapse: okCollapse ? collapse as Array<[string, boolean]> : [],
+        charts: okCharts ? charts as string[] : [],
+        anchor: okAnchor ? a as PlanAnchor : null,
+    };
+}
+
+/** Whether two lists hold the same entries in the same order. */
+function sameList<T>(a: readonly T[], b: readonly T[], same: (x: T, y: T) => boolean): boolean {
+    return a.length === b.length && a.every((x, i) => same(x, b[i]!));
+}
+const sameToggle = (x: readonly [string, boolean], y: readonly [string, boolean]) => x[0] === y[0] && x[1] === y[1];
+const sameKey = (x: string, y: string) => x === y;
+const sameAnchor = (x: PlanAnchor | null, y: PlanAnchor) => x !== null
+    && x.key === y.key && x.offset === y.offset && x.index === y.index && x.window === y.window;
 
 export interface EastChakraPlanProps {
     /** The Plan root value. */
@@ -254,26 +312,50 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
         const r = row.kind.value.runs.find((x) => x.key === runKey);
         return r !== undefined ? { start: r.start, end: r.end } : undefined;
     }, [index]);
+    // ── What survives a remount (#813) ────────────────────────────────────
+    // Under the canvas's `storageKey`: the user's collapse toggles, the charts
+    // they expanded, and where a bounded frame's scroll rests. Never the
+    // selection — a transient act, and restoring it would re-fire `onSelect`.
+    // Nor the resolution: only a bound slice can change it (the segment has
+    // nowhere to write without one — #615), and the slice keeps its own.
+    const { state: stored, setState: setStored } = usePersistedState<PlanPersisted>(storageKey, NOT_PERSISTED);
     // THE state machine — one `useReducer(planStoreReducer)` (#610). The
     // reducer needs no scale context: the hover cursor — its one former
-    // consumer — is DOM chrome now (#609), so the machine is scale-free.
+    // consumer — is DOM chrome now (#609), so the machine is scale-free. It
+    // starts from the user's persisted toggles; the declaration seeds only
+    // the rows they never touched.
     const [store, dispatchStore] = useReducer(
         planStoreReducer, undefined,
-        () => initialPlanStore(initGrain, index.initiallyCollapsed));
+        () => initialPlanStore(initGrain, index.initiallyCollapsed, persistedOf(stored)));
     const ui = store.ui;
     // A host data commit RECONCILES the ephemeral UI state instead of
     // resetting it (#610): entries whose rows vanished drop, never-seen
     // declared collapse seeds once, and everything the user set survives —
-    // an Approve click changes the verdict presentation and nothing else.
+    // an Approve click changes the verdict presentation and nothing else. A
+    // paged source's resident rows are not all its rows, so its key set says
+    // nothing is gone (#813) — a toggle on an unlanded row waits for it.
     useEffect(() => {
         dispatchStore({
             t: "reconcile",
             alive: new Set(index.byKey.keys()),
+            complete: pagedSource === undefined,
             declaredCollapsed: index.initiallyCollapsed,
             declaredGrain: initGrain,
         });
         // eslint-disable-next-line react-hooks/exhaustive-deps -- reconcile fires on the value's DATA identity; the index it prunes against is read fresh
     }, [data]);
+    // The user's toggles, persisted as they change — reconcile's pruning
+    // included, so a row that is gone stops being carried (#813).
+    useEffect(() => {
+        const collapse = [...store.overrides];
+        const charts = [...store.ui.chartsExpanded];
+        setStored((prev) => {
+            const p = persistedOf(prev);
+            return sameList(p.collapse, collapse, sameToggle) && sameList(p.charts, charts, sameKey)
+                ? prev
+                : { ...p, collapse, charts };
+        });
+    }, [store.overrides, store.ui.chartsExpanded, setStored]);
 
     // Rows that arrive WITHOUT a data change — a paged canvas streams its
     // windows in against an unchanging `value` — carry their own declared
@@ -666,6 +748,59 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
         return item !== undefined ? bodyItemKey(item) : `i:${i}`;
     }, [bodyItems]);
 
+    // ── The scroll anchor (#813) ──────────────────────────────────────────
+    // Persisted as the first item showing under the header — its KEY and how
+    // far into it — never as pixels: restored by key it survives the rows
+    // above it changing, and a key that is gone falls back to its clamped
+    // index. Only a bounded frame scrolls itself; an unbounded canvas's place
+    // is its page's, and the narrow list keeps none.
+    const [savedAnchor] = useState(() => persistedOf(stored).anchor);
+    const [restoreAnchor, setRestoreAnchor] = useState<{ index: number; offset: number } | undefined>(undefined);
+    const anchorPhase = useRef<"pending" | "seeking" | "settled">("pending");
+    const jumpToElement = paging.jumpToElement;
+    useEffect(() => {
+        if (anchorPhase.current === "settled") return;
+        if (savedAnchor === null || !frameFills || narrow) {
+            anchorPhase.current = "settled";
+            return;
+        }
+        if (bodyItems.length === 0) return;
+        const at = bodyItems.findIndex((it) => bodyItemKey(it) === savedAnchor.key);
+        if (at < 0 && pagedSource !== undefined && savedAnchor.window !== null) {
+            // A paged canvas may simply not have loaded the row yet: look in
+            // the window it came from before calling it gone.
+            const w = savedAnchor.window;
+            if (anchorPhase.current === "pending") {
+                anchorPhase.current = "seeking";
+                jumpToElement(w * PLAN_PAGE_SIZE);
+                return;
+            }
+            const settled = paging.failures.some((f) => f.w === w) || [...paging.origin.values()].includes(w);
+            if (!settled) return;
+        }
+        anchorPhase.current = "settled";
+        setRestoreAnchor(at >= 0
+            ? { index: at, offset: savedAnchor.offset }
+            : { index: Math.min(savedAnchor.index, bodyItems.length - 1), offset: 0 });
+    }, [bodyItems, savedAnchor, frameFills, narrow, pagedSource, jumpToElement, paging.failures, paging.origin]);
+    const onAnchorChange = useCallback((a: { index: number; offset: number }) => {
+        // Nothing is persisted until the saved anchor is restored: the
+        // restore's own scroll must not overwrite what it is restoring.
+        if (anchorPhase.current !== "settled") return;
+        const item = bodyItems[a.index];
+        if (item === undefined) return;
+        const next: PlanAnchor = {
+            key: bodyItemKey(item),
+            offset: a.offset,
+            index: a.index,
+            window: item.kind === "row" ? paging.origin.get(item.row.row.key) ?? null : null,
+        };
+        setStored((prev) => {
+            const p = persistedOf(prev);
+            return sameAnchor(p.anchor, next) ? prev : { ...p, anchor: next };
+        });
+    }, [bodyItems, paging.origin, setStored]);
+
     // The viewport, in the driver's terms — which ROW (or which band) it sits
     // on. The item under the viewport CENTER when the frame can resolve one
     // (the live scroll offset; inside one huge band item the mounted range
@@ -1011,6 +1146,10 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                             // rows — and the frame re-measures from these alone.
                             sizes={heights}
                             getItemKey={itemKey}
+                            // Where the scroll rests, persisted and restored
+                            // as a row (#813).
+                            onAnchorChange={onAnchorChange}
+                            restoreAnchor={restoreAnchor}
                             renderRow={(i) => {
                                 const item = bodyItems[i];
                                 if (item === undefined) return null;

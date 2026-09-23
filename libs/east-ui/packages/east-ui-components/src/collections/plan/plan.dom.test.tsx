@@ -29,7 +29,12 @@ import { EastChakraPlan, type PlanRootValue, type PlanRowValue } from "./index.j
 import { setBodyRowRenderProbe } from "./rows/BodyRow.js";
 import type { PlanInstantValue } from "./instant.js";
 
-afterEach(cleanup);
+// A canvas persists its toggles under its storageKey (#813), and several tests
+// share one — nothing may carry from one test to the next.
+afterEach(() => {
+    cleanup();
+    localStorage.clear();
+});
 
 // jsdom lacks ResizeObserver — the floating-ui positioner behind the
 // resolver popovers needs one; a no-op stub keeps positioning inert (the
