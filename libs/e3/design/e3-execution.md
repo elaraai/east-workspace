@@ -104,7 +104,7 @@ This handles: process crashes, machine restarts, and PID wraparound/reuse.
 4. **Task.** The task object is read from the store. A partitioned task (`kind` `partition`) is run by its step template instead (see Partitioned Tasks).
 5. **Scratch.** A scratch directory `e3-exec-<task8>-<in8>-<pid>-<pidStartTime>-<ms>` is created under `E3_SCRATCH_DIR`, or else the system temp directory.
 6. **Inputs** (`marshalInputsToDir`). Each input object is staged as `input-<i>.beast2` without passing through e3's heap: linked, reflinked or kernel-copied where the backend's objects are files, streamed a chunk at a time otherwise.
-   - A collection stored as a segment manifest is staged as the manifest plus one linked file per segment (`input-<i>.beast2.segments/<hash>.beast2`) for a runner that opens manifests (east-node), and spliced into one file for the others.
+   - A collection stored as a segment manifest is staged as the manifest plus one linked file per segment (`input-<i>.beast2.segments/<hash>.beast2`) for a stock runner, every one of which opens manifests (`runnerOpensManifests`), and spliced into one file for a `custom` runner.
    - A `custom` runner is given copies, never links, since its command could modify an input path.
 7. **Command.** The task's command IR is evaluated over the staged input paths and the output path, giving the argv. For a stock runner, `-v` (when verbose) and `--exit-with-parent` are spliced in after `[<bin>, <command>]`.
 8. **Run.** The spawn takes a slot of the jobs budget (see The Jobs Budget). Once the runner has spawned, the `running` status and the `owner` sidecar are written. stdout and stderr stream to the attempt's log files (see Output Capture).

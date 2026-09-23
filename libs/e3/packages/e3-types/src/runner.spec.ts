@@ -17,7 +17,7 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert';
 import { variant } from '@elaraai/east';
-import { runnerToArgv, withRunnerLifeline, withRunnerVerbose, type RunnerValue } from './runner.js';
+import { runnerOpensManifests, runnerToArgv, withRunnerLifeline, withRunnerVerbose, type RunnerValue } from './runner.js';
 
 /** A realistic fully-built argv: runner prefix + the `-i`/`-o`/`<ir>` suffix. */
 function fullArgv(runner: RunnerValue): string[] {
@@ -127,5 +127,18 @@ describe('withRunnerLifeline', () => {
     const before = [...args];
     withRunnerLifeline(runner, args);
     assert.deepStrictEqual(args, before);
+  });
+});
+
+describe('runnerOpensManifests', () => {
+  for (const [tag, runner] of KNOWN) {
+    it(`stages ${tag}'s collection inputs as manifests`, () => {
+      assert.strictEqual(runnerOpensManifests(runner), true);
+    });
+  }
+
+  it('splices a custom runner\'s inputs into one blob, which is all it can be given', () => {
+    const runner: RunnerValue = variant('custom', { command: ['uv', 'run', 'east-py', 'run'] });
+    assert.strictEqual(runnerOpensManifests(runner), false);
   });
 });

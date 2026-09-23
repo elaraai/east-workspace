@@ -80,20 +80,19 @@ export function runnerToArgv(r: RunnerValue, command: 'run' | 'merge' = 'run'): 
  * @remarks
  * A property of the runtime, decided here beside {@link runnerToArgv} and
  * never per task: either a runner's reader knows the layout or it does not,
- * and a task cannot change that. A runner that does gets its inputs staged by
- * linking the segment objects — O(segments) links and no bytes, whatever the
- * value weighs — and reads only the segments its body touches. A runner that
- * does not gets the value spliced into one file, which is what every runner
- * got before the layout.
+ * and a task cannot change that. Every stock runner's does, so its inputs are
+ * staged by linking the segment objects — O(segments) links and no bytes,
+ * whatever the value weighs — and it reads only the segments its body
+ * touches.
  *
  * A `custom` runner is an arbitrary command: it reads what it is given, and
- * what it is given must be a blob.
+ * what it is given must be a blob, so its inputs are spliced into one file.
  *
  * @param runner - the runner a task declares
  * @returns whether its inputs may be staged as manifests
  */
 export function runnerOpensManifests(r: RunnerValue): boolean {
-  return r.type === 'east_node';
+  return r.type !== 'custom';
 }
 
 /**
