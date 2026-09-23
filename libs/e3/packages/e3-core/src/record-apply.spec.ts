@@ -183,10 +183,10 @@ describe('applying a mutation delta', () => {
   });
 
   it("agrees with the door when a delete removes a segment's first key", async () => {
-    // A run is re-cut from a fresh cutter, so its first element opens a
-    // segment. A rebuild only opens one there if the segment BEFORE the run
-    // says so — the cutter's count carries across the boundary — and once the
-    // fence the run began at is deleted, nothing says so any more.
+    // A segment starts at its first key because the segment before it ended
+    // there. Deleting that key hands the boundary back to the cut rule, with
+    // the segment before still in the cutter's count — so the re-cut must look
+    // back across the edit rather than start afresh at it.
     const before = plansOf(5_000);
     const hash = await store(PlansType, before);
     const segments = await DatasetSegments.open(storage, repo, hash);

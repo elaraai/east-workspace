@@ -54,8 +54,10 @@ the value-add over a plain input.
   - A keyed record (a Dict or a Set) is written by delta.
     - Every form — a reducer, an `edit` body, a client's patch — runs as a
       generated program that emits the delta.
-    - e3-core applies the delta to the segments it touches, re-cutting outward
-      until the new cuts agree with the old.
+    - e3-core applies the delta to the segments it touches and re-cuts them
+      with beast2's Recut: every segment the edit leaves standing is carried
+      over unread, and re-cutting runs outward only until the new cuts agree
+      with the old.
     - A `patch` on a record with no index applies the patch without running a
       program at all.
   - Any other record is written whole: the reducer's output becomes the new
