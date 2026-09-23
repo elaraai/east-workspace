@@ -143,7 +143,7 @@ TaskObject = {
 | Merger | k sorted collections (manifests or blobs) → one; optionally over one key range; equal keys fold in input order | moved from east-node-cli `merge.ts` | `src/merge.c` (exists) |
 | Recut | pieces in order → the canonical whole, segment by segment. A piece is a run of segments the Writer wrote, given by reference, or elements. A segment the whole shares with its piece is copied without being read; only seams and elements are re-cut. Async, because its callers read segments from the store | new `v5/recut.ts`, replacing e3-core `record-apply.ts`'s private re-cut (F24) | not needed: only e3-core re-cuts |
 | Splice / carve | streamed, over manifests and blobs | `v5/geometry.ts` | existing |
-| Manifest read/write | the `$segments` object and the sibling-segment directory convention | `v5/manifest.ts` | new |
+| Manifest read/write | the `$segments` object and the sibling-segment directory convention, each segment file named by its SHA-256, the hash the store names it by | `v5/manifest.ts`, with a SHA-256 of its own | new, with east-c-std's SHA-256 moved into east-c |
 | Lazy readers | paged values over a blob or a manifest | `v5/lazy.ts`, `v5/stream.ts` | existing, plus a manifest source |
 
 The Writer is the only segmentation code: the runners' emit writers (east-node-cli `emit-writer.ts`, east-c `emit_writer.c`) fold into it (F5, F32). The corpus pins the Writer, RunSorter and Merger across TypeScript and C. Recut is pinned by `Recut(pieces) == Writer(whole)` over every corpus value.
@@ -377,7 +377,11 @@ Read first:
    - its interface is async: pieces in order, each a run of the Writer's segments given by reference (count, fence, a read) or elements; the whole comes out segment by segment, each one either carried from a piece or newly written;
    - the Writer gains the per-segment output Recut writes through, the in-memory half of item 8's manifest directories;
    - e3-core's record apply moves onto Recut here, brought forward from stage 4b, and `record-apply.ts`'s private re-cut is deleted.
-8. **Manifests in every runtime.** east-c opens a manifest as a lazy paged value, using the `.segments/` sibling convention (`processExec.ts:181-190`). Every runtime writes manifest directories (F11), and so does the Merger (item 6).
+8. **Manifests in every runtime.**
+   - east-c opens a manifest as a lazy paged value, using the `.segments/` sibling convention (`processExec.ts:181-190`), and east-py opens one through it.
+   - east-c-cli and east-py-cli read manifest inputs, lazily and eagerly, so `runnerOpensManifests` holds for every stock runner and their inputs are staged by linking (F11).
+   - Every runtime writes manifest directories, and so does the Merger (item 6).
+   - A directory names each segment file by its SHA-256, the hash the store names it by, so each library carries one: `east` a pure-TypeScript SHA-256, east-c the one east-c-std has (moved into east-c, which east-c-std then uses), and east-py C's. The store can then adopt a directory's segments under their names (`adoptFile` takes a known hash).
 9. **The conformance corpus.**
    - A generator in `libs/east`, the successor to `generate_fixtures.mjs`, writes cases with their expected bytes: values, emission sequences and their runs, merges and re-cuts.
    - east-c's and east-py's tests consume them, in those libs' CI workflows.
