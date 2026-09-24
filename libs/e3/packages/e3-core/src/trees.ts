@@ -598,9 +598,9 @@ export interface DatasetStatusResult {
   datasetType: EastTypeValue;
   /** Size in bytes (null for unassigned) */
   size: number | null;
-  /** Segment count of a stored collection, read from the blob's trailing
-   *  index — `null` for a non-collection, an unassigned/null ref, or a
-   *  backend without ranged reads. Costs two ranged reads, never the blob. */
+  /** Segment count of a stored collection, read from its manifest or its
+   *  blob's trailing index — `null` for a non-collection or an
+   *  unassigned/null ref. Costs two ranged reads, never the blob. */
   segments?: number | null;
   /** Element count (pairs for a Dict) of a stored collection, from the same
    *  index — so a re-pointed input is inspectable without decoding it. */
@@ -679,10 +679,10 @@ export async function workspaceGetDatasetStatus(
  * Segment and element counts of a stored collection.
  *
  * One small object read for a manifest, which carries both; two ranged reads
- * (the tail, then the head) for a bare blob — never the value. A backend
- * without {@link ObjectStore.readRange}, a non-collection root, or a blob
- * whose index cannot be read reports `null` rather than failing a status
- * call — the geometry is a convenience on top of the hash and the size.
+ * (the tail, then the head) for a bare blob — never the value. A
+ * non-collection root, or a blob whose index cannot be read, reports `null`
+ * rather than failing a status call — the geometry is a convenience on top of
+ * the hash and the size.
  */
 async function datasetGeometry(
   storage: StorageBackend,
@@ -705,11 +705,9 @@ async function datasetGeometry(
         storedBytes: manifestByteSize(opened.manifest) + collectionSize,
       };
     }
-    const readRange = storage.objects.readRange;
-    if (!readRange) return { segments: null, rows: null, storedBytes: null };
     const extents = await readBeast2ExtentsRanged({
       size: collectionSize,
-      read: (offset, length) => readRange.call(storage.objects, repo, opened.hash, offset, length),
+      read: (offset, length) => storage.objects.readRange(repo, opened.hash, offset, length),
     });
     return { segments: extents.offsets.length, rows: extents.elementCount, storedBytes: collectionSize };
   } catch {

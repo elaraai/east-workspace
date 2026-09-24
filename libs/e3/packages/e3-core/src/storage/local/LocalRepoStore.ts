@@ -352,7 +352,7 @@ export class LocalRepoStore implements RepoStore {
       // sidecar no other scan reads — unrooted, the sweep takes the plan and
       // everything it records, and the next run re-plans and re-carves from
       // scratch. gc walks the plan itself (see isPartitionPlanShape).
-      const planHash = await this.refs.executionPlanRead?.(repo, taskHash, inputsHash);
+      const planHash = await this.refs.executionPlanRead(repo, taskHash, inputsHash);
       if (planHash && /^[a-f0-9]{64}$/.test(planHash)) roots.push(planHash);
       const ids = await this.refs.executionListIds(repo, taskHash, inputsHash);
       for (const executionId of ids) {

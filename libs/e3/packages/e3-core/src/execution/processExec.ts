@@ -14,7 +14,7 @@
  */
 
 import * as fs from 'fs/promises';
-import { createReadStream, existsSync } from 'fs';
+import { existsSync } from 'fs';
 import * as path from 'path';
 import { StringDecoder } from 'string_decoder';
 import type { Readable } from 'stream';
@@ -111,20 +111,15 @@ export interface MarshalInputsOptions {
   link?: boolean;
 }
 
-/** Bytes per read when streaming an object into scratch without
- *  {@link ObjectStore.materialize}. */
-const MARSHAL_CHUNK_BYTES = 4 * 1024 * 1024;
-
 /**
  * Marshal input objects to staged `.beast2` files in a scratch directory.
  *
  * @remarks
- * The bytes never pass through this process's heap. A backend whose objects
- * are files links or kernel-copies them (`ObjectStore.materialize`); one that
- * only serves ranges streams them a chunk at a time. Before #767 this read
- * each object whole — measured at 2.1 GB of orchestrator RSS on every
- * execution over a 2 GB input, for bytes the runner then opened lazily
- * anyway.
+ * The bytes never pass through this process's heap: the backend places each
+ * object (`ObjectStore.materialize`), a backend whose objects are files by a
+ * link or one kernel copy. Before #767 this read each object whole — measured
+ * at 2.1 GB of orchestrator RSS on every execution over a 2 GB input, for
+ * bytes the runner then opened lazily anyway.
  *
  * An input stored as a segment manifest is staged as the manifest plus one
  * linked file per segment for a runner that opens the layout, and spliced
@@ -146,34 +141,7 @@ export async function marshalInputsToDir(
   options: MarshalInputsOptions = {}
 ): Promise<string[]> {
   const link = options.link !== false;
-  const materialize = storage.objects.materialize;
-  const readRange = storage.objects.readRange;
   const inputPaths: string[] = [];
-  /** One object into one staged path, without its bytes passing through this
-   *  process where the backend can avoid it. */
-  const stageObject = async (
-    store: StorageBackend, repository: string, objectHash: string, dest: string, mayLink: boolean,
-  ): Promise<void> => {
-    if (materialize) {
-      await materialize.call(store.objects, repository, objectHash, dest, { link: mayLink });
-      return;
-    }
-    if (readRange) {
-      const { size } = await store.objects.stat(repository, objectHash);
-      const handle = await fs.open(dest, 'w');
-      try {
-        for (let offset = 0; offset < size; offset += MARSHAL_CHUNK_BYTES) {
-          const chunk = await readRange.call(store.objects, repository, objectHash, offset, Math.min(MARSHAL_CHUNK_BYTES, size - offset));
-          if (chunk.length === 0) break;
-          await handle.write(chunk);
-        }
-      } finally {
-        await handle.close();
-      }
-      return;
-    }
-    await fs.writeFile(dest, await store.objects.read(repository, objectHash));
-  };
   for (let i = 0; i < inputHashes.length; i++) {
     const inputPath = path.join(scratchDir, `input-${i}.beast2`);
     const hash = inputHashes[i]!;
@@ -182,11 +150,11 @@ export async function marshalInputsToDir(
       // The manifest itself, then its segments as sibling files named by
       // hash — the convention every runtime's opener reads. Each segment is a
       // link (or one kernel copy), so the bytes never move.
-      await stageObject(storage, repo, hash, inputPath, link);
+      await storage.objects.materialize(repo, hash, inputPath, { link });
       const segmentDir = `${inputPath}.segments`;
       await fs.mkdir(segmentDir, { recursive: true });
       for (const entry of manifest.entries) {
-        await stageObject(storage, repo, entry.hash, path.join(segmentDir, `${entry.hash}.beast2`), link);
+        await storage.objects.materialize(repo, entry.hash, path.join(segmentDir, `${entry.hash}.beast2`), { link });
       }
     } else if (manifest !== null) {
       // A runner that does not open manifests gets the value: the segments
@@ -198,22 +166,8 @@ export async function marshalInputsToDir(
       } finally {
         await handle.close();
       }
-    } else if (materialize) {
-      await materialize.call(storage.objects, repo, hash, inputPath, { link });
-    } else if (readRange) {
-      const { size } = await storage.objects.stat(repo, hash);
-      const handle = await fs.open(inputPath, 'w');
-      try {
-        for (let offset = 0; offset < size; offset += MARSHAL_CHUNK_BYTES) {
-          const chunk = await readRange.call(storage.objects, repo, hash, offset, Math.min(MARSHAL_CHUNK_BYTES, size - offset));
-          if (chunk.length === 0) break;
-          await handle.write(chunk);
-        }
-      } finally {
-        await handle.close();
-      }
     } else {
-      await fs.writeFile(inputPath, await storage.objects.read(repo, hash));
+      await storage.objects.materialize(repo, hash, inputPath, { link });
     }
     inputPaths.push(inputPath);
   }
@@ -239,9 +193,7 @@ export async function adoptOutputFile(
   repo: string,
   outputPath: string
 ): Promise<string> {
-  const adopt = storage.objects.adoptFile;
-  if (adopt) return (await adopt.call(storage.objects, repo, outputPath)).hash;
-  return storage.objects.writeStream(repo, createReadStream(outputPath));
+  return (await storage.objects.adoptFile(repo, outputPath)).hash;
 }
 
 /**

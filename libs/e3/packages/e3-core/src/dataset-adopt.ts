@@ -30,7 +30,6 @@
  * @packageDocumentation
  */
 
-import { createReadStream } from 'node:fs';
 import { checkDatasetType, isCollectionRoot, type TreePath } from '@elaraai/e3-types';
 import {
   readBeast2ExtentsRanged,
@@ -82,10 +81,9 @@ export interface DatasetAdoptOptions {
  * already checked the file's header against whatever declares its type (the
  * dataset, for {@link datasetAdoptFile}; the package's structure, at deploy).
  * The file is hashed by streaming and stored by `ObjectStore.adoptFile` (a
- * reflink, hard link or one kernel copy), or streamed into the store by a
- * backend without it. Objects are content-addressed and immutable, so adopting
- * a file again is a no-op, and an adopted object no ref names is gc's to
- * collect.
+ * reflink, hard link or one kernel copy, where objects are files). Objects are
+ * content-addressed and immutable, so adopting a file again is a no-op, and an
+ * adopted object no ref names is gc's to collect.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
@@ -106,21 +104,7 @@ export async function objectAdoptFile(
   if (options.expectHash !== undefined && options.expectHash !== hash) {
     throw new Error(`hash mismatch: expected ${options.expectHash}, got ${hash}`);
   }
-  const adopt = storage.objects.adoptFile;
-  if (adopt) {
-    const { size } = await adopt.call(storage.objects, repo, file, hash);
-    return { hash, size };
-  }
-  // A backend without adoptFile still gets the object, and must land on the
-  // same hash: the store is content-addressed either way.
-  const written = await storage.objects.writeStream(repo, createReadStream(file));
-  if (written !== hash) {
-    throw new Error(
-      `object store wrote ${file} under ${written} but its SHA256 is ${hash} — the backend's ` +
-      `writeStream must be content-addressed on the same digest`
-    );
-  }
-  const { size } = await storage.objects.stat(repo, hash);
+  const { size } = await storage.objects.adoptFile(repo, file, hash);
   return { hash, size };
 }
 
@@ -250,13 +234,8 @@ async function objectHeader(
   size: number,
   leaf: { type: EastTypeValue; address: string }
 ): Promise<{ segments: number | null; rows: number | null }> {
-  const readRange = storage.objects.readRange;
-  const read = readRange
-    ? (offset: number, length: number) => readRange.call(storage.objects, repo, hash, offset, length)
-    // A backend with no ranged reads has to serve the whole object; this is
-    // the dedup path, so the object is already stored and local.
-    : async (offset: number, length: number) =>
-        (await storage.objects.read(repo, hash)).subarray(offset, offset + length);
+  const read = (offset: number, length: number): Promise<Uint8Array> =>
+    storage.objects.readRange(repo, hash, offset, length);
 
   let typeValue: EastTypeValue;
   let segments: number | null = null;

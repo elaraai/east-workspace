@@ -154,10 +154,7 @@ export class DatasetSegments {
     }
 
     const objectSize = known ?? (await storage.objects.stat(repo, hash)).size;
-    // A backend with no ranged reads serves the object whole, once, behind
-    // the same interface — the executor and the handlers stay single-path.
-    const whole = storage.objects.readRange ? null : await storage.objects.read(repo, hash);
-    const backing: BlobBacking = { kind: 'blob', storage, repo, hash, whole, extents: null };
+    const backing: BlobBacking = { kind: 'blob', storage, repo, hash, extents: null };
     const extents = await readBeast2ExtentsRanged({ size: objectSize, read: blobReader(backing) });
     if (!extents.selfContained) {
       throw new Error('beast2 v5: blob has cross-segment aliasing — segments must decode independently');
@@ -355,8 +352,6 @@ interface BlobBacking {
   storage: StorageBackend;
   repo: string;
   hash: string;
-  /** The object, for a backend that cannot serve ranges. */
-  whole: Uint8Array | null;
   /** `null` only while the open is still reading the geometry. */
   extents: Beast2RangedExtents | null;
 }
@@ -368,12 +363,7 @@ interface BlobBacking {
  *  opened it, and a captured method would keep reading through whatever the
  *  backend was wearing then. */
 function blobReader(backing: BlobBacking): (offset: number, length: number) => Promise<Uint8Array> {
-  return (offset, length) => {
-    if (backing.whole !== null) {
-      return Promise.resolve(backing.whole.subarray(offset, offset + length));
-    }
-    return backing.storage.objects.readRange!(backing.repo, backing.hash, offset, length);
-  };
+  return (offset, length) => backing.storage.objects.readRange(backing.repo, backing.hash, offset, length);
 }
 
 /** The end offset of segment `i`'s frame. */
@@ -431,17 +421,11 @@ export async function openDatasetObject(
   hash: string,
   size?: number,
 ): Promise<{ hash: string; manifest: CollectionManifest | null }> {
-  const readRange = storage.objects.readRange?.bind(storage.objects);
-  let head: Uint8Array;
-  if (readRange) {
-    const length = size === undefined ? HEAD_PROBE_BYTES : Math.min(size, HEAD_PROBE_BYTES);
-    head = await readRange(repo, hash, 0, length);
-  } else {
-    head = await storage.objects.read(repo, hash);
-  }
-  // The head is the whole object when the store could not serve a range, or
-  // when the object ended inside the probe — then nothing is read twice.
-  const whole = !readRange || head.length < HEAD_PROBE_BYTES || (size !== undefined && head.length >= size);
+  const length = size === undefined ? HEAD_PROBE_BYTES : Math.min(size, HEAD_PROBE_BYTES);
+  const head = await storage.objects.readRange(repo, hash, 0, length);
+  // The head is the whole object when the object ended inside the probe —
+  // then nothing is read twice.
+  const whole = head.length < HEAD_PROBE_BYTES || (size !== undefined && head.length >= size);
   let typeValue: EastTypeValue;
   try {
     typeValue = readBeast2Type(head);

@@ -7,12 +7,18 @@
  * Storage abstraction interfaces for e3 repositories.
  *
  * These interfaces enable e3-core logic to work against different backends:
- * - LocalBackend: Filesystem (default, for CLI and local dev)
- * - EfsBackend: AWS EFS (for Lambda/Fargate cloud deployment)
- * - S3DynamoBackend: S3 + DynamoDB (future optimization)
+ * - `LocalStorage`: a repository directory on a filesystem — the CLI, the API
+ *   server and the VS Code extension
+ * - `InMemoryStorage`: maps in memory, for tests
+ * - the cloud's backend, S3 objects and DynamoDB refs, in `elaraai/e3-cloud`
  *
  * The core insight: e3-core business logic is storage-agnostic. By injecting
  * a StorageBackend, the same code can run locally or in the cloud.
+ *
+ * Every method is required. A capability a backend could leave out — ranged
+ * reads, adopting a file, placing an object at a path, the owner and plan
+ * records of an execution — would need a fallback in every caller, and the
+ * fallbacks were whole-object reads.
  */
 
 import type { ExecutionOwner, ExecutionStatus, LockState, LockOperation, DataflowRun, DatasetRef } from '@elaraai/e3-types';
@@ -144,12 +150,10 @@ export interface ObjectStore {
   /**
    * Read a byte range of an object without buffering it whole.
    *
-   * Optional: backends that can serve positional reads (a file, an S3/HTTP
-   * ranged GET) implement it so consumers like the paged dataset endpoint
-   * stay O(range) in memory; callers fall back to {@link read} when it is
-   * absent. Ranges past the end return the available bytes (objects are
-   * immutable and sized via {@link stat}, so callers can always request
-   * exact ranges).
+   * A file, or an S3 ranged GET, serves one, so the paged dataset endpoint and
+   * every reader of a collection stay O(range) in memory. Ranges past the end
+   * return the available bytes (objects are immutable and sized via
+   * {@link stat}, so callers can always request exact ranges).
    *
    * @param repo - Repository identifier
    * @param hash - SHA256 hash of the object
@@ -158,16 +162,15 @@ export interface ObjectStore {
    * @returns The requested bytes (short only at end of object)
    * @throws {ObjectNotFoundError} If object doesn't exist
    */
-  readRange?(repo: string, hash: string, offset: number, length: number): Promise<Uint8Array>;
+  readRange(repo: string, hash: string, offset: number, length: number): Promise<Uint8Array>;
 
   /**
-   * Take an existing file into the store as an object, without reading it.
+   * Take an existing file into the store as an object, without reading it
+   * into this process.
    *
-   * Optional: backends whose objects are files (a local repository, EFS)
-   * implement it so a large delivery becomes a dataset for the cost of a
-   * link. Callers that need a universal path fall back to
-   * `writeStream(repo, createReadStream(file))`, which must produce the same
-   * hash.
+   * A backend whose objects are files links it, so a large file becomes an
+   * object for the cost of a link; one whose objects are elsewhere streams it
+   * there. Either way the object's hash is the file's SHA256.
    *
    * The file is never opened for writing and its mode and mtime are left
    * alone. A backend may hard-link it, so the caller's contract is that the
@@ -182,15 +185,15 @@ export interface ObjectStore {
    *   otherwise the backend computes it
    * @returns The object's hash and size
    */
-  adoptFile?(repo: string, file: string, hash?: string): Promise<{ hash: string; size: number }>;
+  adoptFile(repo: string, file: string, hash?: string): Promise<{ hash: string; size: number }>;
 
   /**
-   * Place an object's bytes at `destPath`, without reading them.
+   * Place an object's bytes at `destPath`, without reading them into this
+   * process.
    *
-   * Optional: backends whose objects are files link or kernel-copy them, so
-   * staging a task's inputs never puts an object on the orchestrator's heap.
-   * Callers fall back to streaming {@link readRange} into the destination
-   * when it is absent.
+   * A backend whose objects are files links or kernel-copies one, so staging a
+   * task's inputs never puts an object on the orchestrator's heap; one whose
+   * objects are elsewhere streams it down.
    *
    * A link makes the staged file share the object's storage, so a consumer
    * that could WRITE to it must ask for `link: false`. The stock runners only
@@ -202,7 +205,7 @@ export interface ObjectStore {
    * @param options - `link: false` forbids sharing storage with the object
    * @throws {ObjectNotFoundError} If object doesn't exist
    */
-  materialize?(repo: string, hash: string, destPath: string, options?: { link?: boolean }): Promise<void>;
+  materialize(repo: string, hash: string, destPath: string, options?: { link?: boolean }): Promise<void>;
 
   /**
    * Check if an object exists.
@@ -406,10 +409,8 @@ export interface RefStore {
 
   /**
    * Record the orchestrator that launched an execution — the `owner` sidecar
-   * beside its status (issue #770).
-   *
-   * Optional: a backend without it never repairs a stale `running` record,
-   * since the repair acts only where a dead owner is recorded.
+   * beside its status (issue #770). A stale `running` record is repaired only
+   * where a dead owner is recorded.
    *
    * @param repo - Repository identifier
    * @param taskHash - Task object hash
@@ -417,7 +418,7 @@ export interface RefStore {
    * @param executionId - Execution ID (UUIDv7)
    * @param owner - The orchestrator process
    */
-  executionOwnerWrite?(repo: string, taskHash: string, inputsHash: string, executionId: string, owner: ExecutionOwner): Promise<void>;
+  executionOwnerWrite(repo: string, taskHash: string, inputsHash: string, executionId: string, owner: ExecutionOwner): Promise<void>;
 
   /**
    * Read the orchestrator that launched an execution.
@@ -428,20 +429,19 @@ export interface RefStore {
    * @param executionId - Execution ID (UUIDv7)
    * @returns The owner, or null when none is recorded
    */
-  executionOwnerRead?(repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<ExecutionOwner | null>;
+  executionOwnerRead(repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<ExecutionOwner | null>;
 
   /**
    * Point a partitioned execution's `(taskHash, inputsHash)` at its partition
-   * plan object — the `plan` sidecar (issue #770).
-   *
-   * Optional: without it a re-plan or a resume carves its slices again.
+   * plan object — the `plan` sidecar (issue #770), which a re-plan or a resume
+   * reads to reuse the slices it carved.
    *
    * @param repo - Repository identifier
    * @param taskHash - Task object hash
    * @param inputsHash - Combined input hashes
    * @param planHash - Hash of the `PartitionPlan` object
    */
-  executionPlanWrite?(repo: string, taskHash: string, inputsHash: string, planHash: string): Promise<void>;
+  executionPlanWrite(repo: string, taskHash: string, inputsHash: string, planHash: string): Promise<void>;
 
   /**
    * Read the partition plan object a partitioned execution last recorded.
@@ -451,7 +451,7 @@ export interface RefStore {
    * @param inputsHash - Combined input hashes
    * @returns The plan object hash, or null when none is recorded
    */
-  executionPlanRead?(repo: string, taskHash: string, inputsHash: string): Promise<string | null>;
+  executionPlanRead(repo: string, taskHash: string, inputsHash: string): Promise<string | null>;
 
   // -------------------------------------------------------------------------
   // Dataflow Run History

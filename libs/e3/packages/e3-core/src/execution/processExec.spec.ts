@@ -116,20 +116,6 @@ describe('staging by link or kernel copy', () => {
     assert.deepEqual(readFileSync(objectPath(testRepo, hash)), Buffer.from(new Uint8Array(4096).fill(0x44)));
   });
 
-  it('stages through ranged reads when the backend cannot materialize', async () => {
-    // The fallback every non-file backend takes: chunked `readRange` into the
-    // scratch file, never `read`.
-    const { hash, bytes } = await store(9000, 0x45);
-    const objects = storage.objects as ObjectStore;
-    delete (objects as { materialize?: unknown }).materialize;
-    const spy = countWholeReads(storage);
-
-    const [staged] = await marshalInputsToDir(storage, testRepo, scratch, [hash]);
-
-    assert.deepEqual(readFileSync(staged!), Buffer.from(bytes));
-    assert.equal(spy.reads(), 0, 'ranged reads, not a whole read');
-  });
-
   it('stages a manifest-backed input as its manifest plus linked segments', async () => {
     const rows = new SortedMap<string, bigint>(
       Array.from({ length: 20_000 }, (_, i) => [`k${String(i).padStart(7, '0')}`, BigInt(i)] as [string, bigint]),

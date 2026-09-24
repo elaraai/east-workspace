@@ -156,13 +156,6 @@ const PAGE_MAX_LIMIT = 10_000;
  *  a smaller budget through the route options. */
 export const PAGE_BYTE_BUDGET_DEFAULT = 4 * 1024 * 1024;
 
-/** Largest blob the page endpoint will buffer when the storage backend
- *  cannot serve ranged reads (`objects.readRange` absent) and every page
- *  request must read the blob whole. Backends with ranged reads never
- *  buffer the blob, so no cap applies — per-window memory is O(window) at
- *  any blob size. */
-export const PAGE_READ_MAX_BYTES_DEFAULT = 512 * 1024 * 1024;
-
 /** Opened datasets cached per repository and content hash. Page requests are
  *  hash-pinned immutable, so entries never invalidate — the LRU only bounds
  *  memory. An entry holds the segment geometry (counts, prefix sums, and the
@@ -300,11 +293,6 @@ function pageError(type: string, message: string, status: 400 | 404 | 409 = 400,
 export interface DatasetPageLimits {
   /** Page byte budget (default {@link PAGE_BYTE_BUDGET_DEFAULT}). */
   byteBudget?: number;
-  /** Blob-buffering cap for the whole-read fallback, applied only when the
-   *  storage backend has no ranged reads (default
-   *  {@link PAGE_READ_MAX_BYTES_DEFAULT}). Ranged backends never buffer the
-   *  blob, so no cap applies there. */
-  readMaxBytes?: number;
 }
 
 export async function getDatasetPage(
@@ -316,7 +304,6 @@ export async function getDatasetPage(
   limits?: DatasetPageLimits,
 ): Promise<Response> {
   const byteBudget = limits?.byteBudget ?? PAGE_BYTE_BUDGET_DEFAULT;
-  const readMaxBytes = limits?.readMaxBytes ?? PAGE_READ_MAX_BYTES_DEFAULT;
   try {
     if (treePath.length === 0) {
       return pageError('bad_request', 'Path required for paged get');
@@ -364,14 +351,6 @@ export async function getDatasetPage(
     }
 
     const objectSize = status.size ?? (await storage.objects.stat(repoPath, status.hash)).size;
-    // Without ranged reads a bare blob is buffered whole per request, so the
-    // absolute cap protects the server process. A dataset stored as a segment
-    // manifest is never buffered whole — its object IS the index, and a window
-    // reads only the segment objects it touches — so no cap applies to one.
-    if (!storage.objects.readRange && objectSize > readMaxBytes && await readManifest(storage, repoPath, status.hash, objectSize) === null) {
-      return pageError('dataset_too_large',
-        `Dataset is ${Math.round(objectSize / 1024 / 1024)} MB — beyond the ${Math.round(readMaxBytes / 1024 / 1024)} MB paging cap. Download it instead.`);
-    }
 
     let segments: DatasetSegments;
     try {
@@ -683,13 +662,6 @@ function boundPredicate(leaves: KeyField[], values: unknown[]): (key: unknown) =
   };
 }
 
-/** Server-side limits for {@link findDatasetKey}. */
-export interface DatasetFindLimits {
-  /** Blob-buffering cap applied only on the whole-read fallback, as for
-   *  {@link DatasetPageLimits.readMaxBytes}. */
-  readMaxBytes?: number;
-}
-
 /**
  * Locate a key (or string-prefix range) in a Set/Dict dataset by global
  * element row, without decoding the collection.
@@ -713,9 +685,7 @@ export async function findDatasetKey(
   workspace: string,
   treePath: TreePath,
   query: DatasetFindQuery,
-  limits?: DatasetFindLimits,
 ): Promise<Response> {
-  const readMaxBytes = limits?.readMaxBytes ?? PAGE_READ_MAX_BYTES_DEFAULT;
   try {
     if (treePath.length === 0) {
       return pageError('bad_request', 'Path required for key search');
@@ -841,10 +811,6 @@ export async function findDatasetKey(
     const objectSize = searchHash === status.hash
       ? status.size ?? (await storage.objects.stat(repoPath, status.hash)).size
       : (await storage.objects.stat(repoPath, searchHash)).size;
-    if (!storage.objects.readRange && objectSize > readMaxBytes && await readManifest(storage, repoPath, searchHash, objectSize) === null) {
-      return pageError('dataset_too_large',
-        `Dataset is ${Math.round(objectSize / 1024 / 1024)} MB — beyond the ${Math.round(readMaxBytes / 1024 / 1024)} MB paging cap. Download it instead.`);
-    }
 
     let segments: DatasetSegments;
     try {

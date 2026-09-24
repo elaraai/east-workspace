@@ -647,18 +647,6 @@ describe('partitionTaskExecute', () => {
       'the carved slices splice back to the manifest\'s own splice');
   });
 
-  it('degrades to whole reads behind the same path when the backend has no ranged reads', async () => {
-    const table = makeTable(1000);
-    const tableHash = await storage.objects.write(repo, encodeInSegmentsOf(TableType, 100)(table));
-    const fnIrHash = await createDummyFnIr();
-    const taskHash = await createPartitionTask({ copyIndex: 1, partitions: 1, targetPartitionBytes: 1 });
-    (storage.objects as { readRange?: unknown }).readRange = undefined;
-
-    const result = await taskExecute(storage, repo, taskHash, [fnIrHash, tableHash]);
-    assert.equal(result.state, 'success', result.error ?? '');
-    assert.equal(result.outputHash, tableHash, 'the fallback still reconstructs byte-identically');
-  });
-
   it('a single-partition plan short-circuits to one standard execution under the logical identity', async () => {
     const table = makeTable(1000);
     const tableHash = await storage.objects.write(repo, encodeInSegmentsOf(TableType, 100)(table));

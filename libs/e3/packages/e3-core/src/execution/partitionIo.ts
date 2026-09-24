@@ -15,9 +15,6 @@
  * the object store chunk by chunk through {@link spliceChunks} — the
  * orchestrator holds one chunk, one decoded boundary segment, or one edge
  * rebuild at a time, never a whole blob.
- *
- * Backends without `objects.readRange` degrade to one whole read per blob
- * behind the same interface, so the executor has a single code path.
  */
 
 import {
@@ -163,15 +160,9 @@ export class PartitionBlob {
       const layout = await manifestLayout(storage, repo, opened.hash, opened.manifest);
       return new PartitionBlob(layout.read, await readBeast2ExtentsRanged(layout));
     }
-    const readRange = storage.objects.readRange?.bind(storage.objects);
-    if (readRange) {
-      const { size } = await storage.objects.stat(repo, opened.hash);
-      const read = (offset: number, length: number): Promise<Uint8Array> => readRange(repo, opened.hash, offset, length);
-      return new PartitionBlob(read, await readBeast2ExtentsRanged({ size, read }));
-    }
-    const data = await storage.objects.read(repo, opened.hash);
-    const read = (offset: number, length: number): Promise<Uint8Array> => Promise.resolve(data.subarray(offset, offset + length));
-    return new PartitionBlob(read, await readBeast2ExtentsRanged({ size: data.length, read }));
+    const { size } = await storage.objects.stat(repo, opened.hash);
+    const read = (offset: number, length: number): Promise<Uint8Array> => storage.objects.readRange(repo, opened.hash, offset, length);
+    return new PartitionBlob(read, await readBeast2ExtentsRanged({ size, read }));
   }
 
   /** A pager over the single-segment carve of segment `i`, cached for the
@@ -381,15 +372,8 @@ async function manifestLayout(
     return cached;
   }
 
-  // A backend with no ranged reads serves a segment object whole. A carve
-  // reads a segment's frames front to back, so the last object is kept.
-  let held: { hash: string; bytes: Uint8Array } | null = null;
-  const objectRange = async (hash: string, offset: number, length: number): Promise<Uint8Array> => {
-    const readRange = storage.objects.readRange;
-    if (readRange) return readRange.call(storage.objects, repo, hash, offset, length);
-    if (held?.hash !== hash) held = { hash, bytes: await storage.objects.read(repo, hash) };
-    return held.bytes.subarray(offset, offset + length);
-  };
+  const objectRange = (hash: string, offset: number, length: number): Promise<Uint8Array> =>
+    storage.objects.readRange(repo, hash, offset, length);
 
   const header = await storage.objects.read(repo, manifest.header);
   // Each segment object's frames, as a run of the spliced blob; empty runs

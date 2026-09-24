@@ -314,7 +314,7 @@ async function repairInterruptedExecution(
 ): Promise<void> {
   const pid = Number(running.pid);
   if (await isProcessAlive(pid, Number(running.pidStartTime), running.bootId)) return;
-  const owner = await storage.refs.executionOwnerRead?.(repo, taskHash, inHash, running.executionId) ?? null;
+  const owner = await storage.refs.executionOwnerRead(repo, taskHash, inHash, running.executionId);
   if (owner === null) return;
   if (await isProcessAlive(owner.pid, owner.pidStartTime, owner.bootId)) return;
   const status: ExecutionStatus = variant('error', {
@@ -778,7 +778,7 @@ async function runCommand(
         // A `running` record with no owner is never repaired, so one whose
         // owner cannot be recorded is recorded failed before the spawn fails.
         try {
-          await storage.refs.executionOwnerWrite?.(repo, taskHash, inHash, executionId, {
+          await storage.refs.executionOwnerWrite(repo, taskHash, inHash, executionId, {
             pid: process.pid,
             pidStartTime: await getPidStartTime(process.pid),
             bootId,

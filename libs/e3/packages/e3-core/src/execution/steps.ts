@@ -709,7 +709,7 @@ export async function executeTemplate(
   const recordPlan = async (): Promise<void> => {
     if (carved === null) return;
     const hash = await storage.objects.write(repo, encodePartitionPlan({ ...carved.plan, slices: carved.slices, merges: carved.merges }));
-    await storage.refs.executionPlanWrite?.(repo, taskHash, inHash, hash);
+    await storage.refs.executionPlanWrite(repo, taskHash, inHash, hash);
   };
   for (const step of steps) {
     switch (step.kind) {
@@ -750,7 +750,7 @@ export async function executeTemplate(
             pidStartTime: BigInt(pidStartTime),
             bootId,
           }));
-          await storage.refs.executionOwnerWrite?.(repo, taskHash, inHash, executionId, { pid: process.pid, pidStartTime, bootId });
+          await storage.refs.executionOwnerWrite(repo, taskHash, inHash, executionId, { pid: process.pid, pidStartTime, bootId });
         }
         // Nothing is written here. The plan object is written by recordPlan,
         // once the map step knows what it carved and can point the `plan`
@@ -772,7 +772,7 @@ export async function executeTemplate(
         // are carved when a worker picks the partition up.
         let reused: string[][] | null = null;
         try {
-          const recordedPlanHash = await storage.refs.executionPlanRead?.(repo, taskHash, inHash) ?? null;
+          const recordedPlanHash = await storage.refs.executionPlanRead(repo, taskHash, inHash);
           if (recordedPlanHash !== null) recordedPlan = await readRecordedPlan(storage, repo, recordedPlanHash);
           if (recordedPlan !== null) reused = await recordedSlices(storage, repo, recordedPlan, plan);
         } catch (err) {

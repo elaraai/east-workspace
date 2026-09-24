@@ -375,16 +375,15 @@ describe('getDatasetPage (ranged reads)', () => {
     assert.ok(spy.rangedBytes() - before < 64 * 1024, 'a cached-extents window reads only its own segments');
   });
 
-  it('pages blobs beyond the fallback cap — no size limit on the ranged path', async () => {
+  it('clamps a window that runs past the end to the rows there are', async () => {
     const storage = new InMemoryStorage();
     const rows = makeRows(2500);
     const blob = encodeInSegmentsOf(RowsType, 100)(rows);
     await seedRowsDataset(storage, blob);
 
-    // A cap far below the blob size: the ranged path must ignore it.
-    const response = await getDatasetPage(storage, REPO, WS, rowsPath, { offset: 2400, limit: 1000 }, { readMaxBytes: 1024 });
+    const response = await getDatasetPage(storage, REPO, WS, rowsPath, { offset: 2400, limit: 1000 });
     assert.equal(response.status, 200);
-    assert.equal(response.headers.get('X-Page-Count'), '100', 'tail clamp still applies');
+    assert.equal(response.headers.get('X-Page-Count'), '100', 'the tail clamps the window');
     const page = decodeBeast2For(RowsType)(new Uint8Array(await response.arrayBuffer()));
     assert.ok(equalFor(RowsType)(page, rows.slice(2400)));
   });
@@ -441,26 +440,6 @@ describe('getDatasetPage (ranged reads)', () => {
     assert.notEqual(body.error.type, 'dataset_not_indexed',
       'an I/O failure must not masquerade as a re-write suggestion');
     assert.match(body.error.message, /injected storage failure/);
-  });
-
-  it('falls back to whole reads — and keeps the cap — when the backend has no ranged reads', async () => {
-    const storage = new InMemoryStorage();
-    const rows = makeRows(500);
-    const blob = encodeInSegmentsOf(RowsType, 100)(rows);
-    await seedRowsDataset(storage, blob);
-    // Simulate a backend without ranged reads (e.g. a store that has not
-    // implemented the optional method yet).
-    (storage.objects as { readRange?: unknown }).readRange = undefined;
-
-    const capped = await getDatasetPage(storage, REPO, WS, rowsPath, { offset: 0, limit: 10 }, { readMaxBytes: 1024 });
-    assert.equal(capped.status, 400);
-    const body = await capped.json() as { error: { type: string } };
-    assert.equal(body.error.type, 'dataset_too_large');
-
-    const served = await getDatasetPage(storage, REPO, WS, rowsPath, { offset: 90, limit: 20 });
-    assert.equal(served.status, 200);
-    const page = decodeBeast2For(RowsType)(new Uint8Array(await served.arrayBuffer()));
-    assert.ok(equalFor(RowsType)(page, rows.slice(90, 110)), 'the fallback still pages correctly');
   });
 });
 
@@ -608,7 +587,7 @@ describe('findDatasetKey', () => {
     assert.equal(stale.headers.get('X-Content-SHA256'), hash);
   });
 
-  it('refuses index-less blobs; the whole-read fallback still searches under its cap', async () => {
+  it('refuses index-less blobs without reading them whole', async () => {
     const storage = new InMemoryStorage();
     // Whole-value v5 encode: no index — predates the stored-segmented contract.
     const raw = encodeBeast2For(LookupType)(lookupOf(60));
@@ -618,16 +597,6 @@ describe('findDatasetKey', () => {
     assert.equal(refused.status, 400);
     assert.equal(((await refused.json()) as { error: { type: string } }).error.type, 'dataset_not_indexed');
     assert.equal(spy.wholeReads(), 0, 'the refusal must come from the tail probe, not a whole read');
-
-    const fallback = new InMemoryStorage();
-    const blob = encodeInSegmentsOf(LookupType, 97)(lookupOf(400));
-    await seedDataset(fallback, blob, 'lookup', LookupType);
-    (fallback.objects as { readRange?: unknown }).readRange = undefined;
-    assert.deepEqual(await findJson(await findDatasetKey(fallback, REPO, WS, lookupPath, { key: '"k0123"' })),
-      { found: true, row: 123, count: 1 });
-    const capped = await findDatasetKey(fallback, REPO, WS, lookupPath, { key: '"k0123"' }, { readMaxBytes: 64 });
-    assert.equal(capped.status, 400);
-    assert.equal(((await capped.json()) as { error: { type: string } }).error.type, 'dataset_too_large');
   });
 
   it('an empty collection reports no match at row 0', async () => {

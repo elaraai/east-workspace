@@ -193,13 +193,12 @@ describe('the segment-object layout', () => {
       assert.deepEqual([...(window.slice(0, window.elementCount) as Map<string, unknown>).keys()], expected);
     });
 
-    it('reads a manifest once, whether or not the store serves ranges', async () => {
+    it('reads a manifest once', async () => {
       // The head probe already holds a manifest of a few hundred segments,
       // so reading it again whole is a second round trip to the store.
       const hash = await datasetWrite(storage, repo, table(20_000), TableType);
       const objects = storage.objects;
       const read = objects.read.bind(objects);
-      const readRange = objects.readRange!.bind(objects);
       let wholeReads = 0;
       objects.read = (r: string, h: string) => {
         if (h === hash) wholeReads++;
@@ -208,13 +207,8 @@ describe('the segment-object layout', () => {
       try {
         assert.ok(await readManifest(storage, repo, hash) !== null);
         assert.equal(wholeReads, 0, 'the head was the whole manifest');
-
-        (objects as { readRange?: unknown }).readRange = undefined;
-        assert.ok(await readManifest(storage, repo, hash) !== null);
-        assert.equal(wholeReads, 1, 'without ranges the one whole read is the head');
       } finally {
         objects.read = read;
-        objects.readRange = readRange;
       }
     });
 

@@ -778,9 +778,8 @@ export const TASKS_LOCK = '#tasks';
  * gc holds the {@link TASKS_LOCK} exclusively and every workspace's dataflow
  * lock from before the mark until the sweep is done, so it never overlaps an
  * ad-hoc task run or a dataflow run: the objects a run writes before it roots
- * them (carved slices, unit outputs) need no rooting. Marking is header-first
- * when the object store serves ranged reads, so a dataset is never read
- * whole.
+ * them (carved slices, unit outputs) need no rooting. Marking is header-first,
+ * so a dataset is never read whole.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
@@ -828,7 +827,7 @@ async function collectGarbage(
   // Step 1: Collect all root hashes
   const roots = await collectAllRoots(storage.repos, repo);
 
-  // Step 2: Mark all reachable objects, header-first where ranged reads exist
+  // Step 2: Mark all reachable objects, header-first
   const readObject = async (hash: string): Promise<Uint8Array | null> => {
     try {
       return await storage.objects.read(repo, hash);
@@ -836,16 +835,13 @@ async function collectGarbage(
       return null;
     }
   };
-  const readRange = storage.objects.readRange?.bind(storage.objects);
-  const readHead = readRange
-    ? async (hash: string, length: number): Promise<Uint8Array | null> => {
-      try {
-        return await readRange(repo, hash, 0, length);
-      } catch {
-        return null;
-      }
+  const readHead = async (hash: string, length: number): Promise<Uint8Array | null> => {
+    try {
+      return await storage.objects.readRange(repo, hash, 0, length);
+    } catch {
+      return null;
     }
-    : undefined;
+  };
   const reachable = await markReachable(readObject, roots, { readHead });
 
   // Step 3: Scan and sweep objects
