@@ -7,6 +7,64 @@ table, and count-prefixed containers — in favour of a **single-pass, tagged
 record stream** with per-segment compression and an optional trailing index
 for random access.
 
+## Format v2
+
+The container is unchanged since v5 shipped; what a writer puts in it is not.
+**Format v2** is the set of rules under which a stored collection's bytes are
+a function of its value alone: the same in every runtime, and whichever
+process writes them. Each rule is specified in its own section.
+
+- **Aliasing is scoped per root element** (*Aliasing scope in a
+  self-contained collection*), so an element's bytes depend on it alone.
+- **Segments are cut by the `/2` rules** (*Segmentation rules*): content-defined
+  for every root kind, size-aware and normalized.
+- **A value has one encoding.** No encoder option changes where a cut falls,
+  and frames compress with the deterministic DEFLATE encoder under the frame
+  codec rule (*Value stream — frames*).
+- **East order decides Set and Dict content** (*Order*).
+- **A manifest** names every object by its SHA-256 and records the collection
+  type with canonical recursive ids (*Segment manifests*).
+- **Sorted runs** close at fixed caps and merge in input order, and a
+  **re-cut** writes the canonical writer's segments (*Sorted runs and merges*,
+  *Re-cutting*).
+
+Readers accept every form ever released: v4 containers, index-less blobs,
+segments cut by the earlier rules (*Earlier rules*), aliasing scoped per root
+segment, and manifests that record recursive types under any ids.
+
+### The conformance corpus
+
+The corpus is this specification's executable half.
+`libs/east/test/beast2_corpus.spec.ts` defines collection values, emission
+sequences and merges, and writes each case with its bytes: a value's
+whole-value blob, paged blob and manifest; the runs a run sorter closes for a
+sequence, and their merge; a merge's output as a blob and as a manifest. A fold
+travels as the IR of a `(K, V, V) -> V` function. `make test-export` in
+libs/east writes the corpus beside the compliance IR, in `beast2_corpus/`,
+where east-c's `test_beast2_corpus` and east-py's
+`tests/conformance/test_beast2_corpus.py` write every case again and must match
+its bytes. TypeScript alone re-cuts every value from pieces, as the one runtime
+with a Recut. A change to a rule changes bytes there, so it fails in every
+runtime it has not reached.
+
+### Order
+
+A Set's elements and a Dict's keys ascend in East's total order, the order
+every runtime compares in. Key types are immutable, and they order as follows:
+
+- **Boolean**: `false` before `true`.
+- **Integer** and **DateTime**: numerically.
+- **Float**: numerically, with `-0` before `0`, and NaN after every other
+  value (all NaNs are one value).
+- **String**: by code point, which is the order of the UTF-8 bytes.
+  JavaScript's `<` compares UTF-16 code units, which puts a character above
+  U+FFFF before one in U+E000–U+FFFF; a TypeScript implementation compares
+  code points instead.
+- **Blob**: byte by byte, and a blob before any longer blob it starts.
+- **Struct**: field by field, in declaration order.
+- **Variant**: by case name, as a string, then by payload.
+- **Recursive**: as the type it wraps.
+
 ## Blob layout
 
 ```
@@ -248,7 +306,7 @@ Every mutable container position starts with a tag byte:
 - **Set/Dict content is the canonical value, split at segment boundaries.**
   East Set/Dict values are total-order-canonical in every runtime, and the
   wire holds exactly that value: elements (Set) / keys (Dict) MUST be
-  strictly ascending in East total order within each segment, consecutive
+  strictly ascending in East total order (*Order*) within each segment, consecutive
   segments MUST be disjoint ascending ranges (`last(segment i) <
   first(segment i+1)`), and no element/key repeats anywhere in a stream
   (strict ascent implies this; it also outlaws duplicates within a single
@@ -488,6 +546,12 @@ segment source, and east-py through east-c.
   with, per segment: the segment blob's hash, its first key's fence bytes
   (empty for an Array root), its element (pair) count, and its size in bytes.
   The manifest itself is a whole-value blob: deflate frames, no index.
+- A recursive type's `wrapper` ids in `type` are **canonical**: numbered in
+  preorder from 0, with each `ref` renamed to its innermost enclosing wrapper
+  of the same id. The ids a runtime gives recursive types are its own, and a
+  manifest's hash names the collection, so a writer renames them before
+  encoding. Readers compare types up to renaming, so a manifest written before
+  this rule still reads.
 - Every hash a manifest holds is the **SHA-256** of the object's bytes in
   lowercase hex, the name a store gives the object, so each runtime carries
   one: `v5/sha256.ts` in TypeScript, and east-c's, which east-py binds.
@@ -620,3 +684,6 @@ re-cut's segments are exactly the canonical writer's for the whole value.
   hash — cache invalidation, which is why it shipped as one coordinated
   release rather than per-runtime.
 - The streaming/paging APIs are v5-only (v4 cannot stream by construction).
+- Format v2 changed what writers write, not what readers read: every earlier
+  form still decodes (*Format v2*), and a store lays a collection cut by an
+  earlier rule out again under the current one on its first write to it.
