@@ -140,8 +140,7 @@ function segmentEnd(extents: Beast2Extents, i: number): number {
 
 /**
  * Each segment's logical size: the bytes its elements encode to before
- * compression, which is what the cut rule measures a segment by and what
- * `isContentCut` checks a stored segmentation against.
+ * compression, which is what the cut rule measures a segment by.
  *
  * Read from the frame headers alone. A frame declares its uncompressed length
  * up front, and a segment frame holds its element count's varint and then its

@@ -30,7 +30,7 @@ import {
   fnv1a64,
   segmentBoundaryHash,
   isSegmentBoundary,
-  isContentCut,
+  startsSegmentAfter,
   segmentRuleFor,
   segmentKeyTypeOf,
   encodeBeast2FenceFor,
@@ -344,7 +344,10 @@ describe("beast2 v5 content-defined boundaries", () => {
       for (let i = 0; i < sizes.length - 1; i++) {
         assert.ok(sizes[i]! <= SEGMENT_MAX_BYTES + 256 * 1024 + 16, `segment ${i} is ${sizes[i]} bytes`);
       }
-      assert.ok(isContentCut(geometry(blob, type as never).fences, [...readBeast2Extents(blob).counts], sizes));
+      const { fences, counts } = geometry(blob, type as never);
+      for (let i = 0; i < counts.length - 1; i++) {
+        assert.ok(startsSegmentAfter(counts[i]!, sizes[i]!, fences[i + 1]!), `the cut after segment ${i} is the rule's`);
+      }
     });
 
     test("stores a Dict of 300 rows of 1 MiB as segments of about 1 MiB, not as one", () => {
@@ -387,7 +390,9 @@ describe("beast2 v5 content-defined boundaries", () => {
       const blob = encodeBeast2PagedFor(type)(elements);
       const { fences, counts, sizes } = geometry(blob as Uint8Array, type as never);
       assert.ok(counts.length > 1);
-      assert.ok(isContentCut(fences, counts, sizes));
+      for (let i = 0; i < counts.length - 1; i++) {
+        assert.ok(startsSegmentAfter(counts[i]!, sizes[i]!, fences[i + 1]!), `the cut after segment ${i} is the rule's`);
+      }
     });
 
     test("writes encoded elements to the same bytes as decoded ones", () => {
@@ -466,54 +471,6 @@ describe("beast2 v5 content-defined boundaries", () => {
       assert.equal(none.length, 0);
       const blob = encodeBeast2PagedFor(type)([]);
       assert.deepEqual(empty.header, blob.subarray(0, readBeast2Extents(blob).prefixEnd));
-    });
-  });
-
-  describe("isContentCut", () => {
-    test("accepts what the writer writes", () => {
-      const { fences, counts, sizes } = geometry(encodeBeast2PagedFor(TableType)(table(50_000)), TableType);
-      assert.ok(isContentCut(fences, counts, sizes));
-    });
-
-    test("accepts a single segment", () => {
-      const { fences, counts, sizes } = geometry(encodeBeast2PagedFor(TableType)(table(100)), TableType);
-      assert.deepEqual(counts.length, 1);
-      assert.ok(isContentCut(fences, counts, sizes));
-    });
-
-    test("rejects a blob batched by count", () => {
-      const rows = [...table(50_000)];
-      const batches: SortedMap<string, { id: bigint; name: string }>[] = [];
-      for (let i = 0; i < rows.length; i += 1_000) batches.push(new SortedMap(rows.slice(i, i + 1_000), compareFor(StringType)));
-      const { fences, counts, sizes } = geometry(encodeBeast2SegmentsFor(TableType)(batches), TableType);
-      assert.ok(counts.length > 1);
-      assert.equal(isContentCut(fences, counts, sizes), false);
-    });
-
-    test("rejects a segment below both minimums and one above the maximum count", () => {
-      const { fences, counts, sizes } = geometry(encodeBeast2PagedFor(TableType)(table(50_000)), TableType);
-      const short = [...counts];
-      short[0] = SEGMENT_MIN_COUNT - 1;
-      const narrowSizes = [...sizes];
-      narrowSizes[0] = SEGMENT_MIN_BYTES - 1;
-      assert.equal(isContentCut(fences, short, narrowSizes), false);
-      const long = [...counts];
-      long[0] = SEGMENT_MAX_COUNT + 1;
-      assert.equal(isContentCut(fences, long, sizes), false);
-    });
-
-    test("accepts a segment forced out at a maximum, whose next fence is not a boundary", () => {
-      const fence = encodeBeast2FenceFor(StringType);
-      const plain = ["a", "b"].map(fence);
-      assert.equal(isSegmentBoundary(segmentBoundaryHash(plain[1]!), SEGMENT_MAX_COUNT - 1, SEGMENT_MAX_COUNT - 1), false);
-      assert.ok(isContentCut(plain, [SEGMENT_MAX_COUNT, 10], [SEGMENT_MAX_COUNT, 10]));
-      assert.ok(isContentCut(plain, [3, 10], [SEGMENT_MAX_BYTES, 10]));
-      assert.equal(isContentCut(plain, [SEGMENT_MAX_COUNT - 1, 10], [SEGMENT_MAX_COUNT - 1, 10]), false);
-    });
-
-    test("refuses mismatched lengths", () => {
-      const fence = encodeBeast2FenceFor(StringType);
-      assert.equal(isContentCut([fence("a")], [1], []), false);
     });
   });
 

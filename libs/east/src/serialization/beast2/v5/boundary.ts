@@ -30,9 +30,7 @@
  * A Set or Dict hashes each element's key (its fence bytes, what a manifest
  * stores as a segment's first key); an Array, which has no key, hashes the
  * element's own canonical bytes. The cut falls *before* the deciding element,
- * so a keyed segment's first key is the key that decided its boundary, and a
- * stored segmentation can be checked from its fences, counts and logical sizes
- * ({@link isContentCut}).
+ * so a keyed segment's first key is the key that decided its boundary.
  *
  * The constants are load-bearing wire state: a manifest records the rule id it
  * was cut under, so changing a constant means a new rule id, never a silent
@@ -321,36 +319,4 @@ export class SegmentCutter {
   get openBytes(): number {
     return this.bytes;
   }
-}
-
-/**
- * Whether a stored Set or Dict blob's segmentation is one the keyed rule
- * produces, judged from its fences, counts and logical sizes alone.
- *
- * @remarks
- * This is what keeps a conforming writer's output off the decode path: a blob
- * that passes is carved into segment objects by byte copy, and one that fails
- * is laid out again under the rule. Every boundary the rule can produce is
- * visible here — a hash cut as a boundary fence after a segment that reached
- * its minimum, a forced cut as a segment at a maximum.
- *
- * The test is necessary, not sufficient: a writer that *skipped* a boundary
- * inside a segment cannot be detected without decoding it. An Array's cuts
- * hash whole elements, which no fence carries, so they are not judged here.
- *
- * @param fences - each segment's first key, in the canonical bare encoding
- *   {@link encodeBeast2FenceFor} produces, in segment order
- * @param counts - each segment's element (pair) count, in segment order
- * @param logicalBytes - each segment's logical size, in segment order
- *   (`readBeast2SegmentLogicalBytes`)
- * @returns whether the segmentation conforms to {@link SEGMENT_RULE_KEYED}
- */
-export function isContentCut(fences: readonly Uint8Array[], counts: readonly number[], logicalBytes: readonly number[]): boolean {
-  if (fences.length !== counts.length || logicalBytes.length !== counts.length) return false;
-  for (let i = 0; i < counts.length; i++) {
-    if (counts[i]! > SEGMENT_MAX_COUNT) return false;
-    // The last segment holds what is left.
-    if (i < counts.length - 1 && !startsSegmentAfter(counts[i]!, logicalBytes[i]!, fences[i + 1]!)) return false;
-  }
-  return true;
 }

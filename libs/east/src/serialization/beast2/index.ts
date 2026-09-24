@@ -131,7 +131,6 @@ export {
   segmentBoundaryHash,
   isSegmentBoundary,
   startsSegmentAfter,
-  isContentCut,
   segmentRuleFor,
   segmentKeyTypeOf,
   encodeBeast2FenceFor,

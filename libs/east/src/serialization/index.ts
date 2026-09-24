@@ -18,7 +18,7 @@ export {
   BEAST2_WRITE_VERSION, BEAST2_READ_VERSIONS,
   SEGMENT_MIN_COUNT, SEGMENT_TARGET_COUNT, SEGMENT_MAX_COUNT, SEGMENT_MIN_BYTES, SEGMENT_TARGET_BYTES, SEGMENT_MAX_BYTES,
   SEGMENT_RULE_KEYED, SEGMENT_RULE_ARRAY,
-  SegmentCutter, fnv1a64, segmentBoundaryHash, isSegmentBoundary, startsSegmentAfter, isContentCut, segmentRuleFor, segmentKeyTypeOf,
+  SegmentCutter, fnv1a64, segmentBoundaryHash, isSegmentBoundary, startsSegmentAfter, segmentRuleFor, segmentKeyTypeOf,
   encodeBeast2FenceFor, decodeBeast2FenceFor,
   COLLECTION_MANIFEST_KIND, CollectionManifestType, CollectionManifestEntryType,
   type CollectionManifest, type CollectionManifestEntry, type Beast2ManifestSource,
