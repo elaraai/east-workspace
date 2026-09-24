@@ -190,7 +190,7 @@ One function in e3-core, `storeCollection`, is the only way a collection reaches
 |---|---|
 | a stock runner's output directory (manifest and segments) | links the segments and writes the manifest; the runner's Writer is corpus-pinned, so its cuts are the rule's |
 | the runs of a unit graph | assembled by the engine (§3.7), re-cut at the seams, written as one manifest |
-| a beast2 byte stream: an external file, an API `PUT` body, a custom task's output, a pre-cutover blob | re-encoded through Recut in one streaming pass, a segment at a time, never decoded whole. Nothing from outside is byte-copied: checking a foreign segment costs a re-encode, since its cuts, aliasing, codec and compressor all enter its bytes, and a canonical one re-encodes to the same bytes |
+| a beast2 byte stream: an external file, an API `PUT` body, a custom task's output, a pre-cutover blob | re-encoded through Recut in one streaming pass, a source segment at a time, never decoded whole. Each foreign segment is decoded under an explicit cap on its logical size, the RunSorter's; a larger one — a whole-value encode, a v4 blob or an oversized batch — is refused, naming the fix. Nothing from outside is byte-copied: checking a foreign segment costs a re-encode, since its cuts, aliasing, codec and compressor all enter its bytes, and a canonical one re-encodes to the same bytes |
 | a small value in memory (`datasetWrite`, export defaults) | Writer → manifest |
 
 It checks the declared type, as `dataset-type.ts` does today, and never decodes a value whole (F21). Every door routes through it:
@@ -203,7 +203,9 @@ It checks the declared type, as `dataset-type.ts` does today, and never decodes 
 - API `PUT`;
 - export.
 
-The backend capabilities every path relies on — ranged reads, adoption by link, `materialize`, and plan and owner records — become required (F37), and their whole-object fallbacks are deleted (F21).
+**The adoption memo.** A delivery the door has split is remembered by its SHA-256: the backend records the file's hash and the manifest it became. An adoption, or a transfer init, that finds a live entry points the dataset at that manifest without reading the file again, so an unchanged delivery still costs a hash locally and a round trip remotely. An entry is not a GC root, and one whose manifest is gone is a miss.
+
+The backend capabilities every path relies on — ranged reads, adoption by link, `materialize`, plan and owner records, and the adoption memo — become required (F37), and their whole-object fallbacks are deleted (F21).
 
 Scratch defaults to a directory inside the repository, on the object store's filesystem. Runner output then links in without a copy and never sits on tmpfs (F33).
 
@@ -294,7 +296,7 @@ The recognizer lives in the e3 SDK (`libs/e3/packages/e3/src/parallel.ts`) as on
 |---|---|
 | the segment cut rule parameters (Set/Dict and Array) | `-j` cores |
 | the partition boundary rule parameters | `--memory` |
-| the RunSorter's buffer cap | the scratch directory |
+| the RunSorter's buffer cap, which is also the door's cap on a foreign segment | the scratch directory |
 | merge and fold fan-in; merge range size | the lazy-open threshold |
 | | cgroup use; verbosity |
 
@@ -431,11 +433,13 @@ Read first:
 Changes:
 - **`storeCollection`** (§3.6) in e3-core, with every door routed through it:
   - the callers of `adoptOutputFile`;
+  - the partitioned template's splice steps, whose seams it re-cuts;
   - `datasetWrite` and `adoptDatasetBlob`;
   - `datasetAdoptFile` and `objectAdoptFile`, which now split deliveries (D14);
-  - the transfer commit;
-  - API `PUT`, now streamed instead of decoded whole in the server;
+  - the transfer commit, and `datasetAdoptObject`, its dedup door;
+  - API `PUT`, now streamed instead of decoded whole in the server, with `e3 dataset set` against a server sending the paged encoding;
   - export.
+- **The adoption memo** (§3.6): a `RefStore` pair, in the local and in-memory backends (e3-cloud's comes with stage 8). `datasetAdoptFile`, `objectAdoptFile` and the transfer init consult it.
 - **Delete:**
   - `cutDatasetBlob`'s whole decode;
   - `cutDatasetObject`'s `readDatasetWhole` fallback;
@@ -450,6 +454,7 @@ Acceptance:
 - Every collection stored after this stage is a manifest cut by the v2 rule, whatever door it came through, with a test per door.
 - No door's memory grows with the value: a test per door on an input larger than a memory cap set for the test.
 - A re-delivered file with one changed row shares all but O(1) segments with the previous delivery.
+- An unchanged delivery, adopted again locally or over the transfer, costs its hash and is not split again.
 
 ### Stage 3 — The runner protocol (east, east-node-cli, east-c-cli, east-py-cli)
 
