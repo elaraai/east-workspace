@@ -244,8 +244,11 @@ describe("Beast2 v5 — sync range reader: pages and lazy values", () => {
     assert.equal(pagesReader.elementCount, pagesBytes.elementCount);
     assert.deepEqual(pagesReader.fence(2), pagesBytes.fence(2));
     assert.deepEqual([...(pagesReader.segment(1) as Map<bigint, unknown>).keys()], [...(pagesBytes.segment(1) as Map<bigint, unknown>).keys()]);
-    assert.deepEqual(pagesReader.slice(95, 10), pagesBytes.slice(95, 10));
-    assert.deepEqual(pagesReader.slice(5990, 20), pagesBytes.slice(5990, 20));
+    // Windows are `SortedMap`s, each holding its own pager's comparator, so
+    // they compare as East values rather than as objects.
+    assert.ok(equalFor(TableType)(pagesReader.slice(95, 10), pagesBytes.slice(95, 10)));
+    assert.ok(equalFor(TableType)(pagesReader.slice(5990, 20), pagesBytes.slice(5990, 20)));
+    assert.equal((pagesReader.slice(95, 10) as Map<bigint, unknown>).size, 10);
   });
 
   test("a reader that returns short is blamed, not the blob", () => {
