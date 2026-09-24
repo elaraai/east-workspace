@@ -406,6 +406,61 @@ describe('a runner\'s command line', () => {
   });
 });
 
+describe('output held for a callback that has not settled', () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = createTempDir();
+  });
+
+  afterEach(() => {
+    removeTempDir(dir);
+  });
+
+  it('stays paused when the child exits and Node resumes the stream to drain it', {
+    skip: process.platform === 'win32' ? 'POSIX pipes: the child finishes writing while its output is held' : false,
+  }, async () => {
+    // Three blocks written apart, so each reaches e3 as its own chunk, then
+    // the child exits. The first chunk takes the capture over its one-byte cap
+    // and pauses the stream; the other two wait in the pipe and the stream.
+    // Once the child has exited, Node resumes the stream to drain it: one
+    // chunk arrives before the capture pauses it again, and the last waits
+    // until the chunks held settle.
+    const block = 8192;
+    let pid: number | null = null;
+    let holding = true;
+    const held: (() => void)[] = [];
+    let delivered = 0;
+    let deliveredWhileHeld = 0;
+    const run = spawnAndCapture(['bash', '-c', `for i in 1 2 3; do head -c ${block} /dev/zero | tr "\\0" x; sleep 0.1; done`], dir, {
+      maxPendingBytes: 1,
+      onSpawned: (spawned) => {
+        pid = spawned;
+      },
+      onStdout: (data) => {
+        delivered += Buffer.byteLength(data);
+        if (!holding) return Promise.resolve();
+        deliveredWhileHeld++;
+        return new Promise<void>((resolve) => {
+          held.push(resolve);
+        });
+      },
+    });
+    try {
+      assert.ok(pid !== null && await exitsWithin(pid, 10_000), 'the child exited while its output was held');
+      // Node's drain runs as the exit is handled; a turn more lets it land.
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      assert.equal(deliveredWhileHeld, 2, 'the chunk that crossed the cap, and the one Node resumed with before the pause was renewed');
+    } finally {
+      holding = false;
+      for (const settle of held) settle();
+    }
+    const result = await run;
+    assert.equal(result.exitCode, 0, result.stderrTail);
+    assert.equal(delivered, 3 * block, 'every byte reached the callback once the held chunks settled');
+  });
+});
+
 describe('a Windows command-line argument', () => {
   it('is quoted and escaped exactly as libuv quotes it', () => {
     // libuv's own table (quote_cmd_arg, src/win/process.c), and its shortcuts.

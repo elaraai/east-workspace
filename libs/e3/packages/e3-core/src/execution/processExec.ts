@@ -432,7 +432,9 @@ export interface SpawnAndCaptureOptions {
   /** Per stream, the bytes handed to its callback whose promises have not
    *  settled above which the stream is paused (default 1 MiB); it resumes once
    *  they fall to half. A child writing faster than the callback settles then
-   *  blocks on its pipe. */
+   *  blocks on its pipe. What is held stays within the cap plus two chunks:
+   *  once the child has exited, Node resumes its output to drain it, and one
+   *  chunk arrives before the stream is paused again. */
   maxPendingBytes?: number;
   /** Gives the child a stdin pipe this process never writes to — the
    *  lifeline a stock runner spawned with `--exit-with-parent` (spliced into
@@ -665,7 +667,11 @@ export async function spawnAndCapture(
       if (!settled) return;
       const bytes = Buffer.byteLength(data, 'utf8');
       pending += bytes;
-      if (!paused && pending > maxPendingBytes) {
+      // Over the cap, paused or not: once the child has exited, Node resumes
+      // its output to drain it to the end, over this pause, and a chunk that
+      // arrives before the pause is renewed would otherwise be followed by the
+      // rest of what the pipe and the stream hold.
+      if (pending > maxPendingBytes) {
         paused = true;
         stream.pause();
       }

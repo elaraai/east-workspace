@@ -716,3 +716,5 @@ The GC mark also reads every dataset it visits whole when it is not given `readH
 - the fan-out tests count the operation's own units;
 - the client compatibility tests match the error they expect;
 - the one-row-change page test checks that no boundary moved and every other segment is unchanged.
+
+**Found in this PR's CI.** #772's stdout-flood test failed once on ubuntu. When a child exits, Node resumes its stdout to drain it, over the capture's pause, so the output still buffered — up to the pipe's capacity and the stream's own buffer — arrived past the 1 MiB cap. The capture now pauses again when a chunk arrives while it is paused, so Node pushes at most one chunk past the cap: what is held stays within the cap plus two chunks. A test holds a child's output at the cap until the child has exited.

@@ -136,8 +136,10 @@ describe('taskExecute output capture', () => {
     const log = await storage.logs.read(repo, taskHash, result.inputsHash, result.executionId, 'stdout', { limit: 16 });
     assert.equal(log.totalSize, floodBytes, 'every byte is in stdout.txt');
     assert.equal(maxInFlight, 1, 'one append in flight at a time');
-    assert.ok(maxHeld <= 1024 * 1024 + largestChunk,
-      `output held for the log peaked at ${maxHeld} bytes, over the 1 MiB cap plus one chunk (${largestChunk})`);
+    // Two chunks past the cap: the one that crosses it, and the one Node
+    // delivers when the child exits and it resumes the stream to drain it.
+    assert.ok(maxHeld <= 1024 * 1024 + 2 * largestChunk,
+      `output held for the log peaked at ${maxHeld} bytes, over the 1 MiB cap plus two chunks (${largestChunk} each)`);
   });
 });
 
