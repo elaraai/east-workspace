@@ -39,14 +39,13 @@ import { stat } from 'node:fs/promises';
 import { checkDatasetType, isCollectionRoot, manifestByteSize, manifestElementCount, type CollectionManifest, type TreePath } from '@elaraai/e3-types';
 import {
   readBeast2Type,
-  variant,
   type EastTypeValue,
 } from '@elaraai/east';
 import { DatasetFileTypeMismatchError, readDatasetFileHeader, readDatasetFileType, sha256File } from '@elaraai/e3';
-import { DatasetTypeMismatchError, ObjectNotFoundError, WorkspaceLockError } from './errors.js';
+import { DatasetTypeMismatchError, ObjectNotFoundError } from './errors.js';
 import { readManifest } from './dataset-open.js';
 import { storeCollection } from './store-collection.js';
-import { workspaceResolveDataset, workspaceSetDatasetByHash } from './trees.js';
+import { withDatasetWriteLock, workspaceSetDatasetByHash } from './trees.js';
 import type { LockHandle, StorageBackend } from './storage/interfaces.js';
 
 /** What an adopt reports back about the file it took. */
@@ -66,9 +65,8 @@ export interface DatasetAdoptResult {
 /** Options accepted by {@link datasetAdoptFile}. */
 export interface DatasetAdoptOptions {
   /**
-   * A workspace lock the caller already holds. Deploy holds one across the
-   * whole resolution; a standalone `e3 dataset set --from-file` does not and
-   * lets this take its own.
+   * A workspace lock the caller already holds; without one, the adopt takes
+   * the workspace lock shared for its own duration.
    */
   lock?: LockHandle;
   /**
@@ -136,9 +134,11 @@ export async function deliveryKnown(storage: StorageBackend, repo: string, sourc
  * Take an existing file into the object store as a dataset value.
  *
  * @remarks
- * Repository-level: no workspace, no lock and no type check — the caller has
- * already checked the file's header against whatever declares its type (the
- * dataset, for {@link datasetAdoptFile}; the package's structure, at deploy).
+ * Repository-level: no workspace and no type check — the caller has already
+ * checked the file's header against whatever declares its type (the dataset,
+ * for {@link datasetAdoptFile}; the package's structure, at deploy) — and no
+ * lock of its own: the caller holds the tasks lock, since nothing names the
+ * segments this stores until the caller's ref does.
  *
  * A collection is split into segment objects through the store's door, and the
  * delivery's SHA-256 is remembered with the manifest it became, so the same
@@ -200,7 +200,8 @@ export async function objectAdoptFile(
  *   type the dataset declares
  * @throws {WorkspaceLockError} When the workspace is locked by another process
  * @throws If the dataset is not writable, the file is missing or unreadable,
- *   or the door refuses the collection it holds
+ *   the door refuses the collection it holds, or a garbage collection is
+ *   running
  */
 export async function datasetAdoptFile(
   storage: StorageBackend,
@@ -210,24 +211,7 @@ export async function datasetAdoptFile(
   file: string,
   options: DatasetAdoptOptions = {}
 ): Promise<DatasetAdoptResult> {
-  const externalLock = options.lock;
-  let lock: LockHandle | null = externalLock ?? null;
-  if (!lock) {
-    lock = await storage.locks.acquire(repo, ws, variant('dataset_write', null), { mode: 'shared' });
-    if (!lock) {
-      const state = await storage.locks.getState(repo, ws);
-      throw new WorkspaceLockError(ws, state ? {
-        acquiredAt: state.acquiredAt.toISOString(),
-        operation: state.operation.type,
-      } : undefined);
-    }
-  }
-  try {
-    const leaf = await workspaceResolveDataset(storage, repo, ws, treePath);
-    if (!leaf.writable) {
-      throw new Error(`Dataset at '${treePath.map(s => s.value).join('.')}' is not writable`);
-    }
-
+  return withDatasetWriteLock(storage, repo, ws, treePath, options.lock, async (leaf) => {
     // Validate from the header before anything is hashed or stored, and
     // re-raise the mismatch once the workspace and address are known.
     try {
@@ -248,9 +232,7 @@ export async function datasetAdoptFile(
     await workspaceSetDatasetByHash(storage, repo, ws, treePath, hash, new Map([[selfKeypath, hash]]));
 
     return { hash, size, ...await geometry(storage, repo, hash, leaf.type) };
-  } finally {
-    if (!externalLock) await lock.release();
-  }
+  });
 }
 
 /**
@@ -265,6 +247,11 @@ export async function datasetAdoptFile(
  * pairing is ever checked. An object that is a collection goes through the
  * store's door first, and is remembered as the manifest it became.
  *
+ * It holds the locks {@link datasetAdoptFile} does: a collection the store
+ * holds whole is re-cut here, which for a large one takes minutes, and neither
+ * a deploy nor a removal may finish inside it, nor a sweep delete its segments
+ * before the ref names them.
+ *
  * @param storage - Storage backend
  * @param repo - Repository identifier
  * @param ws - Workspace name
@@ -273,8 +260,9 @@ export async function datasetAdoptFile(
  * @returns The dataset's new hash, the delivery's size and the stored geometry
  * @throws {DatasetTypeMismatchError} When the delivery's wire type is not the
  *   type the dataset declares
- * @throws If the dataset is not writable or the store does not know the
- *   delivery
+ * @throws {WorkspaceLockError} When the workspace is locked by another process
+ * @throws If the dataset is not writable, the store does not know the
+ *   delivery, or a garbage collection is running
  */
 export async function datasetAdoptObject(
   storage: StorageBackend,
@@ -283,33 +271,31 @@ export async function datasetAdoptObject(
   treePath: TreePath,
   sourceHash: string
 ): Promise<DatasetAdoptResult> {
-  const leaf = await workspaceResolveDataset(storage, repo, ws, treePath);
-  if (!leaf.writable) {
-    throw new Error(`Dataset at '${treePath.map(s => s.value).join('.')}' is not writable`);
-  }
-  const subject = `dataset '${leaf.address}'`;
-  const known = await adoptedManifest(storage, repo, sourceHash);
-  let hash: string;
-  let size: number;
-  if (known !== null) {
-    const mismatch = checkDatasetType(subject, `delivery ${sourceHash.slice(0, 8)}...`, leaf.type, known.manifest.type);
-    if (mismatch) throw new DatasetTypeMismatchError(ws, leaf.address, mismatch);
-    hash = known.hash;
-    size = manifestByteSize(known.manifest);
-  } else {
-    ({ size } = await storage.objects.stat(repo, sourceHash));
-    const mismatch = checkDatasetType(subject, `object ${sourceHash.slice(0, 8)}...`, leaf.type, await objectType(storage, repo, sourceHash, size));
-    if (mismatch) throw new DatasetTypeMismatchError(ws, leaf.address, mismatch);
-    if (isCollectionRoot(leaf.type)) {
-      hash = await storeCollection(storage, repo, leaf.type, [{ stored: sourceHash }]);
-      await storage.refs.adoptionWrite(repo, sourceHash, hash);
+  return withDatasetWriteLock(storage, repo, ws, treePath, undefined, async (leaf) => {
+    const subject = `dataset '${leaf.address}'`;
+    const known = await adoptedManifest(storage, repo, sourceHash);
+    let hash: string;
+    let size: number;
+    if (known !== null) {
+      const mismatch = checkDatasetType(subject, `delivery ${sourceHash.slice(0, 8)}...`, leaf.type, known.manifest.type);
+      if (mismatch) throw new DatasetTypeMismatchError(ws, leaf.address, mismatch);
+      hash = known.hash;
+      size = manifestByteSize(known.manifest);
     } else {
-      hash = sourceHash;
+      ({ size } = await storage.objects.stat(repo, sourceHash));
+      const mismatch = checkDatasetType(subject, `object ${sourceHash.slice(0, 8)}...`, leaf.type, await objectType(storage, repo, sourceHash, size));
+      if (mismatch) throw new DatasetTypeMismatchError(ws, leaf.address, mismatch);
+      if (isCollectionRoot(leaf.type)) {
+        hash = await storeCollection(storage, repo, leaf.type, [{ stored: sourceHash }]);
+        await storage.refs.adoptionWrite(repo, sourceHash, hash);
+      } else {
+        hash = sourceHash;
+      }
     }
-  }
-  const selfKeypath = treePath.map(s => `.${s.value}`).join('');
-  await workspaceSetDatasetByHash(storage, repo, ws, treePath, hash, new Map([[selfKeypath, hash]]));
-  return { hash, size, ...await geometry(storage, repo, hash, leaf.type) };
+    const selfKeypath = treePath.map(s => `.${s.value}`).join('');
+    await workspaceSetDatasetByHash(storage, repo, ws, treePath, hash, new Map([[selfKeypath, hash]]));
+    return { hash, size, ...await geometry(storage, repo, hash, leaf.type) };
+  });
 }
 
 /** The head reads {@link objectType} tries, in order — the first covers every

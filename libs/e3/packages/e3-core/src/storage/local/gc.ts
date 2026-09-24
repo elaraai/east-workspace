@@ -763,12 +763,41 @@ export function sweepBatch(
 // =============================================================================
 
 /**
- * The lock an ad-hoc task run (`e3 run`) holds shared for its duration and
- * gc takes exclusive, so the two never overlap: a run outside any workspace
- * has no dataflow lock, yet writes objects it has not rooted (carved slices,
- * unit outputs) that a concurrent sweep would delete.
+ * The lock gc takes exclusive, and every write that stores objects before a
+ * ref names them holds shared, so the two never overlap: an ad-hoc task run
+ * (`e3 run`), which has no dataflow lock, a record write, a dataset write
+ * through the store's door, and a deploy. Each writes objects it has not yet
+ * rooted, which a concurrent sweep would delete.
  */
 export const TASKS_LOCK = '#tasks';
+
+/**
+ * Runs `fn` holding the tasks lock shared, so a sweep cannot run while it
+ * does.
+ *
+ * @remarks
+ * A write through the store's door stores objects before anything names them
+ * — a delivery's segments, a delta, an index build's output — exactly as an
+ * ad-hoc task run does, and the answer is the same one: gc takes this lock
+ * exclusively, so the two never overlap and none of it needs rooting. Without
+ * it a sweep landing mid-write deletes objects the ref it is about to write
+ * names.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param fn - the work, which writes objects before anything names them
+ * @returns what `fn` returns
+ * @throws {Error} When a garbage collection holds the lock.
+ */
+export async function withRunningWork<T>(storage: StorageBackend, repo: string, fn: () => Promise<T>): Promise<T> {
+  const lock = await storage.locks.acquire(repo, TASKS_LOCK, variant('dataflow', null), { mode: 'shared' });
+  if (!lock) throw new Error('a garbage collection is running in this repository — retry when it finishes');
+  try {
+    return await fn();
+  } finally {
+    await lock.release();
+  }
+}
 
 /**
  * Run garbage collection on an e3 repository.
@@ -776,10 +805,10 @@ export const TASKS_LOCK = '#tasks';
  * Works with any StorageBackend — no instanceof checks.
  *
  * gc holds the {@link TASKS_LOCK} exclusively and every workspace's dataflow
- * lock from before the mark until the sweep is done, so it never overlaps an
- * ad-hoc task run or a dataflow run: the objects a run writes before it roots
- * them (carved slices, unit outputs) need no rooting. Marking is header-first,
- * so a dataset is never read whole.
+ * lock from before the mark until the sweep is done, so it never overlaps a
+ * write holding the tasks lock or a dataflow run: the objects either writes
+ * before it roots them need no rooting. Marking is header-first, so a dataset
+ * is never read whole.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier

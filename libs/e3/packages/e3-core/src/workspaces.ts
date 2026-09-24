@@ -36,7 +36,8 @@ import {
 } from './errors.js';
 import type { StorageBackend, LockHandle } from './storage/interfaces.js';
 import type { TaskRunner } from './execution/interfaces.js';
-import { buildDeployIndexes, commitDeployIndexes, withRunningWork, type RecordIndexPlan } from './records.js';
+import { buildDeployIndexes, commitDeployIndexes, type RecordIndexPlan } from './records.js';
+import { withRunningWork } from './storage/local/gc.js';
 
 /**
  * List workspace names.
@@ -324,6 +325,7 @@ export interface WorkspaceDeployOptions {
  * @param pkgVersion - Package version
  * @param options - Optional settings including external lock
  * @throws {WorkspaceLockError} If workspace is locked by another process
+ * @throws {Error} When a garbage collection is running in the repository
  */
 export async function workspaceDeploy(
   storage: StorageBackend,
@@ -365,29 +367,30 @@ export async function workspaceDeploy(
       pkg, options.sourceWarning, options.resolveFileSources ?? true,
     );
 
-    // Adopt every validated delivery into the object store, still before the
-    // wipe. Objects are repo-wide and content-addressed, so this is safe and
-    // idempotent whatever follows (an object no ref names is gc's to collect),
-    // and it moves every step that can fail for an I/O reason — the hash, a
-    // cross-device copy, ENOSPC, a delivery replaced since it was validated —
-    // ahead of the first destructive write. Only the ref writes come after.
-    const adoptedSources = new Map<string, string>();
-    for (const [refPath, file] of sourceFiles) {
-      const { hash } = await objectAdoptFile(storage, repo, file);
-      adoptedSources.set(refPath, hash);
-    }
-
-    // An index is derived state a deploy owes: a record minted here has none,
-    // and one whose declaration changed has one built under the old
-    // declaration. Every build runs before the wipe below, because a build
-    // runs user East and is the step likeliest to fail; each lands as a
-    // `$reindex` commit once the new refs are in place. The tasks lock is held
-    // from the builds to those commits, since nothing names what a build wrote
-    // until then.
+    // The tasks lock is held from the first object this deploy writes — an
+    // adopted delivery's segments, an index build's output — to the last ref
+    // that names one, since until then nothing roots them against a sweep.
     await withRunningWork(storage, repo, async () => {
-      // The state each record holds once the refs are written, as
-      // writeRecordGenesis writes it: its preserved prior state, else the
-      // package's initial value.
+      // Adopt every validated delivery into the object store, still before
+      // the wipe. Objects are repo-wide and content-addressed, so this is safe
+      // and idempotent whatever follows (an object no ref names is gc's to
+      // collect), and it moves every step that can fail for an I/O reason —
+      // the hash, a cross-device copy, ENOSPC, a delivery replaced since it
+      // was validated — ahead of the first destructive write. Only the ref
+      // writes come after.
+      const adoptedSources = new Map<string, string>();
+      for (const [refPath, file] of sourceFiles) {
+        const { hash } = await objectAdoptFile(storage, repo, file);
+        adoptedSources.set(refPath, hash);
+      }
+
+      // An index is derived state a deploy owes: a record minted here has
+      // none, and one whose declaration changed has one built under the old
+      // declaration. Every build runs before the wipe below, because a build
+      // runs user East and is the step likeliest to fail; each lands as a
+      // `$reindex` commit once the new refs are in place. The state each
+      // record holds once the refs are written is the one writeRecordGenesis
+      // writes: its preserved prior state, else the package's initial value.
       const indexBuilds = await buildDeployIndexes(storage, repo, pkg, (path) => {
         const initial = pkg.data.refs.get(path);
         if (initial?.type !== 'value') return undefined;
@@ -406,33 +409,30 @@ export async function workspaceDeploy(
       // thus never unassigned and never silently reset.
       await writeRecordGenesis(storage, repo, name, pkg, priorRecords);
       await commitDeployIndexes(storage, repo, name, indexBuilds);
+
+      await writeState(storage, repo, name, {
+        packageName: pkgName,
+        packageVersion: pkgVersion,
+        packageHash,
+        deployedAt: new Date(),
+        currentRunId: none,
+      });
+
+      // Point each path-initialised input at the value adopted above — a ref
+      // write per input. The self entry in the version vector names the
+      // value's hash, which is what makes change detection exact for the
+      // input's consumers.
+      //
+      // The file IS the value, so a new delivery under the same path is a new
+      // hash: its consumers re-run and `partitionTask`'s per-partition
+      // memoization keeps the partitions whose slices did not move.
+      for (const [refPath, hash] of adoptedSources) {
+        await workspaceSetDatasetByHash(
+          storage, repo, name, treePathOfRefPath(refPath), hash,
+          new Map([[refPathToKeypath(refPath), hash]]),
+        );
+      }
     });
-
-    const now = new Date();
-    const state: WorkspaceState = {
-      packageName: pkgName,
-      packageVersion: pkgVersion,
-      packageHash,
-      deployedAt: now,
-      currentRunId: variant('none', null),
-    };
-
-    await writeState(storage, repo, name, state);
-
-    // Point each path-initialised input at the value adopted above — the
-    // one step after the wipe, a ref write per input. The self entry in the
-    // version vector names the value's hash, which is what makes change
-    // detection exact for the input's consumers.
-    //
-    // The file IS the value, so a new delivery under the same path is a new
-    // hash: its consumers re-run and `partitionTask`'s per-partition
-    // memoization keeps the partitions whose slices did not move.
-    for (const [refPath, hash] of adoptedSources) {
-      await workspaceSetDatasetByHash(
-        storage, repo, name, treePathOfRefPath(refPath), hash,
-        new Map([[refPathToKeypath(refPath), hash]]),
-      );
-    }
   } finally {
     // Only release the lock if we acquired it internally
     if (!externalLock) {

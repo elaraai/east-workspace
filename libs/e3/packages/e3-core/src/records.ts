@@ -42,7 +42,7 @@ import { storeDatasetBytes } from './store-collection.js';
 import { workspaceGetPackage } from './workspaces.js';
 import { refPathToKeypath } from './dataset-refs.js';
 import { DatasetRefConflictError, WorkspaceLockError } from './errors.js';
-import { TASKS_LOCK } from './storage/local/gc.js';
+import { withRunningWork } from './storage/local/gc.js';
 import type { StorageBackend, LockHandle } from './storage/interfaces.js';
 import type { TaskRunner } from './execution/interfaces.js';
 import type { DetachedArg, DetachedResult } from './execution/runDetached.js';
@@ -156,36 +156,12 @@ async function withSharedWorkspaceLock<T>(
     }
   }
   try {
+    // A record write produces objects before anything names them — a delta,
+    // the new segments, a build's partials and the slices it carved — which
+    // only its commit roots.
     return await withRunningWork(storage, repo, fn);
   } finally {
     if (!externalLock) await lock.release();
-  }
-}
-
-/**
- * Runs `fn` holding the tasks lock shared, so a sweep cannot run while it
- * does.
- *
- * @remarks
- * A record write produces objects before anything names them — a delta, the
- * new segments, a build's partials and the slices it carved — exactly as an
- * ad-hoc task run does, and the answer is the same one: gc takes this lock
- * exclusively, so the two never overlap and none of it needs rooting. Without
- * it a sweep landing mid-write deletes objects the commit is about to name.
- *
- * @param storage - Storage backend
- * @param repo - Repository identifier
- * @param fn - the work, which writes objects before anything names them
- * @returns what `fn` returns
- * @throws {Error} When a garbage collection holds the lock.
- */
-export async function withRunningWork<T>(storage: StorageBackend, repo: string, fn: () => Promise<T>): Promise<T> {
-  const lock = await storage.locks.acquire(repo, TASKS_LOCK, variant('dataflow', null), { mode: 'shared' });
-  if (!lock) throw new Error('a garbage collection is running in this repository — retry when it finishes');
-  try {
-    return await fn();
-  } finally {
-    await lock.release();
   }
 }
 

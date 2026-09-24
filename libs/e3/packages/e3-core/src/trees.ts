@@ -36,6 +36,7 @@ import { DataRefType, WorkspaceStateType, checkDatasetType, datasetAddress, deco
 import { openDatasetObject, readDatasetWhole } from './dataset-open.js';
 import { storeCollection } from './store-collection.js';
 import { packageRead } from './packages.js';
+import { withRunningWork } from './storage/local/gc.js';
 import {
   WorkspaceNotFoundError,
   WorkspaceNotDeployedError,
@@ -286,7 +287,8 @@ export interface WorkspaceSetDatasetOptions {
  * @param type - The East type for encoding the value (EastType or EastTypeValue)
  * @param options - Optional settings including external lock
  * @throws {WorkspaceLockError} If workspace is locked by another process
- * @throws If workspace not deployed, path invalid, or path points to a tree
+ * @throws If workspace not deployed, path invalid, path points to a tree, or a
+ *   garbage collection is running
  */
 export async function workspaceSetDataset(
   storage: StorageBackend,
@@ -333,7 +335,8 @@ export async function workspaceSetDataset(
  *   the dataset declares
  * @throws {WorkspaceLockError} If workspace is locked by another process
  * @throws If workspace not deployed, path invalid, the dataset is not
- *   writable, or the bytes are not a value the store takes
+ *   writable, the bytes are not a value the store takes, or a garbage
+ *   collection is running
  */
 export async function workspaceSetDatasetBytes(
   storage: StorageBackend,
@@ -362,16 +365,33 @@ export async function workspaceSetDatasetBytes(
 
 /**
  * Runs a write to one writable dataset under the workspace's shared
- * `dataset_write` lock — the caller's, when it holds one.
+ * `dataset_write` lock — the caller's, when it holds one — and the tasks lock.
+ *
+ * @remarks
+ * Every door write goes through here. The workspace lock fences it out of a
+ * deploy or a removal, and the tasks lock out of a sweep: a collection's
+ * segments are stored before the ref that names them, which for a large
+ * delivery is minutes, and a sweep in between would delete them.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param ws - Workspace name
+ * @param treePath - Path to the dataset
+ * @param externalLock - A workspace lock the caller already holds
+ * @param write - The write, given the dataset's leaf
+ * @returns What `write` returns
+ * @throws {WorkspaceLockError} If workspace is locked by another process
+ * @throws If the dataset is not writable, or a garbage collection is running
+ * @internal
  */
-async function withDatasetWriteLock(
+export async function withDatasetWriteLock<T>(
   storage: StorageBackend,
   repo: string,
   ws: string,
   treePath: TreePath,
   externalLock: LockHandle | undefined,
-  write: (leaf: DatasetLeaf) => Promise<void>
-): Promise<void> {
+  write: (leaf: DatasetLeaf) => Promise<T>
+): Promise<T> {
   if (treePath.length === 0) {
     throw new Error('Cannot set dataset at root path - root is always a tree');
   }
@@ -392,7 +412,7 @@ async function withDatasetWriteLock(
       const pathStr = treePath.map(s => s.value).join('.');
       throw new Error(`Dataset at '${pathStr}' is not writable`);
     }
-    await write(leaf);
+    return await withRunningWork(storage, repo, () => write(leaf));
   } finally {
     // Only release the lock if we acquired it internally
     if (!externalLock) {

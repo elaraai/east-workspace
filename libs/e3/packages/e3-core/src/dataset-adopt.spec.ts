@@ -28,7 +28,7 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
 import { chmodSync, constants, copyFileSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import {
   ArrayType,
   DictType,
@@ -42,11 +42,12 @@ import {
 import e3, { type DatasetSource } from '@elaraai/e3';
 import { datasetAdoptFile, datasetAdoptObject, deliveryKnown, objectAdoptFile } from './dataset-adopt.js';
 import { DatasetSegments } from './dataset-open.js';
-import { DatasetTypeMismatchError } from './errors.js';
+import { DatasetTypeMismatchError, WorkspaceLockError } from './errors.js';
 import { computeHash } from './objects.js';
 import { packageImport } from './packages.js';
 import { workspaceDeploy, workspaceGetState } from './workspaces.js';
-import { datasetWrite, workspaceGetDatasetStatus, workspaceSetDataset } from './trees.js';
+import { datasetWrite, workspaceGetDatasetStatus, workspaceSetDataset, workspaceSetDatasetBytes } from './trees.js';
+import { repoGc } from './storage/local/gc.js';
 import { createTestRepo, removeTestRepo, createTempDir, removeTempDir, encodeInSegmentsOf } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
 import { objectPath } from './storage/local/localHelpers.js';
@@ -568,6 +569,111 @@ describe('path-initialised inputs', () => {
       );
       assert.equal((await workspaceGetDatasetStatus(storage, testRepo, 'ws', [...tablePath])).refType, 'unassigned');
       assert.equal(await storage.objects.count(testRepo), objectsBefore, 'nothing was adopted');
+    });
+  });
+
+  describe('a door write holds off a sweep', () => {
+    // A door write stores a collection's segments before the ref that names
+    // them, which for a large delivery is minutes. Until the ref is written no
+    // root reaches them, so a sweep in between deletes objects the ref is
+    // about to name. Each write here is stopped at its first object write.
+
+    /** `storage`, with every object write held until `release` is called. */
+    function held(): { storage: StorageBackend; writing: Promise<void>; release: () => void } {
+      let entered!: () => void;
+      const writing = new Promise<void>((resolve) => { entered = resolve; });
+      let release!: () => void;
+      const released = new Promise<void>((resolve) => { release = resolve; });
+      const inner = storage;
+      const objects = Object.create(inner.objects, {
+        write: {
+          value: async (repo: string, bytes: Uint8Array): Promise<string> => {
+            entered();
+            await released;
+            return inner.objects.write(repo, bytes);
+          },
+        },
+      }) as StorageBackend['objects'];
+      return {
+        storage: {
+          objects,
+          refs: inner.refs,
+          locks: inner.locks,
+          logs: inner.logs,
+          repos: inner.repos,
+          datasets: inner.datasets,
+          validateRepository: (repo) => inner.validateRepository(repo),
+        },
+        writing,
+        release,
+      };
+    }
+
+    /** Asserts a sweep is refused while `write` is stopped at its first object,
+     *  and runs once it has finished — so it was the lock that refused it. */
+    async function sweepWaitsFor(hold: ReturnType<typeof held>, write: Promise<unknown>): Promise<void> {
+      await Promise.race([hold.writing, write]);
+      const sweeper = new LocalStorage(dirname(testRepo));
+      try {
+        await assert.rejects(repoGc(sweeper, testRepo, { minAge: 0 }), /a task is running/);
+      } finally {
+        hold.release();
+      }
+      await write;
+      await repoGc(sweeper, testRepo, { minAge: 0 });
+    }
+
+    /** The table's rows, read back after the sweep. */
+    async function tableRows(): Promise<number | null | undefined> {
+      return (await workspaceGetDatasetStatus(storage, testRepo, 'ws', [...tablePath], { geometry: true })).rows;
+    }
+
+    it('a set', async () => {
+      await deployTableWorkspace('fence-set');
+      const hold = held();
+      await sweepWaitsFor(hold, workspaceSetDataset(hold.storage, testRepo, 'ws', [...tablePath], rows(40), TableType));
+      assert.equal(await tableRows(), 40);
+    });
+
+    it('an upload', async () => {
+      await deployTableWorkspace('fence-upload');
+      const hold = held();
+      await sweepWaitsFor(hold, workspaceSetDatasetBytes(hold.storage, testRepo, 'ws', [...tablePath],
+        [encodeInSegmentsOf(TableType, 8)(rows(40))]));
+      assert.equal(await tableRows(), 40);
+    });
+
+    it('an adopted delivery', async () => {
+      await deployTableWorkspace('fence-adopt');
+      const hold = held();
+      await sweepWaitsFor(hold, datasetAdoptFile(hold.storage, testRepo, 'ws', [...tablePath], writeDelivery('table.beast2', 40)));
+      assert.equal(await tableRows(), 40);
+    });
+
+    it("a deploy, from a delivery's first segment to its ref", async () => {
+      await packageImport(storage, testRepo, await exportTablePackage('fence-deploy', variant('file', writeDelivery('table.beast2', 24))));
+      const hold = held();
+      await sweepWaitsFor(hold, workspaceDeploy(hold.storage, testRepo, 'ws', 'fence-deploy', '1.0.0'));
+      assert.equal(await tableRows(), 24);
+    });
+
+    it('the transfer dedup door, which also takes the workspace lock', async () => {
+      await deployTableWorkspace('fence-dedup');
+      // A delivery the store holds whole, as a repository written before the
+      // door holds it: the dedup door re-cuts it, for minutes when it is large,
+      // and neither a deploy nor a removal may finish inside that.
+      const whole = await storage.objects.write(testRepo, encodeInSegmentsOf(TableType, 8)(rows(12)));
+      const deploying = await storage.locks.acquire(testRepo, 'ws', variant('deployment', null));
+      assert.ok(deploying);
+      try {
+        await assert.rejects(datasetAdoptObject(storage, testRepo, 'ws', [...tablePath], whole), WorkspaceLockError);
+      } finally {
+        await deploying.release();
+      }
+
+      const hold = held();
+      await sweepWaitsFor(hold, datasetAdoptObject(hold.storage, testRepo, 'ws', [...tablePath], whole));
+      assert.equal(await tableRows(), 12);
     });
   });
 });
