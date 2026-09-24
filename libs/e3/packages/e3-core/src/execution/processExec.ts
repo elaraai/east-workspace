@@ -22,7 +22,7 @@ import crossSpawn from 'cross-spawn';
 import { spawn as nodeSpawn, type ChildProcess, type SpawnOptions } from 'child_process';
 import { createRequire } from 'module';
 import { runnerToArgv, type RunnerValue } from '@elaraai/e3-types';
-import { DatasetSegments, readManifest } from '../dataset-open.js';
+import { DatasetSegments, openDatasetObject } from '../dataset-open.js';
 import type { StorageBackend } from '../storage/interfaces.js';
 
 // On Windows, pnpm's workspace bins are `.cmd` / `.ps1` files, not real
@@ -124,7 +124,8 @@ export interface MarshalInputsOptions {
  * An input stored as a segment manifest is staged as the manifest plus one
  * linked file per segment for a runner that opens the layout, and spliced
  * into one file for a runner that does not. Peak memory is one segment
- * either way; for the first, no segment's bytes move at all.
+ * either way; for the first, no segment's bytes move at all. An indexed
+ * record's `$record` state is never staged: its primary is, the rows.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
@@ -144,8 +145,7 @@ export async function marshalInputsToDir(
   const inputPaths: string[] = [];
   for (let i = 0; i < inputHashes.length; i++) {
     const inputPath = path.join(scratchDir, `input-${i}.beast2`);
-    const hash = inputHashes[i]!;
-    const manifest = await readManifest(storage, repo, hash);
+    const { hash, manifest } = await openDatasetObject(storage, repo, inputHashes[i]!);
     if (manifest !== null && options.manifests === true) {
       // The manifest itself, then its segments as sibling files named by
       // hash — the convention every runtime's opener reads. Each segment is a

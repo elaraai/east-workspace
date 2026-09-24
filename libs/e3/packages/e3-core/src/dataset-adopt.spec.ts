@@ -27,7 +27,7 @@
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
-import { chmodSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, constants, copyFileSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   ArrayType,
@@ -56,6 +56,22 @@ const RowType = StructType({ id: IntegerType, name: StringType });
 const TableType = ArrayType(RowType);
 const rows = (n: number, offset = 0): { id: bigint; name: string }[] =>
   Array.from({ length: n }, (_, i) => ({ id: BigInt(i + offset), name: `row-${i + offset}` }));
+
+/** Whether the file system under `dir` reflinks — the first way an adoption
+ *  shares a delivery's storage. */
+function reflinks(dir: string): boolean {
+  const probe = join(dir, 'reflink-probe');
+  writeFileSync(probe, 'probe');
+  try {
+    copyFileSync(probe, `${probe}.clone`, constants.COPYFILE_FICLONE_FORCE);
+    return true;
+  } catch {
+    return false;
+  } finally {
+    rmSync(`${probe}.clone`, { force: true });
+    rmSync(probe);
+  }
+}
 
 describe('path-initialised inputs', () => {
   let testRepo: string;
@@ -310,15 +326,16 @@ describe('path-initialised inputs', () => {
       const after = statSync(file);
       assert.equal(after.mode, before.mode, 'the delivery\'s mode is untouched');
       assert.equal(after.mtimeMs, before.mtimeMs, 'the delivery\'s mtime is untouched');
-      // Same volume (both under the OS temp dir in this suite), so the object
-      // is the delivery's own inode — a reflinking file system gives distinct
-      // inodes with identical bytes instead, which is equally correct.
-      const object = statSync(objectPath(testRepo, result.hash));
-      const sameInode = object.ino === after.ino && object.dev === after.dev;
-      assert.ok(
-        sameInode || object.size === after.size,
-        'the object is a link to the delivery, or a copy of exactly its bytes'
-      );
+      // Same volume (both under the OS temp dir in this suite): a file system
+      // that reflinks gives the object an inode of its own sharing the
+      // delivery's storage, and any other gives it the delivery's own inode.
+      if (reflinks(tempDir)) {
+        assert.deepEqual(readFileSync(objectPath(testRepo, result.hash)), Buffer.from(bytes), 'the object is a reflink of the delivery');
+      } else {
+        const object = statSync(objectPath(testRepo, result.hash), { bigint: true });
+        const delivery = statSync(file, { bigint: true });
+        assert.ok(object.dev === delivery.dev && object.ino === delivery.ino, 'the object is the delivery\'s own inode');
+      }
     });
   });
 

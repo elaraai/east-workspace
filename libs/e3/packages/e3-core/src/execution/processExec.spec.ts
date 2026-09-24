@@ -25,14 +25,15 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { join, sep } from 'node:path';
+import { dirname, join, sep } from 'node:path';
 import crossSpawn from 'cross-spawn';
-import { DictType, East, FunctionType, IntegerType, NullType, SortedMap, StringType, compareFor, decodeBeast2For, encodeEastIR, variant } from '@elaraai/east';
+import { DictType, East, FunctionType, IntegerType, NullType, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, encodeEastIR, variant } from '@elaraai/east';
 import { decodeCollectionManifest } from '@elaraai/e3-types';
 import { withRunnerLifeline } from '@elaraai/e3-types';
 import { jobLauncher, marshalInputsToDir, quoteWindowsArgument, spawnAndCapture } from './processExec.js';
 import { storeDatasetFile } from '../store-collection.js';
 import { datasetWrite } from '../trees.js';
+import { writeRecordState } from '../records.js';
 import { createTestRepo, removeTestRepo, createTempDir, removeTempDir, processTree } from '../test-helpers.js';
 import { LocalStorage } from '../storage/local/index.js';
 import { objectPath } from '../storage/local/localHelpers.js';
@@ -51,6 +52,20 @@ function countWholeReads(storage: StorageBackend, counts?: (hash: string) => boo
     return original(repo, hash);
   };
   return { reads: () => reads };
+}
+
+/** Asserts a staged file IS its object — one inode — wherever the scratch
+ *  directory is on the object's volume, as a test's scratch and repository
+ *  are, both under the system temp directory. Across volumes a stage can only
+ *  copy, and then it must hold exactly the object's bytes. */
+function assertSharesStorage(staged: string, object: string, what: string): void {
+  const input = statSync(staged, { bigint: true });
+  const stored = statSync(object, { bigint: true });
+  if (statSync(dirname(staged), { bigint: true }).dev === stored.dev) {
+    assert.ok(input.dev === stored.dev && input.ino === stored.ino, `${what} is the object itself, by a hard link`);
+  } else {
+    assert.deepEqual(readFileSync(staged), readFileSync(object), `${what} holds exactly the object's bytes`);
+  }
 }
 
 describe('staging by link or kernel copy', () => {
@@ -93,14 +108,7 @@ describe('staging by link or kernel copy', () => {
     const { hash } = await store(4096, 0x43);
     const [staged] = await marshalInputsToDir(storage, testRepo, scratch, [hash]);
 
-    const object = statSync(objectPath(testRepo, hash));
-    const input = statSync(staged!);
-    // A hard link on one volume, a reflink where the file system has them:
-    // either way the bytes were never copied through this process.
-    assert.ok(
-      (input.ino === object.ino && input.dev === object.dev) || input.size === object.size,
-      'the staged input is the object, or exactly its bytes'
-    );
+    assertSharesStorage(staged!, objectPath(testRepo, hash), 'the staged input');
   });
 
   it('never links an input a custom runner could write through', async () => {
@@ -141,12 +149,7 @@ describe('staging by link or kernel copy', () => {
     );
     // Not one byte of any segment moved: each staged file IS its object.
     for (const entry of manifest.entries) {
-      const object = statSync(objectPath(testRepo, entry.hash));
-      const input = statSync(join(segmentDir, `${entry.hash}.beast2`));
-      assert.ok(
-        (input.ino === object.ino && input.dev === object.dev) || input.size === object.size,
-        `segment ${entry.hash} is the object, or exactly its bytes`,
-      );
+      assertSharesStorage(join(segmentDir, `${entry.hash}.beast2`), objectPath(testRepo, entry.hash), `segment ${entry.hash}`);
     }
     // The manifest is read — it IS the index, and it is a few dozen bytes
     // per segment — but not one segment's bytes pass through this process.
@@ -169,6 +172,41 @@ describe('staging by link or kernel copy', () => {
     const decoded = decodeBeast2For(type)(readFileSync(staged!)) as Map<string, bigint>;
     assert.equal(decoded.size, 20_000);
     assert.equal(decoded.get('k0019999'), 19_999n);
+  });
+
+  it('stages an indexed record as its rows, whatever its primary is stored as', async () => {
+    // An indexed record's ref names a `$record` state, which names the rows'
+    // collection and each index's. A runner is handed the rows: the manifest
+    // and its segments, or the value, never the state.
+    const type = DictType(StringType, IntegerType);
+    const rows = new SortedMap<string, bigint>(
+      Array.from({ length: 20_000 }, (_, i) => [`k${String(i).padStart(7, '0')}`, BigInt(i)] as [string, bigint]),
+      compareFor(StringType),
+    );
+    const manifestPrimary = await datasetWrite(storage, testRepo, rows, type);
+    const blobPrimary = await storage.objects.write(testRepo, encodeBeast2For(type)(rows));
+    const index = {
+      manifest: await datasetWrite(storage, testRepo, new SortedMap<string, bigint>([['other', 1n]], compareFor(StringType)), type),
+      index: await storage.objects.write(testRepo, new Uint8Array([0])),
+    };
+
+    for (const primary of [manifestPrimary, blobPrimary]) {
+      const state = await writeRecordState(storage, testRepo, { primary, indexes: new Map([['by_value', index]]) });
+      for (const manifests of [true, false]) {
+        const dir = join(scratch, `${primary === manifestPrimary ? 'manifest' : 'blob'}-${manifests}`);
+        mkdirSync(dir);
+        const [staged] = await marshalInputsToDir(storage, testRepo, dir, [state], { manifests });
+        if (primary === manifestPrimary && manifests) {
+          assert.deepEqual(readFileSync(staged!), readFileSync(objectPath(testRepo, primary)), 'the primary\'s manifest is staged');
+          const manifest = decodeCollectionManifest(readFileSync(staged!));
+          assert.deepEqual(readdirSync(`${staged!}.segments`).sort(), manifest.entries.map((e) => `${e.hash}.beast2`).sort());
+        } else {
+          const decoded = decodeBeast2For(type)(readFileSync(staged!)) as Map<string, bigint>;
+          assert.equal(decoded.size, 20_000, `a ${dir} input decodes to the rows`);
+          assert.equal(decoded.get('k0019999'), 19_999n);
+        }
+      }
+    }
   });
 
   it('adopts an output onto the hash objects.write would have produced', async () => {
