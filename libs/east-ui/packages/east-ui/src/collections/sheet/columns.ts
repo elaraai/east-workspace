@@ -41,8 +41,10 @@ import type {
     SheetSidesLiteral,
     SheetStoreLiteral,
     SheetColumnKindLiteral,
-    SheetContextOf,
+    SheetAnyContextOf,
     SheetFillOf,
+    SheetDateLevelType,
+    SheetDateLevelLiteral,
 } from "./types.js";
 import type { SheetArityInput, SheetCheckInput, SheetLocksInput } from "./link.js";
 
@@ -72,6 +74,8 @@ export interface SheetColumn<R extends StructType, A extends EastType> {
     readonly driverType?: StructType;
     /** The register the column resolves against. @internal */
     readonly register?: string;
+    /** The row type the column was built over — checked against the sheet's at build time. @internal */
+    readonly rowType?: StructType;
     /** Phantom — the row type. @internal */
     readonly __row?: (r: R) => void;
     /** Phantom — the accepted field types. @internal */
@@ -109,14 +113,28 @@ export type SheetColumnSpec<R extends StructType> = {
  * The driver type is `any` here and checked at BUILD time against the
  * sheet's driver: the function's East input type must be the sheet's own
  * context type, so a provider written for another sheet — another row type,
- * another driver — is refused with the column named.
+ * another driver — is refused with the column named. On a grouped sheet
+ * (#740) the context is `Sheet.Types.Context(P, "lines", D)` over the line
+ * `R`.
  *
- * @typeParam R - The host's row type
+ * @typeParam R - The host's row type (a grouped sheet: the line type)
  * @typeParam T - The column kind's payload type
  */
 export type SheetFillInput<R extends StructType, T extends EastType> =
-    | SubtypeExprOrValue<FunctionType<[SheetContextOf<R, any>], OptionType<SheetFillOf<T>>>>
-    | SubtypeExprOrValue<AsyncFunctionType<[SheetContextOf<R, any>], OptionType<SheetFillOf<T>>>>;
+    | SubtypeExprOrValue<FunctionType<[SheetAnyContextOf<R>], OptionType<SheetFillOf<T>>>>
+    | SubtypeExprOrValue<AsyncFunctionType<[SheetAnyContextOf<R>], OptionType<SheetFillOf<T>>>>;
+
+/**
+ * An OPTIONS rule (#844) — an East function over `Sheet.Types.Context(R, D)`
+ * to the register member keys the row may be OFFERED; `none` offers the
+ * whole register. Typed text still resolves against the whole register, so
+ * the rule narrows the menu, never what may be entered. The driver type is
+ * checked at build time, as a fill provider's is.
+ *
+ * @typeParam R - The host's row type (a grouped sheet: the line type)
+ */
+export type SheetOptionsInput<R extends StructType> =
+    SubtypeExprOrValue<FunctionType<[SheetAnyContextOf<R>], OptionType<ArrayType<StringType>>>>;
 
 /**
  * The fields every column kind shares.
@@ -128,6 +146,7 @@ export type SheetFillInput<R extends StructType, T extends EastType> =
  * @property width - CSS width
  * @property editable - `false` makes the column read-only
  * @property fill - Fill providers; the first that yields wins
+ * @property detail - The cell's detail — text the hover and the strip show beyond the value (#844); `""` or `none` shows none
  */
 export interface SheetColumnBaseConfig<R extends StructType, T extends EastType> {
     /** The header line. */
@@ -140,6 +159,8 @@ export interface SheetColumnBaseConfig<R extends StructType, T extends EastType>
     editable?: boolean;
     /** Fill providers — the first that yields wins (§3.5). */
     fill?: SheetFillInput<R, T>[];
+    /** The cell's detail, over the row — projected into an unrendered cell. */
+    detail?: (row: ExprType<R>) => SubtypeExprOrValue<StringType | OptionType<StringType>>;
 }
 
 /**
@@ -161,14 +182,27 @@ export type SheetTextConfig<R extends StructType> = SheetColumnBaseConfig<R, Str
 /**
  * Config for `Sheet.column.date`.
  *
+ * @remarks
+ * `level` and `actual` (#844) are accessors over the row, evaluated in the
+ * row projection into unrendered cells: they follow the host's row, not an
+ * open edit. With an `actual`, a cell whose work has happened prints that
+ * instant with its difference from the wanted date, and the wanted date
+ * becomes the cell's detail.
+ *
  * @property base - The column relative entry counts from (`4d` = base + 4, B§3)
  * @property format - A display pattern (East date tokens); omit ⇒ `17 Nov 26`
+ * @property level - How deep the row's date is read and typed — `week` · `day` · `range` · `time`; omit ⇒ `day`
+ * @property actual - When the work really happened (`none` until it has)
  */
 export interface SheetDateConfig<R extends StructType> extends SheetColumnBaseConfig<R, DateTimeType> {
     /** The column relative entry counts from (`4d` means base + 4). */
     base?: SheetFieldKey<R>;
     /** A display pattern (East date tokens). */
     format?: SubtypeExprOrValue<StringType>;
+    /** How deep the row's date is read and typed. */
+    level?: (row: ExprType<R>) => SubtypeExprOrValue<SheetDateLevelType> | SheetDateLevelLiteral;
+    /** When the work really happened. */
+    actual?: (row: ExprType<R>) => SubtypeExprOrValue<DateTimeType | OptionType<DateTimeType>>;
 }
 
 /**
@@ -188,14 +222,28 @@ export interface SheetQuantityConfig<R extends StructType, D extends StructType>
 /** Config for `Sheet.column.integer`. */
 export type SheetIntegerConfig<R extends StructType> = SheetColumnBaseConfig<R, IntegerType>;
 
-/** Config for `Sheet.column.lookup` — the driver column; its register is the driver's. */
-export type SheetLookupConfig<R extends StructType> = SheetColumnBaseConfig<R, StringType>;
+/**
+ * Config for `Sheet.column.lookup` — the driver column; its register is the driver's.
+ *
+ * @property options - The members a row may be offered (#844)
+ */
+export interface SheetLookupConfig<R extends StructType> extends SheetColumnBaseConfig<R, StringType> {
+    /** The members a row may be offered. */
+    options?: SheetOptionsInput<R>;
+}
 
 /** Config for `Sheet.column.reference` — a lookup over a flat member list. */
 export type SheetReferenceConfig<R extends StructType> = SheetColumnBaseConfig<R, StringType>;
 
-/** Config for `Sheet.column.enum` — an upper-cased register word with a valence dot. */
-export type SheetEnumConfig<R extends StructType> = SheetColumnBaseConfig<R, StringType>;
+/**
+ * Config for `Sheet.column.enum` — an upper-cased register word with a valence dot.
+ *
+ * @property options - The members a row may be offered (#844)
+ */
+export interface SheetEnumConfig<R extends StructType> extends SheetColumnBaseConfig<R, StringType> {
+    /** The members a row may be offered. */
+    options?: SheetOptionsInput<R>;
+}
 
 /**
  * One member kind a `set` / `link` column accepts (B§4.1).
@@ -204,6 +252,7 @@ export type SheetEnumConfig<R extends StructType> = SheetColumnBaseConfig<R, Str
  * @property identified - Resolves by code (bare digits try the code prefix)
  * @property countable - Takes the counted form (`N x kind`)
  * @property resolvesTo - What a counted member resolves to later
+ * @property ranged - Offer and print runs of consecutive codes as one range (#844)
  */
 export interface SheetMemberKindInput {
     /** The register member kind. */
@@ -214,6 +263,8 @@ export interface SheetMemberKindInput {
     countable?: boolean;
     /** What a counted member resolves to later. */
     resolvesTo?: string;
+    /** Offer and print runs of consecutive codes as one range. */
+    ranged?: boolean;
 }
 
 /**
@@ -285,6 +336,7 @@ export interface SheetSidesInput<D extends StructType> {
  * @property arity - The arity rule (`Sheet.link.arity`)
  * @property check - Member checks (`Sheet.link.check.exists()` and author rules)
  * @property store - How a `String` field is written back
+ * @property options - The members a row may be offered (#844)
  */
 export interface SheetLinkConfig<R extends StructType, D extends StructType> extends SheetColumnBaseConfig<R, SheetLinkType> {
     /** When the column sits on the `to` half: the field holding the `from` members. */
@@ -303,6 +355,8 @@ export interface SheetLinkConfig<R extends StructType, D extends StructType> ext
     check?: SheetCheckInput<R>[];
     /** How a `String` field is written back. */
     store?: SheetStoreLiteral;
+    /** The members a row may be offered. */
+    options?: SheetOptionsInput<R>;
 }
 
 /**
@@ -339,7 +393,7 @@ export interface SheetCustomConfig<R extends StructType, P extends EastType> ext
     /** The strip's "what this field accepts" line. */
     accepts: SubtypeExprOrValue<StringType>;
     /** Typed text → `Option<P>`. */
-    parse: SubtypeExprOrValue<FunctionType<[StringType, SheetContextOf<R, any>], OptionType<P>>>;
+    parse: SubtypeExprOrValue<FunctionType<[StringType, SheetAnyContextOf<R>], OptionType<P>>>;
     /** `P` → display text. */
     print: SubtypeExprOrValue<FunctionType<[P], StringType>>;
 }
@@ -361,11 +415,12 @@ export type SheetAnyColumnConfig =
 
 /** Build one column value. */
 function column<R extends StructType, A extends EastType>(
+    rowType: R,
     kind: SheetColumnKindLiteral,
     config: object,
     extra: { driverType?: StructType; register?: string } = {},
 ): SheetColumn<R, A> {
-    return { kind, config: config as SheetAnyColumnConfig, ...extra };
+    return { kind, config: config as SheetAnyColumnConfig, rowType, ...extra };
 }
 
 /** Whether a builder's second positional argument is a driver row type. */
@@ -379,8 +434,8 @@ function isStructType(v: unknown): v is StructType {
  */
 export function text<R extends StructType>(rowType: R, config: SheetTextConfig<R> & SheetValueConfig<R, StringType>): SheetColumn<R, EastType>;
 export function text<R extends StructType>(rowType: R, config?: SheetTextConfig<R>): SheetColumn<R, StringType | OptionType<StringType>>;
-export function text<R extends StructType>(_rowType: R, config: object = {}): SheetColumn<R, EastType> {
-    return column("text", config);
+export function text<R extends StructType>(rowType: R, config: object = {}): SheetColumn<R, EastType> {
+    return column(rowType, "text", config);
 }
 
 /**
@@ -390,8 +445,8 @@ export function text<R extends StructType>(_rowType: R, config: object = {}): Sh
  */
 export function date<R extends StructType>(rowType: R, config: SheetDateConfig<R> & SheetValueConfig<R, DateTimeType>): SheetColumn<R, EastType>;
 export function date<R extends StructType>(rowType: R, config?: SheetDateConfig<R>): SheetColumn<R, DateTimeType | OptionType<DateTimeType>>;
-export function date<R extends StructType>(_rowType: R, config: object = {}): SheetColumn<R, EastType> {
-    return column("date", config);
+export function date<R extends StructType>(rowType: R, config: object = {}): SheetColumn<R, EastType> {
+    return column(rowType, "date", config);
 }
 
 /**
@@ -403,9 +458,9 @@ export function quantity<R extends StructType, D extends StructType>(rowType: R,
 export function quantity<R extends StructType, D extends StructType>(rowType: R, driverType: D, config?: SheetQuantityConfig<R, D>): SheetColumn<R, FloatType | OptionType<FloatType>>;
 export function quantity<R extends StructType>(rowType: R, config: Omit<SheetQuantityConfig<R, StructType>, "uom"> & SheetValueConfig<R, FloatType>): SheetColumn<R, EastType>;
 export function quantity<R extends StructType>(rowType: R, config?: Omit<SheetQuantityConfig<R, StructType>, "uom">): SheetColumn<R, FloatType | OptionType<FloatType>>;
-export function quantity<R extends StructType>(_rowType: R, second?: unknown, third?: unknown): SheetColumn<R, EastType> {
-    if (isStructType(second)) return column("quantity", (third ?? {}) as object, { driverType: second });
-    return column("quantity", (second ?? {}) as object);
+export function quantity<R extends StructType>(rowType: R, second?: unknown, third?: unknown): SheetColumn<R, EastType> {
+    if (isStructType(second)) return column(rowType, "quantity", (third ?? {}) as object, { driverType: second });
+    return column(rowType, "quantity", (second ?? {}) as object);
 }
 
 /**
@@ -414,8 +469,8 @@ export function quantity<R extends StructType>(_rowType: R, second?: unknown, th
  */
 export function integer<R extends StructType>(rowType: R, config: SheetIntegerConfig<R> & SheetValueConfig<R, IntegerType>): SheetColumn<R, EastType>;
 export function integer<R extends StructType>(rowType: R, config?: SheetIntegerConfig<R>): SheetColumn<R, IntegerType | OptionType<IntegerType>>;
-export function integer<R extends StructType>(_rowType: R, config: object = {}): SheetColumn<R, EastType> {
-    return column("integer", config);
+export function integer<R extends StructType>(rowType: R, config: object = {}): SheetColumn<R, EastType> {
+    return column(rowType, "integer", config);
 }
 
 /**
@@ -423,16 +478,16 @@ export function integer<R extends StructType>(_rowType: R, config: object = {}):
  * the driver's register (B§3.1). Sits on a `String` field; the `driver` prop
  * names it.
  */
-export function lookup<R extends StructType>(_rowType: R, config: SheetLookupConfig<R> = {}): SheetColumn<R, StringType | OptionType<StringType>> {
-    return column("lookup", config);
+export function lookup<R extends StructType>(rowType: R, config: SheetLookupConfig<R> = {}): SheetColumn<R, StringType | OptionType<StringType>> {
+    return column(rowType, "lookup", config);
 }
 
 /**
  * A reference column — `Sheet.column.reference(R, register, cfg)`: a lookup
  * over a flat member list. Sits on a `String` / `Option<String>` field.
  */
-export function reference<R extends StructType>(_rowType: R, register: string, config: SheetReferenceConfig<R> = {}): SheetColumn<R, StringType | OptionType<StringType>> {
-    return column("reference", config, { register });
+export function reference<R extends StructType>(rowType: R, register: string, config: SheetReferenceConfig<R> = {}): SheetColumn<R, StringType | OptionType<StringType>> {
+    return column(rowType, "reference", config, { register });
 }
 
 /**
@@ -440,8 +495,8 @@ export function reference<R extends StructType>(_rowType: R, register: string, c
  * register word with the member's valence dot. Sits on a `String` /
  * `Option<String>` field.
  */
-export function enumColumn<R extends StructType>(_rowType: R, register: string, config: SheetEnumConfig<R> = {}): SheetColumn<R, StringType | OptionType<StringType>> {
-    return column("enum", config, { register });
+export function enumColumn<R extends StructType>(rowType: R, register: string, config: SheetEnumConfig<R> = {}): SheetColumn<R, StringType | OptionType<StringType>> {
+    return column(rowType, "enum", config, { register });
 }
 
 /**
@@ -449,8 +504,8 @@ export function enumColumn<R extends StructType>(_rowType: R, register: string, 
  * link grammar without an arrow. Sits on a `Sheet.Types.Link`,
  * `Array<Sheet.Types.Member>` or `String` field.
  */
-export function set<R extends StructType>(_rowType: R, register: string, config: SheetSetConfig<R> = {}): SheetColumn<R, SheetLinkType | ArrayType<SheetMemberType> | StringType | OptionType<StringType>> {
-    return column("set", config, { register });
+export function set<R extends StructType>(rowType: R, register: string, config: SheetSetConfig<R> = {}): SheetColumn<R, SheetLinkType | ArrayType<SheetMemberType> | StringType | OptionType<StringType>> {
+    return column(rowType, "set", config, { register });
 }
 
 /**
@@ -458,16 +513,16 @@ export function set<R extends StructType>(_rowType: R, register: string, config:
  * split cell with sides, arity and checks (§3.4). Sits on a
  * `Sheet.Types.Link`, `Array<Sheet.Types.Member>` or `String` field.
  */
-export function link<R extends StructType, D extends StructType>(_rowType: R, driverType: D, register: string, config: SheetLinkConfig<R, D> = {}): SheetColumn<R, SheetLinkType | ArrayType<SheetMemberType> | StringType | OptionType<StringType>> {
-    return column("link", config, { driverType, register });
+export function link<R extends StructType, D extends StructType>(rowType: R, driverType: D, register: string, config: SheetLinkConfig<R, D> = {}): SheetColumn<R, SheetLinkType | ArrayType<SheetMemberType> | StringType | OptionType<StringType>> {
+    return column(rowType, "link", config, { driverType, register });
 }
 
 /**
  * A stamped column — `Sheet.column.stamped(R, cfg)`: a read-only code an
  * upstream system owns. Sits on a `String` / `Option<String>` field.
  */
-export function stamped<R extends StructType>(_rowType: R, config: SheetStampedConfig = {}): SheetColumn<R, StringType | OptionType<StringType>> {
-    return column("stamped", config);
+export function stamped<R extends StructType>(rowType: R, config: SheetStampedConfig = {}): SheetColumn<R, StringType | OptionType<StringType>> {
+    return column(rowType, "stamped", config);
 }
 
 /**
@@ -475,6 +530,6 @@ export function stamped<R extends StructType>(_rowType: R, config: SheetStampedC
  * pair over the field's own payload (§3.9). Sits on a field of the payload
  * type or its `Option`.
  */
-export function custom<R extends StructType, P extends EastType>(_rowType: R, config: SheetCustomConfig<R, P>): SheetColumn<R, P | OptionType<P>> {
-    return column("custom", config);
+export function custom<R extends StructType, P extends EastType>(rowType: R, config: SheetCustomConfig<R, P>): SheetColumn<R, P | OptionType<P>> {
+    return column(rowType, "custom", config);
 }

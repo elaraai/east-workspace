@@ -112,7 +112,7 @@ export {
     type UIComponentDef,
     type UIComponentOptions,
 } from "./extension.js";
-export { State, StateBindPrimitives, SliceApplyImpl, sliceDimensions, sliceFields, sliceFieldText, sliceMatches, sliceBreakdown, sliceSeries, SLICE_SERIES_PALETTE, Clipboard, Download, Share } from "./platform/index.js";
+export { State, StateBindPrimitives, SliceApplyImpl, sliceDimensions, sliceFields, sliceFieldText, sliceMatches, sliceBreakdown, sliceSeries, cohortGroupOf, SLICE_SERIES_PALETTE, Clipboard, Download, Share } from "./platform/index.js";
 export { SliceConfigType, sliceConfigTypeFor, SliceChromeType, SliceStateType, SliceBindType, SliceBindPrimitives } from "./platform/slice/index.js";
 export { SliceAffordanceType, type SliceAffordanceLiteral } from "./contracts/slice-affordances.js";
 // Row-source contract (#567) — `Paged.of` for the paged-arm specs.
@@ -163,6 +163,11 @@ export * from "./collections/value-tree/flatten.js";
 export * from "./collections/value-tree/key-search.js";
 export * from "./collections/table/types.js";
 export * from "./collections/sheet/types.js";
+export * from "./collections/sheet/transactions.js";
+export * from "./collections/sheet/drafts.js";
+export * from "./collections/sheet/editing-types.js";
+export { buildInlineApply } from "./collections/sheet/apply-adapter.js";
+export { SheetRequestStore } from "./collections/sheet/request-store.js";
 export * from "./collections/tree-view/types.js";
 export * from "./format/types.js";
 export * from "./charts/sparkline/types.js";

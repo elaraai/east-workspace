@@ -3,15 +3,15 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  *
  * The state machine's transition table (Sheet Spec §6.1, §5 rows 13–14):
- * the esc ladder, the commit directions, the unrecognised value that never
- * commits, the printable seed, whole-row deletion.
+ * the esc ladder, the commit directions, retained invalid draft input, the printable seed, whole-row deletion.
  */
 
 import { describe, test, expect } from "vitest";
+import { variant } from "@elaraai/east";
 import { sheetReducer, initialSheetState, sheetStoreReducer, initialSheetStore, type SheetMachineCtx, type SheetUiState, type SheetEvent, type SheetEffect } from "./sheet-state.js";
 import type { SheetCellValue } from "./values.js";
 
-const cell = (type: string, value: unknown): SheetCellValue => ({ type, value } as SheetCellValue);
+const cell = (type: string, value: unknown): SheetCellValue => variant(type, value) as SheetCellValue;
 
 /** A 4 × 3 sheet: text · date · stamped; `bad` never parses; row 3 is blank. */
 function ctxOf(over: Partial<SheetMachineCtx> = {}): SheetMachineCtx {
@@ -21,7 +21,7 @@ function ctxOf(over: Partial<SheetMachineCtx> = {}): SheetMachineCtx {
         lensActive: false,
         canAppend: true,
         editableAt: (_r, c) => c !== 2,
-        kindAt: (c) => (c === 0 ? "lookup" : c === 1 ? "date" : "stamped"),
+        kindAt: (_r, c) => (c === 0 ? "lookup" : c === 1 ? "date" : "stamped"),
         parse: (_r, _c, text) => text.trim() === "" ? { kind: "blank" } : text === "bad" ? { kind: "unrecognised" } : { kind: "cell", cell: cell("String", text) },
         candidates: (_r, _c, text) => (text.startsWith("ma") ? ["Machining", "Machining - Roughing"] : []),
         candidateAt: (_r, _c, text, hi) => (text.startsWith("ma") ? (hi > 0 ? "Machining - Roughing" : "Machining") : undefined),
@@ -99,14 +99,14 @@ describe("editing", () => {
         }
     });
 
-    test("an unparseable value never commits — the editor stays with the neg ring; a blur discards it", () => {
+    test("an unparseable value is retained verbatim on Enter, Tab and blur; Escape still cancels", () => {
         const open = run(initialSheetState(), [key("b"), { t: "editor.change", val: "bad" }]).state;
-        const stuck = run(open, [ekey("Enter")]);
-        expect(stuck.state.edit).toMatchObject({ val: "bad", err: true });
-        expect(stuck.effects.some((e) => e.t === "write")).toBe(false);
-        const dropped = run(open, [{ t: "editor.blur" }]);
-        expect(dropped.state.edit).toBeNull();
-        expect(dropped.effects.some((e) => e.t === "write")).toBe(false);
+        for (const event of [ekey("Enter"), ekey("Tab"), { t: "editor.blur" } as SheetEvent]) {
+            const committed = run(open, [event]);
+            expect(committed.state.edit).toBeNull();
+            expect(committed.effects).toContainEqual({ t: "write", r: 0, c: 0, cell: variant("Invalid", "bad"), text: "bad" });
+        }
+        expect(run(open, [ekey("Escape")]).effects.some(effect => effect.t === "write")).toBe(false);
     });
 
     test("esc cancels and refocuses the sheet; an empty buffer commits a blank", () => {
@@ -193,8 +193,8 @@ import type { LinkEditCtx, LinkGroups } from "./sheet-state.js";
 import type { LinkCandidate } from "./link/predict.js";
 import type { SheetMemberValue } from "./values.js";
 
-const id = (key: string): SheetMemberValue => ({ type: "identified", value: { key } }) as SheetMemberValue;
-const txt = (s: string): SheetMemberValue => ({ type: "text", value: s }) as SheetMemberValue;
+const id = (key: string): SheetMemberValue => variant("identified", { key });
+const txt = (s: string): SheetMemberValue => variant("text", s);
 const KEYS = ["M2140", "M2141", "M2145", "M7301"];
 
 /** A link column at c = 0 over four machine codes, with the driver's sides. */
@@ -206,7 +206,7 @@ function linkCtxOf(sides: "both" | "from" | "to" | "in", initial: LinkGroups = [
         sides,
     };
     const candidates = (text: string, groups: LinkGroups): LinkCandidate[] => {
-        const used = new Set([...groups[0], ...groups[1]].map((m) => (m.type === "identified" ? (m.value as { key: string }).key : "")));
+        const used = new Set([...groups[0], ...groups[1]].map((m) => (m.type === "identified" ? m.value.key : "")));
         const t = text.trim().toLowerCase();
         if (t === "") return [];
         return KEYS.filter((k) => !used.has(k) && k.toLowerCase().startsWith(t)).map((k) => ({ label: k, meta: "", members: [id(k)] }));
@@ -227,12 +227,12 @@ function linkCtxOf(sides: "both" | "from" | "to" | "in", initial: LinkGroups = [
     };
     return ctxOf({
         colCount: 2,
-        kindAt: (c) => (c === 0 ? "link" : "text"),
+        kindAt: (_r, c) => (c === 0 ? "link" : "text"),
         linkAt: (_r, c) => (c === 0 ? link : undefined),
     });
 }
 
-const labels = (g: readonly SheetMemberValue[]) => g.map((m) => (m.type === "identified" ? (m.value as { key: string }).key : m.type === "text" ? `~${m.value as string}` : m.type));
+const labels = (g: readonly SheetMemberValue[]) => g.map((m) => (m.type === "identified" ? m.value.key : m.type === "text" ? `~${m.value}` : m.type));
 
 describe("the link editor", () => {
     test("opens with the cell's chips, the caret in the first live empty half; a seed replaces the content", () => {
@@ -365,7 +365,7 @@ function suggestCtxOf(over: Partial<SheetMachineCtx> = {}): SheetMachineCtx {
     const cols: Record<string, number> = { activity: 0, start: 1, qty: 2 };
     return ctxOf({
         colCount: 3,
-        kindAt: (c) => (c === 0 ? "lookup" : c === 1 ? "date" : "quantity"),
+        kindAt: (_r, c) => (c === 0 ? "lookup" : c === 1 ? "date" : "quantity"),
         editableAt: () => true,
         rowOf: (id) => ids[id],
         idAt: (r) => ["a", "b", "c", " blank:3"][r],
@@ -430,9 +430,9 @@ describe("the copilot", () => {
         expect(run(both, [key("Enter", { meta: true })], ctx).effects.map((e) => e.t)).toEqual(["write.many"]);
         const all = run(both, [key("Enter", { meta: true, shift: true })], ctx);
         expect(all.effects.map((e) => e.t)).toEqual(["write.many", "insert.rows"]);
-        const inserted = all.effects[1] as Extract<SheetEffect, { t: "insert.rows" }>;
-        expect(inserted.rows).toHaveLength(2);
-        expect(inserted.rest).toEqual([]);
+        const insertion = all.effects.find(effect => effect.t === "insert.rows");
+        expect(insertion?.rows).toHaveLength(2);
+        expect(insertion?.rest).toEqual([]);
         expect(run(both, [{ t: "fill.row" }], ctx).effects[0]).toMatchObject({ t: "write.many", source: "row" });
         // Rows only: ⇥ takes the next one.
         const rowsOnly = run(at, [{ t: "suggest.ready", anchorId: "b", sugg: suggOn("b", {}, [proposal("Painting")]) }], ctx).state;
@@ -524,7 +524,8 @@ describe("the copilot", () => {
         expect(typing.effects).toContainEqual({ t: "schedule.suggest", latency: "idle" });
         // ⌘⏎ in the editor commits in place and takes the row fill.
         const filled = run(typing.state, [ekey("Enter", { meta: true })], ctx);
-        expect(filled.effects.map((e) => e.t)).toEqual(["write", "focus.sheet", "write.many"]);
+        const writes = filled.effects.filter(effect => effect.t === "write" || effect.t === "write.many");
+        expect(writes).toEqual([{ t: "write.many", r: 1, writes: [{ c: 1, cell: START.cell }], source: "row" }]);
         expect(filled.state.edit).toBeNull();
         expect(run(armed, [{ t: "clipboard.paste", text: "a\tb" }], ctx).state.sugg).toBeNull();
     });
@@ -543,14 +544,14 @@ const narrowingOf = (search: string | undefined): SliceStateValue => ({
 const EMPTY = narrowingOf(undefined);
 const PAINT = narrowingOf("paint");
 const LATHE = narrowingOf("lathe");
-const view = (id: string, name: string, narrowing: SliceStateValue, context = 0n, reveals: bigint[] = []): SheetViewValue => ({ id, name, narrowing, context, reveals });
+const view = (id: string, name: string, narrowing: SliceStateValue, context = 0n, reveals: bigint[] = []): SheetViewValue => ({ id, name, narrowing, context, reveals, folds: new Map() });
 const VIEWS = [view("paint", "PAINT", PAINT, 1n, [4n]), view("lathe", "LATHE", LATHE)];
 
 /** A sheet on the PAINT tab, the slice at `narrowing`, the views as given. */
 function lensCtxOf(narrowing: SliceStateValue, views: readonly SheetViewValue[] = VIEWS, dirty = false, over: Partial<SheetMachineCtx> = {}): SheetMachineCtx {
     return ctxOf({ rowCount: 6, lensActive: true, views, narrowing, emptyNarrowing: EMPTY, dirty, ...over });
 }
-const onPaint = (): SheetUiState => ({ ...initialSheetState({ r: 3, c: 1 }, "paint"), lens: { context: 1, reveals: new Set([4, 5]), steps: new Map([["a_b:top", 2]]) } });
+const onPaint = (): SheetUiState => ({ ...initialSheetState({ r: 3, c: 1 }, "paint"), lens: { context: 1, reveals: new Set([4, 5]), steps: new Map([["a_b:top", 2]]), folds: new Map() } });
 const viewsOf = (t: { effects: SheetEffect[] }): SheetViewValue[] | undefined => (t.effects.find((e) => e.t === "emit.views") as { views: SheetViewValue[] } | undefined)?.views;
 const written = (t: { effects: SheetEffect[] }): SliceStateValue | undefined => (t.effects.find((e) => e.t === "slice.write") as { state: SliceStateValue } | undefined)?.state;
 
@@ -565,7 +566,7 @@ describe("the lens", () => {
         const other = run(three.state, [{ t: "band.reveal", key: "h", from: 30, to: 31, where: "all" }], ctx);
         expect([...other.state.lens.reveals]).toEqual([10, 11, 12, 13, 30, 31]);
         const switched = run(other.state, [{ t: "lens.context", context: 3 }], ctx);
-        expect(switched.state.lens).toEqual({ context: 3, reveals: new Set(), steps: new Map() });
+        expect(switched.state.lens).toEqual({ context: 3, reveals: new Set(), steps: new Map(), folds: new Map() });
         const ranged = { ...other.state, sel: { r: 4, c: 2 }, selEnd: { r: 5, c: 2 } };
         const narrowed = run(ranged, [{ t: "lens.narrowed" }], ctx);
         expect(narrowed.state.lens.reveals.size).toBe(0);
@@ -585,7 +586,7 @@ describe("the view tabs", () => {
         const ctx = lensCtxOf(LATHE, VIEWS, true);
         const t = run(onPaint(), [{ t: "tab.switch", id: "lathe" }], ctx);
         expect(t.state.tabs.active).toBe("lathe");
-        expect(t.state.lens).toEqual({ context: 0, reveals: new Set(), steps: new Map() });
+        expect(t.state.lens).toEqual({ context: 0, reveals: new Set(), steps: new Map(), folds: new Map() });
         expect(t.state.sel).toEqual({ r: 0, c: 1 });
         const views = viewsOf(t)!;
         expect(views[0]).toEqual(view("paint", "PAINT", PAINT, 1n, [4n, 5n]));   // context + reveals persisted; the narrowing kept
@@ -599,7 +600,7 @@ describe("the view tabs", () => {
         // Opening a view (the initial `activeView`) never persists the tab it leaves.
         const opened = run(initialSheetState({ r: 0, c: 0 }, "paint"), [{ t: "tab.open", id: "paint" }], lensCtxOf(EMPTY));
         expect(viewsOf(opened)).toBeUndefined();
-        expect(opened.state.lens).toEqual({ context: 1, reveals: new Set([4]), steps: new Map() });
+        expect(opened.state.lens).toEqual({ context: 1, reveals: new Set([4]), steps: new Map(), folds: new Map() });
         expect(written(opened)).toBe(PAINT);
         // An unknown tab is ignored.
         expect(run(onPaint(), [{ t: "tab.switch", id: "zzz" }], ctx).state).toEqual(onPaint());
@@ -642,7 +643,7 @@ describe("the view tabs", () => {
         expect(updated.state.msg).toBe('Tab "PAINT" now saves this search');
         const reverted = run(onPaint(), [{ t: "search.key", key: "Escape" }], dirty);
         expect(written(reverted)).toBe(PAINT);
-        expect(reverted.state.lens).toEqual({ context: 1, reveals: new Set([4]), steps: new Map() });
+        expect(reverted.state.lens).toEqual({ context: 1, reveals: new Set([4]), steps: new Map(), folds: new Map() });
         expect(reverted.state.msg).toBe("Reverted to the tab's saved search");
         const clean = run(onPaint(), [{ t: "search.key", key: "Escape" }], lensCtxOf(PAINT));
         expect(clean.state.tabs.active).toBeNull();
@@ -675,5 +676,99 @@ describe("the view tabs", () => {
         expect(viewsOf(run(onPaint(), [{ t: "tab.reorder", id: "lathe", to: 0 }], ctx))!.map((v) => v.id)).toEqual(["lathe", "paint"]);
         expect(viewsOf(run(onPaint(), [{ t: "tab.reorder", id: "paint", to: 2 }], ctx))!.map((v) => v.id)).toEqual(["lathe", "paint"]);
         expect(run(onPaint(), [{ t: "tab.reorder", id: "paint", to: 0 }], ctx).effects).toEqual([]);
+    });
+});
+
+// ── Grouped rows (#740 — G4, G6, G7, G8) ───────────────────────────────────
+
+/** Two groups: p1 at 0, children 1–2, blank child 3; folded p2 at 4. The title spans columns 0–1. */
+function groupedCtxOf(over: Partial<SheetMachineCtx> = {}): SheetMachineCtx {
+    const kinds = ["group", "row", "row", "blank", "group"] as const;
+    return ctxOf({
+        rowCount: 5,
+        colCount: 3,
+        grouped: true,
+        canAppend: false,
+        editableAt: (r, c) => (c !== 2 || kinds[r] !== "group"),
+        rowKindAt: (r) => kinds[r],
+        groupAt: (r) => (r === 0 ? { id: "p1", folded: false, lines: { r0: 1, r1: 2 } } : r === 4 ? { id: "p2", folded: true, lines: undefined } : undefined),
+        spanAt: (r, c) => (kinds[r] === "group" && c < 2 ? { c0: 0, c1: 1 } : undefined),
+        ...over,
+    });
+}
+
+describe("grouped rows", () => {
+    test("Space on a band folds and opens it; the chevron too; the folds are lens state", () => {
+        const ctx = groupedCtxOf();
+        const folded = run(initialSheetState({ r: 0, c: 0 }), [key(" ")], ctx);
+        expect(folded.state.lens.folds.get("p1")).toBe(true);
+        expect(folded.state.edit).toBeNull();
+        const opened = run(initialSheetState({ r: 1, c: 0 }), [{ t: "fold.toggle", r: 4 }], ctx);
+        expect(opened.state.lens.folds.get("p2")).toBe(false);
+        expect(opened.state.sel).toEqual({ r: 4, c: 0 });
+        // Space on a line still starts an edit.
+        expect(run(initialSheetState({ r: 1, c: 0 }), [key(" ")], ctx).state.edit).not.toBeNull();
+    });
+
+    test("the band's gutter selects its lines; an empty or folded plan selects the band", () => {
+        const ctx = groupedCtxOf();
+        const lines = run(initialSheetState(), [{ t: "row.pick", r: 0, shift: false }], ctx);
+        expect(lines.state.sel).toEqual({ r: 1, c: 0 });
+        expect(lines.state.selEnd).toEqual({ r: 2, c: 2 });
+        const band = run(initialSheetState(), [{ t: "row.pick", r: 4, shift: false }], ctx);
+        expect(band.state.sel).toEqual({ r: 4, c: 0 });
+        expect(band.state.selEnd).toEqual({ r: 4, c: 2 });
+        expect(run(band.state, [key("Backspace")], ctx).effects).toContainEqual({ t: "delete.rows", r0: 4, r1: 4 });
+    });
+
+    test("a grouped sheet runs the lens and the view tabs too", () => {
+        const ctx = groupedCtxOf({ views: VIEWS, narrowing: PAINT, emptyNarrowing: EMPTY, lensActive: true });
+        const revealed = run(initialSheetState(), [{ t: "band.reveal", key: "g", from: 1_000_001, to: 1_000_002, where: "all" }], ctx);
+        expect([...revealed.state.lens.reveals]).toEqual([1_000_001, 1_000_002]);
+        const switched = run(initialSheetState(), [{ t: "tab.switch", id: "lathe" }], ctx);
+        expect(switched.state.tabs.active).toBe("lathe");
+        expect(written(switched)).toBe(LATHE);
+    });
+
+    test("fold-all folds every group, the hidden ones too, and keeps the ring on its group; ⇧Space and ⌥ on a chevron go the way that band goes", () => {
+        const ctx = groupedCtxOf({ groupIds: ["p1", "p2"], groupNoun: { singular: "order", plural: "orders" } });
+        const folded = run(initialSheetState({ r: 2, c: 1 }), [{ t: "fold.all", folded: true }], ctx);
+        expect(folded.state.lens.folds).toEqual(new Map([["p1", true], ["p2", true]]));
+        expect(folded.effects).toContainEqual({ t: "select.id", id: "p1", c: 1 });
+        expect(folded.state.msg).toMatch(/^Folded 2 orders/);
+        // ⇧Space on p1's band (open) folds every group.
+        expect(run(initialSheetState({ r: 0, c: 0 }), [key(" ", { shift: true })], ctx).state.lens.folds).toEqual(new Map([["p1", true], ["p2", true]]));
+        // ⌥ on p2's chevron (folded) opens every group.
+        const opened = run(initialSheetState({ r: 0, c: 0 }), [{ t: "fold.toggle", r: 4, all: true }], ctx);
+        expect(opened.state.lens.folds).toEqual(new Map([["p1", false], ["p2", false]]));
+        expect(opened.state.msg).toBe("Opened 2 orders");
+    });
+
+    test("Space on a line with sub rows shows them, ⇧Space every line's in the group; the chevron does the same; a line without them still edits", () => {
+        const ctx = groupedCtxOf({
+            groupNoun: { singular: "order", plural: "orders" },
+            lineSubRowsAt: (r) => (r === 1 ? { id: "L1", count: 2, open: false, group: ["L1", "L2"] } : undefined),
+        });
+        const shown = run(initialSheetState({ r: 1, c: 0 }), [key(" ")], ctx);
+        expect(shown.state.lens.folds).toEqual(new Map([["L1", false]]));
+        expect(shown.state.edit).toBeNull();
+        expect(shown.state.msg).toBe("Showing 2 sub rows under the line — Space hides them");
+        const all = run(initialSheetState({ r: 1, c: 0 }), [key(" ", { shift: true })], ctx);
+        expect(all.state.lens.folds).toEqual(new Map([["L1", false], ["L2", false]]));
+        expect(all.state.msg).toMatch(/of the order/);
+        const chevron = run(initialSheetState({ r: 0, c: 0 }), [{ t: "subRows.toggle", r: 1 }], ctx);
+        expect(chevron.state.lens.folds).toEqual(new Map([["L1", false]]));
+        expect(chevron.state.sel.r).toBe(1);
+        expect(run(initialSheetState({ r: 2, c: 0 }), [key(" ")], ctx).state.edit).not.toBeNull();
+    });
+
+    test("arrows step over a spanned title and cannot reach an invisible new-group row", () => {
+        const ctx = groupedCtxOf();
+        expect(run(initialSheetState({ r: 4, c: 0 }), [key("ArrowDown")], ctx).state.sel).toEqual({ r: 4, c: 0 });
+        // → from the title (columns 0–1) lands on column 2; ← from column 2 lands back on the title.
+        expect(run(initialSheetState({ r: 0, c: 0 }), [key("ArrowRight")], ctx).state.sel).toEqual({ r: 0, c: 2 });
+        expect(run(initialSheetState({ r: 0, c: 2 }), [key("ArrowLeft")], ctx).state.sel).toEqual({ r: 0, c: 1 });
+        // A line's columns step one at a time.
+        expect(run(initialSheetState({ r: 1, c: 0 }), [key("ArrowRight")], ctx).state.sel).toEqual({ r: 1, c: 1 });
     });
 });

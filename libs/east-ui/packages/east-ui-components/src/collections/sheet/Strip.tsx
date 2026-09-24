@@ -12,15 +12,26 @@
  * pending suggestions: one chip per pending fill (the next target armed),
  * `+n rows`, a dashed pending chip per provider still in flight, the
  * provenance line. `buildStrip` is pure; `SheetStrip` draws it.
+ *
+ * The strip never scrolls and never clips a chip mid-way:
+ * the chips are measured once (an unseen copy of the row) and cut into
+ * PAGES that fit the row, with a `‹ 1/3 ›` pager at the row's end when there
+ * is more than one; the page follows the armed chip. The band stands as tall
+ * as a row and its type matches the cells' (chips mono 12). A seventh state:
+ * with nothing to suggest and the ring resting on a cell that says more than
+ * its value, the strip shows the cell's DETAIL (`detail.ts`, #844) — the
+ * wanted date behind one that has happened, a column's `detail` text.
  */
 
-import { memo } from "react";
-import { Box } from "@chakra-ui/react";
+import { memo, useLayoutEffect, useRef, useState } from "react";
+import { Box, chakra } from "@chakra-ui/react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faChevronLeft, faChevronRight } from "@fortawesome/free-solid-svg-icons";
 import { getSomeorUndefined } from "../../utils.js";
 import { candidateList, candidateAt, type CandidateContext } from "./candidates.js";
 import { cellText, formatQuantity, memberLabel, type SheetColumnMeta } from "./model.js";
 import type { LinkCandidate } from "./link/predict.js";
-import { parseDate, formatDateLong, daysBetween } from "./parse/date.js";
+import { parseDate, formatDateLong, daysBetween, formatWhen, whenAccepts, type WhenLevel } from "./parse/date.js";
 import { parseQuantity } from "./parse/quantity.js";
 import type { EditBuffer } from "./sheet-types.js";
 import type { SheetCellValue, SheetMemberValue } from "./values.js";
@@ -80,6 +91,18 @@ export interface StripInput {
     link?: StripLinkInput | undefined;
     /** The pending suggestions, when no editor is open (B§9's sixth state). */
     suggested?: StripSuggestInput | undefined;
+    /** A date column's level for the edited row (#844). */
+    whenLevel?: WhenLevel | undefined;
+    /** The ring's cell's detail, when no editor is open and nothing is suggested. */
+    detail?: StripDetailInput | undefined;
+}
+
+/** What the strip shows of a resting cell's detail: the column, the detail's parts, its meta, the keys. */
+export interface StripDetailInput {
+    label: string;
+    chips: readonly string[];
+    meta: string;
+    keys: string;
 }
 
 /** What the link strip states read (B§9). */
@@ -118,7 +141,12 @@ const flat = (label: string): StripChip[] => [{ key: "v", label, on: false, flat
 /** The strip for the current state (pure). */
 export function buildStrip(input: StripInput): StripModel {
     const { edit, meta } = input;
-    if (edit === null || meta === undefined) return input.suggested !== undefined ? buildSuggestStrip(input.suggested) : OFF;
+    if (edit === null || meta === undefined) {
+        if (input.suggested !== undefined) return buildSuggestStrip(input.suggested);
+        // Nothing to suggest: the resting cell's detail, when it has one.
+        const d = input.detail;
+        return d === undefined ? OFF : { on: true, label: d.label, chips: d.chips.map((c, i) => ({ key: `d${i}`, label: c, on: false, flat: true, title: c })), meta: d.meta, keys: d.keys };
+    }
     const empty = edit.val.trim() === "";
     const header = meta.header.toUpperCase();
     if ((meta.kind === "link" || meta.kind === "set") && input.link !== undefined) return buildLinkStrip(header, edit.val, input.link, meta.kind === "set");
@@ -133,7 +161,8 @@ export function buildStrip(input: StripInput): StripModel {
             }
             const armed = candidateAt(meta, edit.val, edit.hi, input.candidates);
             const hi = armed === undefined ? -1 : Math.max(0, list.indexOf(armed));
-            const chips: StripChip[] = list.slice(0, 6).map((label, i) => ({
+            // The strip pages, so more than a handful can be offered.
+            const chips: StripChip[] = list.slice(0, 12).map((label, i) => ({
                 key: `a${i}`,
                 label: label.length > 34 ? `${label.slice(0, 33)}…` : label,
                 on: i === hi,
@@ -155,27 +184,37 @@ export function buildStrip(input: StripInput): StripModel {
             };
         }
         case "date": {
+            // The date field: digits fill the segments; the strip previews the date it holds.
+            // At a level (#844) the strip says what the level accepts and previews the date as the cell will print it.
+            const level = input.whenLevel;
             if (empty) {
-                return { on: true, label: `${header} · accepts`, chips: flat("a date"), meta: `d/m · weekday · +3d${meta.base !== undefined ? ` · 4d from ${meta.base}` : ""}`, keys: "type to parse" };
+                const acc = level !== undefined ? whenAccepts(level) : { chip: "a date", meta: "dd / mm / yyyy" };
+                return { on: true, label: `${header} · accepts`, chips: flat(acc.chip), meta: acc.meta, keys: "digits fill a segment · ↑↓ step it · ⇥ next" };
             }
             const d = parseDate(edit.val, { today: input.today, base: input.baseDate });
             if (d === null || d === undefined) {
-                return { on: true, label: header, chips: flat("unrecognised"), meta: "", keys: "12/4 · fri · +3d · 17 nov" };
+                return { on: true, label: header, chips: flat("incomplete"), meta: level !== undefined ? whenAccepts(level).meta : "dd / mm / yyyy", keys: "digits fill a segment · ⇥ next" };
             }
             const span = input.baseDate !== undefined ? `${daysBetween(input.baseDate, d)} days` : "";
-            return { on: true, label: header, chips: flat(formatDateLong(d)), meta: span, keys: "12/4 · fri · +3d" };
+            if (level !== undefined) {
+                const w = formatWhen(d, level);
+                const shown = `${w.text} · ${w.suffix}`;
+                return { on: true, label: header, chips: flat(shown), meta: span !== "" ? span : formatDateLong(d), keys: "⏎ commit · esc cancel" };
+            }
+            return { on: true, label: header, chips: flat(formatDateLong(d)), meta: span, keys: "⏎ commit · esc cancel" };
         }
         case "quantity":
         case "integer": {
+            // The number field: digits and a decimal point; a pasted `1.2k` still parses through the grammar.
             if (empty) {
-                return { on: true, label: `${header} · accepts`, chips: flat(meta.kind === "quantity" ? "number + unit" : "number"), meta: "1200 · 1.2k · 1.2m", keys: "type to parse" };
+                return { on: true, label: `${header} · accepts`, chips: flat(meta.kind === "quantity" ? "number + unit" : "number"), meta: meta.kind === "quantity" ? "1200 · 1200.5" : "1200", keys: "↑↓ step · ⏎ commit" };
             }
             const n = parseQuantity(edit.val);
             if (n === null || n === undefined) {
-                return { on: true, label: header, chips: flat("unrecognised"), meta: "", keys: "1200 · 1.2k · 1.2m" };
+                return { on: true, label: header, chips: flat("unrecognised"), meta: "", keys: meta.kind === "quantity" ? "1200 · 1200.5" : "1200" };
             }
             const unit = meta.kind === "quantity" && input.unit !== undefined ? ` ${input.unit}` : "";
-            return { on: true, label: header, chips: flat(`${formatQuantity(n, meta.kind === "quantity" ? meta.format : undefined)}${unit}`), meta: "", keys: "1200 · 1.2k · 1.2m" };
+            return { on: true, label: header, chips: flat(`${formatQuantity(n, meta.kind === "quantity" ? meta.format : undefined)}${unit}`), meta: "", keys: "↑↓ step · ⏎ commit" };
         }
         case "custom": {
             if (empty) return { on: true, label: `${header} · accepts`, chips: flat(meta.accepts ?? "a value"), meta: "", keys: "type to parse" };
@@ -208,8 +247,9 @@ function buildLinkStrip(header: string, val: string, link: StripLinkInput, singl
     const list = empty ? link.entry : link.candidates;
     if (list.length > 0) {
         const armed = empty ? undefined : link.armed;
-        const hi = armed === undefined ? -1 : Math.max(0, list.indexOf(armed));
-        const chips = list.slice(0, 12).map((c, i) => chipOf(c, i, i === hi));
+        // The armed candidate is a fresh object each time the list is built: find it by what it is, not by identity (else the first chip stays lit while ⌥] moves the pick).
+        const hi = armed === undefined ? -1 : Math.max(0, list.findIndex((c) => c.label === armed.label));
+        const chips = list.slice(0, 24).map((c, i) => chipOf(c, i, i === hi));
         if (hi < 0) {
             return { on: true, label: `${header}${halfName} · accepts`, chips, meta: link.arity, keys: "type to filter · ⌥↓ to pick · click any" };
         }
@@ -252,14 +292,71 @@ export interface SheetStripProps {
     onAction: (action: StripAction) => void;
 }
 
-/** Renders the docked strip. */
+// The pager's width, set aside at the row's end on every page once the chips run past one.
+const PAGER_PX = 84;
+/** The gap between chips (the recipe's `stripChips` gap). */
+const GAP_PX = 4;
+
+/** What a set of chips is, for the page cut — their keys, labels and which is armed. */
+const chipSignature = (chips: readonly StripChip[]): string =>
+    chips.map((c) => `${c.key}\u0000${c.label}\u0000${c.on ? 1 : 0}${c.flat ? "f" : ""}${c.pending ? "p" : ""}`).join("\u0001");
+
+/** Renders the docked strip — the chips of the current page, the pager when there is more than one. */
 export const SheetStrip = memo(function SheetStrip({ styles, model, onAction }: SheetStripProps) {
-    if (!model.on) return null;
+    const rowRef = useRef<HTMLDivElement | null>(null);
+    const measureRef = useRef<HTMLDivElement | null>(null);
+    const [width, setWidth] = useState(0);
+    /** The index the chips of each page start at. */
+    const [starts, setStarts] = useState<number[]>([0]);
+    const [page, setPage] = useState(0);
+    const on = model.on;
+    const signature = chipSignature(model.chips);
+    // The row's width, live.
+    useLayoutEffect(() => {
+        const el = rowRef.current;
+        if (!on || el === null) return undefined;
+        const read = () => setWidth(el.clientWidth);
+        read();
+        if (typeof ResizeObserver === "undefined") return undefined;
+        const ro = new ResizeObserver(read);
+        ro.observe(el);
+        return () => ro.disconnect();
+    }, [on]);
+    // Cut the chips into pages by their measured widths: one page when they all fit, else the pager's width set aside on every page.
+    useLayoutEffect(() => {
+        const m = measureRef.current;
+        if (!on || m === null || width <= 0) { setStarts([0]); return; }
+        const widths = Array.from(m.children, (k) => (k as HTMLElement).offsetWidth);
+        const total = widths.reduce((a, w) => a + w, 0) + GAP_PX * Math.max(0, widths.length - 1);
+        if (total <= width) { setStarts([0]); return; }
+        const avail = Math.max(40, width - PAGER_PX);
+        const out = [0];
+        let x = 0;
+        widths.forEach((w, i) => {
+            const need = (x === 0 ? 0 : GAP_PX) + w;
+            if (x > 0 && x + need > avail) { out.push(i); x = w; } else x += need;
+        });
+        setStarts(out);
+    }, [on, signature, width]);
+    // The page follows the armed chip; a fresh set of chips opens on its first page.
+    const armedAt = model.chips.findIndex((c) => c.on);
+    useLayoutEffect(() => {
+        if (armedAt < 0) { setPage(0); return; }
+        let p = 0;
+        for (let i = 0; i < starts.length; i++) if (starts[i]! <= armedAt) p = i;
+        setPage(p);
+    }, [armedAt, starts, signature]);
+    if (!on) return null;
+    const cur = Math.min(page, starts.length - 1);
+    const from = starts[cur] ?? 0;
+    const to = cur + 1 < starts.length ? starts[cur + 1]! : model.chips.length;
+    const paged = starts.length > 1;
+    const chipStyle = (ch: StripChip) => (ch.flat ? styles.stripChipFlat : ch.on ? styles.stripChipOn : styles.stripChip);
     return (
-        <Box css={styles.strip} data-slot="strip">
+        <Box css={styles.strip} data-slot="strip" data-paged={paged ? "" : undefined}>
             <Box as="span" css={styles.stripLabel} data-slot="stripLabel">{model.label}</Box>
-            <Box css={styles.stripChips}>
-                {model.chips.map((ch) => ch.flat
+            <Box ref={rowRef} css={styles.stripChips} data-slot="stripChips">
+                {model.chips.slice(from, to).map((ch) => ch.flat
                     ? <Box key={ch.key} as="span" css={styles.stripChipFlat} data-slot="stripChip" data-flat="">{ch.label}</Box>
                     : (
                         <Box
@@ -276,8 +373,29 @@ export const SheetStrip = memo(function SheetStrip({ styles, model, onAction }: 
                             {ch.label}
                         </Box>
                     ))}
+                {paged && (
+                    <Box as="span" css={styles.stripPager} data-slot="stripPager" title={`${model.chips.length} options · page ${cur + 1} of ${starts.length}`}>
+                        <chakra.button
+                            type="button" css={styles.stripPage} data-slot="stripPage" data-dir="prev" aria-label="Previous options" disabled={cur === 0}
+                            onMouseDown={(e) => { e.preventDefault(); if (cur > 0) setPage(cur - 1); }}
+                        >
+                            <FontAwesomeIcon icon={faChevronLeft} />
+                        </chakra.button>
+                        <Box as="span" css={styles.stripPageCount} data-slot="stripPageCount">{cur + 1}/{starts.length}</Box>
+                        <chakra.button
+                            type="button" css={styles.stripPage} data-slot="stripPage" data-dir="next" aria-label="More options" disabled={cur >= starts.length - 1}
+                            onMouseDown={(e) => { e.preventDefault(); if (cur < starts.length - 1) setPage(cur + 1); }}
+                        >
+                            <FontAwesomeIcon icon={faChevronRight} />
+                        </chakra.button>
+                    </Box>
+                )}
             </Box>
-            <Box as="span" css={styles.stripMeta} data-slot="stripMeta">{model.meta}</Box>
+            {/* Every chip once more, unseen and unconstrained — the pages are cut by these widths. */}
+            <Box ref={measureRef} css={styles.stripMeasure} aria-hidden="true" data-slot="stripMeasure">
+                {model.chips.map((ch) => <Box key={ch.key} as="span" css={chipStyle(ch)}>{ch.label}</Box>)}
+            </Box>
+            <Box as="span" css={styles.stripMeta} data-slot="stripMeta" title={model.meta}>{model.meta}</Box>
             <Box as="span" css={styles.stripKeys}>{model.keys}</Box>
         </Box>
     );

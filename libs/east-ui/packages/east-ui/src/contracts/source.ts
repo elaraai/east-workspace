@@ -288,7 +288,7 @@ export type RowSourceInput<C extends EastType> =
  * unkeyed source is refused rather than silently re-keyed (#568).
  */
 export type ResolvedRowSource =
-    | { kind: "inline"; rows: ExprType<EastType>; collectionType: EastType; elementType: EastType; keyType: EastType | undefined }
+    | { kind: "inline"; rows: ExprType<EastType>; collectionType: EastType; elementType: EastType; keyType: EastType | undefined; live?: ExprType<StructType> }
     | { kind: "paged"; source: ExprType<StructType>; collectionType: EastType; elementType: EastType; keyType: EastType | undefined };
 
 /** A struct expression's field types, or undefined when it isn't a struct. */
@@ -337,7 +337,7 @@ function keyTypeOf(t: EastType | undefined): EastType | undefined {
  *
  * @param data - The rows prop as the author passed it
  * @param label - Component name for the error message (`"Plan"`, `"Table"`)
- * @returns The resolved arm — see {@link ResolvedRowSource}
+ * @returns The resolved arm, retaining a live handle for invocation-time reads — see {@link ResolvedRowSource}
  * @throws Error when the expression is none of the accepted shapes
  */
 export function resolveRowSource(data: unknown, label: string): ResolvedRowSource {
@@ -370,7 +370,8 @@ export function resolveRowSource(data: unknown, label: string): ResolvedRowSourc
         // A whole-value bind handle (`Data.bind`) — read it here, in the
         // surrounding East expression, and resolve the result.
         const handle = expr as unknown as ExprType<StructType<{ read: FunctionType<[], ArrayType<EastType>> }>>;
-        return resolveRowSource(handle.read(), label);
+        const resolved = resolveRowSource(handle.read(), label);
+        return resolved.kind === "inline" ? { ...resolved, live: expr as unknown as ExprType<StructType> } : resolved;
     }
     throw new Error(
         `${label}: rows must be a collection, a paged source (\`{ id, page, total }\` — e.g. Data.bindPaged), ` +

@@ -88,6 +88,7 @@ import { breadcrumbSlotRecipe } from "./slot-recipes/breadcrumb.js";
 import { fieldSlotRecipe } from "./slot-recipes/field.js";
 import { comboboxSlotRecipe } from "./slot-recipes/combobox.js";
 import { tagsInputSlotRecipe } from "./slot-recipes/tagsInput.js";
+import { dateFieldSlotRecipe } from "./slot-recipes/dateField.js";
 import { numberInputSlotRecipe } from "./slot-recipes/numberInput.js";
 import { fileUploadSlotRecipe } from "./slot-recipes/fileUpload.js";
 import { paginationSlotRecipe } from "./slot-recipes/pagination.js";
@@ -206,6 +207,7 @@ const config = defineConfig({
             combobox:        comboboxSlotRecipe,
             tagsInput:       tagsInputSlotRecipe,
             numberInput:     numberInputSlotRecipe,
+            dateField:       dateFieldSlotRecipe,
             fileUpload:      fileUploadSlotRecipe,
             pagination:      paginationSlotRecipe,
             dataList:        dataListSlotRecipe,

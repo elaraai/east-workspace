@@ -30,6 +30,8 @@ export interface CandidateContext {
     rowIndex: number;
     /** The driver column's key, when the sheet declares one. */
     driverColumn: string | undefined;
+    /** A column's options rule (#844), evaluated for the edited row: the member keys it is offered (`undefined` = the whole register). */
+    allowed?: ((meta: SheetColumnMeta) => ReadonlySet<string> | undefined) | undefined;
 }
 
 /** Score one label against a query (lower is better; `-1` = no match). */
@@ -72,21 +74,50 @@ export function columnFrequency(rows: readonly SheetRowValue[], column: string):
     for (const r of rows) {
         const c = r.cells.get(column);
         if (c === undefined || c.type !== "String" || c.value === "") continue;
-        f.set(c.value as string, (f.get(c.value as string) ?? 0) + 1);
+        f.set(c.value, (f.get(c.value) ?? 0) + 1);
     }
     return f;
 }
 
-/** A register's member keys, in declaration order. */
-function memberKeys(ctx: CandidateContext, register: string | undefined): string[] {
-    if (register === undefined) return [];
-    return (ctx.registers.byName.get(register) ?? []).map((m) => m.key);
+/** A register's members, in declaration order — narrowed to the column's options rule when the host gives one. */
+function members(ctx: CandidateContext, meta: SheetColumnMeta): { key: string; aliases: readonly string[] }[] {
+    if (meta.register === undefined) return [];
+    const all = (ctx.registers.byName.get(meta.register) ?? []).map((m) => ({ key: m.key, aliases: m.aliases }));
+    const allowed = ctx.allowed?.(meta);
+    return allowed === undefined ? all : all.filter((m) => allowed.has(m.key));
+}
+
+/** A register's member keys, in declaration order — narrowed to the column's options rule when the host gives one. */
+function memberKeys(ctx: CandidateContext, meta: SheetColumnMeta): string[] {
+    return members(ctx, meta).map((m) => m.key);
+}
+
+/**
+ * The members matching `query` by key OR by any alias, best first: a
+ * member's score is its best over its spellings, an alias match ranking just
+ * behind the same match on the key, ties by `freq`. A register's shorthand
+ * (an abbreviation, a site's own word for a member) is an alias, not a
+ * substring of the member's name.
+ */
+function scoreMembers(list: readonly { key: string; aliases: readonly string[] }[], query: string, freq?: ReadonlyMap<string, number>): string[] {
+    return list
+        .map((m) => {
+            let s = scoreLabel(m.key, query);
+            for (const a of m.aliases) {
+                const as = scoreLabel(a, query);
+                if (as >= 0 && (s < 0 || as + 0.25 < s)) s = as + 0.25;
+            }
+            return { x: m.key, s };
+        })
+        .filter((o) => o.s >= 0)
+        .sort((a, b) => a.s - b.s || (freq?.get(b.x) ?? 0) - (freq?.get(a.x) ?? 0))
+        .map((o) => o.x);
 }
 
 /** The String value of a row's column, or `""`. */
 function stringAt(row: SheetRowValue | undefined, column: string): string {
     const c = row?.cells.get(column);
-    return c !== undefined && c.type === "String" ? (c.value as string) : "";
+    return c !== undefined && c.type === "String" ? c.value : "";
 }
 
 /**
@@ -97,7 +128,7 @@ function stringAt(row: SheetRowValue | undefined, column: string): string {
  * register.
  */
 export function entryCandidates(meta: SheetColumnMeta, ctx: CandidateContext): string[] {
-    const keys = memberKeys(ctx, meta.register);
+    const keys = memberKeys(ctx, meta);
     if (meta.kind === "enum" || meta.kind === "reference") return keys.slice(0, 8);
     if (meta.kind !== "lookup") return [];
     const score = new Map<string, number>();
@@ -124,11 +155,11 @@ export function entryCandidates(meta: SheetColumnMeta, ctx: CandidateContext): s
 export function candidateList(meta: SheetColumnMeta, text: string, ctx: CandidateContext): string[] {
     const t = text.trim();
     if (t === "") return entryCandidates(meta, ctx);
-    const keys = memberKeys(ctx, meta.register);
+    const list = members(ctx, meta);
     switch (meta.kind) {
-        case "lookup": return scoreCandidates(keys, t, columnFrequency(ctx.rows, meta.key));
-        case "reference": return scoreCandidates(keys, t);
-        case "enum": return scoreCandidates(keys, t.toUpperCase());
+        case "lookup": return scoreMembers(list, t, columnFrequency(ctx.rows, meta.key));
+        case "reference": return scoreMembers(list, t);
+        case "enum": return scoreMembers(list, t.toUpperCase());
         default: return [];
     }
 }

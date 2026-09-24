@@ -27,6 +27,7 @@
  * adds the register-aware resolution the editor needs.
  */
 
+import { variant } from "@elaraai/east";
 import { memberLabel, type SheetColumnMeta } from "../model.js";
 import { getSomeorUndefined } from "../../../utils.js";
 import type { SheetLinkValue, SheetMemberValue, SheetRegisterMemberValue } from "../values.js";
@@ -40,6 +41,8 @@ export interface MemberKindDecl {
     identified: boolean;
     countable: boolean;
     resolvesTo: string | undefined;
+    /** Runs of this kind's consecutive codes are named as one RANGE (#844): the entry menu offers each run as a range. */
+    ranged: boolean;
 }
 
 /** What the grammar resolves against — a column's register and its declared kinds. */
@@ -68,14 +71,14 @@ const DEFAULT_OPS = ["x", "X", "*", "×"];
 
 /** Build the vocabulary of a link / set column. */
 export function linkVocabulary(meta: SheetColumnMeta, members: readonly SheetRegisterMemberValue[]): LinkVocabulary {
-    const kv = meta.raw.kind.value as {
-        members?: readonly { kind: string; identified: boolean; countable: boolean; resolvesTo: { type: string; value: string | null } }[];
-        multiple?: { type: string; value: { ops: readonly string[] } | null };
-    } | null;
-    const kinds: MemberKindDecl[] = (kv?.members ?? []).map((k) => ({
-        kind: k.kind, identified: k.identified, countable: k.countable, resolvesTo: getSomeorUndefined(k.resolvesTo as never) as string | undefined,
+    // The declaration rides the decoded kind — the variant narrows on `type`.
+    const kind = meta.raw.kind;
+    const decl = kind.type === "link" || kind.type === "set" ? kind.value : undefined;
+    const kinds: MemberKindDecl[] = (decl?.members ?? []).map((k) => ({
+        kind: k.kind, identified: k.identified, countable: k.countable, resolvesTo: getSomeorUndefined(k.resolvesTo),
+        ranged: k.ranged,
     }));
-    const multiple = kv?.multiple !== undefined && kv.multiple !== null ? getSomeorUndefined(kv.multiple as never) as { ops: readonly string[] } | undefined : undefined;
+    const multiple = decl !== undefined ? getSomeorUndefined(decl.multiple) : undefined;
     const byKey = new Map<string, SheetRegisterMemberValue>();
     const byAlias = new Map<string, SheetRegisterMemberValue>();
     const prefixes = new Set<string>();
@@ -97,6 +100,35 @@ export function linkVocabulary(meta: SheetColumnMeta, members: readonly SheetReg
         ops: multiple?.ops ?? DEFAULT_OPS,
         prefixes: [...prefixes],
     };
+}
+
+/**
+ * The vocabulary narrowed to the members a row may be OFFERED (a link
+ * column's `options` rule, #844): the entry menu, the
+ * candidates and the grammar line read it, in the rule's order (the entry
+ * menu leads with what the rule put first); a kind with no member left drops
+ * out of the grammar line. Resolution of typed text keeps the whole register.
+ */
+export function narrowVocabulary(vocab: LinkVocabulary, allowed: ReadonlySet<string>): LinkVocabulary {
+    const rank = new Map<string, number>();
+    for (const k of allowed) if (!rank.has(k.toLowerCase())) rank.set(k.toLowerCase(), rank.size);
+    const members = vocab.members.filter((m) => rank.has(m.key.toLowerCase())).sort((a, b) => rank.get(a.key.toLowerCase())! - rank.get(b.key.toLowerCase())!);
+    const left = new Set(members.map((m) => m.kind));
+    const anyIdentified = members.some((m) => isIdentified(vocab, m));
+    const kinds = vocab.kinds.filter((k) => left.has(k.kind) || (k.kind === "range" && anyIdentified));
+    const byKey = new Map<string, SheetRegisterMemberValue>();
+    const byAlias = new Map<string, SheetRegisterMemberValue>();
+    const prefixes = new Set<string>();
+    const identifiedKinds = new Set(kinds.filter((k) => k.identified).map((k) => k.kind));
+    const countableKinds = new Set(kinds.filter((k) => k.countable).map((k) => k.kind));
+    for (const m of members) {
+        const k = m.key.toLowerCase();
+        if (!byKey.has(k)) byKey.set(k, m);
+        for (const a of m.aliases) { const al = a.toLowerCase(); if (!byAlias.has(al)) byAlias.set(al, m); }
+        const pm = /^([A-Za-z]+)(\d+)$/.exec(m.key);
+        if (pm !== null && (identifiedKinds.size === 0 || identifiedKinds.has(m.kind))) prefixes.add(pm[1]!);
+    }
+    return { ...vocab, members, byKey, byAlias, kinds, identifiedKinds, countableKinds, ranges: kinds.some((k) => k.kind === "range"), prefixes: [...prefixes] };
 }
 
 /** Whether a member's kind takes the counted form. */
@@ -160,19 +192,23 @@ export function parseMultiple(raw: string, vocab: LinkVocabulary): { n: number; 
     return n > 0 && rest !== "" ? { n, rest } : undefined;
 }
 
-/** The identified members in a numeric span — `M2140` … `M2145` — with the letters of `from`. */
+/** A code's letters, number and optional trailing letter (`M2140`, `L0700B` — some registers' codes carry a suffix). */
+const CODE = /^([A-Za-z]*)(\d+)([A-Za-z]?)$/;
+
+/** The identified members in a numeric span — `M2140` … `M2145` — with the letters of `from` (and its suffix, when it has one). */
 export function rangeMembers(from: string, to: string, vocab: LinkVocabulary): SheetRegisterMemberValue[] {
-    const a = /^([A-Za-z]*)(\d+)$/.exec(from);
-    const b = /^([A-Za-z]*)(\d+)$/.exec(to);
+    const a = CODE.exec(from);
+    const b = CODE.exec(to);
     if (a === null || b === null) return [];
     const prefix = a[1]!.toLowerCase();
+    const suffix = a[3]!.toLowerCase();
     const lo = Math.min(Number(a[2]), Number(b[2]));
     const hi = Math.max(Number(a[2]), Number(b[2]));
     const out: SheetRegisterMemberValue[] = [];
     for (const m of vocab.members) {
         if (!isIdentified(vocab, m)) continue;
-        const km = /^([A-Za-z]*)(\d+)$/.exec(m.key);
-        if (km === null || km[1]!.toLowerCase() !== prefix) continue;
+        const km = CODE.exec(m.key);
+        if (km === null || km[1]!.toLowerCase() !== prefix || km[3]!.toLowerCase() !== suffix) continue;
         const n = Number(km[2]);
         if (n >= lo && n <= hi) out.push(m);
     }
@@ -186,29 +222,31 @@ export function rangeMembers(from: string, to: string, vocab: LinkVocabulary): S
  */
 export function parseRange(raw: string, vocab: LinkVocabulary): { from: string; to: string; members: SheetRegisterMemberValue[] } | undefined {
     if (!vocab.ranges) return undefined;
-    // Unspaced only: `M2140 - 45` is an arrow between two members, never a range.
-    const m = /^([A-Za-z]*)(\d{2,})[-–]([A-Za-z]*)(\d{1,})$/.exec(raw.trim());
+    // Unspaced only: `M2140 - 45` is an arrow between two members, never a range. A trailing letter rides on either bound (`L0700B-L0823B`, `L0700B-23`).
+    const m = /^([A-Za-z]*)(\d{2,})([A-Za-z]?)[-–]([A-Za-z]*)(\d{1,})([A-Za-z]?)$/.exec(raw.trim());
     if (m === null) return undefined;
-    let upper = m[4]!;
+    let upper = m[5]!;
     if (upper.length < m[2]!.length) upper = m[2]!.slice(0, m[2]!.length - upper.length) + upper;
-    const letters = m[1] !== "" ? [m[1]!] : m[3] !== "" ? [m[3]!] : vocab.prefixes;
+    const suffix = (m[3] !== "" ? m[3]! : m[6]!).toUpperCase();
+    const letters = m[1] !== "" ? [m[1]!] : m[4] !== "" ? [m[4]!] : vocab.prefixes;
     for (const p of letters) {
         // Take the register's own casing of the prefix.
-        const sample = vocab.members.find((x) => x.key.toLowerCase().startsWith(p.toLowerCase()) && /^[A-Za-z]+\d+$/.test(x.key));
+        const sample = vocab.members.find((x) => x.key.toLowerCase().startsWith(p.toLowerCase()) && /^[A-Za-z]+\d+[A-Za-z]?$/.test(x.key));
         const prefix = sample !== undefined ? sample.key.slice(0, p.length) : p.toUpperCase();
-        const from = `${prefix}${m[2]}`;
-        const to = `${prefix}${upper}`;
+        const from = `${prefix}${m[2]}${suffix}`;
+        const to = `${prefix}${upper}${suffix}`;
         const members = rangeMembers(from, to, vocab);
         if (members.length > 0) return { from, to, members };
     }
     return undefined;
 }
 
-const identified = (key: string): SheetMemberValue => ({ type: "identified", value: { key } }) as SheetMemberValue;
-const counted = (n: number, key: string): SheetMemberValue => ({ type: "counted", value: { n: BigInt(n), key } }) as SheetMemberValue;
-const range = (from: string, to: string): SheetMemberValue => ({ type: "range", value: { from, to } }) as SheetMemberValue;
-const text = (t: string): SheetMemberValue => ({ type: "text", value: t }) as SheetMemberValue;
-const PLACEHOLDER: SheetMemberValue = { type: "placeholder", value: null } as SheetMemberValue;
+// Members are built through `variant()` — a hand-rolled `{ type, value }` lacks the brand the encoder needs.
+const identified = (key: string): SheetMemberValue => variant("identified", { key });
+const counted = (n: number, key: string): SheetMemberValue => variant("counted", { n: BigInt(n), key });
+const range = (from: string, to: string): SheetMemberValue => variant("range", { from, to });
+const text = (t: string): SheetMemberValue => variant("text", t);
+const PLACEHOLDER: SheetMemberValue = variant("placeholder", null);
 
 /**
  * One token to its members: the placeholder, a range, a register member, the
@@ -246,37 +284,45 @@ export function parseHalfText(textIn: string, vocab: LinkVocabulary): SheetMembe
 /** The planner's text to a link — `a > b` both halves, `b` destination only, `a >` source only. */
 export function parseLinkText(textIn: string, vocab: LinkVocabulary): SheetLinkValue {
     const parts = textIn.split(ARROW);
-    if (parts.length === 1) return { from: [], to: parseHalfText(parts[0] ?? "", vocab) } as SheetLinkValue;
+    if (parts.length === 1) return { from: [], to: parseHalfText(parts[0] ?? "", vocab) };
     const from = parseHalfText(parts[0] ?? "", vocab);
     const to = parts.slice(1).flatMap((p) => parseHalfText(p, vocab));
-    return { from, to } as SheetLinkValue;
+    return { from, to };
 }
 
 /** A member's chip meta — the register's line, `unassigned` for a counted member (a count names no one in particular), the span of a range. */
 export function memberMeta(m: SheetMemberValue, vocab: LinkVocabulary): string {
     switch (m.type) {
         case "identified": {
-            const reg = vocab.byKey.get((m.value as { key: string }).key.toLowerCase());
+            const reg = vocab.byKey.get(m.value.key.toLowerCase());
             return reg !== undefined ? getSomeorUndefined(reg.meta) ?? "" : "";
         }
         case "counted":
-            return vocab.byKey.has((m.value as { key: string }).key.toLowerCase()) ? "unassigned" : "";
+            return vocab.byKey.has(m.value.key.toLowerCase()) ? "unassigned" : "";
         case "range": {
-            const r = m.value as { from: string; to: string };
-            const n = rangeMembers(r.from, r.to, vocab).length;
-            return n > 0 ? `${n} members` : "";
+            // The span in the kind's own word: `6 machines`.
+            const n = rangeMembers(m.value.from, m.value.to, vocab).length;
+            const kind = vocab.byKey.get(m.value.from.toLowerCase())?.kind;
+            return n > 0 ? `${n} ${kind !== undefined ? pluralKind(kind) : "members"}` : "";
         }
         default:
             return "";
     }
 }
 
+/** A member kind as a plural word (`machine` → `machines`, `family` → `families`, `bench` → `benches`). */
+export function pluralKind(kind: string): string {
+    if (/[^aeiou]y$/i.test(kind)) return `${kind.slice(0, -1)}ies`;
+    if (/(s|x|z|ch|sh)$/i.test(kind)) return `${kind}es`;
+    return `${kind}s`;
+}
+
 /** The register key a member counts against — `undefined` for text and the placeholder. */
 export function memberKey(m: SheetMemberValue): string | undefined {
     switch (m.type) {
-        case "identified": return (m.value as { key: string }).key;
-        case "counted": return (m.value as { key: string }).key;
-        case "range": return (m.value as { from: string }).from;
+        case "identified": return m.value.key;
+        case "counted": return m.value.key;
+        case "range": return m.value.from;
         default: return undefined;
     }
 }
@@ -286,8 +332,7 @@ export function usedKeys(members: readonly SheetMemberValue[], vocab: LinkVocabu
     const used = new Set<string>();
     for (const m of members) {
         if (m.type === "range") {
-            const r = m.value as { from: string; to: string };
-            for (const x of rangeMembers(r.from, r.to, vocab)) used.add(x.key.toLowerCase());
+            for (const x of rangeMembers(m.value.from, m.value.to, vocab)) used.add(x.key.toLowerCase());
             continue;
         }
         const k = memberKey(m);

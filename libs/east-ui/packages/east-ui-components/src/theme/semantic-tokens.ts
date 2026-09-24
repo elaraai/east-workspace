@@ -17,6 +17,15 @@ import { defineSemanticTokens } from "@chakra-ui/react";
 
 export const semanticTokens = defineSemanticTokens({
     colors: {
+        /** Stable group identity colours, shared by markers and rails. */
+        sheet: { group: {
+            "1": { value: "{colors.brand.solid}" },
+            "2": { value: { base: "#85739a", _dark: "#b6a3cf" } },
+            "3": { value: { base: "#9a7a4f", _dark: "#c9aa7f" } },
+            "4": { value: { base: "#6c859f", _dark: "#9ab3cd" } },
+            "5": { value: { base: "#8a8655", _dark: "#b9b585" } },
+            "6": { value: { base: "#a8757f", _dark: "#d7a4ae" } },
+        } },
         /* ─── colorPalette virtual mappings ────────────────────
          *
          * Chakra v3 resolves `colorPalette.solid`, `colorPalette.contrast`,

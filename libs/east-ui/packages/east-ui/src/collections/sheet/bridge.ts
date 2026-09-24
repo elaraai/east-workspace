@@ -16,13 +16,22 @@
  * - `rowById` — the REAL source row by id: the captured collection or bind
  *   handle on the inline arm, the source's `page` at the row's offset on the
  *   paged arm. Built ONCE per sheet and shared by every wrapper;
- * - `decode` — the source row as the base (the row type's default when
- *   absent — an insert, a proposal), then each column's field from its cell
- *   by the static tag. A field with no column keeps the base row's value;
- * - `bridgeCtx` — the wire context to `Sheet.Types.Context(R, D)`;
+ * - `draftDecode` — current cells over the existing field draft, preserving
+ *   hidden values and retaining missing/invalid input without domain defaults;
+ * - `bridgeCtx` — the wire context to `Sheet.Types.DraftContext(R, D)`;
  * - the wrappers — a fill provider, a proposer, an arity rule, a member
- *   check, a custom kind's parse / print, `onEdit` — each the author's typed
- *   function inside its closed wire twin.
+ *   check, an options rule, a custom kind's parse / print — each the
+ *   author's typed function inside its closed wire twin;
+ * - the rule cells and sub rows (#844) — a column's `level` / `actual` /
+ *   `detail` accessors and the `subRows` mappers, each compiled once and
+ *   called inside the row projection.
+ *
+ * On a GROUPED sheet (#740) the source row is the group `P` and the columns
+ * are declared over the line `L` its lines field holds: `projectRow` /
+ * `draftRow` / the patch run over `L`, `rowById` returns the group, and the
+ * group half of the bridge ({@link SheetGroupBridge}) projects the group's
+ * summary cells and ordered children. Internal child keys preserve identity
+ * during local editing; the author's child arrays remain positional.
  *
  * The bridge is the one place a string ever names a field: inside the
  * factory, against the column list it has already validated.
@@ -49,7 +58,6 @@ import {
     OptionType,
     StringType,
     StructType,
-    defaultValue,
     variant,
     some,
     none,
@@ -58,6 +66,8 @@ import {
 import {
     SheetCellType,
     SheetLinkType,
+    SheetRowType,
+    SheetLineType,
     SheetContextType,
     SheetFillType,
     SheetProposalType,
@@ -66,17 +76,29 @@ import {
     SheetCheckContextType,
     SheetCheckType,
     SheetCountedType,
-    SheetEditType,
     SheetHalfType,
     SheetContextTypeFor,
     SheetCheckContextTypeFor,
-    SheetEditTypeFor,
     SheetPatchTypeFor,
     SheetProposalTypeFor,
+    SheetGroupContextTypeFor,
+    SheetGroupCheckContextTypeFor,
+    SheetDateLevelType,
+    SheetSubRowType,
+    SheetOptionsRuleType,
+    sheetLinesOf,
+    sheetRuleCell,
     type SheetColumnKindLiteral,
 } from "./types.js";
-import { SheetMembersType, SheetRegisterMembersType, parseLink, printLink, printLinkWith, EMPTY_LINK } from "./link.js";
+import { resolveTag } from "../plan/builders.js";
+import type { SheetSubRowsValue } from "./sub-rows.js";
+import { SheetMembersType, SheetRegisterMembersType, parseLink, EMPTY_LINK } from "./link.js";
+import { buildDraftRowDecoder, buildDraftGroupDecoder } from "./draft-bridge.js";
+import { buildDraftContextBridge, buildDraftBase } from "./context-bridge.js";
+import { SheetDraftGroupTypeFor } from "./drafts.js";
+import { SheetDraftTypeFor } from "./transactions.js";
 import type { SheetAnyColumnConfig, SheetColumn } from "./columns.js";
+import type { SheetGroupCell } from "./group.js";
 import type { SheetDriverValue, SheetRegisterValue } from "./registers.js";
 
 /** The wire cells dictionary type. */
@@ -95,14 +117,33 @@ function typeOf(e: unknown): EastType {
 export type SheetLinkForm = "link" | "array" | "string";
 
 /**
+ * One UNRENDERED cell a column's rule projects (#844) — a date's `level` /
+ * `actual`, a column's `detail` — compiled once over the row type.
+ *
+ * @internal
+ */
+export interface SheetRuleCellMeta {
+    /** The cell key ({@link sheetRuleCell}). */
+    key: string;
+    /** The reified accessor over the row. */
+    fn: ExprType<FunctionType<[StructType], EastType>>;
+    /** The cell arm the accessor's payload lands in. */
+    tag: "String" | "DateTime";
+    /** Whether the accessor returns an `Option` of the payload. */
+    optional: boolean;
+}
+
+/**
  * One declared column, described against the row type — the static facts
  * every East function below is built from.
  *
  * @internal
  */
 export interface SheetColumnMeta {
-    /** The column key — the row field it sits on. */
+    /** The column key — the row field it sits on (a band cell: the line column it sits under, or `$title`). */
     key: string;
+    /** The row field the cell reads and writes — the key for a column, a band cell's `field`. */
+    field: string;
     /** The column kind. */
     kind: SheetColumnKindLiteral;
     /** The author's config. */
@@ -131,6 +172,8 @@ export interface SheetColumnMeta {
     register?: string;
     /** The driver's row type the column was built with. */
     driverType?: StructType;
+    /** The unrendered cells the column's rules project (#844). */
+    ruleCells?: SheetRuleCellMeta[];
 }
 
 /** Whether a type is `Option<T>` — a variant of exactly `none: Null` and `some`. */
@@ -161,6 +204,51 @@ const SCALAR_PAYLOAD: Partial<Record<SheetColumnKindLiteral, EastType>> = {
     date: DateTimeType, quantity: FloatType, integer: IntegerType,
 };
 
+/** Compile one rule accessor and check its payload — `String` or `DateTime`, or its Option. */
+function ruleCell(
+    key: string,
+    rule: "actual" | "detail",
+    rowType: StructType,
+    accessor: (row: ExprType<StructType>) => unknown,
+    tag: SheetRuleCellMeta["tag"],
+): SheetRuleCellMeta {
+    const fn = East.function([rowType], undefined, (_$, r) => accessor(r) as SubtypeExprOrValue<EastType>) as unknown as SheetRuleCellMeta["fn"];
+    const out = (Expr.type(fn) as FunctionType).output as EastType;
+    const payload = optionPayload(out);
+    const unwrapped = payload ?? out;
+    if (cellTagOf(unwrapped) !== tag) {
+        throw new Error(`Sheet: column "${key}" has a \`${rule}\` rule returning ${describeType(out)} — it must return ${tag} or Option<${tag}>`);
+    }
+    return { key: sheetRuleCell(rule, key), fn, tag, optional: payload !== undefined };
+}
+
+/**
+ * The unrendered cells a column's rules project (#844) — `detail` on any
+ * column, `level` and `actual` on a date column.
+ */
+function ruleCellsOf(key: string, kind: SheetColumnKindLiteral, cfg: SheetAnyColumnConfig, rowType: StructType): SheetRuleCellMeta[] {
+    const out: SheetRuleCellMeta[] = [];
+    if (cfg.detail !== undefined) out.push(ruleCell(key, "detail", rowType, cfg.detail, "String"));
+    if (kind !== "date") {
+        if (cfg.level !== undefined || cfg.actual !== undefined) {
+            throw new Error(`Sheet: column "${key}" is a ${kind} column — \`level\` and \`actual\` are date-column rules`);
+        }
+        return out;
+    }
+    if (cfg.level !== undefined) {
+        const level = cfg.level;
+        const fn = East.function([rowType], StringType, (_$, r) => resolveTag(level(r), SheetDateLevelType).match({
+            week:  (_$2) => "week",
+            day:   (_$2) => "day",
+            range: (_$2) => "range",
+            time:  (_$2) => "time",
+        })) as unknown as SheetRuleCellMeta["fn"];
+        out.push({ key: sheetRuleCell("level", key), fn, tag: "String", optional: false });
+    }
+    if (cfg.actual !== undefined) out.push(ruleCell(key, "actual", rowType, cfg.actual, "DateTime"));
+    return out;
+}
+
 /**
  * Describe one column against the row type — the build-time refusals of
  * §3.12 live here, every one naming the column and the remedy.
@@ -172,6 +260,16 @@ const SCALAR_PAYLOAD: Partial<Record<SheetColumnKindLiteral, EastType>> = {
  * @throws Error naming the column when the kind cannot sit on the field
  */
 export function describeColumn(key: string, col: SheetColumn<StructType, EastType>, rowType: StructType): SheetColumnMeta {
+    const meta = describeKind(key, col, rowType);
+    const ruleCells = ruleCellsOf(key, col.kind, col.config, rowType);
+    if (col.config.options !== undefined && col.kind !== "enum" && col.kind !== "lookup" && col.kind !== "link") {
+        throw new Error(`Sheet: column "${key}" is a ${col.kind} column — an \`options\` rule narrows an enum, lookup or link column's members`);
+    }
+    return ruleCells.length > 0 ? { ...meta, ruleCells } : meta;
+}
+
+/** {@link describeColumn}'s kind-by-kind half. */
+function describeKind(key: string, col: SheetColumn<StructType, EastType>, rowType: StructType): SheetColumnMeta {
     const fields = rowType.fields as Record<string, EastType>;
     const fieldType = fields[key];
     if (fieldType === undefined) {
@@ -194,7 +292,7 @@ export function describeColumn(key: string, col: SheetColumn<StructType, EastTyp
             throw new Error(`Sheet: column "${key}" is a ${kind} column whose \`value\` projection returns ${(outUnwrapped as { type: string }).type} — a ${kind} column's projection must return ${(payloadType as { type: string }).type} or its Option`);
         }
         return {
-            key, kind, config: cfg, fieldType, optional, payloadType,
+            key, field: key, kind, config: cfg, fieldType, optional, payloadType,
             cellTag: cellTagOf(payloadType)!, editable: false,
             derived, derivedOptional: outPayload !== undefined,
             ...(col.register !== undefined ? { register: col.register } : {}),
@@ -228,7 +326,7 @@ export function describeColumn(key: string, col: SheetColumn<StructType, EastTyp
             throw new Error(`Sheet: ${kind} column "${key}" must sit on a Sheet.Types.Link, Array<Sheet.Types.Member> or String field — got ${(fieldType as { type: string }).type}`);
         }
         return {
-            key, kind, config: cfg, fieldType, optional: form === "link" ? unwrapped === SheetLinkType && optional : optional,
+            key, field: key, kind, config: cfg, fieldType, optional: form === "link" ? unwrapped === SheetLinkType && optional : optional,
             payloadType: SheetLinkType, cellTag: "Link", editable: cfg.editable !== false,
             form,
             ...(ownHalf !== undefined ? { ownHalf } : {}),
@@ -252,7 +350,7 @@ export function describeColumn(key: string, col: SheetColumn<StructType, EastTyp
         if (tag === undefined) {
             throw new Error(`Sheet: custom column "${key}" has payload ${(parsed as { type: string }).type}, which no cell holds — use String, Integer, Float, DateTime, Boolean or Sheet.Types.Link`);
         }
-        return { key, kind, config: cfg, fieldType, optional, payloadType: parsed, cellTag: tag, editable: cfg.editable !== false };
+        return { key, field: key, kind, config: cfg, fieldType, optional, payloadType: parsed, cellTag: tag, editable: cfg.editable !== false };
     }
 
     const payloadType = SCALAR_PAYLOAD[kind] as EastType;
@@ -260,12 +358,35 @@ export function describeColumn(key: string, col: SheetColumn<StructType, EastTyp
         throw new Error(`Sheet: ${kind} column "${key}" must sit on a ${(payloadType as { type: string }).type} or Option<${(payloadType as { type: string }).type}> field — got ${(fieldType as { type: string }).type}`);
     }
     return {
-        key, kind, config: cfg, fieldType, optional, payloadType,
+        key, field: key, kind, config: cfg, fieldType, optional, payloadType,
         cellTag: cellTagOf(payloadType)!,
         editable: kind !== "stamped" && cfg.editable !== false,
         ...(col.register !== undefined ? { register: col.register } : {}),
         ...(col.driverType !== undefined ? { driverType: col.driverType } : {}),
     };
+}
+
+/**
+ * Describe one band cell against the GROUP's row type (#740) — a column
+ * declared over the group's field, keyed by the line column it sits under.
+ *
+ * @param cellKey - The line column the cell sits under, or `$title`
+ * @param cell - The built band cell
+ * @param groupType - The group's row type
+ * @returns The cell's metadata
+ * @throws Error naming the band cell when the kind cannot sit on the field, or is not a band kind
+ */
+export function describeGroupCell(cellKey: string, cell: SheetGroupCell<StructType>, groupType: StructType): SheetColumnMeta {
+    if (cell.kind === "lookup" || cell.kind === "set" || cell.kind === "link" || cell.kind === "custom") {
+        throw new Error(`Sheet: band cell "${cellKey}" is a ${cell.kind} cell — a band draws text, date, quantity, integer, reference, enum and stamped cells only`);
+    }
+    let meta: SheetColumnMeta;
+    try {
+        meta = describeColumn(cell.field, { kind: cell.kind, config: cell.config, ...(cell.register !== undefined ? { register: cell.register } : {}) }, groupType);
+    } catch (e) {
+        throw new Error(`Sheet: band cell "${cellKey}" — ${(e as Error).message.replace(/^Sheet: /, "")}`);
+    }
+    return { ...meta, key: cellKey, field: cell.field };
 }
 
 // ============================================================================
@@ -281,10 +402,10 @@ export function cellOfPayload(tag: SheetColumnMeta["cellTag"], v: ExprType<EastT
 export const NULL_CELL = East.value(variant("Null", null), SheetCellType);
 
 /** A field VALUE (the payload or its Option) as a cell, by the column's static shape. */
-function cellOfFieldValue(meta: SheetColumnMeta, v: ExprType<EastType>, optional: boolean): ExprType<SheetCellType> {
-    if (!optional) return cellOfPayload(meta.cellTag, v);
+function cellOfFieldValue(tag: SheetColumnMeta["cellTag"], v: ExprType<EastType>, optional: boolean): ExprType<SheetCellType> {
+    if (!optional) return cellOfPayload(tag, v);
     return (v as unknown as ExprType<OptionType<EastType>>).match({
-        some: (_$, x) => cellOfPayload(meta.cellTag, x as ExprType<EastType>),
+        some: (_$, x) => cellOfPayload(tag, x as ExprType<EastType>),
         none: (_$) => NULL_CELL,
     }) as ExprType<SheetCellType>;
 }
@@ -301,11 +422,11 @@ function projectCell(
 ): ExprType<SheetCellType> {
     const row = r as unknown as Record<string, ExprType<EastType>>;
     if (meta.derived !== undefined) {
-        return cellOfFieldValue(meta, meta.derived(r), meta.derivedOptional === true);
+        return cellOfFieldValue(meta.cellTag, meta.derived(r), meta.derivedOptional === true);
     }
-    const fv = row[meta.key] as ExprType<EastType>;
-    if (meta.form === undefined) return cellOfFieldValue(meta, fv, meta.optional);
-    if (meta.form === "link") return cellOfFieldValue(meta, fv, meta.optional);
+    const fv = row[meta.field] as ExprType<EastType>;
+    if (meta.form === undefined) return cellOfFieldValue(meta.cellTag, fv, meta.optional);
+    if (meta.form === "link") return cellOfFieldValue(meta.cellTag, fv, meta.optional);
     if (meta.form === "array") {
         const half = fv as unknown as ExprType<typeof SheetMembersType>;
         const empty = East.value([], SheetMembersType);
@@ -328,73 +449,6 @@ function projectCell(
     }) as ExprType<SheetCellType>;
 }
 
-/** The field value a cell decodes to — the payload or its Option, by the column's static shape. */
-function fieldValueOfCell(meta: SheetColumnMeta, cell: ExprType<SheetCellType>, optional: boolean, payloadType: EastType): ExprType<EastType> {
-    if (optional) {
-        return cell.match(
-            { [meta.cellTag]: (_$: unknown, v: ExprType<EastType>) => East.value(some(v), OptionType(payloadType)) } as never,
-            (_$: unknown) => East.value(none, OptionType(payloadType)),
-        ) as ExprType<EastType>;
-    }
-    return cell.match(
-        { [meta.cellTag]: (_$: unknown, v: ExprType<EastType>) => v } as never,
-        (_$: unknown) => East.value(defaultValue(payloadType) as SubtypeExprOrValue<EastType>, payloadType),
-    ) as ExprType<EastType>;
-}
-
-/**
- * The value of THIS column's field from its cell (the base field when the cell
- * is absent or the column is read-only). `members` is the column's register,
- * bound in the caller's block, for the String link form's canonical print.
- */
-function decodeOwnField(
-    meta: SheetColumnMeta,
-    cellOpt: ExprType<OptionType<SheetCellType>>,
-    base: ExprType<EastType>,
-    members: ExprType<typeof SheetRegisterMembersType> | undefined,
-): ExprType<EastType> {
-    if (!meta.editable) return base;
-    // The String form prints the link back through the grammar — the keys as
-    // typed, or the register's labels under `store: "canonical"` (B§4.2).
-    const print = (l: ExprType<SheetLinkType>): ExprType<StringType> =>
-        meta.config.store === "canonical" && members !== undefined ? printLinkWith(l, members) : printLink(l);
-    return cellOpt.match({
-        none: (_$) => base,
-        some: (_$, cell) => {
-            if (meta.form === undefined) return fieldValueOfCell(meta, cell, meta.optional, meta.payloadType);
-            if (meta.form === "link") return fieldValueOfCell(meta, cell, meta.optional, SheetLinkType);
-            if (meta.form === "array") {
-                return cell.match(
-                    { Link: (_$2: unknown, l: ExprType<SheetLinkType>) => meta.ownHalf === "from" ? l.from : l.to } as never,
-                    (_$2: unknown) => East.value([], SheetMembersType),
-                ) as ExprType<EastType>;
-            }
-            if (meta.optional) {
-                return cell.match(
-                    { Link: (_$2: unknown, l: ExprType<SheetLinkType>) => East.value(some(print(l)), OptionType(StringType)) } as never,
-                    (_$2: unknown) => East.value(none, OptionType(StringType)),
-                ) as unknown as ExprType<EastType>;
-            }
-            return cell.match(
-                { Link: (_$2: unknown, l: ExprType<SheetLinkType>) => print(l) } as never,
-                (_$2: unknown) => East.value("", StringType),
-            ) as unknown as ExprType<EastType>;
-        },
-    }) as ExprType<EastType>;
-}
-
-/** The OTHER half's field of an `array`-form link column, from that column's cell. */
-function decodeOtherHalf(meta: SheetColumnMeta, cellOpt: ExprType<OptionType<SheetCellType>>, base: ExprType<EastType>): ExprType<EastType> {
-    if (!meta.editable) return base;
-    return cellOpt.match({
-        none: (_$) => base,
-        some: (_$, cell) => cell.match(
-            { Link: (_$2: unknown, l: ExprType<SheetLinkType>) => meta.ownHalf === "from" ? l.to : l.from } as never,
-            (_$2: unknown) => East.value([], SheetMembersType),
-        ) as ExprType<EastType>,
-    }) as ExprType<EastType>;
-}
-
 // ============================================================================
 // The bridge
 // ============================================================================
@@ -405,36 +459,78 @@ export type SheetBridgeSource =
     | { kind: "paged"; source: ExprType<StructType>; keyed: boolean };
 
 /**
+ * The group half of a bridge (#740) — the group's summary cells and child rows on
+ * the wire.
+ *
+ * @internal
+ */
+export interface SheetGroupBridge {
+    /** The field holding the lines. */
+    linesField: string;
+    /** `true` ⇒ `Dict<String, L>` lines; `false` ⇒ `Array<L>` lines. */
+    keyed: boolean;
+    /** The band's cells, the title first. */
+    cellMetas: SheetColumnMeta[];
+    /** `P` → the band's cells. */
+    projectGroupCells: ExprType<FunctionType<[StructType], typeof SheetCellsType>>;
+    /** `P` → its wire lines, in order, keyed by source identity. */
+    projectLines: ExprType<FunctionType<[StructType], ArrayType<SheetLineType>>>;
+}
+
+/**
  * The compiled bridge of one sheet — every wire function the root stores is
  * built from these.
+ *
+ * @remarks
+ * `rowType` is the SOURCE row's type — the host's row on a flat sheet, the
+ * group's on a grouped one — and `lineType` the type the columns are
+ * declared over: the same type on a flat sheet, the line type on a grouped
+ * one. The patch, the proposal, `projectRow` and `draftRow` run over
+ * `lineType`; `rowById` and the edit type over `rowType`.
  *
  * @internal
  */
 export interface SheetBridge {
-    /** The host's row type. */
+    /** The source row's type — the host's row, or the group's. */
     rowType: StructType;
+    /** The type the columns are declared over — the row, or the line. */
+    lineType: StructType;
     /** The driver's row type (`NullType` without a driver). */
     driverType: EastType;
-    /** `Sheet.Types.Context(R, D)`. */
+    /** `Sheet.Types.DraftContext(R, D)` — or `Context(P, "lines", D)` on a grouped sheet. */
     ctxType: StructType;
-    /** `Sheet.Types.CheckContext(R)`. */
+    /** `Sheet.Types.CheckContext(R)` — or `CheckContext(P, "lines")`. */
     checkCtxType: StructType;
-    /** `Sheet.Types.Edit(R)`. */
-    editType: EastType;
-    /** `Sheet.Types.Patch(R)`. */
+    /** `Sheet.Types.Patch(L)`. */
     patchType: StructType;
-    /** `Sheet.Types.Proposal(R)`. */
+    /** `Sheet.Types.Proposal(L)`. */
     proposalType: StructType;
-    /** `R` → the wire cells. */
+    /** Constructor defaults, including read-only cells. */
+    seedCells: SheetBridge["encodePatch"];
+    /** `L` → the wire cells. */
     projectRow: ExprType<FunctionType<[StructType], typeof SheetCellsType>>;
-    /** `(id, cells, base)` → `R`. */
-    decode: ExprType<FunctionType<[StringType, typeof SheetCellsType, OptionType<StructType>], StructType>>;
+    /** `L` → its sub rows, sources in declaration order (#844; `[]` without `subRows`). */
+    projectSubRows: ExprType<FunctionType<[StructType], ArrayType<SheetSubRowType>>>;
+    /** Decode one row into its complete field draft. */
+    draftRow: ReturnType<typeof buildDraftRowDecoder>;
+    /** Decode edited cells into field drafts, preserving the previous child identities. */
+    draftDecode: ExprType<FunctionType<[SheetRowType, OptionType<StructType>, OptionType<SheetRowType>], StructType>>;
     /** `(id, offset)` → the real source row. */
     rowById: ExprType<FunctionType<[StringType, IntegerType], OptionType<StructType>>>;
-    /** The wire context → `Sheet.Types.Context(R, D)`. */
+    /** The wire context → the typed context. */
     bridgeCtx: ExprType<FunctionType<[SheetContextType], StructType>>;
-    /** `Sheet.Types.Patch(R)` → the set fields as cells. */
+    /** `Sheet.Types.Patch(L)` → the set fields as cells. */
     encodePatch: ExprType<FunctionType<[StructType], typeof SheetCellsType>>;
+    /** The group half — present on a grouped sheet. */
+    group?: SheetGroupBridge;
+}
+
+/** The group declaration the bridge needs from the root (#740). */
+export interface SheetBridgeGroupInput {
+    /** The field holding the lines. */
+    linesField: string;
+    /** The band's cells, the title first. */
+    cellMetas: SheetColumnMeta[];
 }
 
 /** What the bridge needs from the root. */
@@ -445,6 +541,8 @@ export interface SheetBridgeInput {
     registers: Record<string, SheetRegisterValue>;
     driver: SheetDriverValue | undefined;
     source: SheetBridgeSource;
+    group?: SheetBridgeGroupInput;
+    subRows?: SheetSubRowsValue<StructType>;
 }
 
 /** The id of a row — the id field, or the key of a keyed window. */
@@ -460,21 +558,25 @@ function idOf(r: ExprType<StructType>, idField: string | undefined): ExprType<St
  * @returns The bridge
  */
 export function buildBridge(input: SheetBridgeInput): SheetBridge {
-    const { rowType, idField, metas, registers, driver, source } = input;
+    const { rowType, idField, metas, registers, driver, source, group: groupInput, subRows } = input;
     const driverType: EastType = driver !== undefined ? driver.rowType : NullType;
-    const ctxType = SheetContextTypeFor(rowType, driverType) as unknown as StructType;
-    const checkCtxType = SheetCheckContextTypeFor(rowType) as unknown as StructType;
-    const editType = SheetEditTypeFor(rowType) as unknown as EastType;
-    const patchType = SheetPatchTypeFor(rowType) as unknown as StructType;
-    const proposalType = SheetProposalTypeFor(rowType) as unknown as StructType;
-    const fields = rowType.fields as Record<string, EastType>;
-    const byField = new Map(metas.map((m) => [m.key, m]));
-    const otherHalfBy = new Map<string, SheetColumnMeta>();
-    for (const m of metas) if (m.otherField !== undefined) otherHalfBy.set(m.otherField, m);
-    // R → the wire cells. Registers are bound ONCE per body for the String
+    // A grouped sheet's columns are declared over the LINE type; its source
+    // rows are groups. A flat sheet's line type is its row type.
+    const shape = groupInput !== undefined ? sheetLinesOf(rowType, groupInput.linesField) : undefined;
+    const lineType = shape?.lineType ?? rowType;
+    const lineIdField = shape === undefined ? idField : undefined;
+    const ctxType = (groupInput !== undefined
+        ? SheetGroupContextTypeFor(rowType, groupInput.linesField as never, driverType)
+        : SheetContextTypeFor(lineType, driverType)) as unknown as StructType;
+    const checkCtxType = (groupInput !== undefined
+        ? SheetGroupCheckContextTypeFor(rowType, groupInput.linesField as never)
+        : SheetCheckContextTypeFor(lineType)) as unknown as StructType;
+    const patchType = SheetPatchTypeFor(lineType) as unknown as StructType;
+    const proposalType = SheetProposalTypeFor(lineType) as unknown as StructType;
+    // L → the wire cells. Registers are bound ONCE per body for the String
     // link form (the capture rule: data, never a spliced expression).
     const stringFormRegisters = [...new Set(metas.filter((m) => m.form === "string" && m.register !== undefined).map((m) => m.register!))];
-    const projectRow = East.function([rowType], SheetCellsType, ($, r) => {
+    const projectRow = East.function([lineType], SheetCellsType, ($, r) => {
         const cells = $.let(new Map<string, never>(), SheetCellsType);
         const bound = new Map<string, ExprType<typeof SheetRegisterMembersType>>();
         for (const name of stringFormRegisters) {
@@ -482,43 +584,14 @@ export function buildBridge(input: SheetBridgeInput): SheetBridge {
         }
         for (const m of metas) {
             $(cells.insert(m.key, projectCell(m, r, m.register !== undefined ? bound.get(m.register) : undefined)));
+            for (const rc of m.ruleCells ?? []) {
+                const rule = $.const(rc.fn);
+                $(cells.insert(rc.key, cellOfFieldValue(rc.tag, rule(r), rc.optional)));
+            }
         }
         return cells;
     }) as unknown as SheetBridge["projectRow"];
-
-    // (id, cells, base) → R: the base row (the type's default when absent),
-    // every column's field from its cell, the id field from the wire id.
-    const decode = East.function([StringType, SheetCellsType, OptionType(rowType)], rowType, ($, id, cells, base) => {
-        const b = $.let(base.match({
-            some: (_$, x) => x,
-            none: (_$) => East.value(defaultValue(rowType) as SubtypeExprOrValue<StructType>, rowType),
-        }), rowType) as unknown as Record<string, ExprType<EastType>>;
-        // The String link form's registers, bound once per body (the capture rule).
-        const bound = new Map<string, ExprType<typeof SheetRegisterMembersType>>();
-        for (const name of stringFormRegisters) {
-            bound.set(name, $.const(registers[name]!, SheetRegisterMembersType));
-        }
-        const out: Record<string, ExprType<EastType>> = {};
-        for (const f of Object.keys(fields)) {
-            const baseField = $.let(b[f] as never, fields[f] as EastType);
-            if (f === idField) {
-                out[f] = id;
-                continue;
-            }
-            const own = byField.get(f);
-            if (own !== undefined) {
-                out[f] = decodeOwnField(own, cells.tryGet(own.key), baseField, own.register !== undefined ? bound.get(own.register) : undefined);
-                continue;
-            }
-            const other = otherHalfBy.get(f);
-            if (other !== undefined) {
-                out[f] = decodeOtherHalf(other, cells.tryGet(other.key), baseField);
-                continue;
-            }
-            out[f] = baseField;
-        }
-        return East.value(out as unknown as SubtypeExprOrValue<StructType>, rowType);
-    }) as unknown as SheetBridge["decode"];
+    const projectSubRows = buildSubRowProjection(lineType, subRows);
 
     // (id, offset) → the real source row.
     const rowById = source.kind === "inline"
@@ -555,29 +628,41 @@ export function buildBridge(input: SheetBridgeInput): SheetBridge {
         })
         : East.function([StringType], OptionType(driverType), ($, _k) => $.const(none, OptionType(driverType)));
 
-    // The wire context → Sheet.Types.Context(R, D).
-    const bridgeCtx = East.function([SheetContextType], ctxType, ($, ctx) => {
-        const byId = $.const(rowById);
-        const dec = $.const(decode);
-        const row = $.let(dec(ctx.rowId, ctx.row, byId(ctx.rowId, ctx.offset)), rowType);
-        const rows = $.let(ctx.rows.map((_$, r, i) => dec(r.id, r.cells, byId(r.id, ctx.rowsOffset.add(i)))), ArrayType(rowType));
-        const lookup = $.const(lookupDriver);
-        const driverRow = $.let(ctx.driver.match({
-            none: (_$) => East.value(none, OptionType(driverType)),
-            some: (_$, k) => lookup(k),
-        }), OptionType(driverType));
-        return East.value({
-            rowIndex: ctx.rowIndex,
-            row,
-            rows,
-            partial: ctx.partial,
-            driver: driverRow,
-            today: ctx.today,
-        } as unknown as SubtypeExprOrValue<StructType>, ctxType);
-    }) as unknown as SheetBridge["bridgeCtx"];
+    // The group half (#740) — built before the context bridge, which decodes groups.
+    const group = groupInput !== undefined && shape !== undefined
+        ? buildGroupBridge(rowType, groupInput, projectRow, projectSubRows)
+        : undefined;
 
-    // Sheet.Types.Patch(R) → the set fields as cells.
-    const encodePatch = East.function([patchType], SheetCellsType, ($, patch) => {
+    const draftRow = buildDraftRowDecoder(lineType, metas, registers, lineIdField);
+    const flatDraft = SheetDraftTypeFor(rowType) as StructType;
+    const draftDecode = groupInput !== undefined
+        ? buildDraftGroupDecoder(rowType, groupInput.linesField, groupInput.cellMetas, draftRow, registers, idField)
+        : East.function([SheetRowType, OptionType(flatDraft), OptionType(SheetRowType)], flatDraft, ($, row, base, _previous) => {
+            const decode = $.const(draftRow);
+            return decode(row.id, row.cells, base);
+        });
+
+    const bridgeCtx = buildDraftContextBridge(rowType, lineType, groupInput?.linesField, ctxType, driverType,
+        rowById as SheetBridge["rowById"], draftDecode, draftRow, lookupDriver);
+
+    const encodePatch = buildPatchCells(lineType, metas, registers);
+
+    return {
+        rowType, lineType, driverType, ctxType, checkCtxType, patchType, proposalType,
+        projectRow, projectSubRows, draftDecode, draftRow,
+        rowById: rowById as unknown as SheetBridge["rowById"],
+        bridgeCtx: bridgeCtx as unknown as SheetBridge["bridgeCtx"],
+        encodePatch, seedCells: buildPatchCells(lineType, metas, registers, false),
+        ...(group !== undefined ? { group } : {}),
+    };
+}
+
+/** Project supplied constructor/proposal fields without inventing a complete row. @internal */
+export function buildPatchCells(rowType: StructType, metas: readonly SheetColumnMeta[], registers: Record<string, SheetRegisterValue>, editableOnly = true): SheetBridge["encodePatch"] {
+    const patchType = SheetPatchTypeFor(rowType) as StructType;
+    const fields = rowType.fields;
+    const stringFormRegisters = [...new Set(metas.filter(m => m.form === "string" && m.register !== undefined).map(m => m.register!))];
+    return East.function([patchType], SheetCellsType, ($, patch) => {
         const cells = $.let(new Map<string, never>(), SheetCellsType);
         const p = patch as unknown as Record<string, ExprType<OptionType<EastType>>>;
         const bound = new Map<string, ExprType<typeof SheetRegisterMembersType>>();
@@ -585,11 +670,11 @@ export function buildBridge(input: SheetBridgeInput): SheetBridge {
             bound.set(name, $.const(registers[name]!, SheetRegisterMembersType));
         }
         for (const m of metas) {
-            if (!m.editable || m.derived !== undefined) continue;
+            if ((editableOnly && !m.editable) || m.derived !== undefined) continue;
             if (m.form === "array") {
                 // The other half is `none` when the column names no other field.
                 const otherKey = m.otherField;
-                const own = $.let(p[m.key] as never, OptionType(SheetMembersType));
+                const own = $.let(p[m.field] as never, OptionType(SheetMembersType));
                 const other = $.let((otherKey !== undefined ? p[otherKey] : none) as never, OptionType(SheetMembersType));
                 $.if(own.hasTag("some").or(() => other.hasTag("some")), ($2) => {
                     const empty = $2.const([], SheetMembersType);
@@ -602,22 +687,92 @@ export function buildBridge(input: SheetBridgeInput): SheetBridge {
                 });
                 continue;
             }
-            const field = $.let(p[m.key] as never, OptionType(fields[m.key] as EastType));
+            const field = $.let(p[m.field] as never, OptionType(fields[m.field] as EastType));
             $.if(field.hasTag("some"), ($2) => {
-                const v = $2.let(field.unwrap("some") as never, fields[m.key] as EastType);
-                const asRow = { [m.key]: v } as unknown as ExprType<StructType>;
+                const v = $2.let(field.unwrap("some") as never, fields[m.field] as EastType);
+                const asRow = { [m.field]: v } as unknown as ExprType<StructType>;
                 $2(cells.insert(m.key, projectCell(m, asRow, m.register !== undefined ? bound.get(m.register) : undefined)));
             });
         }
         return cells;
     }) as unknown as SheetBridge["encodePatch"];
+}
 
-    return {
-        rowType, driverType, ctxType, checkCtxType, editType, patchType, proposalType,
-        projectRow, decode,
-        rowById: rowById as unknown as SheetBridge["rowById"],
-        bridgeCtx, encodePatch,
-    };
+// ============================================================================
+// Sub rows (#844)
+// ============================================================================
+
+/**
+ * Compile the sub-row sources into one projection over the line type: each
+ * mapper is compiled ONCE as `East.function([L, T], SubRow)` and called in
+ * an eager map over its field; the sources concatenate in declaration order.
+ *
+ * @param lineType - The type the columns are built over
+ * @param subRows - The `subRows` declaration, if any
+ * @returns `L` → its sub rows
+ * @throws Error when the declaration was built over another type, or a key is not an array field
+ */
+export function buildSubRowProjection(lineType: StructType, subRows: SheetSubRowsValue<StructType> | undefined): SheetBridge["projectSubRows"] {
+    const fields = lineType.fields as Record<string, EastType>;
+    const mappers: { field: string; fn: ExprType<FunctionType<[StructType, EastType], SheetSubRowType>> }[] = [];
+    if (subRows !== undefined) {
+        if (subRows.rowType !== lineType) {
+            throw new Error("Sheet: `subRows` was built over a different type than the columns — pass the columns' type (a grouped sheet: the line type) to `Sheet.subRows(…)`");
+        }
+        for (const [field, map] of Object.entries(subRows.sources as Record<string, ((item: ExprType<EastType>, row: ExprType<StructType>) => SubtypeExprOrValue<SheetSubRowType>) | undefined>)) {
+            if (map === undefined) continue;
+            const t = fields[field] as { type?: string; value?: EastType } | undefined;
+            if (t === undefined || t.type !== "Array" || t.value === undefined) {
+                throw new Error(`Sheet: \`subRows\` names "${field}", which is ${t === undefined ? "not a field of the row type" : `a ${t.type} field`} — a sub-row source must be an Array field`);
+            }
+            mappers.push({ field, fn: East.function([lineType, t.value], SheetSubRowType, (_$, row, item) => map(item, row)) });
+        }
+    }
+    return East.function([lineType], ArrayType(SheetSubRowType), ($, r) => {
+        const row = r as unknown as Record<string, ExprType<ArrayType<EastType>>>;
+        let all: ExprType<ArrayType<SheetSubRowType>> = $.const([], ArrayType(SheetSubRowType));
+        for (const m of mappers) {
+            const map = $.const(m.fn);
+            const part = $.let(row[m.field]!.map((_$2, x) => map(r, x)), ArrayType(SheetSubRowType));
+            all = mappers[0] === m ? part : $.let(all.concat(part), ArrayType(SheetSubRowType));
+        }
+        return all;
+    }) as unknown as SheetBridge["projectSubRows"];
+}
+
+// ============================================================================
+// The group half (#740)
+// ============================================================================
+
+/**
+ * Compile a group's summary cells and ordered children into wire rows.
+ *
+ * @param rowType - The group's row type
+ * @param input - The child field and summary cell metadata
+ * @param projectRow - Child row to wire cells
+ * @param projectSubRows - Child row to its sub rows
+ * @returns The group half
+ */
+function buildGroupBridge(
+    rowType: StructType,
+    input: SheetBridgeGroupInput,
+    projectRow: SheetBridge["projectRow"],
+    projectSubRows: SheetBridge["projectSubRows"],
+): SheetGroupBridge {
+    const { linesField, cellMetas } = input;
+    const linesType = rowType.fields[linesField] as ArrayType<StructType>;
+    const projectGroupCells = East.function([rowType], SheetCellsType, ($, p) => {
+        const cells = $.let(new Map<string, never>(), SheetCellsType);
+        for (const m of cellMetas) $(cells.insert(m.key, projectCell(m, p, undefined)));
+        return cells;
+    }) as SheetGroupBridge["projectGroupCells"];
+    const projectLines = East.function([rowType], ArrayType(SheetLineType), ($, p) => {
+        const project = $.const(projectRow);
+        const subRowsOf = $.const(projectSubRows);
+        const lines = $.const(p[linesField] as ExprType<ArrayType<StructType>>, linesType);
+        return lines.map((_$, line, index) => East.value({ key: East.print(index), cells: project(line), subRows: subRowsOf(line) }, SheetLineType));
+    }) as SheetGroupBridge["projectLines"];
+    return { linesField, keyed: false, cellMetas, projectGroupCells, projectLines };
 }
 
 // ============================================================================
@@ -643,12 +798,20 @@ function pinProvider(
     }
     const inputs = t.inputs ?? [];
     if (inputs.length !== 1 || inputs[0] !== bridge.ctxType) {
-        throw new Error(`Sheet: ${where} must take exactly this sheet's context — Sheet.Types.Context(RowType${bridge.driverType === NullType ? "" : ", DriverType"}) — as its one argument; a function written over another row or driver type cannot run here`);
+        throw new Error(`Sheet: ${where} must take exactly this sheet's context — ${contextName(bridge)} — as its one argument; a function written over another row or driver type cannot run here`);
     }
     if (t.output !== expectedOutput) {
         throw new Error(`Sheet: ${where} returns the wrong type — it must return ${describeType(expectedOutput)}`);
     }
     return { fn: expr, async: t.type === "AsyncFunction" };
+}
+
+/** How this sheet's context is spelt, for a refusal message. */
+function contextName(bridge: SheetBridge): string {
+    const driver = bridge.driverType === NullType ? "" : ", DriverType";
+    return bridge.group !== undefined
+        ? `Sheet.Types.DraftContext(GroupType, "${bridge.group.linesField}"${driver})`
+        : `Sheet.Types.DraftContext(RowType${driver})`;
 }
 
 /** A short description of an East type for a refusal message. */
@@ -661,7 +824,7 @@ function describeType(t: EastType): string {
 }
 
 /**
- * Wrap a fill provider — `Sheet.Types.Context(R, D)` → `Option<Fill(T)>` —
+ * Wrap a fill provider — `Sheet.Types.DraftContext(R, D)` → `Option<Fill(T)>` —
  * into the wire provider variant (sync or async by the function's type).
  */
 export function wrapProvider(bridge: SheetBridge, meta: SheetColumnMeta, fn: unknown, index: number): ExprType<SheetProviderType> {
@@ -683,7 +846,7 @@ export function wrapProvider(bridge: SheetBridge, meta: SheetColumnMeta, fn: unk
 }
 
 /**
- * Wrap a row proposer — `Sheet.Types.Context(R, D)` → `Array<Proposal(R)>` —
+ * Wrap a row proposer — `Sheet.Types.DraftContext(R, D)` → `Array<Proposal(R)>` —
  * into the wire proposer variant.
  */
 export function wrapProposer(bridge: SheetBridge, fn: unknown, index: number): ExprType<SheetProposerType> {
@@ -701,7 +864,7 @@ export function wrapProposer(bridge: SheetBridge, fn: unknown, index: number): E
     return East.value(variant(async ? "async" : "sync", wire) as unknown as SubtypeExprOrValue<SheetProposerType>, SheetProposerType);
 }
 
-/** Wrap an arity rule — `Sheet.Types.Context(R, D)` → `Option<Counted>`. */
+/** Wrap an arity rule — `Sheet.Types.DraftContext(R, D)` → `Option<Counted>`. */
 export function wrapArity(bridge: SheetBridge, meta: SheetColumnMeta, fn: unknown): ExprType<FunctionType<[SheetContextType], OptionType<SheetCountedType>>> {
     const { fn: author, async } = pinProvider(bridge, fn, `column "${meta.key}" arity rule`, OptionType(SheetCountedType));
     if (async) throw new Error(`Sheet: column "${meta.key}" arity rule must be synchronous — the strip reads it while the half is edited`);
@@ -712,19 +875,56 @@ export function wrapArity(bridge: SheetBridge, meta: SheetColumnMeta, fn: unknow
     });
 }
 
+/**
+ * Wrap an options rule (#844) — `Sheet.Types.DraftContext(R, D)` →
+ * `Option<Array<String>>` — into the wire rule. Synchronous: the menu reads
+ * it as the cell opens.
+ */
+export function wrapOptions(bridge: SheetBridge, meta: SheetColumnMeta, fn: unknown): ExprType<SheetOptionsRuleType> {
+    const { fn: author, async } = pinProvider(bridge, fn, `column "${meta.key}" options rule`, OptionType(ArrayType(StringType)));
+    if (async) throw new Error(`Sheet: column "${meta.key}" options rule must be synchronous — the menu reads it as the cell opens`);
+    return East.function([SheetContextType], OptionType(ArrayType(StringType)), ($, ctx) => {
+        const a = $.const(author as unknown as ExprType<FunctionType<[StructType], OptionType<ArrayType<StringType>>>>);
+        const bc = $.const(bridge.bridgeCtx);
+        return a(bc(ctx));
+    });
+}
+
 /** Wrap an author member check — `Sheet.Types.CheckContext(R)` → `Option<String>` — into the `custom` check arm. */
 export function wrapCheck(bridge: SheetBridge, meta: SheetColumnMeta, fn: unknown, index: number): ExprType<SheetCheckType> {
     const expr = East.value(fn as SubtypeExprOrValue<EastType>) as ExprType<EastType>;
     const t = typeOf(expr) as { type: string; inputs?: EastType[]; output?: EastType };
     if (t.type !== "Function" || (t.inputs ?? []).length !== 1 || t.inputs![0] !== bridge.checkCtxType || t.output !== OptionType(StringType)) {
-        throw new Error(`Sheet: column "${meta.key}" check #${index + 1} must be an East.function over Sheet.Types.CheckContext(RowType) returning Option<String>`);
+        const spelt = bridge.group !== undefined ? `Sheet.Types.CheckContext(GroupType, "${bridge.group.linesField}")` : "Sheet.Types.CheckContext(RowType)";
+        throw new Error(`Sheet: column "${meta.key}" check #${index + 1} must be an East.function over ${spelt} returning Option<String>`);
     }
+    const field = bridge.group?.linesField;
+    const draftType = (field === undefined ? SheetDraftTypeFor(bridge.rowType) : SheetDraftGroupTypeFor(bridge.rowType, field)) as StructType;
+    const rowDraft = SheetDraftTypeFor(bridge.lineType) as StructType;
+    const base = buildDraftBase(bridge.rowType, field, bridge.rowById);
     const wire = East.function([SheetCheckContextType], OptionType(StringType), ($, c) => {
-        const a = $.const(expr as unknown as ExprType<FunctionType<[StructType], OptionType<StringType>>>);
-        const byId = $.const(bridge.rowById);
-        const dec = $.const(bridge.decode);
-        const row = $.let(dec(c.rowId, c.row, byId(c.rowId, c.offset)), bridge.rowType);
-        return a(East.value({ rowIndex: c.rowIndex, row, half: c.half, member: c.member } as unknown as SubtypeExprOrValue<StructType>, bridge.checkCtxType));
+        const a = $.const(expr as ExprType<FunctionType<[StructType], OptionType<StringType>>>);
+        const read = $.const(base);
+        const dec = $.const(bridge.draftRow);
+        const decGroup = $.const(bridge.draftDecode);
+        const original = $.const(read(c.drafts, c.rowId, c.offset));
+        if (field === undefined) {
+            const row = $.const(dec(c.rowId, c.row, original));
+            return a($.const({ rowIndex: c.rowIndex, row, group: none, half: c.half, member: c.member } as SubtypeExprOrValue<StructType>, bridge.checkCtxType));
+        }
+        const group = $.const(c.group.match({
+            none: () => original,
+            some: (_$, wire) => some(decGroup(wire, original, some(wire))),
+        }), OptionType(draftType));
+        const prior = $.const(group.match({
+            none: () => none,
+            some: (_$, value) => {
+                const children = value[field] as ExprType<ArrayType<StructType>>;
+                return c.rowIndex.greaterEqual(0n).and(() => c.rowIndex.less(children.size())).ifElse(() => some(children.get(c.rowIndex)), () => none);
+            },
+        }), OptionType(rowDraft));
+        const row = $.const(dec("", c.row, prior));
+        return a($.const({ rowIndex: c.rowIndex, row, group, half: c.half, member: c.member } as SubtypeExprOrValue<StructType>, bridge.checkCtxType));
     });
     return East.value(variant("custom", wire) as unknown as SubtypeExprOrValue<SheetCheckType>, SheetCheckType);
 }
@@ -735,7 +935,7 @@ export function wrapCustomParse(bridge: SheetBridge, meta: SheetColumnMeta, fn: 
     const t = typeOf(expr) as { type: string; inputs?: EastType[]; output?: EastType };
     const inputs = t.inputs ?? [];
     if (t.type !== "Function" || inputs.length !== 2 || inputs[0] !== StringType || inputs[1] !== bridge.ctxType) {
-        throw new Error(`Sheet: custom column "${meta.key}" \`parse\` must be an East.function over (String, Sheet.Types.Context(RowType, DriverType)) returning Option<payload>`);
+        throw new Error(`Sheet: custom column "${meta.key}" \`parse\` must be an East.function over (String, ${contextName(bridge)}) returning Option<payload>`);
     }
     return East.function([StringType, SheetContextType], OptionType(SheetCellType), ($, text, ctx) => {
         const a = $.const(expr as unknown as ExprType<FunctionType<[StringType, StructType], OptionType<EastType>>>);
@@ -761,85 +961,6 @@ export function wrapCustomPrint(meta: SheetColumnMeta, fn: unknown): ExprType<Fu
             { [meta.cellTag]: (_$: unknown, v: ExprType<EastType>) => a(v) } as never,
             (_$: unknown) => East.value("", StringType),
         ) as ExprType<StringType>;
-    });
-}
-
-/** Wrap a typed `onEdit` — `Sheet.Types.Edit(R)` → `Null` — into the wire edit handler. */
-export function wrapOnEdit(bridge: SheetBridge, fn: unknown): ExprType<FunctionType<[SheetEditType], NullType>> {
-    const expr = East.value(fn as SubtypeExprOrValue<FunctionType<[EastType], NullType>>, FunctionType([bridge.editType], NullType)) as ExprType<FunctionType<[EastType], NullType>>;
-    return East.function([SheetEditType], NullType, ($, e) => {
-        const a = $.const(expr);
-        const byId = $.const(bridge.rowById);
-        const dec = $.const(bridge.decode);
-        const noRow = $.const(none, OptionType(bridge.rowType));
-        const et = bridge.editType;
-        $(e.match({
-            commit: (_$, c) => a(East.value(variant("commit", {
-                rowId: c.rowId, key: c.key, row: dec(c.rowId, c.row.cells, byId(c.rowId, c.offset)), source: c.source,
-            }) as unknown as SubtypeExprOrValue<EastType>, et)),
-            insert: (_$, i) => a(East.value(variant("insert", {
-                afterRowId: i.afterRowId, row: dec(i.row.id, i.row.cells, noRow), source: i.source,
-            }) as unknown as SubtypeExprOrValue<EastType>, et)),
-            remove: (_$, r) => a(East.value(variant("remove", { rowIds: r.rowIds }) as unknown as SubtypeExprOrValue<EastType>, et)),
-        }));
-    });
-}
-
-/**
- * Compile `onUpdate` into the wire edit handler (§4.7) — the whole-value
- * rebuild: a commit rewrites one row, an insert appends a fresh row after
- * `afterRowId`, a remove filters ids; then the author's `onUpdate` receives
- * the collection.
- */
-export function compileOnUpdate(
-    bridge: SheetBridge,
-    rows: ExprType<ArrayType<StructType>>,
-    idField: string,
-    fn: unknown,
-): ExprType<FunctionType<[SheetEditType], NullType>> {
-    const rowsType = ArrayType(bridge.rowType);
-    const expr = East.value(fn as SubtypeExprOrValue<FunctionType<[ArrayType<StructType>], NullType>>, FunctionType([rowsType], NullType)) as ExprType<FunctionType<[ArrayType<StructType>], NullType>>;
-    return East.function([SheetEditType], NullType, ($, ev) => {
-        const current = $.let(rows, rowsType);
-        const upd = $.const(expr);
-        const dec = $.const(bridge.decode);
-        const noRow = $.const(none, OptionType(bridge.rowType));
-        const next = $.let(ev.match({
-            commit: (_$, c) => current.map((_$2, r) => idOf(r, idField).equal(c.rowId).ifElse(
-                (_$3) => dec(c.rowId, c.row.cells, East.value(some(r), OptionType(bridge.rowType))),
-                (_$3) => r,
-            )),
-            insert: ($2, i) => {
-                const fresh = $2.let(dec(i.row.id, i.row.cells, noRow), bridge.rowType);
-                return i.afterRowId.match({
-                    none: (_$3) => current.concat(East.value([fresh], rowsType)),
-                    some: (_$3, after) => current.flatMap((_$4, r) => idOf(r, idField).equal(after).ifElse(
-                        (_$5) => East.value([r, fresh], rowsType),
-                        (_$5) => East.value([r], rowsType),
-                    )),
-                });
-            },
-            remove: ($2, rm) => {
-                const ids = $2.let(rm.rowIds.toSet());
-                return current.filter((_$3, r) => ids.has(idOf(r, idField)).not());
-            },
-        }), rowsType);
-        $(upd(next));
-    });
-}
-
-/** Both channels at once — `onEdit` observes, then `onUpdate` writes. */
-export function composeEditHandlers(
-    observe: ExprType<FunctionType<[SheetEditType], NullType>> | undefined,
-    write: ExprType<FunctionType<[SheetEditType], NullType>> | undefined,
-): ExprType<FunctionType<[SheetEditType], NullType>> | undefined {
-    if (observe === undefined) return write;
-    if (write === undefined) return observe;
-    return East.function([SheetEditType], NullType, ($, e) => {
-        const o = $.const(observe);
-        const w = $.const(write);
-        $(o(e));
-        $(w(e));
     });
 }
 

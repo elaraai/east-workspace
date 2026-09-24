@@ -8,7 +8,7 @@
  */
 
 import { describe, test, expect } from "vitest";
-import { none } from "@elaraai/east";
+import { none, variant } from "@elaraai/east";
 import { scoreLabel, scoreCandidates, entryCandidates, candidateList, ghostFor, ghostWord, resolveFor, candidateAt } from "./candidates.js";
 import { indexColumns, indexRegisters, type SheetColumnMeta } from "./model.js";
 import type { SheetRowValue } from "./values.js";
@@ -23,12 +23,12 @@ const registers = indexRegisters(new Map([["activity", { members: ACTS.map(membe
 
 const lookupMeta: SheetColumnMeta = indexColumns([{
     key: "activity", header: "Activity", sub: none, width: none,
-    kind: { type: "lookup", value: { register: "activity" } },
-    dataType: null, payloadType: null, editable: true, fill: [],
+    kind: { type: "lookup", value: { register: "activity", options: none } },
+    dataType: null, payloadType: null, editable: true, fill: [], detailCell: none,
 } as never]).list[0]!;
 
 function row(id: string, activity: string): SheetRowValue {
-    return { id, owned: false, cells: new Map([["activity", { type: "String", value: activity }]]) } as SheetRowValue;
+    return { id, owned: false, cells: new Map([["activity", variant("String", activity)]]), lines: [], band: none, subRows: [] };
 }
 
 describe("scoring", () => {

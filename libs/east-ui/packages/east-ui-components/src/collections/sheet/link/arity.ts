@@ -25,12 +25,8 @@ export function namedCount(members: readonly SheetMemberValue[], vocab: LinkVoca
     for (const m of members) {
         switch (m.type) {
             case "identified": n += 1; break;
-            case "counted": n += Number((m.value as { n: bigint }).n); break;
-            case "range": {
-                const r = m.value as { from: string; to: string };
-                n += rangeMembers(r.from, r.to, vocab).length;
-                break;
-            }
+            case "counted": n += Number(m.value.n); break;
+            case "range": n += rangeMembers(m.value.from, m.value.to, vocab).length; break;
             default: break;
         }
     }

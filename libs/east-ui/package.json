@@ -12,9 +12,11 @@
     "test": "pnpm -r --filter='./packages/*' --filter='./packages/east-ui-extension/webview' run test",
     "lint": "pnpm -r --filter='./packages/*' --filter='./packages/east-ui-extension/webview' run lint",
     "dev": "pnpm --filter @elaraai/east-ui-showcase run dev",
+    "showcase": "make showcase",
     "version:extension:patch": "pnpm --filter east-ui-preview version patch --no-git-tag-version",
     "version:extension:minor": "pnpm --filter east-ui-preview version minor --no-git-tag-version",
-    "version:extension:major": "pnpm --filter east-ui-preview version major --no-git-tag-version"
+    "version:extension:major": "pnpm --filter east-ui-preview version major --no-git-tag-version",
+    "test:sheet": "pnpm --filter @elaraai/east-ui run build && pnpm --filter @elaraai/east-ui exec node --enable-source-maps --test-reporter=spec --test \"dist/test/collections/sheet*.spec.js\" && pnpm --filter @elaraai/east-ui-components exec node --import tsx --test-reporter=spec --test test/platform/sheet-apply.spec.ts && pnpm --filter @elaraai/east-ui-components exec vitest run src/collections/sheet"
   },
   "repository": {
     "type": "git",

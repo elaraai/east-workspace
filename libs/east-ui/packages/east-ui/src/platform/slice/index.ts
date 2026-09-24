@@ -83,6 +83,7 @@ import {
     type EastType,
     type ExprType,
     type SubtypeExprOrValue,
+    type ValueTypeOf,
 } from "@elaraai/east";
 
 import { ChartXType } from "../../charts/spec/types.js";
@@ -486,7 +487,8 @@ export interface SliceStateOptions {
     range?:         SubtypeExprOrValue<OptionType<SliceRangeType>>;
     compare?:       SubtypeExprOrValue<OptionType<SliceCompareType>>;
     filters?:       SubtypeExprOrValue<ArrayType<SlicePredicateType>>;
-    cohorts?:       SubtypeExprOrValue<ArrayType<SliceCohortType>>;
+    /** The cohort registry — East values, or the plain {@link SliceCohortInput} form (`group` a bare string, or omitted). */
+    cohorts?:       SubtypeExprOrValue<ArrayType<SliceCohortType>> | ReadonlyArray<SliceCohortInput>;
     activeCohorts?: SubtypeExprOrValue<SetType<StringType>>;
     breakdown?:     SubtypeExprOrValue<OptionType<SliceBreakdownType>>;
     search?:        SubtypeExprOrValue<OptionType<StringType>>;
@@ -514,12 +516,25 @@ export interface SliceStateOptions {
  * @param opts - Partial state options
  * @returns East `SliceState` value with defaults filled in
  */
+/**
+ * A plain-JS cohort literal with its `group` normalised to the East option:
+ * a bare string becomes `some(group)`, an omitted group `none`, and an option
+ * already there (or an East expression) is left alone.
+ */
+function normaliseCohort(c: unknown): unknown {
+    if (c === null || typeof c !== "object" || typeof (c as { id?: unknown }).id !== "string") return c;
+    const group = (c as { group?: unknown }).group;
+    return { ...(c as object), group: group === undefined ? none : typeof group === "string" ? some(group) : group };
+}
+
 function createSliceState(opts: SliceStateOptions = {}) {
+    // Plain-JS cohort literals take the group as a bare string, or leave it out.
+    const cohorts = Array.isArray(opts.cohorts) ? (opts.cohorts as ReadonlyArray<unknown>).map(normaliseCohort) : opts.cohorts;
     return East.value({
         range:         opts.range         ?? none,
         compare:       opts.compare       ?? none,
         filters:       opts.filters       ?? [],
-        cohorts:       opts.cohorts       ?? [],
+        cohorts:       (cohorts as SubtypeExprOrValue<ArrayType<SliceCohortType>> | undefined) ?? [],
         activeCohorts: opts.activeCohorts ?? new Set<string>(),
         breakdown:     opts.breakdown     ?? none,
         search:        opts.search        ?? none,
@@ -633,16 +648,47 @@ export type SlicePredicateType = typeof SlicePredicateType;
 /**
  * Saved cohort definition. Inline in the slice; not shared across slices.
  *
+ * Cohorts may be gathered into a **group** — a family of alternatives such
+ * as the stages of an order or the regions of a table. Within a group the
+ * active members OR: a row passes the group when ANY active member matches.
+ * Groups AND with each other, with every standalone (ungrouped) cohort, and
+ * with the rest of the narrowing. A standalone cohort ANDs into the chain as
+ * it always has, so a slice with no groups narrows exactly as before.
+ *
  * @property id      - Unique-within-slice id; referenced by `activeCohorts`
  * @property name    - Human-readable label rendered in the cohort chip
  * @property filters - AND-ed predicates; row matches the cohort when every clause holds
+ * @property group   - Optional family. Cohorts sharing a group are alternatives
+ *                     (OR within the group, AND across groups); `none` = a
+ *                     standalone cohort. `Slice.Cohort` renders each group as
+ *                     its own captioned run of chips. Appended last: wire-order
+ *                     compatibility.
  */
 export const SliceCohortType = StructType({
     id:      StringType,
     name:    StringType,
     filters: ArrayType(SlicePredicateType),
+    group:   OptionType(StringType),
 });
 export type SliceCohortType = typeof SliceCohortType;
+
+/**
+ * A cohort as `Slice.state({ cohorts })` takes it in plain JS: the East struct's
+ * fields with `group` as a bare string, or omitted for a standalone cohort.
+ * `Slice.state` fills `group: none` in, so a cohort literal written before
+ * groups existed still builds.
+ *
+ * @property id      - Unique-within-slice id
+ * @property name    - The chip's label
+ * @property filters - AND-ed typed predicates
+ * @property group   - The family this cohort belongs to, if any
+ */
+export interface SliceCohortInput {
+    id: string;
+    name: string;
+    filters: ReadonlyArray<ValueTypeOf<SlicePredicateType>>;
+    group?: string;
+}
 
 // ============================================================================
 // Breakdown — fieldId + optional top-N

@@ -8,30 +8,34 @@
  * vocabulary per link / set column, the per-driver halves and locks, the
  * checks run once per row value (a `WeakMap` over the immutable row), and the
  * link editor's context — candidates over the vocabulary, resolution, the
- * prediction from the column's pending fill, the cell for the halves.
+ * prediction from the column's pending fill, the cell for the halves. What a
+ * row is OFFERED may be narrower than what it may hold: a column's `options`
+ * rule (#844) narrows the candidates, never the resolution of typed text.
  */
 
-import { useCallback, useMemo, useRef } from "react";
-import { variant } from "@elaraai/east";
+import { useCallback, useMemo } from "react";
+import { none, some, variant } from "@elaraai/east";
 import { getSomeorUndefined } from "../../utils.js";
 import { driverKeyOf, type SheetBodyItem, type SheetColumnIndex, type SheetColumnMeta, type SheetRegisterIndex } from "./model.js";
-import { linkVocabulary, usedKeys, type LinkVocabulary } from "./link/grammar.js";
+import { linkVocabulary, narrowVocabulary, usedKeys, type LinkVocabulary } from "./link/grammar.js";
 import { halvesFor, sidesDeclOf, type SidesDecl } from "./link/sides.js";
 import { linkCandidates, linkCandidateAt, resolveBuffer, predictedMembers } from "./link/predict.js";
 import { checksOf, checkLink, NO_FLAGS, type CheckDecl, type LinkFlags } from "./link/checks.js";
 import type { LinkCellContext } from "./cells/Cell.js";
 import type { LinkEditCtx, LinkGroups } from "./sheet-types.js";
-import type { SheetCellValue, SheetDriverValue, SheetLinkValue, SheetRowValue } from "./values.js";
+import type { SheetArityValue, SheetCellValue, SheetDriverValue, SheetLinkValue, SheetRowValue } from "./values.js";
 
 /** One link column's decoded declaration. */
 export interface LinkColumn {
     vocab: LinkVocabulary;
     sides: SidesDecl | undefined;
-    checks: CheckDecl[];
-    arity: { half: "from" | "to"; implied: (ctx: unknown) => { type: string; value: unknown } } | undefined;
+    checks: readonly CheckDecl[];
+    /** The arity rule on the wire — the half it counts and the bridged rule. */
+    arity: SheetArityValue | undefined;
 }
 
 export interface UseSheetLinksArgs {
+    drafts: Map<string, Uint8Array>;
     columns: SheetColumnIndex;
     registers: SheetRegisterIndex;
     driver: SheetDriverValue | undefined;
@@ -40,6 +44,8 @@ export interface UseSheetLinksArgs {
     rowAt: (r: number) => SheetBodyItem | undefined;
     /** The copilot's pending fill for a link cell — what the editor predicts from (`undefined` = none). */
     predictedLink: (r: number, key: string) => SheetLinkValue | undefined;
+    /** The member keys a row is OFFERED on a link column — its `options` rule (`undefined` = the whole register). */
+    allowedFor?: ((r: number, meta: SheetColumnMeta) => ReadonlySet<string> | undefined) | undefined;
 }
 
 export interface SheetLinks {
@@ -51,7 +57,7 @@ export interface SheetLinks {
 }
 
 /** The link columns' vocabularies, halves, checks and editor contexts. */
-export function useSheetLinks({ columns, registers, driver, driverColumn, body, rowAt, predictedLink }: UseSheetLinksArgs): SheetLinks {
+export function useSheetLinks({ drafts, columns, registers, driver, driverColumn, body, rowAt, predictedLink, allowedFor }: UseSheetLinksArgs): SheetLinks {
     const linkVocabularies = useMemo(() => {
         const out = new Map<string, LinkVocabulary>();
         for (const meta of columns.list) {
@@ -65,15 +71,11 @@ export function useSheetLinks({ columns, registers, driver, driverColumn, body, 
         for (const meta of columns.list) {
             if (meta.kind !== "link" && meta.kind !== "set") continue;
             const members = meta.register !== undefined ? registers.byName.get(meta.register) ?? [] : [];
-            const kv = meta.raw.kind.value as { arity?: { type: string; value: unknown } } | null;
-            const arityDecl = kv !== null && kv.arity !== undefined
-                ? getSomeorUndefined(kv.arity as never) as { half: { type: "from" | "to" }; implied: (ctx: unknown) => { type: string; value: unknown } } | undefined
-                : undefined;
             out.set(meta.key, {
                 vocab: linkVocabularies.get(meta.key) ?? linkVocabulary(meta, members),
                 sides: sidesDeclOf(meta),
                 checks: checksOf(meta),
-                arity: arityDecl !== undefined ? { half: arityDecl.half.type, implied: arityDecl.implied } : undefined,
+                arity: meta.raw.kind.type === "link" ? getSomeorUndefined(meta.raw.kind.value.arity) : undefined,
             });
         }
         return out;
@@ -84,24 +86,33 @@ export function useSheetLinks({ columns, registers, driver, driverColumn, body, 
         const member = driver?.members.find((m) => m.key === key);
         return member?.label ?? key;
     }, [driverColumn, driver]);
-    // Checks run once per row value and column (rows are immutable values).
-    const flagCache = useRef(new WeakMap<SheetRowValue, Map<string, LinkFlags>>());
+    // A provider may inspect hidden drafts or group fields while the visible
+    // child row stays identical. Reset the memoized results for either input.
+    const flagCache = useMemo(() => new WeakMap<SheetRowValue, Map<string, LinkFlags>>(),
+        // These inputs invalidate the cache consumed by flagsFor below.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [drafts, linkColumns]);
     const flagsFor = useCallback((item: SheetBodyItem, meta: SheetColumnMeta): LinkFlags => {
         if (item.kind !== "real") return NO_FLAGS;
         const lc = linkColumns.get(meta.key);
         const cell = item.row.cells.get(meta.key);
         if (lc === undefined || lc.checks.length === 0 || cell === undefined || cell.type !== "Link") return NO_FLAGS;
-        let byKey = flagCache.current.get(item.row);
-        if (byKey === undefined) { byKey = new Map(); flagCache.current.set(item.row, byKey); }
+        let byKey = flagCache.get(item.row);
+        if (byKey === undefined) { byKey = new Map(); flagCache.set(item.row, byKey); }
         const known = byKey.get(meta.key);
         if (known !== undefined) return known;
-        const flags = checkLink(cell.value as SheetLinkValue, lc.checks, lc.vocab, (half, member) => ({
-            rowIndex: BigInt(item.residentIndex), rowId: item.row.id, offset: BigInt(item.position),
+        // A line's check context names its GROUP and its line key (#740).
+        const flags = checkLink(cell.value, lc.checks, lc.vocab, (half, member) => ({
+            drafts, group: item.group !== undefined ? some(item.group.row) : none,
+            rowIndex: BigInt(item.group !== undefined ? item.group.index : item.residentIndex),
+            rowId: item.group !== undefined ? item.group.row.id : item.row.id,
+            offset: BigInt(item.position),
+            line: item.group !== undefined ? some(item.group.key) : none,
             row: item.row.cells, half: variant(half, null), member,
         }));
         byKey.set(meta.key, flags);
         return flags;
-    }, [linkColumns]);
+    }, [linkColumns, drafts, flagCache]);
     const linkCellCtx = useCallback((row: SheetRowValue | undefined, meta: SheetColumnMeta): LinkCellContext | undefined => {
         const lc = linkColumns.get(meta.key);
         if (lc === undefined) return undefined;
@@ -121,22 +132,24 @@ export function useSheetLinks({ columns, registers, driver, driverColumn, body, 
         const it = rowAt(r);
         const row = it !== undefined && it.kind === "real" ? it.row : undefined;
         const cell = row?.cells.get(meta.key);
-        const current = cell !== undefined && cell.type === "Link" ? (cell.value as SheetLinkValue) : undefined;
+        const current = cell !== undefined && cell.type === "Link" ? cell.value : undefined;
         const halves = meta.kind === "set"
             ? { from: { live: false, lock: "" }, to: { live: true, lock: "" }, isIn: false, sides: "to" as const }
             : halvesFor(lc.sides, driverKeyOf(row, driverColumn));
         const vocab = lc.vocab;
         const usedOf = (groups: LinkGroups) => usedKeys([...groups[0], ...groups[1]], vocab);
+        const allowed = allowedFor?.(r, meta);
+        const offer = allowed !== undefined ? narrowVocabulary(vocab, allowed) : vocab;
         return {
             halves,
             initial: [current !== undefined ? [...current.from] : [], current !== undefined ? [...current.to] : []],
-            candidates: (text, groups) => linkCandidates(text, vocab, usedOf(groups)),
-            candidateAt: (text, hi, groups) => linkCandidateAt(text, hi, vocab, usedOf(groups)),
+            candidates: (text, groups) => linkCandidates(text, offer, usedOf(groups)),
+            candidateAt: (text, hi, groups) => linkCandidateAt(text, hi, offer, usedOf(groups)),
             resolve: (text, cand) => resolveBuffer(text, cand, vocab),
             predicted: (side, groups, typed) => predictedMembers(predictedLink(r, meta.key), side, groups, side === 0 ? halves.from.live : halves.to.live, typed, vocab),
-            cell: (groups) => (groups[0].length === 0 && groups[1].length === 0 ? null : { type: "Link", value: { from: groups[0], to: groups[1] } } as SheetCellValue),
+            cell: (groups): SheetCellValue | null => (groups[0].length === 0 && groups[1].length === 0 ? null : variant("Link", { from: groups[0], to: groups[1] })),
             driverName: driverName(row),
         };
-    }, [columns, linkColumns, rowAt, driverColumn, driverName, predictedLink]);
+    }, [columns, linkColumns, rowAt, driverColumn, driverName, predictedLink, allowedFor]);
     return { linkVocabularies, linkColumns, driverName, linkCellCtx, linkCtxFor };
 }

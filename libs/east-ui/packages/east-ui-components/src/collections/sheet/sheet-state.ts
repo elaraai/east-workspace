@@ -32,17 +32,24 @@
  *   arm the following; rows pending: take the next.
  * - **Commit directions** — Tab right, ⇧Tab left, ⏎ / ↓ down (↓ on the last
  *   row appends unless a lens is active or the source is unexhausted), ↑ /
- *   blur stay; an unparseable value never commits — the editor stays open
- *   with the neg ring, and a blur discards it.
+ *   blur stay; an unparseable value becomes an invalid draft carrying the
+ *   original input, so it remains visible and undoable after leaving the cell.
  * - **A printable key seeds a fresh edit**; ⏎ / F2 edit with the value
  *   selected (⏎ takes a pending suggestion first); esc cancels.
  * - **Whole rows selected + ⌫ deletes the records**; ⌫ on cells clears them
  *   (never a stamped column — the component skips those); ⌫ on the armed
  *   fill or the selected proposal rejects it and remembers.
+ * - **Grouped rows (#740)**: arrows land on a band like a row; Space or the
+ *   chevron folds it; the summary gutter selects its children. Insertion
+ *   uses explicit controls. Grouped sheets have no local lens or view tabs.
+ *   A line with SUB ROWS takes Space the way a band does: they show or
+ *   hide (⇧Space: every line of the group); the ring never lands on a sub
+ *   row.
  *
  * @packageDocumentation
  */
 
+import { variant } from "@elaraai/east";
 import { ghostFor, ghostWord, resolveFor } from "./candidates.js";
 import type { SheetKind } from "./model.js";
 import {
@@ -82,6 +89,13 @@ function moveTo(s: SheetUiState, to: CellRef, ctx: SheetMachineCtx, effects: She
     return { ...s, sel: next, selEnd: null };
 }
 
+/** The column one step left or right of a cell — past the whole span of a band's title (#740). */
+function stepColumn(r: number, c: number, dir: 1 | -1, ctx: SheetMachineCtx): number {
+    const span = ctx.spanAt?.(r, c);
+    if (span === undefined) return c + dir;
+    return dir > 0 ? span.c1 + 1 : span.c0 - 1;
+}
+
 /** Open the editor on a cell — `seed` is a printable key that starts a fresh edit. */
 function startEdit(s: SheetUiState, r: number, c: number, seed: string | undefined, ctx: SheetMachineCtx): Transition {
     if (r < 0 || r >= ctx.rowCount || c < 0 || c >= ctx.colCount) return { state: s, effects: [] };
@@ -103,7 +117,7 @@ function startEdit(s: SheetUiState, r: number, c: number, seed: string | undefin
 
 /** The text a register-kind commit takes: the armed candidate when a ghost or an explicit pick applies. */
 export function commitText(edit: EditBuffer, ctx: SheetMachineCtx): string {
-    if (!isRegisterKind(ctx.kindAt(edit.c))) return edit.val;
+    if (!isRegisterKind(ctx.kindAt(edit.r, edit.c))) return edit.val;
     const cand = ctx.candidateAt(edit.r, edit.c, edit.val, edit.hi);
     if (cand !== undefined && edit.val.trim() !== "" && (ghostFor(edit.val, cand) !== "" || edit.hi > 0)) return cand;
     return edit.val;
@@ -120,7 +134,7 @@ export function provisionalCell(edit: EditBuffer, ctx: SheetMachineCtx): SheetCe
         return linkCtx.cell(withBuffer(edit, linkCtx));
     }
     const out = ctx.parse(edit.r, edit.c, commitText(edit, ctx));
-    if (out.kind === "unrecognised") return undefined;
+    if (out.kind === "unrecognised") return variant("Invalid", edit.val);
     return out.kind === "cell" ? out.cell : null;
 }
 
@@ -144,13 +158,8 @@ function commitEdit(s: SheetUiState, dir: CommitDir, ctx: SheetMachineCtx): Tran
     }
     const text = commitText(edit, ctx);
     const outcome = ctx.parse(edit.r, edit.c, text);
-    if (outcome.kind === "unrecognised") {
-        // A blur discards; anything else keeps the editor open with the neg ring.
-        if (dir === "blur") return { state: { ...s, edit: null }, effects: [] };
-        return { state: { ...s, edit: { ...edit, err: true } }, effects: [{ t: "focus.editor", selectAll: false }] };
-    }
     const effects: SheetEffect[] = [
-        { t: "write", r: edit.r, c: edit.c, cell: outcome.kind === "cell" ? outcome.cell : null, text },
+        { t: "write", r: edit.r, c: edit.c, cell: outcome.kind === "cell" ? outcome.cell : outcome.kind === "unrecognised" ? variant("Invalid", text) : null, text },
     ];
     let next: SheetUiState = { ...s, edit: null, armed: null };
     if (dir !== "blur") effects.push({ t: "focus.sheet" });
@@ -158,11 +167,31 @@ function commitEdit(s: SheetUiState, dir: CommitDir, ctx: SheetMachineCtx): Tran
     return { state: next, effects };
 }
 
+/** Commit the active editor and an accepted suggestion through one write per row. */
+function acceptSuggestion(s: SheetUiState, ctx: SheetMachineCtx, take: (state: SheetUiState) => Transition): Transition {
+    const committed = commitEdit(s, "stay", ctx);
+    const accepted = take(committed.state);
+    const pending = [...committed.effects, ...accepted.effects];
+    const combinedRows = new Set(pending.filter(effect => effect.t === "write.many").map(effect => effect.r));
+    const effects: SheetEffect[] = [];
+    for (const effect of pending) {
+        if (effect.t === "write" && combinedRows.has(effect.r)) continue;
+        if (effect.t !== "write.many") { effects.push(effect); continue; }
+        const writes = new Map<number, SheetCellValue>();
+        for (const previous of committed.effects) {
+            if (previous.t === "write" && previous.r === effect.r) writes.set(previous.c, previous.cell ?? variant("Null", null));
+        }
+        for (const write of effect.writes) writes.set(write.c, write.cell);
+        effects.push({ ...effect, writes: [...writes].map(([c, cell]) => ({ c, cell })) });
+    }
+    return { state: accepted.state, effects };
+}
+
 /** Where the ring goes after a commit. */
 function moveAfterCommit(s: SheetUiState, dir: CommitDir, ctx: SheetMachineCtx, effects: SheetEffect[]): SheetUiState {
     switch (dir) {
-        case "right": return moveTo(s, { r: s.sel.r, c: s.sel.c + 1 }, ctx, effects);
-        case "left": return moveTo(s, { r: s.sel.r, c: s.sel.c - 1 }, ctx, effects);
+        case "right": return moveTo(s, { r: s.sel.r, c: stepColumn(s.sel.r, s.sel.c, 1, ctx) }, ctx, effects);
+        case "left": return moveTo(s, { r: s.sel.r, c: stepColumn(s.sel.r, s.sel.c, -1, ctx) }, ctx, effects);
         case "down": return moveDown(s, ctx, effects);
         default: return s;
     }
@@ -181,21 +210,102 @@ function moveDown(s: SheetUiState, ctx: SheetMachineCtx, effects: SheetEffect[])
     return moveTo(s, { r: s.sel.r + 1, c: s.sel.c }, ctx, effects);
 }
 
+/** Fold or open the group whose band sits at `r` (#740); the ring lands on the band. */
+function toggleFold(s: SheetUiState, r: number, ctx: SheetMachineCtx): Transition {
+    const g = ctx.groupAt?.(r);
+    if (g === undefined) return { state: s, effects: [] };
+    const folds = new Map(s.lens.folds);
+    folds.set(g.id, !g.folded);
+    const effects: SheetEffect[] = [];
+    const moved = moveTo(s, { r, c: s.sel.c }, ctx, effects, false);
+    return { state: { ...moved, lens: { ...moved.lens, folds }, msg: g.folded ? `Opened the ${nounOf(ctx).singular}` : `Folded the ${nounOf(ctx).singular} — Space or the chevron opens it` }, effects };
+}
+
+/** The word the messages use for a group — the host's, `group` by default. */
+function nounOf(ctx: SheetMachineCtx): { singular: string; plural: string } {
+    return ctx.groupNoun ?? { singular: "group", plural: "groups" };
+}
+
+/** `n group(s)` in the host's word. */
+function groupsWord(n: number, ctx: SheetMachineCtx): string {
+    const noun = nounOf(ctx);
+    return `${n} ${n === 1 ? noun.singular : noun.plural}`;
+}
+
+/** The group the ring is on: its band's row when the ring is on the band, else the nearest band above (a line's group). */
+function groupOfRing(r: number, ctx: SheetMachineCtx): { id: string; folded: boolean } | undefined {
+    for (let k = r; k >= 0; k--) {
+        if (ctx.rowKindAt?.(k) === "group") return ctx.groupAt?.(k);
+    }
+    return undefined;
+}
+
+/**
+ * Fold or open EVERY group (the header's corner, ⌥ on a chevron, ⇧Space on a
+ * band). The groups a lens hides fold too, so the state means the same once
+ * the search clears. The ring stays with its group: the body re-forms
+ * under it, so it is re-found by id once the rows have settled.
+ */
+function foldAll(s: SheetUiState, folded: boolean, ctx: SheetMachineCtx): Transition {
+    const ids = ctx.groupIds ?? [];
+    if (ids.length === 0) return { state: s, effects: [] };
+    const folds = new Map(s.lens.folds);
+    for (const id of ids) folds.set(id, folded);
+    const effects: SheetEffect[] = [];
+    const group = groupOfRing(s.sel.r, ctx);
+    if (group !== undefined) effects.push({ t: "select.id", id: group.id, c: s.sel.c });
+    const msg = folded ? `Folded ${groupsWord(ids.length, ctx)} — the corner, ⌥ on a chevron or ⇧Space opens them` : `Opened ${groupsWord(ids.length, ctx)}`;
+    return { state: { ...s, selEnd: null, gsel: null, lens: { ...s.lens, folds }, msg }, effects };
+}
+
+/**
+ * Show or hide the sub rows under the line at `r` (its chevron, Space);
+ * `all` takes every line of its group the way this one goes. A hand's choice
+ * is a fold override, so it persists with the view like a group's.
+ */
+function toggleSubRows(s: SheetUiState, r: number, all: boolean, ctx: SheetMachineCtx): Transition {
+    const st = ctx.lineSubRowsAt?.(r);
+    if (st === undefined) return { state: s, effects: [] };
+    const open = !st.open;
+    const folds = new Map(s.lens.folds);
+    const ids = all ? st.group : [st.id];
+    for (const id of ids) folds.set(id, !open);
+    const effects: SheetEffect[] = [];
+    const moved = moveTo(s, { r, c: s.sel.c }, ctx, effects, false);
+    const n = all ? ids.length : st.count;
+    const msg = all
+        ? open ? `Showing the sub rows under ${n} line${n === 1 ? "" : "s"} of the ${nounOf(ctx).singular} — ⇧Space hides them` : `Hid the sub rows under the ${nounOf(ctx).singular}'s lines`
+        : open ? `Showing ${n} sub row${n === 1 ? "" : "s"} under the line — Space hides them` : "Hid the sub rows — Space shows them";
+    return { state: { ...moved, lens: { ...moved.lens, folds }, msg }, effects };
+}
+
 /** The sheet's keyboard (B§6) — no editor open. */
 function sheetKey(s: SheetUiState, e: Extract<SheetEvent, { t: "key" }>, ctx: SheetMachineCtx): Transition {
     // ⌘/ and ⌘F focus the rail's search (B§6) — whatever the sheet holds.
     if (e.meta && (e.key === "/" || e.key === "f")) return { state: s, effects: [{ t: "focus.search" }] };
     if (ctx.rowCount === 0 || ctx.colCount === 0) return { state: s, effects: [] };
     const effects: SheetEffect[] = [];
+    // A summary folds on Space; ⇧Space folds or opens every group the way this one goes.
+    const rowKind = ctx.rowKindAt?.(s.sel.r);
+    if (rowKind === "group" && e.key === " " && !e.meta && !e.alt) {
+        if (!e.shift) return toggleFold(s, s.sel.r, ctx);
+        const g = ctx.groupAt?.(s.sel.r);
+        return g === undefined ? { state: s, effects: [] } : foldAll(s, !g.folded, ctx);
+    }
+    // A line with sub rows: Space shows or hides them, ⇧Space every line's in the group (a line without them still takes Space as a keystroke).
+    if (rowKind === "row" && e.key === " " && !e.meta && !e.alt && ctx.lineSubRowsAt?.(s.sel.r) !== undefined) {
+        return toggleSubRows(s, s.sel.r, e.shift, ctx);
+    }
     const dropPick = (t: Transition): Transition => (t.state.gsel === null ? t : { ...t, state: { ...t.state, gsel: null } });
     const move = (dr: number, dc: number): Transition => {
         const base = e.shift && s.selEnd !== null ? s.selEnd : s.sel;
+        const c = dc === 0 ? base.c : stepColumn(base.r, base.c, dc > 0 ? 1 : -1, ctx);
         if (e.shift) {
-            const selEnd = clamp({ r: base.r + dr, c: base.c + dc }, ctx);
+            const selEnd = clamp({ r: base.r + dr, c }, ctx);
             return dropPick({ state: { ...s, selEnd }, effects });
         }
         if (dr === 1) return dropPick({ state: moveDown(s, ctx, effects), effects });
-        return dropPick({ state: moveTo(s, { r: base.r + dr, c: base.c + dc }, ctx, effects), effects });
+        return dropPick({ state: moveTo(s, { r: base.r + dr, c }, ctx, effects), effects });
     };
     switch (e.key) {
         case "ArrowDown": return move(1, 0);
@@ -205,7 +315,7 @@ function sheetKey(s: SheetUiState, e: Extract<SheetEvent, { t: "key" }>, ctx: Sh
         case "Tab": {
             const taken = suggestKey(s, e, ctx);
             if (taken !== null) return taken;
-            return { state: moveTo(s, { r: s.sel.r, c: s.sel.c + (e.shift ? -1 : 1) }, ctx, effects), effects };
+            return { state: moveTo(s, { r: s.sel.r, c: stepColumn(s.sel.r, s.sel.c, e.shift ? -1 : 1, ctx) }, ctx, effects), effects };
         }
         case "Enter": {
             const taken = suggestKey(s, e, ctx);
@@ -248,13 +358,11 @@ function editorKey(s: SheetUiState, e: Extract<SheetEvent, { t: "editor.key" }>,
     if (edit === null) return { state: s, effects: [] };
     if (e.key === "Enter" && e.meta) {
         // ⌘⏎ — commit in place, then take the row fill (B§6).
-        const committed = commitEdit(s, "stay", ctx);
-        if (committed.state.edit !== null) return committed;
-        const filled = fillRow(committed.state, ctx);
-        return { state: filled.state, effects: [...committed.effects, ...filled.effects] };
+        return acceptSuggestion(s, ctx, state => e.shift && state.sugg !== null
+            ? takeProposals(state, ctx, state.sugg.rows.length - 1) : fillRow(state, ctx));
     }
     if (edit.link !== undefined) return linkKey(s, e, ctx, commitEdit);
-    const kind = ctx.kindAt(edit.c);
+    const kind = ctx.kindAt(edit.r, edit.c);
     if (e.key === "Escape") return commitEdit(s, "cancel", ctx);
     if (isRegisterKind(kind) && e.alt && (e.key === "]" || e.key === "[" || e.key === "ArrowDown" || e.key === "ArrowUp")) {
         const n = ctx.candidates(edit.r, edit.c, edit.val).length;
@@ -303,6 +411,8 @@ function editorKey(s: SheetUiState, e: Extract<SheetEvent, { t: "editor.key" }>,
  * @returns The next state plus the effects the component must run
  */
 export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCtx): Transition {
+    // Tab, lens, band and search events run on a grouped sheet too: its lens
+    // works on the lines (#845).
     switch (e.t) {
         case "cell.down": {
             // A click commits an open editor in place first.
@@ -327,8 +437,17 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
             const effects = closed.effects;
             const last = Math.max(0, ctx.colCount - 1);
             if (e.shift) return { state: { ...closed.state, selEnd: clamp({ r: e.r, c: last }, ctx), gsel: null }, effects };
-            effects.push({ t: "emit.select", r: e.r, c: 0 }, { t: "focus.sheet" });
-            return { state: { ...closed.state, sel: clamp({ r: e.r, c: 0 }, ctx), selEnd: clamp({ r: e.r, c: last }, ctx), gsel: null }, effects };
+            // A band's gutter selects the group's lines (#740, G7); an empty or folded group selects the band itself.
+            const group = ctx.rowKindAt?.(e.r) === "group" ? ctx.groupAt?.(e.r) : undefined;
+            const r0 = group?.lines !== undefined ? group.lines.r0 : e.r;
+            const r1 = group?.lines !== undefined ? group.lines.r1 : e.r;
+            const selected = wholeRows(closed.state, ctx.colCount);
+            if (selected !== null && selected.r0 === r0 && selected.r1 === r1) {
+                effects.push({ t: "focus.sheet" });
+                return { state: { ...closed.state, selEnd: null, gsel: null }, effects };
+            }
+            effects.push({ t: "emit.select", r: r0, c: 0 }, { t: "focus.sheet" });
+            return { state: { ...closed.state, sel: clamp({ r: r0, c: 0 }, ctx), selEnd: clamp({ r: r1, c: last }, ctx), gsel: null }, effects };
         }
         case "key":
             if (s.edit !== null) return { state: s, effects: [] };
@@ -404,9 +523,9 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
         case "suggest.clear":
             return { state: clearSuggest(s), effects: [] };
         case "fill.take":
-            return takeFill(s, ctx, e.key);
+            return acceptSuggestion(s, ctx, state => takeFill(state, ctx, e.key));
         case "fill.row":
-            return fillRow(s, ctx);
+            return acceptSuggestion(s, ctx, state => fillRow(state, ctx));
         case "proposal.pick": {
             const closed = s.edit !== null ? commitEdit(s, "stay", ctx) : { state: s, effects: [] as SheetEffect[] };
             if (closed.state.sugg === null || e.i < 0 || e.i >= closed.state.sugg.rows.length) return closed;
@@ -414,7 +533,7 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
             return { state: { ...closed.state, gsel: e.i, selEnd: null, armed: null }, effects: closed.effects };
         }
         case "proposal.take":
-            return takeProposals(s, ctx, e.i);
+            return acceptSuggestion(s, ctx, state => takeProposals(state, ctx, e.i));
         case "proposal.reject":
             return rejectProposal(s, ctx, e.i);
         // ── The lens and the tabs (B§8) ────────────────────────────────────
@@ -452,6 +571,25 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
             return reorderTab(s, ctx, e.id, e.to);
         case "search.key":
             return searchKey(s, ctx, e.key) ?? { state: s, effects: [] };
+        // ── Grouped rows (#740) ───────────────────────────────────────────
+        case "fold.toggle": {
+            const closed = s.edit !== null ? commitEdit(s, "stay", ctx) : { state: s, effects: [] as SheetEffect[] };
+            // ⌥ on the chevron: every group goes the way this one does.
+            const g = e.all === true ? ctx.groupAt?.(e.r) : undefined;
+            const t = g !== undefined ? foldAll(closed.state, !g.folded, ctx) : toggleFold(closed.state, e.r, ctx);
+            return { state: t.state, effects: [...closed.effects, ...t.effects] };
+        }
+        case "fold.all": {
+            const closed = s.edit !== null ? commitEdit(s, "stay", ctx) : { state: s, effects: [] as SheetEffect[] };
+            const t = foldAll(closed.state, e.folded, ctx);
+            return { state: t.state, effects: [...closed.effects, ...t.effects] };
+        }
+        case "subRows.toggle": {
+            // A line's chevron: an open editor commits first, the ring lands on the line.
+            const closed = s.edit !== null ? commitEdit(s, "stay", ctx) : { state: s, effects: [] as SheetEffect[] };
+            const t = toggleSubRows(closed.state, e.r, e.all === true, ctx);
+            return { state: t.state, effects: [...closed.effects, ...t.effects] };
+        }
     }
 }
 

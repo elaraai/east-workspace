@@ -48,7 +48,10 @@
  * Rows are keyed by INDEX unless the collection passes `getItemKey`. A
  * collection whose rows move — a collapse above them, a focus, a paged window
  * landing — should pass it, so that a row keeps its component instance (its
- * memo, its local state) wherever it moves.
+ * memo, its local state), its DOM element and its measured height wherever it
+ * moves. Measured rows carry `data-slot="virtualRow"` so a host recipe can
+ * style the wrappers (a transform transition), and are sized to whole device
+ * pixels ({@link devicePixels}) so every row sits on the pixel grid.
  *
  * TanStack memoizes its measurements on the row count and a few layout options
  * — never on the heights it was given (see `sizeVersion`). A fixed-height
@@ -107,13 +110,16 @@ interface VirtualRowsBaseProps {
     /** Total number of body rows. */
     count: number;
     /**
-     * A stable identity for row `index` — the row's React key and the
-     * virtualizer's item key. Omit to key rows by index (the historical
-     * behaviour). Pass it when rows MOVE — a collapse above them, a focus, a
-     * window landing — so that a row keeps its component instance, its memo
-     * and any local state wherever it lands, instead of the instance at its
-     * old index being handed whichever row now sits there (#812). Keys must be
-     * unique within the frame.
+     * A stable identity for row `index` — the row's React key, its wrapper's
+     * key and the virtualizer's item key (its size cache). Omit to key rows by
+     * index (the historical behaviour). Pass it when rows MOVE — inserted,
+     * removed or folded above them, a focus, a window landing — so that a row
+     * keeps its component instance, its memo and any local state wherever it
+     * lands (#812), and its DOM element — a CSS transition can slide it to its
+     * new offset — and its measured height (#843). Keyed by index, the
+     * instance and the wrapper at an old index are handed whichever row now
+     * sits there, with another row's height. Keys must be unique within the
+     * frame.
      */
     getItemKey?: ((index: number) => string | number) | undefined;
     /**
@@ -366,7 +372,27 @@ function scrollWithin<T extends HTMLElement | Window>(items: RefObject<HTMLEleme
     };
 }
 
-const measureRect = (el: Element): number => el.getBoundingClientRect().height;
+/**
+ * Rounds a measured CSS-pixel height to whole DEVICE pixels.
+ *
+ * Measured rows sit at the sum of the heights above them, so one row a
+ * fraction of a device pixel tall — fractional line boxes, or a 1.25× / 1.5×
+ * screen scale that makes a whole CSS pixel a fraction of a device one —
+ * leaves every row below it between device pixels, where a 1px rule smears
+ * across two pixel rows or drops out (the #533 family). The browser paints
+ * a box to whole device pixels anyway, so the rounded slot is the height the
+ * row is drawn at.
+ *
+ * @param px - A measured height in CSS pixels
+ * @returns The height rounded to whole device pixels, in CSS pixels
+ */
+export function devicePixels(px: number): number {
+    const dpr = typeof window !== "undefined" && window.devicePixelRatio > 0 ? window.devicePixelRatio : 1;
+    return Math.round(px * dpr) / dpr;
+}
+
+/** A mounted row's height, on the device-pixel grid ({@link devicePixels}). */
+const measureRect = (el: Element): number => devicePixels(el.getBoundingClientRect().height);
 
 /**
  * @param props - see {@link VirtualRowsProps}
@@ -586,6 +612,7 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
                     <Box
                         key={item.key}
                         data-index={item.index}
+                        data-slot="virtualRow"
                         ref={virtualizer.measureElement}
                         position="absolute"
                         top="0"

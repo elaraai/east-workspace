@@ -8,7 +8,8 @@
  * `minmax(0,1fr) 16px minmax(0,1fr)` grid inside the cell's padding, the
  * arrow (a minus for an in-place driver) on the first 20 px line, chips
  * mono 10.5 on `bg.muted` with the register's meta only when a half holds a
- * single chip, dashed chips for text / placeholder / a proposal, the faint
+ * single chip — a counted member prints its kind with the count as the meta,
+ * worded in the kind it resolves to (`CNC lathe · 4 machines`) — dashed chips for text / placeholder / a proposal, the faint
  * FROM / TO labels on an empty live half, a lock tag on a locked one — warn
  * when it holds content — and a flagged member's warn treatment with its
  * message as the title.
@@ -18,8 +19,8 @@ import { memo } from "react";
 import { Box } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faArrowRightLong, faMinus } from "@fortawesome/free-solid-svg-icons";
-import { memberIsDashed, memberLabel } from "../model.js";
-import { memberMeta, type LinkVocabulary } from "../link/grammar.js";
+import { memberChipLabel, memberIsDashed } from "../model.js";
+import { memberMeta, pluralKind, type LinkVocabulary } from "../link/grammar.js";
 import { halfWarns, type LinkHalves } from "../link/sides.js";
 import type { LinkFlags } from "../link/checks.js";
 import type { SheetLinkValue, SheetMemberValue } from "../values.js";
@@ -35,10 +36,29 @@ export interface LinkChipProps {
     ghost: boolean;
     /** The checks' messages on this member. */
     flags: readonly string[];
+    /** A counted member's count, worded (`4 machines`) — drawn as the chip's meta in place of the register's line. */
+    count?: string | undefined;
+}
+
+/**
+ * A counted member's count in the words of the kind it resolves to — the
+ * host's kind names (`4 machines`); the bare number when the vocabulary says
+ * nothing about it.
+ *
+ * @param member - The member
+ * @param vocab - The column's vocabulary
+ * @returns The count's text, or `undefined` for a member that is not counted
+ */
+export function countText(member: SheetMemberValue, vocab: LinkVocabulary | undefined): string | undefined {
+    if (member.type !== "counted") return undefined;
+    const n = Number(member.value.n);
+    const kind = vocab?.byKey.get(member.value.key.toLowerCase())?.kind;
+    const noun = kind !== undefined ? vocab?.kinds.find((k) => k.kind === kind)?.resolvesTo : undefined;
+    return noun !== undefined ? `${n} ${n === 1 ? noun : pluralKind(noun)}` : String(n);
 }
 
 /** One chip. */
-export const LinkChip = memo(function LinkChip({ styles, member, meta, ghost, flags }: LinkChipProps) {
+export const LinkChip = memo(function LinkChip({ styles, member, meta, ghost, flags, count }: LinkChipProps) {
     const dashed = ghost || memberIsDashed(member);
     const flagged = flags.length > 0;
     return (
@@ -51,8 +71,10 @@ export const LinkChip = memo(function LinkChip({ styles, member, meta, ghost, fl
             title={flagged ? flags.join(" · ") : undefined}
             style={flagged ? { color: "var(--chakra-colors-status-warn)", background: "var(--chakra-colors-bg-warning-subtle)", borderColor: "var(--chakra-colors-status-warn)" } : undefined}
         >
-            {memberLabel(member)}
-            {meta !== "" && <Box as="span" css={styles.chipMeta}>{meta}</Box>}
+            {memberChipLabel(member)}
+            {count !== undefined
+                ? <Box as="span" css={styles.chipMeta} data-slot="chipCount">{count}</Box>
+                : meta !== "" && <Box as="span" css={styles.chipMeta}>{meta}</Box>}
         </Box>
     );
 });
@@ -89,6 +111,7 @@ export const LinkHalfView = memo(function LinkHalfView({ styles, half, members, 
                     meta={members.length === 1 && vocab !== undefined ? memberMeta(m, vocab) : ""}
                     ghost={ghost}
                     flags={flags[i] ?? []}
+                    count={countText(m, vocab)}
                 />
             ))}
         </Box>

@@ -7,7 +7,7 @@ import { memo, useState } from "react";
 import { Box, chakra, useRecipe, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPlus, faChevronDown } from "@fortawesome/free-solid-svg-icons";
-import { type ValueTypeOf } from "@elaraai/east";
+import { none, type ValueTypeOf } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { useOverflowCount } from "../../hooks/useOverflowCount";
@@ -72,7 +72,8 @@ export const EastChakraSliceFilter = memo(function EastChakraSliceFilter({ value
         const name = cohortName.trim();
         if (name === "") return;
         const id = uniqueSlug(name, state.cohorts.map(c => c.id));
-        slice.defineCohort({ id, name, filters: [...filters] });
+        // A saved filter set is a standalone cohort — it ANDs with everything.
+        slice.defineCohort({ id, name, filters: [...filters], group: none });
         slice.toggleCohort(id);
         setCohortName("");
         setOpen(null);

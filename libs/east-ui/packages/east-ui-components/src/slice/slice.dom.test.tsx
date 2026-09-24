@@ -447,6 +447,98 @@ describe("Slice.Cohort — chips toggle on/off; authoring demoted to the pencil 
     });
 });
 
+describe("Slice.Cohort — families (`group`): captioned runs of alternatives", () => {
+    const familyCohorts = () => [
+        { id: "mine",      name: "Mine",      group: none,           filters: [variant("string", { fieldId: "owner",  op: variant("eq", "me") })] },
+        { id: "proposed",  name: "PROPOSED",  group: some("state"),  filters: [variant("string", { fieldId: "state",  op: variant("eq", "PROPOSED") })] },
+        { id: "scheduled", name: "SCHEDULED", group: some("state"),  filters: [variant("string", { fieldId: "state",  op: variant("eq", "SCHEDULED") })] },
+        { id: "ready",     name: "READY",     group: some("status"), filters: [variant("string", { fieldId: "status", op: variant("eq", "READY") })] },
+    ];
+    const familyValue = (slice: unknown, extra: Record<string, unknown> = {}): any =>
+        ({ slice, createdBy: none, lastEdited: none, reevaluateEvery: none, density: none, editOpen: none, mode: some(variant("toggle", null)), group: none, ...extra });
+
+    test("the standalone cohort leads the plain run; each family renders under its own caption, in first-seen order", () => {
+        const slice = fakeSlice({ cohorts: familyCohorts() });
+        ui(<EastChakraSliceCohort value={familyValue(slice)} />);
+        const families = screen.getAllByRole("group").map(g => g.getAttribute("aria-label"));
+        expect(families).toEqual(["state cohorts", "status cohorts"]);
+        expect(screen.getByText("state")).toBeTruthy();       // the caption
+        expect(screen.getByText("status")).toBeTruthy();
+        // Mine sits outside every family; SCHEDULED sits inside the state family.
+        expect(screen.getByRole("button", { name: "Toggle cohort Mine" }).closest("[role=group]")).toBeNull();
+        expect(screen.getByRole("button", { name: "Toggle cohort SCHEDULED" }).closest("[role=group]")?.getAttribute("aria-label")).toBe("state cohorts");
+    });
+
+    test("the preset bar hides an empty family member unless it is on; standalone and manage-mode cohorts always show", () => {
+        const counts = () => new Map([["mine", 0n], ["proposed", 0n], ["scheduled", 4n], ["ready", 0n]]);
+        const first = ui(<EastChakraSliceCohort value={familyValue(fakeSlice({ cohorts: familyCohorts(), activeCohorts: new Set(["ready"]) }, { cohortCounts: counts }))} />);
+        expect(screen.queryByRole("button", { name: "Toggle cohort PROPOSED" })).toBeNull();     // empty, off → hidden
+        expect(screen.getByRole("button", { name: "Toggle cohort SCHEDULED" })).toBeTruthy();   // has rows
+        expect(screen.getByRole("button", { name: "Toggle cohort READY" })).toBeTruthy();       // empty but ON → shown, so it can be turned off
+        expect(screen.getByRole("button", { name: "Toggle cohort Mine" })).toBeTruthy();        // standalone → always shown
+        first.unmount();
+        // The authoring surface shows every member — an empty one is still editable.
+        ui(<EastChakraSliceCohort value={familyValue(fakeSlice({ cohorts: familyCohorts() }, { cohortCounts: counts }), { mode: none })} />);
+        expect(screen.getByRole("button", { name: "Toggle cohort PROPOSED" })).toBeTruthy();
+    });
+
+    test("group=<family> shows that family alone, uncaptioned — one surface per family", () => {
+        const slice = fakeSlice({ cohorts: familyCohorts() });
+        ui(<EastChakraSliceCohort value={familyValue(slice, { group: some("status") })} />);
+        expect(screen.getByRole("button", { name: "Toggle cohort READY" })).toBeTruthy();
+        expect(screen.queryByRole("button", { name: "Toggle cohort SCHEDULED" })).toBeNull();
+        expect(screen.queryByRole("button", { name: "Toggle cohort Mine" })).toBeNull();
+        expect(screen.queryByText("status")).toBeNull();      // the host names the family
+    });
+
+    test("authoring in manage mode stores the typed family as group: some(...) and a blank one as none", async () => {
+        const slice = fakeSlice();
+        ui(<EastChakraSliceCohort value={familyValue(slice, { mode: none, editOpen: some(true) })} />);
+        const user = userEvent.setup();
+        fireEvent.change(screen.getByLabelText("Cohort name"), { target: { value: "Late" } });
+        fireEvent.change(screen.getByLabelText("Cohort family"), { target: { value: "risk" } });
+        await pickOption(user, "Field", "Sessions");
+        await pickOption(user, "Operator", "≥");
+        await user.click(screen.getByRole("spinbutton"));
+        await user.paste("30");
+        fireEvent.click(screen.getByText("Add"));
+        fireEvent.click(screen.getByText("Apply"));
+        const cohorts = slice.read().cohorts;
+        expect(cohorts.length).toBe(1);
+        expect(cohorts[0].group).toEqual(some("risk"));
+    });
+
+    test("against the REAL store: members of one family OR; families AND with each other and with a standalone cohort", () => {
+        initializeStore(new UIStore());
+        const cfg = {
+            fields: new Map<string, unknown>([
+                ["state",  { type: "string", value: { label: "State",  accessor: (r: { state: string }) => r.state } }],
+                ["status", { type: "string", value: { label: "Status", accessor: (r: { status: string }) => r.status } }],
+                ["owner",  { type: "string", value: { label: "Owner",  accessor: (r: { owner: string }) => r.owner } }],
+            ]),
+            rangeFieldId: none, searchFieldIds: [], breakdownFieldIds: [],
+        };
+        const initial = {
+            range: none, compare: none, filters: [], cohorts: familyCohorts(), activeCohorts: new Set(["proposed", "scheduled"]),
+            breakdown: none, search: none, visible: none, selectedIndex: none, resolution: none,
+        };
+        const rows = [
+            { state: "PROPOSED",  status: "READY", owner: "me" },
+            { state: "SCHEDULED", status: "READY", owner: "me" },
+            { state: "SCHEDULED", status: "HELD",  owner: "you" },
+            { state: "DONE",      status: "READY", owner: "me" },
+        ];
+        const handle: any = buildSliceHandle("real.families", cfg, initial, rows, none);
+        expect(handle.resultCount()).toBe(3n);                  // PROPOSED or SCHEDULED
+        act(() => { handle.toggleCohort("ready"); });
+        expect(handle.resultCount()).toBe(2n);                  // … and READY
+        act(() => { handle.toggleCohort("mine"); });
+        expect(handle.resultCount()).toBe(2n);                  // … and mine (both READY rows are mine)
+        act(() => { handle.toggleCohort("proposed"); });
+        expect(handle.resultCount()).toBe(1n);                  // SCHEDULED ∧ READY ∧ mine
+    });
+});
+
 describe("Slice.Legend — the facet bar (#188): in-set multi-select over self-excluding options", () => {
     const legendGroups = () => [
         { key: "EU", count: 3n, color: "{colors.brand.600}" },
@@ -965,6 +1057,15 @@ describe("rail summary descriptors — capability when idle, active when narrowi
         expect(affordanceDescriptor("cohort", avail, dims)).toMatchObject({ text: "2 cohorts", active: false });
         const active = { ...(avail as object), activeCohorts: new Set(["eu", "bulk"]) } as never;
         expect(affordanceDescriptor("cohort", active, dims)).toMatchObject({ text: "EU +1", active: true });
+    });
+    test("cohort with families: the idle chip names the families, not the size of the bag", () => {
+        const families = { ...base, cohorts: [
+            { id: "p", name: "PROPOSED", group: some("state"), filters: [] },
+            { id: "s", name: "SCHEDULED", group: some("state"), filters: [] },
+            { id: "r", name: "READY", group: some("status"), filters: [] },
+            { id: "mine", name: "Mine", group: none, filters: [] },
+        ] } as never;
+        expect(affordanceDescriptor("presets", families, dims)).toMatchObject({ text: "state · status", active: false });
     });
     test("search: 'Search' idle, quoted query active", () => {
         expect(affordanceDescriptor("search", base as never, dims)).toMatchObject({ text: "Search", active: false });
