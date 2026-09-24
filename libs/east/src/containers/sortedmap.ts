@@ -3,6 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 import sorted_btree from "sorted-btree";
+import { defaultKeyCompare } from "../string_order.js";
 
 // Deal with CJS default import. Node's ESM interop hands back the whole
 // `module.exports`, so the class is under `.default`; Vite/vitest (and other
@@ -39,10 +40,11 @@ export class SortedMap<K, T> implements Map<K, T> {
      * @param compare - Optional comparison function for ordering keys
      *
      * @remarks
-     * If no comparison function is provided, keys are compared using default ordering.
+     * If no comparison function is provided, keys are compared using default
+     * ordering, in which strings order by code point, as East orders them.
      */
     constructor(values?: Iterable<[K,T]>, compare?: (a: K, b: K) => number) {
-        this.btree = new BTree(undefined, compare);
+        this.btree = new BTree(undefined, compare ?? defaultKeyCompare);
         if (values !== undefined) {
             for (const [key, value] of values) {
                 this.btree.set(key, value);
