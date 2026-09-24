@@ -131,7 +131,12 @@ function mount(value: SheetRootValue) {
     const tick = () => new Promise<void>((r) => queueMicrotask(r));
     const flush = () => act(async () => { await tick(); await tick(); });
     const msg = () => utils.container.querySelector('[data-slot="footerMessage"]')!.textContent;
-    return { ...utils, card, rows, band, lines, numbers, ghost, input, key, editorKey, type, flush, msg };
+    /** Hover the seam above a row: its chips show in the sheet's one insertion layer. */
+    const chip = (row: HTMLElement, slot: "insertRow" | "insertGroup") => {
+        fireEvent.mouseEnter(row.querySelector('[data-slot="insertPoint"]')!);
+        return utils.container.querySelector(`[data-slot="insertLayer"] [data-slot="${slot}"]`) as HTMLElement | null;
+    };
+    return { ...utils, card, rows, band, lines, numbers, ghost, input, key, editorKey, type, flush, msg, chip };
 }
 
 describe("the body (G1–G3, G6, G12)", () => {
@@ -175,7 +180,13 @@ describe("the body (G1–G3, G6, G12)", () => {
     test("writable gutters expose group insertion without a ghost band; read-only sheets hide insertion", () => {
         const writable = mount(withSpy(buildGrouped()).value);
         expect(writable.ghost()).toBeNull();
-        expect(writable.container.querySelectorAll("[data-slot=insertGroup]").length).toBeGreaterThan(0);
+        expect(writable.container.querySelectorAll("[data-slot=insertPoint]").length).toBeGreaterThan(0);
+        // The chips draw only for the hovered seam, once, in the insertion layer.
+        expect(writable.container.querySelector("[data-slot=insertLayer]")).toBeNull();
+        expect(writable.chip(writable.band("p2")!, "insertGroup")).toBeTruthy();
+        expect(writable.container.querySelectorAll("[data-slot=insertLayer]")).toHaveLength(1);
+        fireEvent.mouseLeave(writable.band("p2")!.querySelector("[data-slot=insertPoint]")!);
+        expect(writable.container.querySelector("[data-slot=insertLayer]")).toBeNull();
         writable.unmount();
         const readOnly = mount(withSpy(buildGrouped({ readOnly: true })).value);
         expect(readOnly.ghost()).toBeNull();
@@ -262,8 +273,8 @@ describe("edits (G5, G8)", () => {
 
     test("New group creates a draft before its anchor and opens the name editor; naming is a separate undoable gesture", async () => {
         const { value, edits, draft } = withSpy(buildGrouped());
-        const { container, band, ghost, input, type, editorKey, flush } = mount(value);
-        fireEvent.click(band("p2")!.querySelector('[data-slot="insertGroup"]')!);
+        const { container, band, ghost, input, type, editorKey, flush, chip } = mount(value);
+        fireEvent.click(chip(band("p2")!, "insertGroup")!);
         await flush();
         expect(input()).not.toBeNull();
         expect(edits).toHaveLength(1);
@@ -372,13 +383,13 @@ function buildPagedPlans(n: number): SheetRootValue {
 
 describe("the paged arm (G13)", () => {
     test("windows land with children and insertion controls without a ghost band", async () => {
-        const { container, band, lines, ghost } = mount(withSpy(buildPagedPlans(250)).value);
+        const { container, band, lines, ghost, chip } = mount(withSpy(buildPagedPlans(250)).value);
         await waitFor(() => expect(container.querySelectorAll('[data-slot="row"][data-band-row]').length).toBe(250), { timeout: 15_000 });
         expect(band("P1000")!.querySelector('[data-slot="groupTitle"]')!.textContent).toBe("Plan 0");
         expect(lines("P1249").map((r) => r.querySelector('[data-key="task"]')!.textContent)).toEqual(["Task 249", ""]);
         expect(container.querySelector('[data-slot="footerTransport"]')!.textContent).toBe("250 loaded of 250");
         expect(ghost()).toBeNull();
-        expect(band("P1000")!.querySelector("[data-slot=insertGroup]")!.getAttribute("aria-label")).toBe("New group");
+        expect(chip(band("P1000")!, "insertGroup")!.getAttribute("aria-label")).toBe("New group");
     }, 30_000);
 });
 
@@ -403,14 +414,14 @@ test("clicking a selected row marker deselects it without editing the data", asy
 test("child insertion uses the current local slot, preserves siblings and unfolds a selected folded group", async () => {
     const { value, edits, draft } = withSpy(buildGrouped());
     const ui = mount(value);
-    fireEvent.click(ui.lines("p1")[1]!.querySelector('[data-slot="insertRow"]')!); await ui.flush();
+    fireEvent.click(ui.chip(ui.lines("p1")[1]!, "insertRow")!); await ui.flush();
     expect(edits).toHaveLength(1);
     const p1 = draft("p1", Sheet.Types.DraftGroup(PlanType, "lines"));
     expect(p1.lines.map(row => row.task)).toEqual([variant("value", "Machining"), variant("missing", null), variant("value", "Painting")]);
     expect(p1.lines[0]!.status).toEqual(variant("value", "RELEASED"));
     expect(ui.lines("p1")[1]!.querySelector('[data-slot="editor"]')).toBeTruthy();
     // Commit/cancel the first editor before inserting into the folded group.
-    fireEvent.click(ui.band("p2")!.querySelector('[data-slot="insertRow"]')!); await ui.flush();
+    fireEvent.click(ui.chip(ui.band("p2")!, "insertRow")!); await ui.flush();
     expect(ui.band("p2")!.hasAttribute("data-folded")).toBe(false);
     expect(ui.lines("p2")[0]!.querySelector('[data-slot="editor"]')).toBeTruthy();
     expect(draft("p2", Sheet.Types.DraftGroup(PlanType, "lines")).lines).toHaveLength(2);

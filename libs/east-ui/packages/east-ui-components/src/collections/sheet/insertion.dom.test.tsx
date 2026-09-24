@@ -41,13 +41,18 @@ function mount(root: SheetRootValue) {
     const flush = () => act(async () => { await Promise.resolve(); });
     const press = async (element: Element) => { fireEvent.click(element); await flush(); };
     const finish = async (text: string) => { fireEvent.input(input(), { target: { value: text } }); fireEvent.keyDown(input(), { key: "Enter" }); await flush(); };
-    return { ...ui, rows, input, flush, press, finish, refresh: (value: SheetRootValue) => ui.rerender(component(value)) };
+    /** Hover the seam above a row: its row chip shows in the sheet's one insertion layer. */
+    const insertAbove = (row: Element) => {
+        fireEvent.mouseEnter(row.querySelector('[data-slot="insertPoint"]')!);
+        return ui.container.querySelector('[data-slot="insertLayer"] [data-slot="insertRow"]')!;
+    };
+    return { ...ui, rows, input, flush, press, finish, insertAbove, refresh: (value: SheetRootValue) => ui.rerender(component(value)) };
 }
 
 test("insertion before the first row emits one draft gesture, applies in order and preserves constructor and hidden fields", async () => {
     const view = program();
     const ui = mount(unwrap(view()));
-    await ui.press(ui.rows()[0]!.querySelector('[data-slot="insertRow"]')!);
+    await ui.press(ui.insertAbove(ui.rows()[0]!));
     expect(ui.rows()).toHaveLength(3);
     expect(ui.rows()[0]!.hasAttribute("data-draft")).toBe(true);
     expect(ui.input().closest('[data-row-id]')).toBe(ui.rows()[0]);
@@ -65,13 +70,13 @@ test("insertion before the first row emits one draft gesture, applies in order a
 test("repeated insertion resolves against local identities and Undo restores each exact step", async () => {
     const journal = sheetJournal(unwrap(program()()));
     const ui = mount(journal.value);
-    await ui.press(ui.rows()[1]!.querySelector('[data-slot="insertRow"]')!);
+    await ui.press(ui.insertAbove(ui.rows()[1]!));
     const first = ui.rows()[1]!.getAttribute("data-row-id")!;
     expect(journal.events).toHaveLength(1);
     expect(journal.events[0]!.origin.type).toBe("insert");
     expect(journal.events[0]!.draftChanges[0]!.place).toEqual(variant("some", variant("ordered", variant("before", "b"))));
     fireEvent.keyDown(ui.input(), { key: "Escape" }); await ui.flush();
-    await ui.press(ui.rows()[1]!.querySelector('[data-slot="insertRow"]')!);
+    await ui.press(ui.insertAbove(ui.rows()[1]!));
     const second = ui.rows()[1]!.getAttribute("data-row-id")!;
     expect(journal.events).toHaveLength(2);
     expect(journal.events[1]!.draftChanges[0]!.place).toEqual(variant("some", variant("ordered", variant("before", first))));
@@ -120,7 +125,7 @@ test("inserting while another editor is open commits that edit first without los
     const ui = mount(journal.value);
     fireEvent.doubleClick(ui.rows()[0]!.querySelector('[data-key="task"]')!); await ui.flush();
     fireEvent.input(ui.input(), { target: { value: "Revised" } });
-    await ui.press(ui.rows()[1]!.querySelector('[data-slot="insertRow"]')!);
+    await ui.press(ui.insertAbove(ui.rows()[1]!));
     expect(journal.events.map(event => event.origin.type)).toEqual(["typed", "insert"]);
     expect(journal.draft("a", Sheet.Types.Draft(Row)).task).toEqual(variant("value", "Revised"));
     expect(ui.rows()[2]!.getAttribute("data-row-id")).toBe("b");
@@ -141,7 +146,7 @@ test("a keyed source offers Add row, uses canonical key order and emits no order
     const journal = sheetJournal(unwrap(view()));
     const ui = mount(journal.value);
     await waitFor(() => expect(ui.rows()).toHaveLength(2));
-    const add = ui.rows()[1]!.querySelector('[data-slot="insertRow"]')!;
+    const add = ui.insertAbove(ui.rows()[1]!);
     expect(add.getAttribute("aria-label")).toBe("Add row");
     fireEvent.mouseEnter(add); await ui.flush();
     expect(ui.container.querySelector('[data-insert-preview]')).toBeNull();

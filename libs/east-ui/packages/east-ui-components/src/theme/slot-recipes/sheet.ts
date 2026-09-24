@@ -21,8 +21,10 @@
  *     Number: mono 11/500 right-aligned, ink-4 (ink 600 when picked). Actions:
  *     24 px ghost buttons, Font Awesome 13 px ink-4, colour only on hover as an
  *     8 % wash (check pos · xmark neg · arrow-right brand). Inserts are not
- *     gutter content: two 24 px outlined chips (plus · layer-group) on the body
- *     side of the gutter edge, threaded on a 2 px brand insertion line. States:
+ *     gutter content: a seam in the gutter is only a hit strip; the hovered
+ *     seam's two 24 px outlined chips (plus · layer-group) sit in the sheet's
+ *     one insertion layer, over the rows and under the pinned header, threaded
+ *     on a 2 px brand insertion line. States:
  *     hover `bg.panel` · picked `brandTint` · group band `bg.panel` · dirty 8 %
  *     warn. A group's identity is its band and the connector — no per-group colour.
  *   - Cells: min-height 36, padding 6/10, 1 px `border.subtle` bottom and
@@ -77,6 +79,11 @@
  *     an open line's sub rows scroll under the group's band, a copy of the line
  *     sticks under the band, `border.strong` below like the band's own copy,
  *     and its last sub row pushes it up as it leaves.
+ *   - Layering: the sheet isolates its stacking, and so does every row, so a
+ *     row's layers (the ring, the editor, the sticky gutter) never reach past
+ *     it and nothing inside the sheet reaches past the sheet — a drawer or a
+ *     dialog that hosts it layers as it always does. Popups (the enum menu)
+ *     portal out through Chakra's own layering.
  *   - Motion, only after a gesture that folds or opens: the
  *     chevron turns (180 ms), the rows slide to their new places (240 ms, the
  *     root's `data-moving`), and the rows it brings into view drop in 6 px
@@ -104,7 +111,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
     className: "elara-sheet",
     slots: [
         "root", "frame", "card", "body",
-        "insertPoint", "insertHit", "insertChips", "insertButton", "insertStrip", "insertChoice",
+        "insertPoint", "insertLayer", "insertChips", "insertButton", "insertStrip", "insertChoice",
         "history", "historyActions", "historyStatus", "historyButton", "historyIssues", "historyError",
         "toolbar", "toolbarRailGroup", "toolbarCluster", "toolbarCount", "toolbarBadge",
         "tabs", "tab", "tabLabel", "tabCount", "tabDot", "tabClose", "tabAdd", "tabMore", "tabRename",
@@ -136,19 +143,12 @@ export const sheetSlotRecipe = defineSlotRecipe({
             fontFamily: "body",
             color: "fg",
             fontFeatureSettings: '"tnum" 1',
+            // Every z-index inside the sheet stays inside it, wherever it is mounted.
+            isolation: "isolate",
             // the insertion line: 2 px brand on the row boundary, always from the gutter edge (128) to the right edge — it never enters the gutter, whichever side the chips take.
             "& [data-row][data-insert-preview]::after": { content: '""', position: "absolute", left: "128px", right: "0", top: "-1px", height: "2px", background: "brand.solid", pointerEvents: "none", zIndex: "8" },
             // A picked row is one `brandTint` surface — the cells' own range wash would double it.
             "& [data-row][data-picked] [data-slot=rangeWash]": { display: "none" },
-            // the lift follows the SEAM, not the gutter: a seam
-            // straddles the boundary, so half of it lies over the row above;
-            // lifting a merely hovered gutter would cover the seam below it and
-            // make it unreachable from that side. The lift clears the open
-            // editor (z 10) and its error ring (z 11): chips on the body side
-            // of the gutter edge lie over the first cells, editor included.
-            "& [data-slot=gutter]:has([data-slot=insertPoint]:hover), & [data-slot=gutter]:focus-within": { zIndex: "12" },
-            // Virtual rows have transformed wrappers; lift that stacking context above the sticky header too.
-            "& :has(> [data-row] > [data-slot=gutter] [data-slot=insertPoint]:hover), & :has(> [data-row] > [data-slot=gutter]:focus-within [data-slot=insertPoint])": { zIndex: "9" },
             "& [data-row][data-draft] > [data-slot=cell][data-blank][data-editable]": {
                 background: "color-mix(in srgb, var(--chakra-colors-status-warn) 17%, var(--chakra-colors-bg-surface))",
             },
@@ -161,26 +161,24 @@ export const sheetSlotRecipe = defineSlotRecipe({
                 "@media (prefers-reduced-motion: reduce)": { transition: "none" },
             },
         },
-        // The seam. The point spans the gutter and the 72 px beside it on the
-        // row boundary; it takes no pointer itself. Its HIT band (16 px, the
-        // gutter's width) is what a pointer finds. The CHIPS sit in the
-        // actions column (x 72) — or, when an action button holds that column
-        // on either row of the seam, on the body side of the gutter edge (x 140);
-        // there their box starts at the edge so the pointer never leaves the
-        // seam on the way to them. Inert and invisible until the seam is
-        // hovered.
+        // The seam: a 16 px hit strip centred on the row boundary across the
+        // gutter. It draws nothing; hovering it shows the chips in the layer.
         insertPoint: {
-            position: "absolute", left: "0", right: "-72px", top: "-12px", height: "24px", zIndex: "9", pointerEvents: "none",
+            position: "absolute", left: "0", right: "0", top: "-8px", height: "16px", zIndex: "6",
         },
-        insertHit: {
-            position: "absolute", left: "0", width: "128px", top: "4px", height: "16px", pointerEvents: "auto",
+        // The insertion layer: one per sheet, over the rows (each an isolated
+        // stacking context, so z 1 clears them all) and under the pinned
+        // header (z 6). Its top is the seam and its left the chips' start —
+        // the gutter's actions column (x 72), or, when an action button holds
+        // that column on either row of the seam, the gutter edge; there the
+        // box starts at the edge (12 px of padding before the chips) so the
+        // pointer never leaves the seam on the way to them.
+        insertLayer: {
+            position: "absolute", zIndex: "1", height: "24px", marginTop: "-12px",
+            "&[data-side=body]": { paddingLeft: "12px" },
         },
         insertChips: {
-            position: "absolute", left: "128px", top: "0", height: "24px", paddingLeft: "12px",
-            display: "flex", alignItems: "center", gap: "4px",
-            opacity: "0", pointerEvents: "none",
-            "[data-slot=insertPoint][data-side=gutter] &": { left: "72px", paddingLeft: "0" },
-            "[data-slot=insertPoint]:hover &, [data-slot=insertPoint]:focus-within &": { opacity: "1", pointerEvents: "auto" },
+            height: "24px", display: "flex", alignItems: "center", gap: "4px",
         },
         insertButton: {
             display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: "0",
@@ -559,6 +557,8 @@ export const sheetSlotRecipe = defineSlotRecipe({
         row: {
             display: "grid",
             position: "relative",
+            // The row's layers (ring, editor, sticky gutter) stay inside it.
+            isolation: "isolate",
             background: "bg.surface",
             borderBottomWidth: "1px",
             borderBottomColor: "border.subtle",
@@ -1242,6 +1242,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
         groupRow: {
             display: "grid",
             position: "relative",
+            isolation: "isolate",
             background: "bg.panel",
             borderBottomWidth: "1px",
             borderBottomColor: "border.subtle",
@@ -1531,6 +1532,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             display: "flex",
             alignItems: "stretch",
             position: "relative",
+            isolation: "isolate",
             background: "bg.surface",
             borderBottomWidth: "1px",
             borderBottomColor: "border.subtle",

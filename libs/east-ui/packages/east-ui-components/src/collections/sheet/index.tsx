@@ -69,7 +69,7 @@ import {
 } from "./sheet-state.js";
 import { runSuggest, SuggestMemo, LATENCY_MS, type FillColumn } from "./suggest.js";
 import { InFlight, trackWork } from "./suggest-async.js";
-import { SheetInsertPoint, SheetInsertStrip } from "./Insertion.js";
+import { SheetInsertLayer, SheetInsertPoint, SheetInsertStrip, type InsertionActions, type InsertSeam } from "./Insertion.js";
 import { insertionGesture, groupInsertionSide, type InsertRequest, type InsertionAnchor } from "./insertion.js";
 import { membershipAt } from "./membership.js";
 import { SheetHeader } from "./Header.js";
@@ -1915,12 +1915,13 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
     const moving = gesture || movingSince !== 0;
 
     const [insertPreview, setInsertPreview] = useState<{ r: number; kind: "row" | "group"; side: "gutter" | "body" } | undefined>(undefined);
-    const insertionFor = useCallback((r: number, side: "gutter" | "body"): ReactNode => {
-        if (!editingState.available || (!canInsertRows && !canInsertGroups)) return undefined;
+    const canInsert = editingState.available && (canInsertRows || canInsertGroups);
+    /** What the seam above row `r` offers, and what each chip previews. */
+    const insertActions = useCallback((r: number, side: "gutter" | "body"): InsertionActions => {
         const anchor = anchorFor(r, "before");
         const ordered = anchor.child !== undefined || anchor.tail === true || !value.editing.keyed;
-        return <SheetInsertPoint styles={styles} actions={{
-            ordered, groupOrdered: !value.editing.keyed, side,
+        return {
+            ordered, groupOrdered: !value.editing.keyed,
             rowWord: group !== undefined ? "line" : "row", groupWord: noun.singular,
             row: canInsertRows && (group === undefined || anchor.entry !== undefined) ? () => onInsert("row", r, "before") : undefined,
             group: canInsertGroups ? () => onInsert("group", r, "before") : undefined,
@@ -1934,8 +1935,50 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
                 const target = gside === "before" ? rowOf(parent.id) : next === undefined ? blankLineRowOf(parent.id) : rowOf(next.id);
                 setInsertPreview(target === undefined ? undefined : { r: target, kind, side });
             },
-        }} />;
-    }, [editingState.available, canInsertRows, canInsertGroups, anchorFor, value.editing.keyed, styles, group, noun, onInsert, rows, rowOf, blankLineRowOf]);
+        };
+    }, [canInsertRows, canInsertGroups, anchorFor, value.editing.keyed, group, noun, onInsert, rows, rowOf, blankLineRowOf]);
+    // The hovered seam. Its chips are drawn once, in the card's insertion
+    // layer, placed from the seam's and the gutter's boxes on the screen: the
+    // layer sits over every row and under the pinned header, so nothing a row
+    // holds (its editor, its ring, the row above) ever covers them.
+    const [seam, setSeam] = useState<InsertSeam | undefined>(undefined);
+    const seamHitRef = useRef<HTMLElement | null>(null);
+    const insertLayerRef = useRef<HTMLDivElement | null>(null);
+    const onSeamEnter = useCallback((r: number, side: "gutter" | "body", hit: HTMLElement) => {
+        const card = cardRef.current;
+        const gutter = hit.closest<HTMLElement>("[data-slot=gutter]");
+        if (card === null || gutter === null) return;
+        const cardBox = card.getBoundingClientRect();
+        const hitBox = hit.getBoundingClientRect();
+        const gutterBox = gutter.getBoundingClientRect();
+        seamHitRef.current = hit;
+        // The chips sit wholly below the column header: the seam above the first row lies on its edge.
+        const headerBottom = headerRef.current?.getBoundingClientRect().bottom ?? -Infinity;
+        const top = Math.max(hitBox.top + hitBox.height / 2, headerBottom + 12) - cardBox.top;
+        // The chips: in the gutter's actions column (x 72), else from the gutter edge.
+        setSeam({ r, side, top, left: (side === "gutter" ? gutterBox.left + 72 : gutterBox.right) - cardBox.left });
+        insertActions(r, side).preview?.(canInsertRows ? "row" : "group");
+    }, [insertActions, canInsertRows]);
+    /** The pointer left the seam or its chips: they stay while it moves between the two. */
+    const onSeamLeave = useCallback((to: EventTarget | null) => {
+        if (to instanceof Node && (insertLayerRef.current?.contains(to) === true || seamHitRef.current?.contains(to) === true)) return;
+        seamHitRef.current = null;
+        setSeam(undefined);
+        setInsertPreview(undefined);
+    }, []);
+    // A scroll moves the rows from under the chips, and a change of rows moves the seam: either way the chips go until the pointer finds a seam again.
+    useEffect(() => { setSeam(undefined); setInsertPreview(undefined); }, [body]);
+    useEffect(() => {
+        const el = scrollElRef.current;
+        if (el === null) return;
+        const hide = () => { setSeam(undefined); setInsertPreview(undefined); };
+        el.addEventListener("scroll", hide, { passive: true });
+        return () => el.removeEventListener("scroll", hide);
+    }, []);
+    const insertionFor = useCallback((r: number, side: "gutter" | "body"): ReactNode => {
+        if (!canInsert) return undefined;
+        return <SheetInsertPoint styles={styles} side={side} onEnter={hit => onSeamEnter(r, side, hit)} onLeave={onSeamLeave} />;
+    }, [canInsert, styles, onSeamEnter, onSeamLeave]);
     // Whether a body item shows an action button in the gutter's actions column: a proposal's ✓ ×, an anchor's → fill, a draft's × discard.
     const hasDecisions = useCallback((i: number): boolean => {
         const it = body[i];
@@ -2243,6 +2286,9 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
                     sizeVersion={paging.sizeVersion}
                     rootCss={{ overflowX: "auto" }}
                 />
+                {seam !== undefined && canInsert && (
+                    <SheetInsertLayer ref={insertLayerRef} styles={styles} seam={seam} actions={insertActions(seam.r, seam.side)} onLeave={onSeamLeave} />
+                )}
             </Box>
             {(wr !== null && edit === null || rows.length === 0) && editingState.available && <SheetInsertStrip styles={styles}
                 ordered={!value.editing.keyed || anchorFor(ui.sel.r, "before").child !== undefined}
