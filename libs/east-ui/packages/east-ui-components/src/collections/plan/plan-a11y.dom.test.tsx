@@ -228,18 +228,18 @@ describe("the canvas is a treegrid (#819)", () => {
             const el = container.querySelector(sel) as HTMLElement;
             return [el.getAttribute("role"), el.getAttribute("aria-label")];
         };
-        expect(named("[data-run='r1']")).toEqual(["button", "R1, 29 Jun 2026 – 13 Jul 2026, actual, warning"]);
-        expect(named("[data-plan-item='r:s'] [data-mark='d1']")).toEqual(["button", "Decision, 6 Jul 2026, applied"]);
+        expect(named("[data-run='r1']")).toEqual(["button", "R1, Jun 29, 2026 – Jul 13, 2026, actual, warning"]);
+        expect(named("[data-plan-item='r:s'] [data-mark='d1']")).toEqual(["button", "Decision, Jul 6, 2026, applied"]);
         expect(named("[data-port]")).toEqual(["img", "IN · 40 t"]);
-        expect(named("[data-event='e1']")).toEqual(["button", "Pour, Week of 29 Jun 2026, AM, confirmed"]);
+        expect(named("[data-event='e1']")).toEqual(["button", "Pour, Week of Jun 29, 2026, AM, confirmed"]);
         expect(named("[data-marker]")).toEqual(["img", "Crew short"]);
-        expect(named("[data-chip='c1']")).toEqual(["button", "D. OKAFOR, 29 Jun 2026 – 13 Jul 2026, confirmed"]);
-        expect(named("[data-plan-item='r:e'] [data-mark='k1'][tabindex]")).toEqual(["button", "KICKOFF, milestone, 29 Jun 2026"]);
-        expect(named("[data-plan-item='r:e'] [data-mark='k2']")).toEqual(["button", "Decision, pending, 13 Jul 2026"]);
-        expect(named("[data-plan-item='r:e'] [data-mark='k3']")).toEqual(["button", "Exception, 27 Jul 2026"]);
+        expect(named("[data-chip='c1']")).toEqual(["button", "D. OKAFOR, Jun 29, 2026 – Jul 13, 2026, confirmed"]);
+        expect(named("[data-plan-item='r:e'] [data-mark='k1'][tabindex]")).toEqual(["button", "KICKOFF, milestone, Jun 29, 2026"]);
+        expect(named("[data-plan-item='r:e'] [data-mark='k2']")).toEqual(["button", "Decision, pending, Jul 13, 2026"]);
+        expect(named("[data-plan-item='r:e'] [data-mark='k3']")).toEqual(["button", "Exception, Jul 27, 2026"]);
         // A printed mark label is that name's echo — hidden from a reader.
         expect(container.querySelector("[data-plan-item='r:e'] [data-mark='k1']:not([tabindex])")!.getAttribute("aria-hidden")).toBe("true");
-        expect(named("[data-plan-item='r:t'] [data-cell]")).toEqual(["button", "Week of 29 Jun 2026: 1,204"]);
+        expect(named("[data-plan-item='r:t'] [data-cell]")).toEqual(["button", "Week of Jun 29, 2026: 1,204"]);
         // A chart is a shape: an image, named by its values, with a title.
         const plot = container.querySelector("[data-plan-item='r:k'] [data-plan-chart]")!;
         expect(plot.getAttribute("role")).toBe("img");
@@ -609,12 +609,12 @@ describe("every colour-only cell says its value (#819)", () => {
         const names = (key: string) => [...container.querySelectorAll(`[data-plan-item="r:${key}"] [data-cell]`)]
             .map((c) => c.getAttribute("aria-label"));
         expect(names("h")).toEqual([
-            "Week of 29 Jun 2026: 80, at or above the warning threshold",
-            "Week of 6 Jul 2026: 40",
-            "Week of 13 Jul 2026: no data",
+            "Week of Jun 29, 2026: 80, at or above the warning threshold",
+            "Week of Jul 6, 2026: 40",
+            "Week of Jul 13, 2026: no data",
         ]);
-        expect(names("w")).toEqual(["Week of 29 Jun 2026: 60% booked, planned"]);
-        expect(names("g")).toEqual(["Week of 29 Jun 2026: booked 75%, slack 25%"]);
+        expect(names("w")).toEqual(["Week of Jun 29, 2026: 60% booked, planned"]);
+        expect(names("g")).toEqual(["Week of Jun 29, 2026: booked 75%, slack 25%"]);
     });
 
     test("a group's summary strip says each bucket's value as text", () => {
@@ -627,7 +627,7 @@ describe("every colour-only cell says its value (#819)", () => {
         // words' echo (the no-data dash) and hidden from them.
         const heard = (c: Element) => [...c.children].filter((x) => x.getAttribute("aria-hidden") !== "true")
             .map((x) => x.textContent).join("");
-        expect(cells.map(heard)).toEqual(["Week of 29 Jun 2026: 80", "Week of 6 Jul 2026: no data"]);
+        expect(cells.map(heard)).toEqual(["Week of Jun 29, 2026: 80", "Week of Jul 6, 2026: no data"]);
         expect(cells[1]!.querySelector("[aria-hidden='true']")!.textContent).toBe("–");
     });
 
@@ -640,6 +640,6 @@ describe("every colour-only cell says its value (#819)", () => {
         const strip = item(container, "r:k");
         expect(strip.hasAttribute("data-ctx")).toBe(true);
         expect([...strip.querySelectorAll("[role='gridcell'] > *")].map((c) => c.textContent).filter((s) => s !== ""))
-            .toEqual(["Week of 29 Jun 2026: 94", "Week of 6 Jul 2026: 101"]);
+            .toEqual(["Week of Jun 29, 2026: 94", "Week of Jul 6, 2026: 101"]);
     });
 });

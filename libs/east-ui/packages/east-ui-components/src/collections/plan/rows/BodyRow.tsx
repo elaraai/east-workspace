@@ -40,6 +40,8 @@ import { PlanDecisionCell, tagOf, type PlanReview } from "../shell/Review.js";
 import { usePlanRowState } from "../controller/react.js";
 import { usePlanGridRow } from "../root/grid.js";
 import { statusText } from "../a11y.js";
+import { usePlanWords } from "../words.js";
+import type { PlanFocusTagWord } from "../messages.js";
 import { rowItemKey, type PlanDerived, type VisibleRow } from "../model.js";
 import type { PlanEvent } from "../plan-state.js";
 
@@ -88,7 +90,7 @@ export interface PlanBodyRowProps {
      */
     focusRole: "none" | "rail" | "ctx" | "focal";
     /** The links-focus family tag (R1). */
-    focusTag: "UPSTREAM" | "DOWNSTREAM" | "LINKED" | undefined;
+    focusTag: PlanFocusTagWord | undefined;
     /** The expand render's axis treatment (R2, focal row only). */
     axisMode: "dim" | "off" | undefined;
     /** Whether the row grows the links / expand focus controls. */
@@ -166,6 +168,7 @@ export const PlanBodyRow = memo(function PlanBodyRow({
     const { selected, chartExpanded, activeControl, active, focusSeq } = usePlanRowState(v.row.key);
     // Its place in the treegrid and its share of the tab stop (#819).
     const grid = usePlanGridRow(rowItemKey(v.row.key), active, focusSeq);
+    const words = usePlanWords();
     const mountedAs = v.row.key;
     useEffect(() => {
         bodyRowMountProbe?.(mountedAs, "mount");
@@ -194,7 +197,7 @@ export const PlanBodyRow = memo(function PlanBodyRow({
                     <VisuallyHidden>{v.row.gutter.label}</VisuallyHidden>
                     {railTone !== undefined && (
                         <Box as="span" css={styles.statusDot} data-tone={railTone}
-                            role="img" aria-label={statusText(railTone)}
+                            role="img" aria-label={statusText(railTone, words)}
                             position="absolute" right="12px" top="2px" />
                     )}
                 </Box>
@@ -317,7 +320,7 @@ export const PlanBodyRow = memo(function PlanBodyRow({
                 <RowDiagnostic diagnostic={diagnostic} styles={styles} ctx={isCtx} />
             ) : (
                 // One row's render failure stays in that row (#811).
-                <PlanPartBoundary part={`row ${v.row.key}`} resetKey={v.row} styles={styles}>
+                <PlanPartBoundary part={{ kind: "row", key: v.row.key }} resetKey={v.row} styles={styles}>
                     <KindPlot v={v} styles={styles} derived={derived}
                         hasChildren={hasChildren} ctx={isCtx}
                         plotHeight={plotH} chartExpanded={chartExpanded_} partial={partial} />

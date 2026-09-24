@@ -25,6 +25,7 @@ import type { PlanRowDrop } from "../rows/RowShell.js";
 import type { PlanReview } from "../shell/Review.js";
 import { usePlanItemNav } from "../controller/react.js";
 import { statusText } from "../a11y.js";
+import { usePlanWords, type PlanWords } from "../words.js";
 import { usePlanGridRow } from "./grid.js";
 import {
     bodyItemKey, rowHeight,
@@ -113,14 +114,14 @@ export function renderPlanRow(v: VisibleRow, ctx: PlanRowContext): ReactNode {
                 // The author's render is its own part (#811): a throw while
                 // rendering it stays inside the focused row.
                 expandBody: (
-                    <PlanPartBoundary part="expand render" resetKey={expandBody} styles={styles}>
+                    <PlanPartBoundary part={{ kind: "expandRender" }} resetKey={expandBody} styles={styles}>
                         <EastChakraComponent value={expandBody} storageKey={`${storageKey}.${v.row.key}.expand`} />
                     </PlanPartBoundary>
                 ),
                 bandHeight: rowHeight(v, ctx.dense, ctx.chartsExpanded, undefined, ctx.derived),
                 ...(expandGutterBody !== null ? {
                     expandGutter: (
-                        <PlanPartBoundary part="expand gutter" resetKey={expandGutterBody} styles={styles}>
+                        <PlanPartBoundary part={{ kind: "expandGutter" }} resetKey={expandGutterBody} styles={styles}>
                             <EastChakraComponent value={expandGutterBody}
                                 storageKey={`${storageKey}.${v.row.key}.expandgutter`} />
                         </PlanPartBoundary>
@@ -136,12 +137,12 @@ export function renderPlanRow(v: VisibleRow, ctx: PlanRowContext): ReactNode {
  * links focus folded into it.
  *
  * @param gap - The gap
+ * @param w - The canvas's words (#820)
  * @returns `12 hidden rows`
  */
-export function gapText(gap: FocusGap): string {
+export function gapText(gap: FocusGap, w: PlanWords): string {
     const n = gap.rows > 0 ? gap.rows : gap.groups;
-    const what = gap.rows > 0 ? "row" : "group";
-    return `${n} hidden ${what}${n === 1 ? "" : "s"}`;
+    return w.m.hiddenRows({ n, count: w.number(n), what: gap.rows > 0 ? "row" : "group" });
 }
 
 /**
@@ -159,6 +160,7 @@ export function PlanGapBand({ gap, h, styles, gridTemplate, dispatch }: {
     gridTemplate: string;
     dispatch: (e: PlanEvent) => void;
 }) {
+    const words = usePlanWords();
     const itemKey = bodyItemKey({ kind: "gap", gap });
     const { active, focusSeq } = usePlanItemNav(itemKey);
     const grid = usePlanGridRow(itemKey, active, focusSeq);
@@ -171,13 +173,13 @@ export function PlanGapBand({ gap, h, styles, gridTemplate, dispatch }: {
             onClick={() => dispatch({ t: "focus.clear" })}>
             <Box css={styles.focusGapInner} role="gridcell">
                 <FontAwesomeIcon icon={faEllipsis} />
-                <Box as="span" aria-hidden="true">{gap.rows > 0 ? gap.rows : gap.groups}</Box>
-                <VisuallyHidden>{gapText(gap)}</VisuallyHidden>
+                <Box as="span" aria-hidden="true">{words.number(gap.rows > 0 ? gap.rows : gap.groups)}</Box>
+                <VisuallyHidden>{gapText(gap, words)}</VisuallyHidden>
             </Box>
             <Box position="relative" role="gridcell">
                 {gap.tone !== undefined && (
                     <Box as="span" css={styles.statusDot} data-tone={gap.tone}
-                        role="img" aria-label={statusText(gap.tone)}
+                        role="img" aria-label={statusText(gap.tone, words)}
                         position="absolute" right="12px" top="50%" transform="translateY(-50%)" />
                 )}
             </Box>

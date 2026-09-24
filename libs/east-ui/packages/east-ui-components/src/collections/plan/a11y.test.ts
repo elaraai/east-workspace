@@ -6,7 +6,8 @@
 /**
  * The canvas's words (#819): every element's accessible name carries what its
  * look encodes — a bar's state, a cell's value, a chart's shape — and a window
- * landing is announced as the elements it added.
+ * landing is announced as the elements it added. Every phrase is the message
+ * table's and every number and date the locale's (#820).
  */
 
 import { describe, test, expect } from "vitest";
@@ -18,24 +19,24 @@ import {
 import { planScale } from "./scale.js";
 import type { PlanInstantValue } from "./instant.js";
 import type { ChartKindValue } from "./rows/chart-geometry.js";
+import { planMessages } from "./messages.js";
+import { PLAN_WORDS as w, planWords } from "./words.js";
 
 const t = (s: string): PlanInstantValue => variant("time", new Date(s)) as PlanInstantValue;
-const scale = planScale({
-    kind: "time", window: { min: new Date("2026-06-29T00:00:00Z"), max: new Date("2026-09-21T00:00:00Z") },
-    resolution: "week",
-})!;
+const window = { min: new Date("2026-06-29T00:00:00Z"), max: new Date("2026-09-21T00:00:00Z") };
+const scale = planScale({ kind: "time", window, resolution: "week" })!;
 
 describe("element names (#819)", () => {
     test("every lifecycle state has its words — the proposal flavours included", () => {
         const s = (tag: string, value: unknown = null) => variant(tag, value) as PlanStateValue;
-        expect(stateText(s("estimated"))).toBe("estimated");
-        expect(stateText(s("proposed", variant("added", null)))).toBe("proposed");
-        expect(stateText(s("proposed", variant("recommended", null)))).toBe("recommended");
-        expect(stateText(s("proposed", variant("removed", null)))).toBe("proposed removal");
-        expect(stateText(s("confirmed"))).toBe("confirmed");
-        expect(stateText(s("in-progress"))).toBe("in progress");
-        expect(stateText(s("actual"))).toBe("actual");
-        expect(stateText(s("rejected"))).toBe("rejected");
+        expect(stateText(s("estimated"), w)).toBe("estimated");
+        expect(stateText(s("proposed", variant("added", null)), w)).toBe("proposed");
+        expect(stateText(s("proposed", variant("recommended", null)), w)).toBe("recommended");
+        expect(stateText(s("proposed", variant("removed", null)), w)).toBe("proposed removal");
+        expect(stateText(s("confirmed"), w)).toBe("confirmed");
+        expect(stateText(s("in-progress"), w)).toBe("in progress");
+        expect(stateText(s("actual"), w)).toBe("actual");
+        expect(stateText(s("rejected"), w)).toBe("rejected");
     });
 
     test("a run bar says its label, its span, its state — and what its look adds", () => {
@@ -44,48 +45,49 @@ describe("element names (#819)", () => {
             quantity: some("96 t"), qty: none, state: variant("actual", null),
             status: some(variant("warning", null)), moved: some(2n), icon: none,
         };
-        expect(runName(run as never, scale)).toBe("B-214, 29 Jun 2026 – 27 Jul 2026, actual, 96 t, moved 2 times, warning");
+        expect(runName(run as never, scale, w)).toBe("B-214, Jun 29, 2026 – Jul 27, 2026, actual, 96 t, moved 2 times, warning");
         const plain = { ...run, quantity: none, status: none, moved: none, state: variant("confirmed", null) };
-        expect(runName(plain as never, scale)).toBe("B-214, 29 Jun 2026 – 27 Jul 2026, confirmed");
+        expect(runName(plain as never, scale, w)).toBe("B-214, Jun 29, 2026 – Jul 27, 2026, confirmed");
     });
 
     test("a decision diamond, a tile, a chip and a mark each name their instant and their meaning", () => {
-        expect(decisionName({ key: "d", at: t("2026-07-13T00:00:00Z"), applied: true }, scale))
-            .toBe("Decision, 13 Jul 2026, applied");
+        expect(decisionName({ key: "d", at: t("2026-07-13T00:00:00Z"), applied: true }, scale, w))
+            .toBe("Decision, Jul 13, 2026, applied");
         const ev = {
             key: "e1", at: t("2026-07-06T00:00:00Z"), lane: some("am"), label: none, icon: none,
             state: variant("proposed", variant("added", null)), tone: some(variant("warning", null)),
             color: none, colorPalette: none, stretch: none, content: none, animation: none,
         };
-        expect(tileName(ev as never, scale.buckets[1]!, "AM", scale)).toBe("Event, Week of 6 Jul 2026, AM, proposed, warning");
-        expect(tileName({ ...ev, label: some("Pour"), tone: none } as never, scale.buckets[1]!, undefined, scale))
-            .toBe("Pour, Week of 6 Jul 2026, proposed");
+        expect(tileName(ev as never, scale.buckets[1]!, "AM", scale, w)).toBe("Event, Week of Jul 6, 2026, AM, proposed, warning");
+        expect(tileName({ ...ev, label: some("Pour"), tone: none } as never, scale.buckets[1]!, undefined, scale, w))
+            .toBe("Pour, Week of Jul 6, 2026, proposed");
         expect(chipName({
             key: "c1", from: t("2026-06-29T00:00:00Z"), to: t("2026-07-13T00:00:00Z"), label: "D. OKAFOR",
             state: variant("confirmed", null), icon: none,
-        } as never, scale)).toBe("D. OKAFOR, 29 Jun 2026 – 13 Jul 2026, confirmed");
+        } as never, scale, w)).toBe("D. OKAFOR, Jun 29, 2026 – Jul 13, 2026, confirmed");
         const mark = (kind: unknown, label?: string) => ({
             key: "k", at: t("2026-06-29T00:00:00Z"), kind, icon: none, label: label !== undefined ? some(label) : none,
         }) as never;
-        expect(markName(mark(variant("milestone", null), "KICKOFF"), scale)).toBe("KICKOFF, milestone, 29 Jun 2026");
-        expect(markName(mark(variant("decision", { applied: false })), scale)).toBe("Decision, pending, 29 Jun 2026");
-        expect(markName(mark(variant("exception", null)), scale)).toBe("Exception, 29 Jun 2026");
+        expect(markName(mark(variant("milestone", null), "KICKOFF"), scale, w)).toBe("KICKOFF, milestone, Jun 29, 2026");
+        expect(markName(mark(variant("decision", { applied: false })), scale, w)).toBe("Decision, pending, Jun 29, 2026");
+        expect(markName(mark(variant("exception", null)), scale, w)).toBe("Exception, Jun 29, 2026");
     });
 
     test("a colour-only cell says its value: heat depth, booked weight, segment shares, table numerals", () => {
-        expect(heatValueText(72, undefined, false)).toBe("72");
-        expect(heatValueText(72, "72%", false)).toBe("72%");
-        expect(heatValueText(91, undefined, true)).toBe("91, at or above the warning threshold");
-        expect(heatValueText(undefined, undefined, false)).toBe("no data");
-        expect(weightValueText(0.6, false)).toBe("60% booked");
-        expect(weightValueText(1.4, true)).toBe("100% booked, planned");
+        expect(heatValueText(72, undefined, false, w)).toBe("72");
+        expect(heatValueText(72, "72%", false, w)).toBe("72%");
+        expect(heatValueText(91, undefined, true, w)).toBe("91, at or above the warning threshold");
+        expect(heatValueText(1234.5, undefined, false, w)).toBe("1,234.5");
+        expect(heatValueText(undefined, undefined, false, w)).toBe("no data");
+        expect(weightValueText(0.6, false, w)).toBe("60% booked");
+        expect(weightValueText(1.4, true, w)).toBe("100% booked, planned");
         expect(segmentsText([
             { fill: variant("brand", null), weight: 3, label: none },
             { fill: variant("slack", null), weight: 1, label: some("25 %") },
-        ] as never)).toBe("booked 75%, slack 25 %");
-        expect(segmentsText([])).toBe("no data");
-        expect(tablePartsText(["1,204", "—"])).toBe("1,204, no value");
-        expect(cellName(scale, scale.buckets[0]!, "72")).toBe("Week of 29 Jun 2026: 72");
+        ] as never, w)).toBe("booked 75%, slack 25 %");
+        expect(segmentsText([], w)).toBe("no data");
+        expect(tablePartsText(["1,204", "—"], w)).toBe("1,204, no value");
+        expect(cellName(scale, scale.buckets[0]!, "72", w)).toBe("Week of Jun 29, 2026: 72");
     });
 });
 
@@ -97,7 +99,7 @@ describe("chart summary (#819)", () => {
         const line = variant("line", { points: pts([3, 7, 5]), axis: variant("left", null), breach: some(variant("above", 6)) });
         const cols = variant("column", { points: pts([2, 4]), axis: variant("left", null), series: none, breach: none });
         const ref = variant("refLine", { y: 5, axis: variant("left", null), label: some("TARGET") });
-        expect(chartSummary(kind([line, cols, ref]), scale))
+        expect(chartSummary(kind([line, cols, ref]), scale, w))
             .toBe("Chart: line min 3, max 7, last 5, 1 beyond threshold; columns min 2, max 4, last 4");
     });
 
@@ -108,23 +110,57 @@ describe("chart summary (#819)", () => {
         const band = variant("band", {
             points: [{ t: t("2026-06-29T00:00:00Z"), lo: 1, hi: 4 }], axis: variant("left", null),
         });
-        expect(chartSummary(kind([a, b, band]), scale))
+        expect(chartSummary(kind([a, b, band]), scale, w))
             .toBe("Chart: line 1 min 1, max 2, last 2; line 2 no data in the window; range min 1, max 4, last 1–4");
-        expect(chartSummary(kind([]), scale)).toBe("Chart: no data");
+        expect(chartSummary(kind([]), scale, w)).toBe("Chart: no data");
     });
 });
 
 describe("window landings (#819)", () => {
     test("say the elements that became resident — at either end, or a whole run on a rebase", () => {
-        expect(landedText(undefined, { from: 0, to: 200 }, 5000)).toBe("Loaded elements 1–200 of 5,000");
-        expect(landedText({ from: 0, to: 200 }, { from: 0, to: 400 }, 5000)).toBe("Loaded elements 201–400 of 5,000");
-        expect(landedText({ from: 400, to: 800 }, { from: 200, to: 800 }, undefined)).toBe("Loaded elements 201–400");
-        expect(landedText({ from: 0, to: 400 }, { from: 2000, to: 2200 }, 5000)).toBe("Loaded elements 2,001–2,200 of 5,000");
+        expect(landedText(undefined, { from: 0, to: 200 }, 5000, w)).toBe("Loaded elements 1–200 of 5,000");
+        expect(landedText({ from: 0, to: 200 }, { from: 0, to: 400 }, 5000, w)).toBe("Loaded elements 201–400 of 5,000");
+        expect(landedText({ from: 400, to: 800 }, { from: 200, to: 800 }, undefined, w)).toBe("Loaded elements 201–400");
+        expect(landedText({ from: 0, to: 400 }, { from: 2000, to: 2200 }, 5000, w)).toBe("Loaded elements 2,001–2,200 of 5,000");
     });
 
     test("an eviction or an unmoved run says nothing", () => {
-        expect(landedText({ from: 0, to: 600 }, { from: 200, to: 600 }, 5000)).toBeUndefined();
-        expect(landedText({ from: 0, to: 600 }, { from: 0, to: 600 }, 5000)).toBeUndefined();
-        expect(landedText({ from: 0, to: 600 }, undefined, 5000)).toBeUndefined();
+        expect(landedText({ from: 0, to: 600 }, { from: 200, to: 600 }, 5000, w)).toBeUndefined();
+        expect(landedText({ from: 0, to: 600 }, { from: 0, to: 600 }, 5000, w)).toBeUndefined();
+        expect(landedText({ from: 0, to: 600 }, undefined, 5000, w)).toBeUndefined();
+    });
+});
+
+describe("the words a name is said in (#820)", () => {
+    // German numbers and dates, and a table whose every message is marked, so
+    // each phrase and each formatted part can be told apart in the result.
+    const de = planWords("de-DE", planMessages);
+    const deScale = planScale({ kind: "time", window, resolution: "week", words: de })!;
+
+    test("numbers and dates are the locale's, the phrases the table's", () => {
+        const run = {
+            key: "b214", start: t("2026-06-29T00:00:00Z"), end: t("2026-07-27T00:00:00Z"), label: "B-214",
+            quantity: none, qty: none, state: variant("actual", null), status: none, moved: some(1200n), icon: none,
+        };
+        expect(runName(run as never, deScale, de)).toBe("B-214, 29. Juni 2026 – 27. Juli 2026, actual, moved 1.200 times");
+        expect(heatValueText(1234.5, undefined, false, de)).toBe("1.234,5");
+        expect(cellName(deScale, deScale.buckets[0]!, "72", de)).toBe("Week of 29. Juni 2026: 72");
+        expect(landedText({ from: 0, to: 400 }, { from: 2000, to: 2200 }, 5000, de)).toBe("Loaded elements 2.001–2.200 of 5.000");
+        expect(weightValueText(0.6, false, de)).toMatch(/^60\s%/u);
+    });
+
+    test("every phrase comes from the table — a stub table's mark leads each name", () => {
+        const marked = Object.fromEntries(Object.entries(planMessages).map(([k, f]) =>
+            [k, (p: never) => `⟦${(f as (p: never) => string)(p)}`])) as unknown as typeof planMessages;
+        const stub = planWords("en-US", marked);
+        const run = {
+            key: "b214", start: t("2026-06-29T00:00:00Z"), end: t("2026-07-27T00:00:00Z"), label: "B-214",
+            quantity: none, qty: none, state: variant("confirmed", null), status: none, moved: none, icon: none,
+        };
+        expect(runName(run as never, scale, stub)).toMatch(/^⟦/u);
+        expect(heatValueText(undefined, undefined, false, stub)).toBe("⟦no data");
+        expect(segmentsText([], stub)).toBe("⟦no data");
+        expect(chartSummary({ layers: [], left: none, right: none } as unknown as ChartKindValue, scale, stub)).toBe("⟦Chart: no data");
+        expect(landedText(undefined, { from: 0, to: 200 }, 5000, stub)).toBe("⟦Loaded elements 1–200 of 5,000");
     });
 });

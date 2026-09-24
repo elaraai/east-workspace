@@ -8,6 +8,8 @@ import { variant } from "@elaraai/east";
 import { chipAnchor } from "./shell/Ruler.js";
 import { MAX_PLAN_BUCKETS, defaultTickLabel, effectiveResolution, isoWeekUTC, planScale, type PlanResolution } from './scale';
 import type { PlanInstantValue } from "./instant.js";
+import { planMessages, type PlanMessages } from "./messages.js";
+import { planWords } from "./words.js";
 
 const d = (s: string) => new Date(s);
 /** Instants on each arm — REAL East variant values, as the decoder yields them. */
@@ -130,30 +132,75 @@ describe('planScale — time axis', () => {
     describe('words for accessible names (#819)', () => {
         it('an instant is its UTC date, with the time only when it has one', () => {
             const scale = time("2026-06-29T00:00:00Z", "2026-09-21T00:00:00Z", "week");
-            expect(scale.instantText(t("2026-06-29T00:00:00Z"))).toBe("29 Jun 2026");
-            expect(scale.instantText(t("2026-07-06T14:30:00Z"))).toBe("6 Jul 2026 14:30");
+            expect(scale.instantText(t("2026-06-29T00:00:00Z"))).toBe("Jun 29, 2026");
+            expect(scale.instantText(t("2026-07-06T14:30:00Z"))).toBe("Jul 6, 2026, 14:30");
             // An instant of another arm has no words on this axis.
             expect(scale.instantText(n(3))).toBe("");
         });
 
         it('an hour-resolution axis always says the time', () => {
             const scale = time("2026-06-29T00:00:00Z", "2026-06-30T00:00:00Z", "hour");
-            expect(scale.instantText(t("2026-06-29T00:00:00Z"))).toBe("29 Jun 2026 00:00");
-            expect(scale.bucketText(scale.buckets[9]!)).toBe("29 Jun 2026 09:00");
+            expect(scale.instantText(t("2026-06-29T00:00:00Z"))).toBe("Jun 29, 2026, 00:00");
+            expect(scale.bucketText(scale.buckets[9]!)).toBe("Jun 29, 2026, 09:00");
         });
 
         it('a bucket says the period it covers, not its ruler tick — even under a custom format', () => {
             const week = time("2026-06-29T00:00:00Z", "2026-09-21T00:00:00Z", "week", undefined, "MMM DD");
             expect(week.buckets[0]!.label).toBe("Jun 29");
-            expect(week.bucketText(week.buckets[0]!)).toBe("Week of 29 Jun 2026");
+            expect(week.bucketText(week.buckets[0]!)).toBe("Week of Jun 29, 2026");
             const day = time("2026-03-30T00:00:00Z", "2026-04-06T00:00:00Z", "day");
-            expect(day.bucketText(day.buckets[1]!)).toBe("Tue 31 Mar 2026");
+            expect(day.bucketText(day.buckets[1]!)).toBe("Tue, Mar 31, 2026");
             const month = time("2026-01-01T00:00:00Z", "2027-01-01T00:00:00Z", "month");
             expect(month.bucketText(month.buckets[6]!)).toBe("July 2026");
             const quarter = time("2026-01-01T00:00:00Z", "2027-01-01T00:00:00Z", "quarter");
             expect(quarter.bucketText(quarter.buckets[2]!)).toBe("Q3 2026");
             const year = time("2026-01-01T00:00:00Z", "2028-01-01T00:00:00Z", "year");
             expect(year.bucketText(year.buckets[1]!)).toBe("2027");
+        });
+    });
+
+    describe('words in the canvas\'s locale (#820)', () => {
+        const de = planWords("de-DE", planMessages);
+        const inDe = (min: string, max: string, resolution: PlanResolution) =>
+            planScale({ kind: "time", window: { min: d(min), max: d(max) }, resolution, words: de })!;
+
+        it('ruler ticks and accessible words are the locale\'s — German weekdays, months and dates', () => {
+            const day = inDe("2026-03-30T00:00:00Z", "2026-04-06T00:00:00Z", "day");
+            expect(day.buckets.map(b => b.label)).toEqual(["MO", "DI", "MI", "DO", "FR", "SA", "SO"]);
+            expect(day.bucketText(day.buckets[1]!)).toBe("Di., 31. März 2026");
+            const week = inDe("2026-06-29T00:00:00Z", "2026-09-21T00:00:00Z", "week");
+            expect(week.buckets[0]!.label).toBe("W27");
+            expect(week.instantText(t("2026-06-29T00:00:00Z"))).toBe("29. Juni 2026");
+            expect(week.instantText(t("2026-07-06T14:30:00Z"))).toBe("6. Juli 2026, 14:30");
+            expect(week.bucketText(week.buckets[0]!)).toBe("Week of 29. Juni 2026");
+            const month = inDe("2026-01-01T00:00:00Z", "2027-01-01T00:00:00Z", "month");
+            expect(month.bucketText(month.buckets[6]!)).toBe("Juli 2026");
+        });
+
+        it('a number axis\'s declared format speaks the locale too', () => {
+            const scale = planScale({
+                kind: "number", window: { min: 0, max: 1 }, step: 0.25, words: de,
+                format: variant("number", null) as never,
+            })!;
+            expect(scale.buckets.map(b => b.label)).toEqual(["0", "0,25", "0,5", "0,75"]);
+            expect(scale.instantText(n(0.5))).toBe("0,5");
+        });
+
+        it('the tick and period phrases are the message table\'s', () => {
+            const marked: PlanMessages = {
+                ...planMessages,
+                rulerWeek: ({ week }) => `KW${week}`,
+                rulerQuarter: ({ quarter }) => `${quarter}. Q`,
+                periodWeek: ({ date }) => `Woche ab ${date}`,
+                periodQuarter: ({ quarter, year }) => `${quarter}. Quartal ${year}`,
+            };
+            const words = planWords("de-DE", marked);
+            const week = planScale({ kind: "time", window: { min: d("2026-06-29T00:00:00Z"), max: d("2026-07-13T00:00:00Z") }, resolution: "week", words })!;
+            expect(week.buckets.map(b => b.label)).toEqual(["KW27", "KW28"]);
+            expect(week.bucketText(week.buckets[0]!)).toBe("Woche ab 29. Juni 2026");
+            const quarter = planScale({ kind: "time", window: { min: d("2026-01-01T00:00:00Z"), max: d("2027-01-01T00:00:00Z") }, resolution: "quarter", words })!;
+            expect(quarter.buckets[2]!.label).toBe("3. Q");
+            expect(quarter.bucketText(quarter.buckets[2]!)).toBe("3. Quartal 2026");
         });
     });
 

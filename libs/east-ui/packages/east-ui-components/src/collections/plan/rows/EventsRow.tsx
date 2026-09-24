@@ -25,6 +25,7 @@ import type { IconName, IconPrefix } from "@fortawesome/fontawesome-svg-core";
 import { Plan } from "@elaraai/east-ui/internal";
 import { usePlanDispatch, usePlanResolvers, usePlanScale, type PlanElementRefValue } from "../context.js";
 import { markName } from "../a11y.js";
+import { usePlanWords } from "../words.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 type EventsKindValue = Extract<ValueTypeOf<typeof Plan.Types.Row>["kind"], { type: "events" }>["value"];
@@ -43,6 +44,7 @@ export function EventsRow({ rowKey, kind, styles, ctx }: EventsRowProps) {
     const ctxAttr = ctx === true ? "" : undefined;
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
+    const words = usePlanWords();
     const { onElementClick } = usePlanResolvers();
     return (
         <>
@@ -61,7 +63,7 @@ export function EventsRow({ rowKey, kind, styles, ctx }: EventsRowProps) {
                     onElementClick?.(ref);
                 };
                 // Every glyph is the same button to a reader (#819).
-                const a11y = { role: "button", "aria-label": markName(mark, scale) } as const;
+                const a11y = { role: "button", "aria-label": markName(mark, scale, words) } as const;
                 // ── R4 (#591) ──
                 // A K7 override swaps the kind's geometry for the host's own
                 // 12px FA icon. At strip size that has nowhere to go — a

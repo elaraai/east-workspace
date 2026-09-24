@@ -25,8 +25,8 @@ import { Box } from "@chakra-ui/react";
 import { variant, type ValueTypeOf } from "@elaraai/east";
 import { Plan } from "@elaraai/east-ui/internal";
 import { usePlanDispatch, usePlanResolvers, usePlanScale, type PlanElementRefValue } from "../context.js";
-import { formatDerived } from "../format.js";
 import { decisionName, runName } from "../a11y.js";
+import { usePlanWords } from "../words.js";
 import type { DerivedBand } from "../model.js";
 
 type Styles = Record<string, Record<string, unknown>>;
@@ -69,6 +69,7 @@ export function SpanRow({ rowKey, kind, bands: rollBands, styles, barHeight, par
     const ctxAttr = ctx === true ? "" : undefined;
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
+    const words = usePlanWords();
     const { onElementClick } = usePlanResolvers();
 
     const bars = useMemo(() => kind.runs.map((run) => {
@@ -113,7 +114,7 @@ export function SpanRow({ rowKey, kind, bands: rollBands, styles, barHeight, par
                         // row's Tab walk reaches it (#819).
                         tabIndex={-1}
                         role="button"
-                        aria-label={runName(run, scale)}
+                        aria-label={runName(run, scale, words)}
                         left={`${left * 100}%`}
                         width={`${width * 100}%`}
                         // The bar height is a style PROP, and a style prop
@@ -129,7 +130,9 @@ export function SpanRow({ rowKey, kind, bands: rollBands, styles, barHeight, par
                     >
                         <Box as="span" overflow="hidden" textOverflow="ellipsis" minW={0}>{run.label}</Box>
                         {qty !== undefined && <Box as="span" css={styles.barQty}>{qty}</Box>}
-                        {moved !== undefined && moved > 0 && <Box as="span" css={styles.barQty}>{`moved ×${moved}`}</Box>}
+                        {moved !== undefined && moved > 0 && (
+                            <Box as="span" css={styles.barQty}>{words.m.moved({ n: moved, count: words.number(moved) })}</Box>
+                        )}
                     </Box>
                 );
             })}
@@ -139,10 +142,13 @@ export function SpanRow({ rowKey, kind, bands: rollBands, styles, barHeight, par
                 if (f1 <= 0 || f0 >= 1) return null;
                 const left = Math.max(0, f0);
                 const width = Math.max(0, Math.min(1, f1) - left);
-                const counts = [band.count > 1 ? `×${formatDerived(band.count)}` : undefined, band.quantity].filter(Boolean).join(" · ");
                 // A rollup over a partial prefix is an understatement, not a
-                // number — mark it rather than print it as if it were final.
-                const caption = partial === true && counts !== "" ? `~${counts}` : counts;
+                // number — the caption marks it rather than print it as final.
+                const caption = words.m.rollupCaption({
+                    count: band.count > 1 ? words.number(band.count) : undefined,
+                    quantity: band.quantity,
+                    partial: partial === true,
+                });
                 return (
                     <Box key={`band-${i}`} css={styles.rollBand} data-state={runStateKey(band.state)} data-ctx={ctxAttr}
                         data-plan-partial={partial === true ? "" : undefined}
@@ -171,7 +177,7 @@ export function SpanRow({ rowKey, kind, bands: rollBands, styles, barHeight, par
                 return (
                     <Box key={dec.key} css={styles.diamond} data-applied={dec.applied ? "" : undefined} data-ctx={ctxAttr}
                         data-mark={dec.key} data-plan-frac={x.toFixed(4)} left={`${x * 100}%`} tabIndex={-1}
-                        role="button" aria-label={decisionName(dec, scale)}
+                        role="button" aria-label={decisionName(dec, scale, words)}
                         // Selects its row like every other element — Enter on
                         // it does the same (#819).
                         onClick={(e) => {

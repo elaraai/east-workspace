@@ -41,6 +41,7 @@ import { curveLinear } from "@visx/curve";
 import { usePlanCursor, usePlanDispatch, usePlanScale } from "../context.js";
 import type { PlanScale } from "../scale.js";
 import { chartSummary } from "../a11y.js";
+import { usePlanWords } from "../words.js";
 import { ToneStrip, type ToneDatum } from "./ToneStrip.js";
 import {
     axisFormatter, axisTicks, breached, chartDomains, drawnPoints, layoutColumns, readoutLayers, readoutTable,
@@ -111,6 +112,7 @@ export interface ChartRowPlotProps {
 /** The chart-row plot content (SVG marks + HTML tick/ref labels + the readout). */
 export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: ChartRowPlotProps) {
     const dispatch = usePlanDispatch();
+    const words = usePlanWords();
     const { scale, columns, left: leftScale, right: rightScale } = useChartScales(kind, height);
     const ys = (side: ChartSide): ValueScale => (side === "right" ? rightScale : leftScale);
 
@@ -172,7 +174,7 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: Ch
     // Each data layer's value at the hovered bucket, written straight into
     // the DOM from the cursor channel — a hover renders nothing (#609).
     const readLayers = useMemo(() => readoutLayers(kind), [kind]);
-    const readings = useMemo(() => readoutTable(kind, scale), [kind, scale]);
+    const readings = useMemo(() => readoutTable(kind, scale, words), [kind, scale, words]);
     const readoutRef = useRef<HTMLDivElement | null>(null);
     const cursor = usePlanCursor();
     const showReading = useCallback((bucket: number) => {
@@ -196,7 +198,10 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: Ch
     useEffect(() => cursor.subscribe(showReading), [cursor, showReading]);
 
     // The chart's words (#819) — a strip says its values block by block instead.
-    const summary = useMemo(() => (ctx === true ? "" : chartSummary(kind, scale)), [ctx, kind, scale]);
+    const summary = useMemo(() => (ctx === true ? "" : chartSummary(kind, scale, words)), [ctx, kind, scale, words]);
+    // The right axis's ticks, by its format in the canvas's locale (#820).
+    const right = kind.right.type === "some" ? kind.right.value : undefined;
+    const rightFormat = useMemo(() => axisFormatter(right, words.locale), [right, words]);
 
     // Branch HERE, after every hook: the hooks above must run on every
     // render, or React sees a different hook order for a focused canvas than
@@ -282,7 +287,6 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: Ch
         }
     });
 
-    const right = kind.right.type === "some" ? kind.right.value : undefined;
     return (
         <Box position="absolute" inset={0} role="img" aria-label={summary} data-plan-chart
             onClick={() => dispatch({ t: "row.select", key: rowKey })}>
@@ -362,7 +366,7 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: Ch
             {/* right-axis ticks at the plot's right edge */}
             {right !== undefined && axisTicks(right).map((v, i) => (
                 <Box key={`rt-${i}`} css={styles.chartTickRight} top={`${(rightScale(v) / height) * 100}%`}>
-                    {axisFormatter(right)(v)}
+                    {rightFormat(v)}
                 </Box>
             ))}
             {readLayers.length > 0 && (
@@ -386,10 +390,11 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: Ch
  *  plot's own (#743): columns, stacks and baselines included. */
 export function ChartLeftTicks({ kind, styles, height }: { kind: ChartKindValue; styles: Styles; height: number }) {
     const { left: s } = useChartScales(kind, height);
+    const words = usePlanWords();
     const left = kind.left.type === "some" ? kind.left.value : undefined;
+    const fmt = useMemo(() => axisFormatter(left, words.locale), [left, words]);
     const ticks = axisTicks(left);
     if (left === undefined || ticks.length === 0) return null;
-    const fmt = axisFormatter(left);
     // The axis labels the plot's scale for the eye; the plot's own name says
     // its values (#819), so a reader skips these — they sit in the rowheader.
     return (

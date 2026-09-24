@@ -32,6 +32,7 @@ import { instantKey, type PlanInstantValue } from "../instant.js";
 import type { PlanBucket } from "../scale.js";
 import { maxOf, minOf } from "../reductions.js";
 import { cellName, heatValueText, segmentsText, weightValueText } from "../a11y.js";
+import { usePlanWords } from "../words.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 type HeatCellsValue = ValueTypeOf<typeof Plan.Types.HeatCells>;
@@ -73,6 +74,8 @@ export function HeatCells({ rowKey, cells, styles, ctx, onCellClick }: HeatCells
     const ctxAttr = ctx === true ? "" : undefined;
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
+    // The canvas's words (#820) — every cell's text alternative speaks them.
+    const w = usePlanWords();
     const { onElementClick } = usePlanResolvers();
     // RENDER bucketing (#619): overscan cells mount clipped at rest so a
     // brush-slide pan reveals them; interactions still speak `bucketOf`.
@@ -90,12 +93,12 @@ export function HeatCells({ rowKey, cells, styles, ctx, onCellClick }: HeatCells
     const cellAttrs = (at: PlanInstantValue, bucket: PlanBucket, value: string) => (element
         ? {
             "data-cell": instantKey(at), "data-plan-frac": bucket.x0.toFixed(4), tabIndex: -1,
-            role: "button", "aria-label": cellName(scale, bucket, value),
+            role: "button", "aria-label": cellName(scale, bucket, value, w),
         }
         : {});
     const cellWords = (bucket: PlanBucket, value: string) => (element
         ? null
-        : <VisuallyHidden>{cellName(scale, bucket, value)}</VisuallyHidden>);
+        : <VisuallyHidden>{cellName(scale, bucket, value, w)}</VisuallyHidden>);
     const clickCell = (at: PlanInstantValue) => (e: React.MouseEvent) => {
         e.stopPropagation();
         if (onCellClick !== undefined) {
@@ -124,7 +127,7 @@ export function HeatCells({ rowKey, cells, styles, ctx, onCellClick }: HeatCells
                     const depth = v === undefined || span <= 0 ? 0 : Math.max(0, Math.min(1, (v - lo) / span));
                     const label = c.label.type === "some" ? c.label.value : undefined;
                     const warned = v !== undefined && warn !== undefined && v >= warn;
-                    const words = heatValueText(v, label, warned);
+                    const words = heatValueText(v, label, warned, w);
                     return (
                         <Box key={i} css={styles.heatCell} data-ctx={ctxAttr}
                             data-plan-bucket={box.bucket.index}
@@ -157,7 +160,7 @@ export function HeatCells({ rowKey, cells, styles, ctx, onCellClick }: HeatCells
                     const b = scale.renderBucketOf(c.at);
                     if (b === undefined) return null;
                     const frac = Math.max(0, Math.min(1, c.fraction));
-                    const words = weightValueText(c.fraction, c.planned);
+                    const words = weightValueText(c.fraction, c.planned, w);
                     return (
                         <Box key={i} css={styles.weightBar}
                             data-plan-bucket={b.index}
@@ -180,7 +183,7 @@ export function HeatCells({ rowKey, cells, styles, ctx, onCellClick }: HeatCells
                 const b = scale.renderBucketOf(c.at);
                 if (b === undefined) return null;
                 const total = c.segments.reduce((acc, s) => acc + Math.max(0, s.weight), 0);
-                const words = segmentsText(c.segments);
+                const words = segmentsText(c.segments, w);
                 return (
                     <Box key={i} css={styles.segmentTrack}
                         data-plan-bucket={b.index}

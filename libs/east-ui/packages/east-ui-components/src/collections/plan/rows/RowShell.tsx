@@ -27,6 +27,8 @@ import { resolveColor } from "../../shared/helpers.js";
 import { usePlanCursor, usePlanDispatch, usePlanGeometry, usePlanScale } from "../context.js";
 import { rowItemKey, type PlanRowValue } from "../model.js";
 import { statusText } from "../a11y.js";
+import { usePlanWords } from "../words.js";
+import type { PlanFocusTagWord } from "../messages.js";
 import type { PlanGridRow } from "../root/grid.js";
 
 type Styles = Record<string, Record<string, unknown>>;
@@ -107,8 +109,8 @@ export interface RowShellProps {
     /** Row-scoped focus controls (R1 links / R2 expand) — 20px, hover-revealed
      *  at the gutter's right edge, pinned while active. */
     controls?: ReadonlyArray<{ kind: "links" | "expand"; active: boolean; onClick: () => void }> | undefined;
-    /** The links-focus family tag (R1). */
-    focusTag?: "UPSTREAM" | "DOWNSTREAM" | "LINKED" | undefined;
+    /** The links-focus family tag (R1) — shown in the canvas's words. */
+    focusTag?: PlanFocusTagWord | undefined;
     /** The expand render's axis treatment inside this row (R2; default keep). */
     axisMode?: "dim" | "off" | undefined;
     /** R2 (#591) — the focused row's developer render, mounted INSIDE this
@@ -152,6 +154,7 @@ export function RowShell({
     const cursor = usePlanCursor();
     const system = useChakraContext();
     const geometry = usePlanGeometry();
+    const words = usePlanWords();
     const gutter = row.gutter;
     // One flag, spread onto every slot that has a collapsed state. The slots
     // own the styling (`&[data-ctx]` in the recipe) — this only says which
@@ -328,7 +331,7 @@ export function RowShell({
                     {/* The links-focus family tag (R1) — settles in after the
                         gather choreography. */}
                     {focusTag !== undefined && (
-                        <Box as="span" css={styles.focusTag} data-plan-focustag={focusTag}>{focusTag}</Box>
+                        <Box as="span" css={styles.focusTag} data-plan-focustag={focusTag}>{words.m.focusTag({ tag: focusTag })}</Box>
                     )}
                     {/* §3 gutter anatomy: meta (an `.of` parent's aggregate
                         tag), then value right-aligned, status dot rightmost —
@@ -339,7 +342,7 @@ export function RowShell({
                             {value !== undefined && <Box as="span" css={styles.gutterValue} data-ctx={ctxAttr}>{value}</Box>}
                             {/* The dot's colour IS the status — its name says it (#819). */}
                             {statusTone !== undefined && <Box as="span" css={styles.statusDot} data-tone={statusTone}
-                                data-ctx={ctxAttr} role="img" aria-label={statusText(statusTone)} />}
+                                data-ctx={ctxAttr} role="img" aria-label={statusText(statusTone, words)} />}
                         </Box>
                     )}
                     {/* Row controls (R1/R2) — rightmost; a control click never
@@ -355,7 +358,7 @@ export function RowShell({
                                     tabIndex={-1}
                                     data-plan-control={c.kind}
                                     data-active={c.active ? "" : undefined}
-                                    aria-label={c.kind === "links" ? "Focus linked rows" : "Expand row"}
+                                    aria-label={c.kind === "links" ? words.m.linksControl() : words.m.expandControl()}
                                     aria-pressed={c.active}
                                     onClick={(e: React.MouseEvent) => { e.stopPropagation(); c.onClick(); }}
                                 >

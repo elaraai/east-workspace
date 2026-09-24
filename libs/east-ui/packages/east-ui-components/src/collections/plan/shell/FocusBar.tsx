@@ -12,6 +12,7 @@
 
 import { Box, chakra } from "@chakra-ui/react";
 import { usePlanDispatch } from "../context.js";
+import { usePlanWords } from "../words.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
@@ -26,9 +27,14 @@ export interface FocusBarProps {
 /** The focus header band — the return chip + the caption. */
 export function FocusBar({ styles, focus, counts }: FocusBarProps) {
     const dispatch = usePlanDispatch();
+    const words = usePlanWords();
     const caption = focus.kind === "links"
-        ? `LINKS · ${focus.key}${counts !== undefined ? ` · ${counts.upstream} UPSTREAM · ${counts.downstream} DOWNSTREAM` : ""}`
-        : `EXPANDED · ${focus.key}`;
+        ? words.m.focusLinks({
+            key: focus.key,
+            upstream: counts !== undefined ? words.number(counts.upstream) : undefined,
+            downstream: counts !== undefined ? words.number(counts.downstream) : undefined,
+        })
+        : words.m.focusExpanded({ key: focus.key });
     return (
         <Box css={styles.focusBar} data-plan-focusbar={focus.kind}>
             <chakra.button
@@ -37,7 +43,7 @@ export function FocusBar({ styles, focus, counts }: FocusBarProps) {
                 data-plan-focusback
                 onClick={() => dispatch({ t: "focus.clear" })}
             >
-                ← ALL ROWS
+                {words.m.allRows()}
             </chakra.button>
             <Box css={styles.focusCaption}>{caption}</Box>
         </Box>

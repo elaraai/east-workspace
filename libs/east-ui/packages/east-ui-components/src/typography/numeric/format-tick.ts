@@ -38,16 +38,23 @@ function someNumber(value: bigint | undefined): number | undefined {
 /**
  * Formats `n` through the given tick format. `n` is the raw numeric value
  * (for date tags, an epoch-millisecond timestamp).
+ *
+ * @param n - The value
+ * @param formatOpt - The unwrapped tick format, or `undefined` for the plain default
+ * @param showSign - Always print the sign (unless the format pins its own)
+ * @param locale - The BCP 47 locale the number arms format in; the runtime's
+ *   default when omitted (a Plan passes its canvas locale, #820)
+ * @returns The display text
  */
-export function formatTick(n: number, formatOpt: TickFormatOpt, showSign = false): string {
+export function formatTick(n: number, formatOpt: TickFormatOpt, showSign = false, locale?: string): string {
     if (!formatOpt) {
-        return new Intl.NumberFormat(undefined, withSign({}, showSign)).format(n);
+        return new Intl.NumberFormat(locale, withSign({}, showSign)).format(n);
     }
 
     switch (formatOpt.type) {
         case "number": {
             const cfg = formatOpt.value;
-            return new Intl.NumberFormat(undefined, withSign({
+            return new Intl.NumberFormat(locale, withSign({
                 style: "decimal",
                 minimumFractionDigits: someNumber(getSomeorUndefined(cfg.minimumFractionDigits)),
                 maximumFractionDigits: someNumber(getSomeorUndefined(cfg.maximumFractionDigits)),
@@ -57,7 +64,7 @@ export function formatTick(n: number, formatOpt: TickFormatOpt, showSign = false
         case "currency": {
             const cfg = formatOpt.value;
             const compact = getSomeorUndefined(cfg.compact);
-            return new Intl.NumberFormat(undefined, withSign({
+            return new Intl.NumberFormat(locale, withSign({
                 style: "currency",
                 currency: cfg.currency.type,
                 currencyDisplay: getSomeorUndefined(cfg.display)?.type,
@@ -69,7 +76,7 @@ export function formatTick(n: number, formatOpt: TickFormatOpt, showSign = false
         }
         case "percent": {
             const cfg = formatOpt.value;
-            return new Intl.NumberFormat(undefined, withSign({
+            return new Intl.NumberFormat(locale, withSign({
                 style: "percent",
                 minimumFractionDigits: someNumber(getSomeorUndefined(cfg.minimumFractionDigits)),
                 maximumFractionDigits: someNumber(getSomeorUndefined(cfg.maximumFractionDigits)),
@@ -78,7 +85,7 @@ export function formatTick(n: number, formatOpt: TickFormatOpt, showSign = false
         }
         case "compact": {
             const display = getSomeorUndefined(formatOpt.value.display);
-            return new Intl.NumberFormat(undefined, withSign({
+            return new Intl.NumberFormat(locale, withSign({
                 notation: "compact",
                 compactDisplay: display?.type,
             }, showSign)).format(n);
@@ -89,21 +96,21 @@ export function formatTick(n: number, formatOpt: TickFormatOpt, showSign = false
             // but `Intl.NumberFormat` requires the hyphenated unit identifier
             // (`kilometer-per-hour`).
             const unit = (cfg.unit.type as string).replace(/([a-z])([A-Z])/g, "$1-$2").toLowerCase();
-            return new Intl.NumberFormat(undefined, withSign({
+            return new Intl.NumberFormat(locale, withSign({
                 style: "unit",
                 unit,
                 unitDisplay: getSomeorUndefined(cfg.display)?.type,
             }, showSign)).format(n);
         }
         case "scientific":
-            return new Intl.NumberFormat(undefined, withSign({ notation: "scientific" }, showSign)).format(n);
+            return new Intl.NumberFormat(locale, withSign({ notation: "scientific" }, showSign)).format(n);
         case "engineering":
-            return new Intl.NumberFormat(undefined, withSign({ notation: "engineering" }, showSign)).format(n);
+            return new Intl.NumberFormat(locale, withSign({ notation: "engineering" }, showSign)).format(n);
         case "date":
         case "time":
         case "datetime":
             return formatDateTime(new Date(n), tokenizeDateTimeFormat(formatOpt.value.format));
     }
 
-    return new Intl.NumberFormat(undefined, withSign({}, showSign)).format(n);
+    return new Intl.NumberFormat(locale, withSign({}, showSign)).format(n);
 }

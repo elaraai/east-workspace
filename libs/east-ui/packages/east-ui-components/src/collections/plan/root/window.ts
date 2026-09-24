@@ -21,6 +21,7 @@ import { useSliceReactivity } from "../../../slice/use-slice-reactivity.js";
 import { resolveScale, scaleReadsRows, sliceWindowOf } from "../axis.js";
 import type { PlanScale } from "../scale.js";
 import type { PlanRootValue, PlanRowValue } from "../model.js";
+import type { PlanWords } from "../words.js";
 
 type SliceBindValue = ValueTypeOf<typeof Slice.Types.Bind>;
 
@@ -45,9 +46,10 @@ export interface PlanWindow {
  * @param value - The latest root (its slice chrome)
  * @param data - The root's data-stable twin (its axis)
  * @param rows - The canvas's rows (inline, or the resident paged ones)
+ * @param words - The canvas's words — the locale the ruler labels format in (#820)
  * @returns The chrome and the scale
  */
-export function usePlanWindow(value: PlanRootValue, data: PlanRootValue, rows: readonly PlanRowValue[]): PlanWindow {
+export function usePlanWindow(value: PlanRootValue, data: PlanRootValue, rows: readonly PlanRowValue[], words: PlanWords): PlanWindow {
     const paged = data.rows.type === "paged";
     const decl = useMemo(() => getSomeorUndefined(value.slice), [value.slice]);
     const slice = decl !== undefined ? (decl.slice as SliceBindValue) : undefined;
@@ -83,6 +85,7 @@ export function usePlanWindow(value: PlanRootValue, data: PlanRootValue, rows: r
         sliceResolution,
         rows: fitRows,
         paged,
-    }), [data.axis, sliceFromN, sliceToN, sliceResolution, fitRows, paged]);
+        words,
+    }), [data.axis, sliceFromN, sliceToN, sliceResolution, fitRows, paged, words]);
     return { chrome: decl !== undefined, slice, affordances, scale };
 }

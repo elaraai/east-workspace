@@ -27,6 +27,7 @@ import { Plan } from "@elaraai/east-ui/internal";
 import { tickFormatter } from "../../../charts/spec/index.js";
 import type { PlanInstantValue } from "../instant.js";
 import type { PlanScale } from "../scale.js";
+import type { PlanWords } from "../words.js";
 
 /** A decoded chart row kind. */
 export type ChartKindValue = Extract<ValueTypeOf<typeof Plan.Types.Row>["kind"], { type: "chart" }>["value"];
@@ -344,15 +345,23 @@ export function splitAtNow<P>(placed: readonly Placed<P>[], nowFrac: number | un
 /**
  * A value axis's tick formatter — the declared `Chart.format.*` spec through
  * the shared chart-axis `tickFormatter` (#190); an undeclared axis keeps the
- * terse bare-number default of the spec ruler.
+ * terse bare-number default of the spec ruler: a whole number, else one
+ * decimal, never grouped. Both speak the canvas's locale (#820) — `2.5` is
+ * `2,5` in `de-DE`.
  *
  * @param axis - The axis declaration
+ * @param locale - The BCP 47 locale the numbers format in
  * @returns The formatter
  */
-export function axisFormatter(axis: ChartAxisValue | undefined): (v: number) => string {
+export function axisFormatter(axis: ChartAxisValue | undefined, locale: string): (v: number) => string {
     const fmt = axis !== undefined && axis.format.type === "some" ? axis.format.value : undefined;
-    if (fmt === undefined) return (v) => (Number.isInteger(v) ? String(v) : v.toFixed(1));
-    const f = tickFormatter(fmt, "linear");
+    if (fmt === undefined) {
+        const whole = new Intl.NumberFormat(locale, { useGrouping: false, maximumFractionDigits: 0 });
+        const tenth = new Intl.NumberFormat(locale, { useGrouping: false, minimumFractionDigits: 1, maximumFractionDigits: 1 });
+        // A negative zero prints `0`, not `-0`.
+        return (v) => (Number.isInteger(v) ? whole.format(v === 0 ? 0 : v) : tenth.format(v));
+    }
+    const f = tickFormatter(fmt, "linear", locale);
     return (v) => f(v);
 }
 
@@ -392,13 +401,14 @@ export function readoutLayers(kind: ChartKindValue): ReadoutLayer[] {
  *
  * @param kind - The chart row
  * @param scale - The shared scale
+ * @param w - The canvas's words — the locale values format in, and a band's range (#820)
  * @returns Bucket index → one text per {@link readoutLayers} entry
  */
-export function readoutTable(kind: ChartKindValue, scale: PlanScale): Map<number, string[]> {
+export function readoutTable(kind: ChartKindValue, scale: PlanScale, w: PlanWords): Map<number, string[]> {
     const layers = readoutLayers(kind);
     const format: Record<ChartSide, (v: number) => string> = {
-        left: axisFormatter(kind.left.type === "some" ? kind.left.value : undefined),
-        right: axisFormatter(kind.right.type === "some" ? kind.right.value : undefined),
+        left: axisFormatter(kind.left.type === "some" ? kind.left.value : undefined, w.locale),
+        right: axisFormatter(kind.right.type === "some" ? kind.right.value : undefined, w.locale),
     };
     const table = new Map<number, string[]>();
     const cell = (bucket: number, slot: number, text: string) => {
@@ -424,7 +434,9 @@ export function readoutTable(kind: ChartKindValue, scale: PlanScale): Map<number
                 const fmt = format[layer.value.axis.type];
                 for (const p of layer.value.points) {
                     const bi = scale.bucketOf(p.t);
-                    if (bi >= 0 && Number.isFinite(p.lo) && Number.isFinite(p.hi)) cell(bi, slot, `${fmt(p.lo)}–${fmt(p.hi)}`);
+                    if (bi >= 0 && Number.isFinite(p.lo) && Number.isFinite(p.hi)) {
+                        cell(bi, slot, w.m.valueRange({ from: fmt(p.lo), to: fmt(p.hi) }));
+                    }
                 }
                 break;
             }

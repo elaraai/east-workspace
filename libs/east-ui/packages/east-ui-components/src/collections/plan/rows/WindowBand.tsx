@@ -25,7 +25,7 @@
 
 import { Box } from "@chakra-ui/react";
 import { bandElements, type PlanBand, type PlanWindowFailure } from "../use-plan-paging.js";
-import { formatDerived } from "../format.js";
+import { usePlanWords, type PlanWords } from "../words.js";
 import { bodyItemKey } from "../model.js";
 import { usePlanItemNav } from "../controller/react.js";
 import { usePlanGridRow } from "../root/grid.js";
@@ -46,21 +46,21 @@ export interface WindowBandProps {
  *
  * @param band - The unloaded run
  * @param loading - Whether a window is in flight
+ * @param w - The canvas's words (#820)
  * @returns The caption
  */
-export function bandCaption(band: PlanBand, loading: boolean): string {
+export function bandCaption(band: PlanBand, loading: boolean, w: PlanWords): string {
     const count = bandElements(band);
-    return loading
-        ? `Loading elements ${band.from.toLocaleString()}–${band.to.toLocaleString()}`
-        : band.at === "head"
-            ? `${count.toLocaleString()} earlier elements — scroll to load`
-            : `${count.toLocaleString()} more elements — scroll to load`;
+    if (loading) return w.m.bandLoading({ from: w.number(band.from), to: w.number(band.to) });
+    const n = { n: count, count: w.number(count) };
+    return band.at === "head" ? w.m.bandEarlier(n) : w.m.bandLater(n);
 }
 
 /** The unloaded run above or below the resident rows. */
 export function WindowBand({ band, styles, loading }: WindowBandProps) {
+    const words = usePlanWords();
     const count = bandElements(band);
-    const caption = bandCaption(band, loading);
+    const caption = bandCaption(band, loading, words);
     const itemKey = bodyItemKey({ kind: "band", band });
     const { active, focusSeq } = usePlanItemNav(itemKey);
     const grid = usePlanGridRow(itemKey, active, focusSeq);
@@ -93,10 +93,11 @@ export function WindowBand({ band, styles, loading }: WindowBandProps) {
  * and why.
  *
  * @param failure - The failed window
+ * @param w - The canvas's words (#820)
  * @returns The caption
  */
-export function failureCaption(failure: PlanWindowFailure): string {
-    return `Elements ${formatDerived(failure.from + 1)}–${formatDerived(failure.to + 1)} could not be read — ${failure.error}`;
+export function failureCaption(failure: PlanWindowFailure, w: PlanWords): string {
+    return w.m.windowFailed({ from: w.number(failure.from + 1), to: w.number(failure.to + 1), reason: failure.error });
 }
 
 export interface WindowFailureBandProps {
@@ -115,6 +116,7 @@ export interface WindowFailureBandProps {
  * @returns The failed window's band
  */
 export function WindowFailureBand({ failure, styles, onRetry }: WindowFailureBandProps) {
+    const words = usePlanWords();
     const itemKey = bodyItemKey({ kind: "failed", failure });
     const { active, focusSeq } = usePlanItemNav(itemKey);
     const grid = usePlanGridRow(itemKey, active, focusSeq);
@@ -133,11 +135,11 @@ export function WindowFailureBand({ failure, styles, onRetry }: WindowFailureBan
         >
             <Box css={styles.windowBandCaption} role="gridcell">
                 {/* The reason is an alert; the band is a row of the grid. */}
-                <Box as="span" role="alert">{failureCaption(failure)}</Box>
+                <Box as="span" role="alert">{failureCaption(failure, words)}</Box>
                 {/* Out of the tab order — the row's Tab walk reaches it (#819). */}
                 <Box as="button" css={styles.windowRetry} data-plan-retry={failure.w} tabIndex={-1}
                     onClick={(e: React.MouseEvent) => { e.stopPropagation(); onRetry(failure.w); }}>
-                    Retry
+                    {words.m.retry()}
                 </Box>
             </Box>
         </Box>

@@ -46,6 +46,7 @@ import { Plan } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../../utils.js";
 import type { ReviewFootModel } from "../../shared/review.js";
 import type { PlanRowValue } from "../model.js";
+import { usePlanWords } from "../words.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
@@ -149,18 +150,19 @@ export function PlanDecisionCell({ rowKey, tag, review, grid }: {
     const recipe = useSlotRecipe({ key: "reviewChrome" });
     const styles = useMemo(() => recipe({}) as unknown as Styles, [recipe]);
     const btn = useRecipe({ key: "button" });
+    const words = usePlanWords();
     const inGrid = grid === true;
     return (
         <Box css={styles.decisionCol} data-slot="decisionCell" data-verdict={tag} role={inGrid ? "gridcell" : undefined}>
             <Box as="button" css={btn({ variant: "solid", size: "xs" })} tabIndex={inGrid ? -1 : undefined}
                 aria-pressed={tag === "approved"} data-plan-approve={rowKey}
                 onClick={(e) => { e.stopPropagation(); review.approveRow(rowKey); }}>
-                Approve
+                {words.m.approve()}
             </Box>
             <Box as="button" css={btn({ variant: tag === "rejected" ? "danger" : "ghost", size: "xs" })} tabIndex={inGrid ? -1 : undefined}
                 aria-pressed={tag === "rejected"} data-plan-reject={rowKey}
                 onClick={(e) => { e.stopPropagation(); review.rejectRow(rowKey); }}>
-                Reject
+                {words.m.reject()}
             </Box>
         </Box>
     );

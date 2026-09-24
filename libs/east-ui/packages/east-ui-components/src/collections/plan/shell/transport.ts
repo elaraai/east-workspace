@@ -18,6 +18,8 @@
  * the one `total()` reports and the two would disagree on screen.
  */
 
+import type { PlanWords } from "../words.js";
+
 /** What has landed, of what — `undefined` on an inline canvas. */
 export interface PlanTransport {
     /** Source elements whose window has landed. */
@@ -42,17 +44,32 @@ export interface PlanTransport {
  * `elements 39,800–41,000 of 50,000` once it does not — because with
  * viewport-shaped demand (#577) a bare count says how MUCH is resident without
  * saying WHERE, and the canvas is showing somewhere in the middle.
+ *
+ * @param t - The transport state
+ * @param w - The canvas's words (#820)
+ * @returns The line
  */
-export function transportLabel(t: PlanTransport): string {
-    const total = t.total !== undefined ? t.total.toLocaleString() : undefined;
+export function transportLabel(t: PlanTransport, w: PlanWords): string {
+    const total = t.total !== undefined ? w.number(t.total) : undefined;
     if (t.from > 0) {
         // `from` is a 0-based index and `to` an EXCLUSIVE bound; the printed
         // range is 1-based inclusive, so the count it implies matches
         // `loaded` (#617 — it used to print the exclusive bound's span as one
         // element more than was resident).
-        const interval = `elements ${(t.from + 1).toLocaleString()}–${t.to.toLocaleString()}`;
-        return total !== undefined ? `${interval} of ${total}` : interval;
+        return w.m.transportRange({ from: w.number(t.from + 1), to: w.number(t.to), total });
     }
-    const loaded = t.loaded.toLocaleString();
-    return total !== undefined ? `${loaded} loaded of ${total}` : `${loaded} loaded`;
+    return w.m.transportLoaded({ loaded: w.number(t.loaded), total });
+}
+
+/**
+ * The count line as the chrome shows it — with the in-flight marker while a
+ * window is loading.
+ *
+ * @param t - The transport state
+ * @param w - The canvas's words
+ * @returns `1,200 loaded of 8,431 · Loading…`
+ */
+export function transportLine(t: PlanTransport, w: PlanWords): string {
+    const line = transportLabel(t, w);
+    return t.loading ? w.m.transportLoading({ line }) : line;
 }

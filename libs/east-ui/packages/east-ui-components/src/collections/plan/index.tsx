@@ -51,6 +51,11 @@
  * roving between them, a keyboard map over rows and their elements
  * (`root/keyboard.ts`), a polite live region (`root/announce.tsx`), and words
  * for everything the canvas says only by shape or colour (`a11y.ts`).
+ *
+ * Every word the canvas says itself comes from ONE message table, and every
+ * number and date it prints is in the locale (#820, `messages.ts` /
+ * `words.ts`): react-aria's `I18nProvider` above the app sets the locale, and
+ * `PlanMessagesProvider` overrides the words for a subtree.
  */
 
 import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent } from "react";
@@ -75,6 +80,7 @@ import { PlanPartBoundary } from "./rows/PartBoundary.js";
 import { axisNow, axisResolutions, ordinalIndexOf } from "./axis.js";
 import type { PlanInstantValue } from "./instant.js";
 import type { PlanEvent } from "./plan-state.js";
+import type { PlanPart } from "./messages.js";
 import {
     bodyItemKey, derivePlan, indexRows, linkedRowKeys, pinnedRows, pxOf, rowHeight, rowItemKey, visibleRows,
     type PlanRootValue, type VisibleRow,
@@ -109,6 +115,7 @@ import {
     type PlanNavEdges, type PlanNavIntent, type PlanNavMove,
 } from "./root/keyboard.js";
 import { PlanAnnouncer } from "./root/announce.js";
+import { PlanWordsContext, useResolvedPlanWords } from "./words.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
@@ -143,6 +150,9 @@ const KEYS: Readonly<Record<string, PlanEvent>> = {
     g: { t: "key", key: "g" },
 };
 
+/** The links layer, as its render-failure line names it (#811). */
+const LINKS_LAYER: PlanPart = { kind: "linksLayer" };
+
 const selectPaging = (s: PlanSnapshot) => s.paging;
 const selectSeek = (s: PlanSnapshot) => s.seek;
 const selectAnchor = (s: PlanSnapshot) => s.anchor;
@@ -172,6 +182,9 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     // Changes identity on a DATA change only — read data fields through it,
     // callbacks through `value` (#809).
     const data = useDataStable(value, planRootDataEqual);
+    // The canvas's words (#820) — its locale and message table, resolved once
+    // per change and handed to every part beneath it.
+    const words = useResolvedPlanWords();
 
     // ── What survives a remount (#813) ────────────────────────────────────
     // Under the canvas's `storageKey`: the user's collapse toggles, the charts
@@ -191,6 +204,9 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
         restored: persistedOf(stored),
         persist: (next) => persistTo.current(next),
     }));
+    // What the live region speaks in (#820) — handed over before anything can
+    // be said.
+    useLayoutEffect(() => { controller.setWords(words); }, [controller, words]);
     // Props sync. A new DATA identity reconciles the UI state (#610); the
     // render below already drew the reconciled view, so this commits what is
     // on screen and renders nothing more.
@@ -240,8 +256,10 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     // rollups / aggregates / summaries; the numbers are computed here, each
     // row's entries kept by identity while they hold (#815). A row whose
     // instants ride another arm renders in place as a DIAGNOSTIC row and
-    // derives nothing (#811).
-    const fresh = useMemo(() => derivePlan(index, ordinalIndex, axisKind), [index, ordinalIndex, axisKind]);
+    // derives nothing (#811). A derived number prints in the locale (#820).
+    const fresh = useMemo(
+        () => derivePlan(index, ordinalIndex, axisKind, words.number),
+        [index, ordinalIndex, axisKind, words]);
     const derived = useStableDerived(fresh);
     // The R1 link graph — rows an edge touches grow the `links` control.
     const linkedKeys = useMemo(() => linkedRowKeys(data.links), [data.links]);
@@ -254,7 +272,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     }, [index]);
 
     // ── Chrome: slice, scale, series library, review, transport, search ──
-    const { chrome, slice, affordances, scale } = usePlanWindow(value, data, rows);
+    const { chrome, slice, affordances, scale } = usePlanWindow(value, data, rows, words);
     // The series library (#590) — chrome, like the slice rail: the Plan feeds
     // ITSELF the picked series, so all that is left here is the panel.
     const pick = useMemo(() => getSomeorUndefined(value.pick), [value.pick]);
@@ -439,6 +457,10 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     // whichever arm the axis declares.
     const resolutions = useMemo(() => axisResolutions(data.axis), [data.axis]);
     const now = useMemo(() => axisNow(data.axis), [data.axis]);
+    // The batch foot's buttons, in the canvas's words (#820).
+    const footLabels = useMemo(
+        () => ({ approveAll: words.m.approveAll(), rejectAll: words.m.rejectAll() }),
+        [words]);
 
     // ── The treegrid (#819) ───────────────────────────────────────────────
     // Every item's place in the grid — the pinned rows first — published to
@@ -512,12 +534,12 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
         return (
             <Box css={styles.diagnostic} data-plan-empty>
                 {paged
-                    ? "NO WINDOW — a paged plan must declare an axis window or bind a slice range"
+                    ? words.m.noWindowPaged()
                     : axisKind === "number"
-                        ? "NO WINDOW — give the plan an axis window, a bound slice range, or numbered rows"
+                        ? words.m.noWindowNumber()
                         : axisKind === "ordinal"
-                            ? "NO WINDOW — an ordinal axis needs at least one declared value"
-                            : "NO WINDOW — give the plan an axis window, a bound slice range, or dated rows"}
+                            ? words.m.noWindowOrdinal()
+                            : words.m.noWindowTime()}
             </Box>
         );
     }
@@ -528,7 +550,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
             grain={hasRootGroup ? grain : undefined}
             transport={transport} search={search} pick={pick} diagnostics={diagnostics} now={now}
             // The ruler's gutter caption is the active grain's name (the §1 mock).
-            rulerCaption={grain.toUpperCase()} cursorChipRef={cursorChipRef}
+            rulerCaption={words.m.grainName({ grain })} cursorChipRef={cursorChipRef}
             reviewLabel={review?.columnLabel}
             pinned={pinned.map((v) => (
                 <Box key={v.row.key} background="bg.surface">{renderPlanRow(v, rowCtx)}</Box>
@@ -699,6 +721,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     };
 
     const canvas = (
+        <PlanWordsContext.Provider value={words}>
         <PlanControllerContext.Provider value={controller}>
         <PlanGeometryContext.Provider value={geometry}>
         <PlanScaleContext.Provider value={scale}>
@@ -767,7 +790,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                         rowsRef={gridRef}
                         rowsProps={{
                             role: "treegrid",
-                            "aria-label": "Plan",
+                            "aria-label": words.m.gridLabel(),
                             "aria-rowcount": pinned.length + body.items.length,
                             ...(pinned.length > 0 ? { "aria-owns": pinnedId } : {}),
                             // The tab stop while no mounted row holds it.
@@ -791,7 +814,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                         // omitted: the rows' box stays put, so no row
                         // remounts as the ribbons come and go.
                         overlay={ribbonRows !== undefined && focusVisibleKeys !== undefined ? (
-                            <PlanPartBoundary part="links layer" resetKey={focusVisibleKeys} styles={styles}>
+                            <PlanPartBoundary part={LINKS_LAYER} resetKey={focusVisibleKeys} styles={styles}>
                                 <LinksOverlay styles={styles} links={data.links} visibleKeys={focusVisibleKeys}
                                     body={ribbonRows} beyond={beyond} scale={scale} runDates={runDates}
                                     gutterPx={gutterW}
@@ -830,7 +853,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                 )}
                 {/* The batch foot sits OUTSIDE the scrolling grid so it stays
                     full-width under the canvas (the shared convention). */}
-                {review !== undefined && <ReviewFoot controller={review} storageKey={storageKey} />}
+                {review !== undefined && <ReviewFoot controller={review} storageKey={storageKey} labels={footLabels} />}
                 <PlanOverlays anchors={anchors} styles={styles} storageKey={storageKey} />
                 <PlanAnnouncer />
             </Box>
@@ -841,6 +864,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
         </PlanScaleContext.Provider>
         </PlanGeometryContext.Provider>
         </PlanControllerContext.Provider>
+        </PlanWordsContext.Provider>
     );
 
     const densityTag = style !== undefined ? getSomeorUndefined(style.density)?.type : undefined;

@@ -16,6 +16,9 @@
  * words (`scale.instantText` / `scale.bucketText`, never the ruler tick), and
  * the fact its look encodes.
  *
+ * The words are the canvas's (#820): every phrase comes from its message
+ * table, and every number and date is in its locale.
+ *
  * @packageDocumentation
  */
 
@@ -23,7 +26,7 @@ import { type ValueTypeOf } from "@elaraai/east";
 import { Plan } from "@elaraai/east-ui/internal";
 import type { PlanScale, PlanBucket } from "./scale.js";
 import type { PlanEvent, PlanUiState, RowKey } from "./plan-state.js";
-import { formatDerived } from "./format.js";
+import type { PlanWords } from "./words.js";
 import { axisFormatter, breached, readoutLayers, type ChartKindValue } from "./rows/chart-geometry.js";
 
 type RunValue = ValueTypeOf<typeof Plan.Types.Run>;
@@ -41,38 +44,27 @@ export type PlanStateValue = RunValue["state"];
  * outline says by look.
  *
  * @param state - The element's state
- * @returns The words
+ * @param w - The canvas's words
+ * @returns The words — `proposed removal`
  */
-export function stateText(state: PlanStateValue): string {
-    switch (state.type) {
-        case "estimated": return "estimated";
-        case "proposed":
-            switch (state.value.type) {
-                case "added": return "proposed";
-                case "recommended": return "recommended";
-                case "removed": return "proposed removal";
-            }
-            return "proposed";
-        case "confirmed": return "confirmed";
-        case "in-progress": return "in progress";
-        case "actual": return "actual";
-        case "rejected": return "rejected";
-    }
+export function stateText(state: PlanStateValue, w: PlanWords): string {
+    return w.m.state({ state: state.type === "proposed" ? state.value.type : state.type });
 }
 
 /**
  * A status tone as the accessible name of the dot or icon that shows it.
  *
  * @param tone - The status tag (`warning`, `danger`, …)
+ * @param w - The canvas's words
  * @returns `Status: warning`
  */
-export function statusText(tone: string): string {
-    return `Status: ${tone}`;
+export function statusText(tone: string, w: PlanWords): string {
+    return w.m.status({ tone: w.m.tone({ tone }) });
 }
 
 /** `from – to`, in the axis's words. */
-function spanText(scale: PlanScale, from: RunValue["start"], to: RunValue["end"]): string {
-    return `${scale.instantText(from)} – ${scale.instantText(to)}`;
+function spanText(scale: PlanScale, from: RunValue["start"], to: RunValue["end"], w: PlanWords): string {
+    return w.m.span({ from: scale.instantText(from), to: scale.instantText(to) });
 }
 
 /**
@@ -82,15 +74,19 @@ function spanText(scale: PlanScale, from: RunValue["start"], to: RunValue["end"]
  *
  * @param run - The run
  * @param scale - The shared scale
- * @returns `B-214, 29 Jun 2026 – 27 Jul 2026, actual, 96 t`
+ * @param w - The canvas's words
+ * @returns `B-214, Jun 29, 2026 – Jul 27, 2026, actual, 96 t`
  */
-export function runName(run: RunValue, scale: PlanScale): string {
-    const parts = [run.label, spanText(scale, run.start, run.end), stateText(run.state)];
-    if (run.quantity.type === "some") parts.push(run.quantity.value);
+export function runName(run: RunValue, scale: PlanScale, w: PlanWords): string {
     const moved = run.moved.type === "some" ? Number(run.moved.value) : 0;
-    if (moved > 0) parts.push(`moved ${moved} ${moved === 1 ? "time" : "times"}`);
-    if (run.status.type === "some") parts.push(run.status.value.type);
-    return parts.join(", ");
+    return w.m.runName({
+        label: run.label,
+        span: spanText(scale, run.start, run.end, w),
+        state: stateText(run.state, w),
+        quantity: run.quantity.type === "some" ? run.quantity.value : undefined,
+        moved: moved > 0 ? w.m.movedTimes({ n: moved, count: w.number(moved) }) : undefined,
+        status: run.status.type === "some" ? w.m.tone({ tone: run.status.value.type }) : undefined,
+    });
 }
 
 /**
@@ -99,10 +95,11 @@ export function runName(run: RunValue, scale: PlanScale): string {
  *
  * @param dec - The decision mark
  * @param scale - The shared scale
- * @returns `Decision, 13 Jul 2026, applied`
+ * @param w - The canvas's words
+ * @returns `Decision, Jul 13, 2026, applied`
  */
-export function decisionName(dec: DecisionValue, scale: PlanScale): string {
-    return `Decision, ${scale.instantText(dec.at)}, ${dec.applied ? "applied" : "pending"}`;
+export function decisionName(dec: DecisionValue, scale: PlanScale, w: PlanWords): string {
+    return w.m.decisionName({ at: scale.instantText(dec.at), applied: dec.applied });
 }
 
 /**
@@ -113,14 +110,17 @@ export function decisionName(dec: DecisionValue, scale: PlanScale): string {
  * @param bucket - The bucket it renders in
  * @param lane - Its lane's caption, when the lane has one
  * @param scale - The shared scale
- * @returns `Pour, Week of 6 Jul 2026, AM, proposed`
+ * @param w - The canvas's words
+ * @returns `Pour, Week of Jul 6, 2026, AM, proposed`
  */
-export function tileName(ev: BucketEventValue, bucket: PlanBucket, lane: string | undefined, scale: PlanScale): string {
-    const parts = [ev.label.type === "some" ? ev.label.value : "Event", scale.bucketText(bucket)];
-    if (lane !== undefined) parts.push(lane);
-    parts.push(stateText(ev.state));
-    if (ev.tone.type === "some") parts.push(ev.tone.value.type);
-    return parts.join(", ");
+export function tileName(ev: BucketEventValue, bucket: PlanBucket, lane: string | undefined, scale: PlanScale, w: PlanWords): string {
+    return w.m.tileName({
+        label: ev.label.type === "some" ? ev.label.value : undefined,
+        bucket: scale.bucketText(bucket),
+        lane,
+        state: stateText(ev.state, w),
+        tone: ev.tone.type === "some" ? w.m.tone({ tone: ev.tone.value.type }) : undefined,
+    });
 }
 
 /**
@@ -128,10 +128,11 @@ export function tileName(ev: BucketEventValue, bucket: PlanBucket, lane: string 
  *
  * @param chip - The chip
  * @param scale - The shared scale
- * @returns `D. OKAFOR, 29 Jun 2026 – 13 Jul 2026, confirmed`
+ * @param w - The canvas's words
+ * @returns `D. OKAFOR, Jun 29, 2026 – Jul 13, 2026, confirmed`
  */
-export function chipName(chip: ChipValue, scale: PlanScale): string {
-    return [chip.label, spanText(scale, chip.from, chip.to), stateText(chip.state)].join(", ");
+export function chipName(chip: ChipValue, scale: PlanScale, w: PlanWords): string {
+    return w.m.chipName({ label: chip.label, span: spanText(scale, chip.from, chip.to, w), state: stateText(chip.state, w) });
 }
 
 /**
@@ -140,15 +141,16 @@ export function chipName(chip: ChipValue, scale: PlanScale): string {
  *
  * @param mark - The event mark
  * @param scale - The shared scale
- * @returns `KICKOFF, milestone, 29 Jun 2026`
+ * @param w - The canvas's words
+ * @returns `KICKOFF, milestone, Jun 29, 2026`
  */
-export function markName(mark: EventMarkValue, scale: PlanScale): string {
-    const kind = mark.kind.type === "decision"
-        ? `decision, ${mark.kind.value.applied ? "applied" : "pending"}`
-        : mark.kind.type;
-    const parts = mark.label.type === "some" ? [mark.label.value, kind] : [kind.charAt(0).toUpperCase() + kind.slice(1)];
-    parts.push(scale.instantText(mark.at));
-    return parts.join(", ");
+export function markName(mark: EventMarkValue, scale: PlanScale, w: PlanWords): string {
+    return w.m.markName({
+        label: mark.label.type === "some" ? mark.label.value : undefined,
+        kind: mark.kind.type,
+        applied: mark.kind.type === "decision" && mark.kind.value.applied,
+        at: scale.instantText(mark.at),
+    });
 }
 
 /**
@@ -159,12 +161,12 @@ export function markName(mark: EventMarkValue, scale: PlanScale): string {
  * @param value - The cell's value
  * @param label - The author's printed label
  * @param warn - Whether the value is at or above the row's warning threshold (the ring)
+ * @param w - The canvas's words
  * @returns `72` / `no data` / `91, at or above the warning threshold`
  */
-export function heatValueText(value: number | undefined, label: string | undefined, warn: boolean): string {
-    if (value === undefined) return "no data";
-    const text = label ?? formatDerived(value);
-    return warn ? `${text}, at or above the warning threshold` : text;
+export function heatValueText(value: number | undefined, label: string | undefined, warn: boolean, w: PlanWords): string {
+    if (value === undefined) return w.m.noData();
+    return w.m.heatValue({ value: label ?? w.number(value), warn });
 }
 
 /**
@@ -173,39 +175,30 @@ export function heatValueText(value: number | undefined, label: string | undefin
  *
  * @param fraction - The booked fraction (0–1)
  * @param planned - Whether the bucket is planned
+ * @param w - The canvas's words
  * @returns `60% booked, planned`
  */
-export function weightValueText(fraction: number, planned: boolean): string {
-    const pct = `${Math.round(Math.max(0, Math.min(1, fraction)) * 100)}% booked`;
-    return planned ? `${pct}, planned` : pct;
+export function weightValueText(fraction: number, planned: boolean, w: PlanWords): string {
+    return w.m.weightValue({ percent: w.percent(Math.max(0, Math.min(1, fraction))), planned });
 }
-
-/** A segment fill in words — the category its colour encodes. */
-const FILL_TEXT: Record<string, string> = {
-    brand: "booked",
-    success: "positive",
-    warning: "caution",
-    danger: "at risk",
-    info: "info",
-    neutral: "neutral",
-    slack: "slack",
-    free: "free",
-};
 
 /**
  * A segment composition in words — each segment's category (its fill) and
  * its share, the author's in-bar label standing for the share where given.
  *
  * @param segments - The cell's segments, in order
+ * @param w - The canvas's words
  * @returns `booked 60%, slack 25%, free 15%`
  */
-export function segmentsText(segments: readonly SegmentValue[]): string {
+export function segmentsText(segments: readonly SegmentValue[], w: PlanWords): string {
     const total = segments.reduce((acc, s) => acc + Math.max(0, s.weight), 0);
-    if (segments.length === 0 || total <= 0) return "no data";
-    return segments.map((s) => {
-        const share = s.label.type === "some" ? s.label.value : `${Math.round((Math.max(0, s.weight) / total) * 100)}%`;
-        return `${FILL_TEXT[s.fill.type] ?? s.fill.type} ${share}`;
-    }).join(", ");
+    if (segments.length === 0 || total <= 0) return w.m.noData();
+    return w.m.list({
+        parts: segments.map((s) => w.m.segmentPart({
+            fill: s.fill.type,
+            share: s.label.type === "some" ? s.label.value : w.percent(Math.max(0, s.weight) / total),
+        })),
+    });
 }
 
 /**
@@ -213,10 +206,11 @@ export function segmentsText(segments: readonly SegmentValue[]): string {
  * em-dash of a missing value said as `no value`.
  *
  * @param texts - Each part's printed text, in series order
+ * @param w - The canvas's words
  * @returns `1,204, 96%`
  */
-export function tablePartsText(texts: readonly string[]): string {
-    return texts.map((t) => (t === "—" ? "no value" : t)).join(", ");
+export function tablePartsText(texts: readonly string[], w: PlanWords): string {
+    return w.m.list({ parts: texts.map((t) => (t === "—" ? w.m.noValue() : t)) });
 }
 
 /**
@@ -226,16 +220,12 @@ export function tablePartsText(texts: readonly string[]): string {
  * @param scale - The shared scale
  * @param bucket - The element's bucket
  * @param value - The element's value in words
- * @returns `Week of 6 Jul 2026: 72`
+ * @param w - The canvas's words
+ * @returns `Week of Jul 6, 2026: 72`
  */
-export function cellName(scale: PlanScale, bucket: PlanBucket, value: string): string {
-    return `${scale.bucketText(bucket)}: ${value}`;
+export function cellName(scale: PlanScale, bucket: PlanBucket, value: string, w: PlanWords): string {
+    return w.m.cellName({ bucket: scale.bucketText(bucket), value });
 }
-
-/** What a chart layer is called when the canvas has to say it. */
-const LAYER_TEXT: Record<string, string> = {
-    line: "line", area: "area", column: "columns", scatter: "points", band: "range",
-};
 
 /**
  * A chart row's text alternative — its summary as a `role="img"` label: each
@@ -245,22 +235,23 @@ const LAYER_TEXT: Record<string, string> = {
  *
  * @param kind - The chart row
  * @param scale - The shared scale
+ * @param w - The canvas's words
  * @returns `Chart: line min 1.2, max 4.5, last 3.1; columns min 0, max 12, last 7, 2 beyond threshold`
  */
-export function chartSummary(kind: ChartKindValue, scale: PlanScale): string {
+export function chartSummary(kind: ChartKindValue, scale: PlanScale, w: PlanWords): string {
     const layers = readoutLayers(kind);
-    if (layers.length === 0) return "Chart: no data";
+    if (layers.length === 0) return w.m.chartNoData();
     const counts = new Map<string, number>();
     for (const l of layers) counts.set(l.kind, (counts.get(l.kind) ?? 0) + 1);
     const seen = new Map<string, number>();
     const format = {
-        left: axisFormatter(kind.left.type === "some" ? kind.left.value : undefined),
-        right: axisFormatter(kind.right.type === "some" ? kind.right.value : undefined),
+        left: axisFormatter(kind.left.type === "some" ? kind.left.value : undefined, w.locale),
+        right: axisFormatter(kind.right.type === "some" ? kind.right.value : undefined, w.locale),
     };
     const parts = layers.map(({ index, kind: k }) => {
         const n = (seen.get(k) ?? 0) + 1;
         seen.set(k, n);
-        const name = (counts.get(k) ?? 0) > 1 ? `${LAYER_TEXT[k] ?? k} ${n}` : (LAYER_TEXT[k] ?? k);
+        const name = w.m.chartLayer({ kind: k, index: (counts.get(k) ?? 0) > 1 ? w.number(n) : undefined });
         const layer = kind.layers[index]!;
         if (layer.type === "band") {
             const fmt = format[layer.value.axis.type];
@@ -272,10 +263,11 @@ export function chartSummary(kind: ChartKindValue, scale: PlanScale): string {
                 if (p.lo < lo) lo = p.lo;
                 if (p.hi > hi) hi = p.hi;
                 const at = scale.toNumber(p.t);
-                if (last === undefined || at >= last.t) last = { t: at, text: `${fmt(p.lo)}–${fmt(p.hi)}` };
+                if (last === undefined || at >= last.t) last = { t: at, text: w.m.valueRange({ from: fmt(p.lo), to: fmt(p.hi) }) };
             }
-            return last === undefined ? `${name} no data in the window`
-                : `${name} min ${fmt(lo)}, max ${fmt(hi)}, last ${last.text}`;
+            return last === undefined
+                ? w.m.chartLayerEmpty({ layer: name })
+                : w.m.chartLayerValues({ layer: name, min: fmt(lo), max: fmt(hi), last: last.text, n: 0, breaches: w.number(0) });
         }
         if (layer.type === "refLine" || layer.type === "refBand" || layer.type === "refDot") return name;
         const fmt = format[layer.value.axis.type];
@@ -293,11 +285,12 @@ export function chartSummary(kind: ChartKindValue, scale: PlanScale): string {
             const at = scale.toNumber(p.t);
             if (last === undefined || at >= last.t) last = { t: at, y: p.y };
         }
-        if (last === undefined) return `${name} no data in the window`;
-        const text = `${name} min ${fmt(lo)}, max ${fmt(hi)}, last ${fmt(last.y)}`;
-        return breaches > 0 ? `${text}, ${breaches} beyond threshold` : text;
+        if (last === undefined) return w.m.chartLayerEmpty({ layer: name });
+        return w.m.chartLayerValues({
+            layer: name, min: fmt(lo), max: fmt(hi), last: fmt(last.y), n: breaches, breaches: w.number(breaches),
+        });
     });
-    return `Chart: ${parts.join("; ")}`;
+    return w.m.chartSummary({ parts });
 }
 
 /**
@@ -311,36 +304,46 @@ export function chartSummary(kind: ChartKindValue, scale: PlanScale): string {
  * @param before - The UI state before it
  * @param after - The UI state after it
  * @param label - A row's name (its gutter label)
+ * @param w - The canvas's words
  * @returns The announcement, or `undefined`
  */
-export function announcementOf(e: PlanEvent, before: PlanUiState, after: PlanUiState, label: (key: RowKey) => string): string | undefined {
+export function announcementOf(
+    e: PlanEvent,
+    before: PlanUiState,
+    after: PlanUiState,
+    label: (key: RowKey) => string,
+    w: PlanWords,
+): string | undefined {
     const focusGone = before.focus !== null && after.focus === null;
     switch (e.t) {
         case "row.select":
-            return after.selected !== null && after.selected !== before.selected ? `Selected ${label(after.selected)}` : undefined;
-        case "group.toggle":
-            return after.collapsed !== before.collapsed
-                ? `${label(e.key)} ${after.collapsed.has(e.key) ? "collapsed" : "expanded"}`
+            return after.selected !== null && after.selected !== before.selected
+                ? w.m.announceSelected({ label: label(after.selected) })
                 : undefined;
+        case "group.toggle":
+            if (after.collapsed === before.collapsed) return undefined;
+            return after.collapsed.has(e.key)
+                ? w.m.announceCollapsed({ label: label(e.key) })
+                : w.m.announceExpanded({ label: label(e.key) });
         case "chart.toggle":
-            return `${label(e.key)} chart ${after.chartsExpanded.has(e.key) ? "expanded" : "collapsed"}`;
+            return w.m.announceChart({ label: label(e.key), expanded: after.chartsExpanded.has(e.key) });
         case "focus.links":
-            if (after.focus?.kind === "links" && after.focus.key === e.key) return `Showing rows linked to ${label(e.key)}`;
-            return focusGone ? "Showing all rows" : undefined;
+            if (after.focus?.kind === "links" && after.focus.key === e.key) return w.m.announceLinked({ label: label(e.key) });
+            return focusGone ? w.m.announceAllRows() : undefined;
         case "focus.expand":
-            if (after.focus?.kind === "expand" && after.focus.key === e.key) return `${label(e.key)} opened in place`;
-            return focusGone ? "Showing all rows" : undefined;
+            if (after.focus?.kind === "expand" && after.focus.key === e.key) return w.m.announceOpened({ label: label(e.key) });
+            return focusGone ? w.m.announceAllRows() : undefined;
         case "focus.clear":
-            return focusGone ? "Showing all rows" : undefined;
+            return focusGone ? w.m.announceAllRows() : undefined;
         case "grain.set":
-            return after.grain !== before.grain ? `Grain: ${after.grain}` : undefined;
+            return after.grain !== before.grain ? w.m.announceGrain({ grain: after.grain }) : undefined;
         case "key":
             switch (e.key) {
                 case "esc":
-                    if (focusGone) return "Showing all rows";
-                    return before.selected !== null && after.selected === null ? "Selection cleared" : undefined;
+                    if (focusGone) return w.m.announceAllRows();
+                    return before.selected !== null && after.selected === null ? w.m.announceCleared() : undefined;
                 case "g":
-                    return after.grain !== before.grain ? `Grain: ${after.grain}` : undefined;
+                    return after.grain !== before.grain ? w.m.announceGrain({ grain: after.grain }) : undefined;
                 case "n": case "[": case "]":
                     return undefined;
             }
@@ -370,9 +373,15 @@ export interface PlanResidentSpan {
  * @param before - The resident span before
  * @param after - The resident span now
  * @param total - The source's element count, once known
+ * @param w - The canvas's words
  * @returns `Loaded elements 201–400 of 5,000`, or `undefined` when nothing landed
  */
-export function landedText(before: PlanResidentSpan | undefined, after: PlanResidentSpan | undefined, total: number | undefined): string | undefined {
+export function landedText(
+    before: PlanResidentSpan | undefined,
+    after: PlanResidentSpan | undefined,
+    total: number | undefined,
+    w: PlanWords,
+): string | undefined {
     if (after === undefined || after.to <= after.from) return undefined;
     let from: number;
     let to: number;
@@ -392,6 +401,9 @@ export function landedText(before: PlanResidentSpan | undefined, after: PlanResi
     } else {
         return undefined;
     }
-    const range = `${(from + 1).toLocaleString()}–${to.toLocaleString()}`;
-    return total !== undefined ? `Loaded elements ${range} of ${total.toLocaleString()}` : `Loaded elements ${range}`;
+    return w.m.announceLanded({
+        from: w.number(from + 1),
+        to: w.number(to),
+        total: total !== undefined ? w.number(total) : undefined,
+    });
 }

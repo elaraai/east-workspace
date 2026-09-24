@@ -12,6 +12,7 @@
 
 import { Box } from "@chakra-ui/react";
 import { usePlanScale } from "../context.js";
+import { usePlanWords } from "../words.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
@@ -46,6 +47,7 @@ export interface PlanRulerProps {
 /** The 28px ruler band. */
 export function PlanRuler({ styles, gridTemplate, caption, cursorChipRef, trailing }: PlanRulerProps) {
     const scale = usePlanScale();
+    const words = usePlanWords();
     const columns = scale.buckets.map((b) => `${((b.x1 - b.x0) * 100).toFixed(4)}%`).join(" ");
     return (
         <Box css={styles.ruler} gridTemplateColumns={gridTemplate} data-slot="ruler">
@@ -59,7 +61,7 @@ export function PlanRuler({ styles, gridTemplate, caption, cursorChipRef, traili
                         <>
                             <Box css={styles.nowLine} left={`${scale.nowFrac * 100}%`} />
                             <Box css={styles.nowChip} left={`${scale.nowFrac * 100}%`}
-                                transform={`translate(${chipAnchor(scale.nowFrac)}, -50%)`}>NOW</Box>
+                                transform={`translate(${chipAnchor(scale.nowFrac)}, -50%)`}>{words.m.now()}</Box>
                         </>
                     )}
                 </Box>

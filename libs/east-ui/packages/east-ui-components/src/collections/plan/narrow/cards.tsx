@@ -20,6 +20,8 @@ import { ChartLeftTicks } from "../rows/ChartRow.js";
 import { PlanPartBoundary } from "../rows/PartBoundary.js";
 import { RowDiagnostic } from "../rows/RowDiagnostic.js";
 import { PlanDecisionCell, tagOf, type PlanReview } from "../shell/Review.js";
+import { statusText } from "../a11y.js";
+import { usePlanWords } from "../words.js";
 import { pxOf, type PlanDerived, type PlanRowValue } from "../model.js";
 
 type Styles = Record<string, Record<string, unknown>>;
@@ -81,6 +83,7 @@ export const NarrowRowCard = memo(function NarrowRowCard({
 }: NarrowRowCardProps) {
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
+    const words = usePlanWords();
     const v = useMemo(() => ({ row, depth: 0, collapsed: false }), [row]);
     const isChart = row.kind.type === "chart";
     const declaredPx = row.expand.type === "some" && row.expand.value.height.type === "some"
@@ -111,13 +114,15 @@ export const NarrowRowCard = memo(function NarrowRowCard({
                 {meta !== undefined && <Box as="span" css={styles.gutterMeta}>{meta}</Box>}
                 <Box display="flex" alignItems="center" gap="6px" marginLeft="auto" flexShrink={0}>
                     {value !== undefined && <Box as="span" css={styles.gutterValue}>{value}</Box>}
-                    {statusTone !== undefined && <Box as="span" css={styles.statusDot} data-tone={statusTone} />}
+                    {/* The dot's colour IS the status — its name says it, as the canvas row's does (#819). */}
+                    {statusTone !== undefined && <Box as="span" css={styles.statusDot} data-tone={statusTone}
+                        role="img" aria-label={statusText(statusTone, words)} />}
                 </Box>
             </Box>
             {sub !== undefined && <Box css={styles.narrowCardSub}>{sub}</Box>}
             {drill !== undefined && drill.gutter !== null && (
                 <Box css={styles.expandGutterBody} data-plan-expandgutter marginX="12px" marginBottom="8px">
-                    <PlanPartBoundary part="expand gutter" resetKey={drill.gutter} styles={styles}>
+                    <PlanPartBoundary part={{ kind: "expandGutter" }} resetKey={drill.gutter} styles={styles}>
                         <EastChakraComponent value={drill.gutter} storageKey={`${storageKey}.${row.key}.expandgutter`} />
                     </PlanPartBoundary>
                 </Box>
@@ -127,7 +132,7 @@ export const NarrowRowCard = memo(function NarrowRowCard({
                 {diagnostic !== undefined ? (
                     <RowDiagnostic diagnostic={diagnostic} styles={styles} />
                 ) : (
-                    <PlanPartBoundary part={`row ${row.key}`} resetKey={row} styles={styles}>
+                    <PlanPartBoundary part={{ kind: "row", key: row.key }} resetKey={row} styles={styles}>
                         <KindPlot v={v} styles={styles} derived={derived}
                             hasChildren={hasChildren}
                             ctx={false} plotHeight={h} chartExpanded={chartExpanded} partial={partial} />
@@ -144,7 +149,7 @@ export const NarrowRowCard = memo(function NarrowRowCard({
             </Box>
             {drill !== undefined && (
                 <Box css={styles.narrowRender} data-plan-expandrender height={`${renderPx}px`}>
-                    <PlanPartBoundary part="expand render" resetKey={drill.body} styles={styles}>
+                    <PlanPartBoundary part={{ kind: "expandRender" }} resetKey={drill.body} styles={styles}>
                         <EastChakraComponent value={drill.body} storageKey={`${storageKey}.${row.key}.expand`} />
                     </PlanPartBoundary>
                 </Box>

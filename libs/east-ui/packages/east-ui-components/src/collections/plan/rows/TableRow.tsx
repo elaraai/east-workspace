@@ -24,11 +24,12 @@ import { variant, type ValueTypeOf } from "@elaraai/east";
 import { Box } from "@chakra-ui/react";
 import { Plan } from "@elaraai/east-ui/internal";
 import { usePlanDispatch, usePlanResolvers, usePlanScale, type PlanElementRefValue } from "../context.js";
-import { formatTick, type TickFormatOpt } from "../../../typography/numeric/format-tick.js";
+import type { TickFormatOpt } from "../../../typography/numeric/format-tick.js";
 import { ToneStrip, type ToneDatum } from "./ToneStrip.js";
 import type { PlanBucket } from "../scale.js";
 import { instantKey } from "../instant.js";
 import { cellName, tablePartsText } from "../a11y.js";
+import { usePlanWords } from "../words.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 type TableCellValue = ValueTypeOf<typeof Plan.Types.TableCell>;
@@ -51,6 +52,7 @@ export interface TableRowCellsProps {
 export function TableRowCells({ rowKey, series, split, format, styles, ctx }: TableRowCellsProps) {
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
+    const words = usePlanWords();
     const { onElementClick } = usePlanResolvers();
     // ── R2 (#591): numerals have no small form ──
     // The ROLLUP position is the one that carries the row's headline number
@@ -93,7 +95,8 @@ export function TableRowCells({ rowKey, series, split, format, styles, ctx }: Ta
                     const value = cell.value.type === "some" ? cell.value.value : undefined;
                     const partFormat = s.format.type === "some" ? s.format.value : format;
                     const text = cell.text.type === "some" ? cell.text.value
-                        : value !== undefined ? formatTick(value, partFormat)
+                        // The declared format, in the canvas's locale (#820).
+                        : value !== undefined ? words.formatted(value, partFormat)
                         : "—";
                     const tone = cell.tone.type === "some" ? cell.tone.value.type
                         : value === undefined ? "muted"
@@ -111,7 +114,7 @@ export function TableRowCells({ rowKey, series, split, format, styles, ctx }: Ta
                         data-plan-frac={b.x0.toFixed(4)}
                         tabIndex={-1}
                         role="button"
-                        aria-label={cellName(scale, b, tablePartsText(printed.map((p) => p.text)))}
+                        aria-label={cellName(scale, b, tablePartsText(printed.map((p) => p.text), words), words)}
                         data-split={multi ? split : undefined}
                         left={`${b.x0 * 100}%`} width={`${(b.x1 - b.x0) * 100}%`}
                         onClick={(e) => {

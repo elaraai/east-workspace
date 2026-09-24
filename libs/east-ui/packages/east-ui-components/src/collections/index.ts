@@ -46,6 +46,23 @@ export {
     type EastChakraPlanProps,
 } from "./plan";
 
+// The Plan's words (#820) — its message table, and the provider that
+// overrides it for a subtree (its locale is react-aria's `I18nProvider`).
+export {
+    PlanMessagesProvider,
+    planMessages,
+    type PlanMessages,
+    type PlanMessagesProviderProps,
+    type PlanAxisWord,
+    type PlanChartLayerWord,
+    type PlanFocusTagWord,
+    type PlanGrainWord,
+    type PlanHorizonUnit,
+    type PlanMarkWord,
+    type PlanPart,
+    type PlanStateWord,
+} from "./plan/messages.js";
+
 export {
     EastChakraLibrary,
     type LibraryValue,

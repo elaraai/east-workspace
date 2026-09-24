@@ -15,7 +15,7 @@ import { ArrayType, equalFor, none, some, type ValueTypeOf } from "@elaraai/east
 import { Plan } from "@elaraai/east-ui/internal";
 import { instantKey, instantOrder, type PlanAxisKind, type PlanInstantValue } from "./instant.js";
 import { appendAll, maxOf, minOf, peakConcurrency } from "./reductions.js";
-import { formatDerived } from "./format.js";
+import { PLAN_WORDS } from "./words.js";
 import type { PlanRowIndex, PlanRowValue } from "./model.js";
 import type { RowKey } from "./plan-state.js";
 import { axisKindMismatches } from "./row-instants.js";
@@ -62,7 +62,7 @@ export interface DerivedBand {
     to: PlanInstantValue;
     /** Peak concurrency inside the band. */
     count: number;
-    /** Summed quantity caption (`"1,234.5 t"`, through {@link formatDerived}) — absent unless a unit is declared and every member carries `qty`. */
+    /** Summed quantity caption (`"1,234.5 t"`, the total in the canvas's locale — #820) — absent unless a unit is declared and every member carries `qty`. */
     quantity: string | undefined;
     /** The least-certain member's lifecycle state. */
     state: RunValue["state"];
@@ -85,6 +85,7 @@ function mergeBands(
     runs: readonly RunValue[],
     unit: string | undefined,
     ordinal: ReadonlyMap<string, number> | undefined,
+    number: (n: number) => string,
 ): DerivedBand[] {
     const startOf = (r: RunValue) => instantOrder(r.start, ordinal);
     const endOf = (r: RunValue) => endOrder(r.end, ordinal);
@@ -110,7 +111,7 @@ function mergeBands(
         const count = Math.max(1, peakConcurrency(g.members.map((m) => ({ start: startOf(m), end: endOf(m) }))));
         const missing = g.members.some((m) => m.qty.type === "none");
         const total = g.members.reduce((acc, m) => acc + (m.qty.type === "some" ? m.qty.value : 0), 0);
-        const quantity = unit !== undefined && !missing ? `${formatDerived(total)} ${unit}` : undefined;
+        const quantity = unit !== undefined && !missing ? `${number(total)} ${unit}` : undefined;
         let state = g.members[0]!.state;
         for (const m of g.members) {
             if ((STATE_RANK[m.state.type] ?? 3) < (STATE_RANK[state.type] ?? 3)) state = m.state;
@@ -126,6 +127,7 @@ function mergeBands(
  * @param rollup - The declared mode
  * @param unit - The declared quantity unit
  * @param ordinal - The ordinal axis's value → index map, when the axis is ordinal
+ * @param number - How a total prints — the canvas's locale (#820); `en-US` by default
  * @returns The bands, in start order
  */
 export function deriveBands(
@@ -133,6 +135,7 @@ export function deriveBands(
     rollup: "union" | "byStatus" | "sum",
     unit: string | undefined,
     ordinal?: ReadonlyMap<string, number>,
+    number: (n: number) => string = PLAN_WORDS.number,
 ): DerivedBand[] {
     if (rollup === "byStatus") {
         const order: string[] = [];
@@ -144,9 +147,9 @@ export function deriveBands(
             if (list !== undefined) list.push(r);
             else { byTag.set(tag, [r]); order.push(tag); }
         }
-        return order.flatMap((tag) => mergeBands(byTag.get(tag)!, unit, ordinal));
+        return order.flatMap((tag) => mergeBands(byTag.get(tag)!, unit, ordinal, number));
     }
-    return mergeBands(runs, unit, ordinal);
+    return mergeBands(runs, unit, ordinal, number);
 }
 
 /**
@@ -176,17 +179,19 @@ function groupByInstant<C extends { at: PlanInstantValue }>(
 
 /**
  * Derive per-bucket aggregated heat cells (mean / max / sum; no-data skipped),
- * each labelled through {@link formatDerived}.
+ * each labelled with its value in the canvas's locale.
  *
  * @param cells - The children's cells
  * @param mode - The declared aggregate
  * @param ordinal - The ordinal axis's value → index map, when the axis is ordinal
+ * @param number - How a value prints — the canvas's locale (#820); `en-US` by default
  * @returns One cell per distinct instant, in axis order
  */
 export function deriveHeatCells(
     cells: readonly HeatCellValue[],
     mode: "mean" | "max" | "sum",
     ordinal?: ReadonlyMap<string, number>,
+    number: (n: number) => string = PLAN_WORDS.number,
 ): HeatCellValue[] {
     // Derived cells are REAL East option values (`some`/`none` — never a
     // hand-rolled `{ type, value }` literal, which lacks the encoder symbol
@@ -201,7 +206,7 @@ export function deriveHeatCells(
         return {
             at: g.at,
             value: v !== undefined ? some(v) : none,
-            label: v !== undefined ? some(formatDerived(v)) : none,
+            label: v !== undefined ? some(number(v)) : none,
         };
     });
 }
@@ -398,12 +403,15 @@ export interface PlanDerived {
  * @param index - The row-tree index
  * @param ordinal - The ordinal axis's value → index map (orders ordinal cells; omit on other axes)
  * @param axisKind - The axis kind; omit to diagnose nothing
+ * @param number - How a derived number prints — the canvas's locale (`PlanWords.number`,
+ *   #820); `en-US` by default (a height measure prints nothing it reads)
  * @returns Every derived number, keyed by row
  */
 export function derivePlan(
     index: PlanRowIndex,
     ordinal?: ReadonlyMap<string, number>,
     axisKind?: PlanAxisKind,
+    number: (n: number) => string = PLAN_WORDS.number,
 ): PlanDerived {
     const bands = new Map<RowKey, DerivedBand[]>();
     const heatCells = new Map<RowKey, HeatCellValue[]>();
@@ -445,12 +453,12 @@ export function derivePlan(
         if (kind.type === "span" && kind.value.rollup.type === "some") {
             const unit = kind.value.unit.type === "some" ? kind.value.unit.value : undefined;
             const runs = [...kind.value.runs, ...subtreeRuns(index, row.key, diagnostics)];
-            bands.set(row.key, deriveBands(runs, kind.value.rollup.value.type, unit, ordinal));
+            bands.set(row.key, deriveBands(runs, kind.value.rollup.value.type, unit, ordinal, number));
         }
         if (kind.type === "heat" && kind.value.aggregate.type === "some"
             && heatCellsOf(row).length === 0 && children.length > 0) {
             heatCells.set(row.key, deriveHeatCells(
-                children.flatMap(resolvedHeatCells), kind.value.aggregate.value.type, ordinal));
+                children.flatMap(resolvedHeatCells), kind.value.aggregate.value.type, ordinal, number));
         }
         if (kind.type === "table" && kind.value.aggregate.type === "some"
             && tableRollupSeries(kind.value.series).length === 0 && children.length > 0) {
@@ -461,7 +469,7 @@ export function derivePlan(
         }
         if (kind.type === "group" && kind.value.summaryAggregate.type === "some") {
             const mode = kind.value.summaryAggregate.value.type;
-            groupSummary.set(row.key, deriveHeatCells(children.flatMap(resolvedHeatCells), mode, ordinal));
+            groupSummary.set(row.key, deriveHeatCells(children.flatMap(resolvedHeatCells), mode, ordinal, number));
             const scale = inheritedScale(children.filter(placeable), mode);
             if (scale !== undefined) groupSummaryScale.set(row.key, scale);
         }

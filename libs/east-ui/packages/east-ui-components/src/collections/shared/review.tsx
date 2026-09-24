@@ -208,6 +208,18 @@ export function DecisionButtons({ rowIndex, controller }: {
     );
 }
 
+/** The batch foot's button words — a surface that speaks its own message
+ *  table (the Plan, #820) passes them; English otherwise. The Rerun button's
+ *  label is the author's (`review.rerunLabel`). */
+export interface ReviewFootLabels {
+    /** The approve-all button. */
+    approveAll: string;
+    /** The reject-all button. */
+    rejectAll: string;
+}
+
+const FOOT_LABELS: ReviewFootLabels = { approveAll: "Approve all", rejectAll: "Reject all" };
+
 /**
  * The batch review foot on the shared `commitBar` recipe (the same block the
  * Diff + DecisionQueue commit bars use), mounted outside any scrolling grid
@@ -215,12 +227,14 @@ export function DecisionButtons({ rowIndex, controller }: {
  * `review.summary` component; the buttons are Reject all / Rerun / Approve
  * all (left→right). Renders `null` when the foot has nothing to show.
  */
-export function ReviewFoot({ controller, storageKey }: {
+export function ReviewFoot({ controller, storageKey, labels = FOOT_LABELS }: {
     /** The surface's batch-review model — a full {@link ReviewController}
      *  satisfies this, as does a surface with non-index-keyed verdicts. */
     controller: ReviewFootModel;
     /** Storage key prefix for the summary component subtree. */
     storageKey: string;
+    /** The buttons' words — English when omitted. */
+    labels?: ReviewFootLabels | undefined;
 }) {
     const commitRecipe = useSlotRecipe({ key: "commitBar" });
     const cs = useMemo(() => commitRecipe({}) as unknown as Record<string, Record<string, unknown>>, [commitRecipe]);
@@ -240,7 +254,7 @@ export function ReviewFoot({ controller, storageKey }: {
             <Box css={cs.btnRow}>
                 {controller.hasRejectAll && (
                     <Box as="button" css={btn({ variant: "danger", size: "md" })}
-                        onClick={controller.rejectAll}>Reject all</Box>
+                        onClick={controller.rejectAll}>{labels.rejectAll}</Box>
                 )}
                 {controller.hasRerun && (
                     <Box as="button" css={btn({ variant: "outline", size: "md" })}
@@ -248,7 +262,7 @@ export function ReviewFoot({ controller, storageKey }: {
                 )}
                 {controller.hasApproveAll && (
                     <Box as="button" css={btn({ variant: "solid", size: "md" })}
-                        onClick={controller.approveAll}>Approve all</Box>
+                        onClick={controller.approveAll}>{labels.approveAll}</Box>
                 )}
             </Box>
         </Box>

@@ -13,6 +13,7 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { Box, Menu as ChakraMenu, Portal, useRecipe } from "@chakra-ui/react";
 import { usePlanScale } from "../context.js";
+import { usePlanWords } from "../words.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
@@ -87,11 +88,13 @@ export function ResolutionChip({ resolution, resolutions, onPick }: {
     onPick: (r: string) => void;
 }) {
     const chip = useRecipe({ key: "chip" });
+    const words = usePlanWords();
     return (
         <ChakraMenu.Root onSelect={(d) => onPick(d.value)}>
             <ChakraMenu.Trigger asChild>
-                <Box as="button" css={chip({ tone: "neutral", numeric: true })} data-slot="narrowResolution" aria-label="Resolution">
-                    {resolution.toUpperCase()}
+                <Box as="button" css={chip({ tone: "neutral", numeric: true })} data-slot="narrowResolution"
+                    aria-label={words.m.resolutionLabel()}>
+                    {words.m.resolutionName({ resolution })}
                     <Box as="span" opacity={0.6} fontSize="9px">{"▾"}</Box>
                 </Box>
             </ChakraMenu.Trigger>
@@ -99,7 +102,7 @@ export function ResolutionChip({ resolution, resolutions, onPick }: {
                 <ChakraMenu.Positioner>
                     <ChakraMenu.Content>
                         {resolutions.map((r) => (
-                            <ChakraMenu.Item key={r} value={r}>{r.toUpperCase()}</ChakraMenu.Item>
+                            <ChakraMenu.Item key={r} value={r}>{words.m.resolutionName({ resolution: r })}</ChakraMenu.Item>
                         ))}
                     </ChakraMenu.Content>
                 </ChakraMenu.Positioner>

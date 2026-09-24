@@ -17,7 +17,7 @@
 import { Box, chakra, useRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCircleXmark, faTriangleExclamation } from "@fortawesome/free-solid-svg-icons";
-import { formatDerived } from "../format.js";
+import { usePlanWords } from "../words.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
@@ -54,6 +54,7 @@ export function hasDiagnostics(d: PlanDiagnostics | undefined): d is PlanDiagnos
  */
 export function PlanDiagnosticChips({ diagnostics, styles }: { diagnostics: PlanDiagnostics; styles: Styles }) {
     const chip = useRecipe({ key: "chip" });
+    const words = usePlanWords();
     const base = chip({ size: "sm" });
     const { skipped, onSeekSkipped, sourceError, searchError, truncatedAt } = diagnostics;
     const glyph = (tone: "warning" | "danger") => (
@@ -61,14 +62,15 @@ export function PlanDiagnosticChips({ diagnostics, styles }: { diagnostics: Plan
             <FontAwesomeIcon icon={tone === "danger" ? faCircleXmark : faTriangleExclamation} />
         </Box>
     );
-    const skippedText = `${formatDerived(skipped)} row${skipped === 1 ? "" : "s"} skipped`;
+    const skippedCount = { n: skipped, count: words.number(skipped) };
+    const skippedText = words.m.rowsSkipped(skippedCount);
     return (
         <Box css={styles.diagnostics} data-slot="planDiagnostics">
             {/* The rows chip is a button only when it can take you there. */}
             {skipped > 0 && onSeekSkipped !== undefined && (
                 <chakra.button type="button" css={[base, styles.diagnosticChip]}
                     data-plan-diagnostics="rows" data-count={skipped}
-                    aria-label={`${skippedText} — show the first`}
+                    aria-label={words.m.rowsSkippedSeek(skippedCount)}
                     onClick={onSeekSkipped}>
                     {glyph("warning")}
                     <Box as="span">{skippedText}</Box>
@@ -83,19 +85,19 @@ export function PlanDiagnosticChips({ diagnostics, styles }: { diagnostics: Plan
             {sourceError !== undefined && (
                 <Box as="span" css={[base, styles.diagnosticChip]} data-plan-diagnostics="source" role="status">
                     {glyph("danger")}
-                    <Box as="span">{`source unavailable — ${sourceError}`}</Box>
+                    <Box as="span">{words.m.sourceUnavailable({ reason: sourceError })}</Box>
                 </Box>
             )}
             {searchError !== undefined && (
                 <Box as="span" css={[base, styles.diagnosticChip]} data-plan-diagnostics="search" role="status">
                     {glyph("danger")}
-                    <Box as="span">{`search failed — ${searchError}`}</Box>
+                    <Box as="span">{words.m.searchFailed({ reason: searchError })}</Box>
                 </Box>
             )}
             {truncatedAt !== undefined && (
                 <Box as="span" css={[base, styles.diagnosticChip]} data-plan-diagnostics="truncated" role="status">
                     {glyph("warning")}
-                    <Box as="span">{`showing the first ${formatDerived(truncatedAt)} buckets — zoom in`}</Box>
+                    <Box as="span">{words.m.truncated({ n: truncatedAt, count: words.number(truncatedAt) })}</Box>
                 </Box>
             )}
         </Box>

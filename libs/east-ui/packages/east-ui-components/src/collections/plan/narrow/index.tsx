@@ -74,8 +74,9 @@ import {
     rowHeight,
     type PlanDerived, type PlanRowIndex, type PlanRowValue, type PlanWindowFailure,
 } from "../model.js";
-import { formatDerived, membersMeta } from "../format.js";
 import { appendAll } from "../reductions.js";
+import { statusText } from "../a11y.js";
+import { usePlanWords } from "../words.js";
 import type { RowKey } from "../plan-state.js";
 import type { PlanUiView } from "../root/view.js";
 import { feedTwoFingerPan, newTwoFingerPan } from "./pan.js";
@@ -163,6 +164,10 @@ export function PlanNarrow({
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
     const geometry = usePlanGeometry();
+    const words = usePlanWords();
+    // A member count as a group's meta (#820) — `~` over a paged prefix.
+    const membersMeta = (count: number, over: boolean) =>
+        words.m.groupMeta({ n: count, count: words.number(count), partial: over });
     // The selection is read HERE, not passed down: a tap re-renders the list,
     // and each card's memo lets through only the two whose selection moved.
     const selected = usePlanSelector(selectSelected);
@@ -231,7 +236,7 @@ export function PlanNarrow({
                     scope: root.key,
                     label: root.gutter.label,
                     meta: root.gutter.meta.type === "some" ? root.gutter.meta.value
-                        : (members !== undefined && members > 0 ? membersMeta(members, partial) : undefined),
+                        : (members !== undefined && members > 0 ? membersMeta(members, partial === true) : undefined),
                     value: root.gutter.value.type === "some" ? root.gutter.value.value : undefined,
                     tone: root.status.type === "some" ? root.status.value.type : undefined,
                 },
@@ -239,10 +244,15 @@ export function PlanNarrow({
             });
         }
         if (other.length > 0) {
-            out.push({ key: "other", header: { scope: OTHER_SCOPE, label: "Other rows", meta: membersMeta(other.length, undefined), value: undefined, tone: undefined }, rows: other });
+            out.push({
+                key: "other",
+                header: { scope: OTHER_SCOPE, label: words.m.otherRows(), meta: membersMeta(other.length, false), value: undefined, tone: undefined },
+                rows: other,
+            });
         }
         return out;
-    }, [scope, index, ungrouped, hasGroups, derived, partial]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- `membersMeta` reads only `words`, which is a dependency
+    }, [scope, index, ungrouped, hasGroups, derived, partial, words]);
 
     // ── Two-finger pan (§10) — one whole period per period width crossed ──
     const listRef = useRef<HTMLDivElement | null>(null);
@@ -309,7 +319,7 @@ export function PlanNarrow({
                 data-plan-more="source" data-plan-elements={bandElements(tail)}
                 aria-busy={paging.loading ? "true" : undefined}
                 onClick={() => { revealMore(key); paging.onLoadMore(); }}>
-                {bandCaption(tail, paging.loading)}
+                {bandCaption(tail, paging.loading, words)}
             </Box>
         );
     };
@@ -325,7 +335,7 @@ export function PlanNarrow({
                     const members = derived.groupMembers.get(row.key);
                     const meta = row.gutter.meta.type === "some"
                         ? row.gutter.meta.value
-                        : (members !== undefined && members > 0 ? membersMeta(members, partial) : undefined);
+                        : (members !== undefined && members > 0 ? membersMeta(members, partial === true) : undefined);
                     const value = row.gutter.value.type === "some" ? row.gutter.value.value : undefined;
                     const statusTone = row.status.type === "some" ? row.status.value.type : undefined;
                     return (
@@ -335,7 +345,8 @@ export function PlanNarrow({
                                 <Box css={styles.narrowCardTitle} data-group="">{row.gutter.label}</Box>
                                 {meta !== undefined && <Box as="span" css={styles.gutterMeta}>{meta}</Box>}
                                 <Box display="flex" alignItems="center" gap="6px" marginLeft="auto" flexShrink={0}>
-                                    {statusTone !== undefined && <Box as="span" css={styles.statusDot} data-tone={statusTone} />}
+                                    {statusTone !== undefined && <Box as="span" css={styles.statusDot} data-tone={statusTone}
+                                        role="img" aria-label={statusText(statusTone, words)} />}
                                     {value !== undefined && <Box as="span" css={styles.gutterValue}>{value}</Box>}
                                 </Box>
                             </Box>
@@ -345,7 +356,7 @@ export function PlanNarrow({
                                     {derived.diagnostics.has(row.key) ? (
                                         <RowDiagnostic diagnostic={derived.diagnostics.get(row.key)!} styles={styles} />
                                     ) : (
-                                        <PlanPartBoundary part={`group ${row.gutter.label}`} resetKey={arm} styles={styles}>
+                                        <PlanPartBoundary part={{ kind: "group", label: row.gutter.label }} resetKey={arm} styles={styles}>
                                             <HeatCells rowKey={row.key} cells={arm} styles={styles} onCellClick={() => openGroup(row.key)} />
                                         </PlanPartBoundary>
                                     )}
@@ -355,14 +366,16 @@ export function PlanNarrow({
                         </Box>
                     );
                 })}
-                {hidden.length > 0 ? more("groups",
-                    `${formatDerived(hidden.length)} more group${hidden.length > 1 ? "s" : ""}${hiddenRs > 0 ? ` · ${membersMeta(hiddenRs, undefined)}` : ""}`)
-                    : loadMore("groups")}
+                {hidden.length > 0 ? more("groups", words.m.moreGroups({
+                    n: hidden.length,
+                    count: words.number(hidden.length),
+                    members: hiddenRs > 0 ? membersMeta(hiddenRs, false) : undefined,
+                })) : loadMore("groups")}
                 {ungrouped.length > 0 && (
                     <Box css={styles.narrowCard} data-plan-groupcard="other" onClick={() => openGroup(OTHER_SCOPE)}>
                         <Box css={styles.narrowCardHead}>
-                            <Box css={styles.narrowCardTitle} data-group="">Other rows</Box>
-                            <Box as="span" css={styles.gutterMeta}>{membersMeta(ungrouped.length, undefined)}</Box>
+                            <Box css={styles.narrowCardTitle} data-group="">{words.m.otherRows()}</Box>
+                            <Box as="span" css={styles.gutterMeta}>{membersMeta(ungrouped.length, false)}</Box>
                         </Box>
                     </Box>
                 )}
@@ -388,7 +401,8 @@ export function PlanNarrow({
                         <Box css={styles.narrowSectionTitle}>{h.label}</Box>
                         {h.meta !== undefined && <Box as="span" css={styles.gutterMeta}>{h.meta}</Box>}
                         <Box display="flex" alignItems="center" gap="6px" marginLeft="auto" flexShrink={0}>
-                            {h.tone !== undefined && <Box as="span" css={styles.statusDot} data-tone={h.tone} />}
+                            {h.tone !== undefined && <Box as="span" css={styles.statusDot} data-tone={h.tone}
+                                role="img" aria-label={statusText(h.tone, words)} />}
                             {h.value !== undefined && <Box as="span" css={styles.gutterValue}>{h.value}</Box>}
                             <Box as="span" css={styles.narrowSectionGo} aria-hidden>{"›"}</Box>
                         </Box>
@@ -405,18 +419,18 @@ export function PlanNarrow({
                         {hasGroups && (
                             <Box as="button" css={styles.narrowBack} data-plan-back=""
                                 onClick={() => { setScope(null); setTab(groupsIndex ? "groups" : "rows"); }}>
-                                {groupsIndex ? "← Groups" : "← All rows"}
+                                {groupsIndex ? words.m.backToGroups() : words.m.backToAllRows()}
                             </Box>
                         )}
-                        <Box css={styles.narrowScopeTitle}>{scopeGroup !== undefined ? scopeGroup.gutter.label : "Other rows"}</Box>
+                        <Box css={styles.narrowScopeTitle}>{scopeGroup !== undefined ? scopeGroup.gutter.label : words.m.otherRows()}</Box>
                         <Box css={styles.narrowScopeMeta}>
-                            {[members !== undefined && members > 0 ? membersMeta(members, undefined) : undefined, scopeValue].filter(Boolean).join(" · ")}
+                            {[members !== undefined && members > 0 ? membersMeta(members, false) : undefined, scopeValue].filter(Boolean).join(" · ")}
                         </Box>
                     </Box>
                 )}
-                {total === 0 && <Box css={styles.narrowEmpty}>No rows</Box>}
+                {total === 0 && <Box css={styles.narrowEmpty}>{words.m.noRows()}</Box>}
                 {body}
-                {rest > 0 ? more("rows", `${formatDerived(rest)} more row${rest > 1 ? "s" : ""}`) : loadMore("rows")}
+                {rest > 0 ? more("rows", words.m.moreRows({ n: rest, count: words.number(rest) })) : loadMore("rows")}
             </>
         );
     } else {
@@ -425,7 +439,7 @@ export function PlanNarrow({
         list = (
             <>
                 {shown.map((row) => renderRowCard(row, true))}
-                {rest > 0 ? more("measures", `${formatDerived(rest)} more measure${rest > 1 ? "s" : ""}`) : loadMore("measures")}
+                {rest > 0 ? more("measures", words.m.moreMeasures({ n: rest, count: words.number(rest) })) : loadMore("measures")}
             </>
         );
     }
@@ -438,9 +452,9 @@ export function PlanNarrow({
     // prefix marks them `~`.
     const rowCount = allDataRows(index).length;
     const tabs: Array<{ key: NarrowTab; label: string; count: number }> = [
-        ...(hasGroups ? [{ key: "groups" as const, label: "Groups", count: rootGroups.length }] : []),
-        { key: "rows" as const, label: "Rows", count: rowCount },
-        ...(hasMeasures ? [{ key: "measures" as const, label: "Measures", count: chartRows.length }] : []),
+        ...(hasGroups ? [{ key: "groups" as const, label: words.m.tabGroups(), count: rootGroups.length }] : []),
+        { key: "rows" as const, label: words.m.tabRows(), count: rowCount },
+        ...(hasMeasures ? [{ key: "measures" as const, label: words.m.tabMeasures(), count: chartRows.length }] : []),
     ];
 
     // The narrow list has no virtualizer to scroll, so the rows chip states
@@ -467,7 +481,9 @@ export function PlanNarrow({
                         <Tabs.Trigger key={t.key} value={t.key} data-plan-tab={t.key}>
                             {t.label}
                             <Box as="span" css={styles.narrowTabCount} data-plan-tabcount={t.count}>
-                                {`${partial === true && t.key !== "groups" ? "~" : ""}${formatDerived(t.count)}`}
+                                {words.m.tabCount({
+                                    n: t.count, count: words.number(t.count), partial: partial === true && t.key !== "groups",
+                                })}
                             </Box>
                         </Tabs.Trigger>
                     ))}
@@ -485,10 +501,10 @@ export function PlanNarrow({
                         {(failures ?? []).map((f) => (
                             <Box key={`failed-${f.w}`} css={styles.narrowCard} data-plan-failed={f.w} role="alert">
                                 <Box css={styles.narrowCardHead}>
-                                    <Box css={styles.partError}>{failureCaption(f)}</Box>
+                                    <Box css={styles.partError}>{failureCaption(f, words)}</Box>
                                     <Box as="button" css={styles.windowRetry} data-plan-retry={f.w}
                                         onClick={(e: React.MouseEvent) => { e.stopPropagation(); onRetry?.(f.w); }}>
-                                        Retry
+                                        {words.m.retry()}
                                     </Box>
                                 </Box>
                             </Box>

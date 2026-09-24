@@ -24,8 +24,8 @@ import { HeatCells } from "./HeatRow.js";
 import { GridSeparators, INDENT_PX } from "./RowShell.js";
 import { PlanPartBoundary } from "./PartBoundary.js";
 import { RowDiagnostic } from "./RowDiagnostic.js";
-import { membersMeta } from "../format.js";
 import { statusText } from "../a11y.js";
+import { usePlanWords } from "../words.js";
 import { rowItemKey, type HeatScale, type PlanRowDiagnostic, type PlanRowValue } from "../model.js";
 import type { PlanGridRow } from "../root/grid.js";
 
@@ -63,9 +63,9 @@ export interface GroupRowProps {
     /** The scale those cells inherit from the members (see `model.ts`). */
     summaryScale?: HeatScale | undefined;
     /** Renderer-derived direct-member count — printed as the `"8 rs"` meta
-     *  ({@link membersMeta}) when the IR declares none (#568: the count is an
-     *  aggregate like any other, so it is derived here rather than baked into
-     *  the row). */
+     *  (the `groupMeta` message, #820) when the IR declares none (#568: the
+     *  count is an aggregate like any other, so it is derived here rather than
+     *  baked into the row). */
     memberCount?: number | undefined;
     /** Whether the derived numbers cover an INCOMPLETE prefix (a paged canvas
      *  still loading) — the count prints `~8 rs` and the band carries
@@ -84,10 +84,13 @@ export interface GroupRowProps {
 export function GroupRow({ row, kind, styles, gridTemplate, height, depth, collapsed, summaryCells, summaryScale, memberCount, partial, diagnostic, grid }: GroupRowProps) {
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
+    const words = usePlanWords();
     // A declared meta line wins; otherwise the derived member count stands in.
     const meta = row.gutter.meta.type === "some"
         ? row.gutter.meta.value
-        : (memberCount !== undefined && memberCount > 0 ? membersMeta(memberCount, partial) : undefined);
+        : (memberCount !== undefined && memberCount > 0
+            ? words.m.groupMeta({ n: memberCount, count: words.number(memberCount), partial: partial === true })
+            : undefined);
     const value = row.gutter.value.type === "some" ? row.gutter.value.value : undefined;
     const statusTone = row.status.type === "some" ? row.status.value.type : undefined;
     const summary = collapsed && diagnostic === undefined
@@ -127,7 +130,7 @@ export function GroupRow({ row, kind, styles, gridTemplate, height, depth, colla
                     <Box css={styles.gutterRight}>
                         {meta !== undefined && <Box as="span" css={styles.groupMeta}>{meta}</Box>}
                         {statusTone !== undefined && <Box as="span" css={styles.statusDot} data-tone={statusTone}
-                            role="img" aria-label={statusText(statusTone)} />}
+                            role="img" aria-label={statusText(statusTone, words)} />}
                         {value !== undefined && <Box as="span" css={styles.gutterValue}>{value}</Box>}
                     </Box>
                 )}
@@ -135,7 +138,7 @@ export function GroupRow({ row, kind, styles, gridTemplate, height, depth, colla
             <Box css={styles.plot} role="gridcell">
                 {diagnostic !== undefined && <RowDiagnostic diagnostic={diagnostic} styles={styles} />}
                 {summary !== undefined && (
-                    <PlanPartBoundary part={`group ${row.gutter.label}`} resetKey={summary} styles={styles}>
+                    <PlanPartBoundary part={{ kind: "group", label: row.gutter.label }} resetKey={summary} styles={styles}>
                         <GridSeparators styles={styles} />
                         {/* The strip's cells are part of the BAND: clicking
                             them toggles the group like the rest of it, rather

@@ -61,6 +61,7 @@ import { createPagingDriver, type PlanPagingSnapshot } from "./paging.js";
 import { CANVAS_KEY_TYPE, createSeekDriver, firstAtOrAfter, type PlanSeekSnapshot } from "./seek.js";
 import { currentScale, runPlanEffects } from "./effects.js";
 import { announcementOf, landedText } from "../a11y.js";
+import { PLAN_WORDS, type PlanWords } from "../words.js";
 
 /** A resolved overlay body (a resolver's some-value). */
 export type PlanOverlayBody = Extract<ReturnType<PlanElementResolver>, { type: "some" }>["value"];
@@ -174,6 +175,10 @@ export interface PlanController {
     /** Props sync — the latest root, and its data-stable twin (a new `data`
      *  identity is a data change: the UI state reconciles). */
     setValue(value: PlanRootValue, data: PlanRootValue): void;
+    /** The canvas's words (#820) — the message table and locale its live
+     *  region speaks in. The canvas root hands them over whenever either
+     *  changes; English in `en-US` until then. */
+    setWords(words: PlanWords): void;
     /** An interaction — the transition, then its effects. */
     dispatch(e: PlanEvent): void;
     /** An element click — routed to the root's callback for its kind. */
@@ -317,6 +322,7 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
     let nav = NO_NAV;
     let navSeq = 0;
     let announce: PlanAnnouncement | null = null;
+    let words: PlanWords = PLAN_WORDS;
     // What storage holds — compared before every write, so nothing is written
     // that is already there.
     let persisted = restored;
@@ -342,7 +348,7 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
             store = planStoreReducer(store, { t: "seed", declaredCollapsed: declaredCollapsedOf(landed.rows) }).store;
             // What landed, for the live region (#819) — in the same
             // notification too, so a landing is still one commit.
-            say(landedText(snapshot.paging.resident, landed.resident, landed.total));
+            say(landedText(snapshot.paging.resident, landed.resident, landed.total, words));
         }),
     });
     const seek = createSeekDriver({
@@ -496,6 +502,10 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
                 }
             });
         },
+        setWords(next) {
+            // Nothing on screen reads them from here — only what is said next.
+            words = next;
+        },
         dispatch(e) {
             batch(() => {
                 const before = store.ui;
@@ -509,10 +519,10 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
                 // What the interaction changed, for the live region (#819) —
                 // said by the action that did it, so a reconcile or a landing
                 // that moves the same state says nothing.
-                say(announcementOf(e, before, store.ui, labelOf));
+                say(announcementOf(e, before, store.ui, labelOf, words));
                 if (e.t === "resolution.set" && value !== undefined) {
                     const after = currentScale(value, rows())?.resolution;
-                    if (after !== undefined && after !== resolutionBefore) say(`Resolution: ${after}`);
+                    if (after !== undefined && after !== resolutionBefore) say(words.m.announceResolution({ resolution: after }));
                 }
             });
         },

@@ -35,6 +35,7 @@ import type { PlanBucket } from "../scale.js";
 import type { PlanInstantValue } from "../instant.js";
 import { appendAll } from "../reductions.js";
 import { tileName } from "../a11y.js";
+import { usePlanWords } from "../words.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 type BucketsKindValue = Extract<ValueTypeOf<typeof Plan.Types.Row>["kind"], { type: "buckets" }>["value"];
@@ -73,6 +74,7 @@ function EventChip({ ev, styles, rowKey, ctx, bucket, lane }: {
     const { onElementClick } = usePlanResolvers();
     const system = useChakraContext();
     const scale = usePlanScale();
+    const words = usePlanWords();
     const ref = variant("event", { row: rowKey, event: ev.key }) as PlanElementRefValue;
     const label = ev.label.type === "some" ? ev.label.value : undefined;
     const icon = ev.icon.type === "some" ? ev.icon.value : undefined;
@@ -91,7 +93,7 @@ function EventChip({ ev, styles, rowKey, ctx, bucket, lane }: {
             // walk reaches it (#819).
             tabIndex={-1}
             role="button"
-            aria-label={tileName(ev, bucket, lane, scale)}
+            aria-label={tileName(ev, bucket, lane, scale, words)}
             data-ctx={ctx === true ? "" : undefined}
             data-state={stateKey}
             data-tone={ev.tone.type === "some" ? ev.tone.value.type : undefined}
@@ -114,7 +116,7 @@ function EventChip({ ev, styles, rowKey, ctx, bucket, lane }: {
             {icon !== undefined && <FontAwesomeIcon icon={[icon.prefix as IconPrefix, icon.name as IconName]} />}
             {label !== undefined ? <Box as="span" css={styles.tileLabel}>{label}</Box>
                 : icon !== undefined ? null
-                : stateKey === "prop" ? (<><FontAwesomeIcon icon={faGripVertical} />plan</>)
+                : stateKey === "prop" ? (<><FontAwesomeIcon icon={faGripVertical} />{words.m.planChip()}</>)
                 : <FontAwesomeIcon icon={faCheck} />}
         </Box>
     );

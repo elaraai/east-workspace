@@ -20,6 +20,7 @@ import { Plan } from "@elaraai/east-ui/internal";
 import { usePlanDispatch, usePlanResolvers, usePlanScale, type PlanElementRefValue } from "../context.js";
 import { runStateKey } from "./SpanRow.js";
 import { chipName } from "../a11y.js";
+import { usePlanWords } from "../words.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 type CardsKindValue = Extract<ValueTypeOf<typeof Plan.Types.Row>["kind"], { type: "cards" }>["value"];
@@ -38,6 +39,7 @@ export function CardsRow({ rowKey, kind, styles, ctx }: CardsRowProps) {
     const ctxAttr = ctx === true ? "" : undefined;
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
+    const words = usePlanWords();
     const { onElementClick } = usePlanResolvers();
     return (
         <>
@@ -65,7 +67,7 @@ export function CardsRow({ rowKey, kind, styles, ctx }: CardsRowProps) {
                         // row's Tab walk reaches it (#819).
                         tabIndex={-1}
                         role="button"
-                        aria-label={chipName(chip, scale)}
+                        aria-label={chipName(chip, scale, words)}
                         data-plan-frac={left.toFixed(4)}
                         data-state={runStateKey(chip.state)}
                         left={`calc(${left * 100}% + 2px)`}

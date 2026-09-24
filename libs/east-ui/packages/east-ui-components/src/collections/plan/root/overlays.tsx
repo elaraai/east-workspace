@@ -343,7 +343,7 @@ export function PlanOverlays({ anchors, styles, storageKey }: {
                         <Popover.Positioner>
                             <Popover.Content css={styles.elementOverlay} data-plan-overlay="popover">
                                 <Popover.Body padding={0}>
-                                    <PlanPartBoundary part="popover" resetKey={popover.body} styles={styles}>
+                                    <PlanPartBoundary part={{ kind: "popover" }} resetKey={popover.body} styles={styles}>
                                         <EastChakraComponent value={popover.body} storageKey={`${storageKey}.popover`} />
                                     </PlanPartBoundary>
                                 </Popover.Body>
@@ -365,7 +365,7 @@ export function PlanOverlays({ anchors, styles, storageKey }: {
                             <HoverCard.Content css={styles.elementOverlay} data-plan-overlay="hover"
                                 // The pointer made it into the card: keep it.
                                 onPointerEnter={() => clearTimeout(anchors.hoverClose)}>
-                                <PlanPartBoundary part="hover card" resetKey={hover.body} styles={styles}>
+                                <PlanPartBoundary part={{ kind: "hoverCard" }} resetKey={hover.body} styles={styles}>
                                     <EastChakraComponent value={hover.body} storageKey={`${storageKey}.hover`} />
                                 </PlanPartBoundary>
                             </HoverCard.Content>

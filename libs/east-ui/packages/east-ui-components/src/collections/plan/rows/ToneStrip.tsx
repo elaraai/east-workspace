@@ -30,14 +30,13 @@ import { Box, VisuallyHidden } from "@chakra-ui/react";
 import { usePlanScale } from "../context.js";
 import type { PlanInstantValue } from "../instant.js";
 import { maxOf, minOf } from "../reductions.js";
-import { formatDerived } from "../format.js";
 import { cellName } from "../a11y.js";
+import { usePlanWords, type PlanWords } from "../words.js";
 
 /** A tone block's value in words — the number, what its tone adds, or no data. */
-function toneWords(d: ToneDatum): string {
-    if (d.value === undefined) return "no data";
-    const n = formatDerived(d.value);
-    return d.tone === "warn" ? `${n}, beyond threshold` : n;
+function toneWords(d: ToneDatum, w: PlanWords): string {
+    if (d.value === undefined) return w.m.noData();
+    return w.m.toneValue({ value: w.number(d.value), warn: d.tone === "warn" });
 }
 
 type Styles = Record<string, Record<string, unknown>>;
@@ -76,6 +75,7 @@ export interface ToneStripProps {
  */
 export function ToneStrip({ data, styles }: ToneStripProps) {
     const scale = usePlanScale();
+    const words = usePlanWords();
     const nums = data.filter((d) => d.value !== undefined).map((d) => d.value as number);
     const min = nums.length > 0 ? minOf(nums) : 0;
     const max = nums.length > 0 ? maxOf(nums) : 0;
@@ -104,7 +104,7 @@ export function ToneStrip({ data, styles }: ToneStripProps) {
                             ? `color-mix(in srgb, var(--chakra-colors-brand-600) ${Math.round(depth * 100)}%, transparent)`
                             : undefined}
                     >
-                        <VisuallyHidden>{cellName(scale, b, toneWords(d))}</VisuallyHidden>
+                        <VisuallyHidden>{cellName(scale, b, toneWords(d, words), words)}</VisuallyHidden>
                     </Box>
                 );
             })}

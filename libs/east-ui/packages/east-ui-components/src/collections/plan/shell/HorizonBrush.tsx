@@ -29,18 +29,22 @@ import { useSliceReactivity } from "../../../slice/use-slice-reactivity.js";
 import { usePlanDispatch, usePlanGeometry, usePlanScale } from "../context.js";
 import { rangeArmOf, rangeOf } from "../axis.js";
 import type { PlanInstantValue } from "../instant.js";
+import type { PlanResolution } from "../scale.js";
+import type { PlanHorizonUnit } from "../messages.js";
+import { usePlanWords } from "../words.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 type SliceBindValue = ValueTypeOf<typeof Slice.Types.Bind>;
 
-/** Time resolution → the caption unit + its span in ms (for `HORIZON · 26 WK`). */
-const CAPTION_UNIT: Record<string, { label: string; ms: number }> = {
-    hour: { label: "HR", ms: 3_600_000 },
-    day: { label: "D", ms: 86_400_000 },
-    week: { label: "WK", ms: 7 * 86_400_000 },
-    month: { label: "MO", ms: 30 * 86_400_000 },
-    quarter: { label: "Q", ms: 91 * 86_400_000 },
-    year: { label: "YR", ms: 365 * 86_400_000 },
+/** A time resolution's span in ms — what the caption counts the horizon in
+ *  (`HORIZON · 26 WK`; the words are the message table's, #820). */
+const UNIT_MS: Record<PlanResolution, number> = {
+    hour: 3_600_000,
+    day: 86_400_000,
+    week: 7 * 86_400_000,
+    month: 30 * 86_400_000,
+    quarter: 91 * 86_400_000,
+    year: 365 * 86_400_000,
 };
 
 export interface HorizonBrushProps {
@@ -55,6 +59,7 @@ export interface HorizonBrushProps {
 export function HorizonBrush({ styles, gridTemplate, slice, now }: HorizonBrushProps) {
     const dispatch = usePlanDispatch();
     const geometry = usePlanGeometry();
+    const words = usePlanWords();
     // The scale IS the applied window (slice range ▸ axis ▸ fit), on its
     // own numeric domain — epoch ms, or the value on a number axis.
     const scale = usePlanScale();
@@ -130,10 +135,9 @@ export function HorizonBrush({ styles, gridTemplate, slice, now }: HorizonBrushP
     // The caption spans the DOMAIN (the whole brushable horizon), not the
     // applied window — `HORIZON · 26 WK` over a 12-week window; on a number
     // axis the count is in steps.
-    const unit = scale.kind === "time" ? (CAPTION_UNIT[scale.resolution ?? "week"] ?? CAPTION_UNIT.week!) : undefined;
-    const caption = unit !== undefined
-        ? `HORIZON · ${Math.max(1, Math.round(span / unit.ms))} ${unit.label}`
-        : `HORIZON · ${Math.max(1, Math.round(span / periodN))} STEPS`;
+    const unit: PlanHorizonUnit = scale.kind === "time" ? (scale.resolution ?? "week") : "step";
+    const periods = Math.max(1, Math.round(span / (unit === "step" ? periodN : UNIT_MS[unit])));
+    const caption = words.m.horizon({ n: periods, count: words.number(periods), unit });
     // Every write speaks the slice field's arm (#631): `datetime` on a time
     // axis; `float` / `integer` per the field on a number axis — an Integer
     // field needs bigint bounds or the range is inert (#167).

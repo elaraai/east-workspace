@@ -190,27 +190,40 @@ export function formatDatePattern(pattern: string, d: Date): string {
     return formatDateTime(d, tokens);
 }
 
-/** Build a tick formatter for an axis from its optional {@link TickFormat} + scale kind. Shared with the `Slice.Rail` brush axis (#190). */
-export function tickFormatter(fmt: TickFormat | undefined, kind: ScaleKind): (v: unknown) => string {
+/**
+ * Build a tick formatter for an axis from its optional {@link TickFormat} +
+ * scale kind. Shared with the `Slice.Rail` brush axis (#190).
+ *
+ * @param fmt - The axis's declared format, when it has one
+ * @param kind - The axis's scale kind
+ * @param locale - The BCP 47 locale numbers and default dates format in; the
+ *   runtime's default when omitted (a Plan passes its canvas locale, #820)
+ * @returns The formatter
+ */
+export function tickFormatter(fmt: TickFormat | undefined, kind: ScaleKind, locale?: string): (v: unknown) => string {
     if (fmt === undefined) {
-        if (kind === "time") return v => (v instanceof Date ? v.toLocaleDateString() : String(v));
+        if (kind === "time") return v => (v instanceof Date ? v.toLocaleDateString(locale) : String(v));
         if (kind === "band") return v => String(v);
-        return v => new Intl.NumberFormat().format(Number(v));
+        const nf = new Intl.NumberFormat(locale);
+        return v => nf.format(Number(v));
     }
     return match(fmt, {
-        number: () => (v: unknown) => new Intl.NumberFormat().format(Number(v)),
+        number: () => {
+            const nf = new Intl.NumberFormat(locale);
+            return (v: unknown) => nf.format(Number(v));
+        },
         currency: c => {
             const opts: Intl.NumberFormatOptions = { style: "currency", currency: c.code || "USD" };
             if (c.compact) { opts.notation = "compact"; opts.maximumFractionDigits = 1; }
-            const nf = new Intl.NumberFormat(undefined, opts);
+            const nf = new Intl.NumberFormat(locale, opts);
             return (v: unknown) => nf.format(Number(v));
         },
         percent: () => {
-            const nf = new Intl.NumberFormat(undefined, { style: "percent", maximumFractionDigits: 0 });
+            const nf = new Intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: 0 });
             return (v: unknown) => nf.format(Number(v));
         },
         compact: () => {
-            const nf = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
+            const nf = new Intl.NumberFormat(locale, { notation: "compact", maximumFractionDigits: 1 });
             return (v: unknown) => nf.format(Number(v));
         },
         date: p => (v: unknown) => formatDatePattern(p, v instanceof Date ? v : new Date(String(v))),

@@ -14,9 +14,11 @@ import { none, some, variant } from "@elaraai/east";
 import { numberInstant } from "../instant.js";
 import { planScale, type PlanScale } from "../scale.js";
 import {
-    breached, chartDomains, drawnPoints, layoutColumns, readoutTable, splitAtNow, valueScale,
+    axisFormatter, breached, chartDomains, drawnPoints, layoutColumns, readoutTable, splitAtNow, valueScale,
     type ChartKindValue, type ChartLayerValue,
 } from "./chart-geometry.js";
+import { planMessages } from "../messages.js";
+import { PLAN_WORDS, planWords } from "../words.js";
 
 /** A number axis `[0, n)` at step 1 — `n` buckets, two overscan buckets each side. */
 const axis = (n: number): PlanScale => planScale({ kind: "number", window: { min: 0, max: n }, step: 1 })!;
@@ -197,7 +199,7 @@ describe("the crosshair's reading per bucket (#743)", () => {
             variant("refLine", { y: 10, axis: variant("left", null), label: none }) as ChartLayerValue,
             variant("band", { points: [{ t: numberInstant(1.5), lo: 1, hi: 2.5 }], axis: variant("left", null) }) as ChartLayerValue,
         ]);
-        const table = readoutTable(kind, scale);
+        const table = readoutTable(kind, scale, PLAN_WORDS);
         // One text per DATA layer (the reference line reads nothing).
         expect(table.get(0)).toEqual(["4", "12", "—"]);
         expect(table.get(1)).toEqual(["5", "—", "1–2.5"]);
@@ -211,6 +213,23 @@ describe("the crosshair's reading per bucket (#743)", () => {
         const kind = chart([line([{ t: 0.5, y: 0.25 }])], {
             left: some({ domain: none, tickValues: none, format: some(variant("percent", null)) }),
         });
-        expect(readoutTable(kind, scale).get(0)).toEqual(["25%"]);
+        expect(readoutTable(kind, scale, PLAN_WORDS).get(0)).toEqual(["25%"]);
+    });
+
+    test("values speak the canvas's locale — an undeclared axis's terse numbers and a declared format alike (#820)", () => {
+        const de = planWords("de-DE", planMessages);
+        const scale = axis(2);
+        const kind = chart([
+            line([{ t: 0.5, y: 2.5 }, { t: 1.5, y: 1234 }]),
+            variant("band", { points: [{ t: numberInstant(0.5), lo: 1.5, hi: 2.25 }], axis: variant("left", null) }) as ChartLayerValue,
+        ]);
+        const table = readoutTable(kind, scale, de);
+        // One decimal, never grouped — `2,5`, `1234`; a band's range is the table's.
+        expect(table.get(0)).toEqual(["2,5", "1,5–2,3"]);
+        expect(table.get(1)).toEqual(["1234", "—"]);
+        const pct = axisFormatter({ domain: none, tickValues: none, format: some(variant("percent", null)) } as never, "de-DE");
+        expect(pct(0.25)).toMatch(/^25\s%$/u);
+        // A negative zero prints as zero, as the bare `String` default did.
+        expect(axisFormatter(undefined, "en-US")(-0)).toBe("0");
     });
 });

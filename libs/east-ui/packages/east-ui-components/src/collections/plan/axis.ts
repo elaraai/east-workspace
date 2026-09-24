@@ -21,6 +21,7 @@ import { getSomeorUndefined } from "../../utils.js";
 import { effectiveResolution, planScale, resolutionInterval, type PlanResolution, type PlanScale } from "./scale.js";
 import type { PlanAxisKind, PlanInstantValue } from "./instant.js";
 import { dataExtent, type PlanRowValue } from "./model.js";
+import type { PlanWords } from "./words.js";
 
 /** The decoded axis declaration — `{ time | number | ordinal }`. */
 export type PlanAxisValue = ValueTypeOf<typeof Plan.Types.Axis>;
@@ -164,6 +165,8 @@ export interface ResolveScaleArgs {
     rows: ReadonlyArray<PlanRowValue>;
     /** Whether the rows stream from a paged source — such a canvas must DECLARE its window (#567 D8). */
     paged: boolean;
+    /** The canvas's words — the locale its ruler labels format in (#820); the default English `en-US` words when omitted. */
+    words?: PlanWords | undefined;
 }
 
 /**
@@ -197,7 +200,7 @@ export function scaleReadsRows(axis: PlanAxisValue, sliceWindow: readonly [numbe
  * @param args - See {@link ResolveScaleArgs}
  * @returns The scale, or `undefined` when no window can be resolved
  */
-export function resolveScale({ axis, sliceWindow, sliceResolution, rows, paged }: ResolveScaleArgs): PlanScale | undefined {
+export function resolveScale({ axis, sliceWindow, sliceResolution, rows, paged, words }: ResolveScaleArgs): PlanScale | undefined {
     switch (axis.type) {
         case "time": {
             const a = axis.value;
@@ -221,7 +224,7 @@ export function resolveScale({ axis, sliceWindow, sliceResolution, rows, paged }
             }
             return planScale({
                 kind: "time", window, resolution: res,
-                now: getSomeorUndefined(a.now), format: getSomeorUndefined(a.format),
+                now: getSomeorUndefined(a.now), format: getSomeorUndefined(a.format), words,
             });
         }
         case "number": {
@@ -243,10 +246,10 @@ export function resolveScale({ axis, sliceWindow, sliceResolution, rows, paged }
             }
             return planScale({
                 kind: "number", window, step,
-                now: getSomeorUndefined(a.now), format: getSomeorUndefined(a.format),
+                now: getSomeorUndefined(a.now), format: getSomeorUndefined(a.format), words,
             });
         }
         case "ordinal":
-            return planScale({ kind: "ordinal", values: axis.value.values, now: getSomeorUndefined(axis.value.now) });
+            return planScale({ kind: "ordinal", values: axis.value.values, now: getSomeorUndefined(axis.value.now), words });
     }
 }

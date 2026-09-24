@@ -14,6 +14,7 @@
 
 import { Box } from "@chakra-ui/react";
 import type { PlanRowDiagnostic } from "../model.js";
+import { usePlanWords, type PlanWords } from "../words.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
@@ -21,10 +22,11 @@ type Styles = Record<string, Record<string, unknown>>;
  * The one-line reason a diagnostic row draws nothing.
  *
  * @param diagnostic - The row's diagnostic (`PlanDerived.diagnostics`)
+ * @param w - The canvas's words (#820)
  * @returns The message
  */
-export function diagnosticText(diagnostic: PlanRowDiagnostic): string {
-    return `AXIS MISMATCH — this row carries ${diagnostic.found} instants; the axis is ${diagnostic.expected}`;
+export function diagnosticText(diagnostic: PlanRowDiagnostic, w: PlanWords): string {
+    return w.m.axisMismatch({ found: diagnostic.found, expected: diagnostic.expected });
 }
 
 export interface RowDiagnosticProps {
@@ -41,10 +43,11 @@ export interface RowDiagnosticProps {
  * @returns The plot content
  */
 export function RowDiagnostic({ diagnostic, styles, ctx }: RowDiagnosticProps) {
+    const words = usePlanWords();
     return (
         <Box css={styles.rowDiagnostic} data-plan-diagnostic={diagnostic.found}
             data-ctx={ctx === true ? "" : undefined}>
-            {diagnosticText(diagnostic)}
+            {diagnosticText(diagnostic, words)}
         </Box>
     );
 }
