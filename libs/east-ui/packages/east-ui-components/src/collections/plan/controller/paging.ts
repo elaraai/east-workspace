@@ -63,6 +63,18 @@
  * landing. A `total()` that throws is the SOURCE's failure and surfaces as
  * `sourceError`; neither ever replaces the canvas.
  *
+ * # A revision change keeps the rows (#821)
+ *
+ * The rows cached for a source belong to its `revision()` — the snapshot its
+ * windows are served from. When the revision moves (the dataset was written, a
+ * `refresh` was asked for), the resident windows are read again at the new
+ * one, and until each lands the rows it had stand in: the canvas never empties
+ * between two snapshots of its data. The geometry stays too — the ledger's
+ * measured heights and its total, until the new snapshot's total says
+ * otherwise — so nothing on screen jumps. A total that moves WITH the revision
+ * is the content changing; one that moves under a single revision breaks the
+ * source's contract and is reported.
+ *
  * @packageDocumentation
  */
 
@@ -126,6 +138,9 @@ export interface PlanPagingSnapshot {
     /** Why the SOURCE could not be read — its `total()` threw. Chrome, never a
      *  canvas replacement (#811). */
     sourceError: string | undefined;
+    /** The source's revision — the snapshot of its data these rows are read
+     *  from — once it names one (#821). */
+    revision: string | undefined;
 }
 
 /** No failed windows — one shared list, so an unfailed canvas's memos hold. */
@@ -137,7 +152,7 @@ const NO_ORIGIN: ReadonlyMap<string, number> = new Map();
 export const IDLE_PAGING: PlanPagingSnapshot = {
     seq: 0, rows: NO_ROWS, origin: NO_ORIGIN, head: undefined, tail: undefined,
     total: undefined, resident: undefined, loading: false,
-    failures: NO_FAILURES, sourceError: undefined,
+    failures: NO_FAILURES, sourceError: undefined, revision: undefined,
 };
 
 /** Options for {@link createPagingDriver}. */
@@ -199,14 +214,19 @@ function readFailure(err: unknown): string {
 
 /** What one read of the demanded windows returned. */
 interface ReadOutcome {
+    /** The source's own `total()` — never the ledger's stand-in. */
     total: number | undefined;
     resident: { w: number; rows: WindowRows }[];
     loading: boolean;
     failed: { w: number; error: string }[];
     sourceError: string | undefined;
+    /** The revision the windows were read at. */
+    revision: string | undefined;
 }
 
-const NOTHING_READ: ReadOutcome = { total: undefined, resident: [], loading: false, failed: [], sourceError: undefined };
+const NOTHING_READ: ReadOutcome = {
+    total: undefined, resident: [], loading: false, failed: [], sourceError: undefined, revision: undefined,
+};
 
 /** Whether two window lists name the same windows with the same row maps. */
 function sameWindows(a: readonly { w: number; rows: WindowRows }[], b: readonly { w: number; rows: WindowRows }[]): boolean {
@@ -249,9 +269,15 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
     // raw pages), while the ledger keeps its measured heights, so nothing
     // jumps. The failure record (#811) belongs to the same source.
     let filledBy: PlanPagedSourceValue | undefined;
+    // The revision `cache` holds (#821), and the previous revision's windows,
+    // served for a window until this revision's copy lands.
+    let revision: string | undefined;
+    let stale: WindowCache | undefined;
     let cache: WindowCache = new Map();
     let failures: WindowFailures = new Map();
     let ledger: WindowLedger = createLedger(0, PLAN_PAGE_SIZE);
+    // The revision the ledger's total was learned (or last confirmed) under.
+    let ledgerRevision: string | undefined;
     let residency: Residency = NO_RESIDENCY;
     let viewportWindow = 0;
     let isScrolling = false;
@@ -272,29 +298,61 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
     // A landing fires the channel the in-flight window's read registered.
     const tracked = createTrackedRead(() => settle());
 
+    /** Start caching `next` revision's windows, keeping what the current
+     *  cache holds as the stand-in until they land. A cache that holds
+     *  nothing (a revision the source was still discovering) leaves the
+     *  stand-in the last snapshot that had rows. */
+    function rotate(next: string | undefined): void {
+        if (cache.size > 0) stale = cache;
+        cache = new Map();
+        failures = new Map();
+        revision = next;
+    }
+
     function readOnce(src: PlanPagedSourceValue): ReadOutcome {
         if (filledBy === undefined || !pagedSourceEquivalent(filledBy, src)) {
             filledBy = src;
             cache = new Map();
             failures = new Map();
+            stale = undefined;
+            revision = undefined;
         }
         const wanted = residentWindows(residency);
         const out = tracked.run((): ReadOutcome => {
-            let total: number | undefined;
+            // The snapshot first: every window below is read at it, and its
+            // channel re-fires this read when it moves. A source that cannot
+            // say which snapshot it serves has failed as a whole (#811) — its
+            // windows then say so each, where their rows would be.
+            let current = revision;
             let sourceError: string | undefined;
+            try {
+                const r = src.revision();
+                current = r.type === "some" ? r.value : undefined;
+            } catch (err) {
+                console.error("[Plan] paged source revision failed:", err);
+                sourceError = readFailure(err);
+            }
+            if (current !== revision) rotate(current);
+            let total: number | undefined;
             try {
                 const t = src.total();
                 if (t.type === "some") total = Number(t.value);
             } catch (err) {
                 console.error("[Plan] paged source total failed:", err);
-                sourceError = readFailure(err);
+                sourceError ??= readFailure(err);
             }
-            const result = readWindows(src, wanted, cache, PLAN_PAGE_SIZE, failures);
-            return { total, resident: result.resident, loading: result.loading, failed: result.failed, sourceError };
+            const result = readWindows(src, wanted, cache, PLAN_PAGE_SIZE, failures, stale);
+            // Every demanded window reads at the new revision now: the old
+            // snapshot has nothing left to stand in for.
+            if (!result.stale) stale = undefined;
+            return {
+                total, resident: result.resident, loading: result.loading, failed: result.failed, sourceError,
+                revision: current,
+            };
         });
         // `readWindows` catches every window's own failure, so a run that still
         // threw is the source's failure too — chrome, like a throwing `total()`.
-        return out.ok ? out.value : { ...NOTHING_READ, sourceError: readFailure(out.error) };
+        return out.ok ? out.value : { ...NOTHING_READ, sourceError: readFailure(out.error), revision };
     }
 
     /** Apply one read: returns whether the DEMAND moved (another read is due). */
@@ -302,20 +360,27 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
         let moved = false;
         // ── The source's size defines the geometry ────────────────────────
         if (out.total !== undefined && out.total !== ledger.total) {
-            // Same id ⇒ same rows is the source contract, so a total that MOVES
-            // under one id has violated it. The geometry rebuilds either way —
-            // and the read-once cache must go with it, or the canvas silently
-            // serves the OLD rows against the new geometry (#614). Loud, because
-            // the author's derived source is what needs fixing (sign the id).
-            if (ledger.total > 0) {
-                console.warn(`[Plan] paged source ${source !== undefined ? `"${source.id}" ` : ""}changed total() ${ledger.total} → ${out.total} under one id — same id must serve same rows; dropping cached windows.`);
+            // Same id and revision ⇒ same rows is the source contract, so a
+            // total that MOVES under one revision has violated it. The geometry
+            // rebuilds either way — and the read-once cache must go with it, or
+            // the canvas silently serves the OLD rows against the new geometry
+            // (#614). Loud, because the author's derived source is what needs
+            // fixing (sign the id). A total that moved WITH the revision is the
+            // content changing (#821): the new snapshot's rows are what the
+            // cache holds, and the viewport keeps its window.
+            if (ledger.total > 0 && ledgerRevision === out.revision) {
+                console.warn(`[Plan] paged source ${source !== undefined ? `"${source.id}" ` : ""}changed total() ${ledger.total} → ${out.total} under one id and revision — same id and revision must serve same rows; dropping cached windows.`);
                 cache = new Map();
+                stale = undefined;
                 failures = new Map();
             }
             ledger = createLedger(out.total, PLAN_PAGE_SIZE);
+            ledgerRevision = out.revision;
             residency = NO_RESIDENCY;
             return true;
         }
+        // The same total at this revision: the ledger's geometry holds for it.
+        if (out.total !== undefined) ledgerRevision = out.revision;
         // ── Landed windows teach the ledger ───────────────────────────────
         for (const { w, rows } of out.resident) {
             ledger = observeWindow(ledger, w, { px: options.heightOf([...rows.values()]), rows: rows.size });
@@ -354,6 +419,7 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
                 const keep = new Set(residentWindows(next));
                 pruneCache(cache, keep);
                 pruneCache(failures, keep);
+                if (stale !== undefined) pruneCache(stale, keep);
             }
         }
         return moved;
@@ -365,7 +431,10 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
         if (!sameWindows(merged.windows, last.resident)) {
             merged = { windows: last.resident, rows: mergeWindows(last.resident), origin: originOf(last.resident) };
         }
-        const total = last.total;
+        // Between two revisions the source knows no total until the new one's
+        // first window lands; the geometry stands meanwhile, so the bands and
+        // the scroll extent do not collapse under the reader (#821).
+        const total = last.total ?? (stale !== undefined && ledger.total > 0 ? ledger.total : undefined);
         let head: PlanBand | undefined;
         let tail: PlanBand | undefined;
         if (!isEmpty(residency) && ledger.windows > 0 && total !== undefined) {
@@ -411,10 +480,12 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
             loading: last.loading,
             failures: sameFailures(prev.failures, failed) ? prev.failures : failed,
             sourceError: last.sourceError,
+            revision: last.revision,
         };
         const changed = next.rows !== prev.rows || next.origin !== prev.origin || next.head !== prev.head
             || next.tail !== prev.tail || next.total !== prev.total || next.resident !== prev.resident
-            || next.loading !== prev.loading || next.failures !== prev.failures || next.sourceError !== prev.sourceError;
+            || next.loading !== prev.loading || next.failures !== prev.failures || next.sourceError !== prev.sourceError
+            || next.revision !== prev.revision;
         if (!changed) return;
         published += 1;
         snapshot = { ...next, seq: published };

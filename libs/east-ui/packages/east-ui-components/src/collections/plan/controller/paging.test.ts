@@ -41,6 +41,8 @@ function source(windows: number, rowsPer = 2) {
         },
         total: () => some(BigInt(windows * PLAN_PAGE_SIZE)),
         seek: none,
+        revision: () => none,
+        refresh: () => null,
     } as unknown as PlanPagedSourceValue;
     return { value, asked };
 }
@@ -231,6 +233,8 @@ describe("paging driver — pins and totals (#614)", () => {
             },
             total: () => some(total),
             seek: none,
+            revision: () => none,
+            refresh: () => null,
         } as unknown as PlanPagedSourceValue;
         const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
         try {
@@ -268,6 +272,8 @@ describe("paging driver — a pending jump owns the viewport (#812)", () => {
             },
             total: () => some(BigInt(windows * PLAN_PAGE_SIZE)),
             seek: none,
+            revision: () => none,
+            refresh: () => null,
         } as unknown as PlanPagedSourceValue;
         return { value, state };
     }
@@ -328,7 +334,7 @@ describe("paging driver — a pending jump owns the viewport (#812)", () => {
 describe("paging driver — an unreadable source", () => {
     test("reports the reason — the SOURCE's for `total()`, and window 0's own failure (#811)", () => {
         const boom = (): never => { throw new Error("no paging service"); };
-        const bad = { id: "bad", page: boom, total: boom, seek: none } as unknown as PlanPagedSourceValue;
+        const bad = { id: "bad", page: boom, total: boom, seek: none, revision: () => none, refresh: () => null } as unknown as PlanPagedSourceValue;
         const err = vi.spyOn(console, "error").mockImplementation(() => {});
         try {
             const { snap } = drive(bad);
@@ -362,6 +368,8 @@ describe("paging driver — a failed window (#811)", () => {
             },
             total: () => some(BigInt(windows * PLAN_PAGE_SIZE)),
             seek: none,
+            revision: () => none,
+            refresh: () => null,
         } as unknown as PlanPagedSourceValue;
         return { value, asked, state };
     }
@@ -467,6 +475,8 @@ describe("paging driver — a derived source whose rows change (#590)", () => {
             },
             total: () => some(BigInt(PLAN_PAGE_SIZE)),
             seek: none,
+            revision: () => none,
+            refresh: () => null,
         } as unknown as PlanPagedSourceValue;
     }
     const keys = (s: PlanPagingSnapshot) => s.rows.map((r) => r.key).join(" ");
@@ -501,5 +511,123 @@ describe("paging driver — a derived source whose rows change (#590)", () => {
         d.setSource(labelled("ops#b", "after"));
         expect(keys(snap())).toContain("after-w0");
         expect(keys(snap())).not.toContain("before-w0");
+    });
+});
+
+describe("paging driver — content revisions (#821)", () => {
+    /** A source whose content has revisions. It serves `state.revision`; a
+     *  revision's windows (and its total) are in flight until it is `open`, and
+     *  every row carries the revision that served it. */
+    function revisioned(windows: number) {
+        const state = { revision: "A", open: new Set(["A"]), total: windows * PLAN_PAGE_SIZE };
+        const value = {
+            id: "revisioned",
+            page: (offset: bigint) => {
+                const w = Number(offset) / PLAN_PAGE_SIZE;
+                if (!state.open.has(state.revision)) return none;
+                const pad = String(w).padStart(4, "0");
+                return some(new Map([`w${pad}r000`, `w${pad}r001`].map((key) =>
+                    [key, { key, parent: none, rev: state.revision } as unknown as PlanRowValue])));
+            },
+            total: () => (state.open.has(state.revision) ? some(BigInt(state.total)) : none),
+            seek: none,
+            revision: () => some(state.revision),
+            refresh: () => null,
+        } as unknown as PlanPagedSourceValue;
+        return { value, state };
+    }
+    const revisionsShown = (s: PlanPagingSnapshot) => new Set(s.rows.map((r) => (r as unknown as { rev: string }).rev));
+
+    test("a new revision keeps the old rows on screen until its own land — never an empty frame", () => {
+        const { value, state } = revisioned(50);
+        const { d, snap } = drive(value);
+        expect(snap().revision).toBe("A");
+        expect(revisionsShown(snap())).toEqual(new Set(["A"]));
+        const shown = snap().rows.length;
+        // The dataset was written: the source serves B, still in flight.
+        state.revision = "B";
+        d.refresh();
+        expect(snap().revision).toBe("B");
+        expect(snap().rows).toHaveLength(shown);
+        expect(revisionsShown(snap())).toEqual(new Set(["A"]));
+        expect(snap().loading).toBe(true);
+        // The geometry stands meanwhile: no total, band or extent collapses.
+        expect(snap().total).toBe(50 * PLAN_PAGE_SIZE);
+        expect(bandText(snap().tail)).toBe("600-9999");
+        // B lands: every window swaps to its new rows, in place.
+        state.open.add("B");
+        d.refresh();
+        expect(revisionsShown(snap())).toEqual(new Set(["B"]));
+        expect(snap().rows).toHaveLength(shown);
+        expect(snap().loading).toBe(false);
+    });
+
+    test("a revision that has not landed anywhere yet leaves the last rows standing through it", () => {
+        const { value, state } = revisioned(50);
+        const { d, snap } = drive(value);
+        // A refresh in flight: the source names no revision for a moment,
+        // then the new one, and nothing lands in between.
+        state.revision = "?";
+        d.refresh();
+        state.revision = "C";
+        d.refresh();
+        expect(revisionsShown(snap())).toEqual(new Set(["A"]));
+        state.open.add("C");
+        d.refresh();
+        expect(revisionsShown(snap())).toEqual(new Set(["C"]));
+    });
+
+    test("a total that moves WITH the revision rebuilds the geometry quietly — the viewport keeps its window", () => {
+        const { value, state } = revisioned(250);
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        try {
+            const { d, snap } = drive(value);
+            d.jumpToElement(40_000);
+            d.committed(snap());
+            // Rows were appended: the content and its size moved together.
+            state.revision = "B";
+            state.total = 260 * PLAN_PAGE_SIZE;
+            state.open.add("B");
+            d.refresh();
+            expect(warn).not.toHaveBeenCalled();
+            expect(snap().total).toBe(260 * PLAN_PAGE_SIZE);
+            // Rebuilt around where the reader was — not reset to the top.
+            const [from, to] = span(snap());
+            expect(from).toBeLessThanOrEqual(40_000);
+            expect(to).toBeGreaterThan(40_000);
+            expect(revisionsShown(snap())).toEqual(new Set(["B"]));
+        } finally {
+            warn.mockRestore();
+        }
+    });
+
+    test("a total that moves under ONE revision still breaks the contract, and says so (#614)", () => {
+        const { value, state } = revisioned(4);
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        try {
+            const { snap, report } = drive(value);
+            expect(snap().total).toBe(4 * PLAN_PAGE_SIZE);
+            state.total = 8 * PLAN_PAGE_SIZE;
+            report({ kind: "band", at: "tail" });
+            expect(String(warn.mock.calls[0]?.[0])).toMatch(/under one id and revision/);
+        } finally {
+            warn.mockRestore();
+        }
+    });
+
+    test("a source that cannot say which snapshot it serves has failed as a whole — and its windows say so (#811)", () => {
+        const boom = (): never => { throw new Error("no content snapshot"); };
+        const bad = {
+            id: "no-revision", page: boom, total: () => none, seek: none, revision: boom, refresh: () => null,
+        } as unknown as PlanPagedSourceValue;
+        const err = vi.spyOn(console, "error").mockImplementation(() => {});
+        try {
+            const { snap } = drive(bad);
+            expect(snap().sourceError).toMatch(/no content snapshot/);
+            expect(snap().failures.map((f) => f.error)).toEqual(["no content snapshot"]);
+            expect(snap().rows).toEqual([]);
+        } finally {
+            err.mockRestore();
+        }
     });
 });

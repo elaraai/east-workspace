@@ -207,8 +207,9 @@ export interface PlanController {
     /** Ask a failed window again (#811). */
     retry(w: number): void;
     /** The key search, for the toolbar (its `find` / `jump` / `clear` are this
-     *  controller's). Mount it only where the source declares `seek`. */
-    readonly search: PlanSearch;
+     *  controller's). Mount it only where the source declares `seek`; its
+     *  `resetKey` is the seek snapshot's `epoch` (#821). */
+    readonly search: Omit<PlanSearch, "resetKey">;
     /** The diagnostics chip asked for the first skipped row (#811). */
     seekSkipped(): void;
     /**
@@ -323,6 +324,8 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
     let navSeq = 0;
     let announce: PlanAnnouncement | null = null;
     let words: PlanWords = PLAN_WORDS;
+    // The paged source's revision the canvas last showed (#821).
+    let pagingRevision: string | undefined;
     // What storage holds — compared before every write, so nothing is written
     // that is already there.
     let persisted = restored;
@@ -349,6 +352,14 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
             // What landed, for the live region (#819) — in the same
             // notification too, so a landing is still one commit.
             say(landedText(snapshot.paging.resident, landed.resident, landed.total, words));
+            // The source moved off the snapshot a search was answered in: its
+            // match positions index rows that may have moved (#821). The
+            // first revision a source names is not a move — a search asked
+            // before it waited for it.
+            if (landed.revision !== pagingRevision) {
+                if (pagingRevision !== undefined) seek.reset();
+                pagingRevision = landed.revision;
+            }
         }),
     });
     const seek = createSeekDriver({
@@ -456,7 +467,7 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
         if (fn !== undefined) queueMicrotask(() => fn());
     }
 
-    const search: PlanSearch = {
+    const search: Omit<PlanSearch, "resetKey"> = {
         keyType: CANVAS_KEY_TYPE,
         find: (q) => {
             // A new search takes the viewport back from the skipped-row chip.

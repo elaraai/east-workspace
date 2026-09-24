@@ -1,14 +1,14 @@
 {
   "version": 2,
   "stats": {
-    "totalEntries": 1174,
+    "totalEntries": 1175,
     "totalFiles": 195,
     "packages": {
       "east": 551,
       "east-node-std": 55,
       "east-node-io": 63,
       "east-py-datascience": 94,
-      "east-ui": 349,
+      "east-ui": 350,
       "e3-ui": 39,
       "e3": 11,
       "e3-ui-cli": 7,
@@ -31039,7 +31039,7 @@
       "imports": [
         "import {",
         "import { UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Paged, Plan, Table } from \"@elaraai/east-ui\";"
+        "import { Paged, Plan, Table, Text } from \"@elaraai/east-ui\";"
       ],
       "languages": [
         "tsx"
@@ -31072,7 +31072,7 @@
       "imports": [
         "import {",
         "import { UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Paged, Plan, Table } from \"@elaraai/east-ui\";"
+        "import { Paged, Plan, Table, Text } from \"@elaraai/east-ui\";"
       ],
       "languages": [
         "tsx"
@@ -31105,7 +31105,7 @@
       "imports": [
         "import {",
         "import { UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Paged, Plan, Table } from \"@elaraai/east-ui\";"
+        "import { Paged, Plan, Table, Text } from \"@elaraai/east-ui\";"
       ],
       "languages": [
         "tsx"
@@ -31142,12 +31142,37 @@
       "imports": [
         "import {",
         "import { UIComponentType } from \"@elaraai/east-ui\";",
-        "import { Paged, Plan, Table } from \"@elaraai/east-ui\";"
+        "import { Paged, Plan, Table, Text } from \"@elaraai/east-ui\";"
       ],
       "languages": [
         "tsx"
       ],
       "source": "// The paged canvas doing the thing it exists for — 1,000 source elements behind a 200-element page, so only the opening windows are ever built into canvas rows and everything below them is ONE band sized from the ledger, captioned with the elements it stands for. Scrolling walks the resident run forward a window at a time rather than materialising the source; the footer counts in ELEMENTS (never canvas rows, since a series may emit any number per element) and marks itself partial until the total is both known and reached. The keys sort by line, so canonical key order is deliberately not build order — the ordering a windowed keyed source has to preserve for a row to stay addressable\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const UnitRow = StructType({ start: DateTimeType, end: DateTimeType, tonnes: FloatType });\n        const units = $.const(WIDE_UNITS, DictType(StringType, UnitRow));\n        const source = $.const(Paged.of(\"units\", units));\n        const series = $.const([\n            Plan.series.span(UnitRow, {\n                key: \"units-2\", title: \"Units\",\n                label: (_r, k) => k, id: true,\n                value: r => some(East.str`${East.Float.printFixed(r.tonnes, 0n)} t`),\n                runs: (r, k) => [Plan.run({\n                    key: \"run\", start: r.start, end: r.end,\n                    label: East.str`RUN · ${k}`,\n                    qty: r.tonnes, state: \"actual\",\n                })],\n            }),\n        ], ArrayType(Plan.Types.Series(UnitRow)));\n        const axis = $.const(Plan.axis({\n            window: { min: mondayOfWeek(27), max: mondayOfWeek(40) }, resolution: \"week\",\n            now: mondayOfWeek(31),\n        }));\n        // Bounded, so the canvas virtualizes: an unbounded paged canvas would\n        // mount every resident row at once and page purely on demand.\n        return <Plan axis={axis} data={source} series={series} style={{ maxHeight: \"420px\" }} />;\n    })"
+    },
+    {
+      "id": "east-ui:paged-source.examples.tsx:pagedSnapshotRevision",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/paged-source.examples.tsx",
+      "suite": "",
+      "test": "Read a fixture snapshot revision and refresh it at the same token. Mutable sources use refresh(none) to discover current content or refresh(some(hash)) to install an acknowledged write; a Paged.of fixture retains its immutable snapshot.",
+      "keywords": [
+        "Paged",
+        "of",
+        "revision",
+        "refresh",
+        "snapshot",
+        "immutable"
+      ],
+      "imports": [
+        "import {",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Paged, Plan, Table, Text } from \"@elaraai/east-ui\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// Read a fixture snapshot revision and refresh it at the same token. Mutable sources use refresh(none) to discover current content or refresh(some(hash)) to install an acknowledged write; a Paged.of fixture retains its immutable snapshot.\n// inputs: []\nEast.function([], UIComponentType, $ => {\n        const rows = $.const([{ id: \"r1\", quantity: 2.0 }], ArrayType(StructType({ id: StringType, quantity: FloatType })));\n        const source = $.let(Paged.of(\"orders:fixture-1\", rows));\n        $(source.refresh(none));\n        $(source.refresh(some(\"orders:fixture-1\")));\n        return <Text>{East.str`Snapshot: ${source.revision().unwrap(\"some\")}`}</Text>;\n    })"
     },
     {
       "id": "east-ui:pagination.examples.tsx:paginationBasic",

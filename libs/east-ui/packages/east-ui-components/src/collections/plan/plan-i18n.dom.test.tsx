@@ -143,6 +143,8 @@ function heldSource(windows: number, rowsPer: number, openUpTo = 0) {
         },
         total: () => some(BigInt(windows * PLAN_PAGE_SIZE)),
         seek: none,
+        revision: () => none,
+        refresh: () => null,
     };
     cleanups.push(registerReactiveTracker(tracker));
     return { source, state };
@@ -227,6 +229,8 @@ describe("one message table (#820)", () => {
             },
             total: () => some(BigInt(3 * PLAN_PAGE_SIZE)),
             seek: none,
+            revision: () => none,
+            refresh: () => null,
         };
         const err = vi.spyOn(console, "error").mockImplementation(() => {});
         try {

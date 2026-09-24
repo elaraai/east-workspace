@@ -16,8 +16,14 @@
  *
  * One tracked channel per window `(workspace, path, offset, limit)`, plus one
  * per source for the element total (any landed window teaches it). Windows are
- * immutable once loaded: a dataset that changes content is a new bind, not a
- * mutated window, so there is no invalidation path here.
+ * immutable within a content revision. Refresh invalidates windows, totals
+ * and key search together, preserving resident demand for the next snapshot.
+ *
+ * A bound source follows its dataset (#821): the API's `watchRevision`
+ * reports each new content hash, and a hash that is not the served revision
+ * refreshes the source to it. A pinned read the server refuses because the
+ * dataset has moved past the pin (409 `dataset_hash_mismatch`) rediscovers the
+ * current revision rather than failing its window.
  *
  * A window whose fetch FAILED is not in flight, so it does not read `none`:
  * the read throws the reason (#811). `none` there made every consumer spin
@@ -43,11 +49,13 @@ import {
     fromEastTypeValue,
     type EastType,
     IntegerType,
+    StringType,
+    NullType,
     OptionType,
     decodeBeast2For,
     none,
     some,
-    variant,
+    type ValueTypeOf,
     type EastTypeValue,
 } from "@elaraai/east";
 import { type PlatformFunction, EastTypeType } from "@elaraai/east/internal";
@@ -57,7 +65,7 @@ import {
     registerReactiveTracker,
     registerPlatformImplementation,
 } from "@elaraai/east-ui-components/platform";
-import { datasetGetPage, datasetFindKey, type DatasetPage, type DatasetFindQuery, type DatasetFindResult } from "@elaraai/e3-api-client";
+import { datasetGetStatus, datasetGetPage, datasetFindKey, type DatasetPage, type DatasetFindQuery, type DatasetFindResult } from "@elaraai/e3-api-client";
 import { TreePathType, type TreePath } from "@elaraai/e3-types";
 
 import { datasetPathToString } from "./dataset-store.js";
@@ -76,6 +84,8 @@ export interface PagedWindow {
     offset: number;
     /** Maximum elements to return (the server may clamp it). */
     limit: number;
+    /** Content snapshot to read; the server must refuse a different snapshot. */
+    hash?: string;
 }
 
 /**
@@ -83,12 +93,21 @@ export interface PagedWindow {
  * `@elaraai/e3-api-client`'s `datasetGetPage`.
  */
 export interface PagedApi {
+    /** Resolve current content without fetching the whole dataset. */
+    getRevision(workspace: string, path: TreePath): Promise<string>;
     /** Fetch one element window of a collection dataset. */
     getPage(workspace: string, path: TreePath, window: PagedWindow): Promise<DatasetPage>;
     /** Locate a key query in a Set/Dict dataset's canonical key order. The
      *  `row` it answers with indexes the SAME row space {@link getPage}'s
      *  element windows serve, which is what makes a hit addressable. */
     findKey(workspace: string, path: TreePath, query: DatasetFindQuery): Promise<DatasetFindResult>;
+    /**
+     * Follow the dataset's content (#821): `onRevision` hears its content hash
+     * once known and on every change after (`null` while it holds no value).
+     * Returns a disposer. Without it, a source moves to another revision only
+     * when its `refresh` is called.
+     */
+    watchRevision?(workspace: string, path: TreePath, onRevision: (hash: string | null) => void): () => void;
 }
 
 /**
@@ -96,10 +115,8 @@ export interface PagedApi {
  * `@elaraai/e3-api-client`.
  *
  * @remarks
- * Windows are requested unpinned (no content hash). `useDatasetPage` pins its
- * requests so browser/edge caches can hold pages immutably; a bound paged
- * source has no hash to pin with — it never fetches the whole value or polls
- * status — so it reads the current content instead.
+ * Resolve the current content hash once, then pin every page and key search
+ * to that snapshot. Refresh starts a new generation shared by all consumers.
  */
 export function createDefaultPagedApi(
     apiUrl: string,
@@ -108,6 +125,11 @@ export function createDefaultPagedApi(
 ): PagedApi {
     const opts = (): { token: string | null } => ({ token: getToken() });
     return {
+        async getRevision(workspace, path) {
+            const status = await datasetGetStatus(apiUrl, repo, workspace, path, opts());
+            if (status.hash.type !== "some") throw new Error("Data.bindPaged: dataset has no content snapshot");
+            return status.hash.value;
+        },
         async getPage(workspace, path, window) {
             return datasetGetPage(apiUrl, repo, workspace, path, window, opts());
         },
@@ -122,6 +144,16 @@ export function createDefaultPagedApi(
 // =============================================================================
 
 /** One tracked channel per window (and one per source, for the total). */
+interface SourceSnapshot {
+    generation: number;
+    revision: string | undefined;
+    resolving: boolean;
+    error: unknown;
+    failedAtMs: number | undefined;
+    windows: Map<string, { type: EastTypeValue; offset: number; limit: number }>;
+    seeks: Map<string, DatasetFindQuery>;
+}
+
 interface PageEntry {
     status: "idle" | "running" | "loaded" | "failed";
     launchSeq: number;
@@ -180,6 +212,13 @@ const PERMANENT_PAGE_ERRORS = new Set(["dataset_not_pageable"]);
 function isPermanentPageError(err: unknown): boolean {
     const code = (err as { code?: unknown } | null)?.code;
     return typeof code === "string" && PERMANENT_PAGE_ERRORS.has(code);
+}
+
+/** Whether a pinned read was refused because the dataset moved past the
+ *  pinned snapshot (409 `dataset_hash_mismatch`) — the source's news, not
+ *  the window's failure (#821). */
+function isRevisionMoved(err: unknown): boolean {
+    return (err as { code?: unknown } | null)?.code === "dataset_hash_mismatch";
 }
 
 /** The Dict key / Set element type of a keyed collection, else null — the
@@ -266,6 +305,10 @@ export function toFindQuery(query: unknown): DatasetFindQuery {
 export class PagedRuntime extends TrackedChannelStore<PageEntry> {
     private api: PagedApi | null = null;
     private workspace: string | null = null;
+    private generation = 0;
+    private readonly snapshots = new Map<string, SourceSnapshot>();
+    /** Per source (its total key): the disposer of its dataset watch (#821). */
+    private readonly watches = new Map<string, () => void>();
 
     // Compiled-handle cache (issue #106 perf): buildHandle compiles 2
     // East.functions per bind, and binds re-run every reactive frame. The
@@ -301,6 +344,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
     /** Install the API adapter + workspace — called by the React provider
      *  (or a test/showcase harness) before any handle is used. */
     initialize(api: PagedApi, workspace: string): void {
+        if (this.workspace !== null && (this.workspace !== workspace || this.api !== api)) this.clear();
         this.api = api;
         this.workspace = workspace;
     }
@@ -312,6 +356,10 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
         this.clearChannels();
         this.handleCache.clear();
         this.loadedWindows.clear();
+        this.snapshots.clear();
+        for (const stop of this.watches.values()) stop();
+        this.watches.clear();
+        this.generation += 1;
     }
 
     private resolveWorkspace(): string {
@@ -323,6 +371,105 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
             );
         }
         return this.workspace;
+    }
+
+    private snapshot(workspace: string, path: TreePath): SourceSnapshot {
+        const key = pagedTotalKey(workspace, path);
+        let snapshot = this.snapshots.get(key);
+        if (!snapshot) {
+            snapshot = {
+                generation: ++this.generation, revision: undefined, resolving: false,
+                error: undefined, failedAtMs: undefined, windows: new Map(), seeks: new Map(),
+            };
+            this.snapshots.set(key, snapshot);
+            this.watch(workspace, path, key);
+        }
+        return snapshot;
+    }
+
+    /** Follow the source's dataset: a content hash the watch reports that
+     *  is not the served revision moves the source to it (#821). */
+    private watch(workspace: string, path: TreePath, key: string): void {
+        const api = this.api;
+        if (api?.watchRevision === undefined || this.watches.has(key)) return;
+        this.watches.set(key, api.watchRevision(workspace, path, (hash) => this.follow(workspace, path, hash)));
+    }
+
+    /** The dataset's content is now `hash`. A source still discovering its
+     *  revision, or moving to a target, lands on what is current anyway; a
+     *  dataset with no value leaves the served snapshot standing. */
+    private follow(workspace: string, path: TreePath, hash: string | null): void {
+        const snapshot = this.snapshots.get(pagedTotalKey(workspace, path));
+        if (snapshot === undefined || hash === null || snapshot.revision === undefined || snapshot.revision === hash) return;
+        this.refresh(workspace, path, some(hash));
+    }
+
+    private isCurrent(workspace: string, path: TreePath, snapshot: SourceSnapshot): boolean {
+        return this.snapshots.get(pagedTotalKey(workspace, path)) === snapshot;
+    }
+
+    private demand(workspace: string, path: TreePath, snapshot: SourceSnapshot): void {
+        for (const window of snapshot.windows.values()) {
+            this.ensureWindow(window.type, workspace, path, window.offset, window.limit);
+        }
+        for (const [key, query] of snapshot.seeks) this.ensureSeek(workspace, path, query, key);
+    }
+
+    private discover(workspace: string, path: TreePath, snapshot: SourceSnapshot): void {
+        if (snapshot.revision !== undefined || snapshot.resolving) return;
+        if (snapshot.failedAtMs !== undefined && this.now() - snapshot.failedAtMs < RETRY_AFTER_MS) return;
+        const api = this.api;
+        if (!api) return;
+        snapshot.resolving = true;
+        void api.getRevision(workspace, path).then(hash => {
+            if (!this.isCurrent(workspace, path, snapshot)) return;
+            if (!hash) throw new Error("Data.bindPaged: paging service returned no content revision");
+            snapshot.revision = hash;
+            snapshot.resolving = false;
+            snapshot.error = undefined;
+            snapshot.failedAtMs = undefined;
+            this.demand(workspace, path, snapshot);
+            this.notify(pagedTotalKey(workspace, path));
+        }).catch((error: unknown) => {
+            if (!this.isCurrent(workspace, path, snapshot)) return;
+            snapshot.resolving = false;
+            snapshot.error = error;
+            snapshot.failedAtMs = this.now();
+            this.notify(pagedTotalKey(workspace, path));
+        });
+    }
+
+    /** Invalidate one logical source, retaining its resident window demand. */
+    private refresh(workspace: string, path: TreePath, target: ValueTypeOf<OptionType<StringType>>): void {
+        const previous = this.snapshot(workspace, path);
+        const snapshot: SourceSnapshot = {
+            ...previous, generation: ++this.generation, revision: undefined,
+            resolving: target.type === "some", error: undefined, failedAtMs: undefined,
+            windows: new Map(previous.windows), seeks: new Map(previous.seeks),
+        };
+        const totalKey = pagedTotalKey(workspace, path);
+        this.snapshots.set(totalKey, snapshot);
+        const keys = [totalKey, ...snapshot.windows.keys(), ...snapshot.seeks.keys()];
+        for (const key of keys) {
+            this.entries.delete(key);
+            this.loadedWindows.delete(key);
+        }
+        // Notify the unknown revision first, including when the target hash is
+        // unchanged. A refresh invalidates every consumer's read-once cache.
+        for (const key of keys) this.notify(key);
+        queueMicrotask(() => {
+            if (!this.isCurrent(workspace, path, snapshot)) return;
+            if (target.type === "some") {
+                snapshot.resolving = false;
+                if (!target.value) {
+                    snapshot.error = new Error("Data.bindPaged: refresh requires a nonempty content revision");
+                } else {
+                    snapshot.revision = target.value;
+                    this.demand(workspace, path, snapshot);
+                }
+                this.notify(totalKey);
+            } else this.discover(workspace, path, snapshot);
+        });
     }
 
     // ----- window loading --------------------------------------------------
@@ -355,6 +502,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
             this.loadedWindows.delete(candidate);
             entry.status = "idle";
             delete entry.window;
+            for (const snapshot of this.snapshots.values()) snapshot.windows.delete(candidate);
         }
     }
 
@@ -373,6 +521,13 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
         limit: number,
     ): void {
         const key = pagedWindowKey(workspace, path, offset, limit);
+        const snapshot = this.snapshot(workspace, path);
+        snapshot.windows.set(key, { type: sourceType, offset, limit });
+        this.track(pagedTotalKey(workspace, path));
+        this.discover(workspace, path, snapshot);
+        if (snapshot.error !== undefined) throw snapshot.error;
+        const revision = snapshot.revision;
+        if (revision === undefined) return;
         const entry = this.entry(key);
         if (entry.status === "running" || entry.status === "loaded") return;
         if (entry.status === "failed") {
@@ -393,7 +548,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
         void (async () => {
             const settle = (mutate: (e: PageEntry) => void): void => {
                 const current = this.entries.get(key);
-                if (!current || current.launchSeq !== mySeq) return; // superseded
+                if (current !== entry || current.launchSeq !== mySeq || !this.isCurrent(workspace, path, snapshot) || snapshot.revision !== revision) return; // superseded
                 mutate(current);
                 this.notify(key);
             };
@@ -407,8 +562,17 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
             }
             let page: DatasetPage;
             try {
-                page = await api.getPage(workspace, path, { offset, limit });
+                page = await api.getPage(workspace, path, { offset, limit, hash: revision });
+                if (!this.isCurrent(workspace, path, snapshot)) return;
+                if (page.hash !== revision) throw new Error("Data.bindPaged: page does not match the requested content revision");
             } catch (err) {
+                if (!this.isCurrent(workspace, path, snapshot)) return;
+                // The dataset moved past the pinned snapshot: the source
+                // rediscovers and reads again — never this window's failure.
+                if (isRevisionMoved(err)) {
+                    this.refresh(workspace, path, none);
+                    return;
+                }
                 const permanent = isPermanentPageError(err);
                 const reason = permanent
                     ? `Data.bindPaged: ${datasetPathToString(path)} is not a pageable dataset — ` +
@@ -422,6 +586,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
                 console.error(`${reason}:`, err);
                 return;
             }
+            if (!this.isCurrent(workspace, path, snapshot)) return;
             let decoded: unknown;
             try {
                 decoded = decodeBeast2For(sourceType)(page.data);
@@ -433,6 +598,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
                 return;
             }
             settle(e => { e.status = "loaded"; e.window = decoded; e.total = page.totalElements; });
+            if (!this.isCurrent(workspace, path, snapshot)) return;
             this.touchWindow(key);
             // Any landed window teaches the source's total — publish it on the
             // source-level channel so a reader watching `total()` re-fires.
@@ -457,6 +623,13 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
         query: DatasetFindQuery,
         key: string,
     ): void {
+        const snapshot = this.snapshot(workspace, path);
+        snapshot.seeks.set(key, query);
+        this.track(pagedTotalKey(workspace, path));
+        this.discover(workspace, path, snapshot);
+        if (snapshot.error !== undefined) throw snapshot.error;
+        const revision = snapshot.revision;
+        if (revision === undefined) return;
         const entry = this.entry(key);
         if (entry.status === "running" || entry.status === "loaded") return;
         if (entry.status === "failed") {
@@ -473,7 +646,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
         void (async () => {
             const settle = (mutate: (e: PageEntry) => void): void => {
                 const current = this.entries.get(key);
-                if (!current || current.launchSeq !== mySeq) return; // superseded
+                if (current !== entry || current.launchSeq !== mySeq || !this.isCurrent(workspace, path, snapshot) || snapshot.revision !== revision) return; // superseded
                 mutate(current);
                 this.notify(key);
             };
@@ -486,9 +659,16 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
                 return;
             }
             try {
-                const range = await api.findKey(workspace, path, query);
+                const range = await api.findKey(workspace, path, { ...query, hash: revision });
+                if (!this.isCurrent(workspace, path, snapshot)) return;
+                if (range.hash !== revision) throw new Error("Data.bindPaged: key search does not match the requested content revision");
                 settle(e => { e.status = "loaded"; e.range = range; });
             } catch (err) {
+                if (!this.isCurrent(workspace, path, snapshot)) return;
+                if (isRevisionMoved(err)) {
+                    this.refresh(workspace, path, none);
+                    return;
+                }
                 const permanent = isPermanentPageError(err);
                 const reason = `Data.bindPaged: key search failed for ${datasetPathToString(path)}: ${failureOf(err)}`;
                 settle(e => {
@@ -508,6 +688,21 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
      */
     buildPrimitives(): PlatformFunction[] {
         return [
+            DataPagedPrimitives.revision.implement((_sourceType: EastTypeValue) =>
+                (pathArg: unknown) => {
+                    const workspace = this.resolveWorkspace();
+                    const path = pathArg as TreePath;
+                    this.track(pagedTotalKey(workspace, path));
+                    const snapshot = this.snapshot(workspace, path);
+                    this.discover(workspace, path, snapshot);
+                    if (snapshot.error !== undefined) throw snapshot.error;
+                    return snapshot.revision === undefined ? none : some(snapshot.revision);
+                }),
+            DataPagedPrimitives.refresh.implement((_sourceType: EastTypeValue) =>
+                (pathArg: unknown, target: unknown) => {
+                    this.refresh(this.resolveWorkspace(), pathArg as TreePath, target as ValueTypeOf<OptionType<StringType>>);
+                    return null;
+                }),
             DataPagedPrimitives.page.implement((sourceType: EastTypeValue) =>
                 (pathArg: unknown, offsetArg: unknown, limitArg: unknown) => {
                     const workspace = this.resolveWorkspace();
@@ -520,12 +715,12 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
                     const entry = this.entry(key);
                     if (entry.status === "loaded" && entry.window !== undefined) {
                         this.touchWindow(key);
-                        return variant("some", entry.window);
+                        return some(entry.window);
                     }
                     // Failed (and not relaunched by this read): not in flight,
                     // so not `none` — the reason (#811).
                     if (entry.status === "failed") throwFailure(entry, `elements ${offset}–${offset + limit - 1}`);
-                    return variant("none", null);
+                    return none;
                 }),
             DataPagedPrimitives.total.implement((_sourceType: EastTypeValue) =>
                 (pathArg: unknown) => {
@@ -534,8 +729,8 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
                     this.track(key);
                     const entry = this.entry(key);
                     return entry.total !== undefined
-                        ? variant("some", BigInt(entry.total))
-                        : variant("none", null);
+                        ? some(BigInt(entry.total))
+                        : none;
                 }),
             DataPagedPrimitives.seek.implement((_sourceType: EastTypeValue) =>
                 (pathArg: unknown, queryArg: unknown) => {
@@ -581,7 +776,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
         // `Data.bind` convention — manifest derivation reads it back).
         const pathExpr = East.value(path, TreePathType);
         const platform = this.buildPrimitives();
-        const { page, total } = DataPagedPrimitives;
+        const { page, total, revision, refresh } = DataPagedPrimitives;
 
         const handle: Record<string, unknown> = {
             // The comparable identity east-ui's `PagedSourceType` requires:
@@ -608,6 +803,12 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
             // nothing to search. Resolved at bind time from the dataset's own
             // type, so a component renders the affordance only when it works.
             seek: buildSeek(sourceType, T, pathExpr, platform),
+            revision: East.compile(
+                East.function([], OptionType(StringType), ($) => $.return(revision([T], pathExpr))), platform,
+            ),
+            refresh: East.compile(
+                East.function([OptionType(StringType)], NullType, ($, target) => $.return(refresh([T], pathExpr, target))), platform,
+            ),
         };
         byPath.set(pathKey, handle);
         return handle;

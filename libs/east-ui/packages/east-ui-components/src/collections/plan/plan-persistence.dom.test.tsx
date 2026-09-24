@@ -250,6 +250,8 @@ describe("Plan UI state survives a remount (#813)", () => {
             },
             total: () => some(2_000n),
             seek: none,
+            revision: () => none,
+            refresh: () => null,
         };
         // The last session rested on u1300, which came from window 6 — and
         // left toggles on rows the opening ring does not hold.

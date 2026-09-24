@@ -120,6 +120,8 @@ function heldSource(windows: number, rowsPer: number) {
         },
         total: () => some(BigInt(windows * PLAN_PAGE_SIZE)),
         seek: none,
+        revision: () => none,
+        refresh: () => null,
     };
     const fire = (key: string) => { for (const cb of [...(subs.get(key) ?? [])]) cb(); };
     cleanups.push(registerReactiveTracker(tracker));

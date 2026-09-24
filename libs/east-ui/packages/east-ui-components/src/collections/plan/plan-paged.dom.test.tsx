@@ -11,7 +11,7 @@
  */
 
 import { describe, test, expect, vi, afterEach } from "vitest";
-import { render, screen, cleanup, waitFor } from "@testing-library/react";
+import { render, screen, cleanup, waitFor, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ChakraProvider } from "@chakra-ui/react";
 import { variant, some, none } from "@elaraai/east";
@@ -19,6 +19,7 @@ import { system } from "../../theme/index.js";
 import { buildSliceHandle } from "../../platform/slice/index.js";
 import { initializeStore } from "../../platform/state-runtime.js";
 import { UIStore } from "../../platform/state-store.js";
+import { registerReactiveTracker, type ReactiveTracker } from "../../reactive/tracker.js";
 import { EastChakraPlan, type PlanRootValue, type PlanRowValue } from "./index.js";
 import type { PlanInstantValue } from "./instant.js";
 
@@ -157,6 +158,8 @@ describe("Plan paged source (P-c)", () => {
             // fixture source is not key-ordered, so it declares no seek.
             id: "dom-test",
             seek: none,
+            revision: () => none,
+            refresh: () => null,
         };
         const { container } = renderPlan(planRoot([], { source }));
         // The loader streams the prefix in an effect — rows appear after it.
@@ -188,6 +191,8 @@ describe("Plan paged source (P-c)", () => {
             total: () => some(600n),
             id: "dom-test-filtered",
             seek: none,
+            revision: () => none,
+            refresh: () => null,
         };
         const { container } = renderPlan(planRoot([], { source }), "plan-d2");
         await screen.findByText("R1");
@@ -211,6 +216,8 @@ describe("Plan paged source (P-c)", () => {
             total: () => some(600n),
             id: "dom-test-transport",
             seek: none,
+            revision: () => none,
+            refresh: () => null,
         };
         const { container } = renderPlan(planRoot([], { source }), "plan-d9-footer");
         await screen.findByText("R1");
@@ -230,6 +237,8 @@ describe("Plan paged source (P-c)", () => {
             total: () => some(2n),
             id: "dom-test-exhausted",
             seek: none,
+            revision: () => none,
+            refresh: () => null,
         };
         const { container } = renderPlan(planRoot([], { source }), "plan-d9-done");
         await screen.findByText("R1");
@@ -265,6 +274,8 @@ describe("Plan paged source (P-c)", () => {
             total: () => some(600n),
             id: "dom-test-partial",
             seek: none,
+            revision: () => none,
+            refresh: () => null,
         };
         const { container } = renderPlan(planRoot([], { source }), "plan-d9-partial");
         await screen.findByText("R1");
@@ -297,6 +308,8 @@ describe("Plan paged source (P-c)", () => {
             total: () => some(600n),
             id: "dom-test-chrome",
             seek: none,
+            revision: () => none,
+            refresh: () => null,
         };
         const { container } = renderPlan(planRoot([], {
             source,
@@ -329,6 +342,8 @@ describe("Plan paged source (P-c)", () => {
                 queries.push(q);
                 return some({ found: true, row: 12n, count: 3n });
             }),
+            revision: () => none,
+            refresh: () => null,
         };
         const cfg = {
             fields: new Map<string, unknown>(), rangeFieldId: none,
@@ -373,6 +388,8 @@ describe("Plan paged source (P-c)", () => {
             total: () => some(600n),
             id: "dom-test-noseek",
             seek: none,
+            revision: () => none,
+            refresh: () => null,
         };
         const cfg = {
             fields: new Map<string, unknown>(), rangeFieldId: none,
@@ -421,6 +438,8 @@ describe("Plan paged source (P-c)", () => {
             total: () => some(8000n),
             id: "dom-test-budget",
             seek: none,
+            revision: () => none,
+            refresh: () => null,
         };
         const { container } = renderPlan(planRoot([], { source }), "plan-budget");
         await screen.findByText("R1");
@@ -453,6 +472,8 @@ describe("Plan paged source (P-c)", () => {
             total: () => some(10_000n),          // 50 windows
             id: "dom-test-band",
             seek: none,
+            revision: () => none,
+            refresh: () => null,
         };
         // Unbounded, like the other Plan DOM tests: jsdom has no layout, so a
         // bounded frame would virtualize down to nothing. (Below 400 body
@@ -485,6 +506,8 @@ describe("Plan paged source (P-c)", () => {
             total: () => some(10_000n),
             id: "dom-test-lonely-parent",
             seek: none,
+            revision: () => none,
+            refresh: () => null,
         };
         const { container } = renderPlan(planRoot([], { source }), "plan-lonely");
         await screen.findByText("R1");
@@ -525,6 +548,8 @@ describe("Plan paged source (P-c)", () => {
             total: () => some(1_000n),                    // 5 windows; [0..2] land
             id: "dom-test-rest-height",
             seek: none,
+            revision: () => none,
+            refresh: () => null,
         };
         const { container } = renderPlan(planRoot([], { source }), "plan-rest-height");
         await screen.findByText("p0");
@@ -553,6 +578,8 @@ describe("Plan paged source (P-c)", () => {
             total: boom,
             id: "dom-test-unreadable",
             seek: none,
+            revision: () => none,
+            refresh: () => null,
         };
         const err = vi.spyOn(console, "error").mockImplementation(() => {});
         try {
@@ -572,6 +599,70 @@ describe("Plan paged source (P-c)", () => {
             expect(container.querySelector("[data-plan-row]")).toBeNull();
         } finally {
             err.mockRestore();
+        }
+    });
+    test("a new source revision swaps the rows in place — no empty frame, no remount (#821)", async () => {
+        // A tracker with explicit channels: the canvas subscribes to what its
+        // reads touched — the source's revision and its windows — as it does
+        // to the paged runtime's channels.
+        const subs = new Map<string, Set<() => void>>();
+        let recording: string[] | null = null;
+        const tracker: ReactiveTracker = {
+            id: "plan-revision-dom",
+            enableTracking() { recording = []; },
+            disableTracking() { const r = recording ?? []; recording = null; return r; },
+            getStore: () => ({
+                subscribe(key, cb) {
+                    const set = subs.get(key) ?? new Set<() => void>();
+                    set.add(cb);
+                    subs.set(key, set);
+                    return () => { set.delete(cb); };
+                },
+                getKeyVersion: () => 0,
+            }),
+        };
+        const fire = (key: string) => { for (const cb of [...(subs.get(key) ?? [])]) cb(); };
+        const unregister = registerReactiveTracker(tracker);
+        // The dataset's content at a revision: one machine whose run is
+        // labelled by the revision that served it.
+        const state = { revision: "A", open: new Set(["A"]) };
+        const rowsAt = (rev: string) => [
+            planRow("m1", spanKind([run(`${rev.toLowerCase()}1`, W27, new Date("2026-07-13Z"), variant("actual", null))])),
+        ];
+        const source = {
+            page: (offset: bigint) => {
+                recording?.push("window");
+                if (!state.open.has(state.revision)) return none;
+                return offset === 0n ? some(rowCollection(rowsAt(state.revision))) : some(rowCollection([]));
+            },
+            total: () => (state.open.has(state.revision) ? some(1n) : none),
+            id: "dom-test-revision",
+            seek: none,
+            revision: () => {
+                recording?.push("revision");
+                return some(state.revision);
+            },
+            refresh: () => null,
+        };
+        try {
+            const { container } = renderPlan(planRoot([], { source }), "plan-revision");
+            await screen.findByText("A1");
+            const row = container.querySelector('[data-plan-row="m1"]');
+            expect(row).toBeTruthy();
+            // The dataset is written: the source serves B, its window in flight.
+            state.revision = "B";
+            act(() => { fire("revision"); });
+            // The old rows stand in — the canvas is never emptied.
+            expect(container.querySelector('[data-plan-row="m1"]')).toBe(row);
+            expect(screen.getByText("A1")).toBeTruthy();
+            // B's window lands: the same row swaps its content in place.
+            state.open.add("B");
+            act(() => { fire("window"); });
+            await screen.findByText("B1");
+            expect(screen.queryByText("A1")).toBeNull();
+            expect(container.querySelector('[data-plan-row="m1"]')).toBe(row);
+        } finally {
+            unregister();
         }
     });
 });

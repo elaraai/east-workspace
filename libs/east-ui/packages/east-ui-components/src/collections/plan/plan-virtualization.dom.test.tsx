@@ -382,6 +382,8 @@ describe("Plan narrow paged demand (#812)", () => {
             },
             total: () => some(2_000n),
             seek: none,
+            revision: () => none,
+            refresh: () => null,
         };
         return { value, asked };
     }

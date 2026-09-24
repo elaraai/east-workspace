@@ -6,7 +6,7 @@
 import { describe, test as hostTest } from "node:test";
 import assert from "node:assert/strict";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { ArrayType, DictType, East, IntegerType, OptionType, StringType, StructType, variant, some, none } from "@elaraai/east";
+import { ArrayType, DictType, East, IntegerType, NullType, OptionType, StringType, StructType, variant, some, none } from "@elaraai/east";
 import { Paged } from "@elaraai/east-ui";
 import { Plan, Table } from "@elaraai/east-ui/internal";
 import * as ex from "./paged-source.examples.js";
@@ -32,6 +32,7 @@ describeEast("Row-source contract (#567)", (test) => {
         pagedTableSource: ex.pagedTableSource,
         pagedSourceTrimmed: ex.pagedSourceTrimmed,
         pagedSourceWindows: ex.pagedSourceWindows,
+        pagedSnapshotRevision: ex.pagedSnapshotRevision,
     });
 
     test("Paged.of windows a collection, reports the total and exhausts on an EMPTY window", $ => {
@@ -311,7 +312,14 @@ describeEast("Row-source contract (#567)", (test) => {
                 return piece;
             }));
         const knownTotal = $.const(East.function([], OptionType(IntegerType), (_$) => some(50n)));
-        const src = $.let({ id: "slow", page: firstPieceOnly, total: knownTotal, seek: none }, Paged.Types.Source(ArrayType(Row)));
+        // A source that cannot name its snapshot says so (`none`), and has
+        // nothing to refresh to.
+        const noRevision = $.const(East.function([], OptionType(StringType), (_$) => none));
+        const noRefresh = $.const(East.function([OptionType(StringType)], NullType, (_$) => null));
+        const src = $.let(
+            { id: "slow", page: firstPieceOnly, total: knownTotal, seek: none, revision: noRevision, refresh: noRefresh },
+            Paged.Types.Source(ArrayType(Row)),
+        );
         const table = $.let(Table.Root(src, ["id", "n"]));
         const derived = $.let(table.unwrap().unwrap("Table").rows.unwrap("paged"));
         // Serving the landed 7 as the window would drop 8…19 for good; the

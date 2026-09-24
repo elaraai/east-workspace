@@ -36,6 +36,14 @@
  * evaluation (a failing source would be hammered once per frame); it is asked
  * again when the caller drops its record — a Retry, or eviction.
  *
+ * # A new revision keeps the old rows until it lands (#821)
+ *
+ * When the source's content changes, the caller starts a fresh cache and hands
+ * the previous one in as `stale`. A window still in flight at the new revision
+ * is then served from `stale` — the rows it had — and still counts as loading,
+ * so the caller keeps asking. The canvas never shows an empty frame between two
+ * snapshots of its data: each window swaps to its new rows as they land.
+ *
  * @packageDocumentation
  */
 
@@ -64,6 +72,9 @@ export interface ReadResult {
     loading: boolean;
     /** Every requested window whose read failed, in request order. */
     failed: { w: number; error: string }[];
+    /** Whether any resident window was served from `stale` — the source's
+     *  previous revision, standing in until this one's rows land. */
+    stale: boolean;
 }
 
 /** One line naming why a source read failed. */
@@ -88,7 +99,10 @@ function readFailure(err: unknown): string {
  * @param cache - The caller's read-once cache (mutated: it is a cache)
  * @param pageSize - Elements per window
  * @param failures - The caller's failure record (mutated: a new failure is recorded)
- * @returns The resident windows, whether any are in flight, and the failed ones
+ * @param stale - The source's previous revision's windows, served for a window
+ *   still in flight at this one
+ * @returns The resident windows, whether any are in flight, the failed ones,
+ *   and whether any were served from `stale`
  */
 export function readWindows(
     source: PlanPagedSourceValue,
@@ -96,10 +110,12 @@ export function readWindows(
     cache: WindowCache,
     pageSize: number,
     failures: WindowFailures,
+    stale?: WindowCache,
 ): ReadResult {
     const resident: { w: number; rows: WindowRows }[] = [];
     const failed: { w: number; error: string }[] = [];
     let loading = false;
+    let servedStale = false;
 
     for (const w of windows) {
         const known = cache.get(w);
@@ -124,8 +140,14 @@ export function readWindows(
         }
         if (win.type !== "some") {
             // In flight. The window's channel is now tracked, so the landing
-            // re-fires this evaluation.
+            // re-fires this evaluation. Until then the rows it had at the
+            // previous revision stand in.
             loading = true;
+            const previous = stale?.get(w);
+            if (previous !== undefined) {
+                resident.push({ w, rows: previous });
+                servedStale = true;
+            }
             continue;
         }
         const rows: WindowRows = win.value as WindowRows;
@@ -133,7 +155,7 @@ export function readWindows(
         resident.push({ w, rows });
     }
 
-    return { resident, loading, failed };
+    return { resident, loading, failed, stale: servedStale };
 }
 
 /**

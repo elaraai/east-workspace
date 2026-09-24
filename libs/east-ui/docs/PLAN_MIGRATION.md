@@ -28,6 +28,15 @@ points, the cell-click payload) is `PlanInstantType` — a `Plan` value
 serialized before #631 does not decode against it. Positions are not
 reserved; stored `UIComponentType` values re-emit.
 
+**#821 breaks the paged arm the same way**: `PagedSourceType(c)` — the
+`paged` arm of a `Plan`, `Table` or `Sheet`'s rows — gains
+`revision: () → Option<String>` and `refresh: (Option<String>) → Null` after
+`seek`. A paged value serialized before #821 does not decode against it;
+re-emit. Authoring is unaffected: `Data.bindPaged` and `Paged.of` produce
+both fields, and a hand-written `{ id, page, total, seek }` source still
+builds — `buildRowSource` gives it `revision = none` and a `refresh` that
+raises.
+
 The public API break alongside it: the `Gantt` / `Planner` / `AlignedStack`
 exports (tags, factories, `*.Types`) are gone from `@elaraai/east-ui` and
 `@elaraai/east-ui/internal`, as are `EastChakraGantt` / `EastChakraPlanner`

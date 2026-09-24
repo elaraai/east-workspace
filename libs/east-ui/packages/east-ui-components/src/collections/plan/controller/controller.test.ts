@@ -418,6 +418,8 @@ describe("the source's channels (#815)", () => {
             },
             total: () => some(BigInt(windows * PLAN_PAGE_SIZE)),
             seek: none,
+            revision: () => none,
+            refresh: () => null,
         };
         const fire = (key: string) => { for (const cb of [...(subs.get(key) ?? [])]) cb(); };
         return { tracker, source, state, fire };
@@ -469,5 +471,79 @@ describe("the source's channels (#815)", () => {
         h.state.open = true;
         h.fire("w0");
         expect(notified()).toBe(n);
+    });
+});
+
+describe("a new source revision (#821)", () => {
+    /** A source that answers a key search at once and names its revision;
+     *  reading the revision registers the "rev" channel, as the runtime's
+     *  source-level channel does. */
+    function revisionedSource() {
+        const subs = new Map<string, Set<() => void>>();
+        let recording: string[] | null = null;
+        const tracker: ReactiveTracker = {
+            id: "c821-revision",
+            enableTracking() { recording = []; },
+            disableTracking() { const r = recording ?? []; recording = null; return r; },
+            getStore: () => ({
+                subscribe(key, cb) {
+                    const set = subs.get(key) ?? new Set<() => void>();
+                    set.add(cb);
+                    subs.set(key, set);
+                    return () => { set.delete(cb); };
+                },
+                getKeyVersion: () => 0,
+            }),
+        };
+        const state: { revision: string | undefined } = { revision: undefined };
+        const source = {
+            id: "c821",
+            page: (offset: bigint) => {
+                const w = Number(offset) / PLAN_PAGE_SIZE;
+                return some(new Map([0, 1].map((i) => {
+                    const row = planRow(`w${w}r${i}`);
+                    return [row.key, row] as const;
+                })));
+            },
+            total: () => some(BigInt(2 * PLAN_PAGE_SIZE)),
+            seek: some(() => some({ found: true, row: 0n, count: 1n })),
+            revision: () => {
+                recording?.push("rev");
+                return state.revision === undefined ? none : some(state.revision);
+            },
+            refresh: () => null,
+        };
+        const fire = (key: string) => { for (const cb of [...(subs.get(key) ?? [])]) cb(); };
+        return { tracker, source, state, fire };
+    }
+
+    let unregister: (() => void) | undefined;
+    afterEach(() => { unregister?.(); unregister = undefined; });
+
+    test("drops a standing search — its matches index the previous snapshot — and re-keys the control", async () => {
+        const h = revisionedSource();
+        h.state.revision = "A";
+        unregister = registerReactiveTracker(h.tracker);
+        const { c } = show(root([], { source: h.source }));
+        expect(await c.search.find({ prefix: "w0" })).toEqual({ found: true, row: 0, count: 1 });
+        expect(c.getSnapshot().seek.sought).not.toBeNull();
+        expect(c.getSnapshot().seek.epoch).toBe(0);
+        h.state.revision = "B";
+        h.fire("rev");
+        expect(c.getSnapshot().paging.revision).toBe("B");
+        expect(c.getSnapshot().seek.sought).toBeNull();
+        expect(c.getSnapshot().seek.epoch).toBe(1);
+    });
+
+    test("the first revision a source names is not a move — a search asked before it survives", async () => {
+        const h = revisionedSource();
+        unregister = registerReactiveTracker(h.tracker);
+        const { c } = show(root([], { source: h.source }));
+        await c.search.find({ prefix: "w0" });
+        h.state.revision = "A";
+        h.fire("rev");
+        expect(c.getSnapshot().paging.revision).toBe("A");
+        expect(c.getSnapshot().seek.sought).not.toBeNull();
+        expect(c.getSnapshot().seek.epoch).toBe(0);
     });
 });

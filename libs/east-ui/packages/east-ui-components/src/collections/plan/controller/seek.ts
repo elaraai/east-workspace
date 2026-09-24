@@ -41,9 +41,13 @@ export interface PlanSeekSnapshot {
     /** Why the last search failed — its `seek` threw — until the next search
      *  or a clear (#811: the toolbar states it; the canvas carries on). */
     searchError: string | undefined;
+    /** Counts the resets a new source revision forced (#821). The search
+     *  control is keyed on it, so it drops the matches it holds with the
+     *  query. */
+    epoch: number;
 }
 
-export const NO_SEEK: PlanSeekSnapshot = { sought: null, searchError: undefined };
+export const NO_SEEK: PlanSeekSnapshot = { sought: null, searchError: undefined, epoch: 0 };
 
 /** Options for {@link createSeekDriver}. */
 export interface SeekDriverOptions {
@@ -66,6 +70,13 @@ export interface SeekDriver {
     listRange(row: number, limit: number): Promise<string[]>;
     /** Drop the query and its jump target. */
     clear(): void;
+    /**
+     * The source moved to another revision (#821): drop the query — its match
+     * positions index the previous snapshot's rows — and count a new epoch, so
+     * the control forgets the matches it holds. A pending jump keeps its pin:
+     * its window lands at the new revision like any other.
+     */
+    reset(): void;
     /** Ask again — a pending search re-subscribes to its answer (after a
      *  {@link SeekDriver.disconnect}), and settles if it has landed. */
     refresh(): void;
@@ -103,10 +114,19 @@ export function createSeekDriver(options: SeekDriverOptions): SeekDriver {
     let snapshot: PlanSeekSnapshot = NO_SEEK;
 
     const publish = (next: PlanSeekSnapshot) => {
-        if (next.sought === snapshot.sought && next.searchError === snapshot.searchError) return;
+        if (next.sought === snapshot.sought && next.searchError === snapshot.searchError && next.epoch === snapshot.epoch) return;
         snapshot = next;
         options.onChange();
     };
+
+    /** Forget the query and its answer — the control's promise rejects. */
+    function drop(why: string): void {
+        pending?.reject(new Error(why));
+        pending = null;
+        soughtKey = "";
+        query = null;
+        tracked.release();
+    }
 
     const tracked = createTrackedRead(() => read());
 
@@ -149,7 +169,7 @@ export function createSeekDriver(options: SeekDriverOptions): SeekDriver {
                 pending = { resolve, reject };
                 soughtKey = soughtKeyOf(q) ?? "";
                 query = toSeekQuery(q);
-                publish({ sought: { key: soughtKey, row: 0 }, searchError: undefined });
+                publish({ sought: { key: soughtKey, row: 0 }, searchError: undefined, epoch: snapshot.epoch });
                 read();
             });
         },
@@ -164,15 +184,15 @@ export function createSeekDriver(options: SeekDriverOptions): SeekDriver {
             return loaded.slice(first, first + limit).map((r) => r.key);
         },
         clear() {
-            pending?.reject(new Error("search cleared"));
-            pending = null;
-            soughtKey = "";
-            query = null;
-            tracked.release();
-            publish(NO_SEEK);
+            drop("search cleared");
+            publish({ ...NO_SEEK, epoch: snapshot.epoch });
             // The driver's pin protects the jump target until it lands; a
             // cleared search has no target, so its pin goes with it (#614).
             options.clearJump();
+        },
+        reset() {
+            drop("the source moved to another revision");
+            publish({ ...NO_SEEK, epoch: snapshot.epoch + 1 });
         },
         refresh() {
             read();

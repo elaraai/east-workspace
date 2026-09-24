@@ -872,3 +872,81 @@ describe("ReactiveDatasetCache — preload records the content hash", () => {
         assert.equal(api.calls.get.length, 1);
     });
 });
+
+// =============================================================================
+// C — watchHash: following a dataset's content without fetching it (#821)
+// =============================================================================
+
+describe("ReactiveDatasetCache — watchHash (#821)", () => {
+    test("hears the hash at once and at each change — and fetches no content", async () => {
+        const { cache, api, clock } = newCache();
+        api.seed(ws, policyPath, bytes(7), "hash-A");
+        const heard: (string | null)[] = [];
+        cache.watchHash(ws, policyPath, 100, (h) => heard.push(h));
+        await settle();
+        assert.deepEqual(heard, ["hash-A"]);
+        // Unchanged: nothing to hear.
+        clock.tickAll();
+        await settle();
+        assert.deepEqual(heard, ["hash-A"]);
+        api.seed(ws, policyPath, bytes(9), "hash-B");
+        clock.tickAll();
+        await settle();
+        assert.deepEqual(heard, ["hash-A", "hash-B"]);
+        // A dataset that holds no value is `null`.
+        api.unseed(ws, policyPath);
+        clock.tickAll();
+        await settle();
+        assert.deepEqual(heard, ["hash-A", "hash-B", null]);
+        assert.equal(api.calls.get.length, 0);
+    });
+
+    test("shares the workspace poller with the content watches, and outlives neither", async () => {
+        const { cache, api, clock } = newCache();
+        api.seed(ws, policyPath, bytes(1), "p1");
+        api.seed(ws, schedulePath, bytes(2), "s1");
+        cache.setRefetchInterval(ws, policyPath, 100);
+        const heard: (string | null)[] = [];
+        const stop = cache.watchHash(ws, schedulePath, 100, (h) => heard.push(h));
+        await settle();
+        assert.equal(clock.intervals.length, 1);
+        assert.deepEqual(heard, ["s1"]);
+        // One status request serves both.
+        const polls = api.calls.workspaceStatus.length;
+        clock.tickAll();
+        await settle();
+        assert.equal(api.calls.workspaceStatus.length, polls + 1);
+        // Stopping the hash watch leaves the content watch polling; clearing
+        // that too stops the poller.
+        stop();
+        assert.equal(clock.intervals.length, 1);
+        cache.clearRefetchInterval(ws, policyPath);
+        assert.equal(clock.intervals.length, 0);
+    });
+
+    test("a stopped watch hears nothing more, and the last one stops the poller", async () => {
+        const { cache, api, clock } = newCache();
+        api.seed(ws, policyPath, bytes(1), "h1");
+        const heard: (string | null)[] = [];
+        const stop = cache.watchHash(ws, policyPath, 100, (h) => heard.push(h));
+        await settle();
+        stop();
+        assert.equal(clock.intervals.length, 0);
+        api.seed(ws, policyPath, bytes(2), "h2");
+        await cache.refresh(ws);
+        assert.deepEqual(heard, ["h1"]);
+    });
+
+    test("a second watcher of one dataset hears it at once, not a period later", async () => {
+        const { cache, api } = newCache();
+        api.seed(ws, policyPath, bytes(1), "h1");
+        const first: (string | null)[] = [];
+        const second: (string | null)[] = [];
+        cache.watchHash(ws, policyPath, 100, (h) => first.push(h));
+        await settle();
+        cache.watchHash(ws, policyPath, 100, (h) => second.push(h));
+        await settle();
+        assert.deepEqual(first, ["h1"]);
+        assert.deepEqual(second, ["h1"]);
+    });
+});

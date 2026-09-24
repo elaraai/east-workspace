@@ -37,6 +37,9 @@ export type SeekQueryValue = ValueTypeOf<SeekQueryType>;
 
 /** What the toolbar needs to mount `<DatasetKeySearch>`. */
 export interface PlanSearch {
+    /** Keys the control: it changes when the source moves to another revision,
+     *  whose rows the control's cached match positions no longer index (#821). */
+    resetKey: string;
     /** The key type the control parses typed input against. */
     keyType: EastTypeValue;
     /** Locate a query — resolves when the tracked search lands. */

@@ -116,6 +116,7 @@ import {
 } from "./root/keyboard.js";
 import { PlanAnnouncer } from "./root/announce.js";
 import { PlanWordsContext, useResolvedPlanWords } from "./words.js";
+import type { PlanSearch } from "./use-seek.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
@@ -302,8 +303,13 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     }, [paged, paging.resident, paging.total, paging.loading]);
     // Key search is a capability of the SOURCE (`search` becomes seek — #567
     // D9): a jump rebases residency on the matched ELEMENT, and the canvas
-    // positions by key, since a leaf row's key IS its data key.
-    const search = data.rows.type === "paged" && data.rows.value.seek.type === "some" ? controller.search : undefined;
+    // positions by key, since a leaf row's key IS its data key. The control
+    // is keyed on the search's epoch: a new source revision drops the matches
+    // it holds, which index the previous snapshot (#821).
+    const seekable = data.rows.type === "paged" && data.rows.value.seek.type === "some";
+    const search = useMemo<PlanSearch | undefined>(
+        () => (seekable ? { ...controller.search, resetKey: String(seek.epoch) } : undefined),
+        [seekable, controller, seek.epoch]);
 
     // ── Row focus and the visible rows ────────────────────────────────────
     const { linkFamily, focusVisibleKeys, focusCtx } = usePlanFocus(view.focus, data.links);

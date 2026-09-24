@@ -165,6 +165,8 @@ describe("Plan failure is local (#811)", () => {
             total: () => some(TOTAL),
             // A keyed source seeks: every query lands on element 600 — window 3.
             seek: some(() => some({ found: true, row: 600n, count: 1n })),
+            revision: () => none,
+            refresh: () => null,
         };
         const { container } = renderPlan(planRoot([], { source }), "plan-811-axis");
         // The opening ring is windows 0–2; window 3 has not arrived.
@@ -208,6 +210,8 @@ describe("Plan failure is local (#811)", () => {
             },
             total: () => some(TOTAL),
             seek: none,
+            revision: () => none,
+            refresh: () => null,
         };
         const err = vi.spyOn(console, "error").mockImplementation(() => {});
         try {
@@ -347,6 +351,8 @@ describe("Plan failure is local (#811)", () => {
             },
             total: () => some(600n),
             seek: none,
+            revision: () => none,
+            refresh: () => null,
         };
         const err = vi.spyOn(console, "error").mockImplementation(() => {});
         try {

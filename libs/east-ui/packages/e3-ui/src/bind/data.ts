@@ -345,6 +345,8 @@ function bindData<T extends EastType>(
  * a window is not a value you can diff or stage. Bind the same dataset with
  * {@link Data.bind} when you need to edit it.
  *
+ * @property revision - Read the content hash shared by pages, total and seek.
+ * @property refresh - Refresh at some(hash), or discover current content with none.
  * @property page - Read one window: `(offset, limit)` → the window's elements
  *   as a value of the dataset's own type. `none` means the window is still in
  *   flight — the call re-fires when it lands (use inside `Reactive.Root`). An
@@ -366,6 +368,8 @@ export const DataPagedHandleType = <T extends EastType | string>(t: T) => Struct
     page:  FunctionType([IntegerType, IntegerType], OptionType(t)),
     total: FunctionType([], OptionType(IntegerType)),
     seek:  OptionType(FunctionType([SeekQueryType], OptionType(SeekRangeType))),
+    revision: FunctionType([], OptionType(StringType)),
+    refresh: FunctionType([OptionType(StringType)], NullType),
 });
 
 /**
@@ -397,6 +401,8 @@ export const bindPagedPlatformFn = East.genericPlatform(
         page:  FunctionType([IntegerType, IntegerType], OptionType("T")),
         total: FunctionType([], OptionType(IntegerType)),
         seek:  OptionType(FunctionType([SeekQueryType], OptionType(SeekRangeType))),
+        revision: FunctionType([], OptionType(StringType)),
+        refresh: FunctionType([OptionType(StringType)], NullType),
     }),
     { optional: true },
 );
@@ -418,6 +424,10 @@ const data_page_total = East.genericPlatform(
 // element index in the row space `data_page` windows serve.
 const data_page_seek = East.genericPlatform(
     "data_page_seek", ["T"], [...PAGED_DESCRIPTOR, SeekQueryType], OptionType(SeekRangeType), { optional: true });
+const data_page_revision = East.genericPlatform(
+    "data_page_revision", ["T"], [...PAGED_DESCRIPTOR], OptionType(StringType), { optional: true });
+const data_page_refresh = East.genericPlatform(
+    "data_page_refresh", ["T"], [...PAGED_DESCRIPTOR, OptionType(StringType)], NullType, { optional: true });
 
 /**
  * Low-level platform primitives that back {@link Data.bindPaged}'s handle
@@ -435,6 +445,10 @@ export const DataPagedPrimitives = {
      *  query lands in the source's row order (`none` = search in flight;
      *  throws when the search failed). */
     seek: data_page_seek,
+    /** Read the coherent source snapshot; none while discovering it. */
+    revision: data_page_revision,
+    /** Refresh all consumers at an exact snapshot, or discover current content. */
+    refresh: data_page_refresh,
 } as const;
 
 /**
@@ -449,7 +463,7 @@ export const DataPagedPrimitives = {
  * @typeParam T - The East type of the source dataset value (a collection type).
  * @param dataset - The dataset (or task) definition to bind.
  * @returns A handle struct described by {@link DataPagedHandleType} — `page`
- *   and `total`.
+ *   / `total` / `seek` / `revision` / `refresh`.
  *
  * @remarks
  * Each `page(offset, limit)` fetches exactly that window and decodes it
@@ -479,6 +493,8 @@ export const DataPagedPrimitives = {
  * const dataBindPagedPlan = East.function([], UIComponentType, _$ => {
  *     return Reactive.Root(East.function([], UIComponentType, $ => {
  *         const paged = $.let(Data.bindPaged(ops));
+ *         // In an event handler: $(paged.refresh(none)) discovers current content;
+ *         // $(paged.refresh(some(committedHash))) pins an acknowledged write.
  *         const series = $.const([…], ArrayType(Plan.Types.Series(OpsRow)));
  *         // A paged canvas DECLARES its window: fitting the axis to whatever
  *         // prefix has landed re-fits it on every window (#567 D8).
