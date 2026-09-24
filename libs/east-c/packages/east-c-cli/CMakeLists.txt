@@ -1,6 +1,6 @@
-add_executable(east-c-cli src/main.c src/snapshot.c)
+add_executable(east-c-cli src/main.c)
 set_target_properties(east-c-cli PROPERTIES OUTPUT_NAME east-c)
-target_link_libraries(east-c-cli east-c-std microtar)
+target_link_libraries(east-c-cli east-c-std)
 if(WIN32)
     target_link_libraries(east-c-cli psapi)
 endif()
@@ -58,6 +58,18 @@ target_link_libraries(test_cli_profile east-c)
 add_test(NAME cli_profile COMMAND test_cli_profile $<TARGET_FILE:east-c-cli>
          ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures)
 set_tests_properties(cli_profile PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+
+# CLI exec gate: the runner protocol's conformance corpus, which TypeScript
+# exports beside the compliance IR (east/test/runner_corpus.spec.ts) — every
+# unit copied into a scratch directory and executed with `exec`, its exit
+# status, its result's outcome and every output byte held to the corpus.
+# Skips (exit 77) unless `make test-export` has produced
+# /tmp/east-test-ir/runner_corpus. Runs in the ASan tree too.
+add_executable(test_cli_exec tests/test_cli_exec.c)
+target_link_libraries(test_cli_exec east-c)
+add_test(NAME cli_exec COMMAND test_cli_exec $<TARGET_FILE:east-c-cli>)
+set_tests_properties(cli_exec PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 600
+                     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 
 # CLI `ir` toolbox gate (#627): spawns the binary over checked-in IR fixtures
 # and pins normalize (a fixed point, loc_ids zero, no map), diff (exit code +

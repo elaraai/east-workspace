@@ -157,6 +157,17 @@ jobs:
         working-directory: libs/east-c
         run: ./build/packages/east-c/test_beast2_corpus build/ir-east/beast2_corpus build
 
+      # The runner protocol's corpus, exported beside it: every unit executed
+      # with `exec`, its outputs and outcome held to TypeScript's. The gate
+      # spawns the binary through the platform shell, which on Windows wants
+      # a native path.
+      - name: runner protocol corpus
+        working-directory: libs/east-c/build/packages/east-c-cli
+        run: |
+          BIN="$PWD/east-c"
+          if [ "$RUNNER_OS" = "Windows" ]; then BIN="$(cygpath -w "$PWD/east-c.exe")"; fi
+          ./test_cli_exec "$BIN" ../../ir-east/runner_corpus
+
       # The fs compliance IR bakes the export host's tmpdir() (/tmp/...). On
       # Windows the C runtime resolves that to <drive>:\tmp, absent by default,
       # so create it — writeFile/readFile then round-trip as they do on Unix.

@@ -48,38 +48,9 @@ if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     endif()
 endif()
 
-# Fetch microtar for snapshot bundles in the CLI (ustar, no compression).
-# microtar ships with a Makefile but no CMake project, so we fetch the source
-# and build it ourselves rather than letting FetchContent invoke its build.
-FetchContent_Declare(
-    microtar
-    GIT_REPOSITORY https://github.com/rxi/microtar.git
-    GIT_TAG 27076e1b9290e9c7842bb7890a54fcf172406c84
-)
-FetchContent_GetProperties(microtar)
-if(NOT microtar_POPULATED)
-    FetchContent_Populate(microtar)
-endif()
-# Patch microtar to emit the POSIX ustar magic, so its archives interoperate
-# with stricter ustar-only readers (e.g. tar-stream). Idempotent.
-execute_process(
-    COMMAND ${CMAKE_COMMAND}
-        -DMICROTAR_SRC=${microtar_SOURCE_DIR}
-        -P ${CMAKE_CURRENT_LIST_DIR}/packages/east-c-cli/cmake/patch_microtar.cmake
-    RESULT_VARIABLE _patch_rc
-)
-if(NOT _patch_rc EQUAL 0)
-    message(FATAL_ERROR "Failed to patch microtar (rc=${_patch_rc})")
-endif()
-add_library(microtar STATIC ${microtar_SOURCE_DIR}/src/microtar.c)
-target_include_directories(microtar PUBLIC ${microtar_SOURCE_DIR}/src)
-if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
-    target_compile_options(microtar PRIVATE -w)
-endif()
-
 # Fetch tidwall/btree.c — the ordered B-tree that backs the Set/Dict in-memory
 # representation. It ships btree.c + btree.h with a Makefile but no CMake
-# project, so — like microtar above — we fetch the source and build it ourselves.
+# project, so we fetch the source and build it ourselves.
 # BTREE_NOATOMICS drops its copy-on-write <stdatomic.h> dependency: east-c never
 # shares tree nodes across threads (GC tracking lists are thread-local), so the
 # atomic refcount the library uses only for btree_clone is pure overhead here.
@@ -155,7 +126,7 @@ if(WIN32)
     # Force-include the compat shim into every east-c/std/cli TU so the
     # POSIX->Win32 mappings (clock_gettime, dirent, stat, strdup, ...) apply
     # without editing each source. Placed after the third-party FetchContent
-    # above so it affects only our targets (added below), not pcre2/curl/microtar.
+    # above so it affects only our targets (added below), not pcre2/curl.
     set(_east_c_compat "${CMAKE_CURRENT_LIST_DIR}/packages/east-c/include/east/compat.h")
     if(MSVC)
         add_compile_options(/FI "${_east_c_compat}")

@@ -312,21 +312,6 @@ static void test_dict_duplicate(const char *bin, const char *fixtures)
     check_no_index(out, "duplicate");
 }
 
-static void test_snapshot_guard(const char *bin, const char *fixtures)
-{
-    /* The snapshot manifest (format v1) carries no streaming flags, so a
-     * captured emit invocation would replay with the wrong arity — the CLI
-     * must refuse the combination at capture time (issue #508). */
-    char cmd[2048], err[64] = "emit_err_snapshot.txt";
-    snprintf(cmd, sizeof(cmd),
-             "\"%s\" run \"%s/emit_producer.beast2\" --emit array -o emit_out_snap.beast2 "
-             "--snapshot emit_snap.east-snapshot",
-             bin, fixtures);
-    int rc = run_cli(cmd, err);
-    CHECK(rc == 1, "snapshot guard: expected exit 1, got %d", rc);
-    check_stderr_contains(err, "--snapshot does not capture --emit/--stream");
-}
-
 static void test_fold_contract(const char *bin, const char *fixtures)
 {
     /* Issue #770: with --merge (dict) or --union (set) the sink folds
@@ -603,7 +588,6 @@ int main(int argc, char **argv)
     test_dict(argv[1], argv[2]);
     test_dict_out_of_order(argv[1], argv[2]);
     test_dict_duplicate(argv[1], argv[2]);
-    test_snapshot_guard(argv[1], argv[2]);
     test_fold_contract(argv[1], argv[2]);
     test_exit_with_parent(argv[1], argv[2]);
 

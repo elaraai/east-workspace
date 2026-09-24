@@ -35,6 +35,7 @@
 #include "file_map.h"
 #include "merge.h"
 #include "sha256.h"
+#include "unit.h"
 
 /* Exit with the parent (issue #770). Starts a detached watcher thread that
  * blocks reading stdin and terminates the process with _exit(1) when the

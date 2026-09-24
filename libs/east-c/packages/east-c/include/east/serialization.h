@@ -341,6 +341,11 @@ typedef struct Beast2RunSorter Beast2RunSorter;
 Beast2RunSorter *east_beast2_run_sorter_new(EastType *type, int32_t codec_id,
                                             const Beast2RunSink *sink, EastCompiledFn *merge_fn,
                                             bool union_mode);
+// A sorter whose runs are manifest directories: run n is the manifest
+// `<dir>/<n>.beast2`, its objects in `<dir>/<n>.beast2.segments/` — the layout
+// a runner writes a set or dict output in (east/unit.h). `dir` must exist.
+Beast2RunSorter *east_beast2_run_sorter_new_dir(EastType *type, int32_t codec_id, const char *dir,
+                                                EastCompiledFn *merge_fn, bool union_mode);
 // Frames of every run deflate on a pool, as east_beast2_writer_set_parallel.
 void east_beast2_run_sorter_set_parallel(Beast2RunSorter *s, bool parallel);
 // add() takes a Set element, add_pair() a Dict's key and value. An element

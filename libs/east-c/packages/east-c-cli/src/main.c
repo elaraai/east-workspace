@@ -3,6 +3,7 @@
  *
  * Usage:
  *   east-c run <ir_file> [-p PACKAGE...] [-i FILE...] [-o FILE] [-v]
+ *   east-c exec <unit> [-v]
  *   east-c version [-p PACKAGE...]
  */
 
@@ -13,8 +14,6 @@
 #include <east/type_of_type.h>
 #include <east/ir_normalize.h>
 #include <east_std/east_std.h>
-
-#include "snapshot.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -757,25 +756,93 @@ static void print_profile(const EastSourceMap *sm)
     free(entries);
 }
 
+/* Loads a program: the IR file's function node, and in *map_out the source map
+ * its locations resolve through (or NULL), the caller's. NULL with a message
+ * on stderr when the file does not hold a function. */
+static IRNode *load_program(const char *ir_path, bool verbose, EastSourceMap **map_out)
+{
+    *map_out = NULL;
+    IRNode *ir = NULL;
+    EastValue *ir_val = NULL;
+    FileFormat ir_fmt = detect_format(ir_path);
+
+    if (ir_fmt == FMT_BEAST2) {
+        /* Beast2: use combined decode+convert for O(1) type resolution */
+        size_t flen = 0;
+        uint8_t *fdata = read_file_binary(ir_path, &flen);
+        if (!fdata) return NULL;
+        ir = east_beast2_decode_ir(fdata, flen, &ir_val, map_out);
+        free(fdata);
+    } else if (ir_fmt == FMT_JSON) {
+        /* JSON: decode wrapper {ir, source_map} with source map extraction */
+        size_t flen = 0;
+        char *text = read_file_text(ir_path, &flen);
+        if (!text) return NULL;
+        ir = east_json_decode_ir(text, &ir_val, map_out);
+        free(text);
+    } else {
+        /* Beast v1/East text: decode IR value, then convert */
+        ir_val = load_ir(ir_path, verbose);
+        if (!ir_val) return NULL;
+        ir = east_ir_from_value(ir_val);
+    }
+
+    /* ir_val is retained by the decode functions;
+     * the IRNode's source_ir holds its own ref if needed for re-serialization. */
+    if (ir_val) east_value_release(ir_val);
+
+    if (!ir) {
+        fprintf(stderr, "Error: Failed to convert IR value to IR node\n");
+        east_source_map_release(*map_out);
+        *map_out = NULL;
+        return NULL;
+    }
+
+    /* Validate IR is a function */
+    if (ir->kind != IR_FUNCTION && ir->kind != IR_ASYNC_FUNCTION) {
+        fprintf(stderr,
+                "Error: IR must be a Function or AsyncFunction node, got kind %d\n"
+                "The IR file should contain compiled function IR.\n",
+                ir->kind);
+    } else if (!ir->type || (ir->type->kind != EAST_TYPE_FUNCTION &&
+                             ir->type->kind != EAST_TYPE_ASYNC_FUNCTION)) {
+        fprintf(stderr, "Error: IR function node has invalid type\n");
+    } else {
+        return ir;
+    }
+    ir_node_release(ir);
+    east_source_map_release(*map_out);
+    *map_out = NULL;
+    return NULL;
+}
+
+/* A function type's signature, `(A, B) -> C`, as the runners print it.
+ * Allocated. */
+static char *format_signature(EastType *fn_type)
+{
+    char sig_buf[1024];
+    size_t num_params = fn_type->data.function.num_inputs;
+    int off = snprintf(sig_buf, sizeof(sig_buf), "(");
+    for (size_t i = 0; i < num_params; i++) {
+        if (i > 0) off += snprintf(sig_buf + off, sizeof(sig_buf) - (size_t)off, ", ");
+        char *ts = format_type(fn_type->data.function.inputs[i]);
+        off += snprintf(sig_buf + off, sizeof(sig_buf) - (size_t)off, "%s", ts ? ts : "?");
+        free(ts);
+    }
+    off += snprintf(sig_buf + off, sizeof(sig_buf) - (size_t)off, ") -> ");
+    char *rs = format_type(fn_type->data.function.output);
+    snprintf(sig_buf + off, sizeof(sig_buf) - (size_t)off, "%s", rs ? rs : "?");
+    free(rs);
+    return strdup(sig_buf);
+}
+
 static int cmd_run(const char *ir_path, const char **packages, int num_packages,
                    const char **input_files, int num_inputs, const char *output_file, bool verbose,
-                   const char *snapshot_out_path, EmitKind emit_kind, const char *merge_path,
-                   bool union_mode, const int *stream_inputs, int num_streams, bool profile)
+                   EmitKind emit_kind, const char *merge_path, bool union_mode,
+                   const int *stream_inputs, int num_streams, bool profile)
 {
     /* Init type system */
     east_type_of_type_init();
-
-    /* Write snapshot BEFORE execution so crashes still leave the bundle. */
-    if (snapshot_out_path) {
-        char cli_ver[128];
-        snprintf(cli_ver, sizeof(cli_ver), "east-c-cli %s", EAST_CLI_VERSION);
-        if (snapshot_write(snapshot_out_path, ir_path, input_files, (size_t)num_inputs, packages,
-                           (size_t)num_packages, cli_ver) != 0) {
-            fprintf(stderr, "Error: failed to write snapshot to %s\n", snapshot_out_path);
-            return 1;
-        }
-        if (verbose) fprintf(stderr, "Snapshot: %s\n", snapshot_out_path);
-    }
 
     /* Create registries */
     BuiltinRegistry *builtins = builtin_registry_new();
@@ -808,72 +875,11 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
     struct timespec t0, t1, t2, t3, t4, t5;
 
     /* Load IR */
-    struct timespec t_decode, t_convert;
     clock_gettime(CLOCK_MONOTONIC, &t0);
 
-    IRNode *ir = NULL;
-    EastValue *ir_val = NULL;
     EastSourceMap *decoded_source_map = NULL;
-    FileFormat ir_fmt = detect_format(ir_path);
-
-    if (ir_fmt == FMT_BEAST2) {
-        /* Beast2: use combined decode+convert for O(1) type resolution */
-        size_t flen = 0;
-        uint8_t *fdata = read_file_binary(ir_path, &flen);
-        if (!fdata) {
-            platform_registry_free(platform);
-            builtin_registry_free(builtins);
-            return 1;
-        }
-        clock_gettime(CLOCK_MONOTONIC, &t_decode);
-        ir = east_beast2_decode_ir(fdata, flen, &ir_val, &decoded_source_map);
-        free(fdata);
-        clock_gettime(CLOCK_MONOTONIC, &t_convert);
-    } else if (ir_fmt == FMT_JSON) {
-        /* JSON: decode wrapper {ir, source_map} with source map extraction */
-        size_t flen = 0;
-        char *text = read_file_text(ir_path, &flen);
-        if (!text) {
-            platform_registry_free(platform);
-            builtin_registry_free(builtins);
-            return 1;
-        }
-        clock_gettime(CLOCK_MONOTONIC, &t_decode);
-        ir = east_json_decode_ir(text, &ir_val, &decoded_source_map);
-        free(text);
-        clock_gettime(CLOCK_MONOTONIC, &t_convert);
-    } else {
-        /* Beast v1/East text: decode IR value, then convert */
-        ir_val = load_ir(ir_path, verbose);
-        if (!ir_val) {
-            platform_registry_free(platform);
-            builtin_registry_free(builtins);
-            return 1;
-        }
-        clock_gettime(CLOCK_MONOTONIC, &t_decode);
-        ir = east_ir_from_value(ir_val);
-        clock_gettime(CLOCK_MONOTONIC, &t_convert);
-    }
-
-    /* ir_val is retained by the decode functions;
-     * the IRNode's source_ir holds its own ref if needed for re-serialization. */
-    if (ir_val) east_value_release(ir_val);
-
+    IRNode *ir = load_program(ir_path, verbose, &decoded_source_map);
     if (!ir) {
-        fprintf(stderr, "Error: Failed to convert IR value to IR node\n");
-        platform_registry_free(platform);
-        builtin_registry_free(builtins);
-        return 1;
-    }
-
-    /* Validate IR is a function */
-    if (ir->kind != IR_FUNCTION && ir->kind != IR_ASYNC_FUNCTION) {
-        fprintf(stderr,
-                "Error: IR must be a Function or AsyncFunction node, got kind %d\n"
-                "The IR file should contain compiled function IR.\n",
-                ir->kind);
-        ir_node_release(ir);
-        east_source_map_release(decoded_source_map);
         platform_registry_free(platform);
         builtin_registry_free(builtins);
         return 1;
@@ -881,16 +887,6 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
 
     /* Extract function signature */
     EastType *fn_type = ir->type;
-    if (!fn_type ||
-        (fn_type->kind != EAST_TYPE_FUNCTION && fn_type->kind != EAST_TYPE_ASYNC_FUNCTION)) {
-        fprintf(stderr, "Error: IR function node has invalid type\n");
-        ir_node_release(ir);
-        east_source_map_release(decoded_source_map);
-        platform_registry_free(platform);
-        builtin_registry_free(builtins);
-        return 1;
-    }
-
     size_t num_params = fn_type->data.function.num_inputs;
     EastType **param_types = fn_type->data.function.inputs;
     EastType *return_type = fn_type->data.function.output;
@@ -933,21 +929,10 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
 
     /* Validate input count */
     if ((size_t)num_inputs != file_params) {
-        char sig_buf[1024];
-        int off = snprintf(sig_buf, sizeof(sig_buf), "(");
-        for (size_t i = 0; i < num_params; i++) {
-            if (i > 0) off += snprintf(sig_buf + off, sizeof(sig_buf) - (size_t)off, ", ");
-            char *ts = format_type(param_types[i]);
-            off += snprintf(sig_buf + off, sizeof(sig_buf) - (size_t)off, "%s", ts ? ts : "?");
-            free(ts);
-        }
-        off += snprintf(sig_buf + off, sizeof(sig_buf) - (size_t)off, ") -> ");
-        char *rs = format_type(return_type);
-        snprintf(sig_buf + off, sizeof(sig_buf) - (size_t)off, "%s", rs ? rs : "?");
-        free(rs);
-
+        char *signature = format_signature(fn_type);
         fprintf(stderr, "Error: Function expects %zu inputs, got %d\nSignature: %s\n", file_params,
-                num_inputs, sig_buf);
+                num_inputs, signature ? signature : "?");
+        free(signature);
         ir_node_release(ir);
         east_source_map_release(decoded_source_map);
         platform_registry_free(platform);
@@ -1252,6 +1237,395 @@ static int cmd_merge(const char **packages, int num_packages, const char **input
     platform_registry_free(platform);
     builtin_registry_free(builtins);
     return ok ? 0 : 1;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Exec: the runner protocol (east/unit.h)                            */
+/* ------------------------------------------------------------------ */
+
+/* Where an exec's time goes. */
+typedef struct {
+    struct timespec mark;
+    double load, compile, execute, output;
+} ExecClock;
+
+/* Adds the time since the last lap to `phase`. */
+static void exec_lap(ExecClock *clock, double *phase)
+{
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    *phase += elapsed_ms(&clock->mark, &now);
+    clock->mark = now;
+}
+
+/* A failed exec step: the message the library posted, else `fallback`. */
+static EvalResult exec_error(const char *fallback)
+{
+    char *posted = east_builtin_get_error();
+    EvalResult r = eval_error(posted ? posted : fallback);
+    free(posted);
+    return r;
+}
+
+/* The registries a unit's functions compile against: the builtins, and the
+ * platform packages the unit names. False with the message posted. */
+static bool exec_registries(const EastUnit *unit, BuiltinRegistry **builtins_out,
+                            PlatformRegistry **platform_out)
+{
+    for (size_t i = 0; i < unit->num_platforms; i++) {
+        if (!is_std_package(unit->platforms[i])) {
+            char msg[512];
+            snprintf(msg, sizeof(msg),
+                     "Unknown platform package: %s (available: east-c-std, or shorthand std)",
+                     unit->platforms[i]);
+            east_builtin_error(msg);
+            return false;
+        }
+    }
+    *builtins_out = builtin_registry_new();
+    east_register_all_builtins(*builtins_out);
+    *platform_out = platform_registry_new();
+    if (unit->num_platforms > 0) east_std_register_all(*platform_out);
+    return true;
+}
+
+/* The function in an IR file, compiled with the unit's registries: what a
+ * dict's equal keys or a fold's values fold with. `out` takes the IR and the
+ * compiled function, which own the file's source map. False with the message
+ * posted. */
+static bool exec_function(const char *path, PlatformRegistry *platform, BuiltinRegistry *builtins,
+                          EmitMerge *out)
+{
+    out->ir = NULL;
+    out->fn = NULL;
+    char msg[1024];
+    EastSourceMap *map = NULL;
+    EastValue *ir_val = load_ir_with_map(path, &map);
+    IRNode *ir = ir_val ? east_ir_from_value(ir_val) : NULL;
+    if (ir_val) east_value_release(ir_val);
+    if (!ir || ir->kind != IR_FUNCTION) {
+        snprintf(msg, sizeof(msg), "exec: %s does not hold a function", path);
+        east_builtin_error(msg);
+        if (ir) ir_node_release(ir);
+        east_source_map_release(map);
+        return false;
+    }
+    const EastSourceMap *saved_map = east_get_source_map();
+    if (map) east_set_source_map(map);
+    char *err = NULL;
+    EastCompiledFn *fn = east_compile_fn(ir, platform, builtins, &err);
+    east_set_source_map(saved_map);
+    if (!fn) {
+        snprintf(msg, sizeof(msg), "exec: %s: %s", path,
+                 err ? err : "the function does not compile");
+        east_builtin_error(msg);
+        free(err);
+        ir_node_release(ir);
+        east_source_map_release(map);
+        return false;
+    }
+    if (map) fn->source_map = map;
+    out->ir = ir;
+    out->fn = fn;
+    return true;
+}
+
+/* A run unit: the program evaluated on its inputs, its output written by
+ * kind. */
+static EvalResult exec_run(const EastUnit *unit, ExecClock *clock)
+{
+    BuiltinRegistry *builtins = NULL;
+    PlatformRegistry *platform = NULL;
+    if (!exec_registries(unit, &builtins, &platform))
+        return exec_error("exec: the platforms cannot be loaded");
+    char msg[1024];
+    EastSourceMap *map = NULL;
+    IRNode *ir = load_program(unit->program, false, &map);
+    if (!ir) {
+        platform_registry_free(platform);
+        builtin_registry_free(builtins);
+        snprintf(msg, sizeof(msg), "exec: %s does not hold a program", unit->program);
+        return eval_error(msg);
+    }
+    EastType *fn_type = ir->type;
+    size_t num_params = fn_type->data.function.num_inputs;
+    EastType **param_types = fn_type->data.function.inputs;
+    /* Every kind but a value is emitted, through the trailing parameter. */
+    bool emitted = unit->output.kind != EAST_UNIT_VALUE;
+    static const char *kinds[5] = {"value", "array", "set", "dict", "fold"};
+    EvalResult r = eval_ok(east_null());
+    EmitMerge fold = {NULL, NULL};
+    EastValue *zero = NULL;
+    EastValue **args = calloc(num_params ? num_params : 1, sizeof(EastValue *));
+    EastCompiledFn *fn = NULL;
+    EastUnitSink *sink = NULL;
+    size_t file_params = emitted && num_params > 0 ? num_params - 1 : num_params;
+    if (emitted && num_params == 0) {
+        snprintf(msg, sizeof(msg),
+                 "exec: a %s output is emitted: the program's trailing parameter must be emit, "
+                 "a function",
+                 kinds[unit->output.kind]);
+        r = eval_error(msg);
+    } else if (unit->num_inputs != file_params) {
+        char *signature = format_signature(fn_type);
+        snprintf(msg, sizeof(msg), "Function expects %zu inputs, got %zu\nSignature: %s",
+                 file_params, unit->num_inputs, signature ? signature : "?");
+        free(signature);
+        r = eval_error(msg);
+    }
+
+    /* What the output folds with: a dict's merge, a fold's combine and zero. */
+    EastType *emit_type = emitted ? param_types[num_params - 1] : NULL;
+    const char *fold_path = unit->output.kind == EAST_UNIT_DICT   ? unit->output.merge
+                            : unit->output.kind == EAST_UNIT_FOLD ? unit->output.combine
+                                                                  : NULL;
+    if (r.status != EVAL_ERROR && fold_path && !exec_function(fold_path, platform, builtins, &fold))
+        r = exec_error("exec: the output's function cannot be loaded");
+    if (r.status != EVAL_ERROR && unit->output.kind == EAST_UNIT_FOLD && emit_type &&
+        emit_type->kind == EAST_TYPE_FUNCTION && emit_type->data.function.num_inputs == 1) {
+        zero =
+            load_input_value(unit->output.zero, emit_type->data.function.inputs[0], false, 0, NULL);
+        if (!zero) {
+            snprintf(msg, sizeof(msg), "exec: fold: the zero %s cannot be read", unit->output.zero);
+            r = eval_error(msg);
+        }
+    }
+
+    /* The inputs, frozen; one at or above the lazy threshold opens as a paged
+     * value, weighed by the value it holds. */
+    size_t threshold = lazy_input_threshold();
+    for (size_t i = 0; r.status != EVAL_ERROR && i < file_params; i++) {
+        args[i] = load_input_value(unit->inputs[i], param_types[i], false, threshold, NULL);
+        if (!args[i]) {
+            char *ts = format_type(param_types[i]);
+            snprintf(msg, sizeof(msg), "exec: input %zu (%s) cannot be read as %s", i,
+                     unit->inputs[i], ts ? ts : "?");
+            free(ts);
+            r = eval_error(msg);
+        }
+    }
+    exec_lap(clock, &clock->load);
+
+    if (r.status != EVAL_ERROR) {
+        /* The program's map is current while it compiles, so a compile error
+         * names its node's location, and stays current while it runs. */
+        if (map) east_set_source_map(map);
+        char *err = NULL;
+        fn = east_compile_fn(ir, platform, builtins, &err);
+        if (fn) {
+            if (map) fn->source_map = map;
+            map = NULL;
+        } else {
+            r = eval_error(err ? err : "Failed to compile IR");
+            free(err);
+        }
+    }
+    if (r.status != EVAL_ERROR) {
+        sink =
+            east_unit_sink_new(&unit->output, emitted ? emit_type : fn_type->data.function.output,
+                               unit->output.kind == EAST_UNIT_DICT ? fold.fn : NULL,
+                               unit->output.kind == EAST_UNIT_FOLD ? fold.fn : NULL, zero);
+        if (!sink) r = exec_error("exec: the output cannot be opened");
+    }
+    if (r.status != EVAL_ERROR && emitted) {
+        args[num_params - 1] = east_unit_sink_function(sink, emit_type);
+        if (!args[num_params - 1]) r = eval_error("exec: failed to construct the emit capability");
+    }
+    exec_lap(clock, &clock->compile);
+
+    if (r.status != EVAL_ERROR) {
+        eval_result_free(&r);
+        r = east_call(fn, args, num_params);
+        exec_lap(clock, &clock->execute);
+        if (r.status != EVAL_ERROR) {
+            bool ok = east_unit_sink_finish(sink, r.value);
+            if (r.value) east_value_release(r.value);
+            eval_result_free(&r);
+            r = ok ? eval_ok(east_null()) : exec_error("exec: the output cannot be written");
+            exec_lap(clock, &clock->output);
+        }
+    }
+
+    /* The emit capability refers to the sink, so it goes first. */
+    for (size_t i = 0; i < num_params; i++)
+        if (args[i]) east_value_release(args[i]);
+    free(args);
+    east_unit_sink_free(sink);
+    if (zero) east_value_release(zero);
+    emit_merge_free(&fold);
+    if (fn) east_compiled_fn_free(fn);
+    east_set_source_map(NULL);
+    east_source_map_release(map);
+    ir_node_release(ir);
+    platform_registry_free(platform);
+    builtin_registry_free(builtins);
+    return r;
+}
+
+/* A merge unit: set or dict parts merged into one run, or fold partials
+ * folded in order from zero. */
+static EvalResult exec_merge(const EastUnit *unit, ExecClock *clock)
+{
+    if (unit->output.kind == EAST_UNIT_ARRAY)
+        return eval_error("exec: an array's parts are concatenated, never merged: a merge unit "
+                          "takes set, dict or fold parts");
+    if (unit->output.kind == EAST_UNIT_VALUE)
+        return eval_error("exec: a value has no parts: a merge unit takes set, dict or fold parts");
+    BuiltinRegistry *builtins = NULL;
+    PlatformRegistry *platform = NULL;
+    if (!exec_registries(unit, &builtins, &platform))
+        return exec_error("exec: the platforms cannot be loaded");
+    char msg[1024];
+    EvalResult r = eval_ok(east_null());
+    EmitMerge fold = {NULL, NULL};
+    const char *fold_path = unit->output.kind == EAST_UNIT_DICT   ? unit->output.merge
+                            : unit->output.kind == EAST_UNIT_FOLD ? unit->output.combine
+                                                                  : NULL;
+    if (fold_path && !exec_function(fold_path, platform, builtins, &fold))
+        r = exec_error("exec: the output's function cannot be loaded");
+
+    if (r.status != EVAL_ERROR && unit->output.kind == EAST_UNIT_FOLD) {
+        /* A merge of fold partials has no program to say what was emitted:
+         * the combine's own type does. */
+        EastType *t = fold.fn->fn_type;
+        EastType *value_type = t->data.function.output;
+        if (t->data.function.num_inputs != 2 ||
+            !east_type_equal(t->data.function.inputs[0], value_type) ||
+            !east_type_equal(t->data.function.inputs[1], value_type)) {
+            char *printed_t = format_type(value_type);
+            char *printed = format_type(t);
+            snprintf(msg, sizeof(msg),
+                     "exec: combine: expected a function (T, T) -> T (T = %s), got %s",
+                     printed_t ? printed_t : "?", printed ? printed : "?");
+            free(printed_t);
+            free(printed);
+            r = eval_error(msg);
+        }
+        EastValue *acc = r.status != EVAL_ERROR
+                             ? load_input_value(unit->output.zero, value_type, false, 0, NULL)
+                             : NULL;
+        if (r.status != EVAL_ERROR && !acc) {
+            snprintf(msg, sizeof(msg), "exec: fold: the zero %s cannot be read", unit->output.zero);
+            r = eval_error(msg);
+        }
+        exec_lap(clock, &clock->compile);
+        for (size_t i = 0; r.status != EVAL_ERROR && i < unit->num_inputs; i++) {
+            EastValue *part = load_input_value(unit->inputs[i], value_type, false, 0, NULL);
+            if (!part) {
+                snprintf(msg, sizeof(msg), "exec: part %zu (%s) cannot be read", i,
+                         unit->inputs[i]);
+                eval_result_free(&r);
+                r = eval_error(msg);
+                break;
+            }
+            EastValue *fold_args[2] = {acc, part};
+            EvalResult c = east_call(fold.fn, fold_args, 2);
+            east_value_release(part);
+            if (c.status == EVAL_ERROR) {
+                eval_result_free(&r);
+                r = c;
+                break;
+            }
+            east_value_release(acc);
+            acc = c.value; /* the result's reference */
+            eval_result_free(&c);
+        }
+        exec_lap(clock, &clock->execute);
+        if (r.status != EVAL_ERROR && !east_unit_write_value(unit->output.path, acc, value_type)) {
+            eval_result_free(&r);
+            r = exec_error("exec: the output cannot be written");
+        }
+        if (acc) east_value_release(acc);
+        exec_lap(clock, &clock->output);
+    } else if (r.status != EVAL_ERROR) {
+        exec_lap(clock, &clock->load);
+        if (!east_unit_merge_runs(unit, fold.fn)) {
+            eval_result_free(&r);
+            r = exec_error("exec: the parts cannot be merged");
+        }
+        exec_lap(clock, &clock->execute);
+    }
+    emit_merge_free(&fold);
+    platform_registry_free(platform);
+    builtin_registry_free(builtins);
+    return r;
+}
+
+/* `exec <unit>`: the unit's work done, its output written and its result
+ * recorded where it says. Exits 0 for an ok outcome and 1 for a failure, whose
+ * message and locations also go to stderr; a unit that cannot be read, or a
+ * result that cannot be written, leaves no result and exits 2. */
+static int cmd_exec(const char *unit_path, bool verbose)
+{
+    east_type_of_type_init();
+    EastUnit *unit = east_unit_read(unit_path);
+    if (!unit) {
+        char *err = east_builtin_get_error();
+        fprintf(stderr, "Error: exec %s: %s\n", unit_path, err ? err : "the unit cannot be read");
+        free(err);
+        return 2;
+    }
+    /* The grant caps every pool the library starts; one thread frames every
+     * output inline. */
+    east_set_thread_limit(unit->threads < 1 ? 1 : unit->threads > 1024 ? 1024 : (int)unit->threads);
+    ExecClock clock;
+    memset(&clock, 0, sizeof(clock));
+    clock_gettime(CLOCK_MONOTONIC, &clock.mark);
+    EvalResult outcome = unit->merge ? exec_merge(unit, &clock) : exec_run(unit, &clock);
+
+    bool ok = outcome.status != EVAL_ERROR;
+    size_t num_locations = ok ? 0 : outcome.num_locations;
+    EastUnitLocation *locations =
+        num_locations > 0 ? calloc(num_locations, sizeof(EastUnitLocation)) : NULL;
+    if (!locations) num_locations = 0;
+    for (size_t i = 0; i < num_locations; i++) {
+        locations[i].filename = outcome.locations[i].filename ? outcome.locations[i].filename : "";
+        locations[i].line = outcome.locations[i].line;
+        locations[i].column = outcome.locations[i].column;
+    }
+    const char *message = ok                      ? NULL
+                          : outcome.error_message ? outcome.error_message
+                                                  : "unknown error";
+    EastUnitResult result = {
+        .ok = ok,
+        .message = message,
+        .locations = locations,
+        .num_locations = num_locations,
+        .peak_bytes = (uint64_t)east_peak_rss_kb() * 1024u,
+        .load_ms = clock.load,
+        .compile_ms = clock.compile,
+        .execute_ms = clock.execute,
+        .output_ms = clock.output,
+    };
+    int code = ok ? 0 : 1;
+    if (!east_unit_write_result(unit->result, &result)) {
+        char *err = east_builtin_get_error();
+        fprintf(stderr, "Error: exec %s: %s\n", unit_path,
+                err ? err : "the result cannot be written");
+        free(err);
+        code = 2;
+    } else if (!ok) {
+        fprintf(stderr, "Error: %s\n", message);
+        for (size_t i = 0; i < num_locations; i++)
+            fprintf(stderr, "  at %s:%ld:%ld\n", locations[i].filename, (long)locations[i].line,
+                    (long)locations[i].column);
+    }
+    if (verbose) {
+        fprintf(stderr, "\nTiming:\n");
+        fprintf(stderr, "  Load:     %8.1f ms\n", clock.load);
+        fprintf(stderr, "  Compile:  %8.1f ms\n", clock.compile);
+        fprintf(stderr, "  Execute:  %8.1f ms\n", clock.execute);
+        fprintf(stderr, "  Output:   %8.1f ms\n", clock.output);
+        fprintf(stderr, "  Total:    %8.1f ms\n",
+                clock.load + clock.compile + clock.execute + clock.output);
+        fprintf(stderr, "\nMemory:\n");
+        fprintf(stderr, "  Peak RSS: %8.1f MB\n", (double)result.peak_bytes / (1024.0 * 1024.0));
+    }
+    free(locations);
+    if (outcome.value) east_value_release(outcome.value);
+    eval_result_free(&outcome);
+    east_unit_free(unit);
+    return code;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1568,8 +1942,7 @@ static void print_usage(const char *prog)
     fprintf(stderr,
             "Usage:\n"
             "  %s run <ir_file> [-p PACKAGE...] [-i FILE...] [-o FILE] [-v] [--profile]\n"
-            "         [--snapshot PATH]\n"
-            "  %s run --from-snapshot PATH [-o FILE] [-v]\n"
+            "  %s exec <unit> [-v]\n"
             "  %s merge [-p PACKAGE...] [--merge FILE | --union] [--range FILE] -i FILE...\n"
             "         -o FILE [-v]\n"
             "  %s convert <in_file> [-o FILE] [--type TYPE] [-v]\n"
@@ -1580,6 +1953,10 @@ static void print_usage(const char *prog)
             "\n"
             "Commands:\n"
             "  run      Run an East IR program\n"
+            "  exec     Execute a unit, the runner protocol: run a program, or merge the\n"
+            "           parts of an output, as the unit file says, write the output by its\n"
+            "           kind and record the result; exit 0 when it is ok and 1 when it\n"
+            "           failed. Relative paths in the unit are relative to its directory.\n"
             "  merge    Merge sorted Set or Dict blobs of one type into one, in a single\n"
             "           pass: equal keys fold with the East function (K, V, V) -> V in\n"
             "           --merge FILE (Dict), or collapse under --union (Set); without a\n"
@@ -1619,9 +1996,6 @@ static void print_usage(const char *prog)
             "                          decoded memory)\n"
             "      --profile           Print every East function called, by self time,\n"
             "                          with its call count and source location\n"
-            "      --snapshot PATH     Write a .east-snapshot bundle (IR + inputs + manifest)\n"
-            "      --from-snapshot PATH  Replay from a .east-snapshot bundle (exclusive\n"
-            "                            with <ir_file>, -i, -p)\n"
             "\n"
             "Supported formats: .json, .beast2, .beast, .east\n",
             prog, prog, prog, prog, prog, prog, prog, prog);
@@ -1658,8 +2032,6 @@ static int cli_main(void *arg)
     const char *output_file = NULL;
     bool verbose = false;
     const char *ir_path = NULL;
-    const char *snapshot_out_path = NULL;
-    const char *from_snapshot_path = NULL;
     EmitKind emit_kind = EMIT_NONE;
     const char *merge_path = NULL;
     bool union_mode = false;
@@ -1669,8 +2041,6 @@ static int cli_main(void *arg)
     bool profile = false;
 
     if (strcmp(command, "run") == 0) {
-        /* Single-pass parse — --from-snapshot makes <ir_file> optional, so we
-         * can't treat the first non-flag arg as positional until we know. */
         int i = 2;
         while (i < argc) {
             const char *a = argv[i];
@@ -1697,12 +2067,6 @@ static int cli_main(void *arg)
             } else if (strcmp(a, "--profile") == 0) {
                 profile = true;
                 i++;
-            } else if (strcmp(a, "--snapshot") == 0 && i + 1 < argc) {
-                snapshot_out_path = argv[i + 1];
-                i += 2;
-            } else if (strcmp(a, "--from-snapshot") == 0 && i + 1 < argc) {
-                from_snapshot_path = argv[i + 1];
-                i += 2;
             } else if (strcmp(a, "--emit") == 0 && i + 1 < argc) {
                 const char *k = argv[i + 1];
                 if (strcmp(k, "array") == 0)
@@ -1757,31 +2121,6 @@ static int cli_main(void *arg)
             return 1;
         }
 
-        if (from_snapshot_path) {
-            if (ir_path || num_inputs > 0 || num_packages > 0) {
-                fprintf(stderr,
-                        "Error: --from-snapshot cannot be combined with <ir_file>, -i, or -p\n");
-                return 1;
-            }
-            SnapshotExtract ex;
-            if (snapshot_read(from_snapshot_path, &ex) != 0) return 1;
-            /* The manifest carries no streaming flags (format v1), so an emit
-             * task's flags must be passed explicitly on replay — forward them. */
-            int rc = cmd_run(ex.ir_path, (const char **)ex.packages, (int)ex.num_packages,
-                             (const char **)ex.input_paths, (int)ex.num_inputs, output_file,
-                             verbose, NULL, emit_kind, merge_path, union_mode, stream_inputs,
-                             num_streams, profile);
-            snapshot_extract_free(&ex);
-            return rc;
-        }
-
-        if (snapshot_out_path && (emit_kind != EMIT_NONE || num_streams > 0)) {
-            fprintf(stderr, "Error: --snapshot does not capture --emit/--stream (snapshot format "
-                            "v1 has no streaming flags); replay with --from-snapshot passing "
-                            "--emit/--stream explicitly\n");
-            return 1;
-        }
-
         if (!ir_path) {
             fprintf(stderr, "Error: Missing IR file argument\n");
             print_usage(argv[0]);
@@ -1789,8 +2128,28 @@ static int cli_main(void *arg)
         }
 
         return cmd_run(ir_path, packages, num_packages, input_files, num_inputs, output_file,
-                       verbose, snapshot_out_path, emit_kind, merge_path, union_mode, stream_inputs,
-                       num_streams, profile);
+                       verbose, emit_kind, merge_path, union_mode, stream_inputs, num_streams,
+                       profile);
+
+    } else if (strcmp(command, "exec") == 0) {
+        const char *unit_path = NULL;
+        for (int i = 2; i < argc; i++) {
+            if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--verbose") == 0) {
+                verbose = true;
+            } else if (argv[i][0] != '-' && !unit_path) {
+                unit_path = argv[i];
+            } else {
+                fprintf(stderr, "Error: Unknown option: %s\n", argv[i]);
+                print_usage(argv[0]);
+                return 2;
+            }
+        }
+        if (!unit_path) {
+            fprintf(stderr, "Error: exec requires <unit>\n");
+            print_usage(argv[0]);
+            return 2;
+        }
+        return cmd_exec(unit_path, verbose);
 
     } else if (strcmp(command, "merge") == 0) {
         int i = 2;

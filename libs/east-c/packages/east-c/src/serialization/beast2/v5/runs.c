@@ -11,6 +11,9 @@
  * elements, and the bytes of their canonical encoding — and an element's bytes
  * are the element writer's own: encoded with aliasing scoped to it, then
  * copied into the run's writer.
+ *
+ * A run is written as a blob, through the element writer to the sink, or as a
+ * manifest directory, through the manifest writer — the segments are the same.
  */
 
 #include "internal_v5.h"
@@ -32,6 +35,8 @@ struct Beast2RunSorter {
     int32_t codec;
     bool parallel;
     Beast2RunSink sink;
+    char *dir;                /* a directory sorter's directory, which run n is written into as the
+                                 manifest directory <dir>/<n>.beast2; NULL for a blob sorter */
     EastCompiledFn *merge_fn; /* borrowed: folds a Dict key added again, or NULL */
     bool union_mode;          /* a Set element added again is kept once */
     B2V5EncodeCtx ctx;        /* aliasing scoped per element */
@@ -45,12 +50,12 @@ struct Beast2RunSorter {
     bool failed;
 };
 
-Beast2RunSorter *east_beast2_run_sorter_new(EastType *type, int32_t codec_id,
-                                            const Beast2RunSink *sink, EastCompiledFn *merge_fn,
-                                            bool union_mode)
+/* A sorter writing to `sink`, or into `dir` when that is given. */
+static Beast2RunSorter *run_sorter_new(EastType *type, int32_t codec_id, const Beast2RunSink *sink,
+                                       const char *dir, EastCompiledFn *merge_fn, bool union_mode)
 {
-    if (!type || !sink || !sink->open || !sink->write || !sink->close) {
-        east_builtin_error("beast2 v5: a run sorter needs a type and a sink");
+    if (!type) {
+        east_builtin_error("beast2 v5: a run sorter needs a type");
         return NULL;
     }
     if (type->kind != EAST_TYPE_SET && type->kind != EAST_TYPE_DICT) {
@@ -104,17 +109,20 @@ Beast2RunSorter *east_beast2_run_sorter_new(EastType *type, int32_t codec_id,
     Beast2RunSorter *s = calloc(1, sizeof(*s));
     ByteBuffer *arena = byte_buffer_new(1 << 16);
     ByteBuffer *folded = byte_buffer_new(256);
-    if (!s || !arena || !folded) {
+    char *dir_copy = dir ? strdup(dir) : NULL;
+    if (!s || !arena || !folded || (dir && !dir_copy)) {
         free(s);
         byte_buffer_free(arena);
         byte_buffer_free(folded);
+        free(dir_copy);
         east_builtin_error("beast2 v5: out of memory building a run sorter");
         return NULL;
     }
     s->type = type;
     east_type_retain(type);
     s->codec = codec_id;
-    s->sink = *sink;
+    if (sink) s->sink = *sink;
+    s->dir = dir_copy;
     s->merge_fn = merge_fn;
     s->union_mode = union_mode;
     s->arena = arena;
@@ -124,6 +132,27 @@ Beast2RunSorter *east_beast2_run_sorter_new(EastType *type, int32_t codec_id,
     s->ctx.def_count = 1;
     s->ctx.segment_base_def = 1;
     return s;
+}
+
+Beast2RunSorter *east_beast2_run_sorter_new(EastType *type, int32_t codec_id,
+                                            const Beast2RunSink *sink, EastCompiledFn *merge_fn,
+                                            bool union_mode)
+{
+    if (!sink || !sink->open || !sink->write || !sink->close) {
+        east_builtin_error("beast2 v5: a run sorter needs a type and a sink");
+        return NULL;
+    }
+    return run_sorter_new(type, codec_id, sink, NULL, merge_fn, union_mode);
+}
+
+Beast2RunSorter *east_beast2_run_sorter_new_dir(EastType *type, int32_t codec_id, const char *dir,
+                                                EastCompiledFn *merge_fn, bool union_mode)
+{
+    if (!dir) {
+        east_builtin_error("beast2 v5: a run sorter needs a directory to write its runs into");
+        return NULL;
+    }
+    return run_sorter_new(type, codec_id, NULL, dir, merge_fn, union_mode);
 }
 
 void east_beast2_run_sorter_set_parallel(Beast2RunSorter *s, bool parallel)
@@ -161,6 +190,26 @@ static bool run_sorter_drain(Beast2RunSorter *s, Beast2ElementWriter *w)
     bool ok = s->sink.write(s->sink.ctx, buf->data, buf->len);
     byte_buffer_free(buf);
     return ok;
+}
+
+/* Where the run being written goes: a blob, through the element writer, or a
+ * manifest directory. */
+typedef struct {
+    Beast2ElementWriter *blob;
+    Beast2ManifestWriter *dir;
+} B2V5RunOut;
+
+/* Adds one element, already in its canonical bytes, to the run being
+ * written. */
+static bool run_out_add(Beast2RunSorter *s, B2V5RunOut *out, const uint8_t *element, size_t len,
+                        size_t key_len)
+{
+    if (out->dir) return east_beast2_manifest_writer_add_encoded(out->dir, element, len, key_len);
+    size_t segments = east_beast2_element_writer_segments(out->blob);
+    if (!east_beast2_element_writer_add_encoded(out->blob, element, len, key_len)) return false;
+    /* The sink takes the bytes as each segment closes. */
+    return east_beast2_element_writer_segments(out->blob) == segments ||
+           run_sorter_drain(s, out->blob);
 }
 
 /* A Dict value, decoded from its bytes alone: a key holds no container, so
@@ -204,7 +253,7 @@ static EastValue *run_sorter_fold(Beast2RunSorter *s, EastValue *key, EastValue 
 
 /* Folds the values of the equal keys at entries [i, j) in the order they were
  * added, and adds the key with the folded value. */
-static bool run_sorter_add_folded(Beast2RunSorter *s, Beast2ElementWriter *w, size_t i, size_t j)
+static bool run_sorter_add_folded(Beast2RunSorter *s, B2V5RunOut *out, size_t i, size_t j)
 {
     const uint8_t *arena = s->arena->data;
     const B2V5RunEntry *first = &s->entries[i];
@@ -230,8 +279,7 @@ static bool run_sorter_add_folded(Beast2RunSorter *s, Beast2ElementWriter *w, si
         s->ctx.failed = false;
         return false;
     }
-    return east_beast2_element_writer_add_encoded(w, s->folded->data, s->folded->len,
-                                                  first->key_len);
+    return run_out_add(s, out, s->folded->data, s->folded->len, first->key_len);
 }
 
 /* Posts the refusal of a key added twice without a fold. */
@@ -254,14 +302,36 @@ static void run_sorter_duplicate_error(Beast2RunSorter *s, EastValue *key)
     free(printed);
 }
 
+/* Opens run `s->runs`: the manifest directory <dir>/<n>.beast2 of a directory
+ * sorter, else a blob through the element writer to the sink. */
+static bool run_sorter_open_run(Beast2RunSorter *s, B2V5RunOut *out)
+{
+    if (s->dir) {
+        size_t need = strlen(s->dir) + 32;
+        char *path = malloc(need);
+        if (!path) {
+            east_builtin_error("beast2 v5: out of memory opening a run");
+            return false;
+        }
+        snprintf(path, need, "%s/%zu.beast2", s->dir, s->runs);
+        out->dir = east_beast2_manifest_writer_new_dir(s->type, s->codec, path);
+        free(path);
+        return out->dir != NULL;
+    }
+    out->blob = east_beast2_element_writer_new(s->type, s->codec);
+    if (!out->blob) return false;
+    east_beast2_element_writer_set_parallel(out->blob, s->parallel);
+    return s->sink.open(s->sink.ctx, s->runs);
+}
+
 /* Sorts the open run, folds its repeated keys, and writes it. A failure ends
- * the sorter and leaves the run's sink without its close. */
+ * the sorter and leaves the run incomplete: a blob's sink without its close,
+ * a manifest directory without its manifest. */
 static bool run_sorter_write_run(Beast2RunSorter *s)
 {
     qsort(s->entries, s->count, sizeof(B2V5RunEntry), run_entry_order);
-    Beast2ElementWriter *w = east_beast2_element_writer_new(s->type, s->codec);
-    if (w) east_beast2_element_writer_set_parallel(w, s->parallel);
-    bool ok = w != NULL && s->sink.open(s->sink.ctx, s->runs);
+    B2V5RunOut out = {NULL, NULL};
+    bool ok = run_sorter_open_run(s, &out);
     for (size_t i = 0; ok && i < s->count;) {
         const B2V5RunEntry *first = &s->entries[i];
         size_t j = i + 1;
@@ -272,20 +342,19 @@ static bool run_sorter_write_run(Beast2RunSorter *s)
             ok = false;
             break;
         }
-        size_t segments = east_beast2_element_writer_segments(w);
         ok = (j - i == 1 || !s->merge_fn)
-                 ? east_beast2_element_writer_add_encoded(w, s->arena->data + first->offset,
-                                                          first->len, first->key_len)
-                 : run_sorter_add_folded(s, w, i, j);
-        /* The sink takes the bytes as each segment closes. */
-        if (ok && east_beast2_element_writer_segments(w) != segments) ok = run_sorter_drain(s, w);
+                 ? run_out_add(s, &out, s->arena->data + first->offset, first->len, first->key_len)
+                 : run_sorter_add_folded(s, &out, i, j);
         i = j;
     }
-    if (ok) {
-        ok = east_beast2_element_writer_finish(w) && run_sorter_drain(s, w) &&
+    if (ok && out.dir) {
+        ok = east_beast2_manifest_writer_finish(out.dir);
+    } else if (ok) {
+        ok = east_beast2_element_writer_finish(out.blob) && run_sorter_drain(s, out.blob) &&
              s->sink.close(s->sink.ctx);
     }
-    east_beast2_element_writer_free(w);
+    if (out.blob) east_beast2_element_writer_free(out.blob);
+    east_beast2_manifest_writer_free(out.dir);
     if (!ok) {
         s->failed = true;
         return false;
@@ -374,5 +443,6 @@ void east_beast2_run_sorter_free(Beast2RunSorter *s)
     byte_buffer_free(s->folded);
     b2v5_enc_ctx_free(&s->ctx);
     east_type_release(s->type);
+    free(s->dir);
     free(s);
 }
