@@ -894,7 +894,10 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
             width: OptionType(StringType),
             minWidth: OptionType(StringType),
             maxWidth: OptionType(StringType),
-            render: FunctionType([TableCellRenderContextType], node),
+            // Mirror `TableColumnType` (#874): without a render the renderer
+            // prints the cell itself, through `format` for a number.
+            render: OptionType(FunctionType([TableCellRenderContextType], node)),
+            format: OptionType(TickFormatType),
             // Row grouping (#317) — group-subtotal aggregate + optional
             // renderer for the aggregated value on group header rows.
             aggregate: OptionType(TableAggregateType),

@@ -100,7 +100,7 @@ describe("numbers (#850)", () => {
 // ── The Table ───────────────────────────────────────────────────────────────
 
 describe("the Table (#850)", () => {
-    // A cell with no declared format prints as East writes it until #874.
+    // Its cells print in the viewer's language too: table-cells.dom.test.tsx (#874).
     test("the pager's counts are German", () => {
         const { container } = component(compile(East.function([], UIComponentType, ($) => {
             const orders = $.const(ORDERS, ArrayType(OrderType));

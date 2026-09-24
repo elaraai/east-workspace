@@ -4,9 +4,13 @@
  */
 
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Table, Badge, Text, Stack, Style, UIComponentType } from "@elaraai/east-ui/internal";
-import { East, IntegerType, NullType, OptionType, ArrayType, some, variant, type ExprType } from "@elaraai/east";
+import { Table, Badge, Format, Text, Stack, Style, UIComponentType } from "@elaraai/east-ui/internal";
+import { East, EastTypeType, IntegerType, NullType, OptionType, ArrayType, some, toEastTypeValue, variant, type ExprType } from "@elaraai/east";
 import * as ex from "./table.examples.js";
+
+// East TYPE VALUES — the form the arm-equality test compares them in (#874).
+const TABLE_ARM = toEastTypeValue(UIComponentType.node.cases.Table);
+const TABLE_ROOT = toEastTypeValue(Table.Types.Root);
 
 describeEast("Table", (test) => {
     Assert.examples(test, {
@@ -15,10 +19,71 @@ describeEast("Table", (test) => {
         tableFrozen: ex.tableFrozen,
         tableGroupedColumns: ex.tableGroupedColumns,
         tablePnl: ex.tablePnl,
+        tableNumberFormats: ex.tableNumberFormats,
         tableVariants: ex.tableVariants,
         tablePaginated: ex.tablePaginated,
         tableExpandable: ex.tableExpandable,
         tableReview: ex.tableReview,
+    });
+
+    test("the component.ts Table arm and TableRootType are one East type (#874)", $ => {
+        // `component.ts` spells the arm inline, because a column's `render`
+        // and the footer cells need the recursion `node`; `TableRootType`
+        // names the same shape at the resolved `UIComponentType`, and the
+        // renderer decodes the arm's values through that name. Neither is
+        // built from the other, so a field — a column's `format`, say — that
+        // only one of them has reaches the other side silently. This is the
+        // check that notices.
+        const arm = $.const(TABLE_ARM, EastTypeType);
+        const root = $.const(TABLE_ROOT, EastTypeType);
+        const armFields = $.let(arm.unwrap().unwrap("Struct"));
+        const rootFields = $.let(root.unwrap().unwrap("Struct"));
+        // The same fields in the same order — a missing one shows in the diff.
+        $(Assert.equal(armFields.map((_$, f) => f.name), rootFields.map((_$, f) => f.name)));
+        // The same type in every field — a drifted field is named, not printed
+        // (a field type that mentions `UIComponentType` prints all of it).
+        $(Assert.equal(
+            rootFields.filter((_$, f, i) => East.equal(f.type, armFields.get(i).type).not()).map((_$, f) => f.name),
+            [],
+        ));
+    });
+
+    // =========================================================================
+    // #874 — a column's render is optional; a column carries its format
+    // =========================================================================
+
+    test("a column without a render carries none, and a declared format rides the column (#874)", $ => {
+        const shout = $.const(East.function([Table.Types.CellRenderContext], UIComponentType, (_$, ctx) => Text.Root(East.print(ctx.cellValue))));
+        const table = $.let(Table.Root(
+            [{ name: "Alice", qty: 1234.5, year: 2026n }],
+            {
+                name: { header: "Name", render: shout },
+                qty: { header: "Qty", format: Format.Number() },
+                year: { header: "Year" },
+            },
+        ));
+        const columns = $.let(table.unwrap().unwrap("Table").columns);
+        // An authored render rides as some; no format was declared.
+        $(Assert.equal(columns.get(0n).render.hasTag("some"), true));
+        $(Assert.equal(columns.get(0n).format.hasTag("none"), true));
+        // No render: the renderer prints the cell, through the declared format.
+        $(Assert.equal(columns.get(1n).render.hasTag("none"), true));
+        $(Assert.equal(columns.get(1n).format.unwrap("some").hasTag("number"), true));
+        // Neither: the cell prints bare.
+        $(Assert.equal(columns.get(2n).render.hasTag("none"), true));
+        $(Assert.equal(columns.get(2n).format.hasTag("none"), true));
+    });
+
+    test("tableNumberFormats: undeclared columns print themselves; revenue and margin declare their formats (#874)", $ => {
+        const table = $.const(ex.tableNumberFormats.fn() as ExprType<UIComponentType>);
+        const columns = $.let(table.unwrap().unwrap("Table").columns);
+        $(Assert.equal(columns.map((_$, c) => c.key), ["region", "year", "sku", "qty", "revenue", "margin"]));
+        $(Assert.equal(columns.filter((_$, c) => c.render.hasTag("some")).size(), 0n));
+        $(Assert.equal(columns.get(3n).format.hasTag("none"), true));
+        $(Assert.equal(columns.get(4n).format.unwrap("some").unwrap("currency").currency.hasTag("EUR"), true));
+        $(Assert.equal(columns.get(4n).aggregate.unwrap("some").hasTag("sum"), true));
+        $(Assert.equal(columns.get(5n).format.unwrap("some").hasTag("percent"), true));
+        $(Assert.equal(columns.get(5n).aggregate.unwrap("some").hasTag("mean"), true));
     });
 
     // =========================================================================

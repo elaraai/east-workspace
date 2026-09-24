@@ -498,6 +498,37 @@ export const DateTimeFormatType = StructType({
 });
 export type DateTimeFormatType = typeof DateTimeFormatType;
 
+/** The tick-format variant, as TypeScript infers it — named below. */
+const TickFormatTypeImpl = VariantType({
+    // Number formats
+    number: NumberFormatType,
+    currency: CurrencyFormatType,
+    percent: PercentFormatType,
+    compact: CompactFormatType,
+    unit: UnitFormatType,
+    scientific: NullType,
+    engineering: NullType,
+    // Date/Time formats
+    date: DateFormatType,
+    time: TimeFormatType,
+    datetime: DateTimeFormatType,
+});
+
+type TickFormatTypeImpl = typeof TickFormatTypeImpl;
+
+/**
+ * Type representing tick format.
+ *
+ * @remarks
+ * An interface, so a type that mentions it refers to it by name in
+ * declaration output rather than spelling out its every case — above all
+ * `UIComponentType`, whose inferred type sits near the length TypeScript will
+ * serialize (TS7056) and holds this type in several arms (Stat, Numeric, a
+ * Table column).
+ */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- the empty interface is the point: it attaches a symbol the declaration emitter can reference by name
+export interface TickFormatType extends TickFormatTypeImpl {}
+
 /**
  * Tick format for axis values.
  *
@@ -519,22 +550,4 @@ export type DateTimeFormatType = typeof DateTimeFormatType;
  * @property time - Time formatting with style and 12/24 hour
  * @property datetime - Combined date and time
  */
-export const TickFormatType = VariantType({
-    // Number formats
-    number: NumberFormatType,
-    currency: CurrencyFormatType,
-    percent: PercentFormatType,
-    compact: CompactFormatType,
-    unit: UnitFormatType,
-    scientific: NullType,
-    engineering: NullType,
-    // Date/Time formats
-    date: DateFormatType,
-    time: TimeFormatType,
-    datetime: DateTimeFormatType,
-});
-
-/**
- * Type representing tick format.
- */
-export type TickFormatType = typeof TickFormatType;
+export const TickFormatType: TickFormatType = TickFormatTypeImpl;

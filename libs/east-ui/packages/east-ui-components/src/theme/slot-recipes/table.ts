@@ -21,7 +21,7 @@ import { defineSlotRecipe } from "@chakra-ui/react";
 export const tableSlotRecipe = defineSlotRecipe({
     className: "elara-table",
     slots: [
-        "root", "header", "body", "row", "cell", "columnHeader",
+        "root", "header", "body", "row", "cell", "cellText", "columnHeader",
         "footer", "caption", "scrollArea", "groupHead", "groupHeadCell",
         "groupHeadAggregate",
     ],
@@ -100,6 +100,13 @@ export const tableSlotRecipe = defineSlotRecipe({
             // shared density token keep text centred).
             verticalAlign: "middle",
             color: "fg",
+        },
+        // The text a cell prints itself when its column has no `render`
+        // (#874) — one line, cut with an ellipsis in a narrow column.
+        cellText: {
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
         },
         row: { transitionProperty: "background", transitionDuration: "{durations.fast}" },
         footer: {

@@ -57,11 +57,11 @@ import {
     type TableAggregateLiteral,
 } from "./types.js";
 import { UIComponentType } from "../../component.js";
+import { TickFormatType } from "../../format/types.js";
 import { SliceBindType, SliceChromeType } from "../../platform/slice/index.js";
 import { StatusValueType } from "../../feedback/status/types.js";
 import { ApprovalStateType, RowRefType, RowReviewType, buildReview } from "../../contracts/review.js";
 import { SliceAffordanceType, type SliceAffordanceLiteral } from "../../contracts/slice-affordances.js";
-import { Text } from "../../typography/index.js";
 import { DensityType } from "../../style/interaction.js";
 import { StatusTokenType } from "../../style/interaction.js";
 import { PlotGutterType } from "../../shared/plot-gutter.js";
@@ -243,7 +243,8 @@ export {
  * @property width - Optional fixed width (CSS value)
  * @property minWidth - Optional minimum width (CSS value)
  * @property maxWidth - Optional maximum width (CSS value)
- * @property render - East render function (required — the factory synthesizes a text default when the author omits it)
+ * @property render - Optional East render function; without one the renderer prints the cell itself (#874)
+ * @property format - Optional `Format.*` spec for the column's number cells and group totals (#874)
  */
 export const TableColumnType = StructType({
     key: StringType,
@@ -253,7 +254,11 @@ export const TableColumnType = StructType({
     width: OptionType(StringType),
     minWidth: OptionType(StringType),
     maxWidth: OptionType(StringType),
-    render: FunctionType([TableCellRenderContextType], UIComponentType),
+    // Without a render, the renderer prints the cell itself (#874): a number
+    // through `format` when one is declared, else every digit with the
+    // viewer's decimal separator; anything else as East prints it.
+    render: OptionType(FunctionType([TableCellRenderContextType], UIComponentType)),
+    format: OptionType(TickFormatType),
     // Row grouping (#317) — the aggregate shown for this column on group
     // header rows, and an optional renderer for the aggregated value (the
     // cell `render` takes a rowIndex, which a synthetic group row lacks).
@@ -269,10 +274,11 @@ export type TableColumnType = typeof TableColumnType;
  *
  * @remarks
  * A cell is a bare {@link LiteralValueType} variant (`Null` / `Boolean` /
- * `Integer` / `Float` / `String` / `DateTime` / `Blob`). Rendering always
- * goes through the column's `render` function (`TableColumnType.render`,
- * required — the factory synthesizes a capture-free text default when the
- * author omits it), so the IR carries no per-cell UI content (#206).
+ * `Integer` / `Float` / `String` / `DateTime` / `Blob`). The IR carries no
+ * per-cell UI content (#206): a cell renders through its column's `render`
+ * function when the author gives one, and otherwise the renderer prints it
+ * in the viewer's language, through the column's `format` for a number
+ * (#874).
  */
 export const TableCellType = LiteralValueType;
 export type TableCellType = typeof TableCellType;
@@ -351,6 +357,7 @@ export const TableRootType: StructType<{
     rowStatus: OptionType<FunctionType<[IntegerType], typeof StatusTokenType>>,
     pagination: OptionType<TablePaginationType>,
     selection: OptionType<TableSelectionType>,
+    groupBy: OptionType<ArrayType<typeof TableGroupLevelType>>,
     onCellClick: OptionType<FunctionType<[TableCellClickEventType], NullType>>,
     onCellDoubleClick: OptionType<FunctionType<[TableCellClickEventType], NullType>>,
     onRowClick: OptionType<FunctionType<[TableRowClickEventType], NullType>>,
@@ -361,7 +368,6 @@ export const TableRootType: StructType<{
     reviewStatus: OptionType<FunctionType<[IntegerType], OptionType<StatusValueType>>>,
     reviewApproval: OptionType<FunctionType<[IntegerType], OptionType<ApprovalStateType>>>,
     slice: OptionType<typeof SliceChromeType>,
-    groupBy: OptionType<ArrayType<typeof TableGroupLevelType>>,
     style: OptionType<TableStyleType>,
 }> = StructType({
     rows: TableRowsType,
@@ -378,6 +384,11 @@ export const TableRootType: StructType<{
     rowStatus: OptionType(FunctionType([IntegerType], StatusTokenType)),
     pagination: OptionType(TablePaginationType),
     selection: OptionType(TableSelectionType),
+    // Row grouping (#317) — nested levels of per-row printed group keys; the
+    // renderer folds the sorted rows into collapsible group-headed segments.
+    // (After `selection`, where the `component.ts` arm has it — the two are
+    // one East type, field for field.)
+    groupBy: OptionType(ArrayType(TableGroupLevelType)),
     onCellClick: OptionType(FunctionType([TableCellClickEventType], NullType)),
     onCellDoubleClick: OptionType(FunctionType([TableCellClickEventType], NullType)),
     onRowClick: OptionType(FunctionType([TableRowClickEventType], NullType)),
@@ -392,9 +403,6 @@ export const TableRootType: StructType<{
     reviewStatus: OptionType(FunctionType([IntegerType], OptionType(StatusValueType))),
     reviewApproval: OptionType(FunctionType([IntegerType], OptionType(ApprovalStateType))),
     slice: OptionType(SliceChromeType),
-    // Row grouping (#317) — nested levels of per-row printed group keys; the
-    // renderer folds the sorted rows into collapsible group-headed segments.
-    groupBy: OptionType(ArrayType(TableGroupLevelType)),
     style: OptionType(TableStyleType),
 });
 
@@ -417,6 +425,15 @@ interface TableColumnConfigBase {
     header?: SubtypeExprOrValue<StringType>;
     /** Optional East render function called at render time with cell context */
     render?: SubtypeExprOrValue<FunctionType<[TableCellRenderContextType], UIComponentType>>;
+    /**
+     * How the column's number cells print, in the viewer's language — a
+     * `Format.*` spec (`Format.Number()` groups thousands,
+     * `Format.Currency({ currency: "EUR" })`). It formats the column's group
+     * totals too. Without one, a number prints every digit, never grouped,
+     * with the viewer's decimal separator: `1234.5` (`1234,5` in German), and
+     * a year stays `2026` (#874). A `render` draws the cells instead.
+     */
+    format?: SubtypeExprOrValue<TickFormatType>;
     /** Optional cell click handler */
     onCellClick?: SubtypeExprOrValue<FunctionType<[TableCellClickEventType], NullType>>,
     /** Optional cell double-click handler */
@@ -482,11 +499,13 @@ export type TableColumnConfig<FieldType extends EastType = EastType, RowType ext
  *
  * @remarks
  * Columns can be specified as a simple array of field names, or an object
- * with optional header and render configuration.
+ * with optional header, render and format configuration.
  *
- * When render is not provided, fields render as Text automatically:
- * - String fields: `Text.Root(value)`
- * - Other types: `Text.Root(East.str\`\${value}\`)` (auto string conversion)
+ * When render is not provided, the renderer prints each cell in the viewer's
+ * language (#874):
+ * - a number through the column's `format` when one is declared, otherwise
+ *   every digit, never grouped, with the viewer's decimal separator;
+ * - a string as it is, and any other value as East prints it.
  *
  * @example
  * ```ts
@@ -670,16 +689,11 @@ export function createTable(
             width: config?.width !== undefined ? some(config.width) : none as any,
             minWidth: config?.minWidth !== undefined ? some(config.minWidth) : none as any,
             maxWidth: config?.maxWidth !== undefined ? some(config.maxWidth) : none as any,
+            // No render: the renderer prints the cell in the viewer's language (#874).
             render: config?.render
-                ? East.value(config.render, FunctionType([TableCellRenderContextType], UIComponentType))
-                // Synthesized capture-free default: stringify the cell value via
-                // the column's statically-known tag (Slice.config accessor precedent).
-                : East.function([TableCellRenderContextType], UIComponentType, (_$, ctx) =>
-                    Text.Root(East.str`${ctx.cellValue.unwrap((config as any).valueType.type)}`, {
-                        whiteSpace: "nowrap",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                    })),
+                ? some(East.value(config.render, FunctionType([TableCellRenderContextType], UIComponentType))) as any
+                : none as any,
+            format: config?.format !== undefined ? some(config.format) as any : none as any,
             aggregate: (config as { aggregate?: TableAggregateLiteral } | undefined)?.aggregate !== undefined
                 ? some(variant((config as { aggregate: TableAggregateLiteral }).aggregate, null)) as any
                 : none as any,
@@ -994,11 +1008,13 @@ export const Table: TableNamespace = {
      *
      * @remarks
      * Columns can be specified as a simple array of field names, or an object
-     * with optional header and render configuration.
+     * with optional header, render and format configuration.
      *
-     * When render is not provided, fields render as Text automatically:
-     * - String fields: `Text.Root(value)`
-     * - Other types: `Text.Root(East.str\`\${value}\`)` (auto string conversion)
+     * When render is not provided, the renderer prints each cell in the
+     * viewer's language (#874):
+     * - a number through the column's `format` when one is declared, otherwise
+     *   every digit, never grouped, with the viewer's decimal separator;
+     * - a string as it is, and any other value as East prints it.
      *
      * @example
      * ```ts
@@ -1107,7 +1123,10 @@ export const Table: TableNamespace = {
          * @property width - Optional fixed CSS width (e.g. "200px", "20%")
          * @property minWidth - Optional CSS minimum width
          * @property maxWidth - Optional CSS maximum width
-         * @property render - `(context: TableCellRenderContextType) => UIComponent` — the cell renderer, required; the factory synthesizes a capture-free `Text.Root` stringify default when the author omits `render`
+         * @property render - Optional `(context: TableCellRenderContextType) => UIComponent` cell renderer; without one the renderer prints the cell in the viewer's language (#874)
+         * @property format - Optional `Format.*` spec ({@link TickFormatType}) for the column's number cells and group totals (#874)
+         * @property aggregate - Optional group-subtotal aggregate shown on group header rows (#317)
+         * @property aggregateRender - Optional renderer for the aggregated value on group header rows (#317)
          */
         Column: TableColumnType,
         /**
@@ -1115,11 +1134,11 @@ export const Table: TableNamespace = {
          * variant.
          *
          * @remarks
-         * The cell IS the sortable / filterable primitive value. Rendering
-         * always goes through the column's `render` function
-         * ({@link TableColumnType}.render, required — the factory synthesizes
-         * a capture-free text default when the author omits it), so the IR
-         * carries no per-cell UI content.
+         * The cell IS the sortable / filterable primitive value, and the IR
+         * carries no per-cell UI content: a cell renders through its column's
+         * `render` ({@link TableColumnType}.render) when the author gives one,
+         * and otherwise the renderer prints it in the viewer's language,
+         * through the column's `format` for a number (#874).
          */
         Cell: TableCellType,
         /**

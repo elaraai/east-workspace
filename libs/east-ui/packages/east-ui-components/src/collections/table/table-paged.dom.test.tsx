@@ -39,7 +39,7 @@ function row(name: string, qty: bigint): Map<string, unknown> {
     ]);
 }
 
-/** A decoded column: cells render as their own text. */
+/** A decoded column with no `render`: the table prints its cells (#874). */
 function column(key: string, tag: "String" | "Integer") {
     return {
         key,
@@ -47,8 +47,8 @@ function column(key: string, tag: "String" | "Integer") {
         valueType: toEastTypeValue(tag === "String" ? StringType : IntegerType),
         header: some(key.toUpperCase()),
         width: none, minWidth: none, maxWidth: none,
-        render: (ctx: { cellValue: { value: unknown } }) =>
-            variant("Text", { value: String(ctx.cellValue.value), style: none }),
+        render: none,
+        format: none,
         aggregate: none,
         aggregateRender: none,
     };

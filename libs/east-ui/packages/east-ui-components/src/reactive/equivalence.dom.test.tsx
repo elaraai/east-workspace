@@ -191,7 +191,7 @@ const ROSTER = {
     review: none,
 } as unknown as RosterValue;
 
-/** Two rows of one `name` column, rendered as their own text; the review
+/** Two rows of one `name` column, printed by the table itself; the review
  *  verdicts come from the accessor each test wires. */
 const TABLE = {
     rows: variant("inline", [
@@ -202,7 +202,7 @@ const TABLE = {
         key: "name",
         dataType: toEastTypeValue(StringType), valueType: toEastTypeValue(StringType),
         header: some("NAME"), width: none, minWidth: none, maxWidth: none,
-        render: (ctx: { cellValue: { value: unknown } }) => variant("Text", { value: String(ctx.cellValue.value), style: none }),
+        render: none, format: none,
         aggregate: none, aggregateRender: none,
     }],
     frozen: [],

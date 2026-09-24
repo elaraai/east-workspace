@@ -119,6 +119,8 @@ declare module '@tanstack/react-table' {
         minWidth?: string | undefined;
         maxWidth?: string | undefined;
         renderFn?: ColumnRenderFn | undefined;
+        /** The column's declared number format (#874). */
+        format?: TickFormatOpt;
     }
     /* eslint-enable @typescript-eslint/no-unused-vars */
 }
@@ -212,16 +214,37 @@ function computeAggregate(tag: string, cells: TableCellVariant[]): TableCellVari
 const AGGREGATE_FLOAT: TickFormatOpt = variant("number", { minimumFractionDigits: none, maximumFractionDigits: some(2n), signDisplay: none });
 
 /** Row grouping (#317): default text for an aggregated value (no
- *  `aggregateRender`) — numbers grouped in the app's locale (#850); a date as
- *  its UTC ISO day. */
-function formatAggregate(cell: TableCellVariant, words: Formatters): string {
+ *  `aggregateRender`) — a number through the column's declared `format`
+ *  (#874), else grouped in the app's locale (#850); a date as its UTC ISO
+ *  day. The caller passes no format for a `count`, which counts rows. */
+function formatAggregate(cell: TableCellVariant, words: Formatters, format: TickFormatOpt): string {
     switch (cell.type) {
-        case "Integer": return words.number(cell.value as bigint);
-        case "Float": return words.value(cell.value as number, AGGREGATE_FLOAT);
+        case "Integer": return format !== undefined
+            ? words.value(Number(cell.value as bigint), format)
+            : words.number(cell.value as bigint);
+        case "Float": return words.value(cell.value as number, format ?? AGGREGATE_FLOAT);
         case "DateTime": return (cell.value as Date).toISOString().slice(0, 10);
         case "Boolean": return String(cell.value);
         case "String": return cell.value as string;
         default: return "\u2014";
+    }
+}
+
+/** A cell's text when its column has no `render` (#874): a number through the
+ *  column's declared `format`, else every digit, never grouped, with the
+ *  viewer's decimal separator (`1234.5`, `1234,5` in German; a year stays
+ *  `2026`); a string as it is; anything else as East prints it (`print`, the
+ *  column's East printer) \u2014 what East's own string interpolation shows. */
+function cellText(cell: TableCellVariant, format: TickFormatOpt, words: Formatters, print: ((value: unknown) => string) | undefined): string {
+    switch (cell.type) {
+        case "Integer": return format !== undefined
+            ? words.value(Number(cell.value as bigint), format)
+            : words.bare(cell.value as bigint);
+        case "Float": return format !== undefined
+            ? words.value(cell.value as number, format)
+            : words.float(cell.value as number);
+        case "String": return cell.value as string;
+        default: return print?.(cell.value) ?? "";
     }
 }
 
@@ -350,7 +373,8 @@ const TableCore = function TableCore({
     // come from the theme rather than per-site inline literals.
     const tableSlotStyles = useSlotRecipe({ key: "table" })({ size: tableSize });
     // Chakra generates the "table" slot union from ITS built-in table recipe,
-    // so our custom groupHead slots (#317) need a wider view of the result.
+    // so our custom slots — the groupHead family (#317) and the printed
+    // cell's `cellText` (#874) — need a wider view of the result.
     const tableGroupSlotStyles = tableSlotStyles as unknown as Record<string, React.CSSProperties>;
 
     // Expandable rows — `value.expandedContent` is a `(rowIndex) =>
@@ -433,9 +457,10 @@ const TableCore = function TableCore({
             const width = getSomeorUndefined(col.width);
             const minWidth = getSomeorUndefined(col.minWidth);
             const maxWidth = getSomeorUndefined(col.maxWidth);
-            // `render` is required on the IR column (the factory synthesizes a
-            // text default when the author omits it) — no Option to unwrap.
-            const renderFn = col.render as unknown as ColumnRenderFn;
+            // Without a `render`, the cell prints itself — through the
+            // column's `format` for a number (#874).
+            const renderFn = getSomeorUndefined(col.render) as ColumnRenderFn | undefined;
+            const format = getSomeorUndefined(col.format) as TickFormatOpt;
 
             return columnHelper.accessor(
                 (row) => row.get(col.key),
@@ -466,6 +491,7 @@ const TableCore = function TableCore({
                         minWidth,
                         maxWidth,
                         renderFn,
+                        format,
                     },
                 }
             );
@@ -760,11 +786,16 @@ const TableCore = function TableCore({
     // the per-column aggregates, so a collapsed group reads as its subtotal.
     const groupLevels = useMemo(() => getSomeorUndefined(value.groupBy), [value.groupBy]);
     const groupAggByKey = useMemo(() => {
-        const out = new Map<string, { tag: string; renderFn: ((v: TableCellVariant) => unknown) | undefined }>();
+        const out = new Map<string, { tag: string; renderFn: ((v: TableCellVariant) => unknown) | undefined; format: TickFormatOpt }>();
         for (const col of value.columns) {
             const agg = getSomeorUndefined(col.aggregate);
             if (agg === undefined) continue;
-            out.set(col.key, { tag: agg.type, renderFn: getSomeorUndefined(col.aggregateRender) as ((v: TableCellVariant) => unknown) | undefined });
+            out.set(col.key, {
+                tag: agg.type,
+                renderFn: getSomeorUndefined(col.aggregateRender) as ((v: TableCellVariant) => unknown) | undefined,
+                // A count counts rows — it never wears the column's format.
+                format: agg.type === "count" ? undefined : getSomeorUndefined(col.format) as TickFormatOpt,
+            });
         }
         return out;
     }, [value.columns]);
@@ -824,7 +855,6 @@ const TableCore = function TableCore({
         };
         emit(root);
         return out;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [groupLevels, rows, groupAggByKey, groupCollapse, currentPage, pageSize]);
     const toggleGroup = useCallback((path: string, current: boolean) => {
         setPersistedState(prev => ({ ...prev, groupCollapse: { ...(prev.groupCollapse ?? {}), [path]: !current } }));
@@ -1379,7 +1409,7 @@ const TableCore = function TableCore({
                                                 <ChakraTable.Cell key={col.id} css={tableGroupSlotStyles.groupHeadAggregate} data-slot="groupHeadAggregate" style={cellStyle}>
                                                     {aggSpec.renderFn !== undefined
                                                         ? <EastChakraComponent value={aggSpec.renderFn(agg) as Parameters<typeof EastChakraComponent>[0]["value"]} storageKey={`${storageKey ?? "table"}.group.${g.path}.${col.id}`} />
-                                                        : formatAggregate(agg, words)}
+                                                        : formatAggregate(agg, words, aggSpec.format)}
                                                 </ChakraTable.Cell>
                                             );
                                         })}
@@ -1644,8 +1674,7 @@ const TableCore = function TableCore({
                                         );
                                     }
 
-                                    // Column render function — always present (the factory
-                                    // synthesizes a text default when the author omits it).
+                                    // The column's render function draws the cell;
                                     // ctx.cellValue is the LiteralValueType variant itself.
                                     if (meta?.renderFn) {
                                         const rendered = meta.renderFn({
@@ -1665,7 +1694,8 @@ const TableCore = function TableCore({
                                         );
                                     }
 
-                                    // Defensive fallback (the IR requires render): print the payload.
+                                    // No render: the cell prints itself, in the
+                                    // viewer's language (#874).
                                     return (
                                         <ChakraTable.Cell
                                             key={cell.id}
@@ -1673,7 +1703,7 @@ const TableCore = function TableCore({
                                             onClick={cellClickHandler}
                                             onDoubleClick={cellDoubleClickHandler}
                                         >
-                                            <Text>{meta?.print?.(cellValue.value) ?? null}</Text>
+                                            <Text css={tableGroupSlotStyles.cellText}>{cellText(cellValue, meta?.format, words, meta?.print)}</Text>
                                         </ChakraTable.Cell>
                                     );
                                 })}

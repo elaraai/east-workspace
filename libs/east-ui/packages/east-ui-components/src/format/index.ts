@@ -40,7 +40,7 @@
  */
 
 import { useLocale } from "@react-aria/i18n";
-import { variant, some, none, type ValueTypeOf } from "@elaraai/east";
+import { variant, some, none, printFor, FloatType, type ValueTypeOf } from "@elaraai/east";
 import { tokenizeDateTimeFormat, formatDateTime, parseDateTimeFormatted } from "@elaraai/east/internal";
 import type { Chart, CurrencyCodeLiteral, CurrencyCodeType, TickFormatType } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../utils.js";
@@ -64,6 +64,11 @@ export interface Formatters {
      *  stays `2026`. What a filter chip shows a typed value as, and what an
      *  edit box opens on. */
     bare(n: number | bigint): string;
+    /** A Float as East prints it — every digit, never grouped, and a whole
+     *  one keeps its `.0` — with the locale's decimal separator: `1234.0`,
+     *  `1234.5` (`1234,5` in `de-DE`). What a Table cell with no declared
+     *  format shows (#874). */
+    float(n: number): string;
     /** A fraction as a whole percent — `60%` (`60 %` in `de-DE`). */
     percent(fraction: number): string;
     /** A compact magnitude with one fraction digit — `12.3K`. */
@@ -277,6 +282,10 @@ export function tickFormatOf(format: ValueFormat): Exclude<TickFormatOpt, undefi
 /** The runtime's own default locale — what `formatters()` formats in. */
 const DEFAULT_LOCALE = new Intl.NumberFormat().resolvedOptions().locale;
 
+/** East's own Float printer (`1234.0`, `-0.0`, `NaN`), behind
+ *  {@link Formatters.float}. */
+const printFloat = printFor(FloatType);
+
 /** Every date a component prints is a UTC instant's. */
 function utcFormat(locale: string, options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
     return new Intl.DateTimeFormat(locale, { ...options, timeZone: "UTC" });
@@ -320,6 +329,7 @@ function build(locale: string): Formatters {
         locale,
         number: (n) => plain.format(n),
         bare: (n) => (typeof n === "bigint" ? n.toString() : String(n).replace(".", decimal)),
+        float: (n) => printFloat(n).replace(".", decimal),
         percent: (fraction) => pct.format(fraction),
         compact: (n) => compact.format(n),
         tick: (n) => (Number.isInteger(n) ? whole.format(n === 0 ? 0 : n) : tenth.format(n)),

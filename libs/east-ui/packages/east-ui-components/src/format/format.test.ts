@@ -13,7 +13,7 @@
  */
 
 import { describe, test, expect, afterEach, beforeEach, vi } from "vitest";
-import { East, equalFor, type ExprType } from "@elaraai/east";
+import { East, FloatType, equalFor, printFor, type ExprType } from "@elaraai/east";
 import { Chart, Format } from "@elaraai/east-ui";
 import { formatters, formatPattern, parsePattern, tickFormatOf, type TickFormatOpt, type ValueFormat } from "./index.js";
 import { formatTick } from "../typography/numeric/format-tick.js";
@@ -229,6 +229,22 @@ describe("the edges", () => {
         expect(formatters("de-DE").bare(0.1)).toBe("0,1");
         expect(formatters("de-DE").bare(2026n)).toBe("2026");
         expect(formatters("fr-FR").bare(1234567.25)).toBe("1234567,25");
+    });
+
+    test("a float prints as East prints it — a whole one keeps its .0 — with the locale's decimal separator (#874)", () => {
+        // In English it IS East's own text, whatever the value.
+        const east = printFor(FloatType);
+        const en = formatters("en-US");
+        for (const n of [1234, 1234.5, -0.25, 0.1, -0, 1e21, 1.5e-7, Number.NaN, Number.NEGATIVE_INFINITY]) {
+            expect(en.float(n), String(n)).toBe(east(n));
+        }
+        expect(en.float(1234)).toBe("1234.0");
+        const de = formatters("de-DE");
+        expect(de.float(1234)).toBe("1234,0");
+        expect(de.float(1234.5)).toBe("1234,5");
+        expect(de.float(-0)).toBe("-0,0");
+        expect(de.float(1.5e-7)).toBe("1,5e-7");
+        expect(de.float(Number.NaN)).toBe("NaN");
     });
 
     test("a tick is ungrouped — a whole number, else one decimal; a negative zero prints 0", () => {
