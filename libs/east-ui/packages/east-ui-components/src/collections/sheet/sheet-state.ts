@@ -508,12 +508,21 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
             return { state: { ...closed.state, sel, selEnd: null }, effects: closed.effects };
         }
         case "rows.changed": {
-            const sel = clamp(s.sel, ctx);
-            const selEnd = s.selEnd !== null ? clamp(s.selEnd, ctx) : null;
-            const edit = s.edit !== null && s.edit.r < ctx.rowCount && s.edit.c < ctx.colCount ? s.edit : null;
-            const clamped = same(sel, s.sel) && (selEnd === null ? s.selEnd === null : same(selEnd, s.selEnd)) && edit === s.edit
+            // Each index follows its row when the run moved under it (#854);
+            // a row that left keeps the index, clamped, as before.
+            const follow = <T extends CellRef>(ref: T): T => {
+                const r = e.moved?.(ref.r);
+                return r === undefined || r === ref.r ? ref : { ...ref, r };
+            };
+            const sel = clamp(follow(s.sel), ctx);
+            const selEnd = s.selEnd !== null ? clamp(follow(s.selEnd), ctx) : null;
+            const moved = s.edit !== null ? follow(s.edit) : null;
+            const edit = moved !== null && moved.r < ctx.rowCount && moved.c < ctx.colCount ? moved : null;
+            const hover = s.hover !== null ? follow(s.hover) : null;
+            const armed = s.armed !== null ? follow(s.armed) : null;
+            const clamped = same(sel, s.sel) && (selEnd === null ? s.selEnd === null : same(selEnd, s.selEnd)) && edit === s.edit && hover === s.hover && armed === s.armed
                 ? s
-                : { ...s, sel, selEnd, edit };
+                : { ...s, sel, selEnd, edit, hover, armed };
             return { state: afterRowsChanged(clamped, ctx), effects: [] };
         }
         case "msg":

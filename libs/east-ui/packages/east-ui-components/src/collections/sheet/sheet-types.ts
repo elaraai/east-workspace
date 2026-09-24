@@ -176,8 +176,15 @@ export type SheetEvent =
     | { t: "half.down"; side: 0 | 1 }
     /** The controlled `selection` prop moved the ring — no `emit.select` echo. */
     | { t: "select.set"; r: number; c: number }
-    /** The rows changed underneath (a new value, a landed window): clamp. */
-    | { t: "rows.changed" }
+    /**
+     * The rows changed underneath (a new value, a landed window): clamp.
+     * `moved` says where each row-space index from before now sits, by the
+     * row's identity — a paged run that moved under the ring (a window
+     * landing above it) shifts every row after by its rows, and the ring, a
+     * range, the editor, the hover and the armed fill follow their rows
+     * (#854); `undefined` for a row that left.
+     */
+    | { t: "rows.changed"; moved?: ((r: number) => number | undefined) | undefined }
     | { t: "msg"; msg: string }
     | { t: "clipboard.copy" }
     | { t: "clipboard.paste"; text: string }

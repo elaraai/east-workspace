@@ -206,6 +206,21 @@ function keyOfItem(it: SheetBodyItem | undefined, i: number): string {
     return `#${i}`;
 }
 
+/** A row-space item's identity — a row's or a group's id, a blank row's synthetic one. */
+function rowIdOf(it: SheetBodyItem): string | undefined {
+    return it.kind === "real" || it.kind === "group" ? it.row.id : it.kind === "blank" ? blankIdOf(it) : undefined;
+}
+
+/** Where each row-space index of `before` sits in `after`, by the row's identity — `undefined` for a row that left (#854). */
+function followRows(before: readonly (string | undefined)[], after: readonly (string | undefined)[]): (r: number) => number | undefined {
+    const at = new Map<string, number>();
+    after.forEach((id, r) => { if (id !== undefined && !at.has(id)) at.set(id, r); });
+    return (r) => {
+        const id = before[r];
+        return id === undefined ? undefined : at.get(id);
+    };
+}
+
 /** What is open in a body: each group unfolded, each line whose sub rows show. */
 function openKeysOf(body: readonly SheetBodyItem[]): Set<string> {
     const out = new Set<string>();
@@ -704,8 +719,21 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
     uiRef.current = ui;
     const dispatch = useCallback((e: SheetEvent) => dispatchStore({ t: "event", e, ctx: ctxRef.current }), []);
 
-    // The rows changed underneath: clamp the ring, drop an editor whose row went, a suggestion whose anchor went.
-    useEffect(() => { dispatch({ t: "rows.changed" }); }, [rows, rowCount, colCount, dispatch]);
+    // The rows changed underneath: clamp the ring, drop an editor whose row
+    // went, a suggestion whose anchor went. A paged run that moved under them
+    // — a window landing above the ring, a failed one landing after a Retry —
+    // shifts every row after by its rows: the ring, a range and an open editor
+    // follow their ROWS, not the indices they had (#854). Only a move of the
+    // SOURCE's rows is followed: the sheet's own writes put the ring where
+    // the new rows have it.
+    const rowSpaceIds = useMemo(() => rowSpace.bodyIndexOf.map((bi) => rowIdOf(body[bi]!)), [rowSpace, body]);
+    const seenRows = useRef({ source: sourceRows, ids: rowSpaceIds });
+    useEffect(() => {
+        const seen = seenRows.current;
+        seenRows.current = { source: sourceRows, ids: rowSpaceIds };
+        const moved = decodedRows === undefined && seen.source !== sourceRows ? followRows(seen.ids, rowSpaceIds) : undefined;
+        dispatch({ t: "rows.changed", moved });
+    }, [rows, rowCount, colCount, sourceRows, rowSpaceIds, decodedRows, dispatch]);
 
     // The slice's narrowing changed underneath the lens (a keystroke in the
     // search, a filter): reveals reset and the ring returns to the top — unless
@@ -1553,20 +1581,39 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
 
     // ── The key search over a keyed paged source (§3.13) ──────────────────
     const seek = useSheetSeek(pagedSource, paging.rows, paging.positions, paging.jumpToElement, paging.clearJump);
+    // A jump's target is shown once its window settles (#854): the ring goes
+    // to the sought row (no echo — the host hears the move through onSelect),
+    // or the view to the band of the window that could not be read (#853).
+    // The jump hands the viewport back only after the scroll to it is asked
+    // for — the reports taken before, from the old place, would undo it.
+    const [scrollNonce, setScrollNonce] = useState(0);
+    const handBack = useRef(false);
+    const jumpInFlight = paging.jump !== undefined && !paging.jump.settled;
+    const clearJump = paging.clearJump;
     useEffect(() => {
-        // The sought row landed: the ring goes to it (no echo — the host hears the move through onSelect).
-        if (seek.target === undefined) return;
+        const target = seek.target;
+        if (target === undefined || jumpInFlight) return;
+        seek.clearTarget();
         // A sought element is a row, or on a grouped sheet a group — the ring lands on its band.
         const bi = body.findIndex((it) => {
-            if (group !== undefined) return it.kind === "group" && it.position === seek.target;
-            return it.kind === "real" && it.position === seek.target;
+            if (group !== undefined) return it.kind === "group" && it.position === target;
+            return it.kind === "real" && it.position === target;
         });
-        if (bi < 0) return;
-        const r = rowSpace.rowOf[bi];
-        if (r === undefined || r < 0) return;
-        dispatch({ t: "select.set", r, c: uiRef.current.sel.c });
-        seek.clearTarget();
-    }, [seek, body, rowSpace, group, dispatch]);
+        const r = bi >= 0 ? rowSpace.rowOf[bi] : undefined;
+        if (r !== undefined && r >= 0) dispatch({ t: "select.set", r, c: uiRef.current.sel.c });
+        const shown = bi >= 0 ? bi : body.findIndex((it) => it.kind === "failed" && it.failure.from <= target && target <= it.failure.to);
+        // Nothing to show (a lens hides the row): the viewport is the user's again.
+        if (shown < 0) { clearJump(); return; }
+        setScrollTarget(shown);
+        setScrollNonce((n) => n + 1);
+        handBack.current = true;
+    }, [seek, jumpInFlight, body, rowSpace, group, dispatch, clearJump]);
+    // The frame's own effects run first, so by now it has asked for the scroll.
+    useEffect(() => {
+        if (!handBack.current) return;
+        handBack.current = false;
+        clearJump();
+    }, [scrollNonce, clearJump]);
 
     const [pendingIssue, setPendingIssue] = useState<SheetTransactionsIssue | undefined>(undefined);
     const onIssue = useCallback((issue: SheetTransactionsIssue) => {
@@ -2334,6 +2381,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
                     minWidth={`${minWidth}px`}
                     headerZIndex={6}
                     scrollToIndex={scrollTarget}
+                    scrollNonce={scrollNonce}
                     scrollAlign="auto"
                     onRangeChange={pagedSource !== undefined ? reportRange : undefined}
                     sizeVersion={paging.sizeVersion}

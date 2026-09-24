@@ -16,6 +16,7 @@
 
 import { describe, test, expect, afterEach, beforeEach, vi } from "vitest";
 import { render, cleanup, fireEvent, waitFor, act, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { ChakraProvider } from "@chakra-ui/react";
 import { I18nProvider } from "@react-aria/i18n";
 import {
@@ -35,6 +36,10 @@ import type { SheetRootValue, SheetRowValue, SheetSelectionValue } from "./value
 
 afterEach(cleanup);
 beforeEach(() => { initializeStore(new UIStore()); });
+
+// jsdom lacks ResizeObserver — the key search's combobox positioner needs one.
+class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
+(globalThis as unknown as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverStub;
 
 // jsdom has no `CSS.escape`; the enum editor's combobox selects its items with it.
 (globalThis as unknown as { CSS?: { escape?: (s: string) => string } }).CSS ??= {};
@@ -515,8 +520,8 @@ describe("the paged arm (§3.13)", () => {
 
 // ── Failure is local (#853) ─────────────────────────────────────────────────
 
-/** The held source's jobs: `r000`, `r001`, … — ids that sort as they stand; `code` has no column. */
-const HELD_JOBS: ValueTypeOf<typeof JobType>[] = Array.from({ length: 410 }, (_, i) => ({
+/** The held source's jobs: `r000`, `r001`, … `r7999`; `code` has no column. */
+const HELD_JOBS: ValueTypeOf<typeof JobType>[] = Array.from({ length: 8_000 }, (_, i) => ({
     id: `r${String(i).padStart(3, "0")}`, start: none, task: `Task ${i}`, qty: none, code: `C${i}`, status: "",
 }));
 /** The State key a held source's reads track: a write to it is the source's channel saying something moved. */
@@ -615,7 +620,20 @@ function heldSheet(n: number) {
             if (state.totalError !== undefined) throw new Error(state.totalError);
             return some(BigInt(jobs.length));
         },
-        seek: none,
+        // A key search over the ids (#854): the first match of a whole key or a prefix, and how many there are.
+        seek: some((query: ValueTypeOf<typeof Paged.Types.SeekQuery>) => {
+            read();
+            const exact = query.type === "key";
+            const text = query.type === "prefix" ? query.value : query.type === "key" ? JSON.parse(query.value) as string : "";
+            let row = -1;
+            let count = 0;
+            jobs.forEach((job, i) => {
+                if (exact ? job.id !== text : !job.id.startsWith(text)) return;
+                if (row < 0) row = i;
+                count += 1;
+            });
+            return some({ found: count > 0, row: BigInt(Math.max(0, row)), count: BigInt(count) });
+        }),
         revision: () => { read(); return some(`rev-${state.revision}`); },
         refresh: () => { state.refreshes += 1; move(); return null; },
     };
@@ -645,6 +663,122 @@ function heldSheet(n: number) {
     } as SheetRootValue;
     return { value, state, touch: () => act(() => { move(); }) };
 }
+
+/**
+ * What an unbounded paged sheet reads from the page it scrolls in, for a jsdom
+ * that lays nothing out: the sheet sits at the top of a tall document,
+ * `window.scrollTo` moves `scrollY` and fires `scroll`, and the rows' top moves
+ * with it (the Plan's `plan-paged-seek` stand-in). Returns the restore.
+ */
+function emulateWindowScroll(): () => void {
+    let y = 0;
+    const html = document.documentElement;
+    const saved = {
+        scrollY: Object.getOwnPropertyDescriptor(window, "scrollY"),
+        scrollTo: Object.getOwnPropertyDescriptor(window, "scrollTo"),
+        rect: Element.prototype.getBoundingClientRect,
+    };
+    Object.defineProperty(window, "scrollY", { configurable: true, get: () => y });
+    Object.defineProperty(window, "scrollTo", {
+        configurable: true,
+        writable: true,
+        value: (arg: ScrollToOptions | number) => {
+            y = Math.max(0, typeof arg === "number" ? arg : (arg.top ?? y));
+            window.dispatchEvent(new Event("scroll"));
+        },
+    });
+    // A document tall enough to scroll through the sheet (jsdom reports 0).
+    Object.defineProperty(html, "scrollHeight", { configurable: true, get: () => 100_000_000 });
+    Element.prototype.getBoundingClientRect = function (this: Element) {
+        if (this.hasAttribute("data-virtual-extent")) {
+            return { x: 0, y: -y, top: -y, left: 0, right: 1024, bottom: -y, width: 1024, height: 0, toJSON: () => ({}) } as DOMRect;
+        }
+        return saved.rect.call(this);
+    };
+    return () => {
+        if (saved.scrollY !== undefined) Object.defineProperty(window, "scrollY", saved.scrollY);
+        if (saved.scrollTo !== undefined) Object.defineProperty(window, "scrollTo", saved.scrollTo);
+        delete (html as { scrollHeight?: number }).scrollHeight;
+        Element.prototype.getBoundingClientRect = saved.rect;
+    };
+}
+
+/** Where a body item starts among the rows, from the heights the sheet gave each item before it — jsdom lays nothing out. */
+function offsetOf(item: Element): number {
+    let y = 0;
+    for (const el of item.parentElement!.children) {
+        if (el === item) return y;
+        const style = (el as HTMLElement).style;
+        y += parseFloat(style.height || style.minHeight || "0");
+    }
+    throw new Error("Not among the rows");
+}
+
+/** Type a key into the toolbar's key search, a keystroke at a time, and jump to its match with ⏎. */
+async function seekKey(container: HTMLElement, key: string): Promise<void> {
+    const search = container.querySelector('[data-part="dataset-key-search"]')!;
+    const input = search.querySelector("input") as HTMLInputElement;
+    for (const ch of key) {
+        const typed = input.value + ch;
+        await userEvent.type(input, ch);
+        await waitFor(() => expect(input.value).toBe(typed));
+    }
+    await waitFor(() => expect(search.textContent).toMatch(/1 match/), { timeout: 5_000 });
+    fireEvent.keyDown(input, { key: "Enter" });
+}
+
+describe("a key-search jump owns the viewport (#854)", () => {
+    test("a report from the old place before the target lands does not undo the jump; once it lands the ring is on the sought row and the view shows it", async () => {
+        const restore = emulateWindowScroll();
+        try {
+            const held = heldSheet(8_000);
+            // Element 6,000's window stays on the wire until the test releases it.
+            held.state.inFlight.add(30);
+            const { container, flush } = mount(held.value);
+            await waitFor(() => expect(container.querySelector('[data-row-id="r000"]')).toBeTruthy(), { timeout: 15_000 });
+            await seekKey(container, "r6000");
+            // The run moved to the target: a head band covers where the sheet was.
+            await waitFor(() => expect(container.querySelector('[data-row-id="r000"]')).toBeNull(), { timeout: 10_000 });
+            // A report from where the sheet still is — the top, over the head band.
+            act(() => { window.dispatchEvent(new Event("scroll")); });
+            await flush();
+            // The window lands: the ring is on the sought row, and the page scrolled to it.
+            held.state.inFlight.delete(30);
+            held.touch();
+            const cell = () => container.querySelector('[data-row-id="r6000"] [data-key="task"]');
+            await waitFor(() => expect(cell()?.hasAttribute("data-selected")).toBe(true), { timeout: 10_000 });
+            const row = container.querySelector('[data-row-id="r6000"]') as HTMLElement;
+            await waitFor(() => expect(window.scrollY).toBeGreaterThan(0));
+            const top = offsetOf(row);
+            expect(window.scrollY).toBeLessThanOrEqual(top);
+            expect(top + parseFloat(row.style.minHeight)).toBeLessThanOrEqual(window.scrollY + window.innerHeight);
+            // The jump handed the viewport back: the reports from there keep the run where the ring is.
+            await flush();
+            expect(cell()?.hasAttribute("data-selected")).toBe(true);
+            expect(container.querySelector('[data-row-id="r000"]')).toBeNull();
+        } finally {
+            restore();
+        }
+    }, 30_000);
+
+    test("clearing the search before the target lands drops the jump: the sheet pages where it is scrolled again", async () => {
+        const restore = emulateWindowScroll();
+        try {
+            const held = heldSheet(8_000);
+            held.state.inFlight.add(30);
+            const { container } = mount(held.value);
+            await waitFor(() => expect(container.querySelector('[data-row-id="r000"]')).toBeTruthy(), { timeout: 15_000 });
+            await seekKey(container, "r6000");
+            await waitFor(() => expect(container.querySelector('[data-row-id="r000"]')).toBeNull(), { timeout: 10_000 });
+            // Element 6,000's window is still on the wire when the search is cleared.
+            fireEvent.click(within(container).getByRole("button", { name: "Clear search" }));
+            act(() => { window.scrollTo({ top: 2_000 }); });
+            await waitFor(() => expect(container.querySelector('[data-row-id="r000"]')).toBeTruthy(), { timeout: 10_000 });
+        } finally {
+            restore();
+        }
+    }, 30_000);
+});
 
 describe("failure is local (#853)", () => {
     test("a window that cannot be read is its own band with the reason and a Retry; the rows around it, the ring, the open editor and the drafts stay; Retry lands it once the source is back", async () => {
@@ -807,6 +941,31 @@ describe("failure is local (#853)", () => {
             logged.mockRestore();
         }
     });
+
+    test("a jump whose window cannot be read shows its band at the target and hands the viewport back (#854)", async () => {
+        const restore = emulateWindowScroll();
+        const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+        try {
+            const held = heldSheet(8_000);
+            held.state.failing.set(30, "gateway timeout");
+            const { container } = mount(held.value);
+            await waitFor(() => expect(container.querySelector('[data-row-id="r000"]')).toBeTruthy(), { timeout: 15_000 });
+            await seekKey(container, "r6000");
+            // Element 6,000's window fails: its band shows where its rows would be, and the view goes to it.
+            await waitFor(() => expect(container.querySelector('[data-band="failed"][data-failed="30"]')).toBeTruthy(), { timeout: 10_000 });
+            const band = container.querySelector('[data-band="failed"][data-failed="30"]') as HTMLElement;
+            await waitFor(() => expect(window.scrollY).toBeGreaterThan(0));
+            const top = offsetOf(band);
+            expect(window.scrollY).toBeLessThan(top + parseFloat(band.style.height));
+            expect(window.scrollY + window.innerHeight).toBeGreaterThan(top);
+            // The jump handed the viewport back: at the top again, the sheet pages there.
+            act(() => { window.scrollTo({ top: 0 }); });
+            await waitFor(() => expect(container.querySelector('[data-row-id="r000"]')).toBeTruthy(), { timeout: 10_000 });
+        } finally {
+            logged.mockRestore();
+            restore();
+        }
+    }, 30_000);
 
     test("an author's callbacks on a row after a failed window see the rows around it, each over its own source entry", async () => {
         const logged = vi.spyOn(console, "error").mockImplementation(() => {});

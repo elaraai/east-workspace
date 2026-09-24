@@ -27,8 +27,8 @@ interface Faults {
     total?: string | undefined;
 }
 
-/** A synchronous positional source of `total` rows. Records which windows were asked for. */
-function source(total: number, opts: { holdWindow?: number; faults?: Faults } = {}) {
+/** A synchronous positional source of `total` rows. Records which windows were asked for; the windows in `inFlight` stay on the wire while they are in it. */
+function source(total: number, opts: { holdWindow?: number; faults?: Faults; inFlight?: Set<number> } = {}) {
     const asked: number[] = [];
     const value = {
         id: `sheet-driver-${total}`,
@@ -37,7 +37,7 @@ function source(total: number, opts: { holdWindow?: number; faults?: Faults } = 
             asked.push(w);
             const fault = opts.faults?.windows.get(w);
             if (fault !== undefined) throw new Error(fault);
-            if (opts.holdWindow === w) return none;
+            if (opts.holdWindow === w || opts.inFlight?.has(w) === true) return none;
             const rows: SheetRowValue[] = [];
             for (let i = Number(offset); i < Math.min(total, Number(offset) + Number(limit)); i++) {
                 rows.push({ id: `r${String(i).padStart(5, "0")}`, owned: false, cells: new Map(), lines: [], band: none, subRows: [] });
@@ -127,6 +127,54 @@ describe("sheet paging — moving", () => {
         await waitFor(() => expect(latest?.rowsOffset).toBeGreaterThanOrEqual(39_800));
         expect(text("head")).toMatch(/^0-/);
         for (const w of asked.filter((x) => !before.has(x))) expect(w).toBeGreaterThanOrEqual(199);
+    });
+
+    test("a pending jump owns the viewport: a report from the old place neither before nor after its window lands undoes it — only once the sheet hands it back (#854)", async () => {
+        const inFlight = new Set([200]);
+        const { value, asked } = source(50_000, { inFlight });
+        const { rerender } = render(<Harness src={value} />);
+        await waitFor(() => expect(text("rows")).toBe("0+600"));
+        act(() => { latest!.jumpToElement(40_000); });
+        await waitFor(() => expect(asked).toContain(200));
+        expect(latest!.jump).toEqual({ window: 200, settled: false });
+        // The sheet cannot scroll to rows that have not landed, so it reports
+        // where it still is — the top, now over the head band. Honoured, that
+        // moved the run back to window 0 and the jump never arrived.
+        // (The run keeps one window behind the target: it starts at 39,800.)
+        report({ kind: "band", at: "head", px: 10 });
+        expect(latest!.rowsOffset).toBe(39_800);
+        expect(text("head")).toBe("0-39799");
+        // The target lands, but is not shown yet: the render that puts its rows
+        // on screen still reports from the old place — that must not undo it either.
+        inFlight.delete(200);
+        rerender(<Harness src={{ ...value }} />);
+        await waitFor(() => expect(latest!.jump).toEqual({ window: 200, settled: true }));
+        report({ kind: "band", at: "head", px: 10 });
+        expect(latest!.rowsOffset).toBe(39_800);
+        expect(latest!.positions).toContain(40_000);
+        // Shown, the sheet hands the viewport back and reports move the demand again.
+        act(() => { latest!.clearJump(); });
+        expect(latest!.jump).toBeUndefined();
+        report({ kind: "band", at: "head", px: 10 });
+        await waitFor(() => expect(latest!.rowsOffset).toBe(0));
+    });
+
+    test("a jump settles only once every window up to its target is in: the target landing with the window above it still on the wire keeps it pending (#854)", async () => {
+        const inFlight = new Set([199, 200]);
+        const { value, asked } = source(50_000, { inFlight });
+        const { rerender } = render(<Harness src={value} />);
+        await waitFor(() => expect(text("rows")).toBe("0+600"));
+        act(() => { latest!.jumpToElement(40_000); });
+        await waitFor(() => expect(asked).toContain(202));
+        // The target lands; the window above it (the run's first) has not.
+        inFlight.delete(200);
+        rerender(<Harness src={{ ...value }} />);
+        await waitFor(() => expect(asked.filter((w) => w === 200).length).toBeGreaterThanOrEqual(2));
+        expect(latest!.jump).toEqual({ window: 200, settled: false });
+        inFlight.delete(199);
+        rerender(<Harness src={{ ...value }} />);
+        await waitFor(() => expect(latest!.jump).toEqual({ window: 200, settled: true }));
+        expect(latest!.positions).toContain(40_000);
     });
 });
 
@@ -338,6 +386,28 @@ describe("sheet paging — a failure belongs to its window (#853)", () => {
             act(() => { latest!.retry(); });
             await waitFor(() => expect(latest!.sourceError).toBeUndefined());
             expect(latest!.total).toBe(450);
+        } finally {
+            logged.mockRestore();
+        }
+    });
+
+    test("a jump whose window FAILS settles as that failure — and its report is still ignored until the sheet hands the viewport back (#854)", async () => {
+        const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+        try {
+            const faults: Faults = { windows: new Map([[200, "fetch failed: 503"]]) };
+            const { value } = source(50_000, { faults });
+            render(<Harness src={value} />);
+            await waitFor(() => expect(text("rows")).toBe("0+600"));
+            act(() => { latest!.jumpToElement(40_000); });
+            await waitFor(() => expect(latest!.jump).toEqual({ window: 200, settled: true }));
+            expect(latest!.failures.map((f) => f.w)).toContain(200);
+            report({ kind: "band", at: "head", px: 10 });
+            expect(latest!.rowsOffset).toBeGreaterThanOrEqual(199 * SHEET_PAGE_SIZE);
+            // Handed back, the reports move the demand again.
+            act(() => { latest!.clearJump(); });
+            expect(latest!.jump).toBeUndefined();
+            report({ kind: "band", at: "head", px: 10 });
+            await waitFor(() => expect(latest!.rowsOffset).toBe(0));
         } finally {
             logged.mockRestore();
         }

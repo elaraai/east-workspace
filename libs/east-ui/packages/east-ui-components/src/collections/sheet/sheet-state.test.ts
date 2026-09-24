@@ -199,6 +199,22 @@ describe("rows", () => {
         expect(shrunk.state.sel).toEqual({ r: 1, c: 0 });
         expect(shrunk.state.edit).toBeNull();
     });
+
+    test("a run that moved under the ring: the ring, a range, the editor, the hover and the armed fill follow their rows; a row that left keeps its index (#854)", () => {
+        const open = { ...run(initialSheetState({ r: 1, c: 1 }), [key("x")]).state, selEnd: { r: 2, c: 1 }, hover: { r: 2, c: 0 }, armed: { r: 1, c: 2 } };
+        // Two rows landed above: every row sits two further down; the row at 3 left.
+        const moved = (r: number): number | undefined => (r === 3 ? undefined : r + 2);
+        const after = run(open, [{ t: "rows.changed", moved }], ctxOf({ rowCount: 6 }));
+        expect(after.state.sel).toEqual({ r: 3, c: 1 });
+        expect(after.state.selEnd).toEqual({ r: 4, c: 1 });
+        expect(after.state.edit).toMatchObject({ r: 3, c: 1, val: "x" });
+        expect(after.state.hover).toEqual({ r: 4, c: 0 });
+        expect(after.state.armed).toEqual({ r: 3, c: 2 });
+        // A ring whose row left keeps its index, clamped as before.
+        expect(run(initialSheetState({ r: 3, c: 0 }), [{ t: "rows.changed", moved }], ctxOf({ rowCount: 6 })).state.sel).toEqual({ r: 3, c: 0 });
+        // Nothing moved: the same state.
+        expect(run(open, [{ t: "rows.changed", moved: (r) => r }]).state).toBe(open);
+    });
 });
 
 describe("the store", () => {

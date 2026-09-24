@@ -44,6 +44,20 @@
  * position, the bands and the blank tail hold. The Plan's driver does the
  * same (#821).
  *
+ * # A jump owns the viewport (#854)
+ *
+ * A key search moves the run onto its target window and pins it, but the
+ * sheet can only scroll to the target once its rows are on screen. Until then
+ * every viewport report is taken from where the sheet still is — over the
+ * head band the move left behind — and honouring one would move the run back
+ * and undo the jump. So while a jump is pending, reports move nothing. It
+ * SETTLES once the run around the target has stopped moving and every window
+ * up to it has landed or failed ({@link SheetPaging.jump}) — then the
+ * target's place among the rows is final. The sheet shows the target (the
+ * ring on its row, or the failed band) and hands the viewport back with
+ * {@link SheetPaging.clearJump}, and the reports resume from where it
+ * scrolled to. The Plan's driver does the same (#812).
+ *
  * @packageDocumentation
  */
 
@@ -97,11 +111,13 @@ export interface SheetPaging {
     error: string | undefined;
     /** Bump for `VirtualRows`' `sizeVersion` — heights change at constant count. */
     sizeVersion: number;
-    /** Tell the driver where the viewport is. */
+    /** A pending jump (#854): its target window, and whether it has SETTLED — the run around it has stopped moving and every window up to the target has landed or failed, so the target's place among the rows is final. While one is pending it owns the viewport. */
+    jump: { window: number; settled: boolean } | undefined;
+    /** Tell the driver where the viewport is. Ignored while a jump is pending (#854). */
     reportViewport: (at: SheetViewport, isScrolling: boolean) => void;
     /** Jump to a source element (a seek result): pin its window and rebase. */
     jumpToElement: (element: number) => void;
-    /** Drop any pending jump pin. */
+    /** Drop any pending jump — the search was cleared, or the sheet has shown the jump's target and hands the viewport back (#854). */
     clearJump: () => void;
     /** Ask again (#853): the failed window `w`, or — with none — the source and every failed window. The source's own rate limit applies. */
     retry: (w?: number) => void;
@@ -109,7 +125,7 @@ export interface SheetPaging {
 
 const IDLE: SheetPaging = {
     rows: [], positions: [], rowsOffset: 0, failures: [], head: undefined, tail: undefined, total: undefined,
-    exhausted: true, loading: false, sourceError: undefined, error: undefined, sizeVersion: 0,
+    exhausted: true, loading: false, sourceError: undefined, error: undefined, sizeVersion: 0, jump: undefined,
     reportViewport: () => {}, jumpToElement: () => {}, clearJump: () => {}, retry: () => {},
 };
 
@@ -389,8 +405,15 @@ export function useSheetPaging(
         return { head, tail };
     }, [residency, ledger, total, run.to]);
 
+    // Read by the viewport report, so a jump's pin changes nothing it closes over.
+    const jumpingRef = useRef(false);
+    jumpingRef.current = residency.pins.size > 0;
     const reportViewport = useCallback((at: SheetViewport, scrolling: boolean) => {
         setIsScrolling(scrolling);
+        // A pending jump owns the viewport (#854): until the sheet has shown its
+        // target, a report is taken from where the sheet still IS, and moving
+        // the demand there would move the run back and undo the jump.
+        if (jumpingRef.current) return;
         setViewportWindow((current) => {
             if (at.kind === "band") {
                 if (at.px !== undefined && ledger.windows > 0) {
@@ -412,12 +435,24 @@ export function useSheetPaging(
 
     const clearJump = useCallback(() => { setResidency((r) => unpinAll(r)); }, []);
 
-    // A pin protects the jump target only until it lands.
-    useEffect(() => {
-        if (residency.pins.size === 0 || landed === undefined) return;
-        const landedSet = new Set(landed.map((l) => l.w));
-        if ([...residency.pins].every((w) => landedSet.has(w))) setResidency((r) => unpinAll(r));
-    }, [residency.pins, landed]);
+    // A pending jump, and whether it has SETTLED (#854): the run around it has
+    // stopped moving (the demand is met), and every window from the run's
+    // start to the target has landed or failed (#853) — so the target's place
+    // among the rows is final, and a scroll to it stays on it. The pin stays
+    // until the sheet has shown the target and calls `clearJump`: dropped on
+    // landing, the reports of the render that first shows the rows (still
+    // from the old place) would undo it.
+    const pinned = [...residency.pins];
+    const target = pinned[0];
+    let settled = false;
+    if (target !== undefined && value !== undefined && !isEmpty(residency) && ledger.windows > 0) {
+        const done = new Set([...value.landed.map((l) => l.w), ...value.failed.map((f) => f.w)]);
+        const met = advance(residency, ledger, viewportWindow, policy) === residency;
+        let upToTarget = true;
+        for (let w = residency.lo; w <= target && upToTarget; w++) upToTarget = done.has(w);
+        settled = met && upToTarget;
+    }
+    const jump = target === undefined ? undefined : { window: target, settled };
 
     if (source === undefined) return IDLE;
 
@@ -439,6 +474,7 @@ export function useSheetPaging(
         sourceError: nothingShown ? undefined : value?.sourceError,
         error: readError ?? (nothingShown ? failure : undefined),
         sizeVersion,
+        jump,
         reportViewport,
         jumpToElement,
         clearJump,
