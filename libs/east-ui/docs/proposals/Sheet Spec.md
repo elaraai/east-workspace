@@ -1265,6 +1265,7 @@ behaviour lives and how it is tested.
 | 22 | Visual rules (B§11) | recipe `sheet.ts` | shot loop |
 | 23 | Controlled selection: with `selection` present the ring follows it and the row scrolls into view; every move reports `onSelect`; on the paged arm a non-resident `rowId` seeks when the source can (§3.14) | `sheet-state.ts` + `index.tsx` | DOM |
 | 24 | Frames: a sheet with a `height` / `maxHeight` scrolls its own rows and pins its header, with the group band and the open line sticking under it. With neither, it grows with its content and its header scrolls with the page, as every unbounded collection's does — the sheet scrolls sideways inside its own box, which CSS cannot pin a header out of (the author gives it a height to pin one). At 400 body items or more (the Plan's threshold, `VIRTUALIZE_UNBOUNDED_AT`) an unbounded sheet mounts only what the page shows; below it every row renders in flow, as before. The chrome that follows a scroll or the view's width — a seam's chips going, a sub row's well — reads the frame's viewport (`onViewport`) in every mode and through a switch between them (#856) | `index.tsx` + `virtual-rows.tsx` | DOM |
+| 25 | What the viewer arranged survives a remount (#857). Under the sheet's `storageKey` the renderer keeps the fold overrides (a group's or a line's id → folded; a line's `false` opens its sub rows) with the tab they were left on, and where a bounded frame's scroll rests — an item, never pixels: its body key, the px scrolled past it, its index and, on a paged sheet, its source element. Both are read back through a shape check. Folds come back when the sheet opens on the tab they were left on, before the first body build; a host that moves `activeView` later opens each view's own, and a sheet no one folded records no tab. The anchor restores by key once its item is in the body — on a paged sheet after its window is fetched, the way a key search jumps, the element clamped to the source's count. A band is a place in one run, never an item: over one, the element the band draws there is what persists. An anchor whose item is gone lands in its place — on a paged sheet the first item at or past its element, else its index clamped to the body. An unbounded sheet's place is its page's: it neither restores nor jumps. Never the ring, nor the lens's context and reveals (they follow the narrowing, which the slice owns) | `persisted.ts` + `index.tsx` | unit + DOM |
 
 ---
 
@@ -1285,6 +1286,7 @@ sheet/
   sheet-state.test.ts           transition table (esc ladder, Tab ladder, commit directions, the copilot's table; tab dirty/revert in P5)
   use-links.ts           ~150   the link columns' wiring: vocabularies, halves and locks, checks per row value, the editor's context
   values.ts               ~40   the decoded value types, named once (`SheetRootValue`, `SheetRowValue`, `SheetCellValue`, …)
+  persisted.ts            ~90   what the sheet keeps under its `storageKey` (#857): the folds with their tab, the scroll anchor as an item; read back defensively
   model.ts               ~200   decoded value → sheet model: real rows + blank padding (exhaustion-aware), column index, driver lookup, cell display, the drawn heights (`itemPx` / `drawnPx`, #855)
   paging.ts              ~250   the paged arm over the Plan stack: window ledger / residency, a positional read-once reader, the run nearest the viewport (#876), windows measured by the caller's `heightOf` (#855), `total()`-driven exhaustion, `jumpToElement` for the key search
   paging.dom.test.tsx           the driver harness: first paint, the tail band, exhaustion, a held window, a jump, an unreadable source, a failed window (#853), a pending jump (#854), a window loading beside the run (#876), a window measured by what its rows draw (#855)
@@ -1551,7 +1553,8 @@ the component (`equalFor(Slice.Types.State)` between the active view's narrowing
 the slice's) and arrives in the context. The transitions (`sheet-lens-state.ts`): a
 tab switch persists the leaving tab's context and reveals (never an unsaved query),
 writes the target's narrowing as a `slice.write` effect and restores its lens; `tab.open`
-does the same without persisting (the initial `activeView`); `+ TAB` snapshots the
+does the same without persisting (the initial `activeView` — on the sheet's first open,
+with the folds the last session left on that tab, #857); `+ TAB` snapshots the
 narrowing named from the query (16 characters) or `view n`; ⏎ in the search updates a
 dirty tab, esc reverts it, esc on a clean tab returns to the sheet, esc on the sheet
 clears the search (the rail's combobox takes the first esc to close its suggestions,
@@ -1606,6 +1609,19 @@ pointer (a window landing, a row growing) never extends the range. The ring and
 the editor overlay reach 1 px outside their cell; on the row directly under the
 sticky header they stay inside it (`data-first`), so the header never covers
 the ring's top edge.
+
+**What survives a remount (#857).** A tab switch in the app shell remounts the
+sheet, and what the viewer arranged comes back under its `storageKey`
+(`persisted.ts`; the Plan's rule, #813 — §5 row 25). The folds are the machine's
+`lens.folds` with the tab they belong to: the store opens with them when the sheet
+opens on that tab, and `tab.open` carries them past the view's own lens on the first
+open. The scroll is `VirtualRows`' anchor. A bounded frame reports where it rests
+when a scroll settles (`onAnchorChange`) — never its first rest, so the top it mounts
+at never overwrites what it restores — and restores one (`restoreAnchor`). On a paged
+sheet a restore whose item is not resident jumps first (`jumpToElement`), owning the
+viewport until the frame has scrolled there, then hands it back (`clearJump`). The
+element is clamped to `total()` first: a jump past the end pins a window no demand
+makes resident, so it would never settle, and a pending jump owns the viewport.
 
 **The fields (review, 2026-09-12).** The ring is the field chrome; what sits
 inside it is the COMMON control for the column's kind, never a bespoke input:

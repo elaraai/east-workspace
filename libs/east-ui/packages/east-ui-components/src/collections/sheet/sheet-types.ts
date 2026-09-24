@@ -218,8 +218,8 @@ export type SheetEvent =
     | { t: "lens.narrowed" }
     /** A tab is picked (`null` = the whole sheet): the leaving tab keeps its context and reveals, an unsaved query is discarded. */
     | { t: "tab.switch"; id: string | null }
-    /** A tab opens WITHOUT persisting the one it leaves — the initial `activeView`. */
-    | { t: "tab.open"; id: string }
+    /** A tab opens WITHOUT persisting the one it leaves — the initial `activeView`; `folds`, the ones the last session left on it, when newer than the view's (#857). */
+    | { t: "tab.open"; id: string; folds?: ReadonlyMap<string, boolean> | undefined }
     /** `+ TAB` — snapshot the current narrowing, context and reveals as a view. */
     | { t: "tab.create" }
     /** × or a middle click — the active tab falls back to the sheet. */
@@ -374,11 +374,11 @@ export const NO_REJECTIONS: Rejections = { fills: new Set(), follows: new Set() 
 /** The lens with nothing revealed and no fold overridden. */
 export const EMPTY_LENS: LensState = { context: 0, reveals: new Set(), steps: new Map(), folds: new Map() };
 
-/** The initial UI state — `active` is the initial view tab, if the sheet opens on one. */
-export function initialSheetState(sel: CellRef = { r: 0, c: 0 }, active: string | null = null): SheetUiState {
+/** The initial UI state — `active` is the initial view tab, if the sheet opens on one; `folds`, the fold overrides it opens with (#857). */
+export function initialSheetState(sel: CellRef = { r: 0, c: 0 }, active: string | null = null, folds?: ReadonlyMap<string, boolean>): SheetUiState {
     return {
         sel, selEnd: null, edit: null, hover: null, msg: "", appended: 0, sugg: null, armed: null, gsel: null, rejected: NO_REJECTIONS,
-        lens: EMPTY_LENS,
+        lens: folds === undefined || folds.size === 0 ? EMPTY_LENS : { ...EMPTY_LENS, folds },
         tabs: { active, seq: 1, renaming: null, renameVal: "" },
     };
 }

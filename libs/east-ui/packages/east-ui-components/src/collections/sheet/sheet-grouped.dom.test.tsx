@@ -31,12 +31,14 @@ import "../../platform/slice/index.js";
 import { EastChakraSheet } from "./index.js";
 import { sheetJournal } from "./journal.test-utils.js";
 import { emulateWindowScroll, measureRowsAsDrawn } from "./frame.test-utils.js";
-import type { SheetRootValue } from "./values.js";
+import type { SheetPagedSourceValue, SheetRootValue } from "./values.js";
 
 // A sheet that mounts a screenful — bounded, or of 400 rows or more (#856) —
 // measures its rows: they are as tall as they draw.
 let restoreRows: () => void = () => {};
-beforeEach(() => { initializeStore(new UIStore()); restoreRows = measureRowsAsDrawn(); });
+// Folds and a bounded frame's scroll persist under the sheet's `storageKey`
+// (#857): every test starts from nothing persisted.
+beforeEach(() => { localStorage.clear(); initializeStore(new UIStore()); restoreRows = measureRowsAsDrawn(); });
 afterEach(() => { cleanup(); restoreRows(); });
 
 // jsdom lacks the browser APIs Chakra's Combobox positioner relies on.
@@ -72,16 +74,21 @@ const PAINT_NARROWING = {
 };
 const LINES = PLANS.flatMap((p) => p.lines);
 const VIEWS = [{ id: "paint", name: "PAINT", narrowing: PAINT_NARROWING, context: 0n, reveals: [], folds: new Map<string, boolean>() }];
+/** PAINT and a view of every plan — for a host that moves `activeView` between them. */
+const TWO_VIEWS = [...VIEWS, { id: "all", name: "ALL", narrowing: { ...PAINT_NARROWING, search: none }, context: 0n, reveals: [], folds: new Map<string, boolean>() }];
 
-type Options = { lens?: boolean; readOnly?: boolean };
+/** `activeView` — the sheet opens on this view, with {@link TWO_VIEWS} (else PAINT, alone). */
+type Options = { lens?: boolean; readOnly?: boolean; activeView?: "paint" | "all" };
 
 /** A grouped sheet the way an author builds one: plans over their lines, a band with a title, an eyebrow and two band cells, completed plans folded. */
 function buildGrouped(opts: Options = {}): SheetRootValue {
+    const viewList = opts.activeView !== undefined ? TWO_VIEWS : VIEWS;
+    const opening = opts.activeView ?? "paint";
     const program = East.function([], UIComponentType, ($) => {
         const plans = $.const(PLANS, ArrayType(PlanType));
         const statuses = $.const(STATUSES, ArrayType(StatusType));
         const lines = $.const(LINES, ArrayType(LineType));
-        const views = $.const(VIEWS, ArrayType(Sheet.Types.View));
+        const views = $.const(viewList, ArrayType(Sheet.Types.View));
         const cfg = $.const(Slice.config(LineType, { fields: { task: { label: "Task" } }, searchFieldIds: ["task"] }));
         const slice = $.let(Slice.bind([LineType], "sheet_grouped_dom", cfg, Slice.state(), lines, none));
         return Sheet.Root(plans, {
@@ -102,7 +109,7 @@ function buildGrouped(opts: Options = {}): SheetRootValue {
                 noun: { singular: "plan", plural: "plans" },
             }),
             registers: { statuses: Sheet.register.members(statuses, { kind: "status", key: (s) => s.word, label: (s) => s.word, tone: (s) => some(s.tone) }) },
-            ...(opts.lens ? { slice, affordances: ["search" as const], views, activeView: some("paint") } : {}),
+            ...(opts.lens ? { slice, affordances: ["search" as const], views, activeView: some(opening) } : {}),
             ...(opts.readOnly ? { readOnly: true } : {}),
         });
     });
@@ -117,10 +124,10 @@ function withSpy(root: SheetRootValue) {
     return { value: journal.value, edits: journal.events, draft: journal.draft, drafts: journal.drafts };
 }
 
-function mount(value: SheetRootValue) {
+function mount(value: SheetRootValue, storageKey = "sheet-grouped-test") {
     const utils = render(
         <ChakraProvider value={system}>
-            <EastChakraSheet value={value} storageKey="sheet-grouped-test" />
+            <EastChakraSheet value={value} storageKey={storageKey} />
         </ChakraProvider>,
     );
     const card = utils.container.querySelector("[data-sheet-card]") as HTMLElement;
@@ -580,6 +587,248 @@ describe("a sub row's well keeps to the view (#856)", () => {
             delete (HTMLElement.prototype as { clientWidth?: number }).clientWidth;
             Object.defineProperty(HTMLElement.prototype, "offsetHeight", realOffsetHeight);
         }
+    });
+});
+
+/**
+ * An inline sheet of `n` plans in a 600 px frame (#857): every plan two lines —
+ * `Cut i`, with two operations as its sub rows, and `Fit i` — read-only, so a
+ * plan draws its band and its two lines, 42 + 2 × 36 = 114 px.
+ */
+function buildFramedInline(n: number): SheetRootValue {
+    const count = BigInt(n);
+    const program = East.function([], UIComponentType, ($) => {
+        const ops = $.const(OPS, ArrayType(OpType));
+        const noOps = $.const([], ArrayType(OpType));
+        const total = $.const(count);
+        const plans = $.let(East.Array.range(0n, total).map(($2, i) => $2.const({
+            id: East.str`P${i.add(10000n)}`, name: East.str`Plan ${i}`,
+            lines: [{ task: East.str`Cut ${i}`, ops }, { task: East.str`Fit ${i}`, ops: noOps }],
+        }, CutPlanType)), ArrayType(CutPlanType));
+        return Sheet.Root(plans, {
+            task: Sheet.column.text(CutLineType, { header: "Task" }),
+        }, {
+            id: "id",
+            group: Sheet.group(CutPlanType, "lines", { title: "name" }),
+            subRows: Sheet.subRows(CutLineType, { ops: (op) => Sheet.subRow({ code: op.code, name: op.name }) }),
+            readOnly: true,
+            style: { height: "600px" },
+        });
+    });
+    const value = East.compile(program, getRegisteredPlatformImplementations())() as
+        ValueTypeOf<typeof UIComponentType> & { value: SheetRootValue };
+    return value.value;
+}
+
+describe("what the viewer arranged survives a remount (#857)", () => {
+    /** A plan's drawn height: its band (42) and two lines (36 each). */
+    const PLAN_PX = 42 + 2 * 36;
+    // jsdom lays nothing out: the frame is 600 px tall and scrolls as far as it
+    // is asked (its scroll height would clamp a restore to 0), and a scroll it
+    // is asked for lands on scrollTop and sends its scroll event, as a
+    // browser's does — a restore is a scroll the frame then reads.
+    const realOffsetHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight")!;
+    const proto = HTMLElement.prototype as unknown as { scrollTo?: (options: ScrollToOptions) => void };
+    const realScrollTo = proto.scrollTo;
+    beforeEach(() => {
+        Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
+            configurable: true,
+            get(this: HTMLElement) { return this.getAttribute("data-virtual-rows") === "bounded" ? 600 : 0; },
+        });
+        Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
+            configurable: true,
+            get(this: HTMLElement) { return this.getAttribute("data-virtual-rows") === "bounded" ? 100_000_000 : 0; },
+        });
+        proto.scrollTo = function (this: HTMLElement, options: ScrollToOptions) {
+            if (options.top === undefined || options.top === this.scrollTop) return;
+            this.scrollTop = options.top;
+            this.dispatchEvent(new Event("scroll"));
+        };
+    });
+    afterEach(() => {
+        Object.defineProperty(HTMLElement.prototype, "offsetHeight", realOffsetHeight);
+        delete (HTMLElement.prototype as { scrollHeight?: number }).scrollHeight;
+        if (realScrollTo === undefined) delete proto.scrollTo;
+        else proto.scrollTo = realScrollTo;
+    });
+
+    /** The frame, its extent, where a plan's band starts, and a scroll the frame reads. */
+    function framed(ui: ReturnType<typeof mount>) {
+        const frame = () => ui.container.querySelector('[data-virtual-rows="bounded"]') as HTMLElement;
+        const extent = () => Number(ui.container.querySelector("[data-virtual-extent]")!.getAttribute("data-virtual-extent"));
+        const bandTop = (id: string) => {
+            const wrapper = ui.band(id)!.closest<HTMLElement>('[data-slot="virtualRow"]')!;
+            return Number(/translateY\((-?[\d.]+)px\)/.exec(wrapper.style.transform)![1]);
+        };
+        const scrollTo = (px: number) => act(() => { frame().scrollTop = px; fireEvent.scroll(frame()); });
+        return { frame, extent, bandTop, scrollTo };
+    }
+    /** Let a scroll settle — the frame reports where it rests 150 ms after the last scroll event. */
+    const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 250)); });
+
+    test("a folded plan, a line's open sub rows and the scroll come back with the same storageKey; another key starts fresh", async () => {
+        const ui = mount(buildFramedInline(300));
+        const f = framed(ui);
+        // Plan 1 folds (its two lines go); plan 0's first line opens its two operations (2 × 30 px).
+        fireEvent.mouseDown(ui.band("P10001")!.querySelector('[data-slot="fold"]')!, { button: 0 });
+        const cut0 = ui.container.querySelector('[data-slot="row"][data-group-id="P10000"][data-line="0"]')!;
+        fireEvent.mouseDown(cut0.querySelector('[data-slot="subRowChevron"]')!, { button: 0 });
+        await waitFor(() => expect(ui.container.querySelectorAll('[data-slot="subRow"]')).toHaveLength(2));
+        const arranged = 300 * PLAN_PX + 2 * 30 - 2 * 36;
+        expect(f.extent()).toBe(arranged);
+        // Down to plan 150's band, where the scroll comes to rest.
+        const top = (PLAN_PX + 2 * 30) + 42 + 148 * PLAN_PX;
+        f.scrollTo(top);
+        expect(f.bandTop("P10150")).toBe(top);
+        await settle();
+        ui.unmount();
+        // Back with the same key: the folds are as they were, and plan 150 is at the top of the view.
+        const again = mount(buildFramedInline(300));
+        const g = framed(again);
+        expect(g.extent()).toBe(arranged);
+        await waitFor(() => expect(g.frame().scrollTop).toBe(top));
+        expect(g.bandTop("P10150")).toBe(top);
+        g.scrollTo(0);
+        expect(again.band("P10001")!.hasAttribute("data-folded")).toBe(true);
+        expect(again.container.querySelectorAll('[data-slot="subRow"]')).toHaveLength(2);
+        again.unmount();
+        // Another key: nothing folded, nothing open, the top of the sheet.
+        const fresh = mount(buildFramedInline(300), "sheet-grouped-other");
+        const h = framed(fresh);
+        expect(h.extent()).toBe(300 * PLAN_PX);
+        expect(h.frame().scrollTop).toBe(0);
+    }, 30_000);
+
+    test("a persisted anchor whose item is gone lands at its index, clamped to the items", async () => {
+        // Item 120 is plan 40's band: every plan is its band and two lines.
+        localStorage.setItem("sheet-grouped-test", JSON.stringify({ view: null, folds: [], anchor: { key: "group:P19999", offset: 12, index: 120, element: null } }));
+        const ui = mount(buildFramedInline(300));
+        const f = framed(ui);
+        await waitFor(() => expect(f.frame().scrollTop).toBe(40 * PLAN_PX));
+        expect(f.bandTop("P10040")).toBe(40 * PLAN_PX);
+        ui.unmount();
+        // Past the last of the 900 items: the last — plan 299's second line.
+        localStorage.setItem("sheet-grouped-end", JSON.stringify({ view: null, folds: [], anchor: { key: "group:P19999", offset: 12, index: 5_000, element: null } }));
+        const end = mount(buildFramedInline(300), "sheet-grouped-end");
+        await waitFor(() => expect(framed(end).frame().scrollTop).toBe(300 * PLAN_PX - 36));
+    }, 30_000);
+
+    test("paged: the anchor's window is fetched first, and the view lands on its item", async () => {
+        localStorage.setItem("sheet-grouped-test", JSON.stringify({ view: null, folds: [], anchor: { key: "group:P11500", offset: 20, index: 3, element: 1500 } }));
+        const ui = mount(buildFramedPlans(2_000));
+        const f = framed(ui);
+        // Window 7 (elements 1,400–1,599) is read, plan 1,500's band lands, and the view rests 20 px into it.
+        await waitFor(() => expect(ui.band("P11500")).not.toBeNull(), { timeout: 10_000 });
+        await waitFor(() => expect(f.frame().scrollTop).toBe(f.bandTop("P11500") + 20));
+        expect(f.bandTop("P11500")).toBe(1_500 * PLAN_PX);
+    }, 30_000);
+
+    test("paged: an anchor past the end of a source that shrank lands on its last item, and hands the viewport back", async () => {
+        // Plan 3,500 was in view; the source holds 2,000 plans now.
+        localStorage.setItem("sheet-grouped-test", JSON.stringify({ view: null, folds: [], anchor: { key: "group:P13500", offset: 20, index: 3, element: 3_500 } }));
+        const ui = mount(buildFramedPlans(2_000));
+        const f = framed(ui);
+        // The last plan's window is fetched, and the last plan is in view.
+        await waitFor(() => {
+            const top = f.bandTop("P11999") - f.frame().scrollTop;
+            expect(top >= 0 && top < 600).toBe(true);
+        }, { timeout: 10_000 });
+        // The jump is over: where the viewer scrolls, the rows follow.
+        f.scrollTo(0);
+        await waitFor(() => expect(ui.band("P10000")).not.toBeNull(), { timeout: 10_000 });
+    }, 30_000);
+
+    test("paged: an anchor whose item is gone lands on the item now at its element — not at its index in another run", async () => {
+        localStorage.setItem("sheet-grouped-test", JSON.stringify({ view: null, folds: [], anchor: { key: "group:P1GONE", offset: 20, index: 3, element: 1_500 } }));
+        const ui = mount(buildFramedPlans(2_000));
+        const f = framed(ui);
+        await waitFor(() => expect(ui.band("P11500")).not.toBeNull(), { timeout: 10_000 });
+        await waitFor(() => expect(f.frame().scrollTop).toBe(f.bandTop("P11500")));
+        expect(f.bandTop("P11500")).toBe(1_500 * PLAN_PX);
+    }, 30_000);
+
+    test("paged: a view resting over an unloaded band persists the element the band draws there, and comes back to it", async () => {
+        const ui = mount(buildFramedPlans(2_000));
+        const f = framed(ui);
+        const transport = () => ui.container.querySelector('[data-slot="footerTransport"]')!.textContent;
+        await waitFor(() => expect(transport()).toBe("600 loaded of 2,000"));
+        // Far down — windows 0–2 leave the run for the head band — then back up over it, to plan 250, 10 px in.
+        f.scrollTo(1_500 * PLAN_PX);
+        await waitFor(() => expect(transport()).toBe("800 loaded of 2,000"), { timeout: 10_000 });
+        expect(ui.band("P10000")).toBeNull();
+        f.scrollTo(250 * PLAN_PX + 10);
+        // The scroll settles over the band, before any row lands under it.
+        await waitFor(() => expect(localStorage.getItem("sheet-grouped-test")).toContain('"key":"band:head"'));
+        ui.unmount();
+        // The remount's run starts at the top — it draws no head band — and the element brings the view back.
+        const again = mount(buildFramedPlans(2_000));
+        const g = framed(again);
+        await waitFor(() => expect(again.band("P10250")).not.toBeNull(), { timeout: 10_000 });
+        await waitFor(() => expect(g.frame().scrollTop).toBe(g.bandTop("P10250")));
+        expect(g.bandTop("P10250")).toBe(250 * PLAN_PX);
+    }, 30_000);
+
+    test("an unbounded sheet leaves a persisted anchor alone — its place is its page's: a paged one never fetches its window", async () => {
+        // A bounded frame persisted plan 1,500; the sheet mounts unbounded now, its page at the top.
+        localStorage.setItem("sheet-grouped-test", JSON.stringify({ view: null, folds: [], anchor: { key: "group:P2500", offset: 20, index: 3, element: 1_500 } }));
+        const restore = emulateWindowScroll();
+        try {
+            // Every window the source is asked for, by its first element.
+            const root = buildPagedPlans(2_000);
+            if (root.rows.type !== "paged") throw new Error("a paged sheet");
+            const source = root.rows.value;
+            const asked = new Set<number>();
+            const page: SheetPagedSourceValue["page"] = (offset, count) => { asked.add(Number(offset)); return source.page(offset, count); };
+            const ui = mount({ ...root, rows: variant("paged", { ...source, page }) });
+            await waitFor(() => expect(ui.container.querySelector('[data-slot="footerTransport"]')!.textContent).toBe("600 loaded of 2,000"), { timeout: 15_000 });
+            // The page's top wants windows 0–2, and nothing else is read.
+            expect([...asked].sort((a, b) => a - b)).toEqual([0, 200, 400]);
+        } finally {
+            restore();
+        }
+    }, 30_000);
+
+    test("paged: a band is never an anchor's item — one persisted over the tail band lands on its element, not on the band a remount draws", async () => {
+        localStorage.setItem("sheet-grouped-test", JSON.stringify({ view: null, folds: [], anchor: { key: "band:tail", offset: 20, index: 1, element: 1_500 } }));
+        const ui = mount(buildFramedPlans(2_000));
+        const f = framed(ui);
+        await waitFor(() => expect(ui.band("P11500")).not.toBeNull(), { timeout: 10_000 });
+        await waitFor(() => expect(f.frame().scrollTop).toBe(f.bandTop("P11500")));
+    }, 30_000);
+
+    test("folds left on a tab come back when the sheet opens on it again; a sheet no one folded records no tab", async () => {
+        // The sheet opens on its PAINT view, as its host declares — and opening a view folds nothing.
+        let ui = mount(buildGrouped({ lens: true }));
+        const view = () => ui.container.querySelector("[data-sheet]")!.getAttribute("data-view");
+        const stored = () => localStorage.getItem("sheet-grouped-test");
+        await waitFor(() => expect(view()).toBe("paint"));
+        // Storage holds what the persisted-state hook writes on its first read — nothing — and no tab.
+        expect(stored()).toBe(JSON.stringify({ view: null, folds: [], anchor: null }));
+        // p1 folds on PAINT, and the sheet goes before the tab is ever left — the view's own folds never hear of it.
+        fireEvent.mouseDown(ui.band("p1")!.querySelector('[data-slot="fold"]')!, { button: 0 });
+        expect(ui.band("p1")!.hasAttribute("data-folded")).toBe(true);
+        expect(stored()).toBe(JSON.stringify({ view: "paint", folds: [["p1", true]], anchor: null }));
+        ui.unmount();
+        ui = mount(buildGrouped({ lens: true }));
+        await waitFor(() => expect(view()).toBe("paint"));
+        expect(ui.band("p1")!.hasAttribute("data-folded")).toBe(true);
+    });
+
+    test("a host that moves activeView later opens each view's own folds: the last session's are spent on the first open", async () => {
+        localStorage.setItem("sheet-grouped-test", JSON.stringify({ view: "paint", folds: [["p1", true]], anchor: null }));
+        const ui = mount(buildGrouped({ lens: true, activeView: "paint" }));
+        const view = () => ui.container.querySelector("[data-sheet]")!.getAttribute("data-view");
+        const open = (id: "paint" | "all") => ui.rerender(
+            <ChakraProvider value={system}><EastChakraSheet value={buildGrouped({ lens: true, activeView: id })} storageKey="sheet-grouped-test" /></ChakraProvider>,
+        );
+        await waitFor(() => expect(view()).toBe("paint"));
+        expect(ui.band("p1")!.hasAttribute("data-folded")).toBe(true);
+        open("all");
+        await waitFor(() => expect(view()).toBe("all"));
+        expect(ui.band("p1")!.hasAttribute("data-folded")).toBe(false);
+        open("paint");
+        await waitFor(() => expect(view()).toBe("paint"));
+        expect(ui.band("p1")!.hasAttribute("data-folded")).toBe(false);
     });
 });
 

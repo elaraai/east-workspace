@@ -579,8 +579,11 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
                     : closeTab(closed.state, ctx, e.id);
             return { state: t.state, effects: [...closed.effects, ...t.effects] };
         }
-        case "tab.open":
-            return switchTab(s, ctx, e.id, false);
+        case "tab.open": {
+            const t = switchTab(s, ctx, e.id, false);
+            // The folds the last session left on this tab (#857), newer than the view's own.
+            return e.folds === undefined || t.state === s ? t : { ...t, state: { ...t.state, lens: { ...t.state.lens, folds: e.folds } } };
+        }
         case "tab.update":
             return updateTab(s, ctx);
         case "tab.revert":
@@ -636,9 +639,9 @@ export type SheetAction =
     /** A direct UI patch from the component (the range after a paste, a message). */
     | { t: "patch"; patch: Partial<SheetUiState> };
 
-/** The initial store — `active` is the initial view tab, if the sheet opens on one. */
-export function initialSheetStore(sel?: CellRef, active: string | null = null): SheetStore {
-    return { ui: initialSheetState(sel, active), fx: [], fxSeq: 0 };
+/** The initial store — `active` is the initial view tab, if the sheet opens on one; `folds`, the fold overrides it opens with (#857). */
+export function initialSheetStore(sel?: CellRef, active: string | null = null, folds?: ReadonlyMap<string, boolean>): SheetStore {
+    return { ui: initialSheetState(sel, active, folds), fx: [], fxSeq: 0 };
 }
 
 /**

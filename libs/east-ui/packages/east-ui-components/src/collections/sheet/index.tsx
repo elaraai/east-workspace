@@ -51,6 +51,7 @@ import { useCoarsePointer } from "../../contracts/adaptive.js";
 import { useDensityHeights } from "../shared/helpers.js";
 import { useSliceReactivity } from "../../slice/use-slice-reactivity.js";
 import { useDataStable } from "../../hooks/useDataStable.js";
+import { usePersistedState } from "../../hooks/usePersistedState.js";
 import { useFormatters } from "../../format/index.js";
 import { railAffordanceKinds } from "../../slice/rail-kinds.js";
 import { VirtualRows, VIRTUALIZE_UNBOUNDED_AT, type RowsViewport } from "../virtual-rows.js";
@@ -61,6 +62,7 @@ import {
     type LineGroup, type SheetBodyItem, type SheetColumnMeta, type SheetGeometry,
 } from "./model.js";
 import { useSheetPaging, type SheetViewport } from "./paging.js";
+import { NOT_PERSISTED, persistedOf, sameAnchor, sameFolds, type SheetAnchor, type SheetPersisted } from "./persisted.js";
 import { useSheetSeek } from "./use-seek.js";
 import { lensCount, lensGaps, lensHits, lensLineHits, lensSubRowHits, lensTitleHit, lensVisible, narrowingActive, nextReach, type LensGap } from "./lens.js";
 import { cellDetail } from "./detail.js";
@@ -204,6 +206,43 @@ function keyOfItem(it: SheetBodyItem | undefined, i: number): string {
         case "proposal": return `proposal:${it.anchorR}#${it.index}`;
     }
     return `#${i}`;
+}
+
+/** The source element a body item belongs to (#857) — a row, or a line's or a sub row's group; `null` where no element stands behind it (a paged band, a gap, a blank). */
+function elementOf(it: SheetBodyItem): number | null {
+    switch (it.kind) {
+        case "real": case "group": case "subRow": return it.position;
+        case "failed": return it.failure.from;
+        default: return null;
+    }
+}
+
+/**
+ * The source element under a resting view's top (#857): its item's — or,
+ * over an unloaded band, the element the band draws at that depth. A band is
+ * a place in one run, never an item: a remount's bands cover other elements,
+ * so what persists for one is the element. Its rows are drawn at the ledger's
+ * rate, so the depth maps to an element proportionally.
+ */
+function elementUnder(it: SheetBodyItem, offset: number): number | null {
+    if (it.kind !== "band") return elementOf(it);
+    const { from, to, px } = it.band;
+    const n = to - from + 1;
+    return px > 0 ? from + Math.min(n - 1, Math.max(0, Math.floor((offset / px) * n))) : from;
+}
+
+/**
+ * Where a persisted anchor whose item is gone lands (#857). On a paged sheet,
+ * its element is the place: the first item at or past it — the band of a
+ * failed window that holds it — because an index names a place only in the
+ * run it was taken from. Otherwise its index, clamped to the body.
+ */
+function placeOf(body: readonly SheetBodyItem[], index: number, element: number | undefined): number {
+    if (element !== undefined) {
+        const at = body.findIndex((it) => (it.kind === "failed" ? it.failure.to : elementOf(it) ?? -1) >= element);
+        if (at >= 0) return at;
+    }
+    return Math.min(index, body.length - 1);
 }
 
 /**
@@ -386,16 +425,33 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
         () => (data.rows.type === "inline" ? (data.rows.value as readonly SheetRowValue[]) : undefined),
         [data.rows],
     );
+    // ── What survives a remount (#857) ────────────────────────────────────
+    // Under the sheet's `storageKey`: the folds the viewer left, with the tab
+    // they left them on, and where a bounded frame's scroll rests — the Plan's
+    // rule (#813). Read once, at mount; written when either changes, and only
+    // when it differs from what storage holds.
+    const { state: stored, setState: setStored } = usePersistedState<SheetPersisted>(storageKey, NOT_PERSISTED);
+    const [restored] = useState(() => persistedOf(stored));
+    const persistedRef = useRef(restored);
+    const persist = useCallback((next: SheetPersisted) => {
+        persistedRef.current = next;
+        setStored(next);
+    }, [setStored]);
+
     // ── The state machine ─────────────────────────────────────────────────
     const [store, dispatchStore] = useReducer(sheetStoreReducer, undefined, () => {
+        // The folds the last session left, when the sheet opens on the tab
+        // they were left on (#857).
+        const opening = activeView ?? null;
+        const restoredFolds = restored.view === opening && restored.folds.length > 0 ? new Map(restored.folds) : undefined;
         // The ring opens on the first blank row's driver column (else its first
         // column) — the prototype's "type an activity on the empty row"; a
         // grouped sheet: the first group's blank line.
         const c = Math.max(0, driverColumn !== undefined ? columns.list.findIndex((col) => col.key === driverColumn) : 0);
         const first = decodedRows?.[0];
-        const firstFolded = first !== undefined && getSomeorUndefined(first.band)?.folded === true;
+        const firstFolded = first !== undefined && (restoredFolds?.get(first.id) ?? getSomeorUndefined(first.band)?.folded === true);
         const r = group !== undefined ? (first !== undefined && !firstFolded ? 1 + first.lines.length : 0) : decodedRows?.length ?? 0;
-        return initialSheetStore({ r, c }, activeView ?? null);
+        return initialSheetStore({ r, c }, opening, restoredFolds);
     });
     const ui = store.ui;
     const folds = ui.lens.folds;
@@ -775,13 +831,24 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
         dispatch({ t: "lens.narrowed" });
     }, [sliceState, dispatch]);
 
-    // The initial view opens on mount; a host that moves `activeView` later is followed.
+    // The initial view opens on mount — with the folds the last session left
+    // on it, when it left them there (#857); a host that moves `activeView`
+    // later is followed.
     const openedView = useRef<string | undefined>(undefined);
     useEffect(() => {
         if (activeView === undefined || activeView === openedView.current) return;
+        const first = openedView.current === undefined;
         openedView.current = activeView;
-        if (viewsRef.current.some((v) => v.id === activeView)) dispatch({ t: "tab.open", id: activeView });
-    }, [activeView, dispatch]);
+        if (!viewsRef.current.some((v) => v.id === activeView)) return;
+        const left = first && restored.view === activeView ? { folds: new Map(restored.folds) } : {};
+        dispatch({ t: "tab.open", id: activeView, ...left });
+    }, [activeView, dispatch, restored]);
+    // The folds persist with the tab they are on (#857).
+    useEffect(() => {
+        const p = persistedRef.current;
+        if (sameFolds(p, ui.tabs.active, ui.lens.folds)) return;
+        persist({ ...p, view: ui.tabs.active, folds: [...ui.lens.folds] });
+    }, [ui.lens.folds, ui.tabs.active, persist]);
 
     // ── Writes — the local layer, then the host ───────────────────────────
     const gestureEvents = useRef<SheetEditValue[]>([]);
@@ -1638,6 +1705,61 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
         clearJump();
     }, [scrollNonce, clearJump]);
 
+    // ── Where the scroll rests (#857) ─────────────────────────────────────
+    // The anchor the last session left is restored once its item is in the
+    // body; a paged sheet first fetches the window its element is in, the way
+    // a key search jumps, and hands the viewport back once the frame has
+    // scrolled there. The element is clamped to the source's count first: a
+    // jump past the end pins a window no demand makes resident, so it would
+    // never settle — and a pending jump owns the viewport. An anchor whose
+    // item is gone lands in its place (`placeOf`). Only a bounded frame
+    // scrolls itself: an unbounded sheet's place is its page's (#856), so it
+    // neither restores nor jumps. Where the frame mounts is never reported
+    // (`VirtualRows` reports settles, not its first rest), so the top the
+    // sheet opens at never overwrites the anchor it restores.
+    const [anchorPhase, setAnchorPhase] = useState<"pending" | "seeking" | "settled">(() => (restored.anchor === null ? "settled" : "pending"));
+    const [restoreAnchor, setRestoreAnchor] = useState<{ index: number; offset: number } | undefined>(undefined);
+    const anchorHandBack = useRef(false);
+    const jumpToElement = paging.jumpToElement;
+    const anchorJump = paging.jump;
+    const pagedTotal = paging.total;
+    useEffect(() => {
+        if (anchorPhase === "settled") return;
+        const saved = restored.anchor;
+        if (saved === null || !frameFills) { setAnchorPhase("settled"); return; }
+        if (body.length === 0) return;
+        // A band is a place in one run, never the item (see elementUnder): its element decides.
+        const at = body.findIndex((it, i) => it.kind !== "band" && keyOfItem(it, i) === saved.key);
+        // Where its element is now: a source that shrank past it keeps its last one.
+        const element = pagedSource !== undefined && saved.element !== null && pagedTotal !== undefined && pagedTotal > 0
+            ? Math.min(saved.element, pagedTotal - 1) : undefined;
+        if (at < 0 && element !== undefined) {
+            if (anchorPhase === "pending") {
+                setAnchorPhase("seeking");
+                jumpToElement(element);
+                return;
+            }
+            // Until its window is in the run — landed, or failed — the item may yet come.
+            if (anchorJump === undefined || !anchorJump.settled) return;
+        }
+        anchorHandBack.current = anchorPhase === "seeking";
+        setRestoreAnchor(at >= 0 ? { index: at, offset: saved.offset } : { index: placeOf(body, saved.index, element), offset: 0 });
+        setAnchorPhase("settled");
+    }, [anchorPhase, restored, frameFills, body, pagedSource, pagedTotal, jumpToElement, anchorJump]);
+    useEffect(() => {
+        if (!anchorHandBack.current) return;
+        anchorHandBack.current = false;
+        clearJump();
+    }, [restoreAnchor, clearJump]);
+    const onAnchorChange = useCallback((at: { index: number; offset: number }) => {
+        const item = body[at.index];
+        if (item === undefined) return;
+        const next: SheetAnchor = { key: keyOfItem(item, at.index), offset: at.offset, index: at.index, element: pagedSource !== undefined ? elementUnder(item, at.offset) : null };
+        const p = persistedRef.current;
+        if (sameAnchor(p.anchor, next)) return;
+        persist({ ...p, anchor: next });
+    }, [body, pagedSource, persist]);
+
     const [pendingIssue, setPendingIssue] = useState<SheetTransactionsIssue | undefined>(undefined);
     const onIssue = useCallback((issue: SheetTransactionsIssue) => {
         dispatch({ t: "editor.blur" });
@@ -2420,6 +2542,9 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
                     scrollAlign="auto"
                     onRangeChange={pagedSource !== undefined ? reportRange : undefined}
                     sizeVersion={paging.sizeVersion}
+                    // Where the scroll rests, persisted and restored as an item (#857).
+                    onAnchorChange={onAnchorChange}
+                    restoreAnchor={restoreAnchor}
                     rootCss={{ overflowX: "auto" }}
                 />
                 {seam !== undefined && canInsert && (
