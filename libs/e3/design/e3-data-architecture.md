@@ -177,7 +177,7 @@ Result = { outcome: ok | failed { message, locations: [Location] },
 - `merge` assembles parts of one output kind: a k-way merge of sorted set or dict parts, optionally over one key range, written as one run, `<dir>/0.beast2`; or a fold of partials in order, starting at `zero`. Array parts never need a runner, and a `value` has no parts.
 - Paths in a unit may be relative to the unit file, so a unit file and the files it names are a complete, replayable snapshot of any unit: `exec` replays it wherever they are moved together.
 - A runner sizes its own thread pools to `threads`; one thread frames inline.
-- `peakBytes` is the process's peak resident memory: VmHWM on Linux, where `ru_maxrss` inherits the parent's across exec, and `ru_maxrss` elsewhere.
+- `peakBytes` is the process's peak resident memory: VmHWM on Linux, where `ru_maxrss` inherits the parent's across exec; the peak working set on Windows; and `ru_maxrss` elsewhere. east-py reports east-c's measurement.
 - `timings` are milliseconds spent loading the inputs, compiling, executing and writing the output. `locations` are the failure's source locations, innermost first, as the program's source map gives them.
 - The exit status is 0 when the outcome is `ok` and 1 when the result records a failure. Anything else, or a missing result, is a crash; e3 reports it with the signal and the stderr tail.
 - `--exit-with-parent` stays a process flag, taken before anything else is parsed.

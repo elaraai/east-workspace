@@ -15,11 +15,6 @@ from pathlib import Path
 from time import perf_counter
 from typing import Any
 
-try:
-    import resource  # Unix-only (getrusage); not present on Windows
-except ImportError:  # pragma: no cover - Windows has no `resource` module
-    resource = None  # type: ignore[assignment]
-
 from east.runtime.compiler import compile_from_beast2, compile_from_east, compile_from_json
 from east.runtime.errors import EastError
 from east.runtime.platform import PlatformFunction
@@ -59,26 +54,6 @@ def _lazy_input_threshold() -> int:
         if value >= 0:
             return value
     return _LAZY_INPUT_BYTES_DEFAULT
-
-
-def _peak_rss_kb() -> float | None:
-    """This process's peak resident set size in KB, or ``None`` where the
-    platform cannot report it. On Linux ``ru_maxrss`` inherits the parent's
-    peak across fork + exec — a runner spawned from a large host process
-    reports the host's peak, not its own — so ``VmHWM`` from
-    ``/proc/self/status``, which exec resets, is the source there;
-    ``ru_maxrss`` elsewhere (KB on Linux, bytes on macOS)."""
-    try:
-        with open("/proc/self/status", encoding="ascii") as status:
-            for line in status:
-                if line.startswith("VmHWM:"):
-                    return float(line.split()[1])
-    except (OSError, ValueError, IndexError, UnicodeDecodeError):
-        pass
-    if resource is None:
-        return None
-    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-    return peak / 1024 if sys.platform == "darwin" else float(peak)
 
 
 def _load_frozen_input(type_ptr: object, file_path: Path, param_type: Any) -> object:
@@ -187,29 +162,20 @@ def _compile_ir_file(ir_file: Path, platform_fns: list[PlatformFunction]) -> tup
     raise ValueError(f"Unknown IR format: {fmt}")
 
 
-def print_result(timings: dict[str, float], peak_bytes: int | None) -> None:
+def print_result(timings: dict[str, float], peak_bytes: int) -> None:
     """Print a unit's result as ``-v`` shows it: where the time went, in
-    milliseconds, and the process's peak memory where the platform reports
-    it (Windows has no ``resource`` module and no /proc)."""
+    milliseconds, and the process's peak memory."""
     print("\nTiming:", file=sys.stderr)
     print(f"  Load:     {timings['load']:8.1f} ms", file=sys.stderr)
     print(f"  Compile:  {timings['compile']:8.1f} ms", file=sys.stderr)
     print(f"  Execute:  {timings['execute']:8.1f} ms", file=sys.stderr)
     print(f"  Output:   {timings['output']:8.1f} ms", file=sys.stderr)
     print(f"  Total:    {sum(timings.values()):8.1f} ms", file=sys.stderr)
-    if peak_bytes is not None:
-        print("\nMemory:", file=sys.stderr)
-        if peak_bytes >= 1024 * 1024:
-            print(f"  Peak RSS: {peak_bytes / (1024 * 1024):8.1f} MB", file=sys.stderr)
-        else:
-            print(f"  Peak RSS: {peak_bytes / 1024:8.0f} KB", file=sys.stderr)
-
-
-def _peak_bytes() -> int | None:
-    """This process's peak resident memory in bytes, or ``None`` where the
-    platform cannot report it."""
-    peak_kb = _peak_rss_kb()
-    return int(peak_kb * 1024) if peak_kb is not None else None
+    print("\nMemory:", file=sys.stderr)
+    if peak_bytes >= 1024 * 1024:
+        print(f"  Peak RSS: {peak_bytes / (1024 * 1024):8.1f} MB", file=sys.stderr)
+    else:
+        print(f"  Peak RSS: {peak_bytes / 1024:8.0f} KB", file=sys.stderr)
 
 
 def _open_inputs(handle: Any, input_files: Sequence[Path], lazy: Callable[[int, int], bool],
@@ -283,7 +249,12 @@ def execute_unit(unit_path: Path) -> dict[str, Any]:
         ValueError: If the file does not hold a unit.
         OSError: If the result cannot be written.
     """
-    from east.serialization._beast2_eastc import _read_unit, _set_thread_limit, _write_unit_result
+    from east.serialization._beast2_eastc import (
+        _peak_bytes,
+        _read_unit,
+        _set_thread_limit,
+        _write_unit_result,
+    )
 
     unit = _read_unit(unit_path)
     # The grant caps every pool east-c starts; one thread frames every output
@@ -319,7 +290,7 @@ def execute_unit(unit_path: Path) -> dict[str, Any]:
     result["peak_bytes"] = _peak_bytes()
     result["timings"] = timings
     _write_unit_result(unit["result"], result["ok"], result["message"], result["locations"],
-                       result["peak_bytes"] or 0, timings)
+                       result["peak_bytes"], timings)
     return result
 
 
@@ -557,6 +528,8 @@ def run_program(
     t4 = perf_counter()
 
     if verbose:
+        from east.serialization._beast2_eastc import _peak_bytes
+
         print_result({
             "load": (t1 - t0) * 1000,
             "compile": (t2 - t1) * 1000,

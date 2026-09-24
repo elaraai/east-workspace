@@ -55,7 +55,7 @@ from east.serialization.beast2 import (
     read_beast2_index,
 )
 
-from east_py_cli.runner import _EmitSink, _peak_rss_kb, merge_blobs, run_program
+from east_py_cli.runner import _EmitSink, merge_blobs, run_program
 
 FIXTURES = Path(__file__).parent / "fixtures"
 INT_ARRAY = ArrayType(IntegerType)
@@ -127,10 +127,7 @@ def test_lazy_input_is_mapped_and_reported(tmp_path, monkeypatch, capsys):
     )
     err = capsys.readouterr().err
     assert "input 0: opened lazily — mapped from the file" in err
-    # The memory block is printed only where the runner can report a peak
-    # (not on Windows: no `resource` module and no /proc).
-    if _peak_rss_kb() is not None:
-        assert "Peak RSS" in err
+    assert "Peak RSS" in err
     control = tmp_path / "eager.beast2"
     monkeypatch.setenv("EAST_LAZY_INPUT_BYTES", "0")
     run_program(
@@ -194,9 +191,9 @@ def test_lazy_input_is_paged_one_segment_at_a_time(tmp_path):
     assert decoded == 1, f"keyed read decoded {decoded} of {segments} segments"
     assert fences == segments
     lazy_rss, eager_rss = _peak_rss_mb(lazy_err), _peak_rss_mb(eager_err)
-    if lazy_rss is not None and eager_rss is not None:
-        assert lazy_rss < eager_rss, (
-            f"lazy peak {lazy_rss:.1f} MB not below eager peak {eager_rss:.1f} MB")
+    assert lazy_rss is not None and eager_rss is not None, "each run reports its peak"
+    assert lazy_rss < eager_rss, (
+        f"lazy peak {lazy_rss:.1f} MB not below eager peak {eager_rss:.1f} MB")
 
 
 def test_a_manifest_input_pages_over_its_directory(tmp_path, monkeypatch, capsys):

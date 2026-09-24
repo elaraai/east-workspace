@@ -857,6 +857,9 @@ cdef extern from "east/compat.h":
     # Caps every pool the library starts at a runner's thread grant; one
     # thread starts none, 0 lifts the cap.
     void east_set_thread_limit(int threads)
+    # This process's peak resident memory in KB, as the east-c CLI measures
+    # its own. `long` is 32 bits on Windows: widen before scaling to bytes.
+    long east_peak_rss_kb()
 
 
 # ─── type_of_type.h ─────────────────────────────────────────────────────

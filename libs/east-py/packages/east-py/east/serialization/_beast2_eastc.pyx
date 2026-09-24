@@ -1736,6 +1736,15 @@ def _set_thread_limit(int threads):
     _eastc.east_set_thread_limit(threads)
 
 
+def _peak_bytes():
+    """This process's peak resident memory in bytes — east-c's measurement,
+    so a unit's ``peakBytes`` means the same on every runner and every
+    platform: the high-water mark exec resets on Linux, the peak working set
+    on Windows, ``ru_maxrss`` elsewhere."""
+    cdef object kb = _eastc.east_peak_rss_kb()
+    return kb * 1024
+
+
 def _beast2_read_type(object data):
     """The type schema embedded in a beast2-full blob (v4 or v5), as the
     python type descriptor. Parses only the header — no value decodes."""
