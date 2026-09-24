@@ -924,7 +924,7 @@ export async function findDatasetKey(
       // depend only on the leading field tuple, and struct keys compare
       // field-by-field in declaration order, so they are monotone over the
       // canonical key order; prefix-extending strings form one contiguous
-      // interval in East (code-unit) order.
+      // interval in East (code-point) order.
       let lowerPred: (k: unknown) => boolean;
       let upperPred: (k: unknown) => boolean;
       const prefix = query.prefix;
