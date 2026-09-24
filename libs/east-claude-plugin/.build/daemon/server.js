@@ -205,13 +205,6 @@ function resolvesToEastImport(id, checker, t) {
   const imp = importDeclarationOf(checker.getSymbolAtLocation(id), t);
   return imp !== void 0 && t.isStringLiteral(imp.moduleSpecifier) && imp.moduleSpecifier.text.startsWith("@elaraai/");
 }
-function importedNameOf(id, checker, t) {
-  for (const d of checker.getSymbolAtLocation(id)?.declarations ?? []) {
-    if (t.isImportSpecifier(d))
-      return (d.propertyName ?? d.name).text;
-  }
-  return void 0;
-}
 var importsCache = /* @__PURE__ */ new WeakMap();
 function importsEastPackage(sf, t) {
   const cached = importsCache.get(sf);
@@ -1101,32 +1094,17 @@ function isHostFilled(sym, ctx) {
   visit(ctx.sourceFile);
   return filled;
 }
-function inlineSeed(sourceArg, ctx) {
-  const t = ctx.ts;
-  if (!t.isCallExpression(sourceArg))
-    return void 0;
-  const callee = sourceArg.expression;
-  if (!t.isIdentifier(callee) || importedNameOf(callee, ctx.checker, t) !== "variant" || !resolvesToEastImport(callee, ctx.checker, t))
-    return void 0;
-  const [tag, payload] = sourceArg.arguments;
-  if (tag === void 0 || !t.isStringLiteralLike(tag) || tag.text !== "value")
-    return void 0;
-  return payload;
-}
 var noCompileTimeSeedData = {
   name: NAME14,
   code: CODE14,
-  description: "Flag host-computed data passed as the inline seed (variant('value', \u2026)) of e3.input \u2014 it must be a small authored constant; load real data from a file source or at runtime.",
+  description: "Flag host-computed data passed as the seed (3rd arg) of e3.input \u2014 the default must be a small authored constant; load real data at runtime.",
   check(node, ctx) {
     const t = ctx.ts;
     if (!t.isCallExpression(node) || !isE3InputCall(node, ctx))
       return;
     if (insideBlockScope(node, ctx))
       return;
-    const sourceArg = node.arguments[2];
-    if (sourceArg === void 0)
-      return;
-    const seedArg = inlineSeed(sourceArg, ctx);
+    const seedArg = node.arguments[2];
     if (seedArg === void 0)
       return;
     let expr = seedArg;
@@ -1148,7 +1126,7 @@ var noCompileTimeSeedData = {
     const nameArg = node.arguments[0];
     const name = nameArg !== void 0 && t.isStringLiteralLike(nameArg) ? nameArg.text : "\u2026";
     const reason = hostFilled ? "this seed is an authored-empty collection then filled in place by host code (a `for`-loop / `.set(...)`)" : "this seed is assembled by host calls (`num(...)`, `BigInt(...)`, parsed config) at module-evaluation time";
-    fire2(ctx, seedArg, `Host-computed data passed as the \`e3.input("${name}", \u2026)\` seed bakes a build-time snapshot into the deployed program \u2014 ${reason}. An inline \`variant('value', \u2026)\` seed must be a small AUTHORED CONSTANT (a literal, an empty/literal Map/Set/array/struct, or an East value \`variant\`/\`some\`/\`none\`/\`East.value\`), or the source omitted. Keep real/bulk data out of the package: deliver it as a beast2 file and declare \`variant('file', path)\` (adopted by hash at deploy), put the bytes in a \`BlobType\` input and parse with \`blob.decodeCsv(...)\` inside an \`e3.task\`, read files in a task via a platform \`FileSystem.readFile\`, or use \`e3.record(...)\` + \`e3.mutation\` for set-once root state.`);
+    fire2(ctx, seedArg, `Host-computed data passed as the \`e3.input("${name}", \u2026)\` seed bakes a build-time snapshot into the deployed program \u2014 ${reason}. The default (3rd arg) must be a small AUTHORED CONSTANT (a literal, an empty/literal Map/Set/array/struct, or an East value \`variant\`/\`some\`/\`none\`/\`East.value\`) or omitted. Load real/bulk data at RUNTIME: put the bytes in a \`BlobType\` input and parse with \`blob.decodeCsv(...)\` inside an \`e3.task\`, read files in a task via a platform \`FileSystem.readFile\`, or use \`e3.record(...)\` + \`e3.mutation\` for set-once root state.`);
   }
 };
 
