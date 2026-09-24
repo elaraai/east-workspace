@@ -969,8 +969,10 @@ review gate. All numerals `font-mono` with `"tnum" 1`.
 **Verification loop** (mandatory, per `[east-ui mock fidelity]`): screenshot
 the HTML spec per-section via `?only=sN` (+ `?theme=dark`) at native zoom;
 render the matching Plan example via `e3-ui shot`; compare side-by-side and
-iterate until they match. The showcase gains Plan golden specs; the §1 target
-state becomes the flagship shot.
+iterate until they match. The §1 target state becomes the flagship shot. The
+loop is review, not a CI gate: the showcase's responsive suite asserts the
+Plan's geometry in the DOM (`plan-geometry.spec.ts`), and holds no pixel
+goldens (#833).
 
 ---
 
@@ -1047,7 +1049,10 @@ examples↔tests East-code contract, diagnostics clean, shot loop.
   `data-state="obs|appr|prop"`, `data-stuck`, `data-over`), review optimism,
   drag probe with canDrop veto (⊘), cursor readout, virtualisation windows.
 - **Shots** — per-§ side-by-sides vs `?only=sN` captures, light + dark,
-  desktop + 356pt; goldens in the showcase.
+  desktop + 356pt, for review.
+- **Browser geometry** — the showcase's responsive suite measures the
+  rendered Plan against its model (`plan-geometry.spec.ts`: item heights,
+  ribbon registration). It holds no pixel goldens (#833).
 
 ---
 

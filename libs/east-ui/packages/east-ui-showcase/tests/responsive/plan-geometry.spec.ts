@@ -16,11 +16,15 @@
  * means they parted: the paging ledger's "band px == rendered px" invariant
  * rests on this.
  *
+ * Every measurement is polled until it holds, on a page at rest, never read
+ * once after a fixed pause.
+ *
  * Run: `make test-responsive` (libs/east-ui), or
  * `pnpm exec playwright test plan-geometry --project desktop`.
  */
 
 import { test, expect, type Locator, type Page } from "playwright/test";
+import { settled } from "./settle";
 
 /** The Plan examples, between them every row kind, group strips, pinned
  *  rows, number and ordinal axes. */
@@ -40,7 +44,7 @@ async function openExample(page: Page, name: string): Promise<Locator> {
     await entry.scrollIntoViewIfNeeded();
     await expect(entry.locator("[data-plan-body]").first()).toBeVisible({ timeout: 20_000 });
     // Charts and collections measure their containers before they settle.
-    await page.waitForTimeout(500);
+    await settled(page);
     return entry;
 }
 
@@ -75,8 +79,8 @@ test.describe("Plan geometry (#817)", () => {
     for (const name of EXAMPLES) {
         test(`${name}: every body item renders at its model height`, async ({ page }) => {
             const entry = await openExample(page, name);
-            expect(await measured(entry)).toBeGreaterThan(0);
-            expect(await mismatches(entry)).toEqual([]);
+            await expect.poll(() => measured(entry)).toBeGreaterThan(0);
+            await expect.poll(() => mismatches(entry)).toEqual([]);
         });
     }
 
@@ -87,10 +91,10 @@ test.describe("Plan geometry (#817)", () => {
         // The expandable spark's gutter is its toggle.
         await spark.locator("> :first-child").click();
         await expect(spark).not.toHaveAttribute("data-plan-h", String(rest));
-        expect(await mismatches(entry)).toEqual([]);
+        await expect.poll(() => mismatches(entry), "expanded").toEqual([]);
         await spark.locator("> :first-child").click();
         await expect(spark).toHaveAttribute("data-plan-h", String(rest));
-        expect(await mismatches(entry)).toEqual([]);
+        await expect.poll(() => mismatches(entry), "at rest").toEqual([]);
     });
 
     test("every row kind holds at every density, its chart at rest and expanded", async ({ page }) => {
@@ -137,12 +141,12 @@ test.describe("Plan geometry (#817)", () => {
         await entry.locator('[data-plan-control="links"]').first().click();
         // Rails and gap bands are measured items too — they carry the model's height.
         await expect(entry.locator("[data-plan-rail][data-plan-h], [data-plan-gap][data-plan-h]").first()).toBeVisible();
-        expect(await mismatches(entry)).toEqual([]);
+        await expect.poll(() => mismatches(entry), "R1").toEqual([]);
         await entry.locator("[data-plan-focusback]").click();
         await entry.locator('[data-plan-control="expand"]').first().click();
         await expect(entry.locator("[data-plan-row][data-ctx][data-plan-h]").first()).toBeVisible();
         await expect(entry.locator("[data-plan-row][data-expanded][data-plan-h]")).toHaveCount(1);
-        expect(await mismatches(entry)).toEqual([]);
+        await expect.poll(() => mismatches(entry), "R2").toEqual([]);
     });
 });
 
@@ -162,17 +166,19 @@ test.describe("Plan link ribbons (#818)", () => {
         ["L1-M03", "b214", "L2-M11", "b241"], ["L2-M11", "b241", "L1-M09", "b"], ["L1-M09", "b", "dsp", "d1"],
     ];
 
-    /** Focus L1-M09's links — every link above touches its family. */
+    /** Focus L1-M09's links — every link above touches its family — and let
+     *  the focused canvas come to rest. */
     async function focusLinks(page: Page): Promise<Locator> {
         const entry = await openExample(page, "planSpanRows");
         await entry.locator('[data-plan-row="L1-M09"] [data-plan-control="links"]').click();
         await expect(entry.locator("[data-plan-ribbons] [data-plan-link]")).toHaveCount(LINKS.length);
+        await settled(page);
         return entry;
     }
 
     test("every ribbon leaves its source run's end and lands on its destination's start, at the bars' centres", async ({ page }) => {
         const entry = await focusLinks(page);
-        const misses = await entry.evaluate((root, links) => {
+        const misses = () => entry.evaluate((root, links) => {
             const svg = root.querySelector("[data-plan-ribbons] svg")!.getBoundingClientRect();
             const nums = (d: string) => d.split(/[\sMLAZ]+/).filter((s) => s !== "").map(Number);
             const out: string[] = [];
@@ -195,7 +201,7 @@ test.describe("Plan link ribbons (#818)", () => {
             }
             return out;
         }, LINKS);
-        expect(misses).toEqual([]);
+        await expect.poll(misses).toEqual([]);
         // The landing past the window reads as the runoff fade.
         await expect(entry.locator('[data-plan-linkfade="right"]')).toHaveCount(1);
     });

@@ -5,15 +5,17 @@
 
 /**
  * The responsive catalog sweep (#357): for EVERY example file's page
- * (east-ui + e3-ui sections), at each project viewport —
- *   1. the page loads with no uncaught errors and no error overlay,
- *   2. the page never scrolls horizontally (wide components pan inside
- *      their own frames instead — the epic's containment invariant),
- *   3. a screenshot artifact is captured for review.
+ * (east-ui + e3-ui sections), at each project viewport, once the file's
+ * examples have mounted and the page is at rest —
+ *   1. there were no uncaught errors and there is no error overlay,
+ *   2. the page does not scroll horizontally (wide components pan inside
+ *      their own frames instead — the epic's containment invariant).
+ * A failing page leaves its screenshot and trace in test-results/.
  */
 
 import { test, expect } from "playwright/test";
 import { catalogPathKeys } from "./routes";
+import { settled } from "./settle";
 
 const keys = catalogPathKeys();
 
@@ -23,14 +25,16 @@ test("catalog manifest is non-trivial", () => {
 });
 
 for (const key of keys) {
-    test(`catalog ${key}`, async ({ page }, testInfo) => {
+    test(`catalog ${key}`, async ({ page }) => {
         const pageErrors: string[] = [];
         page.on("pageerror", (e) => pageErrors.push(String(e)));
 
         await page.goto(`/#${encodeURIComponent(key)}`);
         await page.waitForSelector("header", { timeout: 20_000 });
-        // Charts/collections measure their containers before painting.
-        await page.waitForTimeout(700);
+        // The deep link mounts this file's examples: its first example's
+        // anchor (`#<pathKey>/<name>`), then the page at rest.
+        await expect(page.locator(`a[href^="#${key}/"]`).first()).toBeVisible();
+        await settled(page);
 
         // 1. No uncaught errors, no error overlay (the showcase surfaces
         //    render/module failures as a Chakra error Alert).
@@ -46,8 +50,5 @@ for (const key of keys) {
             return doc.scrollWidth - window.innerWidth;
         });
         expect(overflow, `horizontal page overflow on #${key}`).toBeLessThanOrEqual(1);
-
-        // 3. Screenshot artifact.
-        await page.screenshot({ path: testInfo.outputPath("page.png") });
     });
 }

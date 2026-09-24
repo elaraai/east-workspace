@@ -9,9 +9,8 @@
  * theme is toggling the `dark` class on `<html>`. Initial mode, in
  * priority order:
  *
- *   1. `?theme=dark|light` — lets headless capture (the goldens `dark`
- *      project, the snapshot pipeline's `?file=` views) select the mode
- *      without UI interaction;
+ *   1. `?theme=dark|light` — lets headless capture (the snapshot
+ *      pipeline's `?file=` views) select the mode without UI interaction;
  *   2. the persisted operator preference (localStorage);
  *   3. light — the historical default. Deliberately no OS-preference
  *      sniffing: captures must be deterministic across machines.
