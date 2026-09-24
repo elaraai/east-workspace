@@ -91,6 +91,7 @@ export {
   type Beast2MergeOptions,
   type Beast2MergeStats,
 } from "./v5/merge.js";
+export { decodeBeast2ElementsFor } from "./v5/elements.js";
 export {
   recutBeast2For,
   type Beast2SegmentRef,
