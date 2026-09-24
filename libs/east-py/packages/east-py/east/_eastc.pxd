@@ -783,6 +783,82 @@ cdef extern from "east/merge.h":
     bint east_merge_blobs(const EastMergeConfig *cfg, EastMergeStats *stats_out)
 
 
+# ─── unit.h ──────────────────────────────────────────────────────────────
+# The runner protocol, shared with the east-c CLI: the unit `exec` executes,
+# the result it reports, and the sink a running program's output goes
+# through. Struct fields declared `bint` are C `bool` in the header; they are
+# assigned and read by value, which the C compiler converts.
+
+cdef extern from "east/unit.h":
+    ctypedef enum EastUnitOutputKind:
+        EAST_UNIT_VALUE
+        EAST_UNIT_ARRAY
+        EAST_UNIT_SET
+        EAST_UNIT_DICT
+        EAST_UNIT_FOLD
+
+    ctypedef struct EastUnitOutput:
+        EastUnitOutputKind kind
+        char *path
+        char *merge
+        char *zero
+        char *combine
+
+    ctypedef struct EastUnit:
+        bint merge
+        char *program
+        char **inputs
+        size_t num_inputs
+        char *range
+        EastUnitOutput output
+        char **platforms
+        size_t num_platforms
+        int64_t threads
+        char *result
+
+    EastUnit *east_unit_read(const char *path)
+    void east_unit_free(EastUnit *unit)
+
+    ctypedef struct EastUnitLocation:
+        const char *filename
+        int64_t line
+        int64_t column
+
+    ctypedef struct EastUnitResult:
+        bint ok
+        const char *message
+        const EastUnitLocation *locations
+        size_t num_locations
+        uint64_t peak_bytes
+        double load_ms
+        double compile_ms
+        double execute_ms
+        double output_ms
+
+    bint east_unit_write_result(const char *path, const EastUnitResult *result)
+    bint east_unit_write_value(const char *path, EastValue *value, EastType *type)
+
+    ctypedef struct EastUnitSink:
+        pass
+
+    EastUnitSink *east_unit_sink_new(const EastUnitOutput *output, EastType *type,
+                                     EastCompiledFn *merge_fn, EastCompiledFn *combine_fn,
+                                     EastValue *zero)
+    EastValue *east_unit_sink_function(EastUnitSink *sink, EastType *fn_type)
+    bint east_unit_sink_finish(EastUnitSink *sink, EastValue *result)
+    void east_unit_sink_free(EastUnitSink *sink)
+
+    bint east_unit_merge_runs(const EastUnit *unit, EastCompiledFn *merge_fn)
+
+
+# ─── compat.h ────────────────────────────────────────────────────────────
+
+cdef extern from "east/compat.h":
+    # Caps every pool the library starts at a runner's thread grant; one
+    # thread starts none, 0 lifts the cap.
+    void east_set_thread_limit(int threads)
+
+
 # ─── type_of_type.h ─────────────────────────────────────────────────────
 
 cdef extern from "east/ir_normalize.h":

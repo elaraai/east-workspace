@@ -160,9 +160,15 @@ jobs:
           uv run pytest tests -q --no-cov
 
       # Runner streaming execution (--emit / --stream) through run_program,
-      # against the checked-in cross-runner IR fixtures (#507).
+      # against the checked-in cross-runner IR fixtures (#507), and `exec`
+      # against the runner protocol corpus the export writes beside the
+      # compliance IR (runner_corpus/). EAST_CONFORMANCE_REQUIRED=1 makes a
+      # missing corpus a failure rather than the local skip.
       - name: Run east-py-cli tests
         working-directory: libs/east-py/packages/east-py-cli
+        env:
+          EAST_TEST_IR_DIR: ${{ github.workspace }}/ir-east
+          EAST_CONFORMANCE_REQUIRED: "1"
         run: uv run pytest tests -q --no-cov
 
       # The East rules (#638) over every package's own East bodies — the

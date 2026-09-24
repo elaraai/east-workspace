@@ -13,6 +13,7 @@ All beast2 serialization goes through east-c. No Python fallback.
 from libc.stdint cimport int32_t, uint8_t, uintptr_t
 from libc.stddef cimport size_t
 from libc.stdlib cimport free, malloc
+from libc.string cimport memset
 from cpython.ref cimport PyObject, Py_INCREF, Py_XDECREF
 
 from east cimport _eastc
@@ -1452,6 +1453,287 @@ def _merge_blobs(object input_paths, object output_path, object merge=None,
     if not ok:
         _consume_eastc_error("merge failed", ValueError)
     return {"inputs": st.inputs, "entries": st.entries, "folds": st.folds}
+
+
+# ─── The runner protocol (east/unit.h) ────────────────────────────────────
+#
+# What `east-py exec` reads and writes, through the very code the east-c CLI
+# runs: the unit, the result, the sink a running program's output goes
+# through and the merge of a unit's runs — so the two runners read the same
+# units and write the same bytes.
+
+
+_UNIT_OUTPUT_KINDS = ("value", "array", "set", "dict", "fold")
+
+
+cdef object _py_path(const char* path):
+    """A path east-c returned, as python text — ``_c_path`` undone."""
+    import os
+
+    if path == NULL:
+        return None
+    cdef bytes raw = path
+    if os.name == "nt":
+        return raw.decode("mbcs")
+    return os.fsdecode(raw)
+
+
+def _read_unit(object path):
+    """The unit file at ``path`` as a dict: ``merge`` (whether the work is a
+    merge rather than a run), ``program``, ``inputs`` (a merge's parts),
+    ``range``, ``output`` (its ``kind`` and its ``path``, ``merge``, ``zero``
+    and ``combine``), ``platforms``, ``threads`` and ``result``. Every path is
+    resolved against the unit file's directory. Raises ValueError with
+    east-c's message when the file does not hold a unit."""
+    _ensure_eastc_runtime()
+    cdef bytes c_path = _c_path(path)
+    cdef _eastc.EastUnit* unit = _eastc.east_unit_read(<const char*>c_path)
+    if unit == NULL:
+        _consume_eastc_error("the unit cannot be read", ValueError)
+    cdef size_t i
+    try:
+        inputs = []
+        for i in range(unit.num_inputs):
+            inputs.append(_py_path(unit.inputs[i]))
+        platforms = []
+        for i in range(unit.num_platforms):
+            platforms.append((<bytes>unit.platforms[i]).decode("utf-8"))
+        return {
+            "merge": bool(unit.merge),
+            "program": _py_path(unit.program),
+            "inputs": inputs,
+            "range": _py_path(unit.range),
+            "output": {
+                "kind": _UNIT_OUTPUT_KINDS[<int>unit.output.kind],
+                "path": _py_path(unit.output.path),
+                "merge": _py_path(unit.output.merge),
+                "zero": _py_path(unit.output.zero),
+                "combine": _py_path(unit.output.combine),
+            },
+            "platforms": platforms,
+            "threads": unit.threads,
+            "result": _py_path(unit.result),
+        }
+    finally:
+        _eastc.east_unit_free(unit)
+
+
+def _write_unit_result(object path, bint ok, object message, object locations,
+                       object peak_bytes, object timings):
+    """Write a unit's result to ``path``: the outcome — ok, or the failure's
+    ``message`` and ``locations``, ``(filename, line, column)`` innermost
+    first — with the peak memory and ``timings`` (``load``, ``compile``,
+    ``execute`` and ``output``, in milliseconds). Raises OSError with
+    east-c's message when it cannot be written."""
+    _ensure_eastc_runtime()
+    cdef bytes c_path = _c_path(path)
+    cdef bytes c_message = (message or "").encode("utf-8")
+    cdef list names = [str(location[0]).encode("utf-8") for location in locations]
+    cdef size_t n = len(names)
+    cdef _eastc.EastUnitLocation* c_locations = <_eastc.EastUnitLocation*>malloc(
+        (n if n > 0 else 1) * sizeof(_eastc.EastUnitLocation))
+    if c_locations == NULL:
+        raise MemoryError()
+    cdef size_t i
+    for i in range(n):
+        c_locations[i].filename = <const char*>(<bytes>names[i])
+        c_locations[i].line = locations[i][1]
+        c_locations[i].column = locations[i][2]
+    cdef _eastc.EastUnitResult result
+    result.ok = ok
+    result.message = <const char*>c_message
+    result.locations = c_locations
+    result.num_locations = n
+    result.peak_bytes = peak_bytes
+    result.load_ms = timings["load"]
+    result.compile_ms = timings["compile"]
+    result.execute_ms = timings["execute"]
+    result.output_ms = timings["output"]
+    cdef bint written
+    try:
+        written = _eastc.east_unit_write_result(<const char*>c_path, &result)
+    finally:
+        free(c_locations)
+    if not written:
+        _consume_eastc_error("the result cannot be written", OSError)
+
+
+def _write_unit_value(object py_type, object path, object value):
+    """Write a value output: a collection as a manifest directory at
+    ``path``, anything else as one blob there — east-c's writer, so the bytes
+    are the east-c CLI's for the same value. A frozen or paged hold passes
+    its C value through. Raises OSError with east-c's message."""
+    _ensure_eastc_runtime()
+    cdef bytes c_path = _c_path(path)
+    cdef _eastc.EastType* c_type = py_type_to_c(py_type)
+    cdef _eastc.EastValue* c_val = NULL
+    try:
+        hold = getattr(value, "_east_c_value", None)
+        if hold is None:
+            hold = getattr(value, "_east_c_paged", None)
+        if hold is not None:
+            c_val = <_eastc.EastValue*><uintptr_t>hold
+            _eastc.east_value_retain(c_val)
+        else:
+            c_val = py_value_to_c(value, c_type)
+        if not _eastc.east_unit_write_value(<const char*>c_path, c_val, c_type):
+            _consume_eastc_error("the output cannot be written", OSError)
+    finally:
+        if c_val != NULL:
+            _eastc.east_value_release(c_val)
+        _eastc.east_type_release(c_type)
+
+
+cdef class _UnitSinkCore:
+    """Owner of one east-c unit sink (east/unit.h): where a running program's
+    emitted output goes.
+
+    ``kind`` is the output's kind — ``array``, ``set``, ``dict`` or ``fold``;
+    ``emit_types`` the emit parameter's argument types; ``path`` the output's
+    directory, or a fold's file. A dict's equal keys fold with ``merge``, a
+    compiled ``(K, V, V) -> V``; a fold folds every emitted value into an
+    accumulator with ``combine``, a compiled ``(T, T) -> T``, starting at
+    ``zero``. Raises ValueError with east-c's message when a function does
+    not fit the output, or an output directory holds anything already.
+    """
+
+    cdef _eastc.EastUnitSink* _sink
+    cdef _eastc.EastValue* _sink_fn  # retained: the sink's function value
+    cdef _eastc.EastType* _fn_t      # the emit parameter's function type
+    cdef object _merge               # borrowed by the sink for its lifetime
+    cdef object _combine             # borrowed by the sink for its lifetime
+
+    def __cinit__(self, str kind, object emit_types, object path, object merge=None,
+                  object combine=None, object zero=None):
+        from east.types.types import FunctionType, NullType
+
+        _ensure_eastc_runtime()
+        self._fn_t = py_type_to_c(FunctionType(list(emit_types), NullType))
+        cdef bytes c_path = _c_path(path)
+        cdef _eastc.EastUnitOutput output
+        memset(&output, 0, sizeof(output))
+        cdef int kind_index = _UNIT_OUTPUT_KINDS.index(kind)
+        output.kind = <_eastc.EastUnitOutputKind>kind_index
+        output.path = <char*>c_path
+        cdef _eastc.EastCompiledFn* merge_fn = NULL
+        cdef _eastc.EastCompiledFn* combine_fn = NULL
+        if merge is not None:
+            merge_fn = <_eastc.EastCompiledFn*><uintptr_t>merge._eastc_handle._compiled
+            self._merge = merge
+        if combine is not None:
+            combine_fn = <_eastc.EastCompiledFn*><uintptr_t>combine._eastc_handle._compiled
+            self._combine = combine
+        cdef _eastc.EastValue* c_zero = NULL
+        if zero is not None:
+            hold = getattr(zero, "_east_c_value", None)
+            if hold is not None:
+                c_zero = <_eastc.EastValue*><uintptr_t>hold
+                _eastc.east_value_retain(c_zero)
+            else:
+                c_zero = py_value_to_c(zero, self._fn_t.data.function.inputs[0])
+        try:
+            self._sink = _eastc.east_unit_sink_new(&output, self._fn_t, merge_fn, combine_fn,
+                                                   c_zero)
+        finally:
+            # The sink retains the zero it keeps.
+            if c_zero != NULL:
+                _eastc.east_value_release(c_zero)
+        if self._sink == NULL:
+            _consume_eastc_error("exec: the output cannot be opened", ValueError)
+        self._sink_fn = _eastc.east_unit_sink_function(self._sink, self._fn_t)
+        if self._sink_fn == NULL:
+            raise MemoryError()
+
+    def __dealloc__(self):
+        if self._sink_fn != NULL:
+            _eastc.east_value_release(self._sink_fn)
+        if self._sink != NULL:
+            _eastc.east_unit_sink_free(self._sink)
+        if self._fn_t != NULL:
+            _eastc.east_type_release(self._fn_t)
+
+    def function_value(self):
+        """The emit capability, as the bridge's call wrapper around the
+        sink's function value: passed to a compiled body's trailing parameter
+        it hands east-c the value itself, so every emission runs in C. The
+        value holds this core, so the sink stays open while any copy of it
+        lives."""
+        cdef _EmitSinkEntry* entry = <_EmitSinkEntry*>malloc(sizeof(_EmitSinkEntry))
+        if entry == NULL:
+            raise MemoryError()
+        entry.sink_fn = self._sink_fn
+        _eastc.east_value_retain(entry.sink_fn)
+        entry.owner = <PyObject*>self
+        Py_INCREF(self)
+        cdef _eastc.EastValue* fv = _eastc.east_foreign_function(
+            <_eastc.EastInvokeFn>_emit_sink_invoke, <void*>entry, _emit_sink_release, self._fn_t)
+        if fv == NULL:
+            # east_foreign_function released the entry (and its references).
+            raise MemoryError()
+        try:
+            return c_value_to_py(fv, self._fn_t)
+        finally:
+            _eastc.east_value_release(fv)  # the wrapper owns it from here
+
+    def finish(self):
+        """Write what is still open — the last run, the array's manifest, the
+        fold's accumulator. On failure EastError carries the sink's message
+        and the output is left without its manifest."""
+        cdef char* err
+        if _eastc.east_unit_sink_finish(self._sink, NULL):
+            return
+        err = _eastc.east_builtin_get_error()
+        msg = "exec: the output cannot be written"
+        if err != NULL:
+            msg = (<bytes>err).decode("utf-8", errors="replace")
+            free(err)
+        from east.runtime.errors import EastError
+        raise EastError(msg, [])
+
+
+def _unit_merge_runs(object parts, object path, str kind, object range_path=None,
+                     object merge=None):
+    """A merge unit's set or dict ``parts`` merged into one run,
+    ``<path>/0.beast2`` — east-c's ``east_unit_merge_runs``: a key several
+    parts hold collapses (a set) or folds with ``merge``, a compiled
+    ``(K, V, V) -> V`` (a dict), in part order, over the keys in the
+    ``range_path`` file's ``[from, to)`` when there is one. Raises ValueError
+    with east-c's message."""
+    _ensure_eastc_runtime()
+    encoded = [_c_path(p) for p in parts]
+    cdef bytes c_dir = _c_path(path)
+    cdef bytes c_range = _c_path(range_path) if range_path is not None else b""
+    cdef size_t n = len(encoded)
+    cdef char** c_parts = <char**>malloc((n if n > 0 else 1) * sizeof(char*))
+    if c_parts == NULL:
+        raise MemoryError()
+    cdef size_t i
+    for i in range(n):
+        c_parts[i] = <char*>(<bytes>encoded[i])
+    cdef _eastc.EastUnit unit
+    memset(&unit, 0, sizeof(unit))
+    unit.merge = True
+    unit.inputs = c_parts
+    unit.num_inputs = n
+    unit.range = <char*>c_range if range_path is not None else NULL
+    unit.output.kind = _eastc.EAST_UNIT_SET if kind == "set" else _eastc.EAST_UNIT_DICT
+    unit.output.path = <char*>c_dir
+    cdef _eastc.EastCompiledFn* merge_fn = NULL
+    if merge is not None:
+        merge_fn = <_eastc.EastCompiledFn*><uintptr_t>merge._eastc_handle._compiled
+    cdef bint ok
+    try:
+        ok = _eastc.east_unit_merge_runs(&unit, merge_fn)
+    finally:
+        free(c_parts)
+    if not ok:
+        _consume_eastc_error("exec: the parts cannot be merged", ValueError)
+
+
+def _set_thread_limit(int threads):
+    """Cap every pool east-c starts from now on at ``threads`` — a runner's
+    grant for the unit it runs; one frames every output inline."""
+    _eastc.east_set_thread_limit(threads)
 
 
 def _beast2_read_type(object data):

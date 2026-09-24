@@ -21,10 +21,11 @@ except ImportError:  # pragma: no cover - Windows has no `resource` module
     resource = None  # type: ignore[assignment]
 
 from east.runtime.compiler import compile_from_beast2, compile_from_east, compile_from_json
+from east.runtime.errors import EastError
 from east.runtime.platform import PlatformFunction
 from east.serialization.east_printer import print_east, print_type
 
-from east_py_cli.loader import detect_format, load_value, save_value
+from east_py_cli.loader import detect_format, load_platform, load_value, save_value
 
 
 def _format_size(n: int) -> str:
@@ -186,6 +187,248 @@ def _compile_ir_file(ir_file: Path, platform_fns: list[PlatformFunction]) -> tup
     raise ValueError(f"Unknown IR format: {fmt}")
 
 
+def print_result(timings: dict[str, float], peak_bytes: int | None) -> None:
+    """Print a unit's result as ``-v`` shows it: where the time went, in
+    milliseconds, and the process's peak memory where the platform reports
+    it (Windows has no ``resource`` module and no /proc)."""
+    print("\nTiming:", file=sys.stderr)
+    print(f"  Load:     {timings['load']:8.1f} ms", file=sys.stderr)
+    print(f"  Compile:  {timings['compile']:8.1f} ms", file=sys.stderr)
+    print(f"  Execute:  {timings['execute']:8.1f} ms", file=sys.stderr)
+    print(f"  Output:   {timings['output']:8.1f} ms", file=sys.stderr)
+    print(f"  Total:    {sum(timings.values()):8.1f} ms", file=sys.stderr)
+    if peak_bytes is not None:
+        print("\nMemory:", file=sys.stderr)
+        if peak_bytes >= 1024 * 1024:
+            print(f"  Peak RSS: {peak_bytes / (1024 * 1024):8.1f} MB", file=sys.stderr)
+        else:
+            print(f"  Peak RSS: {peak_bytes / 1024:8.0f} KB", file=sys.stderr)
+
+
+def _peak_bytes() -> int | None:
+    """This process's peak resident memory in bytes, or ``None`` where the
+    platform cannot report it."""
+    peak_kb = _peak_rss_kb()
+    return int(peak_kb * 1024) if peak_kb is not None else None
+
+
+def _open_inputs(handle: Any, input_files: Sequence[Path], lazy: Callable[[int, int], bool],
+                 verbose: bool) -> tuple[list[object], list[int]]:
+    """A program's inputs, always FROZEN — task inputs are immutable; mutating
+    one raises the uniform copy-first error — and which of them opened lazily.
+
+    A beast2 collection input ``i`` of ``size`` bytes for which ``lazy(i,
+    size)`` holds opens as a lazy paged value (segment-fed iteration and keyed
+    reads at O(segment) decoded memory — #505), and because frozen collapses
+    the shape gate, nested-container element shapes open lazily too. A lazily
+    opened file is MAPPED, never read whole: the paged value serves its reads
+    from the mapping, so the input's residency is the page cache and the heap
+    holds one decoded segment at a time. Anything not pageable falls back to
+    the whole (frozen) decode, exactly like east-node's runner. A file
+    holding a manifest is the collection it names, its segments in the
+    directory beside it, and it weighs its segments rather than its own few
+    kilobytes.
+    """
+    from east.runtime._compiler_eastc import (
+        load_frozen_manifest,
+        manifest_segment_bytes,
+        open_manifest_file,
+        open_paged_file,
+    )
+
+    input_types = handle.get_input_types()
+    inputs: list[object] = []
+    lazy_inputs: list[int] = []
+    for i, (file_path, param_type) in enumerate(zip(input_files, input_types, strict=False)):
+        beast2 = Path(file_path).suffix.lower() in (".beast2", ".beast")
+        collection = getattr(param_type, "type", None) in ("Array", "Set", "Dict")
+        weight = manifest_segment_bytes(file_path) if beast2 and collection else None
+        size = Path(file_path).stat().st_size + (weight or 0)
+        opened = None
+        if beast2 and collection and lazy(i, size):
+            try:
+                opener = open_paged_file if weight is None else open_manifest_file
+                opened = opener(handle._input_types[i], file_path, frozen=True)
+            except (OSError, ValueError):
+                # Not a container of the parameter's type, or a file that
+                # cannot be mapped: the whole decode below reads it and
+                # reports the real error.
+                opened = None
+        if opened is not None:
+            lazy_inputs.append(i)
+            if verbose:
+                print(f"  input {i}: opened lazily — mapped from the file", file=sys.stderr)
+            inputs.append(opened)
+        elif weight is not None:
+            inputs.append(load_frozen_manifest(handle._input_types[i], file_path))
+        else:
+            inputs.append(_load_frozen_input(handle._input_types[i], file_path, param_type))
+    return inputs, lazy_inputs
+
+
+def execute_unit(unit_path: Path) -> dict[str, Any]:
+    """Execute a unit — ``east-py exec``: do its work, write its output, and
+    record its result where the unit says.
+
+    The unit, the result and the output writers are east-c's (east/unit.h),
+    the very code the east-c CLI runs, so the two runners read the same units
+    and write the same bytes; east-node implements the same protocol, and the
+    conformance corpus holds the three to it.
+
+    Returns the result: ``ok``, a failure's ``message`` and ``locations``
+    (``(filename, line, column)``, innermost first), ``peak_bytes`` and
+    ``timings``. A failure is the result's, never a raise.
+
+    Raises:
+        ValueError: If the file does not hold a unit.
+        OSError: If the result cannot be written.
+    """
+    from east.serialization._beast2_eastc import _read_unit, _set_thread_limit, _write_unit_result
+
+    unit = _read_unit(unit_path)
+    # The grant caps every pool east-c starts; one thread frames every output
+    # inline.
+    _set_thread_limit(min(max(unit["threads"], 1), 1024))
+    timings = {"load": 0.0, "compile": 0.0, "execute": 0.0, "output": 0.0}
+    mark = perf_counter()
+
+    def lap(phase: str) -> None:
+        nonlocal mark
+        now = perf_counter()
+        timings[phase] += (now - mark) * 1000
+        mark = now
+
+    result: dict[str, Any]
+    try:
+        platform_fns: list[PlatformFunction] = []
+        for package in unit["platforms"]:
+            platform_fns.extend(load_platform(package))
+        if unit["merge"]:
+            _merge_work(unit, platform_fns, lap)
+        else:
+            _run_work(unit, platform_fns, lap)
+        result = {"ok": True, "message": None, "locations": []}
+    except EastError as e:
+        result = {
+            "ok": False,
+            "message": e.message,
+            "locations": [(frame["filename"], frame["line"], frame["column"]) for frame in e.location],
+        }
+    except Exception as e:  # noqa: BLE001 - every failure is the result's
+        result = {"ok": False, "message": str(e), "locations": []}
+    result["peak_bytes"] = _peak_bytes()
+    result["timings"] = timings
+    _write_unit_result(unit["result"], result["ok"], result["message"], result["locations"],
+                       result["peak_bytes"] or 0, timings)
+    return result
+
+
+def _emit_parameter(kind: str, emit_type: Any) -> list[Any]:
+    """The emit parameter's argument types, checked against the output's kind:
+    one for an array, a set or a fold, a key and a value for a dict."""
+    arity = 2 if kind == "dict" else 1
+    if getattr(emit_type, "type", None) != "Function" or len(emit_type.value["inputs"]) != arity:
+        raise ValueError(
+            f"exec: a {kind} output is emitted: the program's trailing parameter must be emit, "
+            f"a function of {arity} argument{'' if arity == 1 else 's'}, got "
+            f"{print_type(emit_type)}")
+    return list(emit_type.value["inputs"])
+
+
+def _run_work(unit: dict[str, Any], platform_fns: list[PlatformFunction],
+              lap: Callable[[str], None]) -> None:
+    """A run unit: the program evaluated on its inputs, its output written by
+    kind."""
+    from east.runtime._compiler_eastc import _eastc_call, load_frozen_value
+    from east.serialization._beast2_eastc import _UnitSinkCore, _write_unit_value
+
+    compiled, _ = _compile_ir_file(Path(unit["program"]), platform_fns)
+    handle = compiled._eastc_handle  # type: ignore[attr-defined]
+    input_types = handle.get_input_types()
+    output = unit["output"]
+    # Every kind but a value is emitted, through the trailing parameter.
+    emitted = output["kind"] != "value"
+    if emitted and not input_types:
+        raise ValueError(
+            f"exec: a {output['kind']} output is emitted: the program's trailing parameter "
+            "must be emit, a function")
+    params = input_types[:-1] if emitted else input_types
+    if len(unit["inputs"]) != len(params):
+        sig_params = ", ".join(print_type(t) for t in input_types)
+        raise ValueError(
+            f"Function expects {len(params)} inputs, got {len(unit['inputs'])}\n"
+            f"Signature: ({sig_params}) -> {print_type(handle.get_output_type())}")
+
+    sink = None
+    if emitted:
+        emit_types = _emit_parameter(output["kind"], input_types[-1])
+        merge = combine = zero = None
+        if output["kind"] == "dict" and output["merge"] is not None:
+            merge = _compile_ir_file(Path(output["merge"]), platform_fns)[0]
+        if output["kind"] == "fold":
+            combine = _compile_ir_file(Path(output["combine"]), platform_fns)[0]
+            zero = load_frozen_value(emit_types[0], Path(output["zero"]).read_bytes())
+        sink = _UnitSinkCore(output["kind"], emit_types, output["path"], merge=merge,
+                             combine=combine, zero=zero)
+    lap("compile")
+
+    threshold = _lazy_input_threshold()
+    inputs, _ = _open_inputs(handle, [Path(p) for p in unit["inputs"]],
+                             lambda _i, size: threshold > 0 and size >= threshold, False)
+    if sink is not None:
+        inputs.append(sink.function_value())
+    lap("load")
+
+    returned = _eastc_call(handle._compiled, handle._input_types, handle._output_type, tuple(inputs))
+    lap("execute")
+    if sink is not None:
+        sink.finish()
+    else:
+        _write_unit_value(handle.get_output_type(), output["path"], returned)
+    lap("output")
+
+
+def _merge_work(unit: dict[str, Any], platform_fns: list[PlatformFunction],
+                lap: Callable[[str], None]) -> None:
+    """A merge unit: set or dict parts merged into one run, or fold partials
+    folded in order, starting at zero."""
+    from east.runtime._compiler_eastc import load_frozen_value
+    from east.serialization._beast2_eastc import _unit_merge_runs, _write_unit_value
+
+    output = unit["output"]
+    kind = output["kind"]
+    if kind == "array":
+        raise ValueError(
+            "exec: an array's parts are concatenated, never merged: a merge unit takes set, "
+            "dict or fold parts")
+    if kind == "value":
+        raise ValueError("exec: a value has no parts: a merge unit takes set, dict or fold parts")
+    if kind in ("set", "dict"):
+        merge = None
+        if kind == "dict" and output["merge"] is not None:
+            merge = _compile_ir_file(Path(output["merge"]), platform_fns)[0]
+        lap("load")
+        _unit_merge_runs(unit["inputs"], output["path"], kind, unit["range"], merge)
+        lap("execute")
+        return
+    # A merge of fold partials has no program to say what was emitted: the
+    # combine's own type does.
+    combine = _compile_ir_file(Path(output["combine"]), platform_fns)[0]
+    ins = combine._eastc_handle.get_input_types()  # type: ignore[attr-defined]
+    value_type = combine._eastc_handle.get_output_type()  # type: ignore[attr-defined]
+    if len(ins) != 2 or ins[0] != value_type or ins[1] != value_type:
+        raise ValueError(
+            f"exec: combine: expected a function (T, T) -> T (T = {print_type(value_type)}), "
+            f"got ({', '.join(print_type(t) for t in ins)}) -> {print_type(value_type)}")
+    acc = load_frozen_value(value_type, Path(output["zero"]).read_bytes())
+    lap("compile")
+    for part in unit["inputs"]:
+        acc = combine(acc, load_frozen_value(value_type, Path(part).read_bytes()))
+    lap("execute")
+    _write_unit_value(value_type, output["path"], acc)
+    lap("output")
+
+
 def run_program(
     ir_file: Path,
     platform_fns: list[PlatformFunction],
@@ -269,53 +512,12 @@ def run_program(
         print("  return:", file=sys.stderr)
         print(f"    {print_type(output_type)}", file=sys.stderr)
 
-    # Load inputs with type-directed parsing — always FROZEN (task inputs are
-    # immutable; mutating one raises the uniform copy-first error). A streamed
-    # input always opens as a lazy paged value (segment-fed iteration + keyed
-    # reads at O(segment) decoded memory — #505); other indexed beast2
-    # collection inputs open lazily at or above the size threshold — and
-    # because frozen collapses the shape gate, nested-container element shapes
-    # open lazily too. A lazily opened file is MAPPED, never read whole: the
-    # paged value serves its reads from the mapping, so the input's residency
-    # is the page cache and the heap holds one decoded segment at a time.
-    # Anything not pageable falls back to the whole (frozen) decode, exactly
-    # like east-node's runner. A file holding a manifest is the collection it
-    # names, its segments in the directory beside it, and it weighs its
-    # segments rather than its own few kilobytes.
-    from east.runtime._compiler_eastc import (
-        load_frozen_manifest,
-        manifest_segment_bytes,
-        open_manifest_file,
-        open_paged_file,
-    )
-
+    # A streamed input always opens lazily; other indexed beast2 collection
+    # inputs open lazily at or above the size threshold.
     threshold = _lazy_input_threshold()
-    inputs = []
-    lazy_inputs: list[int] = []
-    for i, (file_path, param_type) in enumerate(zip(input_files, input_types, strict=False)):
-        beast2 = Path(file_path).suffix.lower() in (".beast2", ".beast")
-        collection = getattr(param_type, "type", None) in ("Array", "Set", "Dict")
-        weight = manifest_segment_bytes(file_path) if beast2 and collection else None
-        size = Path(file_path).stat().st_size + (weight or 0)
-        lazy = None
-        if beast2 and collection and (i in stream_inputs or (threshold > 0 and size >= threshold)):
-            try:
-                opener = open_paged_file if weight is None else open_manifest_file
-                lazy = opener(handle._input_types[i], file_path, frozen=True)
-            except (OSError, ValueError):
-                # Not a container of the parameter's type, or a file that
-                # cannot be mapped: the whole decode below reads it and
-                # reports the real error.
-                lazy = None
-        if lazy is not None:
-            lazy_inputs.append(i)
-            if verbose:
-                print(f"  input {i}: opened lazily — mapped from the file", file=sys.stderr)
-            inputs.append(lazy)
-        elif weight is not None:
-            inputs.append(load_frozen_manifest(handle._input_types[i], file_path))
-        else:
-            inputs.append(_load_frozen_input(handle._input_types[i], file_path, param_type))
+    inputs, lazy_inputs = _open_inputs(
+        handle, input_files,
+        lambda i, size: i in stream_inputs or (threshold > 0 and size >= threshold), verbose)
 
     # The emit capability rides the trailing FunctionType parameter as a
     # native East function value: the compiled body's per-row calls run the
@@ -355,22 +557,12 @@ def run_program(
     t4 = perf_counter()
 
     if verbose:
-        print("\nTiming:", file=sys.stderr)
-        print(f"  Load:     {(t1 - t0) * 1000:8.1f} ms", file=sys.stderr)
-        print(f"  Compile:  {(t2 - t1) * 1000:8.1f} ms", file=sys.stderr)
-        print(f"  Execute:  {(t3 - t2) * 1000:8.1f} ms", file=sys.stderr)
-        print(f"  Output:   {(t4 - t3) * 1000:8.1f} ms", file=sys.stderr)
-        print(f"  Total:    {(t4 - t0) * 1000:8.1f} ms", file=sys.stderr)
-
-        # Skipped where the platform cannot report a peak (Windows has no
-        # `resource` module and no /proc).
-        peak_kb = _peak_rss_kb()
-        if peak_kb is not None:
-            print("\nMemory:", file=sys.stderr)
-            if peak_kb >= 1024:
-                print(f"  Peak RSS: {peak_kb / 1024:8.1f} MB", file=sys.stderr)
-            else:
-                print(f"  Peak RSS: {peak_kb:8.0f} KB", file=sys.stderr)
+        print_result({
+            "load": (t1 - t0) * 1000,
+            "compile": (t2 - t1) * 1000,
+            "execute": (t3 - t2) * 1000,
+            "output": (t4 - t3) * 1000,
+        }, _peak_bytes())
 
         # What each lazy input's reads came to — the account residency
         # cannot give on a mapping, where the kernel decides how much of a

@@ -12,8 +12,7 @@ from pathlib import Path
 from east.runtime.errors import EastError
 
 from east_py_cli.loader import get_platform_version, load_platform
-from east_py_cli.runner import merge_blobs, run_program
-from east_py_cli.snapshot import read_snapshot, write_snapshot
+from east_py_cli.runner import execute_unit, merge_blobs, print_result, run_program
 
 _EXIT_WITH_PARENT_HELP = (
     "Exit with status 1 once stdin reaches end of file — for a parent that holds a stdin "
@@ -76,6 +75,8 @@ def create_parser() -> argparse.ArgumentParser:
     # run command
     run_parser = subparsers.add_parser("run", help="Run an East IR program")
     run_parser.add_argument(
+        # Not argparse's required positional: that answers a missing one with
+        # a usage dump. Checked in cmd_run, in east-c's and east-node's words.
         "ir_file",
         type=Path,
         nargs="?",
@@ -112,19 +113,6 @@ def create_parser() -> argparse.ArgumentParser:
         help="Enable verbose output",
     )
     run_parser.add_argument(
-        "--snapshot",
-        type=Path,
-        metavar="PATH",
-        help="Write a .east-snapshot bundle (IR + inputs + manifest)",
-    )
-    run_parser.add_argument(
-        "--from-snapshot",
-        type=Path,
-        metavar="PATH",
-        dest="from_snapshot",
-        help="Replay from a .east-snapshot bundle (exclusive with ir_file, -i, -p)",
-    )
-    run_parser.add_argument(
         # Not argparse `choices`: that answers a bad kind with a usage dump,
         # where east-c and east-node name the kind they got. Checked in
         # cmd_run instead, in their words.
@@ -157,6 +145,23 @@ def create_parser() -> argparse.ArgumentParser:
         "--exit-with-parent",
         action="store_true",
         dest="exit_with_parent",
+        help=_EXIT_WITH_PARENT_HELP,
+    )
+
+    # exec command: the runner protocol
+    exec_parser = subparsers.add_parser(
+        "exec",
+        help="Execute a unit, the runner protocol: run a program, or merge the parts of an "
+        "output, as the unit file says, write the output by its kind and record the result; "
+        "exit 0 when it is ok and 1 when it failed",
+    )
+    exec_parser.add_argument(
+        "unit", type=Path,
+        help="The unit file (.beast2); relative paths in it are relative to its directory")
+    exec_parser.add_argument(
+        "-v", "--verbose", action="store_true", help="Print where the time went and the peak memory")
+    exec_parser.add_argument(
+        "--exit-with-parent", action="store_true", dest="exit_with_parent",
         help=_EXIT_WITH_PARENT_HELP,
     )
 
@@ -294,32 +299,10 @@ def cmd_run(args: argparse.Namespace) -> int:
     """Execute the run command."""
     _start_lifeline(args)
 
-    extract = None
-
-    # --from-snapshot is exclusive with ir_file, -i, -p
-    if args.from_snapshot is not None:
-        if args.ir_file or args.input or args.package:
-            print(
-                "Error: --from-snapshot cannot be combined with ir_file, -i, or -p",
-                file=sys.stderr,
-            )
-            return 1
-        try:
-            extract = read_snapshot(args.from_snapshot)
-        except Exception as e:
-            print(f"Error: failed to read snapshot: {e}", file=sys.stderr)
-            return 1
-        args.ir_file = extract.ir_path
-        args.input = extract.input_paths
-        args.package = extract.packages
-
     try:
         # Validate IR file exists
         if args.ir_file is None:
-            print(
-                "Error: Missing ir_file argument (or use --from-snapshot PATH)",
-                file=sys.stderr,
-            )
+            print("Error: Missing ir_file argument", file=sys.stderr)
             return 1
         if not args.ir_file.exists():
             print(f"Error: IR file not found: {args.ir_file}", file=sys.stderr)
@@ -341,35 +324,6 @@ def cmd_run(args: argparse.Namespace) -> int:
         if getattr(args, "union", False) and getattr(args, "emit", None) != "set":
             print("Error: --union applies to --emit set only", file=sys.stderr)
             return 1
-
-        # The manifest carries no streaming flags (format v1), so a captured
-        # emit/stream invocation would replay with the wrong arity — refuse
-        # at capture with the fix instead of failing confusingly at replay.
-        if args.snapshot is not None and (
-            getattr(args, "emit", None) is not None or getattr(args, "stream", None) is not None
-        ):
-            print(
-                "Error: --snapshot does not capture --emit/--stream (snapshot format v1 has no "
-                "streaming flags); replay with --from-snapshot passing --emit/--stream explicitly",
-                file=sys.stderr,
-            )
-            return 1
-
-        # Write snapshot BEFORE execution so crashes still leave the bundle.
-        if args.snapshot is not None:
-            try:
-                from east_py_cli import __version__ as cli_version
-            except ImportError:
-                cli_version = "unknown"
-            write_snapshot(
-                out_path=args.snapshot,
-                ir_path=args.ir_file,
-                input_paths=list(args.input),
-                packages=list(args.package),
-                cli_version=f"east-py-cli {cli_version}",
-            )
-            if args.verbose:
-                print(f"Snapshot: {args.snapshot}", file=sys.stderr)
 
         # Load platform functions from packages
         platform_fns = []
@@ -408,9 +362,28 @@ def cmd_run(args: argparse.Namespace) -> int:
             print(f"Error: {e}", file=sys.stderr)
             traceback.print_exc()
         return 1
-    finally:
-        if extract is not None:
-            extract.cleanup()
+
+
+def cmd_exec(args: argparse.Namespace) -> int:
+    """``east-py exec <unit>``: the runner protocol. The unit's work is done,
+    its output written and its result recorded where it says; the exit status
+    is 0 for an ok outcome and 1 for a failure, whose message and locations
+    also go to stderr. A unit that cannot be read, or a result that cannot be
+    written, leaves no result: exit 2."""
+    _start_lifeline(args)
+    try:
+        result = execute_unit(args.unit)
+    except (ValueError, OSError) as e:
+        print(f"Error: exec {args.unit}: {e}", file=sys.stderr)
+        return 2
+    if args.verbose:
+        print_result(result["timings"], result["peak_bytes"])
+    if not result["ok"]:
+        lines = [f"Error: {result['message']}"]
+        lines.extend(f"  at {filename}:{line}:{column}" for filename, line, column in result["locations"])
+        print("\n".join(lines), file=sys.stderr)
+        return 1
+    return 0
 
 
 def cmd_merge(args: argparse.Namespace) -> int:
@@ -755,6 +728,8 @@ def main() -> None:
         sys.exit(cmd_export_functions(args))
     elif args.command == "run":
         sys.exit(cmd_run(args))
+    elif args.command == "exec":
+        sys.exit(cmd_exec(args))
     elif args.command == "merge":
         sys.exit(cmd_merge(args))
     elif args.command == "convert":
