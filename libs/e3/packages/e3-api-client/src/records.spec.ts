@@ -16,7 +16,7 @@ import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   ArrayType, DateTimeType, EastTypeType, IntegerType, OptionType, StringType, StructType, VariantType,
-  encodeBeast2For, none, some, toEastTypeValue, variant,
+  decodeBeast2For, encodeBeast2For, none, some, toEastTypeValue, variant, type EastType,
 } from '@elaraai/east';
 import { BEAST2_CONTENT_TYPE } from '@elaraai/e3-types';
 import { workspaceRecordDescribe, workspaceRecordHistory, workspaceRecordMutate } from './records.js';
@@ -89,11 +89,17 @@ describe('record responses from a server that predates a field', () => {
     assert.equal(conflict.outcome.value.attempts, 3n);
     assert.equal(conflict.outcome.value.detail.type, 'none');
 
-    serve(encodeBeast2For(ResponseType(PreDetailResult))(variant('success', {
-      outcome: variant('committed', { commitHash: HASH, stateHash: HASH }),
-    })));
-    const committed = await workspaceRecordMutate(BASE, 'r', 'ws', 'plans', 'patch', call, { token: null });
-    assert.deepEqual(committed.outcome, variant('committed', { commitHash: HASH, stateHash: HASH }));
+    for (const outcome of [
+      variant('committed', { commitHash: HASH, stateHash: HASH }),
+      variant('invalid', { message: 'no such mutation' }),
+      variant('failed', { exitCode: 1n, stderr: 'the reducer threw' }),
+      variant('too_large', { bytes: 9n, limit: 8n, stderr: 'a large state' }),
+      variant('timed_out', { ms: 5n, stderr: 'a slow reducer' }),
+    ]) {
+      serve(encodeBeast2For(ResponseType(PreDetailResult))(variant('success', { outcome })));
+      const result = await workspaceRecordMutate(BASE, 'r', 'ws', 'plans', 'patch', call, { token: null });
+      assert.deepEqual(result.outcome, outcome, `a ${outcome.type} outcome reads as sent`);
+    }
   });
 });
 
@@ -119,7 +125,27 @@ describe('record responses from a current server', () => {
   });
 
   it('still refuses a body that is no known shape, with the current type\'s error', async () => {
-    serve(encodeBeast2For(ResponseType(StructType({ something: IntegerType })))(variant('success', { something: 1n })));
-    await assert.rejects(workspaceRecordDescribe(BASE, 'r', 'ws', 'plans', { token: null }));
+    // A mutation whose third field is neither the current `form` nor absent,
+    // as it is in the older shape: each reader fails on it somewhere else.
+    const NoKnownSignature = StructType({
+      name: StringType,
+      mutations: ArrayType(StructType({ name: StringType, argTypes: ArrayType(EastTypeType), weight: IntegerType })),
+    });
+    const body = encodeBeast2For(ResponseType(NoKnownSignature))(variant('success', {
+      name: 'plans', mutations: [{ name: 'seed', argTypes: [], weight: 1n }],
+    }));
+    const refusal = (type: EastType): string => {
+      try {
+        decodeBeast2For(ResponseType(type))(body);
+      } catch (err) {
+        return (err as Error).message;
+      }
+      throw new Error('a body of no known shape decoded');
+    };
+    const current = refusal(RecordSignatureType);
+    assert.notEqual(current, refusal(PreFormSignature), 'the two readers refuse it in words of their own');
+
+    serve(body);
+    await assert.rejects(workspaceRecordDescribe(BASE, 'r', 'ws', 'plans', { token: null }), { message: current });
   });
 });
