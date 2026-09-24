@@ -24,7 +24,7 @@ import { repoGc } from './storage/local/gc.js';
 import { snapshotInputVersions } from './dataset-refs.js';
 import { WorkspaceLockError } from './errors.js';
 import { workspaceGetDataset, workspaceGetDatasetStatus, workspaceSetDataset } from './trees.js';
-import { packageImport } from './packages.js';
+import { packageExport, packageImport } from './packages.js';
 import { workspaceCreate, workspaceDeploy, workspaceExport, workspaceGetPackage } from './workspaces.js';
 import { createTestRepo, removeTestRepo, createTempDir, removeTempDir } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
@@ -1103,6 +1103,58 @@ describe('record indexes', () => {
       const index = await DatasetSegments.open(freshStorage, freshRepo, imported.indexes.get('by_status')!.manifest);
       assert.strictEqual(index.elementCount, 600, 'the imported record reads through its index');
       assert.ok(await resolveRecordIndex(freshStorage, freshRepo, ws, 'records/plans', ref.value.hash, 'by_status'));
+    } finally {
+      removeTestRepo(freshRepo);
+    }
+  });
+
+  it('a package export carries its records and its collections whole', async () => {
+    // `e3 package export` ships a package as its author exported it: a
+    // collection default is a manifest over segments, and a record names its
+    // mutations and index declarations. An export that walked only each ref's
+    // own object would import defaults with no segments, and records nothing
+    // could deploy.
+    const rows = new SortedMap<string, ValueTypeOf<typeof PlanRowType>>(
+      Array.from({ length: 5_000 }, (_, i) =>
+        [`p-${i}`, { status: i % 3 === 0 ? 'late' : 'ok', due: BigInt(i), title: `Plan ${i}` }] as [string, ValueTypeOf<typeof PlanRowType>]),
+      compareFor(StringType),
+    );
+    const plans = e3.record('plans', PlansType, rows);
+    const retitle = e3.editMutation('retitle', plans,
+      East.function([PlansType, StringType, e3.editTypeOf(PlansType)], NullType, ($, state, key, edit) => {
+        const row = $.let(state.get(key));
+        $(edit.set(key, { status: row.status, due: row.due, title: 'RETITLED' }));
+      }));
+    const byStatus = e3.recordIndex('by_status', plans, {
+      key: East.function([StringType, PlanRowType], StatusKeyType, ($, _k, v) => ({ status: v.status, due: v.due })),
+    });
+    const authored = join(tempDir, 'planexport.zip');
+    await e3.export(e3.package('planexport', '1.0.0', plans, retitle, byStatus), authored);
+    await packageImport(storage, repo, authored);
+    const zip = join(tempDir, 'planexport-again.zip');
+    await packageExport(storage, repo, 'planexport', '1.0.0', zip);
+
+    const freshRepo = createTestRepo();
+    const freshStorage = new LocalStorage(dirname(freshRepo));
+    try {
+      await packageImport(freshStorage, freshRepo, zip);
+      const runner = new LocalTaskRunner(freshRepo);
+      await workspaceCreate(freshStorage, freshRepo, ws);
+      await workspaceDeploy(freshStorage, freshRepo, ws, 'planexport', '1.0.0', { runner });
+      const outcome = await recordMutate(freshStorage, runner, freshRepo, ws, 'plans', 'retitle',
+        [encodeBeast2For(StringType)('p-7')], { actor: 'cli:test' });
+      assert.strictEqual(outcome.kind, 'committed', JSON.stringify(outcome));
+
+      const ref = await freshStorage.datasets.read(freshRepo, ws, 'records/plans');
+      assert.ok(ref && ref.type === 'value');
+      const held = await readRecordState(freshStorage, freshRepo, ref.value.hash);
+      const primary = await DatasetSegments.open(freshStorage, freshRepo, held.primary);
+      assert.ok(primary.segmentCount > 1, `the default spans segments, not ${primary.segmentCount}`);
+      const read = decodeBeast2For(PlansType)(await readDatasetWhole(freshStorage, freshRepo, held.primary)) as Map<string, { title: string }>;
+      assert.strictEqual(read.size, 5_000);
+      assert.strictEqual(read.get('p-7')!.title, 'RETITLED');
+      const index = await DatasetSegments.open(freshStorage, freshRepo, held.indexes.get('by_status')!.manifest);
+      assert.strictEqual(index.elementCount, 5_000, 'the imported record reads through its index');
     } finally {
       removeTestRepo(freshRepo);
     }

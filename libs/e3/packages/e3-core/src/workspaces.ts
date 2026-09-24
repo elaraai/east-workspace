@@ -22,12 +22,11 @@ import * as fs from 'fs/promises';
 import yazl from 'yazl';
 import { decodeBeast2For, encodeBeast2For, equalFor, variant, none, EastTypeType, type EastTypeValue } from '@elaraai/east';
 import { DatasetFileTypeMismatchError, readDatasetFileHeader } from '@elaraai/e3';
-import { PackageObjectType, WorkspaceStateType, RecordCommitType, RecordIndexObjectType, DataflowRunType, DatasetRefType, decodePackageObject, decodeMutationObject, decodeRecordObject, decodeTaskObject, decodeFunctionObject, EnvironmentSpecType, environmentSpecObjectHashes } from '@elaraai/e3-types';
-import type { PackageObject, WorkspaceState, TaskObject, FunctionObject, DatasetRef, RecordCommit, Structure, TreePath } from '@elaraai/e3-types';
+import { PackageObjectType, WorkspaceStateType, RecordCommitType, DataflowRunType, DatasetRefType, decodePackageObject, decodeRecordObject, decodeTaskObject } from '@elaraai/e3-types';
+import type { PackageObject, WorkspaceState, TaskObject, DatasetRef, RecordCommit, Structure, TreePath } from '@elaraai/e3-types';
 import { objectAdoptFile } from './dataset-adopt.js';
-import { packageResolve, packageRead } from './packages.js';
+import { packageResolve, packageRead, walkPackageObjects } from './packages.js';
 import { writeRefsFromPackage, refPathToKeypath } from './dataset-refs.js';
-import { readManifest } from './dataset-open.js';
 import { workspaceSetDatasetByHash } from './trees.js';
 import {
   WorkspaceNotFoundError,
@@ -37,7 +36,7 @@ import {
 } from './errors.js';
 import type { StorageBackend, LockHandle } from './storage/interfaces.js';
 import type { TaskRunner } from './execution/interfaces.js';
-import { buildDeployIndexes, commitDeployIndexes, readRecordState, withRunningWork, type RecordIndexPlan } from './records.js';
+import { buildDeployIndexes, commitDeployIndexes, withRunningWork, type RecordIndexPlan } from './records.js';
 
 /**
  * List workspace names.
@@ -753,149 +752,19 @@ export async function workspaceExport(
   const pkgData = encoder(newPkgObject);
   const packageHash = await storage.objects.write(repo, pkgData);
 
-  // Create zip file
   const zipfile = new yazl.ZipFile();
-
-  // Track which objects we've added to avoid duplicates
-  const addedObjects = new Set<string>();
-
-  // Helper to add an object to the zip
-  const addObject = async (hash: string): Promise<void> => {
-    if (addedObjects.has(hash)) return;
-    addedObjects.add(hash);
-
+  let objectCount = 0;
+  await walkPackageObjects(storage, repo, packageHash, newPkgObject, async (hash) => {
     const data = await storage.objects.read(repo, hash);
-    const objPath = `objects/${hash.slice(0, 2)}/${hash.slice(2)}.beast2`;
-    zipfile.addBuffer(Buffer.from(data), objPath, { mtime: DETERMINISTIC_MTIME });
-    if (options?.onProgress) await options.onProgress({ objectsProcessed: addedObjects.size });
-  };
+    zipfile.addBuffer(Buffer.from(data), `objects/${hash.slice(0, 2)}/${hash.slice(2)}.beast2`, { mtime: DETERMINISTIC_MTIME });
+    objectCount++;
+    if (options?.onProgress) await options.onProgress({ objectsProcessed: objectCount });
+  });
 
-  // Helper to collect children from a beast2 object via hash scanning
-  const collectTreeChildren = async (treeData: Uint8Array): Promise<void> => {
-    const dataStr = Buffer.from(treeData).toString('latin1');
-    const hashPattern = /[a-f0-9]{64}/g;
-    const matches = dataStr.matchAll(hashPattern);
-
-    for (const match of matches) {
-      const potentialHash = match[0];
-      if (addedObjects.has(potentialHash)) continue;
-
-      try {
-        await addObject(potentialHash);
-        const childData = await storage.objects.read(repo, potentialHash);
-        await collectTreeChildren(childData);
-      } catch {
-        addedObjects.delete(potentialHash);
-      }
-    }
-  };
-
-  // Add an environment spec object and every blob it references
-  const decodeEnvironmentSpec = decodeBeast2For(EnvironmentSpecType);
-  const addEnvironment = async (envHash: string): Promise<void> => {
-    await addObject(envHash);
-    const specData = await storage.objects.read(repo, envHash);
-    const spec = decodeEnvironmentSpec(Buffer.from(specData));
-    for (const blobHash of environmentSpecObjectHashes(spec)) {
-      await addObject(blobHash);
-    }
-  };
-
-  // Add an index declaration and every IR bundle it names: the key function,
-  // the covering projection, the build program and the merge function. A
-  // record object names one per declared index and a record STATE names the
-  // one each index was actually built under — the same object only until a
-  // declaration changes, and both have to travel.
-  const decodeIndexObject = decodeBeast2For(RecordIndexObjectType);
-  const addRecordIndex = async (indexHash: string): Promise<void> => {
-    await addObject(indexHash);
-    const index = decodeIndexObject(await storage.objects.read(repo, indexHash));
-    await addObject(index.keyIr);
-    await addObject(index.buildIr);
-    await addObject(index.mergeIr);
-    if (index.valueIr.type === 'some') await addObject(index.valueIr.value);
-  };
-
-  // Add the package object
-  await addObject(packageHash);
-
-  // Collect all task objects and their commandIr references
-  const taskDecoder = decodeTaskObject;
-  for (const taskHash of newPkgObject.tasks.values()) {
-    await addObject(taskHash);
-    const taskData = await storage.objects.read(repo, taskHash);
-    const taskObject: TaskObject = taskDecoder(Buffer.from(taskData));
-    await addObject(taskObject.commandIr);
-    const irData = await storage.objects.read(repo, taskObject.commandIr);
-    await collectTreeChildren(irData);
-    if (taskObject.environment.type === 'some') {
-      await addEnvironment(taskObject.environment.value);
-    }
-  }
-
-  // Collect all function objects and their bodyIr references
-  const fnDecoder = decodeFunctionObject;
-  for (const fnHash of newPkgObject.functions.values()) {
-    await addObject(fnHash);
-    const fnData = await storage.objects.read(repo, fnHash);
-    const fnObject: FunctionObject = fnDecoder(Buffer.from(fnData));
-    await addObject(fnObject.bodyIr);
-    const fnIrData = await storage.objects.read(repo, fnObject.bodyIr);
-    await collectTreeChildren(fnIrData);
-    if (fnObject.environment.type === 'some') {
-      await addEnvironment(fnObject.environment.value);
-    }
-  }
-
-  // Collect the record objects, the mutations that may write them and the
-  // indexes they declare, each with the IR it names. A record travels as its
-  // state — the refs below — plus the programs that write and rebuild it; a
-  // bundle carrying one without the other imports a record that cannot be
-  // mutated or redeployed.
-  const recordRefPaths = new Set<string>();
-  for (const recHash of newPkgObject.records.values()) {
-    await addObject(recHash);
-    const record = decodeRecordObject(await storage.objects.read(repo, recHash));
-    recordRefPaths.add(record.path);
-    for (const mutationHash of record.mutations.values()) {
-      await addObject(mutationHash);
-      const mutation = decodeMutationObject(await storage.objects.read(repo, mutationHash));
-      await addObject(mutation.bodyIr);
-      // A mutation deployed before the delta existed names no program.
-      if (mutation.programIr !== '') await addObject(mutation.programIr);
-    }
-    for (const indexHash of record.indexes.values()) await addRecordIndex(indexHash);
-  }
-
-  // Write ref files to zip and collect value objects
+  // Each DatasetRef as a data/ file too.
   const refEncoder = encodeBeast2For(DatasetRefType);
-
   for (const [refPath, ref] of workspaceRefs) {
-    // Write the DatasetRef to data/ dir in zip
-    const refData = refEncoder(ref);
-    zipfile.addBuffer(Buffer.from(refData), `data/${refPath}.ref`, { mtime: DETERMINISTIC_MTIME });
-
-    // Add the value object if present. A collection held as a segment
-    // manifest is many objects — the manifest, its header, and every segment
-    // — and an export that carried only the manifest would import a dataset
-    // whose segments are absent. An indexed record's ref names a `$record`
-    // state over SEVERAL such manifests, the primary's and one per index,
-    // rather than naming one of them.
-    if (ref.type === 'value') {
-      await addObject(ref.value.hash);
-      const held = recordRefPaths.has(refPath)
-        ? await readRecordState(storage, repo, ref.value.hash)
-        : { primary: ref.value.hash, indexes: new Map<string, { manifest: string; index: string }>() };
-      for (const manifestHash of [held.primary, ...[...held.indexes.values()].map((index) => index.manifest)]) {
-        await addObject(manifestHash);
-        const manifest = await readManifest(storage, repo, manifestHash);
-        if (manifest !== null) {
-          await addObject(manifest.header);
-          for (const entry of manifest.entries) await addObject(entry.hash);
-        }
-      }
-      for (const index of held.indexes.values()) await addRecordIndex(index.index);
-    }
+    zipfile.addBuffer(Buffer.from(refEncoder(ref)), `data/${refPath}.ref`, { mtime: DETERMINISTIC_MTIME });
   }
 
   // Write the package ref
@@ -918,8 +787,7 @@ export async function workspaceExport(
         if (!taskHash) continue;
 
         // Get the task to find its inputs
-        const taskData = await storage.objects.read(repo, taskHash);
-        const task: TaskObject = taskDecoder(Buffer.from(taskData));
+        const task: TaskObject = decodeTaskObject(await storage.objects.read(repo, taskHash));
 
         // Compute inputsHash from workspace refs
         const inputHashes: string[] = [];
@@ -985,7 +853,7 @@ export async function workspaceExport(
 
   return {
     packageHash,
-    objectCount: addedObjects.size,
+    objectCount,
     name: finalName,
     version: finalVersion,
   };
