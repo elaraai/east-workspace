@@ -165,22 +165,28 @@ Unit   = { work: run   { program: path, inputs: [path], output: Output }
            platforms: [String], threads: Integer, result: path }
 Output = value(path) | array(dir) | set(dir) | dict(dir, merge: Option<path>)
        | fold(path, zero: path, combine: path)
-Result = { outcome: ok | failed { message, locations }, peakBytes, timings }
+Result = { outcome: ok | failed { message, locations: [Location] },
+           peakBytes: Integer, timings: { load, compile, execute, output } }
 ```
 
-- `run` evaluates a body and writes its output by kind: a value to a file; an array through the Writer to a directory; a set or dict through the RunSorter to a directory of runs; a fold by folding each emitted value into an accumulator.
-- `merge` assembles parts of one output kind: a k-way merge of sorted set or dict parts, optionally over one key range, or a fold of partials in order. Array parts never need a runner.
-- Paths in a unit may be relative to the unit file, so a unit file and the files it names are a complete, replayable snapshot of any unit.
-- A runner sizes its own thread pools to `threads`.
+- `run` evaluates a body. With a `value` output the body returns its result; with any other kind its trailing parameter is `emit`, whose signature the kind fixes (§3.2). The output is written by kind:
+  - `value`: a collection as a manifest directory at the path, anything else as one blob;
+  - `array`: through the Writer, as the manifest directory `<dir>/0.beast2`;
+  - `set` and `dict`: through the RunSorter, as a directory of runs, each the manifest directory `<dir>/<n>.beast2`, numbered from 0 in the order the runs close. A set's equal elements collapse; a dict's equal keys fold with `merge`, and without it are refused;
+  - `fold`: every emitted value folded into an accumulator that starts at `zero`, written as a `value` is.
+- `merge` assembles parts of one output kind: a k-way merge of sorted set or dict parts, optionally over one key range, written as one run, `<dir>/0.beast2`; or a fold of partials in order, starting at `zero`. Array parts never need a runner, and a `value` has no parts.
+- Paths in a unit may be relative to the unit file, so a unit file and the files it names are a complete, replayable snapshot of any unit: `exec` replays it wherever they are moved together.
+- A runner sizes its own thread pools to `threads`; one thread frames inline.
 - `peakBytes` is the process's peak resident memory: VmHWM on Linux, where `ru_maxrss` inherits the parent's across exec, and `ru_maxrss` elsewhere.
+- `timings` are milliseconds spent loading the inputs, compiling, executing and writing the output. `locations` are the failure's source locations, innermost first, as the program's source map gives them.
 - The exit status is 0 when the outcome is `ok` and 1 when the result records a failure. Anything else, or a missing result, is a crash; e3 reports it with the signal and the stderr tail.
 - `--exit-with-parent` stays a process flag, taken before anything else is parsed.
 
-For people, `run <program> -i … -o …` stays and builds the same unit in memory; `--snapshot` writes a unit bundle; `-v` prints from the result.
+For people, `run <program> -i … -o …` stays and builds the same unit in memory, except that a collection result is written as one paged blob: a single file that any decoder reads. `-v` prints from the result.
 
-Removed: `run`'s `--emit`, `--merge`, `--union`, `--stream`, `--lazy-inputs` and `--from-snapshot`, and the `merge` command. The lazy-open threshold stays a setting (`EAST_LAZY_INPUT_BYTES`).
+Removed: `run`'s `--emit`, `--merge`, `--union`, `--stream`, `--lazy-inputs`, `--snapshot` and `--from-snapshot`, and the `merge` command. The lazy-open threshold stays a setting (`EAST_LAZY_INPUT_BYTES`). Nothing in the platform wrote or read a snapshot, and a unit file already is one.
 
-Parity between the runners is the conformance corpus — unit files with their expected output bytes and results, run by all three in CI — rather than pinned flag messages (F10).
+Parity between the runners is the conformance corpus — unit files with their expected output bytes and results, run by all three in CI — rather than pinned flag messages (F10). Results compare by outcome: `peakBytes` and `timings` are measurements.
 
 ### 3.6 The store door
 
@@ -391,7 +397,7 @@ Read first:
    - A generator in `libs/east` writes cases with their expected bytes: values, emission sequences and their runs, and merges. `make test-export` writes the corpus beside the compliance IR; it is never checked in.
    - east-c's and east-py's tests consume it, in those libs' CI workflows, which download it as they download the IR.
    - Re-cuts are checked in TypeScript, the one runtime with a Recut: `Recut(pieces) == Writer(whole)` over every corpus value.
-   - `generate_fixtures.mjs` and its checked-in runner fixtures stay until stage 3's protocol cases replace them.
+   - `generate_fixtures.mjs` and its checked-in runner fixtures stay until stage 3's protocol cases replace them; stage 4 deletes the rest with the flags they test.
 10. **String order** (#836). TypeScript's `compareFor` ordered strings by UTF-16 code unit, while east-c and east-py order them by code point. So a Set or Dict that held a character above U+FFFF beside one in U+E000–U+FFFF was written in two orders, and each runtime refused the other's blob.
     - TypeScript moves to code points, keeping `x < y` unless both strings hold a code unit at or above U+D800.
     - SPEC states the rule (§3.4, rule 7), and the corpus pins it.
@@ -469,17 +475,19 @@ Read first:
 Changes:
 - **`Unit`, `Output` and `Result`** (§3.5) in `east`, with a C decoder in east-c and the east-py binding.
 - **`exec`** in all three runners:
-  - outputs written through the Writer and RunSorter as manifest directories;
-  - `threads` honoured — east-c's own pool is sized to the grant, not the machine;
+  - outputs written through the Writer and RunSorter as manifest directories (§3.5), so the RunSorter writes each run as one, in TypeScript and C;
+  - `threads` honoured — east-c's own pool and `east`'s frame pool are sized to the grant, not the machine;
   - the result written.
-- **`run --snapshot`** writes a unit bundle.
-- **Corpus cases for the protocol:** unit files, their expected outputs and their expected results, exported as stage 1's corpus is. They replace `generate_fixtures.mjs` and the runner fixtures it checks in.
-- **Additive for now:** the old `run` flags and the `merge` command stay until Stage 4 removes their last caller.
+- **`run --snapshot`, `--from-snapshot` and the `.east-snapshot` tar format are deleted** (§3.5): nothing in the platform uses them, and `exec` replays any unit.
+- **Corpus cases for the protocol:** unit files, their expected outputs and their expected results, exported as stage 1's corpus is. They replace the runner fixtures `generate_fixtures.mjs` checks in for everything the protocol covers: outputs, merges and paged inputs. The fixtures that only the old `run` mode flags and the `merge` command use stay with them.
+- **`compile.ts` is split by concern, as a move with no logic change.** One file held the TypeScript runtime's pieces, its IR compiler and every builtin, and the lazy-read fix below edits it. Under `libs/east/src/compile/`, the split gives the runtime pieces, the IR compiler dispatching to a module per node family, and the builtins in a module per domain. `compile.ts` re-exports the same names, so no import changes.
+- **A failing lazy read is an East error in every runtime.** Moving the paged-input errors into the corpus found one that diverged: a keyed read of a corrupt blob. TypeScript threw a plain JS error with no East location, and east-c and east-py raised an East error at the call, in a message without the segment numbers TypeScript gives. TypeScript now raises it as an East error at the call's location, and east-c names the segments as TypeScript does.
+- **Additive for now:** the old `run` mode flags and the `merge` command stay until Stage 4 removes their last caller. `run -o` keeps writing what it writes today, which e3 reads until stage 4.
 
 Acceptance:
 - Every corpus unit gives byte-identical outputs and equal results on all three runners.
 - A set or dict emitted in random order is written as sorted runs whose merge equals the Writer's output for the sorted value.
-- A unit bundle replays anywhere.
+- A unit replays wherever it is moved with the files it names: every corpus case runs from a copy.
 
 ### Stage 4 — The task model and the engine (e3-types, e3 SDK, e3-core)
 
@@ -525,7 +533,7 @@ In three parts:
     - `buildRunnerArgv` and the splice branch of staging;
     - the test hooks in production modules (F19);
     - `STALE_WRITE_PREFIX`.
-  - Runners: the `run` mode flags and the `merge` command.
+  - Runners: the `run` mode flags and the `merge` command, with `generate_fixtures.mjs` and the fixtures their tests use.
   - Package trees: the `function_ir` and `merge_ir` datasets. If 4a finds a consumer that needs them, it reads them through the task object instead.
 
 Acceptance:
@@ -550,7 +558,6 @@ Changes:
 - Remove `state.concurrency`, `partitionConcurrency` and the deprecated `--concurrency` and `--partition-concurrency` aliases (F33).
 - **The frame pool** (#841):
   - its memory becomes O(workers × segment): shared buffers reused per slot, and nothing allocated per frame that waits on a worker's GC;
-  - it is sized by the unit's `threads` grant, not the machine;
   - then the store door frames on it again.
 
 Acceptance:
