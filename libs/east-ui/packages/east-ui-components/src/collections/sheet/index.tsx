@@ -53,7 +53,7 @@ import { useSliceReactivity } from "../../slice/use-slice-reactivity.js";
 import { useDataStable } from "../../hooks/useDataStable.js";
 import { useFormatters } from "../../format/index.js";
 import { railAffordanceKinds } from "../../slice/rail-kinds.js";
-import { VirtualRows } from "../virtual-rows.js";
+import { VirtualRows, VIRTUALIZE_UNBOUNDED_AT, type RowsViewport } from "../virtual-rows.js";
 import {
     BOTTOM_PAD_PX, DEFAULT_BLANKS, DEFAULT_GUTTER_PX, NEW_LINE_KEY, NULL_CELL, TITLE_KEY,
     blankIdOf, bodyIndexOfId, buildBody, cellIsBlank, cellText, countNoun, densityOf, drawnPx, driverKeyOf, groupBandPx, indexColumns, indexGroup, indexRegisters, isRowSpace, itemPx,
@@ -1915,17 +1915,25 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
     // its estimate missed (#878) — the frame anchors the scroll on it. An
     // unloaded band never anchors: rows landing below it move its top.
     const anchorable = useCallback((i: number): boolean => body[i]?.kind !== "band", [body]);
-    const scrollElRef = useRef<HTMLDivElement | null>(null);
+    // What moves the rows, as the frame reports it (#856): the element they
+    // scroll sideways in, and what scrolls them vertically — live in every
+    // mode, and through a switch between bounded and unbounded.
+    const [viewport, setViewport] = useState<RowsViewport | null>(null);
+    // The header pins only in a frame that scrolls its own rows — a bounded
+    // one. An unbounded sheet's header scrolls with the page, as every
+    // unbounded collection's does (#856), so the band and the line that stick
+    // under it are a bounded frame's.
+    const pinnedFrame = viewport !== null && viewport.scroller === viewport.frame ? viewport.frame : null;
     // The view's width: a sub row's well keeps its content inside it while the columns scroll sideways.
     const [viewPx, setViewPx] = useState<number | undefined>(undefined);
+    const viewFrame = viewport?.frame;
     useEffect(() => {
-        const el = scrollElRef.current;
-        if (el === null || typeof ResizeObserver === "undefined") return;
-        const observer = new ResizeObserver(() => setViewPx(el.clientWidth));
-        observer.observe(el);
-        setViewPx(el.clientWidth);
+        if (viewFrame === undefined || typeof ResizeObserver === "undefined") return;
+        const observer = new ResizeObserver(() => setViewPx(viewFrame.clientWidth));
+        observer.observe(viewFrame);
+        setViewPx(viewFrame.clientWidth);
         return () => observer.disconnect();
-    }, []);
+    }, [viewFrame]);
     // What sticks under the header is read off the MOUNTED rows
     // (`stickyRows`): the band of the group whose lines scroll under it, and
     // under the band the open line whose sub rows scroll under that. The
@@ -1937,7 +1945,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
     const [stickyAt, setStickyAt] = useState<number | undefined>(undefined);
     const [stickyLineAt, setStickyLineAt] = useState<number | undefined>(undefined);
     useEffect(() => {
-        const el = scrollElRef.current;
+        const el = pinnedFrame;
         if (el === null || group === undefined) {
             setStickyAt(undefined);
             setStickyLineAt(undefined);
@@ -1967,7 +1975,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
             el.removeEventListener("transitionend", onScroll);
             if (frame !== 0) cancelAnimationFrame(frame);
         };
-    }, [body, group, bandPx, rowPx]);
+    }, [pinnedFrame, body, group, bandPx, rowPx]);
     // A line that has just begun to stick: its copy takes the top the scroll found for it before it paints.
     useLayoutEffect(() => {
         if (stickyLineRef.current !== null) stickyLineRef.current.style.top = `${stickyLineTop.current}px`;
@@ -1982,7 +1990,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
      * off ahead of time.
      */
     const revealLine = useCallback((at: number, closing: boolean) => {
-        const el = scrollElRef.current;
+        const el = pinnedFrame;
         const head = headerRef.current;
         if (el === null || head === null) return;
         const boxes = mountedBoxes(el);
@@ -2000,7 +2008,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
         if (closing) for (let j = at - 1; j >= 0 && body[j]!.kind !== "group"; j--) if (body[j]!.kind === "subRow") leaving += boxes.get(j)?.height ?? sizeOf(j);
         const bandCopy = head.querySelector<HTMLElement>("[data-slot=stickyBand]");
         el.scrollTop += top - (head.getBoundingClientRect().bottom + (bandCopy !== null ? bandCopy.getBoundingClientRect().height : 0)) - leaving;
-    }, [body, sizeOf]);
+    }, [pinnedFrame, body, sizeOf]);
 
     // A gesture that folds or opens (a chevron, Space, ⇧Space,
     // ⌥, fold-all) moves rows. The virtual rows are keyed by identity, so a row
@@ -2083,14 +2091,15 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
         setInsertPreview(undefined);
     }, []);
     // A scroll moves the rows from under the chips, and a change of rows moves the seam: either way the chips go until the pointer finds a seam again.
+    // The scroll is the frame's (the rows sideways, or both ways when bounded) or the page's under an unbounded sheet (#856).
     useEffect(() => { setSeam(undefined); setInsertPreview(undefined); }, [body]);
     useEffect(() => {
-        const el = scrollElRef.current;
-        if (el === null) return;
+        if (viewport === null) return;
         const hide = () => { setSeam(undefined); setInsertPreview(undefined); };
-        el.addEventListener("scroll", hide, { passive: true });
-        return () => el.removeEventListener("scroll", hide);
-    }, []);
+        const targets = viewport.scroller === null || viewport.scroller === viewport.frame ? [viewport.frame] : [viewport.frame, viewport.scroller];
+        for (const t of targets) t.addEventListener("scroll", hide, { passive: true });
+        return () => { for (const t of targets) t.removeEventListener("scroll", hide); };
+    }, [viewport]);
     const insertionFor = useCallback((r: number, side: "gutter" | "body"): ReactNode => {
         if (!canInsert) return undefined;
         return <SheetInsertPoint styles={styles} side={side} onEnter={hit => onSeamEnter(r, side, hit)} onLeave={onSeamLeave} />;
@@ -2400,7 +2409,9 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
                     estimateSize={sizeOf}
                     getItemKey={itemKey}
                     anchorable={anchorable}
-                    scrollElRef={scrollElRef}
+                    // Unbounded, a large sheet mounts only what the page shows (#856) — the Plan's threshold.
+                    virtualizeUnboundedAt={VIRTUALIZE_UNBOUNDED_AT}
+                    onViewport={setViewport}
                     renderRow={renderRow}
                     minWidth={`${minWidth}px`}
                     headerZIndex={6}

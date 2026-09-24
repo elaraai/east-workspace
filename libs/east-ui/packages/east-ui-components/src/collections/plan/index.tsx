@@ -68,7 +68,7 @@ import { DensityProvider } from "../../contracts/density.js";
 import { useContainerBelow } from "../../contracts/adaptive.js";
 import { useDataStable } from "../../hooks/useDataStable.js";
 import { usePersistedState } from "../../hooks/usePersistedState.js";
-import { VirtualRows } from "../virtual-rows.js";
+import { VirtualRows, VIRTUALIZE_UNBOUNDED_AT } from "../virtual-rows.js";
 import { ReviewFoot } from "../shared/review.js";
 import {
     PlanScaleContext, PlanDispatchContext, PlanCursorContext, PlanResolversContext, PlanGeometryContext,
@@ -135,10 +135,6 @@ const planRootDataEqual = equalFor(Plan.Types.Root);
 
 /** Default gutter width (px, desktop — the §8 sheet). */
 const GUTTER_W = 168;
-/** An UNBOUNDED canvas with at least this many body items mounts only what
- *  its scrolling ancestor shows (#812). Below it every row renders, so
- *  content-sized examples and captures keep their full render. */
-const VIRTUALIZE_UNBOUNDED_AT = 400;
 
 /** The canvas-wide keys (§11) — esc runs the one-rung ladder, `n` / `[` / `]`
  *  move the window, `g` cycles the grain. They work from anywhere in the

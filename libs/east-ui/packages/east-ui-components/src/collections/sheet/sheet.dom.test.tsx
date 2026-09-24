@@ -32,10 +32,14 @@ import { getRegisteredPlatformImplementations } from "../../platform/registry.js
 import { EastChakraSheet } from "./index.js";
 import { SHEET_PAGE_SIZE } from "./paging.js";
 import { sheetJournal } from "./journal.test-utils.js";
+import { emulateWindowScroll, measureRowsAsDrawn, offsetOf } from "./frame.test-utils.js";
 import type { SheetRootValue, SheetRowValue, SheetSelectionValue } from "./values.js";
 
-afterEach(cleanup);
-beforeEach(() => { initializeStore(new UIStore()); });
+// A sheet of 400 rows or more mounts a screenful and measures it (#856):
+// its rows are as tall as they draw.
+let restoreRows: () => void = () => {};
+beforeEach(() => { initializeStore(new UIStore()); restoreRows = measureRowsAsDrawn(); });
+afterEach(() => { cleanup(); restoreRows(); });
 
 // jsdom lacks ResizeObserver — the key search's combobox positioner needs one.
 class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
@@ -70,6 +74,8 @@ const STATUSES = [
 const ROWS_FRACTION = [{ ...ROWS[0]!, qty: some(1234.5) }, ROWS[1]!];
 /** j1 holds more digits than the number field shows (`0.3`). */
 const ROWS_NOISE = [{ ...ROWS[0]!, qty: some(0.30000000000000004) }, ROWS[1]!];
+/** Five thousand jobs: an inline sheet past the threshold at which an unbounded sheet mounts a screenful (#856). */
+const MANY = Array.from({ length: 5_000 }, (_x, i) => ({ id: `m${i}`, start: none, task: `Job ${i}`, qty: none, code: "", status: "" }));
 
 type Options = { selection?: boolean; readOnly?: boolean; blanks?: number; rows?: ValueTypeOf<typeof JobType>[] };
 
@@ -101,11 +107,14 @@ function buildSheet(opts: Options = {}): SheetRootValue {
 
 /** A paged sheet over `n` generated rows keyed by id. */
 function buildPaged(n: number): SheetRootValue {
+    const count = BigInt(n);
+    const sourceId = `sheet_dom_${n}`;
     const program = East.function([], UIComponentType, ($) => {
-        const rows = $.let(East.Array.range(0n, BigInt(n)).map(($2, i) => $2.const({
+        const total = $.const(count);
+        const rows = $.let(East.Array.range(0n, total).map(($2, i) => $2.const({
             id: East.str`p${i}`, start: none, task: East.str`Task ${i}`, qty: none, code: "", status: "",
         }, JobType)), ArrayType(JobType));
-        const source = $.const(Paged.of(`sheet_dom_${n}`, rows, { key: (r) => r.id }));
+        const source = $.const(Paged.of(sourceId, rows, { key: (r) => r.id }));
         return Sheet.Root(source, {
             task: Sheet.column.text(JobType, { header: "Task" }),
             qty: Sheet.column.quantity(JobType, { header: "Qty" }),
@@ -492,29 +501,118 @@ describe("numbers in the viewer's language (#852)", () => {
 
 describe("the paged arm (§3.13)", () => {
     test("a REAL Paged.of source: windows land, the tail band describes the rest, the transport line counts elements, no blanks until exhaustion", async () => {
-        const { container } = mount(buildPaged(1_000));
-        await waitFor(() => {
-            expect(container.querySelectorAll('[data-slot="row"]:not([data-blank])').length).toBe(600);
-        }, { timeout: 15_000 });
-        const band = container.querySelector('[data-slot="band"][data-band="tail"]');
-        expect(band).toBeTruthy();
-        expect(band!.getAttribute("data-elements")).toBe("400");
-        expect(container.querySelectorAll('[data-slot="row"][data-blank]')).toHaveLength(0);
-        expect(container.querySelector('[data-slot="footerTransport"]')!.textContent).toBe("600 loaded of 1,000");
-        expect(container.querySelector('[data-slot="toolbarBadge"]')!.textContent).toBe("loaded rows only");
-        expect(container.querySelector('[data-row-id="p0"] [data-key="task"]')!.textContent).toBe("Task 0");
+        const restore = emulateWindowScroll();
+        try {
+            const { container, rows } = mount(buildPaged(1_000));
+            const transport = () => container.querySelector('[data-slot="footerTransport"]')!.textContent;
+            await waitFor(() => expect(transport()).toBe("600 loaded of 1,000"), { timeout: 15_000 });
+            expect(container.querySelector('[data-slot="toolbarBadge"]')!.textContent).toBe("loaded rows only");
+            expect(container.querySelector('[data-row-id="p0"] [data-key="task"]')!.textContent).toBe("Task 0");
+            // With no height, the sheet mounts a screenful of its 600 rows (#856)…
+            expect(container.querySelector('[data-virtual-rows="ancestor"]')).toBeTruthy();
+            expect(rows().length).toBeLessThan(40);
+            // …and down at the last of them, the tail band follows it: no blank rows before exhaustion.
+            const rowPx = parseFloat(container.querySelector<HTMLElement>('[data-row-id="p0"]')!.style.minHeight);
+            act(() => { window.scrollTo({ top: 600 * rowPx - window.innerHeight / 2 }); });
+            expect(container.querySelector('[data-row-id="p599"]')).toBeTruthy();
+            const band = container.querySelector('[data-slot="band"][data-band="tail"]');
+            expect(band).toBeTruthy();
+            expect(band!.getAttribute("data-elements")).toBe("400");
+            expect(container.querySelectorAll('[data-slot="row"][data-blank]')).toHaveLength(0);
+        } finally {
+            restore();
+        }
     }, 30_000);
 
     test("an exhausted immutable source shows its rows but has no editing capability", async () => {
-        const { container, cell, key, input } = mount(buildPaged(450));
-        await waitFor(() => {
-            expect(container.querySelectorAll('[data-slot="row"][data-blank]').length).toBe(2);
-        }, { timeout: 15_000 });
-        expect(container.querySelector('[data-slot="footerTransport"]')!.textContent).toBe("450 loaded of 450");
-        fireEvent.mouseDown(cell(449, "qty"), { button: 0 });
-        key("4");
-        expect(input()).toBeNull();
-        expect(container.querySelector('[data-slot="history"]')).toBeNull();
+        const restore = emulateWindowScroll();
+        try {
+            const { container, key, input } = mount(buildPaged(450));
+            await waitFor(() => expect(container.querySelector('[data-slot="footerTransport"]')!.textContent).toBe("450 loaded of 450"), { timeout: 15_000 });
+            // Down at the end of the sheet: the blank padding follows the last row.
+            const rowPx = parseFloat(container.querySelector<HTMLElement>('[data-row-id="p0"]')!.style.minHeight);
+            act(() => { window.scrollTo({ top: 452 * rowPx - window.innerHeight / 2 }); });
+            expect(container.querySelectorAll('[data-slot="row"][data-blank]')).toHaveLength(2);
+            fireEvent.mouseDown(container.querySelector('[data-row-id="p449"] [data-key="qty"]')!, { button: 0 });
+            key("4");
+            expect(input()).toBeNull();
+            expect(container.querySelector('[data-slot="history"]')).toBeNull();
+        } finally {
+            restore();
+        }
+    }, 30_000);
+});
+
+describe("an unbounded sheet mounts a screenful (#856)", () => {
+    // Compiled once each: their rows are a constant of the program. The ring's and the seams' tests
+    // take 600 rows, past the threshold, since every row's draft checks run on an editable sheet.
+    let many: SheetRootValue | undefined;
+    const manySheet = (): SheetRootValue => (many ??= buildSheet({ rows: MANY }));
+    let past: SheetRootValue | undefined;
+    const pastSheet = (): SheetRootValue => (past ??= buildSheet({ rows: MANY.slice(0, 600) }));
+
+    test("5,000 rows with no height: a screenful is mounted, and the page's scroll mounts the rows coming into view; below the threshold every row renders in flow, as before", () => {
+        const restore = emulateWindowScroll();
+        try {
+            const { container, rows, unmount } = mount(manySheet());
+            expect(container.querySelector('[data-virtual-rows="ancestor"]')).toBeTruthy();
+            const rowPx = parseFloat(rows()[0]!.style.minHeight);
+            // jsdom's page is 768 px tall: a screenful, and four rows of overscan below it.
+            expect(rows().length).toBeGreaterThan(10);
+            expect(rows().length).toBeLessThanOrEqual(Math.ceil(window.innerHeight / rowPx) + 4 + 1);
+            // The rows' extent is every row, the three blank rows with them.
+            expect(Number(container.querySelector("[data-virtual-extent]")!.getAttribute("data-virtual-extent"))).toBe(5_003 * rowPx);
+            act(() => { window.scrollTo({ top: 2_500 * rowPx }); });
+            expect(container.querySelector('[data-row-id="m2500"]')).toBeTruthy();
+            expect(container.querySelector('[data-row-id="m0"]')).toBeNull();
+            expect(rows().length).toBeLessThanOrEqual(Math.ceil(window.innerHeight / rowPx) + 2 * 4 + 1);
+            unmount();
+            const small = mount(buildSheet({ rows: MANY.slice(0, 390) }));
+            expect(small.container.querySelector("[data-virtual-rows]")).toBeNull();
+            expect(small.container.querySelector('[data-slot="virtualRow"]')).toBeNull();
+            expect(small.rows()).toHaveLength(393);
+        } finally {
+            restore();
+        }
+    }, 30_000);
+
+    test("the ring walked past the page's edge scrolls the page to it, and an edit there commits as anywhere", async () => {
+        const restore = emulateWindowScroll();
+        try {
+            const { value, draft } = withSpies(pastSheet());
+            const { container, cell, key, type, editorKey, flush } = mount(value);
+            const rowPx = parseFloat(container.querySelector<HTMLElement>('[data-row-id="m0"]')!.style.minHeight);
+            fireEvent.mouseDown(cell(0, "task"), { button: 0 });
+            for (let i = 0; i < 30; i++) key("ArrowDown");
+            await flush();
+            const row = container.querySelector('[data-row-id="m30"]')!;
+            expect(row.querySelector('[data-key="task"]')!.hasAttribute("data-selected")).toBe(true);
+            // Row 31 is in view: the page scrolled down to it.
+            const top = offsetOf(row);
+            expect(window.scrollY).toBeGreaterThan(0);
+            expect(top).toBeGreaterThanOrEqual(window.scrollY);
+            expect(top + rowPx).toBeLessThanOrEqual(window.scrollY + window.innerHeight);
+            key("x");
+            type("Moved");
+            editorKey("Enter");
+            await flush();
+            expect(draft("m30", Sheet.Types.Draft(JobType)).task).toEqual(variant("value", "Moved"));
+        } finally {
+            restore();
+        }
+    }, 30_000);
+
+    test("an insertion seam's chips go when the page scrolls the rows from under them", () => {
+        const restore = emulateWindowScroll();
+        try {
+            const { container, rows } = mount(withSpies(pastSheet()).value);
+            fireEvent.mouseEnter(rows()[3]!.querySelector('[data-slot="insertPoint"]')!);
+            expect(container.querySelector('[data-slot="insertLayer"]')).toBeTruthy();
+            act(() => { window.scrollTo({ top: 100 }); });
+            expect(container.querySelector('[data-slot="insertLayer"]')).toBeNull();
+        } finally {
+            restore();
+        }
     }, 30_000);
 });
 
@@ -671,64 +769,14 @@ function heldSheet(n: number) {
 }
 
 /**
- * The hang guard of a test over the held sheet. Such a test draws every
- * resident row — about 800 once a jump has landed — and draws them all again
- * on each gesture, until the sheet mounts a screenful (#856) and a gesture
- * re-renders only the rows it touches (#858). On the CI runners that takes up
- * to 31 s, most for the first such test in the file, which warms up what the
- * rest reuse. The guard is twice that, so only a hang trips it.
+ * The hang guard of a test over the held sheet. Such a test once drew every
+ * resident row — about 800 once a jump had landed — on every gesture, and took
+ * up to 31 s on the CI runners, most for the first such test in the file,
+ * which warms up what the rest reuse. The sheet now mounts a screenful of
+ * them (#856), and a gesture will re-render only the rows it touches (#858).
+ * The guard stays at twice the old worst case, so only a hang trips it.
  */
 const HELD_TEST_MS = 60_000;
-
-/**
- * What an unbounded paged sheet reads from the page it scrolls in, for a jsdom
- * that lays nothing out: the sheet sits at the top of a tall document,
- * `window.scrollTo` moves `scrollY` and fires `scroll`, and the rows' top moves
- * with it (the Plan's `plan-paged-seek` stand-in). Returns the restore.
- */
-function emulateWindowScroll(): () => void {
-    let y = 0;
-    const html = document.documentElement;
-    const saved = {
-        scrollY: Object.getOwnPropertyDescriptor(window, "scrollY"),
-        scrollTo: Object.getOwnPropertyDescriptor(window, "scrollTo"),
-        rect: Element.prototype.getBoundingClientRect,
-    };
-    Object.defineProperty(window, "scrollY", { configurable: true, get: () => y });
-    Object.defineProperty(window, "scrollTo", {
-        configurable: true,
-        writable: true,
-        value: (arg: ScrollToOptions | number) => {
-            y = Math.max(0, typeof arg === "number" ? arg : (arg.top ?? y));
-            window.dispatchEvent(new Event("scroll"));
-        },
-    });
-    // A document tall enough to scroll through the sheet (jsdom reports 0).
-    Object.defineProperty(html, "scrollHeight", { configurable: true, get: () => 100_000_000 });
-    Element.prototype.getBoundingClientRect = function (this: Element) {
-        if (this.hasAttribute("data-virtual-extent")) {
-            return { x: 0, y: -y, top: -y, left: 0, right: 1024, bottom: -y, width: 1024, height: 0, toJSON: () => ({}) } as DOMRect;
-        }
-        return saved.rect.call(this);
-    };
-    return () => {
-        if (saved.scrollY !== undefined) Object.defineProperty(window, "scrollY", saved.scrollY);
-        if (saved.scrollTo !== undefined) Object.defineProperty(window, "scrollTo", saved.scrollTo);
-        delete (html as { scrollHeight?: number }).scrollHeight;
-        Element.prototype.getBoundingClientRect = saved.rect;
-    };
-}
-
-/** Where a body item starts among the rows, from the heights the sheet gave each item before it — jsdom lays nothing out. */
-function offsetOf(item: Element): number {
-    let y = 0;
-    for (const el of item.parentElement!.children) {
-        if (el === item) return y;
-        const style = (el as HTMLElement).style;
-        y += parseFloat(style.height || style.minHeight || "0");
-    }
-    throw new Error("Not among the rows");
-}
 
 /** Type a key into the toolbar's key search, a keystroke at a time, and jump to its match with ⏎. */
 async function seekKey(container: HTMLElement, key: string): Promise<void> {
@@ -768,9 +816,12 @@ describe("a key-search jump owns the viewport (#854)", () => {
             const top = offsetOf(row);
             expect(window.scrollY).toBeLessThanOrEqual(top);
             expect(top + parseFloat(row.style.minHeight)).toBeLessThanOrEqual(window.scrollY + window.innerHeight);
-            // The jump handed the viewport back: the reports from there keep the run where the ring is.
+            // The jump handed the viewport back: the reports from there keep the run where the ring is. Back at
+            // the top of the page, before the sheet pages there, the head band still stands for the rows it left.
             await flush();
             expect(cell()?.hasAttribute("data-selected")).toBe(true);
+            act(() => { window.scrollTo({ top: 0 }); });
+            expect(container.querySelector('[data-slot="band"][data-band="head"]')).toBeTruthy();
             expect(container.querySelector('[data-row-id="r000"]')).toBeNull();
         } finally {
             restore();
@@ -784,12 +835,15 @@ describe("a key-search jump owns the viewport (#854)", () => {
             held.state.inFlight.add(30);
             const { container } = mount(held.value);
             await waitFor(() => expect(container.querySelector('[data-row-id="r000"]')).toBeTruthy(), { timeout: 15_000 });
+            const rowPx = parseFloat((container.querySelector('[data-row-id="r000"]') as HTMLElement).style.minHeight);
             await seekKey(container, "r6000");
             await waitFor(() => expect(container.querySelector('[data-row-id="r000"]')).toBeNull(), { timeout: 10_000 });
             // Element 6,000's window is still on the wire when the search is cleared.
             fireEvent.click(within(container).getByRole("button", { name: "Clear search" }));
             act(() => { window.scrollTo({ top: 2_000 }); });
-            await waitFor(() => expect(container.querySelector('[data-row-id="r000"]')).toBeTruthy(), { timeout: 10_000 });
+            // The rows the page shows there land (the sheet mounts only those, #856).
+            const shown = `r${String(Math.floor(2_000 / rowPx)).padStart(3, "0")}`;
+            await waitFor(() => expect(container.querySelector(`[data-row-id="${shown}"]`)).toBeTruthy(), { timeout: 10_000 });
         } finally {
             restore();
         }
@@ -803,41 +857,49 @@ describe("a window loading above the rows never hides them (#876)", () => {
             const held = heldSheet(8_000);
             const { container, key, input, flush } = mount(held.value);
             await waitFor(() => expect(container.querySelector('[data-row-id="r000"]')).toBeTruthy(), { timeout: 15_000 });
+            const read = held.state.asked.length;
             await seekKey(container, "r6000");
             await waitFor(() => expect(container.querySelector('[data-row-id="r6000"] [data-key="task"]')?.hasAttribute("data-selected")).toBe(true), { timeout: 10_000 });
             await flush();
-            // The run around the sought row starts at the first row drawn; an editor opens on a row near its top.
-            const first = Number(container.querySelector('[data-slot="row"][data-row-id]')!.getAttribute("data-row-id")!.slice(1));
-            const above = Math.floor(first / SHEET_PAGE_SIZE) - 1;
+            // The run around the sought row starts at the first window the jump read. The window above the
+            // run stays on the wire; the one above THAT lands at once.
+            const first = Math.min(...held.state.asked.slice(read)) * SHEET_PAGE_SIZE;
+            const above = first / SHEET_PAGE_SIZE - 1;
+            held.state.inFlight.add(above);
             const rowOf = (n: number) => container.querySelector(`[data-row-id="r${n}"]`) as HTMLElement | null;
-            const row = () => rowOf(first + 5)!;
+            const loaded = () => Number(container.querySelector('[data-slot="footerTransport"]')!.textContent!.split(" ")[0]!.replace(/,/g, ""));
+            const run = loaded();
+            // Scroll up: the view is centred five rows above the run, in the held window's slot. The sheet
+            // mounts what the page shows (#856), so where the run starts is laid out from the sought row.
+            const sought = rowOf(6000)!;
+            const rowPx = parseFloat(sought.style.minHeight);
+            const firstTop = offsetOf(sought) - (6000 - first) * rowPx;
+            act(() => { window.scrollTo({ top: firstTop - 5 * rowPx - window.innerHeight / 2 }); });
+            await waitFor(() => expect(held.state.asked).toContain(above - 1), { timeout: 10_000 });
+            await flush();
+            // The run's first rows stay on screen, where they were; the held window's slot stays a band, and
+            // the window above it waits until it lands.
+            expect(offsetOf(rowOf(first)!)).toBe(firstTop);
+            expect(rowOf(first - 1)).toBeNull();
+            expect(loaded()).toBe(run);
+            // An editor opens on a row near the run's top.
+            const row = () => rowOf(first + 2)!;
             const cell = () => row().querySelector('[data-key="task"]') as HTMLElement;
             fireEvent.mouseDown(cell(), { button: 0 });
             key("Enter");
             await flush();
-            expect(input()!.value).toBe(`Task ${first + 5}`);
+            expect(input()!.value).toBe(`Task ${first + 2}`);
             const top = offsetOf(row());
-            // The window above the run stays on the wire; the one above THAT lands at once.
-            held.state.inFlight.add(above);
-            // Scroll up: the view is centred ten rows above the run, in the held window's slot.
-            const rowPx = parseFloat(row().style.minHeight);
-            act(() => { window.scrollTo({ top: offsetOf(rowOf(first)!) - 10 * rowPx - window.innerHeight / 2 }); });
-            await waitFor(() => expect(held.state.asked).toContain(above - 1), { timeout: 10_000 });
-            await flush();
-            // The rows stay, the editor with them, and nothing has moved.
-            expect(rowOf(first)).toBeTruthy();
-            expect(rowOf(above * SHEET_PAGE_SIZE)).toBeNull();
-            expect(rowOf((above - 1) * SHEET_PAGE_SIZE)).toBeNull();
-            expect(cell().querySelector('[data-slot="editorInput"]')).toBe(input());
-            expect(offsetOf(row())).toBe(top);
-            // The held window lands: its rows and the ones above it join above, in the band's place.
+            // The held window lands: its rows and the ones above it join above, in the band's place, and the
+            // row and its editor stay where they were.
             held.state.inFlight.delete(above);
             held.touch();
-            await waitFor(() => expect(rowOf(above * SHEET_PAGE_SIZE)).toBeTruthy(), { timeout: 10_000 });
-            expect(rowOf((above - 1) * SHEET_PAGE_SIZE)).toBeTruthy();
+            await waitFor(() => expect(rowOf(first - 1)).toBeTruthy(), { timeout: 10_000 });
+            expect(rowOf(first - 5)).toBeTruthy();
+            expect(loaded()).toBe(run + 2 * SHEET_PAGE_SIZE);
             expect(offsetOf(row())).toBe(top);
             expect(cell().querySelector('[data-slot="editorInput"]')).toBe(input());
-            expect(input()!.value).toBe(`Task ${first + 5}`);
+            expect(input()!.value).toBe(`Task ${first + 2}`);
         } finally {
             restore();
         }
@@ -854,7 +916,8 @@ describe("a window loading above the rows never hides them (#876)", () => {
             await seekKey(container, "r6000");
             const cell = () => container.querySelector('[data-row-id="r6000"] [data-key="task"]');
             await waitFor(() => expect(cell()?.hasAttribute("data-selected")).toBe(true), { timeout: 10_000 });
-            expect(container.querySelector('[data-row-id="r5800"]')).toBeNull();
+            // Window 29's last row, right above the target, is not there yet.
+            expect(container.querySelector('[data-row-id="r5999"]')).toBeNull();
             const row = container.querySelector('[data-row-id="r6000"]') as HTMLElement;
             await waitFor(() => expect(window.scrollY).toBeGreaterThan(0));
             const top = offsetOf(row);
@@ -862,7 +925,7 @@ describe("a window loading above the rows never hides them (#876)", () => {
             expect(top + parseFloat(row.style.minHeight)).toBeLessThanOrEqual(window.scrollY + window.innerHeight);
             held.state.inFlight.delete(29);
             held.touch();
-            await waitFor(() => expect(container.querySelector('[data-row-id="r5800"]')).toBeTruthy(), { timeout: 10_000 });
+            await waitFor(() => expect(container.querySelector('[data-row-id="r5999"]')).toBeTruthy(), { timeout: 10_000 });
             expect(offsetOf(container.querySelector('[data-row-id="r6000"]')!)).toBe(top);
             expect(cell()?.hasAttribute("data-selected")).toBe(true);
         } finally {
@@ -934,6 +997,7 @@ describe("an editor whose row leaves the sheet (#877)", () => {
 
 describe("failure is local (#853)", () => {
     test("a window that cannot be read is its own band with the reason and a Retry; the rows around it, the ring, the open editor and the drafts stay; Retry lands it once the source is back", async () => {
+        const restore = emulateWindowScroll();
         const logged = vi.spyOn(console, "error").mockImplementation(() => {});
         try {
             const held = heldSheet(410);
@@ -978,15 +1042,20 @@ describe("failure is local (#853)", () => {
             held.touch();
             expect(held.state.asked.filter((w) => w === 1)).toHaveLength(asks);
             expect(container.querySelector('[data-band="failed"]')).toBeTruthy();
-            // Retry does, and the rows land in place.
+            // Retry does, and the rows land in place. The sheet holds 412 rows then, so it mounts what the
+            // page shows (#856): at the top, the open editor and the draft are as they were…
             fireEvent.click(band.querySelector('[data-slot="retry"]')!);
-            await waitFor(() => expect(container.querySelector('[data-row-id="r200"]')).toBeTruthy());
-            expect(container.querySelector('[data-band="failed"]')).toBeNull();
-            expect(container.querySelector('[data-row-id="r200"] [data-slot="gutterNumber"]')!.textContent).toBe("201");
+            await waitFor(() => expect(container.querySelector('[data-slot="footerTransport"]')!.textContent).toBe("410 loaded of 410"));
             expect(input()!.value).toBe("Task 5");
             expect(draft("r000", Sheet.Types.Draft(JobType)).task).toEqual(variant("value", "Edited"));
+            // …and down where the band was, its rows, numbered on.
+            const rowPx = parseFloat((container.querySelector('[data-row-id="r000"]') as HTMLElement).style.minHeight);
+            act(() => { window.scrollTo({ top: 200 * rowPx - window.innerHeight / 2 }); });
+            expect(container.querySelector('[data-band="failed"]')).toBeNull();
+            expect(container.querySelector('[data-row-id="r200"] [data-slot="gutterNumber"]')!.textContent).toBe("201");
         } finally {
             logged.mockRestore();
+            restore();
         }
     }, HELD_TEST_MS);
 

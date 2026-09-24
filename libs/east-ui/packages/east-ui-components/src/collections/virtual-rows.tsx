@@ -71,6 +71,14 @@
  * position follows before paint. A scroll not yet reported — a programmatic
  * one — wins. Rows in flow (the unbounded frame below scale) are the
  * browser's to anchor.
+ *
+ * Only a bounded frame pins its header. An unbounded frame's header sits in
+ * flow above its rows and scrolls with the page: a collection that scrolls
+ * sideways inside its own box (`overflow-x` in `rootCss`) is a scroll
+ * container, and CSS pins a sticky header against the nearest one, never
+ * against the page (#856). What moves the rows in each mode — the element
+ * they scroll sideways in, and what scrolls them vertically — is reported
+ * through `onViewport`.
  */
 
 import {
@@ -81,6 +89,29 @@ import { Box } from "@chakra-ui/react";
 import { debounce, useVirtualizer, useWindowVirtualizer, type VirtualItem, type Virtualizer } from "@tanstack/react-virtual";
 import { parseCssSize } from "../style/parse-size.js";
 import { virtualScrollbarCss } from "../style/scrollbar.js";
+
+/**
+ * How many rows an unbounded frame holds before it virtualizes against its
+ * scrolling ancestor (`virtualizeUnboundedAt` — #812, #856): one threshold for
+ * every collection that asks for it. Below it every row renders, so
+ * content-sized examples and captures keep their full render.
+ */
+export const VIRTUALIZE_UNBOUNDED_AT = 400;
+
+/** What moves a frame's rows on screen (#856) — see `onViewport`. */
+export interface RowsViewport {
+    /**
+     * The element the rows scroll sideways in, as wide as the view: the
+     * scroll element when the frame is bounded, else the frame's root.
+     */
+    frame: HTMLElement;
+    /**
+     * What scrolls the rows vertically: the scroll element when the frame is
+     * bounded (then the same element as `frame`), else the ancestor — or the
+     * window — the frame watches; `null` when it watches none.
+     */
+    scroller: HTMLElement | Window | null;
+}
 
 interface VirtualRowsBaseProps {
     /** Raw `height` size string (parsed here; `"fill"` handled). */
@@ -239,6 +270,14 @@ interface VirtualRowsBaseProps {
      */
     scrollElRef?: React.MutableRefObject<HTMLDivElement | null> | undefined;
     /**
+     * Receives the frame's {@link RowsViewport} whenever it changes, and
+     * `null` once the frame unmounts (#856) — what a collection's width- and
+     * scroll-driven chrome follows, live, in every mode. A frame that
+     * switches modes (a bound set or cleared, a count crossing
+     * `virtualizeUnboundedAt`) changes one or both, and reports the change.
+     */
+    onViewport?: ((viewport: RowsViewport | null) => void) | undefined;
+    /**
      * Where a bounded frame's scroll comes to rest (#813): the first row
      * showing under the header, and how many px of it are scrolled past —
      * reported once a scroll settles, so a collection can persist its place
@@ -260,6 +299,7 @@ interface VirtualRowsBaseProps {
      * (#812): the frame still grows to its content, but only the rows its
      * nearest scrolling ancestor — the window, when none scrolls — shows are
      * mounted. Omit to mount every row of an unbounded frame, however many.
+     * A collection passes {@link VIRTUALIZE_UNBOUNDED_AT}.
      */
     virtualizeUnboundedAt?: number | undefined;
 }
@@ -486,7 +526,7 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
         header, footer, overlay, count, estimateSize, sizes, getItemKey, anchorable, renderRow, measureRows = true,
         overscan = 4, minWidth, headerZIndex = 3, onScroll, rootCss, fillParent, scrollElRef,
         scrollToIndex, scrollNonce, scrollAlign = "center", onRangeChange, sizeVersion,
-        virtualizeUnboundedAt, onAnchorChange, restoreAnchor, rowsProps, rowsRef,
+        virtualizeUnboundedAt, onAnchorChange, restoreAnchor, rowsProps, rowsRef, onViewport,
     } = props;
     const h = parseCssSize(props.height);
     const mh = parseCssSize(props.maxHeight);
@@ -536,6 +576,38 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
     }, [watching, ancestor]);
     const onWindow = ancestor !== undefined && isWindow(ancestor);
     const ancestorEl = ancestor !== undefined && !isWindow(ancestor) ? ancestor : undefined;
+
+    // What moves the rows (#856), reported when it changes: bounded, the
+    // scroll element both ways; unbounded, the root sideways and the watched
+    // ancestor (if any) vertically. The refs are set by the time layout
+    // effects run, and a newly resolved ancestor re-renders the frame, so a
+    // mode switch reaches this effect whichever of the two it changes. A frame
+    // that is about to watch reports once its ancestor is known.
+    const viewportSeen = useRef<RowsViewport | null>(null);
+    const onViewportRef = useRef(onViewport);
+    useLayoutEffect(() => { onViewportRef.current = onViewport; });
+    useLayoutEffect(() => {
+        const report = onViewportRef.current;
+        if (report === undefined || (watching && ancestor === undefined)) return;
+        const frame = bounded ? scrollRef.current : rootRef.current;
+        const scroller = bounded ? frame : watching ? ancestor ?? null : null;
+        const seen = viewportSeen.current;
+        if (frame === null) {
+            if (seen === null) return;
+            viewportSeen.current = null;
+            report(null);
+            return;
+        }
+        if (seen !== null && seen.frame === frame && seen.scroller === scroller) return;
+        const next = { frame, scroller };
+        viewportSeen.current = next;
+        report(next);
+    });
+    useLayoutEffect(() => () => {
+        if (viewportSeen.current === null) return;
+        viewportSeen.current = null;
+        onViewportRef.current?.(null);
+    }, []);
     // Set by the unbounded offset observer while it is subscribed.
     const resample = useRef<(() => void) | null>(null);
     // The scroll anchor taken at the last commit, and an anchored offset this
@@ -715,7 +787,7 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
     // output is unchanged.
     if (!bounded && !watching) {
         return (
-            <Box css={rootCss}>
+            <Box ref={rootRef} css={rootCss}>
                 {header}
                 {overlay === undefined && rowsProps === undefined && rowsRef === undefined ? everyRow() : (
                     // The overlay's box: the rows, and nothing else.

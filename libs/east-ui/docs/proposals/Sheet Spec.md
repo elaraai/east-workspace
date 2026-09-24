@@ -1264,6 +1264,7 @@ behaviour lives and how it is tested.
 | 21 | Paged arm: windows land on scroll through the Plan's ledger (residency, in-flight `none`, exhaustion from `total()` — every element resident); the resident run is the stretch of windows that are in nearest the viewport's centre (#876): a failed window is a band where its rows would be (#853), and a window still loading ends the stretch, since a positional row space carries no hole — so a window loading beside the rows on screen never takes them off it, and landing it takes exactly its band's slot — a window is measured by what the body draws of its rows, an unvisited one at the rate the first window's rows drew (#855) — and one whose rows draw otherwise than that, landing above the rows on screen, leaves them where they are: a bounded frame anchors its scroll on a row, never on a band (#878); the transport line counts source elements; the lens is scope-badged *loaded rows only*; the rail's search is a key search over `seek` when the source is keyed (the jump rebases residency and owns the viewport until its target is shown, #854); appending needs exhaustion; `onEdit` only | `paging.ts` (adapter over the Plan stack) | DOM (Paged.of and held-source fixtures) |
 | 22 | Visual rules (B§11) | recipe `sheet.ts` | shot loop |
 | 23 | Controlled selection: with `selection` present the ring follows it and the row scrolls into view; every move reports `onSelect`; on the paged arm a non-resident `rowId` seeks when the source can (§3.14) | `sheet-state.ts` + `index.tsx` | DOM |
+| 24 | Frames: a sheet with a `height` / `maxHeight` scrolls its own rows and pins its header, with the group band and the open line sticking under it. With neither, it grows with its content and its header scrolls with the page, as every unbounded collection's does — the sheet scrolls sideways inside its own box, which CSS cannot pin a header out of (the author gives it a height to pin one). At 400 body items or more (the Plan's threshold, `VIRTUALIZE_UNBOUNDED_AT`) an unbounded sheet mounts only what the page shows; below it every row renders in flow, as before. The chrome that follows a scroll or the view's width — a seam's chips going, a sub row's well — reads the frame's viewport (`onViewport`) in every mode and through a switch between them (#856) | `index.tsx` + `virtual-rows.tsx` | DOM |
 
 ---
 
@@ -1311,6 +1312,7 @@ sheet/
   Tabs.tsx               ~200   the view tabs
   Footer.tsx             ~100   counts · key hint · live message · transport line
   sheet.dom.test.tsx            per-behaviour DOM tests (§5)
+  frame.test-utils.ts           the DOM tests' stand-ins for layout jsdom lacks: rows measured as they draw, a page that scrolls (#856)
 theme/slot-recipes/sheet.ts ~300 the B§11 vocabulary as recipe slots, light + dark via semantic tokens
 ```
 
@@ -1484,7 +1486,9 @@ arm and a cast.
 `decode → paging.ts (resident rows, exhaustion) → model.ts (real rows + blanks,
 column index) → lens.ts (hits from the slice state, visible rows + bands) →
 VirtualRows(estimateSize by row: 36 min, link cells measured) → Rows`. Toolbar
-and header sticky; strip and footer outside the scroll box; the editor overlays its
+and header sticky in a bounded frame (an unbounded sheet's header scrolls with the
+page, and at 400 body items it mounts only what the page shows — §5 row 24, #856);
+strip and footer outside the scroll box; the editor overlays its
 cell (position: absolute, z 10) and grows with wrapping chips. The whole sheet is
 one focusable region (`tabIndex=0`) that owns the keyboard; the editor stops
 propagation. Effects run in one place (`runEffects`); `useSliceReactivity(slice.key)`

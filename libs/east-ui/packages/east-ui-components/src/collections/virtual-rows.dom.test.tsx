@@ -18,7 +18,7 @@ import { useEffect } from "react";
 import { render, cleanup, fireEvent, act } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { system } from "../theme/index.js";
-import { VirtualRows, devicePixels } from "./virtual-rows.js";
+import { VirtualRows, devicePixels, type RowsViewport } from "./virtual-rows.js";
 
 const ROW_H = 32;
 /** What zoomed measurement reports for a nominally 32px row. */
@@ -510,5 +510,44 @@ describe("VirtualRows — scroll anchoring (#878)", () => {
         const el2 = scrollTo(c2, 50 * ROW_H);
         rerender2(frame([...keysOf("n", 10), ...ROWS], { anchorable: null }));
         expect(el2.scrollTop).toBe(50 * ROW_H);
+    });
+});
+
+describe("VirtualRows — what moves its rows (#856)", () => {
+    test("bounded, its scroll element both ways; unbounded at scale, its root and the ancestor it watches; below scale, its root alone; each change once, and null once unmounted", () => {
+        const seen: (RowsViewport | null)[] = [];
+        const onViewport = (viewport: RowsViewport | null) => { seen.push(viewport); };
+        const frame = (height: string | undefined, count: number) => (
+            <ChakraProvider value={system}>
+                <div data-testid="scroller" style={{ overflowY: "auto", height: "200px" }}>
+                    <VirtualRows height={height} maxHeight={undefined} count={count} estimateSize={() => ROW_H}
+                        measureRows={false} overscan={2} virtualizeUnboundedAt={400} onViewport={onViewport}
+                        renderRow={(i) => <div>row {i}</div>} />
+                </div>
+            </ChakraProvider>
+        );
+        const { container, getByTestId, rerender, unmount } = render(frame("200px", 1_000));
+        const bounded = container.querySelector('[data-virtual-rows="bounded"]');
+        expect(seen).toHaveLength(1);
+        expect(seen[0]?.frame).toBe(bounded);
+        expect(seen[0]?.scroller).toBe(bounded);
+        // Unbounded at scale: the rows scroll sideways in the root, and the page scrolls them —
+        // reported once, when the ancestor is known.
+        rerender(frame(undefined, 1_000));
+        expect(seen).toHaveLength(2);
+        expect(seen[1]?.frame).toBe(container.querySelector('[data-virtual-rows="ancestor"]'));
+        expect(seen[1]?.scroller).toBe(getByTestId("scroller"));
+        // Below scale, with nothing to watch, every row in flow: the root, and no scroller.
+        rerender(frame(undefined, 10));
+        expect(container.querySelector("[data-virtual-rows]")).toBeNull();
+        expect(seen).toHaveLength(3);
+        expect(seen[2]?.frame).toBe(getByTestId("scroller").firstElementChild);
+        expect(seen[2]?.scroller).toBeNull();
+        // Nothing changed, nothing reported; null once the frame unmounts.
+        rerender(frame(undefined, 11));
+        expect(seen).toHaveLength(3);
+        unmount();
+        expect(seen).toHaveLength(4);
+        expect(seen[3]).toBeNull();
     });
 });

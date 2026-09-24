@@ -52,7 +52,7 @@ const PLAN_NO_SPREAD = [
 
 export default [
   {
-    ignores: ['dist/**', 'node_modules/**', 'coverage/**', '**/*.test.tsx', '**/*.test.ts']
+    ignores: ['dist/**', 'node_modules/**', 'coverage/**', '**/*.test.tsx', '**/*.test.ts', '**/*.test-utils.ts']
   },
   {
     files: ['src/**/*.ts', 'src/**/*.tsx'],

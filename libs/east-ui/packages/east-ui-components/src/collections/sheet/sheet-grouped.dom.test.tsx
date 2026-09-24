@@ -30,10 +30,14 @@ import { getRegisteredPlatformImplementations } from "../../platform/registry.js
 import "../../platform/slice/index.js";
 import { EastChakraSheet } from "./index.js";
 import { sheetJournal } from "./journal.test-utils.js";
+import { emulateWindowScroll, measureRowsAsDrawn } from "./frame.test-utils.js";
 import type { SheetRootValue } from "./values.js";
 
-afterEach(cleanup);
-beforeEach(() => { initializeStore(new UIStore()); });
+// A sheet that mounts a screenful — bounded, or of 400 rows or more (#856) —
+// measures its rows: they are as tall as they draw.
+let restoreRows: () => void = () => {};
+beforeEach(() => { initializeStore(new UIStore()); restoreRows = measureRowsAsDrawn(); });
+afterEach(() => { cleanup(); restoreRows(); });
 
 // jsdom lacks the browser APIs Chakra's Combobox positioner relies on.
 class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
@@ -387,13 +391,22 @@ function buildPagedPlans(n: number): SheetRootValue {
 
 describe("the paged arm (G13)", () => {
     test("windows land with children and insertion controls without a ghost band", async () => {
-        const { container, band, lines, ghost, chip } = mount(withSpy(buildPagedPlans(250)).value);
-        await waitFor(() => expect(container.querySelectorAll('[data-slot="row"][data-band-row]').length).toBe(250), { timeout: 15_000 });
-        expect(band("P1000")!.querySelector('[data-slot="groupTitle"]')!.textContent).toBe("Plan 0");
-        expect(lines("P1249").map((r) => r.querySelector('[data-key="task"]')!.textContent)).toEqual(["Task 249", ""]);
-        expect(container.querySelector('[data-slot="footerTransport"]')!.textContent).toBe("250 loaded of 250");
-        expect(ghost()).toBeNull();
-        expect(chip(band("P1000")!, "insertGroup")!.getAttribute("aria-label")).toBe("New group");
+        const restore = emulateWindowScroll();
+        try {
+            const { container, band, lines, ghost, chip } = mount(withSpy(buildPagedPlans(250)).value);
+            await waitFor(() => expect(container.querySelector('[data-slot="footerTransport"]')!.textContent).toBe("250 loaded of 250"), { timeout: 15_000 });
+            expect(band("P1000")!.querySelector('[data-slot="groupTitle"]')!.textContent).toBe("Plan 0");
+            expect(ghost()).toBeNull();
+            expect(chip(band("P1000")!, "insertGroup")!.getAttribute("aria-label")).toBe("New group");
+            // Every plan landed with its line and its blank line: 750 rows, of which the sheet mounts what
+            // the page shows (#856). Down at the end, the last plan's line and blank line.
+            const extent = Number(container.querySelector("[data-virtual-extent]")!.getAttribute("data-virtual-extent"));
+            expect(extent).toBe(250 * (42 + 36 + 36));
+            act(() => { window.scrollTo({ top: extent - window.innerHeight }); });
+            expect(lines("P1249").map((r) => r.querySelector('[data-key="task"]')!.textContent)).toEqual(["Task 249", ""]);
+        } finally {
+            restore();
+        }
     }, 30_000);
 });
 
@@ -500,30 +513,91 @@ function buildVariedPlans(n: number): SheetRootValue {
     return value.value;
 }
 
+/** Two inline plans whose first lines carry operations as sub rows (#856). */
+const OPS_PLANS: ValueTypeOf<typeof CutPlanType>[] = [
+    { id: "P1", name: "Plan 1", lines: [{ task: "Cut 1", ops: OPS }, { task: "Fit 1", ops: [] }] },
+    { id: "P2", name: "Plan 2", lines: [{ task: "Cut 2", ops: OPS }] },
+];
+/** A read-only sheet of {@link OPS_PLANS} — unbounded, or in a frame `height` tall. */
+function buildOpsPlans(height?: string): SheetRootValue {
+    const bound = height !== undefined ? { style: { height } } : {};
+    const program = East.function([], UIComponentType, ($) => {
+        const plans = $.const(OPS_PLANS, ArrayType(CutPlanType));
+        return Sheet.Root(plans, {
+            task: Sheet.column.text(CutLineType, { header: "Task" }),
+        }, {
+            id: "id",
+            group: Sheet.group(CutPlanType, "lines", { title: "name" }),
+            subRows: Sheet.subRows(CutLineType, { ops: (op) => Sheet.subRow({ code: op.code, name: op.name }) }),
+            readOnly: true,
+            ...bound,
+        });
+    });
+    const value = East.compile(program, getRegisteredPlatformImplementations())() as
+        ValueTypeOf<typeof UIComponentType> & { value: SheetRootValue };
+    return value.value;
+}
+
+describe("a sub row's well keeps to the view (#856)", () => {
+    test("in an unbounded sheet, and after the sheet becomes bounded, the well's content is as wide as the view past the gutter", async () => {
+        // The view's width, and a ResizeObserver the test fires: jsdom lays nothing out.
+        const realOffsetHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight")!;
+        let width = 900;
+        const watchers: { el: Element; fire: () => void }[] = [];
+        const realRO = (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
+        (globalThis as { ResizeObserver?: unknown }).ResizeObserver = class {
+            private readonly cb: ResizeObserverCallback;
+            constructor(cb: ResizeObserverCallback) { this.cb = cb; }
+            observe(el: Element) { watchers.push({ el, fire: () => this.cb([], this as unknown as ResizeObserver) }); }
+            unobserve() {}
+            disconnect() {}
+        };
+        // The frame — the card's one child, bounded or not — is as wide as the view; bounded, it is 400 px tall.
+        Object.defineProperty(HTMLElement.prototype, "clientWidth", {
+            configurable: true,
+            get(this: HTMLElement) { return this.parentElement?.hasAttribute("data-sheet-card") === true ? width : 0; },
+        });
+        Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
+            configurable: true,
+            get(this: HTMLElement) { return this.getAttribute("data-virtual-rows") === "bounded" ? 400 : 0; },
+        });
+        try {
+            const ui = mount(buildOpsPlans());
+            const cut1 = ui.container.querySelector('[data-slot="row"][data-group-id="P1"][data-line="0"]')!;
+            fireEvent.mouseDown(cut1.querySelector('[data-slot="subRowChevron"]')!, { button: 0 });
+            await waitFor(() => expect(ui.container.querySelectorAll('[data-slot="subRow"]')).toHaveLength(2));
+            const well = () => ui.container.querySelector<HTMLElement>('[data-slot="subRowContent"]')!;
+            const gutter = parseFloat(well().style.left);
+            expect(well().style.maxWidth).toBe(`${900 - gutter}px`);
+            // Bounded, the frame scrolls its own rows; its scrollbar takes some of the view.
+            ui.rerender(<ChakraProvider value={system}><EastChakraSheet value={buildOpsPlans("400px")} storageKey="sheet-grouped-test" /></ChakraProvider>);
+            expect(ui.container.querySelector('[data-virtual-rows="bounded"]')).toBeTruthy();
+            width = 880;
+            act(() => { for (const w of watchers) if (w.el.parentElement?.hasAttribute("data-sheet-card") === true) w.fire(); });
+            expect(well().style.maxWidth).toBe(`${880 - gutter}px`);
+        } finally {
+            (globalThis as { ResizeObserver?: unknown }).ResizeObserver = realRO;
+            delete (HTMLElement.prototype as { clientWidth?: number }).clientWidth;
+            Object.defineProperty(HTMLElement.prototype, "offsetHeight", realOffsetHeight);
+        }
+    });
+});
+
 describe("the paged arm in a bounded frame: unloaded bands are as tall as their rows (#855)", () => {
     /** A plan's drawn height: its band (42) and two lines (36 each). */
     const PLAN_PX = 42 + 2 * 36;
     // jsdom lays nothing out: the frame is 600 px tall, and a row is its least
-    // height — the height it declares inline — as if nothing wrapped.
+    // height — the height it declares inline — as if nothing wrapped (the
+    // file's `measureRowsAsDrawn`).
     const realOffsetHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight")!;
-    const realRect = Element.prototype.getBoundingClientRect;
     beforeEach(() => {
         Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
             configurable: true,
             get(this: HTMLElement) { return this.getAttribute("data-virtual-rows") === "bounded" ? 600 : 0; },
         });
-        Element.prototype.getBoundingClientRect = function (this: Element) {
-            if (this instanceof HTMLElement && this.dataset["slot"] === "virtualRow") {
-                const row = this.querySelector<HTMLElement>('[style*="height"]');
-                const px = row === null ? 0 : parseFloat(row.style.height || row.style.minHeight) || 0;
-                return { x: 0, y: 0, top: 0, left: 0, right: 0, bottom: px, width: 0, height: px, toJSON: () => ({}) } as DOMRect;
-            }
-            return realRect.call(this);
-        };
     });
     afterEach(() => {
         Object.defineProperty(HTMLElement.prototype, "offsetHeight", realOffsetHeight);
-        Element.prototype.getBoundingClientRect = realRect;
     });
 
     /** The frame's extent, where each plan's band starts, the frame's scroll, and the transport line. */
