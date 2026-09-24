@@ -5,7 +5,7 @@
 
 /**
  * The jobs budget, end to end (issue #770): `e3 dataflow run --jobs 2` over
- * three plain tasks and a partitioned task of four partitions, none
+ * three plain tasks and a partitioned task of several partitions, none
  * depending on another, keeps exactly two runner processes in flight at once
  * — the plain tasks and the partitions draw from the same budget — and every
  * execution completes once the hold is released.
@@ -22,7 +22,7 @@ import { join } from 'node:path';
 import e3 from '@elaraai/e3';
 import { East, DictType, IntegerType, SortedMap, StringType, compareFor, variant } from '@elaraai/east';
 import { FileSystem } from '@elaraai/east-node-std';
-import { LocalStorage, workspaceGetTaskHash } from '@elaraai/e3-core';
+import { DatasetSegments, LocalStorage, workspaceGetDatasetHash, workspaceGetTaskHash } from '@elaraai/e3-core';
 import { encodeInSegmentsOf } from '@elaraai/e3-core/test';
 import { createTestDir, removeTestDir, runE3Command, spawnE3Command, waitFor } from './helpers.js';
 
@@ -41,8 +41,8 @@ describe('the jobs budget', () => {
     repo = join(dir, 'repo');
     hold = join(dir, 'hold');
 
-    // Three plain tasks and a four-partition task, every body spinning while
-    // the hold file exists.
+    // Three plain tasks and a partitioned task, every body spinning while the
+    // hold file exists.
     const seed = e3.input('seed', IntegerType, variant('value', 1n));
     const tableInput = e3.input('table', TableType);
     const plain = PLAIN_TASKS.map((name) => e3.task(name, [seed], East.function([IntegerType], IntegerType, ($, n) => {
@@ -61,9 +61,11 @@ describe('the jobs budget', () => {
     });
     const zip = join(dir, 'budget.zip');
     await e3.export(e3.package('budget', '1.0.0', ...plain, held), zip);
-    const table = new SortedMap(Array.from({ length: 40 }, (_, i) => [BigInt(i), `row-${i}`] as [bigint, string]), compareFor(IntegerType));
+    // Enough rows for the table to be stored in several segments, a partition
+    // each at a target of one byte.
+    const table = new SortedMap(Array.from({ length: 3_600 }, (_, i) => [BigInt(i), `row-${i}`] as [bigint, string]), compareFor(IntegerType));
     const tablePath = join(dir, 'table.beast2');
-    writeFileSync(tablePath, encodeInSegmentsOf(TableType, 10)(table));
+    writeFileSync(tablePath, encodeInSegmentsOf(TableType, 1_000)(table));
 
     for (const args of [
       ['repo', 'create', repo],
@@ -110,12 +112,16 @@ describe('the jobs budget', () => {
     assert.match(result.stdout, /Jobs: 2/);
     for (const name of [...PLAIN_TASKS, 'held_p']) assert.match(result.stdout, new RegExp(`\\[DONE\\] ${name} `));
     assert.deepEqual(await runnersUp(run.pid), [], 'no runner is left running');
-    // Every execution — three plain tasks, four partitions, the logical one — succeeded.
+    // Every execution — three plain tasks, a partition per segment of the
+    // table, the logical one — succeeded.
+    const { hash: tableHash } = await workspaceGetDatasetHash(storage, repo, 'ws', [variant('field', 'inputs'), variant('field', 'table')]);
+    const partitions = (await DatasetSegments.open(storage, repo, tableHash!)).segmentCount;
+    assert.ok(partitions > 2, `the table is stored in ${partitions} segments`);
     let successes = 0;
     for (const name of [...PLAIN_TASKS, 'held_p']) {
       const taskHash = await workspaceGetTaskHash(storage, repo, 'ws', name);
       for (const { status } of await storage.refs.executionListLatest(repo, taskHash)) if (status.type === 'success') successes++;
     }
-    assert.equal(successes, 3 + 4 + 1);
+    assert.equal(successes, 3 + partitions + 1);
   });
 });

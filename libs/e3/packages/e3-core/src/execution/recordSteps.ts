@@ -40,7 +40,8 @@ import {
   type RunnerValue,
   type TaskObject,
 } from '@elaraai/e3-types';
-import { cutDatasetObject } from '../dataset-open.js';
+import { DatasetSegments } from '../dataset-open.js';
+import { storeCollection } from '../store-collection.js';
 import type { StorageBackend } from '../storage/interfaces.js';
 import type { TaskExecuteOptions, TaskResult, TaskRunner } from './interfaces.js';
 import { carvePartitionSlices, planMergeRanges, planPartitions, spliceBlobs } from './partitionExec.js';
@@ -278,11 +279,13 @@ function outputOf(result: TaskResult, what: string): string | RecordOperationRes
   return { kind: 'failed', message: `${what} ${detail}`, exitCode: result.exitCode ?? null };
 }
 
-/** Takes the operation's blob through the encoder door, so it lands as segment
- *  objects and a manifest like every other collection. */
+/** Takes the operation's collection through the store's door, so it lands as
+ *  segment objects and a manifest like every other collection — a manifest the
+ *  door already wrote comes back as it is. */
 async function store(storage: StorageBackend, repo: string, hash: string): Promise<RecordOperationResult> {
   try {
-    return { kind: 'built', hash: await cutDatasetObject(storage, repo, hash) };
+    const { typeValue } = await DatasetSegments.open(storage, repo, hash);
+    return { kind: 'built', hash: await storeCollection(storage, repo, typeValue, [{ stored: hash }]) };
   } catch (err) {
     return { kind: 'failed', message: `the result could not be stored as segments: ${message(err)}`, exitCode: null };
   }

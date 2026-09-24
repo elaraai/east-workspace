@@ -6,9 +6,9 @@
 /**
  * Partitioned task execution — fan-out/fan-in over canonical beast2
  * segments, tested end to end against a real repository with bash-command
- * bodies (`cp` of a staged input is a byte-identity body, so carve → run →
- * splice reconstruction can be asserted byte-for-byte and the execution
- * cache observed directly).
+ * bodies (`cp` of a staged input is an identity body, so carve → run →
+ * assemble can be asserted to land on the value's own manifest — the one the
+ * Writer writes for it — and the execution cache observed directly).
  */
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
@@ -33,7 +33,6 @@ import {
   TASK_KIND_PARTITION,
   decodeCollectionManifest,
   decodePartitionPlan,
-  encodeDatasetBlob,
   decodeTaskObject,
   encodePartitionTaskMetadata,
   type ExecutionStatus,
@@ -52,7 +51,8 @@ import { inputsHash } from '../executions.js';
 import { uuidv7 } from '../uuid.js';
 import { objectWrite } from '../storage/local/LocalObjectStore.js';
 import { repoGc } from '../storage/local/gc.js';
-import { cutDatasetIntoStore, readDatasetWhole } from '../dataset-open.js';
+import { DatasetSegments, readDatasetWhole } from '../dataset-open.js';
+import { datasetWrite } from '../trees.js';
 import { createTestRepo, removeTestRepo, encodeInSegmentsOf } from '../test-helpers.js';
 import { LocalStorage } from '../storage/local/index.js';
 import type { StorageBackend } from '../storage/interfaces.js';
@@ -139,7 +139,7 @@ describe('partitionTaskExecute', () => {
     return (await storage.refs.executionListForTask(repo, taskHash)).length;
   }
 
-  it('carves, runs per partition, and splices an identity body back byte-identically', async () => {
+  it('carves, runs per partition, and assembles an identity body into the value\'s own manifest', async () => {
     const table = makeTable(1000);
     const tableBlob = encodeInSegmentsOf(TableType, 100)(table);
     const tableHash = await storage.objects.write(repo, tableBlob);
@@ -150,9 +150,10 @@ describe('partitionTaskExecute', () => {
     const result = await taskExecute(storage, repo, taskHash, [fnIrHash, tableHash]);
     assert.equal(result.state, 'success', result.error ?? '');
 
-    // The identity body's shards are the slices themselves, and splicing
-    // them reconstructs the input blob byte-for-byte — same object hash.
-    assert.equal(result.outputHash, tableHash);
+    // The identity body's shards are the slices themselves, and assembling
+    // them through the store's door gives the manifest the Writer writes for
+    // the input's value, whatever segments the input was cut in.
+    assert.equal(result.outputHash, await datasetWrite(storage, repo, table, TableType));
 
     // 10 partition executions + the logical record.
     assert.equal(await executionCount(taskHash), 11);
@@ -175,7 +176,7 @@ describe('partitionTaskExecute', () => {
     const v2Hash = await storage.objects.write(repo, v2);
     const second = await taskExecute(storage, repo, taskHash, [fnIrHash, v2Hash]);
     assert.equal(second.state, 'success', second.error ?? '');
-    assert.equal(second.outputHash, v2Hash);
+    assert.equal(second.outputHash, await datasetWrite(storage, repo, makeTable(1100), TableType));
     assert.equal(await executionCount(taskHash), 13);
   });
 
@@ -200,7 +201,7 @@ describe('partitionTaskExecute', () => {
     const v2Hash = await storage.objects.write(repo, encodeInSegmentsOf(TableType, 100)(shifted));
     const second = await taskExecute(storage, repo, taskHash, [fnIrHash, v2Hash]);
     assert.equal(second.state, 'success', second.error ?? '');
-    assert.equal(second.outputHash, v2Hash);
+    assert.equal(second.outputHash, await datasetWrite(storage, repo, shifted, TableType));
     // 1001 rows → 11 segments/partitions; the first 5 slices (keys 0..499)
     // are byte-identical and cache-hit, the remaining 6 and the new logical
     // identity execute: 11 + 6 + 1.
@@ -227,8 +228,7 @@ describe('partitionTaskExecute', () => {
 
     // Take-left over the fixed pairwise tree of 10 shards resolves to shard
     // 0 — the first 100-row slice.
-    const output = await storage.objects.read(repo, result.outputHash!);
-    const decoded = decodeBeast2For(TableType)(output);
+    const decoded = decodeBeast2For(TableType)(await readDatasetWhole(storage, repo, result.outputHash!));
     assert.equal(decoded.size, 100);
     assert.equal(decoded.get(0n)?.name, 'row-0');
     assert.equal(decoded.get(99n)?.name, 'row-99');
@@ -237,7 +237,7 @@ describe('partitionTaskExecute', () => {
     assert.equal(await executionCount(taskHash), 20);
   });
 
-  it('merge mode assembles disjoint shards by byte copy, with no runner-side fold', async () => {
+  it('merge mode assembles disjoint shards through the door, with no runner-side fold', async () => {
     const table = makeTable(1000);
     const tableBlob = encodeInSegmentsOf(TableType, 100)(table);
     const tableHash = await storage.objects.write(repo, tableBlob);
@@ -253,10 +253,10 @@ describe('partitionTaskExecute', () => {
     const result = await taskExecute(storage, repo, taskHash, [fnIrHash, tableHash]);
     assert.equal(result.state, 'success', result.error ?? '');
 
-    // The identity body's shards are the input's own segments and cannot
-    // collide, so the segment merge degenerates to the splice: the input
-    // blob, byte for byte.
-    assert.equal(result.outputHash, tableHash);
+    // The identity body's shards are the input's own rows and cannot
+    // collide, so the segment merge degenerates to the assembly: the value's
+    // own manifest.
+    assert.equal(result.outputHash, await datasetWrite(storage, repo, table, TableType));
     // 10 partition executions + the logical record — and NO combine
     // executions: the fan-in ran in the orchestrator.
     assert.equal(await executionCount(taskHash), 11);
@@ -345,7 +345,7 @@ describe('partitionTaskExecute', () => {
       const key = BigInt(i % 7);
       expected.set(key, (expected.get(key) ?? 0n) + 1n);
     }
-    const merged = decodeBeast2For(DictType(IntegerType, IntegerType))(await storage.objects.read(repo, result.outputHash!));
+    const merged = decodeBeast2For(DictType(IntegerType, IntegerType))(await readDatasetWhole(storage, repo, result.outputHash!));
     assert.ok(equalFor(DictType(IntegerType, IntegerType))(merged, expected), 'every key counts all its rows once');
 
     // One line per unit, naming each unit's execution in full.
@@ -452,7 +452,7 @@ describe('partitionTaskExecute', () => {
 
               const expected = new SortedMap<bigint, { id: bigint; name: string }>([], compareFor(IntegerType));
               for (const [id, row] of table) expected.set((id * 7919n) % 1_000_003n, row);
-              const output = decodeBeast2For(TableType)(await storage.objects.read(repo, result!.outputHash!));
+              const output = decodeBeast2For(TableType)(await readDatasetWhole(storage, repo, result!.outputHash!));
               assert.ok(equalFor(TableType)(output, expected), `${rows} rows, ${partitions} partitions`);
 
               observed.push({ rows, partitions, ranges, ...stats });
@@ -482,7 +482,7 @@ describe('partitionTaskExecute', () => {
 
     const result = await taskExecute(storage, repo, taskHash, [fnIrHash, tableHash]);
     assert.equal(result.state, 'success', result.error ?? '');
-    const merged = decodeBeast2For(SetType(IntegerType))(await storage.objects.read(repo, result.outputHash!));
+    const merged = decodeBeast2For(SetType(IntegerType))(await readDatasetWhole(storage, repo, result.outputHash!));
     assert.deepEqual([...merged], [0n, 1n, 2n, 3n, 4n]);
     // Three overlapping partials: one unit merges them.
     const mergeLines = (await logLines(taskHash, result)).filter((line) => line.startsWith('merge '));
@@ -504,9 +504,8 @@ describe('partitionTaskExecute', () => {
 
     const result = await taskExecute(storage, repo, taskHash, [fnIrHash, tableHash]);
     assert.equal(result.state, 'success', result.error ?? '');
-    const output = await storage.objects.read(repo, result.outputHash!);
-    assert.equal(decodeBeast2For(DictType(IntegerType, IntegerType))(output).size, 0);
-    assert.equal(readBeast2Extents(output).offsets.length, 0);
+    assert.equal(decodeBeast2For(DictType(IntegerType, IntegerType))(await readDatasetWhole(storage, repo, result.outputHash!)).size, 0);
+    assert.equal(decodeCollectionManifest(await storage.objects.read(repo, result.outputHash!)).entries.length, 0);
     assert.deepEqual((await logLines(taskHash, result)).filter((line) => line.startsWith('merge ')), []);
   });
 
@@ -542,14 +541,13 @@ describe('partitionTaskExecute', () => {
     const result = await taskExecute(storage, repo, taskHash, [fnIrHash, primaryHash, secondaryHash]);
     assert.equal(result.state, 'success', result.error ?? '');
 
-    // Splicing the secondary slices reassembles exactly the secondary value
-    // (not byte-identical — split edges re-encode — but value-equal, with
-    // every key exactly once in canonical order).
-    const output = await storage.objects.read(repo, result.outputHash!);
+    // Assembling the secondary slices gives exactly the secondary value —
+    // every key once, in canonical order — as its own manifest, whatever the
+    // split edges re-encoded.
     const eq = equalFor(TableType);
-    assert.ok(eq(decodeBeast2For(TableType)(output), secondary));
-    const extents = readBeast2Extents(output);
-    assert.equal(extents.elementCount, 500);
+    assert.ok(eq(decodeBeast2For(TableType)(await readDatasetWhole(storage, repo, result.outputHash!)), secondary));
+    assert.equal((await DatasetSegments.open(storage, repo, result.outputHash!)).elementCount, 500);
+    assert.equal(result.outputHash, await datasetWrite(storage, repo, secondary, TableType));
   });
 
   it('carves and splices at bounded orchestrator memory: partitioned inputs are never whole-read', async () => {
@@ -599,14 +597,15 @@ describe('partitionTaskExecute', () => {
 
     const result = await taskExecute(storage, repo, taskHash, [fnIrHash, tableHash]);
     assert.equal(result.state, 'success', result.error ?? '');
-    // The streamed carve + splice reproduce the input byte-identically.
-    assert.equal(result.outputHash, tableHash);
+    // The streamed carve and the assembly reproduce the value, as its own
+    // manifest.
+    assert.equal(result.outputHash, await datasetWrite(storage, repo, table, TableType));
     assert.equal(wholeInputReads, 0, 'the partitioned input must never be whole-read');
     assert.ok(maxRangeLength <= readBound,
       `every ranged read of the input (max ${maxRangeLength} B) must stay within one segment frame / tail probe (${readBound} B)`);
   });
 
-  it('addresses a manifest-stored input through its segment objects: none read whole, carved as its splice', async () => {
+  it('addresses a manifest-stored input through its segment objects, and assembles it back into that manifest', async () => {
     // A collection dataset is stored as a manifest over segment objects, so
     // this — not the bare blob above — is the input a partitioned task
     // usually sees. The partition machinery addresses the blob those segments
@@ -619,7 +618,7 @@ describe('partitionTaskExecute', () => {
       entries.push([id, { id, name: `row-${i}-${salt}` }]);
     }
     const table = new SortedMap(entries, compareFor(IntegerType));
-    const manifestHash = await cutDatasetIntoStore(storage, repo, encodeDatasetBlob(TableType, table));
+    const manifestHash = await datasetWrite(storage, repo, table, TableType);
     const manifest = decodeCollectionManifest(await storage.objects.read(repo, manifestHash));
     assert.ok(manifest.entries.length > 4, `the input spans segment objects, got ${manifest.entries.length}`);
     const segmentObjects = new Set(manifest.entries.map((entry) => entry.hash));
@@ -637,14 +636,15 @@ describe('partitionTaskExecute', () => {
     objects.read = origRead;
 
     assert.equal(result.state, 'success', result.error ?? '');
-    assert.deepEqual(wholeSegmentReads, [], 'no segment object is read whole');
-    // The identity body's shards are the slices, so their splice IS the blob
-    // the partition machinery addressed — which must be the manifest's own
-    // splice, byte for byte, or every slice would hash differently from the
-    // one a spliced input carves.
-    const output = Buffer.from(await storage.objects.read(repo, result.outputHash!));
-    assert.ok(output.equals(Buffer.from(await readDatasetWhole(storage, repo, manifestHash))),
-      'the carved slices splice back to the manifest\'s own splice');
+    // Carving reads no segment object whole; assembling the partials re-cuts
+    // each seam between them, which reads at most a segment either side.
+    const planHash = await storage.refs.executionPlanRead(repo, taskHash, result.inputsHash);
+    const seams = decodePartitionPlan(await storage.objects.read(repo, planHash!)).boundaries.length - 1;
+    assert.ok(wholeSegmentReads.length <= 2 * seams,
+      `${wholeSegmentReads.length} segment objects read whole over ${seams} seams`);
+    // The identity body's shards are the slices, so their assembly is the
+    // value the slices were carved from — the manifest itself.
+    assert.equal(result.outputHash, manifestHash, 'the carved slices assemble back into the manifest');
   });
 
   it('a single-partition plan short-circuits to one standard execution under the logical identity', async () => {
@@ -668,8 +668,8 @@ describe('partitionTaskExecute', () => {
       onPartitionProgress: (p) => events.push(p),
     });
     assert.equal(result.state, 'success', result.error ?? '');
-    assert.equal(result.outputHash, tableHash, 'the identity body copies the whole input');
-    assert.equal(streamWrites, 0, 'no slice or splice objects are written');
+    assert.equal(result.outputHash, await datasetWrite(storage, repo, table, TableType), 'the identity body copies the whole input');
+    assert.equal(streamWrites, 0, 'no slice is carved');
     // Exactly one execution identity — the logical one; a carved P=1 slice
     // would have collided with it and double-recorded.
     assert.equal(await executionCount(taskHash), 1);
@@ -712,13 +712,12 @@ describe('partitionTaskExecute', () => {
     // Carving is a pure function of the plan.
     assert.deepEqual(await carvePartitionSlices(storage, repo, plan, 3), [plan.slices[0]![3]]);
 
-    // A forced re-run executes every partition again but carves nothing: the
-    // output splice is its only streamed write.
+    // A forced re-run executes every partition again but carves nothing.
     const streamWrites = countStreamWrites();
     const second = await taskExecute(storage, repo, taskHash, [fnIrHash, tableHash], { force: true });
     assert.equal(second.state, 'success', second.error ?? '');
-    assert.equal(second.outputHash, tableHash);
-    assert.equal(streamWrites.count, 1, 'only the output splice is streamed');
+    assert.equal(second.outputHash, await datasetWrite(storage, repo, makeTable(1000), TableType));
+    assert.equal(streamWrites.count, 0, 'no slice is carved again');
     for (const slice of plan.slices[0]!) {
       const ids = await storage.refs.executionListIds(repo, taskHash, inputsHash([fnIrHash, slice]));
       assert.equal(ids.length, 2, 'every partition executed on both runs');
@@ -751,9 +750,9 @@ describe('partitionTaskExecute', () => {
 
     const second = await taskExecute(storage, repo, taskHash, [fnIrHash, tableHash], { force: true });
     assert.equal(second.state, 'success', second.error ?? '');
-    assert.equal(second.outputHash, tableHash);
+    assert.equal(second.outputHash, await datasetWrite(storage, repo, makeTable(1000), TableType));
     assert.ok(reportedGone, 'the reuse check looked the slice up');
-    assert.equal(streamWrites.count, 2, 'only the missing slice carves again, then the output splices');
+    assert.equal(streamWrites.count, 1, 'only the missing slice carves again');
   });
 
   it('carves a partition when a worker picks it up, and records the plan with what was carved', async () => {
@@ -805,7 +804,7 @@ describe('partitionTaskExecute', () => {
     const v2Hash = await storage.objects.write(repo, encodeInSegmentsOf(TableType, 100)(makeTable(1100)));
     const appended = await run([fnIrHash, v2Hash], {});
     assert.equal(appended.state, 'success', appended.error ?? '');
-    assert.equal(appended.outputHash, v2Hash);
+    assert.equal(appended.outputHash, await datasetWrite(storage, repo, makeTable(1100), TableType));
     assert.equal(units.length, 1, 'only the tail partition runs');
 
     // `force` skips the probe: every partition runs.
@@ -843,14 +842,14 @@ describe('partitionTaskExecute', () => {
     assert.match(result.error ?? '', /^Partition 2 of 10 reported success without writing an output$/);
   });
 
-  it('spliceBlobs splices stored blobs in order, and refuses keys that do not ascend', async () => {
+  it('spliceBlobs assembles stored collections in order, and refuses keys that do not ascend', async () => {
     const encode = encodeInSegmentsOf(TableType, 100);
     const lowHash = await storage.objects.write(repo, encode(makeTable(250)));
     const highHash = await storage.objects.write(repo, encode(makeTable(250, 250)));
 
-    const spliced = await storage.objects.read(repo, await spliceBlobs(storage, repo, [lowHash, highHash]));
-    assert.ok(equalFor(TableType)(decodeBeast2For(TableType)(spliced), makeTable(500)));
-    assert.equal(readBeast2Extents(spliced).offsets.length, 6, 'both blobs keep their segments');
+    const spliced = await spliceBlobs(storage, repo, [lowHash, highHash]);
+    assert.ok(equalFor(TableType)(decodeBeast2For(TableType)(await readDatasetWhole(storage, repo, spliced)), makeTable(500)));
+    assert.equal(spliced, await datasetWrite(storage, repo, makeTable(500), TableType), 'the whole value\'s own manifest');
 
     await assert.rejects(
       spliceBlobs(storage, repo, [highHash, lowHash]),
@@ -875,7 +874,7 @@ describe('partitionTaskExecute', () => {
     const jobs = new JobSlots(2);
     const result = await taskExecute(storage, repo, taskHash, [fnIrHash, tableHash], { jobs });
     assert.equal(result.state, 'success', result.error ?? '');
-    assert.equal(result.outputHash, tableHash);
+    assert.equal(result.outputHash, await datasetWrite(storage, repo, makeTable(1000), TableType));
     assert.equal(jobs.peak, 2, 'two units in flight at once, never more');
     assert.equal(jobs.inFlight, 0);
     assert.equal(await executionCount(taskHash), 11);
@@ -961,7 +960,7 @@ describe('partitionTaskExecute', () => {
     const v2Hash = await storage.objects.write(repo, encodeInSegmentsOf(TableType, 100)(makeTable(1100)));
     const second = await taskExecute(storage, repo, taskHash, [fnIrHash, v2Hash]);
     assert.equal(second.state, 'success', second.error ?? '');
-    assert.equal(second.outputHash, v2Hash);
+    assert.equal(second.outputHash, await datasetWrite(storage, repo, makeTable(1100), TableType));
     // Identical to the no-gc append test: 10 cache hits, only the new tail
     // partition + the new logical identity execute.
     assert.equal(await executionCount(taskHash), 13);
@@ -1071,7 +1070,7 @@ describe('partitionTaskExecute', () => {
     rmSync(marker);
     const rerun = await taskExecute(storage, repo, taskHash, [fnIrHash, tableHash]);
     assert.equal(rerun.state, 'success', rerun.error ?? '');
-    assert.equal(rerun.outputHash, tableHash);
+    assert.equal(rerun.outputHash, await datasetWrite(storage, repo, makeTable(1000), TableType));
   });
 
   it('gc keeps a partitioned execution\'s plan, and the slices it recorded', async () => {
@@ -1219,7 +1218,8 @@ describe('partitionTaskExecute', () => {
 
     const result = await taskExecute(storage, repo, taskHash, [fnIrHash, arrayHash]);
     assert.equal(result.state, 'success', result.error ?? '');
-    assert.equal(result.outputHash, arrayHash, 'the identity body splices the scrambled array back');
+    assert.equal(result.outputHash, await datasetWrite(storage, repo, scrambled, ArrayType(PairType)),
+      'the identity body assembles the scrambled array back, in its order');
   });
 
   it('aligns boundaries on a `by` field read without compiling the projection', async () => {
@@ -1245,7 +1245,8 @@ describe('partitionTaskExecute', () => {
 
     const result = await taskExecute(storage, repo, taskHash, [fnIrHash, tableHash]);
     assert.equal(result.state, 'success', result.error ?? '');
-    assert.equal(result.outputHash, tableHash, 'the aligned slices splice back byte-identically');
+    assert.equal(result.outputHash, await datasetWrite(storage, repo, table, DictType(GroupKeyType, StringType)),
+      'the aligned slices assemble back into the value');
     // A cut at every fence, kept only where a group starts: partitions from
     // segments 0, 3, 6 and 9, plus the logical record.
     assert.equal(await executionCount(taskHash), 5);

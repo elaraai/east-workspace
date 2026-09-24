@@ -27,8 +27,9 @@
  *   template's reduce runs the runner's `merge` command — the package's own
  *   `mergeCommand`, written at export — over sorted partials; the combine
  *   template's runs the task's command over the combine IR and two partials.
- * - `splice` — the byte splice of an earlier step's hashes in order, under
- *   the first blob's header; its result is one hash.
+ * - `splice` — the assembly of an earlier step's hashes in order, through the
+ *   store's door, which re-cuts the seams between them; its result is one
+ *   hash.
  *
  * Three templates: splice `[plan, map, splice]`, combine `[plan, map,
  * reduce(fanIn 2, all)]` and merge `[plan, map, reduce(fanIn 32, ranges),
@@ -36,10 +37,11 @@
  * the execution cache and run by the unit executor only on a miss, so
  * partition-level memoization rides the execution cache; the carve and
  * splice byte hooks default to the local storage-layer code, and a remote
- * backend (e3-cloud) supplies its kernel's. The orchestrator never decodes a
- * partial: it reads segment indexes, fences and one edge segment at a time,
- * and carves nothing for a merge range — the range is a small blob the unit
- * takes as an input, and its runner seeks every partial to it.
+ * backend (e3-cloud) supplies its kernel's. The orchestrator decodes no
+ * partial whole: it reads segment indexes, fences and one edge segment at a
+ * time — at each seam of the assembly, a segment or two either side — and
+ * carves nothing for a merge range: the range is a small blob the unit takes
+ * as an input, and its runner seeks every partial to it.
  *
  * Every output is a deterministic function of the inputs and the task: the
  * partitions, the merge ranges and the tree are planned from the blobs'
@@ -83,7 +85,9 @@ import { inputsHash } from '../executions.js';
 import type { StorageBackend } from '../storage/interfaces.js';
 import { getBootId, getPidStartTime } from './processHelpers.js';
 import { probeExecutionCache, type ExecuteOptions, type ExecutionIds, type ExecutionResult } from './LocalTaskRunner.js';
-import { PartitionBlob, decodedSegmentPeak, resetDecodedSegmentPeak, spliceChunks } from './partitionIo.js';
+import { PartitionBlob, decodedSegmentPeak, resetDecodedSegmentPeak } from './partitionIo.js';
+import { DatasetSegments } from '../dataset-open.js';
+import { storeCollection } from '../store-collection.js';
 import {
   SpliceOrderError,
   carvePartitionSlices,
@@ -355,12 +359,12 @@ export interface ReduceStep {
   label: 'merge' | 'combine';
 }
 
-/** The splice step: the byte splice of an earlier step's hashes. */
+/** The splice step: the assembly of an earlier step's hashes. */
 export interface SpliceStep {
   kind: 'splice';
   /** The step whose hashes splice, in order. */
   over: number;
-  /** The step whose first hash supplies the header when `over` yields no
+  /** The step whose first hash supplies the type when `over` yields no
    *  hash (every partial empty), or `null`. */
   fallback: number | null;
   /** What the hashes are, for the order error. */
@@ -391,7 +395,7 @@ export interface StepExecutors {
   /** Carves one partition's slices of a plan; defaults to
    *  {@link carvePartitionSlices}. */
   carve?: (storage: StorageBackend, repo: string, plan: PartitionPlan, p: number) => Promise<string[]>;
-  /** Splices stored blobs in order; defaults to {@link spliceBlobs}. */
+  /** Assembles stored collections in order; defaults to {@link spliceBlobs}. */
   splice?: (storage: StorageBackend, repo: string, hashes: string[]) => Promise<string>;
 }
 
@@ -988,12 +992,12 @@ export async function executeTemplate(
         let hash: string;
         try {
           if (over.length === 0) {
-            // Every partial is empty: the empty collection under the first
-            // partial's header.
+            // Every partial is empty: the empty collection of the first
+            // partial's type.
             const source = step.fallback !== null ? resolve({ step: step.fallback }, results) : [];
             if (source.length === 0) return await errorResult('partition template: nothing to splice');
-            const first = await PartitionBlob.open(storage, repo, source[0]!);
-            hash = await storage.objects.writeStream(repo, spliceChunks(first.extents.head, []));
+            const { typeValue } = await DatasetSegments.open(storage, repo, source[0]!);
+            hash = await storeCollection(storage, repo, typeValue, []);
           } else if (over.length === 1 && step.subject === 'components') {
             hash = over[0]!;
           } else {

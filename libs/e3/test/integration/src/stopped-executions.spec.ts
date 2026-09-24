@@ -42,6 +42,7 @@ import {
   JobSlots,
   LocalOrchestrator,
   LocalStorage,
+  readDatasetWhole,
   workspaceGetDatasetHash,
   workspaceGetTaskHash,
   workspaceStatus,
@@ -99,12 +100,12 @@ describe('stopped executions', () => {
     repo = join(dir, 'repo');
     started = join(dir, 'started');
     hold = join(dir, 'hold');
-    table = new SortedMap(Array.from({ length: 40 }, (_, i) => [BigInt(i), `row-${i}`] as [bigint, string]), compareFor(IntegerType));
+    table = new SortedMap(Array.from({ length: 3_600 }, (_, i) => [BigInt(i), `row-${i}`] as [bigint, string]), compareFor(IntegerType));
   });
 
-  /** Deploys the held task on `runner`: forty rows in four segments make
-   *  four partitions, one of which runs at a time under --jobs 1, all four
-   *  under 4. */
+  /** Deploys the held task on `runner`: 3,600 rows are stored in four
+   *  segments, the cut rule's whatever the delivery's, which make four
+   *  partitions — one runs at a time under --jobs 1, all four under 4. */
   async function deploy(runner: Runner): Promise<void> {
     const tableInput = e3.input('table', TableType);
     const held = e3.partitionTask('held', {
@@ -122,7 +123,7 @@ describe('stopped executions', () => {
     const zip = join(dir, 'held.zip');
     await e3.export(e3.package('held', '1.0.0', held), zip);
     const tablePath = join(dir, 'table.beast2');
-    writeFileSync(tablePath, encodeInSegmentsOf(TableType, 10)(table));
+    writeFileSync(tablePath, encodeInSegmentsOf(TableType, 1_000)(table));
 
     for (const args of [
       ['repo', 'create', repo],
@@ -170,7 +171,7 @@ describe('stopped executions', () => {
     assert.match(rerun.stdout, /\[DONE\] held/);
     const { hash } = await workspaceGetDatasetHash(storage, repo, 'ws', [variant('field', 'tasks'), variant('field', 'held'), variant('field', 'output')]);
     assert.ok(hash !== null);
-    assert.ok(equalFor(TableType)(decodeBeast2For(TableType)(await storage.objects.read(repo, hash)), table));
+    assert.ok(equalFor(TableType)(decodeBeast2For(TableType)(await readDatasetWhole(storage, repo, hash)), table));
   }
 
   it('Ctrl-C during a partition records the partition and the task cancelled, prints [CANCELLED], and the next run executes', {

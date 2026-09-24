@@ -17,27 +17,22 @@
  * A manifest answers all of that from one small object read: the fences are
  * stored decoded-ready, so a key bisect probes no frames at all, and a page
  * reads exactly the segment objects its window touches. A bare segmented blob —
- * what a writer predating the layout left behind, and what a runner still hands
- * to its output file — answers the same questions through ranged reads of its
- * index and frames, so nothing on the read path has two code paths to keep in
- * step.
+ * what a writer predating the layout left behind — answers the same questions
+ * through ranged reads of its index and frames, so nothing on the read path has
+ * two code paths to keep in step. Writing a collection is the store's door's
+ * (`store-collection.ts`).
  *
  * @packageDocumentation
  */
 
 import {
-  beast2HasIndex,
   decodeBeast2For,
-  encodeBeast2FenceFor,
-  isContentCut,
-  segmentRuleFor,
   carveBeast2Ranged,
   compareFor,
   decodeBeast2FenceFor,
   openBeast2PagesFor,
   readBeast2Extents,
   readBeast2ExtentsRanged,
-  readBeast2SegmentLogicalBytes,
   readBeast2Type,
   segmentKeyTypeOf,
   spliceBeast2Tail,
@@ -48,15 +43,11 @@ import {
   COLLECTION_MANIFEST_KIND,
   RECORD_STATE_KIND,
   RecordStateType,
-  cutDatasetBlob,
   decodeCollectionManifest,
-  encodeCollectionManifest,
   isCollectionManifestType,
-  isCollectionRoot,
   isRecordStateType,
   manifestByteSize,
   type CollectionManifest,
-  type CollectionManifestEntry,
 } from '@elaraai/e3-types';
 import type { StorageBackend } from './storage/interfaces.js';
 
@@ -443,117 +434,6 @@ export async function openDatasetObject(
   if (!isCollectionManifestType(typeValue)) return { hash, manifest: null };
   const manifest = decodeCollectionManifest(whole ? head : await storage.objects.read(repo, hash));
   return { hash, manifest: manifest.kind === COLLECTION_MANIFEST_KIND ? manifest : null };
-}
-
-/**
- * Take a segmented collection blob into the store as segment objects plus a
- * manifest, and return the manifest's hash — the dataset's content address.
- *
- * @remarks
- * The storage-bound half of `cutDatasetBlob`: the pure carve lives in
- * `e3-types` beside the encoder door, because `e3-types` is the floor both
- * writers stand on and cannot see a `StorageBackend`.
- *
- * @param storage - Storage backend
- * @param repo - Repository identifier
- * @param blob - a segmented, indexed v5 collection blob
- * @returns the manifest object's hash
- * @throws {Error} When the blob is not a segmented, indexed, self-contained v5
- *   collection.
- */
-export async function cutDatasetIntoStore(storage: StorageBackend, repo: string, blob: Uint8Array): Promise<string> {
-  const manifest = await cutDatasetBlob(blob, (bytes) => storage.objects.write(repo, bytes));
-  return storage.objects.write(repo, manifest);
-}
-
-/**
- * Take a collection a program already wrote to the store into the layout,
- * without reading it whole.
- *
- * @remarks
- * The door for a blob that is ALREADY an object — a unit's output, a spliced
- * merge — where `cutDatasetBlob` wants bytes. A blob cut by the boundary rule
- * (which every runtime's encoder produces) is carved segment by segment
- * through ranged reads, so a 2 GB index costs one segment of memory rather
- * than 2 GB; one cut some other way falls back to the whole-value re-encode,
- * which is the only way to reach the canonical segmentation.
- *
- * @param storage - Storage backend
- * @param repo - Repository identifier
- * @param hash - the stored blob's content hash
- * @returns the manifest object's hash — the blob's own, when it is not a
- *   segmented collection
- */
-export async function cutDatasetObject(storage: StorageBackend, repo: string, hash: string): Promise<string> {
-  const opened = await openDatasetObject(storage, repo, hash);
-  if (opened.manifest !== null) return opened.hash;
-  const segments = await DatasetSegments.open(storage, repo, opened.hash);
-  const typeValue = segments.typeValue;
-  if (!isCollectionRoot(typeValue)) return opened.hash;
-  const keyType = segmentKeyTypeOf(typeValue);
-  const fenceOf = keyType === null ? null : encodeBeast2FenceFor(keyType);
-  const fences: Uint8Array[] = [];
-  if (fenceOf !== null) {
-    const sizes: number[] = [];
-    for (let i = 0; i < segments.segmentCount; i++) {
-      const segment = await segments.segment(i);
-      fences.push(fenceOf(openBeast2PagesFor(typeValue)(segment).fence(0)));
-      sizes.push(readBeast2SegmentLogicalBytes(segment)[0]!);
-    }
-    if (!isContentCut(fences, segments.counts, sizes)) {
-      // Not cut by the rule: only laying the value out again reaches the
-      // canonical segmentation, and that needs it whole.
-      return cutDatasetIntoStore(storage, repo, await readDatasetWhole(storage, repo, opened.hash));
-    }
-  }
-  const entries: CollectionManifestEntry[] = [];
-  for (let i = 0; i < segments.segmentCount; i++) {
-    const bytes = await segments.segment(i);
-    entries.push({
-      hash: await storage.objects.write(repo, bytes),
-      fence: fences[i] ?? new Uint8Array(0),
-      count: BigInt(segments.counts[i]!),
-      bytes: BigInt(bytes.byteLength),
-    });
-  }
-  return storage.objects.write(repo, encodeCollectionManifest({
-    kind: COLLECTION_MANIFEST_KIND,
-    level: 0n,
-    type: typeValue,
-    rule: segmentRuleFor(typeValue),
-    header: await storage.objects.write(repo, await segments.head()),
-    entries,
-  }));
-}
-
-/**
- * Take a beast2 blob a program produced into the store, in the layout its root
- * type calls for.
- *
- * @remarks
- * The door for bytes that were encoded somewhere else — a mutation reducer's
- * output, a migrated state. A segmented collection is cut into segment objects
- * and a manifest, so the next write of a value that differs by one row shares
- * every other segment; anything else is stored as it is. A collection blob
- * with no index is stored whole rather than refused here, because the reader
- * that needs the index is the one that should say so, naming the dataset.
- *
- * @param storage - Storage backend
- * @param repo - Repository identifier
- * @param bytes - the blob to store
- * @returns the dataset object's hash — the manifest, for a cut collection
- */
-export async function adoptDatasetBlob(storage: StorageBackend, repo: string, bytes: Uint8Array): Promise<string> {
-  let typeValue: EastTypeValue;
-  try {
-    typeValue = readBeast2Type(bytes);
-  } catch {
-    return storage.objects.write(repo, bytes);
-  }
-  if (!isCollectionRoot(typeValue) || !beast2HasIndex(bytes)) {
-    return storage.objects.write(repo, bytes);
-  }
-  return cutDatasetIntoStore(storage, repo, bytes);
 }
 
 /**

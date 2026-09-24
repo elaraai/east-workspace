@@ -230,11 +230,13 @@ export {
 } from './transfer.js';
 
 // Dataset blob encoding — the ONE branch deciding segmentation, shared by the
-// store path (e3-core `datasetWrite`) and the package export path (e3 `export_`)
+// store's door (e3-core `storeCollection`) and the package export (e3 `export_`)
 export {
   isCollectionRoot,
   encodeDatasetBlob,
-  cutDatasetBlob,
+  writeCollectionManifest,
+  type CollectionSegmentRef,
+  type CollectionPiece,
   type SegmentSink,
 } from './dataset-blob.js';
 

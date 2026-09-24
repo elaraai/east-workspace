@@ -221,7 +221,7 @@ program
       .argument('[file]', 'Path to .east, .beast2, .json, or .csv file')
       .option('--type <typespec>', 'Inline .east type specification (required for .json/.csv)')
       .option('--type-file <path>', 'Read .east type specification from a file (alternative to --type)')
-      .option('--from-file <path>', 'Adopt an existing .beast2 file by hash — the file is never read whole and never modified')
+      .option('--from-file <path>', 'Take an existing .beast2 file in as the value — read a segment at a time, never whole, and never modified')
       .action(withDefaultRepo(setCommand))
   )
   .addCommand(

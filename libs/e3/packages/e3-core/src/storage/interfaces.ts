@@ -17,8 +17,8 @@
  *
  * Every method is required. A capability a backend could leave out — ranged
  * reads, adopting a file, placing an object at a path, the owner and plan
- * records of an execution — would need a fallback in every caller, and the
- * fallbacks were whole-object reads.
+ * records of an execution, the adoption memo — would need a fallback in every
+ * caller, and the fallbacks were whole-object reads.
  */
 
 import type { ExecutionOwner, ExecutionStatus, LockState, LockOperation, DataflowRun, DatasetRef } from '@elaraai/e3-types';
@@ -452,6 +452,36 @@ export interface RefStore {
    * @returns The plan object hash, or null when none is recorded
    */
   executionPlanRead(repo: string, taskHash: string, inputsHash: string): Promise<string | null>;
+
+  // -------------------------------------------------------------------------
+  // Adoption Memo
+  // -------------------------------------------------------------------------
+
+  /**
+   * Record the collection a delivered file was stored as: the file's SHA-256
+   * and the manifest the store's door split it into.
+   *
+   * A delivery is read and split into segment objects when it is adopted, so
+   * its own hash names no object. This is what lets an adoption, or a transfer
+   * init, of the same bytes find the manifest without reading them again.
+   *
+   * @param repo - Repository identifier
+   * @param sourceHash - SHA-256 of the delivered bytes
+   * @param manifestHash - Hash of the manifest they were stored as
+   */
+  adoptionWrite(repo: string, sourceHash: string, manifestHash: string): Promise<void>;
+
+  /**
+   * Read the manifest a delivered file was stored as.
+   *
+   * An entry is a memo, not a garbage-collection root: the manifest may have
+   * been collected since, which the caller checks.
+   *
+   * @param repo - Repository identifier
+   * @param sourceHash - SHA-256 of the delivered bytes
+   * @returns The manifest's hash, or null when none is recorded
+   */
+  adoptionRead(repo: string, sourceHash: string): Promise<string | null>;
 
   // -------------------------------------------------------------------------
   // Dataflow Run History

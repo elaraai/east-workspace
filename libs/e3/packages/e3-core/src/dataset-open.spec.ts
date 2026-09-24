@@ -20,7 +20,8 @@ import {
   toEastTypeValue,
 } from '@elaraai/east';
 import { COLLECTION_MANIFEST_KIND, decodeCollectionManifest, manifestElementCount } from '@elaraai/e3-types';
-import { DatasetSegments, readDatasetWhole, readManifest, cutDatasetIntoStore } from './dataset-open.js';
+import { DatasetSegments, readDatasetWhole, readManifest } from './dataset-open.js';
+import { storeDatasetBytes } from './store-collection.js';
 import { datasetWrite } from './trees.js';
 import { createTestRepo, removeTestRepo, encodeInSegmentsOf } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
@@ -223,8 +224,8 @@ describe('the segment-object layout', () => {
     });
 
     it('opens a bare segmented blob through the same shape', async () => {
-      // A blob written outside the door — what a runner leaves on its output
-      // file, and what a repository written before the layout still holds.
+      // A blob written outside the door — what a repository written before
+      // the layout still holds.
       const blob = openBeast2PagesFor;  // referenced so the intent is explicit
       assert.ok(blob);
       const value = table(5_000);
@@ -238,18 +239,18 @@ describe('the segment-object layout', () => {
       assert.deepEqual(await readDatasetWhole(storage, repo, bare), bytes);
     });
 
-    it('cuts a bare blob into the layout, byte for byte as the door does', async () => {
+    it('stores a bare blob as the manifest the value path writes', async () => {
       const value = table(20_000);
       const direct = await datasetWrite(storage, repo, value, TableType);
       const bytes = (await import('@elaraai/east')).encodeBeast2PagedFor(TableType)(value);
-      const cut = await cutDatasetIntoStore(storage, repo, bytes);
-      assert.equal(cut, direct, 'cutting a rule-conforming blob must land on the door’s own manifest');
+      const cut = await storeDatasetBytes(storage, repo, bytes);
+      assert.equal(cut, direct, 'a rule-conforming blob must land on the door’s own manifest');
     });
 
     it('re-cuts a blob that was not cut by the rule', async () => {
       const value = table(20_000);
       const byCount = encodeInSegmentsOf(TableType, 1_000)(value);
-      const cut = await cutDatasetIntoStore(storage, repo, byCount);
+      const cut = await storeDatasetBytes(storage, repo, byCount);
       const manifest = decodeCollectionManifest(await storage.objects.read(repo, cut));
       for (let i = 0; i < manifest.entries.length - 1; i++) {
         assert.ok(Number(manifest.entries[i]!.count) >= SEGMENT_MIN_COUNT);

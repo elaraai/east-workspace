@@ -128,6 +128,8 @@ class InMemoryRefStore implements RefStore {
   private owners = new Map<string, ExecutionOwner>();
   // plan sidecars keyed by repo/taskHash/inputsHash
   private plans = new Map<string, string>();
+  // adoption memo entries keyed by repo/sourceHash
+  private adoptions = new Map<string, string>();
 
   private getPackages(repo: string): Map<string, string> {
     let repoPackages = this.packages.get(repo);
@@ -309,6 +311,14 @@ class InMemoryRefStore implements RefStore {
     return this.plans.get(`${repo}/${this.makeInputsKey(taskHash, inputsHash)}`) ?? null;
   }
 
+  async adoptionWrite(repo: string, sourceHash: string, manifestHash: string): Promise<void> {
+    this.adoptions.set(`${repo}/${sourceHash}`, manifestHash);
+  }
+
+  async adoptionRead(repo: string, sourceHash: string): Promise<string | null> {
+    return this.adoptions.get(`${repo}/${sourceHash}`) ?? null;
+  }
+
   // Dataflow run operations
   async dataflowRunGet(repo: string, workspace: string, runId: string): Promise<DataflowRun | null> {
     return this.getDataflowRuns(repo).get(this.makeDataflowRunKey(workspace, runId)) ?? null;
@@ -348,6 +358,7 @@ class InMemoryRefStore implements RefStore {
     this.dataflowRuns.clear();
     this.owners.clear();
     this.plans.clear();
+    this.adoptions.clear();
   }
 }
 

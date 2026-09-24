@@ -26,6 +26,7 @@ import {
   encodeBeast2For,
   printIdentifier,
   readBeast2ExtentsRanged,
+  readBeast2Type,
   StructType,
   variant,
   type EastType,
@@ -33,6 +34,7 @@ import {
 } from '@elaraai/east';
 import { DataRefType, WorkspaceStateType, checkDatasetType, datasetAddress, decodePackageObject, encodeDatasetBlob, isCollectionRoot, manifestByteSize, manifestElementCount, type DataRef, type DatasetRef, type Structure, type TreePath, type VersionVector } from '@elaraai/e3-types';
 import { openDatasetObject, readDatasetWhole } from './dataset-open.js';
+import { storeCollection } from './store-collection.js';
 import { packageRead } from './packages.js';
 import {
   WorkspaceNotFoundError,
@@ -295,12 +297,84 @@ export async function workspaceSetDataset(
   type: EastType | EastTypeValue,
   options: WorkspaceSetDatasetOptions = {}
 ): Promise<void> {
+  await withDatasetWriteLock(storage, repo, ws, treePath, options.lock, async (leaf) => {
+    // The type the caller encodes with must be the type the dataset declares.
+    // Exact equality, not assignability: the runner decodes the object BY the
+    // declared type and beast2 decoding is type-directed, so a merely
+    // assignable blob still decodes wrong — and it would do so inside the
+    // consuming task, naming neither this dataset nor the field that moved.
+    // Checked before `datasetWrite`, so a refusal leaves the store untouched.
+    const mismatch = checkDatasetType(`dataset '${leaf.address}'`, 'the value', leaf.type, type);
+    if (mismatch) throw new DatasetTypeMismatchError(ws, leaf.address, mismatch);
+
+    await setDatasetValueRef(storage, repo, ws, treePath, leaf, await datasetWrite(storage, repo, value, type));
+  });
+}
+
+/**
+ * Update a dataset from beast2 bytes as they arrive — an upload's body.
+ *
+ * @remarks
+ * The bytes' wire type is read from their head and checked against the type
+ * the dataset declares, exactly as {@link workspaceSetDataset} checks a
+ * value's, before anything is stored. A collection then goes into the store
+ * through its door a segment of the upload at a time, so the value is never
+ * held — whatever layout the client wrote it in, what is stored is the
+ * canonical manifest. Any other value is decoded and written as
+ * {@link workspaceSetDataset} writes it.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param ws - Workspace name
+ * @param treePath - Path to the dataset
+ * @param chunks - The value's beast2 bytes, in order
+ * @param options - Optional settings including external lock
+ * @throws {DatasetTypeMismatchError} When the bytes hold another type than
+ *   the dataset declares
+ * @throws {WorkspaceLockError} If workspace is locked by another process
+ * @throws If workspace not deployed, path invalid, the dataset is not
+ *   writable, or the bytes are not a value the store takes
+ */
+export async function workspaceSetDatasetBytes(
+  storage: StorageBackend,
+  repo: string,
+  ws: string,
+  treePath: TreePath,
+  chunks: AsyncIterable<Uint8Array> | Iterable<Uint8Array>,
+  options: WorkspaceSetDatasetOptions = {}
+): Promise<void> {
+  await withDatasetWriteLock(storage, repo, ws, treePath, options.lock, async (leaf) => {
+    const { typeValue, chunks: body } = await readHeadType(chunks);
+    const mismatch = checkDatasetType(`dataset '${leaf.address}'`, 'the value', leaf.type, typeValue);
+    if (mismatch) throw new DatasetTypeMismatchError(ws, leaf.address, mismatch);
+
+    let hash: string;
+    if (isCollectionRoot(leaf.type)) {
+      hash = await storeCollection(storage, repo, leaf.type, [{ chunks: body }]);
+    } else {
+      const parts: Uint8Array[] = [];
+      for await (const part of body) parts.push(part);
+      hash = await datasetWrite(storage, repo, decodeBeast2For(leaf.type)(Buffer.concat(parts)), leaf.type);
+    }
+    await setDatasetValueRef(storage, repo, ws, treePath, leaf, hash);
+  });
+}
+
+/**
+ * Runs a write to one writable dataset under the workspace's shared
+ * `dataset_write` lock — the caller's, when it holds one.
+ */
+async function withDatasetWriteLock(
+  storage: StorageBackend,
+  repo: string,
+  ws: string,
+  treePath: TreePath,
+  externalLock: LockHandle | undefined,
+  write: (leaf: DatasetLeaf) => Promise<void>
+): Promise<void> {
   if (treePath.length === 0) {
     throw new Error('Cannot set dataset at root path - root is always a tree');
   }
-
-  // Acquire lock if not provided externally
-  const externalLock = options.lock;
   let lock: LockHandle | null = externalLock ?? null;
   if (!lock) {
     lock = await storage.locks.acquire(repo, ws, variant('dataset_write', null), { mode: 'shared' });
@@ -314,55 +388,104 @@ export async function workspaceSetDataset(
   }
   try {
     const leaf = await workspaceResolveDataset(storage, repo, ws, treePath);
-
-    // Check writable flag
     if (!leaf.writable) {
       const pathStr = treePath.map(s => s.value).join('.');
       throw new Error(`Dataset at '${pathStr}' is not writable`);
     }
-
-    // The type the caller encodes with must be the type the dataset declares.
-    // Exact equality, not assignability: the runner decodes the object BY the
-    // declared type and beast2 decoding is type-directed, so a merely
-    // assignable blob still decodes wrong — and it would do so inside the
-    // consuming task, naming neither this dataset nor the field that moved.
-    // Checked before `datasetWrite`, so a refusal leaves the store untouched.
-    const mismatch = checkDatasetType(`dataset '${leaf.address}'`, 'the value', leaf.type, type);
-    if (mismatch) throw new DatasetTypeMismatchError(ws, leaf.address, mismatch);
-
-    // Write the new dataset value to object store
-    const newValueHash = await datasetWrite(storage, repo, value, type);
-
-    const refPath = leaf.refPath;
-
-    // A root input references its own current value in its version vector. The
-    // dataflow reconstructs this from the value hash, so populating it here is
-    // additive — but it finally writes the self-entry the reactive spec tracks.
-    const selfKeypath = treePath.map(s => '.' + printIdentifier(s.value)).join('');
-    const datasetRef: DatasetRef = variant('value', {
-      hash: newValueHash,
-      versions: new Map([[selfKeypath, newValueHash]]),
-    });
-
-    // Conditional write so a concurrent set on the same path cannot silently
-    // drop this one mid-write. The replace is blind, so on a revision conflict
-    // we just re-read the current revision and re-attempt.
-    for (let attempt = 0; ; attempt++) {
-      const existing = await storage.datasets.readVersioned(repo, ws, refPath);
-      try {
-        await storage.datasets.writeIf(repo, ws, refPath, datasetRef, existing?.revision ?? null);
-        break;
-      } catch (err) {
-        if (err instanceof DatasetRefConflictError && attempt < MAX_SET_DATASET_RETRIES) continue;
-        throw err;
-      }
-    }
+    await write(leaf);
   } finally {
     // Only release the lock if we acquired it internally
     if (!externalLock) {
       await lock.release();
     }
   }
+}
+
+/**
+ * Points a dataset's ref at a value already in the store.
+ *
+ * @remarks
+ * A root input references its own current value in its version vector. The
+ * dataflow reconstructs this from the value hash, so populating it here is
+ * additive — but it writes the self-entry the reactive spec tracks. The write
+ * is conditional, so a concurrent set on the same path cannot silently drop
+ * this one mid-write; the replace is blind, so on a revision conflict it
+ * re-reads the current revision and tries again.
+ */
+async function setDatasetValueRef(
+  storage: StorageBackend,
+  repo: string,
+  ws: string,
+  treePath: TreePath,
+  leaf: DatasetLeaf,
+  hash: string
+): Promise<void> {
+  const selfKeypath = treePath.map(s => '.' + printIdentifier(s.value)).join('');
+  const datasetRef: DatasetRef = variant('value', {
+    hash,
+    versions: new Map([[selfKeypath, hash]]),
+  });
+  for (let attempt = 0; ; attempt++) {
+    const existing = await storage.datasets.readVersioned(repo, ws, leaf.refPath);
+    try {
+      await storage.datasets.writeIf(repo, ws, leaf.refPath, datasetRef, existing?.revision ?? null);
+      return;
+    } catch (err) {
+      if (err instanceof DatasetRefConflictError && attempt < MAX_SET_DATASET_RETRIES) continue;
+      throw err;
+    }
+  }
+}
+
+/** Bytes of a stream's head the wire type is read from, at most — a type
+ *  section wider than 16 MiB is malformed, not merely large. */
+const HEAD_TYPE_MAX_BYTES = 16 * 1024 * 1024;
+
+/**
+ * The wire type at the head of a stream of beast2 bytes, and the stream whole
+ * again: the chunks read to find the type, then the rest as they arrive.
+ */
+async function readHeadType(
+  chunks: AsyncIterable<Uint8Array> | Iterable<Uint8Array>
+): Promise<{ typeValue: EastTypeValue; chunks: AsyncIterable<Uint8Array> }> {
+  const iterator: AsyncIterator<Uint8Array> | Iterator<Uint8Array> = Symbol.asyncIterator in chunks
+    ? (chunks as AsyncIterable<Uint8Array>)[Symbol.asyncIterator]()
+    : (chunks as Iterable<Uint8Array>)[Symbol.iterator]();
+  const head: Uint8Array[] = [];
+  let length = 0;
+  let ended = false;
+  let typeValue: EastTypeValue | undefined;
+  while (typeValue === undefined) {
+    const next = await iterator.next();
+    if (next.done === true) ended = true;
+    else {
+      head.push(next.value);
+      length += next.value.length;
+    }
+    try {
+      typeValue = readBeast2Type(Buffer.concat(head));
+    } catch (err) {
+      // A short head fails as a malformed one does: read on until the type
+      // section must be in hand.
+      if (ended || length >= HEAD_TYPE_MAX_BYTES) {
+        await iterator.return?.();
+        throw err;
+      }
+    }
+  }
+  async function* whole(): AsyncGenerator<Uint8Array> {
+    try {
+      yield* head;
+      while (!ended) {
+        const next = await iterator.next();
+        if (next.done === true) ended = true;
+        else yield next.value;
+      }
+    } finally {
+      if (!ended) await iterator.return?.();
+    }
+  }
+  return { typeValue, chunks: whole() };
 }
 
 // =============================================================================

@@ -8,15 +8,16 @@
  *
  * - The declared type is checked at the door, from the file's header, before
  *   anything is read whole or written (#766).
- * - A `.beast2` delivery is adopted by hash — by `--from-file`, and by a
- *   `variant('file', path)` source at deploy — and reports the geometry its
- *   index carries (#765).
+ * - A `.beast2` delivery — by `--from-file`, and by a `variant('file', path)`
+ *   source at deploy — is stored as the manifest the value path writes for
+ *   the rows it holds, whatever its own layout, and reports that geometry
+ *   (#765).
  */
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 import e3 from '@elaraai/e3';
@@ -34,6 +35,7 @@ import {
   toEastTypeValue,
   variant,
 } from '@elaraai/east';
+import { decodeCollectionManifest, encodeDatasetBlob } from '@elaraai/e3-types';
 import { encodeInSegmentsOf } from '@elaraai/e3-core/test';
 import { createTestDir, getE3CliPath, removeTestDir, runE3Command } from './helpers.js';
 
@@ -60,6 +62,13 @@ function sha256Of(path: string): string {
   return createHash('sha256').update(readFileSync(path)).digest('hex');
 }
 
+/** The manifest the store keeps a table as — what the value path writes, its
+ *  objects hashed as the store hashes them — and its segment count. */
+async function storedAs(rows: unknown[]): Promise<{ hash: string; segments: number }> {
+  const manifest = await encodeDatasetBlob(ArrayType(Row), rows, async (bytes) => createHash('sha256').update(bytes).digest('hex'));
+  return { hash: createHash('sha256').update(manifest).digest('hex'), segments: decodeCollectionManifest(manifest).entries.length };
+}
+
 describe('e3 dataset set', () => {
   let testDir: string;
   let repoDir: string;
@@ -69,9 +78,10 @@ describe('e3 dataset set', () => {
   let driftedPath: string;
   /** Only the drifted file's header — decoding it whole fails, reading its type does not. */
   let driftedHeaderPath: string;
-  let segmentCount: number;
+  /** The manifest the delivered table is stored as, and its segment count. */
+  let stored: { hash: string; segments: number };
 
-  beforeEach(() => {
+  beforeEach(async () => {
     testDir = createTestDir();
     mkdirSync(testDir, { recursive: true });
     repoDir = join(testDir, 'repo');
@@ -80,8 +90,9 @@ describe('e3 dataset set', () => {
     const good = encodeInSegmentsOf(ArrayType(Row), 100)(rows);
     goodPath = join(testDir, 'TABLE.beast2');
     writeFileSync(goodPath, good);
-    segmentCount = readBeast2Extents(good).offsets.length;
-    assert.ok(segmentCount > 1, 'the delivery spans several segments');
+    stored = await storedAs(rows);
+    assert.ok(stored.segments > 1, 'the table is stored in several segments');
+    assert.notEqual(readBeast2Extents(good).offsets.length, stored.segments, 'the delivery is batched, not cut by the rule');
 
     const drifted = encodeInSegmentsOf(ArrayType(DriftedRow), 100)(
       rows.map(({ id, name }) => ({ id, name }))
@@ -165,29 +176,28 @@ describe('e3 dataset set', () => {
     });
   });
 
-  describe('--from-file adopts a delivery by hash', () => {
-    it('points the dataset at the file by hash, reports its geometry, and leaves the file untouched', async () => {
+  describe('--from-file takes a delivery in as its value', () => {
+    it('points the dataset at the manifest of the rows, reports its geometry, and leaves the file untouched', async () => {
       await deployTable();
-      const hash = sha256Of(goodPath);
       const delivered = statSync(goodPath);
 
       const result = await runE3Command(['dataset', 'set', repoDir, 'ws.table', '--from-file', goodPath], testDir);
       assert.strictEqual(result.exitCode, 0, `set --from-file failed: ${result.stderr}`);
-      assert.match(result.stdout, new RegExp(`Hash: +${hash}`));
-      assert.match(result.stdout, new RegExp(`Segments: ${segmentCount}\\b`));
+      assert.match(result.stdout, new RegExp(`Hash: +${stored.hash}`));
+      assert.match(result.stdout, new RegExp(`Segments: ${stored.segments}\\b`));
       assert.match(result.stdout, new RegExp(`Rows: +${ROW_COUNT}\\b`));
 
-      // The object IS the delivery's bytes, under the delivery's hash.
-      const object = join(repoDir, 'objects', hash.slice(0, 2), `${hash.slice(2)}.beast2`);
-      assert.ok(Buffer.from(readFileSync(object)).equals(readFileSync(goodPath)), 'the object holds the delivery');
+      // The delivery is split into the store's segments, not stored as it came.
+      const hash = sha256Of(goodPath);
+      assert.ok(!existsSync(join(repoDir, 'objects', hash.slice(0, 2), `${hash.slice(2)}.beast2`)), 'the delivery is not an object');
       const after = statSync(goodPath);
       assert.strictEqual(after.mtimeMs, delivered.mtimeMs, 'the delivery is not modified');
       assert.strictEqual(after.mode, delivered.mode, "the delivery's mode is unchanged");
 
       const status = await runE3Command(['dataset', 'status', repoDir, 'ws.table'], testDir);
       assert.strictEqual(status.exitCode, 0, `status failed: ${status.stderr}`);
-      assert.match(status.stdout, new RegExp(`Hash: +${hash}`));
-      assert.match(status.stdout, new RegExp(`Segments: ${segmentCount}\\b`));
+      assert.match(status.stdout, new RegExp(`Hash: +${stored.hash}`));
+      assert.match(status.stdout, new RegExp(`Segments: ${stored.segments}\\b`));
       assert.match(status.stdout, new RegExp(`Rows: +${ROW_COUNT}\\b`));
     });
 
@@ -205,7 +215,7 @@ describe('e3 dataset set', () => {
   });
 
   describe('a file source', () => {
-    it('is adopted at deploy, so the input is set with the file hash and geometry', async () => {
+    it('is adopted at deploy, so the input is set to the manifest of its rows', async () => {
       const table = e3.input('table', ArrayType(Row), variant('file', goodPath));
       const zip = join(testDir, 'sourced.zip');
       await e3.export(e3.package('sourced', '1.0.0', table), zip);
@@ -222,8 +232,8 @@ describe('e3 dataset set', () => {
       const status = await runE3Command(['dataset', 'status', repoDir, 'ws.table'], testDir);
       assert.strictEqual(status.exitCode, 0, `status failed: ${status.stderr}`);
       assert.match(status.stdout, /Status: set/);
-      assert.match(status.stdout, new RegExp(`Hash: +${sha256Of(goodPath)}`));
-      assert.match(status.stdout, new RegExp(`Segments: ${segmentCount}\\b`));
+      assert.match(status.stdout, new RegExp(`Hash: +${stored.hash}`));
+      assert.match(status.stdout, new RegExp(`Segments: ${stored.segments}\\b`));
       assert.match(status.stdout, new RegExp(`Rows: +${ROW_COUNT}\\b`));
     });
   });
@@ -323,8 +333,8 @@ describe('e3 dataset set', () => {
 
       let remote = await status();
       assert.strictEqual(remote.exitCode, 0, `status failed: ${remote.stderr}`);
-      assert.match(remote.stdout, new RegExp(`Hash: +${sha256Of(delivery)}`));
-      assert.match(remote.stdout, new RegExp(`Segments: ${segmentCount}\\b`));
+      assert.match(remote.stdout, new RegExp(`Hash: +${stored.hash}`));
+      assert.match(remote.stdout, new RegExp(`Segments: ${stored.segments}\\b`));
       assert.match(remote.stdout, new RegExp(`Rows: +${ROW_COUNT}\\b`));
 
       // The server never resolves the path itself, although it could read it
@@ -340,7 +350,7 @@ describe('e3 dataset set', () => {
       assert.strictEqual(again.exitCode, 0, `redeploy failed: ${again.stderr}\n${again.stdout}`);
       remote = await status();
       assert.match(remote.stdout, /Status: set/);
-      assert.match(remote.stdout, new RegExp(`Hash: +${sha256Of(delivery)}`));
+      assert.match(remote.stdout, new RegExp(`Hash: +${stored.hash}`));
 
       // A new delivery under the same path is a new hash on the next deploy.
       const more = Array.from({ length: ROW_COUNT + 500 }, (_, i) => ({ id: BigInt(i), name: `row-${i}`, score: i / 7 }));
@@ -348,7 +358,7 @@ describe('e3 dataset set', () => {
       const second = await deploy();
       assert.strictEqual(second.exitCode, 0, `redeploy failed: ${second.stderr}\n${second.stdout}`);
       remote = await status();
-      const newHash = sha256Of(delivery);
+      const newHash = (await storedAs(more)).hash;
       assert.match(remote.stdout, new RegExp(`Hash: +${newHash}`));
       assert.match(remote.stdout, new RegExp(`Rows: +${ROW_COUNT + 500}\\b`));
 
@@ -371,7 +381,7 @@ describe('e3 dataset set', () => {
       // A zip exported elsewhere carries the delivery's absolute path.
       const zip = join(testDir, 'remote-zip.zip');
       await e3.export(e3.package('remote-zip', '1.0.0', e3.input('table', ArrayType(Row), variant('file', delivery))), zip);
-      const hash = sha256Of(delivery);
+      const hash = stored.hash;
 
       const fromZip = await e3At(['workspace', 'deploy', remoteUrl, 'zipws', '--from-zip', zip]);
       assert.strictEqual(fromZip.exitCode, 0, `--from-zip deploy failed: ${fromZip.stderr}\n${fromZip.stdout}`);

@@ -37,7 +37,8 @@ import {
 } from '@elaraai/e3-types';
 import { DeltaConflictError, applyDelta } from './record-apply.js';
 import { executeRecordOperation } from './execution/recordSteps.js';
-import { DatasetSegments, adoptDatasetBlob, openDatasetObject, readManifest } from './dataset-open.js';
+import { DatasetSegments, openDatasetObject, readManifest } from './dataset-open.js';
+import { storeDatasetBytes } from './store-collection.js';
 import { workspaceGetPackage } from './workspaces.js';
 import { refPathToKeypath } from './dataset-refs.js';
 import { DatasetRefConflictError, WorkspaceLockError } from './errors.js';
@@ -522,7 +523,7 @@ async function writeWholeState(
     { signal: run.signal, verbose: run.verbose },
   );
   if (result.kind !== 'success') return { failure: failureOutcome(result) };
-  const primary = await adoptDatasetBlob(storage, repo, result.value);
+  const primary = await storeDatasetBytes(storage, repo, result.value);
   const rebuilt = await buildRecordIndexes(storage, runner, repo, indexes, primary, run);
   if ('failure' in rebuilt) return rebuilt;
   return { primary, indexes: rebuilt.built };
@@ -587,7 +588,7 @@ async function writeDelta(
       }
       return { failure: failureOutcome(result) };
     }
-    deltaHash = await adoptDatasetBlob(storage, repo, result.value);
+    deltaHash = await storeDatasetBytes(storage, repo, result.value);
   }
 
   let written: Map<string, string>;

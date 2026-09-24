@@ -139,12 +139,32 @@ export function createDatasetRoutes(
     const pathStr = fullPath.startsWith(datasetsPrefix) ? fullPath.slice(datasetsPrefix.length) : '';
     const treePath = urlPathToTreePath(pathStr);
 
-    // Body is raw BEAST2
-    const buffer = await c.req.arrayBuffer();
-    const body = new Uint8Array(buffer);
-
-    return setDataset(storage, repoPath, ws, treePath, body);
+    // Body is raw BEAST2, read as it arrives.
+    return setDataset(storage, repoPath, ws, treePath, bodyChunks(c.req.raw.body));
   });
 
   return app;
+}
+
+/**
+ * A request body's chunks, as they arrive. A reader that stops early — a
+ * refused upload — cancels the body, so the connection is not left holding it.
+ */
+async function* bodyChunks(body: ReadableStream<Uint8Array> | null): AsyncGenerator<Uint8Array> {
+  if (body === null) return;
+  const reader = body.getReader();
+  let done = false;
+  try {
+    for (;;) {
+      const next = await reader.read();
+      if (next.done) {
+        done = true;
+        return;
+      }
+      yield next.value;
+    }
+  } finally {
+    if (!done) await reader.cancel().catch(() => { /* the body may already be errored */ });
+    reader.releaseLock();
+  }
 }

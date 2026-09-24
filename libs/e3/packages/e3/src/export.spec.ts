@@ -484,19 +484,25 @@ describe('path-initialised inputs (source variants)', () => {
     );
   });
 
-  it('refuses a missing delivery and a delivery with no paging index', async () => {
+  it('refuses a missing delivery and one that is not beast2, and takes one in any layout', async () => {
     await assert.rejects(
       () => export_(package_('missing', '1.0.0', input('gone', RowsType, variant('file', path.join(tempDir, 'nope.beast2')))),
         path.join(tempDir, 'missing.zip')),
       /input 'gone': no file at/
     );
 
-    const flat = path.join(tempDir, 'flat.beast2');
-    fs.writeFileSync(flat, encodeBeast2For(RowsType)(new Map([['a', 1n]])));
+    const junk = path.join(tempDir, 'junk.beast2');
+    fs.writeFileSync(junk, new Uint8Array([1, 2, 3]));
     await assert.rejects(
-      () => export_(package_('flat', '1.0.0', input('flat', RowsType, variant('file', flat))), path.join(tempDir, 'flat.zip')),
-      /input 'flat': .* is not a readable indexed beast2 collection/
+      () => export_(package_('junk', '1.0.0', input('junk', RowsType, variant('file', junk))), path.join(tempDir, 'junk.zip')),
+      /input 'junk': .* is not a readable beast2 container/
     );
+
+    // The store reads a delivery a segment at a time whatever its layout, so
+    // one encoded whole, with no index, is taken as it is.
+    const whole = path.join(tempDir, 'whole.beast2');
+    fs.writeFileSync(whole, encodeBeast2For(RowsType)(new Map([['a', 1n]])));
+    await export_(package_('whole', '1.0.0', input('whole', RowsType, variant('file', whole))), path.join(tempDir, 'whole.zip'));
   });
 
   it('exports a value source exactly as an inline default was', async () => {

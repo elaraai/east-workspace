@@ -31,22 +31,12 @@ import {
   applyFor,
   compareFor,
   decodeBeast2For,
-  recutBeast2For,
   segmentKeyTypeOf,
-  segmentRuleFor,
   variant,
-  type Beast2RecutPiece,
-  type Beast2SegmentRef,
-  type EastType,
   type EastTypeValue,
 } from '@elaraai/east';
-import {
-  COLLECTION_MANIFEST_KIND,
-  encodeCollectionManifest,
-  type CollectionManifest,
-  type CollectionManifestEntry,
-} from '@elaraai/e3-types';
 import { DatasetSegments } from './dataset-open.js';
+import { storeCollection, type CollectionSource } from './store-collection.js';
 import type { StorageBackend } from './storage/interfaces.js';
 
 /** One arm of a delta: the target it addresses and its ops in key order. */
@@ -56,10 +46,6 @@ interface DeltaArm {
   /** `[key, op]` pairs in the target's own key order. */
   ops: Array<[unknown, unknown]>;
 }
-
-/** A segment the re-cut may carry over, with the manifest entry that already
- *  names it. */
-type EntryRef = Beast2SegmentRef & { entry: CollectionManifestEntry };
 
 /** A delta could not be applied to the state it was handed: the key it
  *  disagreed on is in the message. */
@@ -180,6 +166,15 @@ export async function summarizeDelta(
  * Edit one target's touched segments, re-cut them into the segments around
  * them, and write its new manifest.
  *
+ * @remarks
+ * The target goes through the store's door as the runs of segments no op
+ * touches, as they are stored, and each touched segment's elements with the
+ * ops applied. A run cut by the current rule is carried over wherever the
+ * edited value still starts a segment at it; one cut under another rule — an
+ * earlier version of this one, or a legacy blob's own geometry — is read and
+ * written again, so a target's first write lays it out under the current rule
+ * and the writes after it are incremental.
+ *
  * @returns the new manifest object's hash
  */
 async function applyArm(
@@ -197,16 +192,6 @@ async function applyArm(
   const keyCompare = compareFor(keyType as never) as (a: unknown, b: unknown) => number;
   const apply = applyFor(typeValue);
   const decodeSegment = decodeBeast2For(typeValue) as (bytes: Uint8Array) => unknown;
-  const sink = (bytes: Uint8Array): Promise<string> => storage.objects.write(repo, bytes);
-
-  // Segments cut by the current rule are carried over wherever the edited value
-  // still starts a segment at them. A target cut under another rule — an
-  // earlier version of this one, or a legacy blob's own geometry — has no
-  // segment the current rule would write, so every one of its segments goes
-  // through as elements, a segment at a time: its first write lays it out
-  // under the current rule, and the writes after it are incremental.
-  const manifest = segments.manifest;
-  const current = manifest !== null && manifest.rule === segmentRuleFor(typeValue);
 
   // Which segment each touched key falls in. A key before every fence lands in
   // segment 0 and one past them all in the last, so an insert always has a
@@ -219,75 +204,30 @@ async function applyArm(
     if (held === undefined) bySegment.set(i, [[key, op]]);
     else held.push([key, op]);
   }
-  const edited = current
-    ? [...bySegment.keys()].sort((a, b) => a - b)
-    : Array.from({ length: Math.max(1, segments.segmentCount) }, (_, i) => i);
+  const edited = [...bySegment.keys()].sort((a, b) => a - b);
 
-  async function* pieces(): AsyncIterable<Beast2RecutPiece<EastType, EntryRef>> {
+  /** Segment `i` with its ops applied, as elements. */
+  async function* editedElements(i: number): AsyncGenerator<unknown> {
+    const before = i < segments.segmentCount
+      ? decodeSegment(await segments.segment(i))
+      : emptyOf(typeValue, keyCompare);
+    const after = applyOps(apply, arm.target, before, new SortedMap<unknown, unknown>(bySegment.get(i)!, keyCompare));
+    yield* typeValue.type === 'Set'
+      ? after as SortedSet<unknown>
+      : (after as SortedMap<unknown, unknown>).entries();
+  }
+
+  function* sources(): Generator<CollectionSource> {
     let at = 0;
     for (const i of edited) {
-      if (at < i) yield { segments: entryRefs(at, i) };
-      const before = i < segments.segmentCount
-        ? decodeSegment(await segments.segment(i))
-        : emptyOf(typeValue, keyCompare);
-      const ops = bySegment.get(i);
-      const after = ops === undefined
-        ? before
-        : applyOps(apply, arm.target, before, new SortedMap<unknown, unknown>(ops, keyCompare));
-      yield {
-        elements: typeValue.type === 'Set'
-          ? after as SortedSet<unknown>
-          : (after as SortedMap<unknown, unknown>).entries(),
-      };
+      if (at < i) yield { stored: hash, from: at, to: i };
+      yield { elements: editedElements(i) };
       at = i + 1;
     }
-    if (at < segments.segmentCount) yield { segments: entryRefs(at, segments.segmentCount) };
+    if (at < segments.segmentCount) yield { stored: hash, from: at, to: segments.segmentCount };
   }
 
-  /** The manifest's segments `[from, to)`, each carrying the entry that names
-   *  it and the fence that followed it, which decides a seam after it without
-   *  a read when the edit left that fence standing. */
-  function entryRefs(from: number, to: number): EntryRef[] {
-    const entries = manifest!.entries;
-    const refs: EntryRef[] = [];
-    for (let i = from; i < to; i++) {
-      const entry = entries[i]!;
-      refs.push({
-        count: Number(entry.count),
-        fence: entry.fence,
-        ...(i + 1 < entries.length && { nextFence: entries[i + 1]!.fence }),
-        read: () => segments.segment(i),
-        entry,
-      });
-    }
-    return refs;
-  }
-
-  // New segments are written under the header the carried ones are under.
-  const header = current ? await segments.head() : undefined;
-  const entries: CollectionManifestEntry[] = [];
-  const recut = recutBeast2For<EastType, EntryRef>(typeValue, header === undefined ? undefined : { headerPrefix: header });
-  const stats = await recut(pieces(), {
-    carried: (ref) => { entries.push(ref.entry); },
-    written: async (segment) => {
-      entries.push({
-        hash: await sink(segment.blob),
-        fence: segment.fence,
-        count: BigInt(segment.count),
-        bytes: BigInt(segment.blob.byteLength),
-      });
-    },
-  });
-
-  const written: CollectionManifest = {
-    kind: COLLECTION_MANIFEST_KIND,
-    level: 0n,
-    type: typeValue,
-    rule: segmentRuleFor(typeValue),
-    header: current ? manifest.header : await sink(stats.header),
-    entries,
-  };
-  return sink(encodeCollectionManifest(written));
+  return storeCollection(storage, repo, typeValue, sources());
 }
 
 /** A value with the arm's ops applied; an op that disagrees with it is the

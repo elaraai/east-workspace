@@ -368,6 +368,40 @@ export class LocalRefStore implements RefStore {
   }
 
   // -------------------------------------------------------------------------
+  // Adoption Memo
+  // -------------------------------------------------------------------------
+
+  /**
+   * Path to an adoption memo entry: adoptions/<hash[0..2]>/<hash[2..]>, or
+   * null for a name that is not a SHA-256 in lowercase hex — a client names
+   * the hash a transfer init asks after, so nothing else is joined into a path.
+   */
+  private adoptionPath(repo: string, sourceHash: string): string | null {
+    if (!/^[0-9a-f]{64}$/.test(sourceHash)) return null;
+    return path.join(repo, 'adoptions', sourceHash.slice(0, 2), sourceHash.slice(2));
+  }
+
+  async adoptionWrite(repo: string, sourceHash: string, manifestHash: string): Promise<void> {
+    const entry = this.adoptionPath(repo, sourceHash);
+    if (entry === null) throw new Error(`adoption memo: '${sourceHash}' is not a SHA-256`);
+    await atomicWriteFile(entry, manifestHash + '\n');
+  }
+
+  async adoptionRead(repo: string, sourceHash: string): Promise<string | null> {
+    const entry = this.adoptionPath(repo, sourceHash);
+    if (entry === null) return null;
+    try {
+      // What it names becomes an object's path, so an entry that is not a
+      // SHA-256 — a torn or edited file — is a miss.
+      const hash = (await fs.readFile(entry, 'utf-8')).trim();
+      return /^[0-9a-f]{64}$/.test(hash) ? hash : null;
+    } catch (err) {
+      if (isNotFoundError(err)) return null;
+      throw err;
+    }
+  }
+
+  // -------------------------------------------------------------------------
   // Dataflow Run History
   // -------------------------------------------------------------------------
 

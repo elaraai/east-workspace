@@ -3,13 +3,13 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
-import { NullType, ArrayType, StringType, compareFor, decodeBeast2, encodeBeast2For, openBeast2PagesFor, parseFor, some, none, variant, toEastTypeValue, isVariant, type EastTypeValue } from '@elaraai/east';
+import { NullType, ArrayType, StringType, compareFor, encodeBeast2For, openBeast2PagesFor, parseFor, some, none, variant, toEastTypeValue, isVariant, type EastTypeValue } from '@elaraai/east';
 import type { TreePath } from '@elaraai/e3-types';
 import {
   workspaceListTree,
   workspaceGetDatasetHash,
   workspaceGetDatasetStatus,
-  workspaceSetDataset,
+  workspaceSetDatasetBytes,
   workspaceGetTree,
   readManifest,
   recordIndexNames,
@@ -949,24 +949,25 @@ export async function findDatasetKey(
 }
 
 /**
- * Set dataset value from raw BEAST2 bytes.
+ * Set a dataset value from raw BEAST2 bytes, read as they arrive.
+ *
+ * @remarks
+ * The body is never held whole: its type is read from its head and checked
+ * against the dataset's, and a collection goes into the store through its
+ * door a segment of the body at a time.
  */
 export async function setDataset(
   storage: StorageBackend,
   repoPath: string,
   workspace: string,
   treePath: TreePath,
-  body: Uint8Array
+  body: AsyncIterable<Uint8Array> | Iterable<Uint8Array>
 ): Promise<Response> {
   try {
     if (treePath.length === 0) {
       return sendError(NullType, errorToVariant(new Error('Path required for set')));
     }
-
-    // Body is raw BEAST2 - decode to get type and value
-    const { type, value } = decodeBeast2(body);
-
-    await workspaceSetDataset(storage, repoPath, workspace, treePath, value, type);
+    await workspaceSetDatasetBytes(storage, repoPath, workspace, treePath, body);
     return sendSuccess(NullType, null);
   } catch (err) {
     return sendError(NullType, errorToVariant(err));

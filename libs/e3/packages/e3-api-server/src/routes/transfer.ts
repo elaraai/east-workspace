@@ -13,6 +13,7 @@ import {
   DatasetTypeMismatchError,
   datasetAdoptFile,
   datasetAdoptObject,
+  deliveryKnown,
   transferStagingDir,
   transferStagingPath,
   type DatasetUpload,
@@ -204,11 +205,11 @@ export function createTransferRoutes(
     const pathStr = extractDatasetPath(c, '/upload');
     const { hash, size } = await decodeBody(c, TransferUploadRequestType);
 
-    // Dedup — the bytes are already an object, so no upload is needed. The
-    // object is not necessarily THIS dataset's type though (it may have been
-    // stored for another one), so the pairing is checked here: it is the only
-    // door that skips the commit.
-    if (await storage.objects.exists(repoPath, hash)) {
+    // Dedup — the store knows these bytes, as the manifest they were split
+    // into or as an object, so no upload is needed. It may have stored them
+    // for another dataset, of another type, so the pairing is checked here: it
+    // is the only door that skips the commit.
+    if (await deliveryKnown(storage, repoPath, hash)) {
       const treePath = urlPathToTreePath(pathStr);
       await datasetAdoptObject(storage, repoPath, ws, treePath, hash);
       return sendSuccess(TransferUploadResponseType, variant('completed', null));
@@ -309,10 +310,10 @@ export function createTransferRoutes(
       const repoPath = getRepoPath(transfer.repo);
       stagingPath = transferStagingPath(repoPath, id);
 
-      // The staged file is never read whole: its size comes from `stat`, its
-      // digest from a streamed hash, its declared type and paging index from
-      // two ranged reads, and it becomes an object by link or rename. A
-      // multi-gigabyte delivery therefore commits for the cost of its SHA-256.
+      // The staged file is never held whole: its size comes from `stat`, its
+      // digest from a streamed hash and its declared type from a read of its
+      // head. A collection is then split into segment objects a segment at a
+      // time, and any other value becomes an object by link or rename.
       const stats = await stat(stagingPath);
       if (BigInt(stats.size) !== transfer.size) {
         return {

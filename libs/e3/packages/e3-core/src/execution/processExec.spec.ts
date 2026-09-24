@@ -30,7 +30,8 @@ import crossSpawn from 'cross-spawn';
 import { DictType, East, FunctionType, IntegerType, NullType, SortedMap, StringType, compareFor, decodeBeast2For, encodeEastIR, variant } from '@elaraai/east';
 import { decodeCollectionManifest } from '@elaraai/e3-types';
 import { withRunnerLifeline } from '@elaraai/e3-types';
-import { adoptOutputFile, jobLauncher, marshalInputsToDir, quoteWindowsArgument, spawnAndCapture } from './processExec.js';
+import { jobLauncher, marshalInputsToDir, quoteWindowsArgument, spawnAndCapture } from './processExec.js';
+import { storeDatasetFile } from '../store-collection.js';
 import { datasetWrite } from '../trees.js';
 import { createTestRepo, removeTestRepo, createTempDir, removeTempDir, processTree } from '../test-helpers.js';
 import { LocalStorage } from '../storage/local/index.js';
@@ -175,7 +176,7 @@ describe('staging by link or kernel copy', () => {
     const bytes = new Uint8Array(3000).fill(0x46);
     writeFileSync(outputPath, bytes);
 
-    const adopted = await adoptOutputFile(storage, testRepo, outputPath);
+    const adopted = await storeDatasetFile(storage, testRepo, outputPath);
     const written = await storage.objects.write(testRepo, bytes);
 
     assert.equal(adopted, written, 'adopt and write are one content address');
@@ -194,7 +195,7 @@ describe('staging by link or kernel copy', () => {
     const bytes = new Uint8Array(1500).fill(0x47);
     writeFileSync(outputPath, bytes);
 
-    const hash = await adoptOutputFile(storage, testRepo, outputPath);
+    const hash = await storeDatasetFile(storage, testRepo, outputPath);
     rmSync(outputPath);
 
     assert.deepEqual(await storage.objects.read(testRepo, hash), bytes);

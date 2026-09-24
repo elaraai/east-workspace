@@ -56,6 +56,7 @@ import {
 import type { ExecutionResult } from './LocalTaskRunner.js';
 import { inputsHash } from '../executions.js';
 import { uuidv7 } from '../uuid.js';
+import { readDatasetWhole } from '../dataset-open.js';
 import { createTestRepo, removeTestRepo, encodeInSegmentsOf } from '../test-helpers.js';
 import { LocalStorage } from '../storage/local/index.js';
 import type { StorageBackend } from '../storage/interfaces.js';
@@ -308,7 +309,7 @@ describe('steps', () => {
       assert.equal(lines.filter((line) => line.startsWith('partition ')).length, 40);
 
       // The one component's result counts every row on its key.
-      const merged = decodeBeast2For(OutType)(await storage.objects.read(repo, result.outputHash!));
+      const merged = decodeBeast2For(OutType)(await readDatasetWhole(storage, repo, result.outputHash!));
       const expected = dict([]);
       for (const k of range(0, 160)) expected.set(BigInt(k % 3), (expected.get(BigInt(k % 3)) ?? 0n) + 1n);
       assert.ok(equalFor(OutType)(merged, expected));
@@ -369,8 +370,8 @@ describe('steps', () => {
       assert.equal(single.result.state, 'success', single.result.error ?? '');
       assert.equal(serial.peak(), 1, 'one worker never overlaps units');
       assert.ok(equalFor(OutType)(
-        decodeBeast2For(OutType)(await storage.objects.read(repo, pooled.result.outputHash!)),
-        decodeBeast2For(OutType)(await storage.objects.read(repo, single.result.outputHash!)),
+        decodeBeast2For(OutType)(await readDatasetWhole(storage, repo, pooled.result.outputHash!)),
+        decodeBeast2For(OutType)(await readDatasetWhole(storage, repo, single.result.outputHash!)),
       ), 'the pool width never changes the result');
     });
 
@@ -390,7 +391,7 @@ describe('steps', () => {
       assert.equal(runs.filter((r) => r.kind === TASK_KIND_PARTITION).length, 10);
       assert.ok(merges.every((r) => r.inputs.length === 2 + 10), 'every unit takes the merge IR, its range and every partial, whole');
       const expected = dict(range(0, 100), 4n);
-      assert.ok(equalFor(OutType)(decodeBeast2For(OutType)(await storage.objects.read(repo, result.outputHash!)), expected));
+      assert.ok(equalFor(OutType)(decodeBeast2For(OutType)(await readDatasetWhole(storage, repo, result.outputHash!)), expected));
       const lines = await logLines(taskHash, ids);
       assert.equal(lines.filter((line) => line.startsWith('merge level 1/1 unit ')).length, 10);
 
@@ -416,8 +417,8 @@ describe('steps', () => {
       assert.deepEqual(merges.map((r) => r.inputs[1]).sort(), [...plan.merges[0]!.ranges].sort(), 'each unit took one of the recorded ranges');
 
       // A forced re-run under one worker writes the same bytes, reuses the
-      // recorded slices and ranges — its only streamed write is the output
-      // splice — and runs the same units again.
+      // recorded slices and ranges — it streams nothing, the assembly going
+      // through the store's door — and runs the same units again.
       const objects = storage.objects;
       let streamWrites = 0;
       const origWriteStream = objects.writeStream.bind(objects);
@@ -429,7 +430,7 @@ describe('steps', () => {
       const forced = await run(parentTask('merge'), ['f'.repeat(64), table], again.executeUnit, { partitionConcurrency: 1, force: true });
       assert.equal(forced.result.state, 'success', forced.result.error ?? '');
       assert.equal(forced.result.outputHash, result.outputHash, 'the same inputs write the same hash, whatever the pool width');
-      assert.equal(streamWrites, 1, 'the partition slices are reused and nothing is carved for a range');
+      assert.equal(streamWrites, 0, 'the partition slices are reused and nothing is carved for a range');
       assert.deepEqual(again.runs.filter((r) => r.kind === TASK_KIND_MERGE).map((r) => r.inputs[1]).sort(), [...plan.merges[0]!.ranges].sort(), 'the recorded ranges are reused');
     });
 
@@ -446,7 +447,7 @@ describe('steps', () => {
       assert.equal(merges[0]!.inputs.length, 2 + 10);
       const expected = dict([]);
       for (const k of range(0, 400)) expected.set(BigInt(k % 3), (expected.get(BigInt(k % 3)) ?? 0n) + 1n);
-      assert.ok(equalFor(OutType)(decodeBeast2For(OutType)(await storage.objects.read(repo, result.outputHash!)), expected));
+      assert.ok(equalFor(OutType)(decodeBeast2For(OutType)(await readDatasetWhole(storage, repo, result.outputHash!)), expected));
       const plan = decodePartitionPlan(await storage.objects.read(repo, (await storage.refs.executionPlanRead!(repo, taskHash, ids.inHash))!));
       assert.equal(plan.merges.length, 1);
       assert.deepEqual(plan.merges[0]!.ranges, [merges[0]!.inputs[1]!]);
@@ -461,7 +462,7 @@ describe('steps', () => {
       const { result } = await run(parentTask('merge', 'custom'), ['f'.repeat(64), table], executeUnit);
       assert.equal(result.state, 'success', result.error ?? '');
       assert.equal(runs.filter((r) => r.kind === TASK_KIND_MERGE).length, 0);
-      assert.ok(equalFor(OutType)(decodeBeast2For(OutType)(await storage.objects.read(repo, result.outputHash!)), dict(range(0, 40))));
+      assert.ok(equalFor(OutType)(decodeBeast2For(OutType)(await readDatasetWhole(storage, repo, result.outputHash!)), dict(range(0, 40))));
     });
 
     it('passes a component of one partial through whole, however many segments it spans', async () => {
@@ -474,7 +475,7 @@ describe('steps', () => {
       const { taskHash, ids, result } = await run(parentTask('merge'), ['f'.repeat(64), table], executeUnit);
       assert.equal(result.state, 'success', result.error ?? '');
       assert.equal(runs.filter((r) => r.kind === TASK_KIND_MERGE).length, 0);
-      assert.ok(equalFor(OutType)(decodeBeast2For(OutType)(await storage.objects.read(repo, result.outputHash!)), dict(range(0, 400))));
+      assert.ok(equalFor(OutType)(decodeBeast2For(OutType)(await readDatasetWhole(storage, repo, result.outputHash!)), dict(range(0, 400))));
       const plan = decodePartitionPlan(await storage.objects.read(repo, (await storage.refs.executionPlanRead!(repo, taskHash, ids.inHash))!));
       assert.deepEqual(plan.merges, [], 'nothing to reuse: no ranges were planned');
     });
@@ -616,8 +617,8 @@ describe('steps', () => {
       const plan = decodePartitionPlan(await storage.objects.read(repo, planHash!));
       assert.deepEqual(plan.slices[0]!.map((slice) => slice === '' ? '' : 'carved'), ['carved', 'carved', 'carved', '', '', '', '', '', '', '']);
 
-      // The retry carves the seven uncarved partitions only: one streamed
-      // write each, plus the output splice.
+      // The retry carves the seven uncarved partitions only, one streamed
+      // write each.
       const objects = storage.objects;
       let streamWrites = 0;
       const origWriteStream = objects.writeStream.bind(objects);
@@ -627,7 +628,7 @@ describe('steps', () => {
       };
       const second = await run(parentTask('splice'), ['f'.repeat(64), table], standIn().executeUnit);
       assert.equal(second.result.state, 'success', second.result.error ?? '');
-      assert.equal(streamWrites, 8);
+      assert.equal(streamWrites, 7);
       const completed = decodePartitionPlan(await storage.objects.read(repo, (await storage.refs.executionPlanRead!(repo, second.taskHash, second.ids.inHash))!));
       assert.ok(completed.slices[0]!.every((slice) => slice !== ''));
       assert.deepEqual(completed.slices[0]!.slice(0, 3), plan.slices[0]!.slice(0, 3), 'the carved slices are reused');
@@ -642,7 +643,7 @@ describe('steps', () => {
       assert.deepEqual(runs, [{ kind: TASK_KIND_PARTITION, inputs }]);
     });
 
-    it('stores an empty collection under the first partial\'s header when every partial is empty', async () => {
+    it('stores the empty collection when every partial is empty', async () => {
       const table = await store(dict(range(0, 40)));
       // A stand-in whose partition units all yield empty partials.
       const { executeUnit } = standIn({ modulus: 3n });
@@ -654,7 +655,7 @@ describe('steps', () => {
       };
       const { result } = await run(parentTask('merge'), ['f'.repeat(64), table], empty);
       assert.equal(result.state, 'success', result.error ?? '');
-      assert.equal(decodeBeast2For(OutType)(await storage.objects.read(repo, result.outputHash!)).size, 0);
+      assert.equal(decodeBeast2For(OutType)(await readDatasetWhole(storage, repo, result.outputHash!)).size, 0);
     });
   });
 
@@ -685,6 +686,6 @@ describe('steps', () => {
     assert.equal(result.state, 'success', result.error ?? '');
     assert.equal(runs.length, 1);
     assert.equal(runs[0]!.length, 11, 'the range, then every partial, with no merge IR ahead of them');
-    assert.deepEqual([...decodeBeast2For(SetOut)(await storage.objects.read(repo, result.outputHash!))], [0n, 1n, 2n, 3n, 4n]);
+    assert.deepEqual([...decodeBeast2For(SetOut)(await readDatasetWhole(storage, repo, result.outputHash!))], [0n, 1n, 2n, 3n, 4n]);
   });
 });

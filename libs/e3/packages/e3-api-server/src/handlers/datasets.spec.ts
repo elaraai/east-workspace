@@ -9,6 +9,8 @@ import {
   ArrayType,
   DictType,
   IntegerType,
+  NullType,
+  RUN_MAX_BYTES,
   SetType,
   SortedMap,
   StringType,
@@ -25,10 +27,11 @@ import {
   type EastType,
   type ValueTypeOf,
 } from '@elaraai/east';
-import { BEAST2_CONTENT_TYPE, computeHash, cutDatasetIntoStore, InMemoryTransferBackend, writeRecordState } from '@elaraai/e3-core';
+import { BEAST2_CONTENT_TYPE, computeHash, datasetWrite, InMemoryTransferBackend, writeRecordState } from '@elaraai/e3-core';
 import { InMemoryStorage, encodeInSegmentsOf } from '@elaraai/e3-core/test';
-import { PackageObjectType, RecordIndexObjectType, WorkspaceStateType, decodeCollectionManifest, encodeDatasetBlob, indexCollectionType, indexWindowType } from '@elaraai/e3-types';
-import { findDatasetKey, getDataset, getDatasetPage } from './datasets.js';
+import { PackageObjectType, RecordIndexObjectType, WorkspaceStateType, decodeCollectionManifest, indexCollectionType, indexWindowType } from '@elaraai/e3-types';
+import { ResponseType } from '../types.js';
+import { findDatasetKey, getDataset, getDatasetPage, setDataset } from './datasets.js';
 
 /**
  * ~`byteLength` bytes of high-entropy ASCII, deterministic across runs.
@@ -198,7 +201,7 @@ describe('getDataset', () => {
     await storage.repos.create(REPO);
     const type = DictType(StringType, IntegerType);
     const value = new Map(Array.from({ length: 20_000 }, (_, i) => [`k${String(i).padStart(6, '0')}`, BigInt(i)] as [string, bigint]));
-    const hash = await cutDatasetIntoStore(storage, REPO, encodeDatasetBlob(type, value));
+    const hash = await datasetWrite(storage, REPO, value, type);
     const segments = decodeCollectionManifest(await storage.objects.read(REPO, hash)).entries.map((entry) => entry.hash);
     assert.ok(segments.length > 3, `the value spans segments, got ${segments.length}`);
     await storage.datasets.write(REPO, WS, 'inputs/lookup', variant('value', { hash, versions: new Map() }));
@@ -332,6 +335,65 @@ function spyObjectReads(storage: InMemoryStorage, watchedHash: string): { wholeR
   };
   return { wholeReads: () => whole, rangedBytes: () => ranged, rangedCalls: () => calls };
 }
+
+describe('setDataset (an upload, read as it arrives)', () => {
+  /** The body in pieces, as a request's arrives. */
+  function* pieces(bytes: Uint8Array): Generator<Uint8Array> {
+    for (let at = 0; at < bytes.length; at += 4096) yield bytes.subarray(at, at + 4096);
+  }
+
+  /** The dataset's current hash. */
+  async function rowsHash(storage: InMemoryStorage): Promise<string | null> {
+    const ref = await storage.datasets.read(REPO, WS, 'inputs/rows');
+    return ref?.type === 'value' ? ref.value.hash : null;
+  }
+
+  it('stores a collection upload as the manifest the value path writes, whatever layout the client sent', async () => {
+    const storage = new InMemoryStorage();
+    await seedRowsDataset(storage, encodeBeast2PagedFor(RowsType)(makeRows(10)));
+    const rows = makeRows(5_000);
+    const expected = await datasetWrite(storage, REPO, rows, RowsType);
+    const layouts: [string, Uint8Array][] = [
+      ['batched by the client', encodeInSegmentsOf(RowsType, 100)(rows)],
+      ['encoded whole', encodeBeast2For(RowsType)(rows)],
+    ];
+    for (const [layout, bytes] of layouts) {
+      const response = await setDataset(storage, REPO, WS, rowsPath, pieces(bytes));
+      const answer = decodeBeast2For(ResponseType(NullType))(new Uint8Array(await response.arrayBuffer()));
+      assert.equal(answer.type, 'success', `${layout}: ${JSON.stringify(answer.value)}`);
+      assert.equal(await rowsHash(storage), expected, layout);
+    }
+  });
+
+  it('refuses an upload of another type, and one holding a segment larger than a collection is read in, storing nothing', async () => {
+    const storage = new InMemoryStorage();
+    const seeded = await seedRowsDataset(storage, encodeBeast2PagedFor(RowsType)(makeRows(10)));
+    const objects = await storage.objects.count(REPO);
+
+    const drifted = await setDataset(storage, REPO, WS, rowsPath, pieces(encodeBeast2PagedFor(ArrayType(StringType))(['a'])));
+    const refusal = decodeBeast2For(ResponseType(NullType))(new Uint8Array(await drifted.arrayBuffer()));
+    assert.equal(refusal.type === 'error' ? refusal.value.type : refusal.type, 'dataset_type_mismatch');
+
+    // A whole-value encode is one frame; this one declares more logical bytes
+    // than the limit, and none of them follow.
+    const head = encodeBeast2For(RowsType, { codec: 'none' })([]);
+    const frameHeader = new Uint8Array(21);
+    let at = 0;
+    for (const n of [0, RUN_MAX_BYTES + 1, RUN_MAX_BYTES + 1]) {
+      let v = n;
+      for (; v >= 0x80; v = Math.floor(v / 128)) frameHeader[at++] = (v & 0x7f) | 0x80;
+      frameHeader[at++] = v;
+    }
+    const oversized = await setDataset(storage, REPO, WS, rowsPath, [head.subarray(0, head.length - 5), frameHeader.subarray(0, at)]);
+    const cap = decodeBeast2For(ResponseType(NullType))(new Uint8Array(await oversized.arrayBuffer()));
+    assert.ok(cap.type === 'error' && cap.value.type === 'internal'
+      && /more than the 67108864 a collection is read in at once/.test((cap.value.value as { message: string }).message),
+      JSON.stringify(cap));
+
+    assert.equal(await rowsHash(storage), seeded, 'the dataset keeps its value');
+    assert.equal(await storage.objects.count(REPO), objects, 'nothing was stored');
+  });
+});
 
 describe('getDatasetPage (ranged reads)', () => {
   it('serves element windows through ranged reads without buffering the blob', async () => {
@@ -708,13 +770,12 @@ async function seedIndexedRecord(storage: InMemoryStorage, n: number): Promise<{
     Array.from({ length: n }, (_, i) => [`p-${String(i).padStart(6, '0')}`,
       { due: BigInt((i * 7919) % n), title: `Plan ${i}` }] as [string, PlanRow]),
     compareFor(StringType));
-  const primary = await cutDatasetIntoStore(storage, REPO, encodeDatasetBlob(PlansType, rows));
+  const primary = await datasetWrite(storage, REPO, rows, PlansType);
   const EntryType = StructType({ ik: IntegerType, k: StringType });
   const entries = new SortedMap<{ ik: bigint; k: string }, string>(
     [...rows].map(([k, row]) => [{ ik: row.due, k }, row.title] as [{ ik: bigint; k: string }, string]),
     compareFor(EntryType));
-  const index = await cutDatasetIntoStore(storage, REPO,
-    encodeDatasetBlob(indexCollectionType(StringType, IntegerType, StringType), entries));
+  const index = await datasetWrite(storage, REPO, entries, indexCollectionType(StringType, IntegerType, StringType));
   const declaration = await storage.objects.write(REPO, encodeBeast2For(RecordIndexObjectType)({
     keyIr: '0'.repeat(64), multi: false, valueIr: some('0'.repeat(64)),
     keyType: toEastTypeValue(IntegerType), valueType: toEastTypeValue(StringType),

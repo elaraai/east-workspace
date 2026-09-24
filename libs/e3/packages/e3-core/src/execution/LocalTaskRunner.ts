@@ -22,7 +22,8 @@ import { uuidv7 } from '../uuid.js';
 import type { StorageBackend } from '../storage/interfaces.js';
 import type { TaskRunner, TaskExecuteOptions, TaskResult } from './interfaces.js';
 import { getBootId, getPidStartTime, isProcessAlive } from './processHelpers.js';
-import { adoptOutputFile, marshalInputsToDir, spawnAndCapture } from './processExec.js';
+import { marshalInputsToDir, spawnAndCapture } from './processExec.js';
+import { storeDatasetFile } from '../store-collection.js';
 import { materializeEnvironment } from './environment.js';
 import { runDetached, type DetachedSpec, type DetachedResult, type DetachedRunOptions } from './runDetached.js';
 import { executionScratchDir } from './scratch.js';
@@ -339,8 +340,9 @@ export interface ExecutionIds {
 }
 
 /** The standard execution body: scratch dir, input marshalling, command IR
- *  evaluation, spawn, and verbatim output store. Exported for the partition
- *  template's unit executor, which runs it once per unit under fresh ids.
+ *  evaluation, spawn, and the output through the store's door. Exported for
+ *  the partition template's unit executor, which runs it once per unit under
+ *  fresh ids.
  *  @internal */
 export async function taskExecuteBody(
   storage: StorageBackend,
@@ -565,12 +567,14 @@ export async function taskExecuteBody(
 
     // Step 9: Handle result
     if (result.exitCode === 0) {
-      // Success - take the output into the store without reading it: hashed
-      // by streaming and linked or kernel-copied, so a multi-gigabyte output
-      // never lands on this process's heap. Done before the scratch cleanup
-      // in the `finally` below.
+      // Success - take the output into the store through its door: a
+      // collection a stock runner wrote is stored as the runner cut it, a
+      // segment at a time, and one a custom command wrote is read and written
+      // again; any other value is linked in as it stands. A multi-gigabyte
+      // output never lands on this process's heap. Done before the scratch
+      // cleanup in the `finally` below.
       try {
-        const outputHash = await adoptOutputFile(storage, repo, outputPath);
+        const outputHash = await storeDatasetFile(storage, repo, outputPath, { canonical: task.runner.type !== 'custom' });
 
         // Write success status (output is stored within status.beast2's directory)
         const status: ExecutionStatus = variant('success', {

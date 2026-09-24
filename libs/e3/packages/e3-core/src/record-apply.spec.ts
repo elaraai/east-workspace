@@ -30,7 +30,8 @@ import {
   COLLECTION_MANIFEST_KIND, encodeCollectionManifest, encodeDatasetBlob, mutationDeltaType,
   type CollectionManifestEntry, type DeltaTarget,
 } from '@elaraai/e3-types';
-import { DatasetSegments, cutDatasetIntoStore } from './dataset-open.js';
+import { DatasetSegments } from './dataset-open.js';
+import { datasetWrite } from './trees.js';
 import { DeltaConflictError, applyDelta } from './record-apply.js';
 import { createTestRepo, encodeInSegmentsOf, removeTestRepo } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
@@ -101,9 +102,9 @@ describe('applying a mutation delta', () => {
   });
   afterEach(() => removeTestRepo(repo));
 
-  /** Store a value the way every writer does, and answer with its manifest. */
+  /** Store a value through the door's value path, and answer with its manifest. */
   async function store(type: EastType, value: unknown): Promise<string> {
-    return cutDatasetIntoStore(storage, repo, encodeDatasetBlob(type, value));
+    return datasetWrite(storage, repo, value, type);
   }
 
   /** Store a delta over one target and answer with its object hash. */

@@ -7,53 +7,45 @@
  * The ONE encoder that decides how a dataset value is stored.
  *
  * Collection-rooted values (Array / Set / Dict) are ALWAYS stored segmented
- * with a trailing index, at every size: one uniform encoding per logical value,
- * so the paged read API can decode just the segments a window touches and the
- * key search can bisect the segment fences. Every other root is stored whole.
+ * under the content-defined cut rule, at every size: one uniform encoding per
+ * logical value, so the paged read API can decode just the segments a window
+ * touches and the key search can bisect the segment fences. Every other root is
+ * stored whole.
  *
  * Given a `sink` — an object store to write through — a collection goes in as
  * **segment objects plus a {@link CollectionManifestType} naming them**, and it
  * is the manifest the dataset ref points at. That is what makes a one-row edit
  * cost one segment: the new manifest names the same objects as the old one bar
  * the segment that changed, and a content-addressed store deduplicates the
- * rest. Without a sink the value is one blob, as it has always been.
+ * rest. Without a sink the value is one blob, which is what travels over the
+ * wire.
  *
  * This lives in `e3-types` — the floor both `e3` and `e3-core` stand on —
- * because the rule has to hold at EVERY door a value enters the store through,
- * and it did not. The store path (`e3-core`'s `datasetWrite`) segmented; the
- * package export path (`e3`'s `export_`) encoded flat regardless of root kind.
- * Since `workspaceDeploy` copies package refs verbatim, a freshly deployed
- * collection input pointed at an unindexed blob and could not be paged at all
- * — `dataset_not_indexed`, with no whole-decode fallback — until something
- * happened to WRITE the dataset, at which point it silently started working.
- * A demo poked by hand behaved differently from a workspace only deployed.
- *
- * So: one branch, one home, and both doors call it.
+ * because the rule has to hold at EVERY door a value enters the store through:
+ * the store's own door (`e3-core`'s `storeCollection`) and the package export
+ * both write collections through {@link writeCollectionManifest}.
  *
  * @packageDocumentation
  */
 
 import {
-  carveBeast2,
-  decodeBeast2For,
+  SortedMap,
+  SortedSet,
+  compareFor,
   encodeBeast2For,
-  encodeBeast2FenceFor,
   encodeBeast2PagedFor,
-  isContentCut,
   isVariant,
-  openBeast2PagesFor,
-  readBeast2Extents,
-  readBeast2SegmentLogicalBytes,
-  segmentKeyTypeOf,
+  recutBeast2For,
   segmentRuleFor,
   toEastTypeValue,
+  type Beast2RecutPiece,
+  type Beast2SegmentRef,
   type EastType,
   type EastTypeValue,
 } from '@elaraai/east';
 import {
   COLLECTION_MANIFEST_KIND,
   encodeCollectionManifest,
-  type CollectionManifest,
   type CollectionManifestEntry,
 } from './collection-manifest.js';
 
@@ -84,6 +76,85 @@ function asTypeValue(type: EastType | EastTypeValue): EastTypeValue {
 }
 
 /**
+ * A segment a collection's manifest may carry over as it stands: the segment
+ * as a re-cut takes it, and the manifest entry that already names it in the
+ * store, when it is there.
+ */
+export interface CollectionSegmentRef extends Beast2SegmentRef {
+  /** The entry naming the segment in the manifest it came from. A carried
+   *  segment with one is named by it again, never read or written; one
+   *  without is read and written as it stands. */
+  readonly entry?: CollectionManifestEntry;
+}
+
+/** A piece of a collection, in order, as {@link writeCollectionManifest}
+ *  takes it: a run of segments the Writer wrote, under the canonical header
+ *  for the type, or elements. */
+export type CollectionPiece = Beast2RecutPiece<EastType, CollectionSegmentRef>;
+
+/**
+ * Write a collection as segment objects and return the manifest naming them.
+ *
+ * @remarks
+ * The pieces are re-cut into the canonical whole (`recutBeast2For`): a segment
+ * the whole shares with its piece is carried over, and everything else — the
+ * seams between pieces, and pieces given as elements — is cut by the rule and
+ * written. What comes out is what the Writer writes for the whole value,
+ * whichever pieces it came in, so two equal values have one manifest.
+ *
+ * Every segment is written under the canonical header for the type, the
+ * Writer's own: a piece's segments are carried over only when that is the
+ * header they are under, which is the caller's to establish.
+ *
+ * @param type - The collection type (Array / Set / Dict)
+ * @param pieces - The collection's pieces, in order
+ * @param sink - Writes one object and returns its hash
+ * @returns The manifest's bytes — the caller stores them, and its hash is the
+ *   dataset's content address
+ * @throws {Error} When a piece's elements do not ascend (Set / Dict), a
+ *   segment's blob is not the one segment its reference describes, or the sink
+ *   rejects.
+ */
+export async function writeCollectionManifest(
+  type: EastType | EastTypeValue,
+  pieces: Iterable<CollectionPiece> | AsyncIterable<CollectionPiece>,
+  sink: SegmentSink,
+): Promise<Uint8Array> {
+  const typeValue = asTypeValue(type);
+  const entries: CollectionManifestEntry[] = [];
+  // Frames deflate inline. The worker pool keeps each finished frame's
+  // buffers until that worker's GC runs, so framing on it would make a door's
+  // memory grow with the value (#841).
+  const recut = recutBeast2For<EastType, CollectionSegmentRef>(typeValue);
+  const stats = await recut(pieces, {
+    written: async (segment) => {
+      entries.push({
+        hash: await sink(segment.blob),
+        fence: segment.fence,
+        count: BigInt(segment.count),
+        bytes: BigInt(segment.blob.byteLength),
+      });
+    },
+    carried: async (ref) => {
+      if (ref.entry !== undefined) {
+        entries.push(ref.entry);
+        return;
+      }
+      const blob = await ref.read();
+      entries.push({ hash: await sink(blob), fence: ref.fence, count: BigInt(ref.count), bytes: BigInt(blob.byteLength) });
+    },
+  });
+  return encodeCollectionManifest({
+    kind: COLLECTION_MANIFEST_KIND,
+    level: 0n,
+    type: typeValue,
+    rule: segmentRuleFor(typeValue),
+    header: await sink(stats.header),
+    entries,
+  });
+}
+
+/**
  * Encode a dataset value for the object store.
  *
  * @remarks
@@ -94,6 +165,8 @@ function asTypeValue(type: EastType | EastTypeValue): EastTypeValue {
  * With a `sink`, a collection root is written as segment objects and the
  * returned bytes are the manifest naming them; a non-collection root ignores
  * the sink and returns its whole blob, which is what it has always been.
+ * Without one, a collection is its canonical segmented blob — the form it
+ * travels over the wire in.
  *
  * @param type - The dataset's declared type (an `EastType` or its homoiconic value)
  * @param value - The value to encode
@@ -110,82 +183,23 @@ export function encodeDatasetBlob(
 ): Uint8Array | Promise<Uint8Array> {
   const typeValue = asTypeValue(type);
   if (!isCollectionRoot(typeValue)) {
-    return encodeBeast2For(typeValue)(value);
+    const blob = encodeBeast2For(typeValue)(value);
+    return sink === undefined ? blob : Promise.resolve(blob);
   }
-  const blob = encodeBeast2PagedFor(typeValue)(value);
-  return sink === undefined ? blob : cutDatasetBlob(blob, sink);
+  if (sink === undefined) return encodeBeast2PagedFor(typeValue)(value);
+  return writeCollectionManifest(typeValue, [{ elements: canonicalElements(typeValue, value) }], sink);
 }
 
-/**
- * Take an existing segmented collection blob into the store as segment objects
- * plus a manifest.
- *
- * @remarks
- * The other half of the door: a runner writes ONE blob to its output file, and
- * this is what turns it into the layout. A blob whose segmentation already
- * satisfies the boundary rule — which every runtime's encoder produces — is
- * carved by **byte copy**, so adopting a task output costs no decode and
- * unchanged segments deduplicate against the previous run's by hash. A blob cut
- * some other way (a positional batcher, a writer predating the rule) is decoded
- * and re-encoded once, because a value that is not cut canonically would
- * otherwise give two equal values two different manifests.
- *
- * An Array's cut hashes whole elements, which no fence carries, so it cannot
- * be checked without a decode and is adopted as it stands; every runtime's
- * writer cuts an Array by the rule too.
- *
- * @param blob - a segmented, indexed v5 collection blob
- * @param sink - writes one object and returns its hash
- * @returns the manifest's bytes
- * @throws {Error} When the blob is not a segmented, indexed, self-contained v5
- *   collection — the form every writer of a collection dataset produces.
- */
-export async function cutDatasetBlob(blob: Uint8Array, sink: SegmentSink): Promise<Uint8Array> {
-  let extents = readBeast2Extents(blob);
-  if (!extents.selfContained) {
-    throw new Error('collection manifest: blob has cross-segment aliasing — segments must decode independently');
+/** A collection value's elements in canonical order: an Array's as they
+ *  stand, a Set's or a Dict's ascending in East order — a plain `Set` or
+ *  `Map` iterates in insertion order, and is sorted first. */
+function canonicalElements(typeValue: EastTypeValue, value: unknown): Iterable<unknown> {
+  if (typeValue.type === 'Array') return value as unknown[];
+  if (typeValue.type === 'Set') {
+    return value instanceof SortedSet ? value : [...(value as Set<unknown>)].sort(compareFor(typeValue.value as EastTypeValue));
   }
-  const typeValue = extents.typeValue;
-  const keyType = segmentKeyTypeOf(typeValue);
-  const fence = keyType === null ? null : encodeBeast2FenceFor(keyType);
-  let source = blob;
-  // An Array root has no key, so its fences are empty and there is nothing to
-  // check them against: its segmentation is adopted as it is.
-  let fences: Uint8Array[] = [];
-
-  if (fence !== null) {
-    const pages = openBeast2PagesFor(typeValue)(source);
-    fences = Array.from({ length: pages.segmentCount }, (_, i) => fence(pages.fence(i)));
-    if (!isContentCut(fences, [...pages.counts], readBeast2SegmentLogicalBytes(source, extents))) {
-      // Not cut by the rule: the only way to reach the canonical segmentation
-      // is to lay the value out again. Costs one decode + one encode, once,
-      // and every later write of an equal value is a byte-copy carve.
-      source = encodeBeast2PagedFor(typeValue)(decodeBeast2For(typeValue)(source));
-      extents = readBeast2Extents(source);
-      const recut = openBeast2PagesFor(typeValue)(source);
-      fences = Array.from({ length: recut.segmentCount }, (_, i) => fence(recut.fence(i)));
-    }
-  }
-
-  const header = await sink(source.subarray(0, extents.prefixEnd));
-  const entries: CollectionManifestEntry[] = [];
-  for (let i = 0; i < extents.offsets.length; i++) {
-    const segment = carveBeast2(source, i, i + 1, extents);
-    entries.push({
-      hash: await sink(segment),
-      fence: fences[i] ?? new Uint8Array(0),
-      count: BigInt(extents.counts[i]!),
-      bytes: BigInt(segment.byteLength),
-    });
-  }
-
-  const manifest: CollectionManifest = {
-    kind: COLLECTION_MANIFEST_KIND,
-    level: 0n,
-    type: typeValue,
-    rule: segmentRuleFor(typeValue),
-    header,
-    entries,
-  };
-  return encodeCollectionManifest(manifest);
+  const cmp = compareFor((typeValue.value as { key: EastTypeValue }).key);
+  return value instanceof SortedMap
+    ? (value as SortedMap<unknown, unknown>).entries()
+    : [...(value as Map<unknown, unknown>).entries()].sort((a, b) => cmp(a[0], b[0]));
 }

@@ -175,28 +175,6 @@ export async function marshalInputsToDir(
 }
 
 /**
- * Take a runner's output file into the object store, without reading it.
- *
- * @remarks
- * The write-side twin of {@link marshalInputsToDir}: the file is hashed by
- * streaming and linked, reflinked or kernel-copied into the store. The link is
- * taken while the scratch directory still exists — its `finally` cleanup
- * unlinks the scratch NAME, which is not the object.
- *
- * @param storage - Storage backend
- * @param repo - Repository identifier
- * @param outputPath - The runner's output file
- * @returns The object's hash
- */
-export async function adoptOutputFile(
-  storage: StorageBackend,
-  repo: string,
-  outputPath: string
-): Promise<string> {
-  return (await storage.objects.adoptFile(repo, outputPath)).hash;
-}
-
-/**
  * Marshal raw value bytes to staged `.beast2` files in a scratch directory.
  *
  * The graph-free path writes args to scratch directly from request bytes —

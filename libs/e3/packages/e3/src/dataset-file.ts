@@ -10,8 +10,8 @@
  * checked twice: once at EXPORT, against the type the package declares, so a
  * schema drift is a build error at the developer's desk; and again at DEPLOY,
  * on the machine that actually has the file. Both checks are this function, so
- * both report a mismatch identically — and both cost two ranged reads rather
- * than the gigabytes the file may hold.
+ * both report a mismatch identically — and both cost one read of the file's
+ * head rather than the gigabytes the file may hold.
  *
  * It lives in `@elaraai/e3` (not `e3-core`) because the export path is here and
  * `e3-core` depends on this package, not the other way round. It is Node-only
@@ -23,14 +23,13 @@
 import { closeSync, fstatSync, openSync, readSync, statSync } from 'node:fs';
 import {
   isVariant,
-  readBeast2Extents,
   readBeast2HeaderType,
   toEastTypeValue,
   type Beast2SyncRangeReader,
   type EastType,
   type EastTypeValue,
 } from '@elaraai/east';
-import { checkDatasetType, isCollectionRoot, type DatasetTypeMismatch } from '@elaraai/e3-types';
+import { checkDatasetType, type DatasetTypeMismatch } from '@elaraai/e3-types';
 
 /** What a delivered file's header says about it. */
 export interface DatasetFileHeader {
@@ -38,10 +37,6 @@ export interface DatasetFileHeader {
   readonly size: number;
   /** The root type the header declares. */
   readonly typeValue: EastTypeValue;
-  /** Segment count, for a collection root; `null` otherwise. */
-  readonly segments: number | null;
-  /** Element count (pairs for a Dict), for a collection root; `null` otherwise. */
-  readonly rows: number | null;
 }
 
 /**
@@ -82,24 +77,22 @@ function fileRangeReader(fd: number, size: number): Beast2SyncRangeReader {
 }
 
 /**
- * Read a beast2 file's declared type and geometry and check it against the
- * type its destination declares.
+ * Read a beast2 file's declared type and check it against the type its
+ * destination declares.
  *
  * @remarks
- * A collection destination is checked through the trailing index
- * (`readBeast2Extents`), which also proves the file is pageable and
- * partitionable — that is the at-rest contract for a collection dataset, and a
- * delivery without it could not be carved. Every other root is checked through
- * the header type alone.
+ * The header decides alone. A delivery is taken into the store through its
+ * door, which reads a collection a segment at a time in whatever layout it was
+ * written — indexed or not, cut by the rule or batched by its writer — so
+ * nothing past the type section is needed to accept one.
  *
  * @param file - Path to the delivered file
  * @param subject - How to name the destination in an error, e.g. `input 'table'`
  * @param declared - The type the destination declares
- * @returns The file's size, wire type and — for a collection — its geometry
+ * @returns The file's size and wire type
  * @throws {DatasetFileTypeMismatchError} When the header's type is not the
  *   declared type
- * @throws {Error} When the file is missing, is not a beast2 container, or is a
- *   collection with no index or with cross-segment aliasing
+ * @throws {Error} When the file is missing or is not a beast2 container
  */
 export function readDatasetFileHeader(
   file: string,
@@ -119,44 +112,21 @@ export function readDatasetFileHeader(
 
   const fd = openSync(file, 'r');
   try {
-    const reader = fileRangeReader(fd, stats.size);
     const declaredValue: EastTypeValue = isVariant(declared)
       ? (declared as EastTypeValue)
       : toEastTypeValue(declared as EastType);
     let typeValue: EastTypeValue;
-    let segments: number | null = null;
-    let rows: number | null = null;
-
-    if (isCollectionRoot(declaredValue)) {
-      let extents;
-      try {
-        extents = readBeast2Extents(reader);
-      } catch (err) {
-        throw new Error(`${subject}: ${file} is not a readable indexed beast2 collection — ${
-          err instanceof Error ? err.message : String(err)}`);
-      }
-      if (!extents.selfContained) {
-        throw new Error(
-          `${subject}: ${file} has cross-segment aliasing — a dataset's segments must decode ` +
-          `independently, so partitions and paged reads can address them`
-        );
-      }
-      typeValue = extents.typeValue;
-      segments = extents.offsets.length;
-      rows = extents.elementCount;
-    } else {
-      try {
-        typeValue = readBeast2HeaderType(reader);
-      } catch (err) {
-        throw new Error(`${subject}: ${file} is not a readable beast2 container — ${
-          err instanceof Error ? err.message : String(err)}`);
-      }
+    try {
+      typeValue = readBeast2HeaderType(fileRangeReader(fd, stats.size));
+    } catch (err) {
+      throw new Error(`${subject}: ${file} is not a readable beast2 container — ${
+        err instanceof Error ? err.message : String(err)}`);
     }
 
     const mismatch = checkDatasetType(subject, file, declaredValue, typeValue);
     if (mismatch) throw new DatasetFileTypeMismatchError(file, mismatch);
 
-    return { size: stats.size, typeValue, segments, rows };
+    return { size: stats.size, typeValue };
   } finally {
     closeSync(fd);
   }
@@ -166,11 +136,11 @@ export function readDatasetFileHeader(
  * Read the root type a beast2 file's header declares, without reading the file.
  *
  * @remarks
- * Any container version, indexed or not: this is the check for a file that is
- * about to be DECODED (the positional `e3 dataset set`), which accepts every
- * beast2 it can read and refuses a drifted one from its header before paying
- * for the whole read. A file adopted as it stands needs the stricter
- * {@link readDatasetFileHeader}.
+ * Any container version, indexed or not, with no declared type to check it
+ * against: what a caller reads to learn what a file holds — the positional
+ * `e3 dataset set` before it decodes one, the store before it takes a task's
+ * output. {@link readDatasetFileHeader} checks a delivery against the type its
+ * destination declares.
  *
  * @param file - Path to the file
  * @returns The root type the file's header declares

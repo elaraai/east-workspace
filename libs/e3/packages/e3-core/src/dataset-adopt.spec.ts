@@ -13,9 +13,11 @@
  * - a write whose wire type is not the dataset's declared type is refused
  *   BEFORE any object exists, naming the dataset and the first differing
  *   field;
- * - a delivered file becomes a dataset without being read — its object is the
- *   delivery's own inode where the file system allows it, and the delivery is
- *   left exactly as it was found;
+ * - a delivered collection is stored as the value path stores its value, so a
+ *   new delivery shares every segment the old one had but those around what
+ *   changed — and the same bytes delivered again are not read twice;
+ * - a delivery of any other value is the delivery's own inode where the file
+ *   system allows it, and every delivery is left exactly as it was found;
  * - deploy resolves a package's `file` sources, and a bad one fails the deploy
  *   with the previous deployment intact.
  *
@@ -25,23 +27,26 @@
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
-import { chmodSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   ArrayType,
   DictType,
   IntegerType,
+  RUN_MAX_BYTES,
   StringType,
   StructType,
   encodeBeast2For,
   variant,
 } from '@elaraai/east';
 import e3, { type DatasetSource } from '@elaraai/e3';
-import { datasetAdoptFile, datasetAdoptObject, objectAdoptFile } from './dataset-adopt.js';
+import { datasetAdoptFile, datasetAdoptObject, deliveryKnown, objectAdoptFile } from './dataset-adopt.js';
+import { DatasetSegments } from './dataset-open.js';
 import { DatasetTypeMismatchError } from './errors.js';
+import { computeHash } from './objects.js';
 import { packageImport } from './packages.js';
 import { workspaceDeploy, workspaceGetState } from './workspaces.js';
-import { workspaceGetDatasetStatus, workspaceSetDataset } from './trees.js';
+import { datasetWrite, workspaceGetDatasetStatus, workspaceSetDataset } from './trees.js';
 import { createTestRepo, removeTestRepo, createTempDir, removeTempDir, encodeInSegmentsOf } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
 import { objectPath } from './storage/local/localHelpers.js';
@@ -93,25 +98,27 @@ describe('path-initialised inputs', () => {
   }
 
   describe('datasetAdoptFile', () => {
-    it('points the dataset at the file, by hash, with the geometry its index carries', async () => {
+    it('points the dataset at the manifest the delivery is stored as, with its geometry', async () => {
       await deployTableWorkspace('adopt-basic');
       const file = writeDelivery('table.beast2', 40);
 
       const result = await datasetAdoptFile(storage, testRepo, 'ws', [...tablePath], file);
 
       assert.equal(result.size, statSync(file).size);
-      assert.equal(result.rows, 40, 'the index knows the element count without a decode');
-      assert.equal(result.segments, 5, '40 rows at batchSize 8');
+      assert.equal(result.hash, await datasetWrite(storage, testRepo, rows(40), TableType),
+        'the delivery is stored as the value path stores its value');
+      assert.equal(result.rows, 40);
+      assert.equal(result.segments, (await DatasetSegments.open(storage, testRepo, result.hash)).segmentCount);
 
       const status = await workspaceGetDatasetStatus(storage, testRepo, 'ws', [...tablePath], { geometry: true });
       assert.equal(status.refType, 'value');
       assert.equal(status.hash, result.hash);
       assert.equal(status.rows, 40);
-      assert.equal(status.segments, 5);
+      assert.equal(status.segments, result.segments);
     });
 
-    it('shares the delivery\'s storage and never writes to it', async () => {
-      await deployTableWorkspace('adopt-link');
+    it('never writes to the delivery', async () => {
+      await deployTableWorkspace('adopt-untouched');
       const file = writeDelivery('table.beast2', 24);
       // A distinctive mode and mtime: an adopt that touched the delivery
       // would move one of them.
@@ -119,49 +126,65 @@ describe('path-initialised inputs', () => {
       utimesSync(file, new Date(1_700_000_000_000), new Date(1_700_000_000_000));
       const before = statSync(file);
 
-      const { hash } = await datasetAdoptFile(storage, testRepo, 'ws', [...tablePath], file);
+      await datasetAdoptFile(storage, testRepo, 'ws', [...tablePath], file);
 
       const after = statSync(file);
       assert.equal(after.mode, before.mode, 'the delivery\'s mode is untouched');
       assert.equal(after.mtimeMs, before.mtimeMs, 'the delivery\'s mtime is untouched');
       assert.equal(after.size, before.size);
-
-      // Same volume (both under the OS temp dir in this suite), so the object
-      // is the delivery's own inode — a reflinking file system gives distinct
-      // inodes with identical bytes instead, which is equally correct.
-      const object = statSync(objectPath(testRepo, hash));
-      const sameInode = object.ino === after.ino && object.dev === after.dev;
-      assert.ok(
-        sameInode || object.size === after.size,
-        'the object is a link to the delivery, or a copy of exactly its bytes'
-      );
     });
 
-    it('is a no-op when the delivery is already in the store', async () => {
+    it('does not split an unchanged delivery again', async () => {
       await deployTableWorkspace('adopt-again');
       const file = writeDelivery('table.beast2', 16);
 
       const first = await datasetAdoptFile(storage, testRepo, 'ws', [...tablePath], file);
       const countAfterFirst = await storage.objects.count(testRepo);
+      // A split writes every segment it cuts, stored already or not; the
+      // store is a class instance, so an own property shadows its method.
+      const objects = storage.objects;
+      const write = objects.write.bind(objects);
+      let writes = 0;
+      objects.write = (repo: string, bytes: Uint8Array) => {
+        writes++;
+        return write(repo, bytes);
+      };
       const second = await datasetAdoptFile(storage, testRepo, 'ws', [...tablePath], file);
+      objects.write = write;
 
-      assert.equal(second.hash, first.hash, 'the file IS the value: same bytes, same hash');
+      assert.equal(second.hash, first.hash, 'same bytes, same value, same hash');
+      assert.equal(writes, 0, 'the delivery\'s hash names the manifest it became, and nothing is written');
       assert.equal(await storage.objects.count(testRepo), countAfterFirst, 'no second object');
     });
 
-    it('lands on the hash the streaming writer would have produced', async () => {
+    it('splits a delivery again once the store has lost what it became', async () => {
+      await deployTableWorkspace('adopt-stale');
+      const file = writeDelivery('table.beast2', 16);
+      const first = await datasetAdoptFile(storage, testRepo, 'ws', [...tablePath], file);
+
+      // What a gc does to a collection no ref names — the memo is not a root.
+      const lost = (await DatasetSegments.open(storage, testRepo, first.hash)).manifest!.entries[0]!.hash;
+      rmSync(objectPath(testRepo, lost));
+      assert.equal(await deliveryKnown(storage, testRepo, computeHash(readFileSync(file))), false,
+        'a memo naming a collection with a missing object is a miss');
+
+      const second = await datasetAdoptFile(storage, testRepo, 'ws', [...tablePath], file);
+      assert.equal(second.hash, first.hash);
+      assert.ok(await storage.objects.exists(testRepo, lost), 'the lost segment is written again');
+    });
+
+    it('lands on the hash the value path writes', async () => {
       await deployTableWorkspace('adopt-hash');
       const file = writeDelivery('table.beast2', 30);
-      const bytes = encodeInSegmentsOf(TableType, 8)(rows(30));
 
       const { hash } = await datasetAdoptFile(storage, testRepo, 'ws', [...tablePath], file);
-      const written = await storage.objects.write(testRepo, bytes);
+      const written = await datasetWrite(storage, testRepo, rows(30), TableType);
 
       assert.equal(hash, written, 'adopt and write are one content address');
       // The repository-level adopt deploy uses lands on the same object.
       assert.deepEqual(
         await objectAdoptFile(storage, testRepo, file),
-        { hash: written, size: bytes.length },
+        { hash: written, size: statSync(file).size },
         'objectAdoptFile agrees on the address and reports the size'
       );
     });
@@ -174,6 +197,22 @@ describe('path-initialised inputs', () => {
       assert.notEqual(second.hash, first.hash);
       const status = await workspaceGetDatasetStatus(storage, testRepo, 'ws', [...tablePath]);
       assert.equal(status.hash, second.hash);
+    });
+
+    it('stores a new delivery that differs in one row as all but the segments around it', async () => {
+      await deployTableWorkspace('adopt-redeliver');
+      const first = await datasetAdoptFile(storage, testRepo, 'ws', [...tablePath], writeDelivery('v1.beast2', 20_000));
+      const changed = rows(20_000);
+      changed[10_000] = { id: 10_000n, name: 'RENAMED' };
+      const file = join(tempDir, 'v2.beast2');
+      writeFileSync(file, encodeInSegmentsOf(TableType, 8)(changed));
+      const second = await datasetAdoptFile(storage, testRepo, 'ws', [...tablePath], file);
+
+      const was = new Set((await DatasetSegments.open(storage, testRepo, first.hash)).manifest!.entries.map((entry) => entry.hash));
+      const now = (await DatasetSegments.open(storage, testRepo, second.hash)).manifest!.entries.map((entry) => entry.hash);
+      assert.ok(now.length > 4, `20,000 rows should span segments, not ${now.length}`);
+      const fresh = now.filter((hash) => !was.has(hash)).length;
+      assert.ok(fresh >= 1 && fresh <= 2, `a one-row change should store a segment or two, not ${fresh} of ${now.length}`);
     });
 
     it('refuses a delivery whose type has drifted, naming the dataset and the field', async () => {
@@ -202,17 +241,36 @@ describe('path-initialised inputs', () => {
       assert.equal(await storage.objects.count(testRepo), before, 'nothing was written');
     });
 
-    it('refuses a collection delivery with no paging index', async () => {
-      await deployTableWorkspace('adopt-flat');
-      const file = join(tempDir, 'flat.beast2');
-      // The whole-value encoder: a valid blob of the right type, but not
-      // pageable and not carvable, so it cannot be a collection dataset.
+    it('takes a delivery encoded whole in as the manifest of its value', async () => {
+      await deployTableWorkspace('adopt-whole');
+      const file = join(tempDir, 'whole.beast2');
       writeFileSync(file, encodeBeast2For(TableType)(rows(10)));
+
+      const { hash } = await datasetAdoptFile(storage, testRepo, 'ws', [...tablePath], file);
+      assert.equal(hash, await datasetWrite(storage, testRepo, rows(10), TableType));
+    });
+
+    it('refuses a delivery holding a segment larger than a collection is read in, writing nothing', async () => {
+      await deployTableWorkspace('adopt-oversized');
+      // A whole-value encode is one frame; this one declares more logical
+      // bytes than the limit, and none of them follow.
+      const head = encodeBeast2For(TableType, { codec: 'none' })([]);
+      const frameHeader = new Uint8Array(21);
+      let at = 0;
+      for (const n of [0, RUN_MAX_BYTES + 1, RUN_MAX_BYTES + 1]) {
+        let v = n;
+        for (; v >= 0x80; v = Math.floor(v / 128)) frameHeader[at++] = (v & 0x7f) | 0x80;
+        frameHeader[at++] = v;
+      }
+      const file = join(tempDir, 'oversized.beast2');
+      // Up to the one frame: its codec, lengths, TAG_NEW and terminator are the
+      // last five bytes of an empty value's encode.
+      writeFileSync(file, Buffer.concat([head.subarray(0, head.length - 5), frameHeader.subarray(0, at)]));
 
       const before = await storage.objects.count(testRepo);
       await assert.rejects(
         () => datasetAdoptFile(storage, testRepo, 'ws', [...tablePath], file),
-        /not a readable indexed beast2 collection|carries no index/
+        /more than the 67108864 a collection is read in at once — write the value segmented/
       );
       assert.equal(await storage.objects.count(testRepo), before, 'a refused adopt writes nothing');
     });
@@ -237,8 +295,35 @@ describe('path-initialised inputs', () => {
     });
   });
 
+  describe('objectAdoptFile', () => {
+    it('takes any other value in as the delivery itself, sharing its storage', async () => {
+      const bytes = encodeBeast2For(RowType)({ id: 7n, name: 'row-7' });
+      const file = join(tempDir, 'row.beast2');
+      writeFileSync(file, bytes);
+      chmodSync(file, 0o640);
+      utimesSync(file, new Date(1_700_000_000_000), new Date(1_700_000_000_000));
+      const before = statSync(file);
+
+      const result = await objectAdoptFile(storage, testRepo, file);
+
+      assert.deepEqual(result, { hash: computeHash(bytes), size: bytes.length }, 'the object is the file, by its hash');
+      const after = statSync(file);
+      assert.equal(after.mode, before.mode, 'the delivery\'s mode is untouched');
+      assert.equal(after.mtimeMs, before.mtimeMs, 'the delivery\'s mtime is untouched');
+      // Same volume (both under the OS temp dir in this suite), so the object
+      // is the delivery's own inode — a reflinking file system gives distinct
+      // inodes with identical bytes instead, which is equally correct.
+      const object = statSync(objectPath(testRepo, result.hash));
+      const sameInode = object.ino === after.ino && object.dev === after.dev;
+      assert.ok(
+        sameInode || object.size === after.size,
+        'the object is a link to the delivery, or a copy of exactly its bytes'
+      );
+    });
+  });
+
   describe('datasetAdoptObject (the transfer dedup door)', () => {
-    it('accepts an object of the declared type and refuses one of another', async () => {
+    it('splits a collection object of the declared type, and refuses one of another', async () => {
       await deployTableWorkspace('adopt-object');
       const good = await storage.objects.write(testRepo, encodeInSegmentsOf(TableType, 8)(rows(12)));
       const OtherType = DictType(StringType, IntegerType);
@@ -248,14 +333,45 @@ describe('path-initialised inputs', () => {
 
       const result = await datasetAdoptObject(storage, testRepo, 'ws', [...tablePath], good);
       assert.equal(result.rows, 12);
-      assert.equal((await workspaceGetDatasetStatus(storage, testRepo, 'ws', [...tablePath])).hash, good);
+      assert.equal(result.hash, await datasetWrite(storage, testRepo, rows(12), TableType), 'stored as its value is');
+      assert.equal((await workspaceGetDatasetStatus(storage, testRepo, 'ws', [...tablePath])).hash, result.hash);
 
       await assert.rejects(
         () => datasetAdoptObject(storage, testRepo, 'ws', [...tablePath], bad),
         (err: unknown) => err instanceof DatasetTypeMismatchError && /declares/.test(err.message)
       );
       // The refused dedup left the ref where it was.
-      assert.equal((await workspaceGetDatasetStatus(storage, testRepo, 'ws', [...tablePath])).hash, good);
+      assert.equal((await workspaceGetDatasetStatus(storage, testRepo, 'ws', [...tablePath])).hash, result.hash);
+    });
+
+    it('adopts a delivery the store split before by its hash alone, checking the type it became', async () => {
+      await deployTableWorkspace('adopt-known');
+      const bytes = encodeInSegmentsOf(TableType, 8)(rows(20));
+      const file = join(tempDir, 'table.beast2');
+      writeFileSync(file, bytes);
+      const sourceHash = computeHash(bytes);
+      assert.equal(await deliveryKnown(storage, testRepo, sourceHash), false);
+
+      const adopted = await datasetAdoptFile(storage, testRepo, 'ws', [...tablePath], file);
+      assert.equal(await storage.objects.exists(testRepo, sourceHash), false, 'the delivery is split, not stored as it came');
+      assert.equal(await deliveryKnown(storage, testRepo, sourceHash), true);
+
+      await workspaceSetDataset(storage, testRepo, 'ws', [...tablePath], rows(3), TableType);
+      const result = await datasetAdoptObject(storage, testRepo, 'ws', [...tablePath], sourceHash);
+      assert.equal(result.hash, adopted.hash);
+      assert.equal(result.rows, 20);
+      assert.equal((await workspaceGetDatasetStatus(storage, testRepo, 'ws', [...tablePath])).hash, adopted.hash);
+
+      // The same delivery offered to a dataset of another type.
+      const other = e3.package('adopt-known-other', '1.0.0', e3.input('narrow', ArrayType(StructType({ id: IntegerType }))));
+      const zipPath = join(tempDir, 'adopt-known-other.zip');
+      await e3.export(other, zipPath);
+      await packageImport(storage, testRepo, zipPath);
+      await workspaceDeploy(storage, testRepo, 'ws2', 'adopt-known-other', '1.0.0');
+      await assert.rejects(
+        () => datasetAdoptObject(storage, testRepo, 'ws2', [variant('field', 'inputs'), variant('field', 'narrow')], sourceHash),
+        (err: unknown) => err instanceof DatasetTypeMismatchError && /declares/.test(err.message)
+      );
     });
   });
 
@@ -363,12 +479,13 @@ describe('path-initialised inputs', () => {
       assert.equal(before.refType, 'value');
 
       // A second package whose delivery is readable and of the declared type,
-      // deployed through a store whose adopt fails for an I/O reason.
+      // deployed through a store whose writes fail for an I/O reason — the
+      // delivery's segments are the first thing a deploy writes.
       const second = join(tempDir, 'second.beast2');
       writeFileSync(second, encodeInSegmentsOf(TableType, 8)(rows(24)));
       await packageImport(storage, testRepo, await exportWithFileSource('deploy-second', second));
       const objects = Object.create(storage.objects, {
-        adoptFile: { value: async (): Promise<never> => { throw new Error('disk full'); } },
+        write: { value: async (): Promise<never> => { throw new Error('disk full'); } },
       }) as StorageBackend['objects'];
       const failing: StorageBackend = {
         objects,

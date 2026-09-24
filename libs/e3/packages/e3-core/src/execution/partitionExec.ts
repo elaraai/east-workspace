@@ -17,10 +17,10 @@
  * secondary are re-encoded); {@link planMergeRanges} chooses the key ranges
  * a merged component's fan-in runs over and writes them as the range blobs
  * its merge units take as an input — nothing is carved for a range: each
- * runner seeks every partial to it; {@link spliceBlobs} splices stored
- * blobs under one header, validating the canonical shard order. The local
- * interpreter calls these directly; a remote backend supplies its kernel's
- * carve and splice.
+ * runner seeks every partial to it; {@link spliceBlobs} assembles stored
+ * collections through the store's door, validating the canonical shard order.
+ * The local interpreter calls these directly; a remote backend supplies its
+ * kernel's carve and splice.
  *
  * Because each per-partition execution is content-addressed by
  * `(taskHash, inputsHash([functionIr, ...slices, ...broadcast]))` and
@@ -32,11 +32,10 @@
  * not general.
  *
  * Orchestrator memory is bounded too (issue #506): blobs are addressed by
- * their ranged extents, boundary probes decode one segment at a time, and
- * slices and the spliced output stream to the object store chunk by chunk —
- * the orchestrator never holds a whole input, slice or shard. On a backend
- * without ranged reads each blob degrades to one whole read behind the same
- * code path.
+ * their ranged extents, boundary probes decode one segment at a time, slices
+ * stream to the object store chunk by chunk, and the assembled output is
+ * written a segment at a time — the orchestrator never holds a whole input,
+ * slice or shard.
  */
 
 import {
@@ -69,6 +68,8 @@ import {
   type TaskObject,
 } from '@elaraai/e3-types';
 import type { StorageBackend } from '../storage/interfaces.js';
+import { DatasetSegments } from '../dataset-open.js';
+import { storeCollection } from '../store-collection.js';
 import type { ExecuteOptions, ExecutionResult } from './LocalTaskRunner.js';
 
 export { partitionTaskExecute } from './steps.js';
@@ -600,19 +601,21 @@ export class SpliceOrderError extends Error {
 }
 
 /**
- * Splices stored blobs into one, in the given order, under the first blob's
- * header: every blob's segment frames are byte-copied and the index rebuilt,
- * streamed to the object store without decoding a value. Set and Dict blobs
- * must ascend disjointly in key order, which is checked first, one blob at a
- * time; Array blobs concatenate freely.
+ * Assembles stored collections into one, in the given order, through the
+ * store's door: every segment of every collection is carried over by
+ * reference, and only the seams between them are re-cut, so the result is the
+ * manifest the Writer writes for the whole value and no value is decoded but
+ * at a seam. Set and Dict collections must ascend disjointly in key order,
+ * which is checked first, one collection at a time; Array collections
+ * concatenate freely.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
- * @param hashes - The blobs to splice, in order; at least one
- * @returns The hash of the spliced blob
+ * @param hashes - The collections to assemble, in order; at least one
+ * @returns The hash of the assembled collection's manifest
  * @throws {Error} When `hashes` is empty, the keys do not ascend disjointly
- *   ({@link SpliceOrderError}), or a blob's header sections differ from the
- *   first blob's.
+ *   ({@link SpliceOrderError}), or a collection holds another type than the
+ *   first.
  */
 export async function spliceBlobs(storage: StorageBackend, repo: string, hashes: string[]): Promise<string> {
   if (hashes.length === 0) {
@@ -622,15 +625,8 @@ export async function spliceBlobs(storage: StorageBackend, repo: string, hashes:
   if (violation !== null) {
     throw new SpliceOrderError(violation.left, violation.right, hashes.length);
   }
-  const { head } = (await PartitionBlob.open(storage, repo, hashes[0]!)).extents;
-  // Parts open lazily, so one blob is open while its frames stream.
-  async function* parts(): AsyncIterable<SplicePart> {
-    for (const hash of hashes) {
-      const blob = await PartitionBlob.open(storage, repo, hash);
-      yield blob.spanPart(0, blob.extents.offsets.length);
-    }
-  }
-  return storage.objects.writeStream(repo, spliceChunks(head, parts()));
+  const { typeValue } = await DatasetSegments.open(storage, repo, hashes[0]!);
+  return storeCollection(storage, repo, typeValue, hashes.map((hash) => ({ stored: hash })));
 }
 
 /** Finds the first global position in a co-partitioned secondary whose

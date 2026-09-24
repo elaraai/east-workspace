@@ -20,10 +20,11 @@
  * The positional form DECODES the file and re-encodes the value — a `.beast2`
  * file's header type is checked against the declared type first, by ranged
  * reads, so a drifted file is refused before it is read whole; `--from-file`
- * ADOPTS a `.beast2` file as it stands — hashing it by streaming, checking its
- * header against the declared type by ranged reads, and taking it into the
- * object store by link or one kernel copy. That is the form for a delivery too
- * big to decode, and the file is never modified.
+ * ADOPTS a `.beast2` file without ever holding it — hashing it by streaming,
+ * checking its header against the declared type, and taking it into the
+ * object store: a collection split into segment objects a segment at a time,
+ * any other value by link or one kernel copy. That is the form for a delivery
+ * too big to decode at once, and the file is never modified.
  */
 
 import { readFile } from 'fs/promises';
@@ -41,14 +42,13 @@ import {
   parseFor,
   fromJSONFor,
   decodeCsvFor,
-  encodeBeast2For,
   EastTypeType,
   type EastTypeValue,
   type StructTypeValue,
   parseInferred,
   toEastTypeValue,
 } from '@elaraai/east';
-import { checkDatasetType, type TreePath } from '@elaraai/e3-types';
+import { checkDatasetType, encodeDatasetBlob, type TreePath } from '@elaraai/e3-types';
 import { parseRepoLocation, formatError, exitError, type RepoLocation } from '../utils.js';
 import { resolveDatasetPath } from '../path-resolver.js';
 import { formatSize } from '../format.js';
@@ -99,18 +99,17 @@ export async function setCommand(
       exitError('Specify either --type or --type-file, not both');
     }
     if (options.fromFile) {
-      // --from-file adopts the bytes as they stand: re-encoding under another
-      // type would mean decoding the file, which is exactly what this form
-      // exists to avoid.
+      // --from-file takes the file in under the type its header declares: a
+      // file read as another type is a delivery silently re-typed.
       if (filePath) exitError('Specify either a file argument or --from-file, not both');
       if (options.type || options.typeFile) {
-        exitError('--from-file adopts the file as it stands — --type / --type-file would require decoding and re-encoding it');
+        exitError('--from-file adopts the file under the type its header declares — --type / --type-file would re-type it');
       }
       // Awaited, so a refusal lands in the catch below and prints as one line.
       return await setFromFile(repoArg, pathSpec, options.fromFile);
     }
     if (!filePath) {
-      exitError('Provide a file to read the value from, or --from-file to adopt a .beast2 file by hash');
+      exitError('Provide a file to read the value from, or --from-file to take in a .beast2 file without holding it');
     }
 
     const location = await parseRepoLocation(repoArg);
@@ -217,14 +216,14 @@ export async function setCommand(
       const storage = new LocalStorage();
       await workspaceSetDataset(storage, location.path, ws, path, value, type);
     } else {
-      const encoder = encodeBeast2For(type);
-      const beast2Data = encoder(value);
+      // The dataset's own encoding — a collection segmented, as the server's
+      // door reads it a segment at a time.
       await datasetSetRemote(
         location.baseUrl,
         location.repo,
         ws,
         path,
-        beast2Data,
+        encodeDatasetBlob(type, value),
         { token: location.token }
       );
     }
@@ -236,7 +235,7 @@ export async function setCommand(
 }
 
 /**
- * Point a dataset at an existing `.beast2` file, by hash.
+ * Point a dataset at an existing `.beast2` file, adopted without holding it.
  *
  * Locally the file is adopted straight into the object store; against a remote
  * repository it is streamed through the transfer protocol, whose commit runs

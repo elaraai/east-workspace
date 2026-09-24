@@ -40,10 +40,9 @@ import {
   IntegerType,
   StringType,
   StructType,
-  readBeast2ExtentsRanged,
   type ValueTypeOf,
 } from '@elaraai/east';
-import { LocalStorage, workspaceGetDatasetHash } from '@elaraai/e3-core';
+import { DatasetSegments, LocalStorage, workspaceGetDatasetHash } from '@elaraai/e3-core';
 import { createTestDir, removeTestDir, runE3Command } from './helpers.js';
 
 const ItemType = StructType({ sku: StringType, qty: IntegerType, price: FloatType, ok: BooleanType, when: DateTimeType });
@@ -161,11 +160,9 @@ describe('partition assembly at scale', { skip: !optedIn ? 'opt-in: set E3_PARTI
     assert.equal(run.exitCode, 0, `${run.stderr}\n${run.stdout}`);
     assert.match(run.stdout, /\[MERGE\] rekeyed/, 'the partials were merged by merge units');
 
-    const hash = await outputHash();
-    const { size } = await storage.objects.stat(repo, hash);
-    assert.ok(size >= 3 * GIB, `the output is ${size} bytes`);
-    const extents = await readBeast2ExtentsRanged({ size, read: (offset, length) => storage.objects.readRange!(repo, hash, offset, length) });
-    assert.equal(extents.elementCount, ROWS, 'every row is in the output, under its own key');
+    const output = await DatasetSegments.open(storage, repo, await outputHash());
+    assert.ok(output.bytes >= 3 * GIB, `the output is ${output.bytes} bytes`);
+    assert.equal(output.elementCount, ROWS, 'every row is in the output, under its own key');
   });
 
   it('collects the repository under a 128 MiB heap', async () => {

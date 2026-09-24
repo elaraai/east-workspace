@@ -136,10 +136,15 @@ export {
   readManifest,
   openDatasetObject,
   readDatasetWhole,
-  cutDatasetIntoStore,
-  cutDatasetObject,
-  adoptDatasetBlob,
 } from './dataset-open.js';
+
+// The store's door: the one way a collection reaches the object store
+export {
+  storeCollection,
+  storeDatasetFile,
+  storeDatasetBytes,
+  type CollectionSource,
+} from './store-collection.js';
 
 // The write path a mutation delta takes: only the segments it touched
 export {
@@ -153,6 +158,7 @@ export {
 export {
   datasetAdoptFile,
   datasetAdoptObject,
+  deliveryKnown,
   objectAdoptFile,
   type DatasetAdoptOptions,
   type DatasetAdoptResult,
@@ -166,6 +172,7 @@ export {
   workspaceGetDatasetHash,
   workspaceGetDatasetStatus,
   workspaceSetDataset,
+  workspaceSetDatasetBytes,
   workspaceSetDatasetByHash,
   workspaceGetTree,
   type DatasetStatusResult,

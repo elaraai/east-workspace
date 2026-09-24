@@ -10,11 +10,12 @@
  * `--stream` flags its command IR bakes in. This is the layer above the
  * runner CLI specs (east-node-cli/src/runner.spec.ts): input marshalling,
  * command IR evaluation, the spawned runner, and the emitted output stored
- * verbatim as the execution result.
+ * through the store's door as the execution result — the manifest the value
+ * path writes for the same value.
  *
  * The east-py case doubles as the cross-runtime pin for the python emit
  * sink (#507): the blob `_EmitSink` wrote through the python streaming
- * writer is decoded here by the TypeScript reader, index included.
+ * writer is carved by its index here and decoded by the TypeScript reader.
  */
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
@@ -24,12 +25,14 @@ import { spawnSync } from 'node:child_process';
 import {
   ArrayType, DictType, IntegerType, StringType,
   some, none,
-  decodeBeast2For, encodeBeast2For, encodeEastIR, openBeast2PagesFor,
+  decodeBeast2For, encodeBeast2For, encodeEastIR,
   EastIR,
 } from '@elaraai/east';
 import { input, streamTask, runnerToVariant, type Runner, type TaskDef } from '@elaraai/e3';
 import { TaskObjectType, type TaskObject } from '@elaraai/e3-types';
 import { taskExecute } from './LocalTaskRunner.js';
+import { DatasetSegments, readDatasetWhole } from '../dataset-open.js';
+import { datasetWrite } from '../trees.js';
 import { objectWrite } from '../storage/local/LocalObjectStore.js';
 import { createTestRepo, removeTestRepo, encodeInSegmentsOf } from '../test-helpers.js';
 import { LocalStorage } from '../storage/local/index.js';
@@ -103,17 +106,15 @@ describe('streamTask through taskExecute', () => {
   }
 
   async function assertFoldOutput(outputHash: string): Promise<void> {
-    const output = await storage.objects.read(repo, outputHash);
-    const pages = openBeast2PagesFor(ArrayType(IntegerType))(output);
-    assert.equal(pages.elementCount, 2500);
-    assert.ok(pages.selfContained, 'emitted blob is not pageable');
-    const sums = decodeBeast2For(ArrayType(IntegerType))(output);
+    assert.equal((await DatasetSegments.open(storage, repo, outputHash)).elementCount, 2500);
+    const sums = decodeBeast2For(ArrayType(IntegerType))(await readDatasetWhole(storage, repo, outputHash));
     assert.equal(sums[0], 0n);
     assert.equal(sums[99], (99n * 100n) / 2n);
     assert.equal(sums[2499], (2499n * 2500n) / 2n);
+    assert.equal(outputHash, await datasetWrite(storage, repo, sums, ArrayType(IntegerType)), 'the output is the manifest the value path writes');
   }
 
-  it('runs a fold body on the east-node runner and stores the indexed emitted output', async () => {
+  it('runs a fold body on the east-node runner and stores the emitted output as its value\'s manifest', async () => {
     const { taskHash, fnIrHash } = await writeTask(foldTask('balances', { runtime: 'east-node', platforms: ['@elaraai/east-node-std'] }));
     const eventsHash = await writeEvents();
 

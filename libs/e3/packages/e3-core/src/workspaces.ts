@@ -408,9 +408,9 @@ export async function workspaceDeploy(
 
     await writeState(storage, repo, name, state);
 
-    // Point each path-initialised input at the object adopted above — the
+    // Point each path-initialised input at the value adopted above — the
     // one step after the wipe, a ref write per input. The self entry in the
-    // version vector names the file's hash, which is what makes change
+    // version vector names the value's hash, which is what makes change
     // detection exact for the input's consumers.
     //
     // The file IS the value, so a new delivery under the same path is a new
