@@ -143,8 +143,10 @@ export const sheetSlotRecipe = defineSlotRecipe({
             // the lift follows the SEAM, not the gutter: a seam
             // straddles the boundary, so half of it lies over the row above;
             // lifting a merely hovered gutter would cover the seam below it and
-            // make it unreachable from that side.
-            "& [data-slot=gutter]:has([data-slot=insertPoint]:hover), & [data-slot=gutter]:focus-within": { zIndex: "9" },
+            // make it unreachable from that side. The lift clears the open
+            // editor (z 10) and its error ring (z 11): chips on the body side
+            // of the gutter edge lie over the first cells, editor included.
+            "& [data-slot=gutter]:has([data-slot=insertPoint]:hover), & [data-slot=gutter]:focus-within": { zIndex: "12" },
             // Virtual rows have transformed wrappers; lift that stacking context above the sticky header too.
             "& :has(> [data-row] > [data-slot=gutter] [data-slot=insertPoint]:hover), & :has(> [data-row] > [data-slot=gutter]:focus-within [data-slot=insertPoint])": { zIndex: "9" },
             "& [data-row][data-draft] > [data-slot=cell][data-blank][data-editable]": {
