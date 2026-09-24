@@ -495,6 +495,19 @@ export {
 // tick-format primitives the in-package renderers use.
 export { getSomeorUndefined } from "./utils.js";
 export { formatTick, type TickFormatOpt } from "./typography/numeric/format-tick.js";
+// One formatter for every component (#850) — numbers and dates in the app's
+// locale, dates in UTC. The locale is react-aria's: wrap the app in
+// `<I18nProvider locale="de-DE">` (re-exported here, so a host needs no
+// react-aria dependency of its own); the browser's language stands in otherwise.
+export {
+    formatters,
+    useFormatters,
+    formatPattern,
+    tickFormatOf,
+    type Formatters,
+    type ValueFormat,
+} from "./format/index.js";
+export { I18nProvider, type I18nProviderProps } from "@react-aria/i18n";
 
 // Adaptive contract (#346) — container-width + pointer-capability hooks for
 // this package's renderers and sibling renderer packages (e3-ui-components).

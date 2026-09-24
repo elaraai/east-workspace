@@ -51,6 +51,7 @@ import { useCoarsePointer } from "../../contracts/adaptive.js";
 import { useDensityHeights } from "../shared/helpers.js";
 import { useSliceReactivity } from "../../slice/use-slice-reactivity.js";
 import { useDataStable } from "../../hooks/useDataStable.js";
+import { useFormatters } from "../../format/index.js";
 import { railAffordanceKinds } from "../../slice/rail-kinds.js";
 import { VirtualRows } from "../virtual-rows.js";
 import {
@@ -252,6 +253,9 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
     // Changes identity on a DATA change only — what owns local state keys on
     // it; callbacks come from `value` (#809).
     const data = useDataStable(value, sheetRootDataEqual);
+    // The counts the chrome prints — the summary, the hints, the messages,
+    // the lens line — in the app's locale (#850).
+    const words = useFormatters();
     // ── Decode ────────────────────────────────────────────────────────────
     const columns = useMemo(() => indexColumns(value.columns), [value.columns]);
     const registers = useMemo(() => indexRegisters(value.registers), [value.registers]);
@@ -1086,7 +1090,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
                     if (readOnly) break;
                     const out = deleteRows(eff.r0, eff.r1);
                     if (out.n === 0) break;
-                    const what = out.what === "groups" ? countNoun(out.n, noun) : `${out.n} ${out.what === "lines" ? "line" : "row"}${out.n === 1 ? "" : "s"}`;
+                    const what = out.what === "groups" ? countNoun(out.n, noun, words) : `${words.number(out.n)} ${out.what === "lines" ? "line" : "row"}${out.n === 1 ? "" : "s"}`;
                     const msg = `Deleted ${what}`;
                     if (out.emptiedBandR !== undefined) {
                         dispatchStore({ t: "patch", patch: {
@@ -1138,7 +1142,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
                     const wide = Math.max(1, laid.width);
                     dispatchStore({ t: "patch", patch: {
                         selEnd: { r: eff.r + matrix.length - 1, c: Math.min(colCount - 1, eff.c + wide - 1) },
-                        msg: `Pasted ${matrix.length}×${matrix[0]?.length ?? 0} from clipboard${skipped > 0 ? ` · ${skipped} unrecognised` : ""}`,
+                        msg: `Pasted ${words.number(matrix.length)}×${words.number(matrix[0]?.length ?? 0)} from clipboard${skipped > 0 ? ` · ${words.number(skipped)} unrecognised` : ""}`,
                     } });
                     break;
                 }
@@ -1209,7 +1213,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
         try { recordGesture(gestureEvents.current); }
         catch (error) { console.error("Sheet transaction failure", error); dispatchStore({ t: "patch", patch: { msg: error instanceof Error ? error.message : String(error) } }); }
         finally { gestureEvents.current = []; }
-    }, [recordGesture, writeCells, deleteRows, insertProposal, columns, group, noun, metaAt, blankLineRowOf, readOnly, cellAt, colCount, parseCtxFor, onSelectFn, rowAt, rowOf, rowSpace, store.ui.sel, store.ui.edit, idAt, copilotOn, triggers, requestRun, requestReady, dispatch, value.views, onViewsChangeFn, slice]);
+    }, [recordGesture, writeCells, deleteRows, insertProposal, columns, group, noun, words, metaAt, blankLineRowOf, readOnly, cellAt, colCount, parseCtxFor, onSelectFn, rowAt, rowOf, rowSpace, store.ui.sel, store.ui.edit, idAt, copilotOn, triggers, requestRun, requestReady, dispatch, value.views, onViewsChangeFn, slice]);
     const drainedFx = useRef(0);
     useLayoutEffect(() => {
         if (store.fxSeq === drainedFx.current) return;
@@ -1404,8 +1408,8 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
         e.clipboardData.setData("text/plain", exportMatrix(cellAt, columns.list, rect, isBandRow));
         let copied = 0;
         for (let r = rect.r0; r <= rect.r1; r++) if (!isBandRow(r)) copied += 1;
-        dispatchStore({ t: "patch", patch: { msg: `Copied ${copied}×${rect.c1 - rect.c0 + 1} to clipboard` } });
-    }, [store.ui, cellAt, columns, isBandRow]);
+        dispatchStore({ t: "patch", patch: { msg: `Copied ${words.number(copied)}×${words.number(rect.c1 - rect.c0 + 1)} to clipboard` } });
+    }, [store.ui, cellAt, columns, isBandRow, words]);
     const onPaste = useCallback((e: ClipboardEvent<HTMLDivElement>) => {
         if (store.ui.edit !== null) return;
         const text = e.clipboardData.getData("text/plain");
@@ -1592,8 +1596,8 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
         // The sub rows under the lines count too.
         const lines = countedRows.length;
         const subRows = rows.reduce((n, g) => n + g.lines.reduce((m, l) => m + l.subRows.length, 0), 0);
-        return `${countNoun(rows.length, noun)} · ${lines} line${lines === 1 ? "" : "s"}${subRows > 0 ? ` · ${subRows} sub row${subRows === 1 ? "" : "s"}` : ""}`;
-    }, [group, noun, rows, countedRows.length]);
+        return `${countNoun(rows.length, noun, words)} · ${words.number(lines)} line${lines === 1 ? "" : "s"}${subRows > 0 ? ` · ${words.number(subRows)} sub row${subRows === 1 ? "" : "s"}` : ""}`;
+    }, [group, noun, rows, countedRows.length, words]);
     const onTabSwitch = useCallback((id: string | null) => dispatch({ t: "tab.switch", id }), [dispatch]);
     const onTabCreate = useCallback(() => dispatch({ t: "tab.create" }), [dispatch]);
     const onTabClose = useCallback((id: string) => dispatch({ t: "tab.close", id }), [dispatch]);
@@ -1640,8 +1644,8 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
     // A grouped sheet counts LINES: the matches, and the context shown around them in the groups that show.
     const count = lens === undefined ? ""
         : lens.lineHits !== undefined && lens.lineVisible !== undefined
-            ? lensCount(lens.lineHits.flat(), lens.lineVisible.map((v, i) => (lens.visible[i] ? v : v.map(() => false))).flat())
-            : lensCount(lens.hits, lens.visible);
+            ? lensCount(lens.lineHits.flat(), lens.lineVisible.map((v, i) => (lens.visible[i] ? v : v.map(() => false))).flat(), words)
+            : lensCount(lens.hits, lens.visible, words);
 
     // ── The copilot's surfaces: the anchor's fills, the next target, the proposal rows ──
     const anchorR = useMemo(() => (ui.sugg !== null ? rowOf(ui.sugg.anchorId) : undefined), [ui.sugg, rowOf]);
@@ -1751,9 +1755,9 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
             ? `⏎ renames the ${noun.singular} · Space folds it · ⇧Space folds all · click its number to select its lines`
         // A line with sub rows under it.
         : ringSubRows !== undefined && wr === null && ui.sugg === null
-            ? `Space ${ringSubRows.open ? "hides" : "shows"} its ${ringSubRows.count} sub row${ringSubRows.count === 1 ? "" : "s"} · ⇧Space every line's in the ${noun.singular} · ⏎ edit`
+            ? `Space ${ringSubRows.open ? "hides" : "shows"} its ${words.number(ringSubRows.count)} sub row${ringSubRows.count === 1 ? "" : "s"} · ⇧Space every line's in the ${noun.singular} · ⏎ edit`
         : wr !== null
-            ? `${wr.r1 - wr.r0 + 1} row${wr.r1 - wr.r0 === 0 ? "" : "s"} selected · ⌫ deletes them · ⌘C copies`
+            ? `${words.number(wr.r1 - wr.r0 + 1)} row${wr.r1 - wr.r0 === 0 ? "" : "s"} selected · ⌫ deletes them · ⌘C copies`
             : hasFills
                 ? "⇥ walks the fills · ⌘⏎ fills the row · ⌘⇧⏎ takes everything · esc dismisses"
                 : hasRows

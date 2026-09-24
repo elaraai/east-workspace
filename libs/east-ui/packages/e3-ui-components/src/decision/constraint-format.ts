@@ -17,6 +17,7 @@
 
 import { isEastSet, type ValueTypeOf } from '@elaraai/east';
 import type { LeverType } from '@elaraai/e3-ui/internal';
+import { formatters, type Formatters } from '@elaraai/east-ui-components';
 
 import type { ConstraintValue } from './handle-runtime.js';
 import type { TypeNode } from './lever-editor.js';
@@ -37,17 +38,19 @@ export const OP_WORDS: Record<string, string> = {
     is: 'is',
 };
 
-function formatScalar(v: unknown): string {
-    if (v instanceof Date) {
-        return `${v.toLocaleString('en', { month: 'short' })} ${v.getDate()}`;
-    }
+/** A payload as chip text, in the app's locale (#850): a date as its UTC month
+ *  and day; a number as data — bare, every digit and never grouped, with the
+ *  locale's decimal separator. */
+function formatScalar(v: unknown, words: Formatters): string {
+    if (v instanceof Date) return words.monthDay(v);
+    if (typeof v === 'number' || typeof v === 'bigint') return words.bare(v);
     if (isEastSet(v)) {
-        return `{${[...v].map(formatScalar).join(', ')}}`;
+        return `{${[...v].map(x => formatScalar(x, words)).join(', ')}}`;
     }
     if (v !== null && typeof v === 'object' && !(v as { type?: unknown }).type) {
         // struct payload: "k v · k v"
         return Object.entries(v as Record<string, unknown>)
-            .map(([k, x]) => `${k} ${formatScalar(x)}`)
+            .map(([k, x]) => `${k} ${formatScalar(x, words)}`)
             .join(' · ');
     }
     return String(v);
@@ -58,11 +61,19 @@ function formatScalar(v: unknown): string {
  * type-directed: `payloadType` is the contract case's payload type (walked
  * off the judgements binding, same as the lever editor) — the value's shape
  * is never guessed.
+ *
+ * @param constraint - The injected constraint
+ * @param payloadType - Its contract case's payload type
+ * @param levers - The decision's levers, for the display label
+ * @param words - The formatters dates and numbers print through (#850); the
+ *   runtime locale's when omitted
+ * @returns The chip's lever, op and value words
  */
 export function formatConstraint(
     constraint: ConstraintValue,
     payloadType: TypeNode | undefined,
     levers?: readonly LeverValue[],
+    words: Formatters = formatters(),
 ): { lever: string; op: string; value: string } {
     const c = constraint as unknown as { type: string; value: unknown };
     const lever = levers?.find(l => l.case === c.type)?.label ?? c.type;
@@ -74,11 +85,11 @@ export function formatConstraint(
         if (opType?.type === 'Struct' && op.value !== null && typeof op.value === 'object') {
             const r = op.value as { min?: unknown; max?: unknown };
             if ('min' in r && 'max' in r) {
-                return { lever, op: word, value: `${formatScalar(r.min)} – ${formatScalar(r.max)}` };
+                return { lever, op: word, value: `${formatScalar(r.min, words)} – ${formatScalar(r.max, words)}` };
             }
         }
-        return { lever, op: word, value: formatScalar(op.value) };
+        return { lever, op: word, value: formatScalar(op.value, words) };
     }
     // struct / primitive payload: "<lever> · <payload>"
-    return { lever, op: '·', value: formatScalar(c.value) };
+    return { lever, op: '·', value: formatScalar(c.value, words) };
 }

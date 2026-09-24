@@ -21,7 +21,7 @@ import {
     ArrayType,
 } from "@elaraai/east";
 import { type ExprType } from "@elaraai/east";
-import { Slice, SliceApplyImpl, sliceBreakdown, sliceFields, sliceFieldText, sliceSeries } from "@elaraai/east-ui/internal";
+import { Slice, SliceApplyImpl, sliceBreakdown, sliceFields, sliceFieldText, sliceMatches, sliceSeries } from "@elaraai/east-ui/internal";
 import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./slice.examples.js";
 
@@ -1546,4 +1546,39 @@ pureTest("sliceSeries applies the top-N limit roll-up identically to sliceBreakd
     const onlyOther = sliceSeries(visibleState, engineConfig, rows, "day", "sessions", now);
     nodeAssert.equal(onlyOther.length, 1);
     nodeAssert.equal(onlyOther[0]!.key, "other");
+});
+
+// ===========================================================================
+// Presets resolve on UTC days (#850). East's DateTime is a UTC instant, so a
+// preset keeps the same rows in every timezone. The `apply.matches` preset
+// tests above read the wall clock and run in the CI's own timezone, so they
+// cannot see this; here `now` is pinned and the process runs in Los Angeles,
+// where each window below starts earlier if read in local time.
+// ===========================================================================
+
+pureTest("datetime presets resolve on UTC days in a timezone west of UTC (#850)", () => {
+    const previous = process.env.TZ;
+    process.env.TZ = "America/Los_Angeles";
+    try {
+        const config: EngineConfig = { ...engineConfig, rangeFieldId: some("when") };
+        const keeps = (preset: string, now: string, when: string): boolean =>
+            sliceMatches(engineState({ range: some(variant("datetimePreset", variant(preset, null))) }), config, { when: new Date(when) }, new Date(now));
+
+        // The process really is in Los Angeles: 01:30 UTC on 29 June is still the 28th there.
+        nodeAssert.equal(new Date("2026-06-29T01:30:00Z").getDate(), 28);
+
+        // today starts at 00:00 UTC on the 29th; the 28th's local midnight is 07:00Z the day before.
+        nodeAssert.equal(keeps("today", "2026-06-29T01:30:00Z", "2026-06-29T00:00:00Z"), true);
+        nodeAssert.equal(keeps("today", "2026-06-29T01:30:00Z", "2026-06-28T23:00:00Z"), false);
+        // ytd starts at 00:00 UTC on 1 January 2026, while it is still 2025 in Los Angeles.
+        nodeAssert.equal(keeps("ytd", "2026-01-01T01:30:00Z", "2026-01-01T00:00:00Z"), true);
+        nodeAssert.equal(keeps("ytd", "2026-01-01T01:30:00Z", "2025-12-31T23:00:00Z"), false);
+        // last7d is seven UTC days, even across the end of daylight saving on 1 November:
+        // seven local days would be an hour longer, and start at 11:00Z.
+        nodeAssert.equal(keeps("last7d", "2026-11-03T12:00:00Z", "2026-10-27T12:00:00Z"), true);
+        nodeAssert.equal(keeps("last7d", "2026-11-03T12:00:00Z", "2026-10-27T11:30:00Z"), false);
+    } finally {
+        if (previous === undefined) delete process.env.TZ;
+        else process.env.TZ = previous;
+    }
 });

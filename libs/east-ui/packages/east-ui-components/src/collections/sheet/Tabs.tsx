@@ -24,6 +24,7 @@ import { memo, useContext, useEffect, useLayoutEffect, useRef, useState, type Dr
 import { Box, chakra, Menu as ChakraMenu, Portal, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faChevronDown, faPlus, faXmark } from "@fortawesome/free-solid-svg-icons";
+import { useFormatters } from "../../format/index.js";
 import { foldTabs } from "./lens.js";
 import { SheetTabsFoldContext } from "./fold-context.js";
 
@@ -66,6 +67,8 @@ export interface SheetTabsProps {
 export const SheetTabs = memo(function SheetTabs(props: SheetTabsProps) {
     const { styles, views, wholeCount, active, dirty, hasQuery, renaming, renameVal } = props;
     const menuStyles = useSlotRecipe({ key: "menu" })() as unknown as Styles;
+    // The tabs' counts, in the app's locale (#850).
+    const words = useFormatters();
     const dragging = useRef<string | null>(null);
     const renameRef = useRef<HTMLInputElement | null>(null);
     const skipBlur = useRef(false);
@@ -157,7 +160,7 @@ export const SheetTabs = memo(function SheetTabs(props: SheetTabsProps) {
                 onDrop={dropAt(0)}
             >
                 All
-                <Box as="span" css={styles.tabCount} data-slot="tabCount">{wholeCount}</Box>
+                <Box as="span" css={styles.tabCount} data-slot="tabCount">{words.number(wholeCount)}</Box>
             </Box>
             {visible.map((v) => {
                 const on = active === v.id;
@@ -199,7 +202,7 @@ export const SheetTabs = memo(function SheetTabs(props: SheetTabsProps) {
                         onDrop={dropAt(i)}
                     >
                         <Box as="span" css={styles.tabLabel} data-slot="tabLabel">{v.name}</Box>
-                        <Box as="span" css={styles.tabCount} data-slot="tabCount">{v.count}</Box>
+                        <Box as="span" css={styles.tabCount} data-slot="tabCount">{words.number(v.count)}</Box>
                         {on && dirty && (
                             <Box as="span" css={styles.tabDot} data-slot="tabDot" title="Unsaved query — ⏎ updates this tab · esc reverts" />
                         )}
@@ -231,7 +234,7 @@ export const SheetTabs = memo(function SheetTabs(props: SheetTabsProps) {
                                 {hidden.map((v) => (
                                     <ChakraMenu.Item key={v.id} value={v.id} title={v.title}>
                                         {v.name}
-                                        <Box as="span" css={menuStyles.itemCommand}>{v.count}</Box>
+                                        <Box as="span" css={menuStyles.itemCommand}>{words.number(v.count)}</Box>
                                     </ChakraMenu.Item>
                                 ))}
                             </ChakraMenu.Content>

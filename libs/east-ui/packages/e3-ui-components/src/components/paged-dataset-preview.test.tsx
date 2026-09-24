@@ -23,7 +23,7 @@ import { ChakraProvider, defaultSystem } from "@chakra-ui/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ArrayType, IntegerType, encodeBeast2For, toEastTypeValue } from "@elaraai/east";
 import type { DatasetPage, DatasetPageWindow } from "@elaraai/e3-api-client";
-import type { ValueTreePaging } from "@elaraai/east-ui-components";
+import { I18nProvider, type ValueTreePaging } from "@elaraai/east-ui-components";
 
 const mocks = vi.hoisted(() => ({
     /** The page fetch — each test decides how its server trims. */
@@ -115,16 +115,19 @@ function serve(total: number, trimTo: (window: DatasetPageWindow) => number) {
     });
 }
 
-function renderPreview() {
+function renderPreview(locale?: string) {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const preview = (
+        <PagedDatasetPreview
+            apiUrl="http://e3" repo="r" workspace="ws" path="inputs.rows"
+            type={toEastTypeValue(ArrayType(IntegerType))} hash="h" sizeBytes={8_000}
+            onDownload={() => {}}
+        />
+    );
     return render(
         <QueryClientProvider client={client}>
             <ChakraProvider value={defaultSystem}>
-                <PagedDatasetPreview
-                    apiUrl="http://e3" repo="r" workspace="ws" path="inputs.rows"
-                    type={toEastTypeValue(ArrayType(IntegerType))} hash="h" sizeBytes={8_000}
-                    onDownload={() => {}}
-                />
+                {locale === undefined ? preview : <I18nProvider locale={locale}>{preview}</I18nProvider>}
             </ChakraProvider>
         </QueryClientProvider>,
     );
@@ -179,5 +182,20 @@ describe("PagedDatasetPreview — the served page size (#829)", () => {
         await waitFor(() => expect(mocks.paging).toBeDefined());
         expect(mocks.paging!.pageSize).toBe(500);
         expect(indicesOf(mocks.paging, 0)).toHaveLength(500);
+    });
+});
+
+describe("PagedDatasetPreview — the totals line, in the app's locale (#850)", () => {
+    test("a German viewer reads the element count and the size in German", async () => {
+        // 1,000,000 elements of 8 bytes: 8,000,000 bytes, 7.63 MB.
+        serve(1_000_000, (w) => ("limit" in w ? w.limit : 0));
+        const { container } = renderPreview("de-DE");
+        await waitFor(() => expect(container.textContent).toContain("1.000.000 items · 7,63 MB"));
+    });
+
+    test("English is unchanged", async () => {
+        serve(1_000_000, (w) => ("limit" in w ? w.limit : 0));
+        const { container } = renderPreview("en-US");
+        await waitFor(() => expect(container.textContent).toContain("1,000,000 items · 7.63 MB"));
     });
 });

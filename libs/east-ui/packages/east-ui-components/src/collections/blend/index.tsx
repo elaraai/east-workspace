@@ -15,6 +15,7 @@ import { useIRCanDrop, canDropAllows, type CanDropFn } from "../../dnd/ir-can-dr
 import { DropHint } from "../../dnd/drop-hint";
 import { useContainerBelow } from "../../contracts/adaptive.js";
 import { useValueSync } from "../../hooks/useValueSync";
+import { useFormatters, type TickFormatOpt } from "../../format/index.js";
 
 const blendEqual = equivalentFor(Blend.Types.Blend);
 const blendDataEqual = equalFor(Blend.Types.Blend);
@@ -41,10 +42,8 @@ function stateAttr(state: BlendAllocationValue["state"]): string {
     return state.value.type;
 }
 
-function compact(n: number): string {
-    if (Math.abs(n) >= 1000) return `${Math.round(n / 1000)}k`;
-    return `${Math.round(n)}`;
-}
+/** A compare row's difference: its sign always, three decimals at most. */
+const DELTA: TickFormatOpt = variant("number", { minimumFractionDigits: none, maximumFractionDigits: some(3n), signDisplay: none });
 
 // ============================================================================
 // Allocation row
@@ -65,6 +64,8 @@ function AllocationRow({ surface, targetKey, alloc, unit, capacity, styles, onAm
     const state = stateAttr(alloc.state);
     const proposed = alloc.state.type === "proposed";
     const draggable = proposed && !alloc.pinned;
+    // Amounts and shares, in the app's locale (#850).
+    const words = useFormatters();
     const [draft, setDraft] = useState(String(alloc.amount));
     useEffect(() => { setDraft(String(alloc.amount)); }, [alloc.amount]);
 
@@ -84,7 +85,7 @@ function AllocationRow({ surface, targetKey, alloc, unit, capacity, styles, onAm
         }
     }, [draft, alloc.amount, alloc.source, onAmount]);
 
-    const share = capacity > 0 ? Math.round((alloc.amount / capacity) * 100) : 0;
+    const share = capacity > 0 ? alloc.amount / capacity : 0;
     const sublabel = getSomeorUndefined(alloc.sublabel);
 
     return (
@@ -120,9 +121,9 @@ function AllocationRow({ surface, targetKey, alloc, unit, capacity, styles, onAm
                     }}
                 />
             ) : (
-                <Box as="span" css={styles.amountText}>{compact(alloc.amount)}</Box>
+                <Box as="span" css={styles.amountText}>{words.compact(alloc.amount)}</Box>
             )}
-            <Box as="span" css={styles.share}>{unit} · {share}%</Box>
+            <Box as="span" css={styles.share}>{unit} · {words.percent(share)}</Box>
             {draggable && onRemove && (
                 <Box
                     as="button"
@@ -169,6 +170,8 @@ function TargetPanel({ surface, target, mode, badge, styles, vetoFor, onAmount, 
     const commitRecipe = useSlotRecipe({ key: "commitBar" });
     const cs = useMemo(() => commitRecipe({}) as SlotStyles, [commitRecipe]);
     const btn = useRecipe({ key: "button" });
+    // Capacity, headroom and ticks, in the app's locale (#850).
+    const words = useFormatters();
     const coord = useMemo(() => ({ surface, row: target.key, slot: "alloc" }), [surface, target.key]);
     const veto = useMemo(() => vetoFor?.(coord), [vetoFor, coord]);
     const dropRef = useDropCell(coord, false, veto);
@@ -184,7 +187,7 @@ function TargetPanel({ surface, target, mode, badge, styles, vetoFor, onAmount, 
                 {badge !== undefined && <Box as="span" css={styles.panelBadge}>{badge}</Box>}
                 <Box as="span" css={styles.panelTitle}>{target.label}</Box>
                 <Box as="span" css={styles.panelCap}>
-                    cap {compact(target.capacity)} {target.unit} · {compact(headroom)} headroom
+                    cap {words.compact(target.capacity)} {target.unit} · {words.compact(headroom)} headroom
                 </Box>
             </Box>
             <Box css={styles.compositionBar}>
@@ -194,13 +197,13 @@ function TargetPanel({ surface, target, mode, badge, styles, vetoFor, onAmount, 
                         css={styles.segment}
                         data-state={stateAttr(alloc.state)}
                         style={{ width: `${target.capacity > 0 ? (alloc.amount / target.capacity) * 100 : 0}%` }}
-                        title={`${alloc.label} · ${compact(alloc.amount)} ${target.unit}`}
+                        title={`${alloc.label} · ${words.compact(alloc.amount)} ${target.unit}`}
                     />
                 ))}
                 <Box css={styles.headroom} style={{ width: `${target.capacity > 0 ? (headroom / target.capacity) * 100 : 100}%` }} />
             </Box>
             <Box css={styles.axis}>
-                {ticks.map(t => <Box key={t} as="span" css={styles.axisTick}>{compact(t)}</Box>)}
+                {ticks.map(t => <Box key={t} as="span" css={styles.axisTick}>{words.compact(t)}</Box>)}
             </Box>
             <Box css={styles.allocList}>
                 {target.allocations.map(alloc => (
@@ -229,7 +232,7 @@ function TargetPanel({ surface, target, mode, badge, styles, vetoFor, onAmount, 
                                 <Box as="span" css={styles.metricValue}>{m.value}</Box>
                                 {model !== undefined && <Box as="span" css={styles.trustChip}>{model}</Box>}
                                 {band !== undefined && (
-                                    <Box as="span" css={styles.bandText}>band {band.min}–{band.max}</Box>
+                                    <Box as="span" css={styles.bandText}>band {words.number(band.min)}–{words.number(band.max)}</Box>
                                 )}
                             </Box>
                         );
@@ -269,6 +272,8 @@ function TargetPanel({ surface, target, mode, badge, styles, vetoFor, onAmount, 
  */
 export const EastChakraBlend = memo(function EastChakraBlend({ value }: EastChakraBlendProps) {
     const styles = useSlotRecipe({ key: "blend" })() as SlotStyles;
+    // The compare deltas, in the app's locale (#850).
+    const words = useFormatters();
     const mode: "single" | "compare" | "portfolio" =
         value.targets.length <= 1 ? "single" : value.targets.length === 2 ? "compare" : "portfolio";
 
@@ -368,7 +373,7 @@ export const EastChakraBlend = memo(function EastChakraBlend({ value }: EastChak
             const na = ma !== undefined ? getSomeorUndefined(ma.numeric) : undefined;
             const nb = mb !== undefined ? getSomeorUndefined(mb.numeric) : undefined;
             const delta = typeof na === "number" && typeof nb === "number"
-                ? `${nb - na >= 0 ? "+" : ""}${Number((nb - na).toFixed(3))}`
+                ? words.value(nb - na, DELTA, true)
                 : "—";
             return [{
                 key,
@@ -378,7 +383,7 @@ export const EastChakraBlend = memo(function EastChakraBlend({ value }: EastChak
                 delta,
             }];
         });
-    }, [mode, targets, value.diff]);
+    }, [mode, targets, value.diff, words]);
 
     return (
         <Box ref={rootRef} css={styles.root} data-mode={mode}>

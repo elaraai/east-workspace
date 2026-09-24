@@ -11,6 +11,7 @@
 import { memo } from "react";
 import { Box } from "@chakra-ui/react";
 import { getSomeorUndefined } from "../../utils.js";
+import { useFormatters } from "../../format/index.js";
 import type { ValueTypeOf } from "@elaraai/east";
 import type { Sheet } from "@elaraai/east-ui/internal";
 
@@ -38,6 +39,8 @@ export interface SheetFooterProps {
 
 /** Renders the footer. */
 export const SheetFooter = memo(function SheetFooter({ styles, items, summary, hint, message, transport }: SheetFooterProps) {
+    // The transport counts, in the app's locale (#850).
+    const words = useFormatters();
     return (
         <Box css={styles.footer} data-slot="footer">
             {(items.length > 0 || summary !== undefined) && (
@@ -53,8 +56,8 @@ export const SheetFooter = memo(function SheetFooter({ styles, items, summary, h
             {transport !== undefined && (
                 <Box as="span" css={styles.footerTransport} data-slot="footerTransport">
                     {transport.total !== undefined
-                        ? `${transport.loaded.toLocaleString()} loaded of ${transport.total.toLocaleString()}`
-                        : `${transport.loaded.toLocaleString()} loaded`}
+                        ? `${words.number(transport.loaded)} loaded of ${words.number(transport.total)}`
+                        : `${words.number(transport.loaded)} loaded`}
                     {transport.loading ? " · Loading…" : ""}
                 </Box>
             )}

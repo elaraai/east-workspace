@@ -29,7 +29,7 @@ import {
     type ColumnDef,
     type RowSelectionState,
 } from "@tanstack/react-table";
-import { compareFor, equalFor, equivalentFor, printFor, variant, OptionType, type ValueTypeOf } from "@elaraai/east";
+import { compareFor, equalFor, equivalentFor, printFor, variant, some, none, OptionType, type ValueTypeOf } from "@elaraai/east";
 import { Table, ApprovalStateType, type UIComponentType } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
@@ -47,6 +47,7 @@ import { useReviewController, DecisionButtons, ReviewFoot, DECISION_WIDTH, type 
 import { DensityProvider } from "../../contracts/density";
 import { usePlotGutter, gutterPx } from "../../contracts/plot-gutter.js";
 import { useTablePagedRows, type TablePagedSourceValue } from "./use-paged-rows.js";
+import { useFormatters, type Formatters, type TickFormatOpt } from "../../format/index.js";
 
 /* Touch (#351): 36px tap halo on the 24px pin/sort/expander controls (36,
  * not 44 — the controls sit adjacent; full halos would swallow each other). */
@@ -207,11 +208,16 @@ function computeAggregate(tag: string, cells: TableCellVariant[]): TableCellVari
     return best;
 }
 
-/** Row grouping (#317): default text for an aggregated value (no `aggregateRender`). */
-function formatAggregate(cell: TableCellVariant): string {
+/** A Float aggregate's default: at most two decimals. */
+const AGGREGATE_FLOAT: TickFormatOpt = variant("number", { minimumFractionDigits: none, maximumFractionDigits: some(2n), signDisplay: none });
+
+/** Row grouping (#317): default text for an aggregated value (no
+ *  `aggregateRender`) — numbers grouped in the app's locale (#850); a date as
+ *  its UTC ISO day. */
+function formatAggregate(cell: TableCellVariant, words: Formatters): string {
     switch (cell.type) {
-        case "Integer": return (cell.value as bigint).toLocaleString("en-US");
-        case "Float": return (cell.value as number).toLocaleString("en-US", { maximumFractionDigits: 2 });
+        case "Integer": return words.number(cell.value as bigint);
+        case "Float": return words.value(cell.value as number, AGGREGATE_FLOAT);
         case "DateTime": return (cell.value as Date).toISOString().slice(0, 10);
         case "Boolean": return String(cell.value);
         case "String": return cell.value as string;
@@ -264,6 +270,8 @@ const TableCore = function TableCore({
 }) {
     const props = useMemo(() => toChakraTableRoot(value), [value]);
     const tableContainerRef = useRef<HTMLDivElement>(null);
+    // Aggregates and pager counts, in the app's locale (#850).
+    const words = useFormatters();
 
     // Extract East-side callbacks from style
     const style = getSomeorUndefined(value.style);
@@ -1371,7 +1379,7 @@ const TableCore = function TableCore({
                                                 <ChakraTable.Cell key={col.id} css={tableGroupSlotStyles.groupHeadAggregate} data-slot="groupHeadAggregate" style={cellStyle}>
                                                     {aggSpec.renderFn !== undefined
                                                         ? <EastChakraComponent value={aggSpec.renderFn(agg) as Parameters<typeof EastChakraComponent>[0]["value"]} storageKey={`${storageKey ?? "table"}.group.${g.path}.${col.id}`} />
-                                                        : formatAggregate(agg)}
+                                                        : formatAggregate(agg, words)}
                                                 </ChakraTable.Cell>
                                             );
                                         })}
@@ -1788,7 +1796,7 @@ const TableCore = function TableCore({
             {paginationConfig && !hidePaginationBand && (
                 <HStack gap="2" justify="flex-end" px="3" py="2" borderTop="1px solid" borderColor="border.subtle">
                     <Text fontSize="sm" color="fg.muted">
-                        Page {currentPage + 1} of {totalPages} ({sourceRows.length} total)
+                        Page {words.number(currentPage + 1)} of {words.number(totalPages)} ({words.number(sourceRows.length)} total)
                     </Text>
                     <button
                         type="button"
@@ -1862,6 +1870,8 @@ export const EastChakraTable = memo(function EastChakraTable(props: EastChakraTa
     const slice = chrome?.slice as ValueTypeOf<typeof SliceInternal.Types.Bind> | undefined;
     useSliceReactivity(slice?.key);
     const frameStyles = useSlotRecipe({ key: "sliceFrame" })();
+    // The footer's counts, in the app's locale (#850).
+    const words = useFormatters();
 
     // ── The row source (#576) ─────────────────────────────────────────────
     // Resolved HERE, once, so `TableCore` sees one row space whichever arm the
@@ -1933,11 +1943,11 @@ export const EastChakraTable = memo(function EastChakraTable(props: EastChakraTa
                 {transport !== undefined ? (
                     <>
                         <Box as="span" css={frameStyles.frameFooterStat} data-slot="tableTransport">
-                            {transport.loaded.toLocaleString()}
+                            {words.number(transport.loaded)}
                         </Box>
                         <Box as="span">
                             {transport.total !== undefined
-                                ? `loaded · of ${transport.total.toLocaleString()}`
+                                ? `loaded · of ${words.number(transport.total)}`
                                 : "loaded"}
                         </Box>
                         {transport.loading && <Box as="span">· Loading…</Box>}
@@ -1946,14 +1956,14 @@ export const EastChakraTable = memo(function EastChakraTable(props: EastChakraTa
                     </>
                 ) : (
                     <>
-                        <Box as="span" css={frameStyles.frameFooterStat}>{result.toLocaleString()}</Box>
-                        <Box as="span">{`rows · of ${total.toLocaleString()}`}</Box>
-                        {pct > 0 && <Box as="span" css={frameStyles.frameFooterDelta}>{`· −${pct}%`}</Box>}
+                        <Box as="span" css={frameStyles.frameFooterStat}>{words.number(result)}</Box>
+                        <Box as="span">{`rows · of ${words.number(total)}`}</Box>
+                        {pct > 0 && <Box as="span" css={frameStyles.frameFooterDelta}>{`· −${words.percent(pct / 100)}`}</Box>}
                     </>
                 )}
                 {paginationConfig && (
                     <Box display="inline-flex" alignItems="center" gap="{spacing.1.5}" marginLeft="auto">
-                        <Box as="span">{`page ${currentPage + 1} of ${totalPages}`}</Box>
+                        <Box as="span">{`page ${words.number(currentPage + 1)} of ${words.number(totalPages)}`}</Box>
                         <chakra.button
                             type="button"
                             aria-label="Previous page"

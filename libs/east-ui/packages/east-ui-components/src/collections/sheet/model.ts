@@ -25,6 +25,7 @@
 
 import { none, variant } from "@elaraai/east";
 import { formatDatePattern } from "../../charts/spec/index.js";
+import type { Formatters } from "../../format/index.js";
 import { formatTick, type TickFormatOpt } from "../../typography/numeric/format-tick.js";
 import { getSomeorUndefined } from "../../utils.js";
 import type {
@@ -289,9 +290,16 @@ export function indexGroup(group: SheetGroupValue, columns: SheetColumnIndex): S
     return { linesField: group.lines, keyed: group.keyed, cells, titleSpan: Math.max(1, Math.min(3, columns.list.length, firstCell)), noun: group.noun };
 }
 
-/** `n group(s)` in the host's noun. */
-export function countNoun(n: number, noun: SheetNounValue): string {
-    return `${n} ${n === 1 ? noun.singular : noun.plural}`;
+/**
+ * `n group(s)` in the host's noun, the count in the app's locale (#850).
+ *
+ * @param n - The count
+ * @param noun - The host's word for a group
+ * @param words - The formatters the count prints through
+ * @returns The phrase
+ */
+export function countNoun(n: number, noun: SheetNounValue, words: Formatters): string {
+    return `${words.number(n)} ${n === 1 ? noun.singular : noun.plural}`;
 }
 
 // A line's pseudo row is built once per group row and wire key, so its

@@ -343,6 +343,20 @@ describe("the locale (#820)", () => {
         expect(container.querySelector("[data-run='ra']")!.getAttribute("aria-label"))
             .toBe("RA, Jun 29, 2026 – Jul 3, 2026, actual");
     });
+
+    describe("under a timezone west of UTC (#850)", () => {
+        beforeEach(() => { vi.stubEnv("TZ", "America/Los_Angeles"); });
+        afterEach(() => { vi.unstubAllEnvs(); });
+
+        test("the ruler's days and a run's dates are the UTC ones", () => {
+            // Read in local time, W27's UTC midnight is Sunday the 28th here.
+            expect(new Intl.DateTimeFormat("en-US", { day: "numeric" }).format(W27)).toBe("28");
+            const { container } = renderPlan(planRoot(rows(), { resolution: "day", window: week }), "plan-850-tz", german);
+            expect(ticks(container)).toEqual(["MO", "DI", "MI", "DO", "FR", "SA", "SO"]);
+            expect(container.querySelector("[data-run='ra']")!.getAttribute("aria-label"))
+                .toBe("RA, 29. Juni 2026 – 3. Juli 2026, actual");
+        });
+    });
 });
 
 // ── Overrides ─────────────────────────────────────────────────────────────

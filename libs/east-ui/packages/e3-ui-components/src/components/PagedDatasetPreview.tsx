@@ -28,6 +28,7 @@ import { ValueTree } from '@elaraai/east-ui';
 import { pruneRetainedPages } from '@elaraai/east-ui/internal';
 import {
     EastChakraValueTree,
+    useFormatters,
     type ValueTreeValue,
     type ValueTreePagedRow,
     type ValueTreePaging,
@@ -142,6 +143,8 @@ export const PagedDatasetPreview = memo(function PagedDatasetPreview({
     onDownload,
     onNotIndexed,
 }: PagedDatasetPreviewProps) {
+    // The totals line, in the app's locale (#850).
+    const words = useFormatters();
     const queryClient = useQueryClient();
     const [pages, setPages] = useState<ReadonlyMap<number, readonly ValueTreePagedRow[]>>(new Map());
     const [totals, setTotals] = useState<{ elements: number; bytes: number } | null>(null);
@@ -317,7 +320,7 @@ export const PagedDatasetPreview = memo(function PagedDatasetPreview({
         <Flex direction="column" height="100%" overflow="hidden">
             <Flex px={4} py={2} gap={2} align="center" flexShrink={0} borderBottom="1px solid" borderColor="border.subtle">
                 <Text fontSize="xs" color="fg.muted" whiteSpace="nowrap">
-                    {totals.elements.toLocaleString()} {itemNoun} · {formatSize(totals.bytes > 0 ? totals.bytes : sizeBytes)}
+                    {words.number(totals.elements)} {itemNoun} · {formatSize(totals.bytes > 0 ? totals.bytes : sizeBytes, words)}
                 </Text>
                 {loadingCount > 0 && <Text fontSize="xs" color="fg.muted">Loading…</Text>}
                 {keyType !== null && (

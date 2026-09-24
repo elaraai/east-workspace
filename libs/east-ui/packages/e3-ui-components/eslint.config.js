@@ -3,6 +3,35 @@ import tsparser from '@typescript-eslint/parser';
 import headers from 'eslint-plugin-headers';
 import reactHooks from 'eslint-plugin-react-hooks';
 
+// One formatter for every component (#850): numbers and dates print through
+// @elaraai/east-ui-components' shared formatters — in the app's locale, dates in UTC. These
+// selectors are its drift guard: a direct Intl formatter, a toLocale* call, a
+// local-time Date getter or setter, or a local-time Date constructor fails
+// lint. (ESLint's AST selector syntax; the UTC methods — getUTCHours,
+// setUTCDate — and toLocaleUpperCase stay allowed.)
+const ONE_FORMATTER = [
+  {
+    selector: "NewExpression[callee.object.name='Intl']",
+    message: 'Format numbers and dates through the shared formatters (#850) — useFormatters() in a component, a Formatters parameter elsewhere — never a direct Intl formatter.'
+  },
+  {
+    selector: "CallExpression[callee.object.name='Intl']",
+    message: 'Format numbers and dates through the shared formatters (#850) — useFormatters() in a component, a Formatters parameter elsewhere — never a direct Intl formatter.'
+  },
+  {
+    selector: "CallExpression[callee.property.name=/^toLocale(String|DateString|TimeString)$/]",
+    message: "toLocaleString / toLocaleDateString / toLocaleTimeString print in the runtime's locale and the viewer's timezone. Use the shared formatters (#850)."
+  },
+  {
+    selector: "CallExpression[callee.property.name=/^(get|set)(FullYear|Month|Date|Day|Hours|Minutes|Seconds|Milliseconds)$/]",
+    message: "A local-time Date getter or setter reads the viewer's timezone, and an East DateTime is a UTC instant. Use the UTC method (getUTCHours, setUTCDate, …) or the shared formatters (#850)."
+  },
+  {
+    selector: "NewExpression[callee.name='Date'][arguments.length>1]",
+    message: 'new Date(y, m, …) builds a LOCAL-time date, and an East DateTime is a UTC instant. Use new Date(Date.UTC(y, m, …)) (#850).'
+  }
+];
+
 export default [
   {
     ignores: ['dist/**', 'node_modules/**', 'coverage/**', '**/*.test.tsx', '**/*.test.ts']
@@ -46,7 +75,8 @@ export default [
       'headers/header-format': ['error', {
         source: 'string',
         content: 'Copyright (c) 2025 Elara AI Pty Ltd\nDual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.'
-      }]
+      }],
+      'no-restricted-syntax': ['error', ...ONE_FORMATTER]
     }
   }
 ];

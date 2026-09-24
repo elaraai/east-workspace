@@ -25,6 +25,7 @@ import { scaleLinear } from "@visx/scale";
 import type { ValueTypeOf } from "@elaraai/east";
 import { Plan } from "@elaraai/east-ui/internal";
 import { tickFormatter } from "../../../charts/spec/index.js";
+import { formatters } from "../../../format/index.js";
 import type { PlanInstantValue } from "../instant.js";
 import type { PlanScale } from "../scale.js";
 import type { PlanWords } from "../words.js";
@@ -345,9 +346,9 @@ export function splitAtNow<P>(placed: readonly Placed<P>[], nowFrac: number | un
 /**
  * A value axis's tick formatter — the declared `Chart.format.*` spec through
  * the shared chart-axis `tickFormatter` (#190); an undeclared axis keeps the
- * terse bare-number default of the spec ruler: a whole number, else one
- * decimal, never grouped. Both speak the canvas's locale (#820) — `2.5` is
- * `2,5` in `de-DE`.
+ * terse bare-number default of the spec ruler (the shared module's `tick`
+ * arm, #850): a whole number, else one decimal, never grouped. Both speak the
+ * canvas's locale (#820) — `2.5` is `2,5` in `de-DE`.
  *
  * @param axis - The axis declaration
  * @param locale - The BCP 47 locale the numbers format in
@@ -355,12 +356,7 @@ export function splitAtNow<P>(placed: readonly Placed<P>[], nowFrac: number | un
  */
 export function axisFormatter(axis: ChartAxisValue | undefined, locale: string): (v: number) => string {
     const fmt = axis !== undefined && axis.format.type === "some" ? axis.format.value : undefined;
-    if (fmt === undefined) {
-        const whole = new Intl.NumberFormat(locale, { useGrouping: false, maximumFractionDigits: 0 });
-        const tenth = new Intl.NumberFormat(locale, { useGrouping: false, minimumFractionDigits: 1, maximumFractionDigits: 1 });
-        // A negative zero prints `0`, not `-0`.
-        return (v) => (Number.isInteger(v) ? whole.format(v === 0 ? 0 : v) : tenth.format(v));
-    }
+    if (fmt === undefined) return formatters(locale).tick;
     const f = tickFormatter(fmt, "linear", locale);
     return (v) => f(v);
 }

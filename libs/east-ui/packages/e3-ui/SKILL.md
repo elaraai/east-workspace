@@ -367,6 +367,19 @@ the exact complement of the queue. Options: `heading`, `maxHeight`.
 />
 ```
 
+### Numbers, dates and the locale
+
+Every e3-ui surface prints through east-ui's one formatter:
+- the queue's values and deadlines;
+- the journal's times and the constraint chips;
+- the experiment's effects and its journal;
+- a dataset preview's counts and sizes;
+- a diff's values.
+
+Numbers follow the viewer's locale, and every date prints its UTC day. A host sets the locale by wrapping the app in `<I18nProvider locale="de-DE">`, re-exported from `@elaraai/east-ui-components`; the browser's language stands in otherwise.
+
+A value that is data prints bare: every digit, never grouped, with the locale's decimal separator (a year stays `2026`). That covers a constraint's number and a diff's integer. A declared spec, such as a decision's `format`, prints as the east-ui skill's Formats branch describes.
+
 ## Examples
 
 Tested examples live in `test/*.examples.tsx`:

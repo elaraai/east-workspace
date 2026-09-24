@@ -27,6 +27,10 @@ import { variant, some, none, compareFor, encodeBeast2For, parseFor, type EastTy
 import { ValueTree } from '@elaraai/east-ui';
 import {
     EastChakraValueTree,
+    formatters,
+    useFormatters,
+    type Formatters,
+    type TickFormatOpt,
     type ValueTreeValue,
     type ValueTreeStepValue,
     type ValueTreeLeafValue,
@@ -56,11 +60,23 @@ export interface DatasetPreviewProps {
     editable?: boolean;
 }
 
-/** Human-readable byte size, shared with the paged preview. */
-export function formatSize(bytes: number): string {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
+/** A size in KB, to one decimal. */
+const KB_FORMAT: TickFormatOpt = variant('number', { minimumFractionDigits: some(1n), maximumFractionDigits: some(1n), signDisplay: none });
+/** A size in MB, to two decimals. */
+const MB_FORMAT: TickFormatOpt = variant('number', { minimumFractionDigits: some(2n), maximumFractionDigits: some(2n), signDisplay: none });
+
+/**
+ * Human-readable byte size, shared with the paged preview — its digits in the
+ * app's locale (#850).
+ *
+ * @param bytes - The size in bytes
+ * @param words - The formatters; the runtime locale's when omitted
+ * @returns `512 B`, `1.5 KB` or `2.25 MB` (`1,5 KB` in `de-DE`)
+ */
+export function formatSize(bytes: number, words: Formatters = formatters()): string {
+    if (bytes < 1024) return `${words.number(bytes)} B`;
+    if (bytes < 1024 * 1024) return `${words.value(bytes / 1024, KB_FORMAT)} KB`;
+    return `${words.value(bytes / 1024 / 1024, MB_FORMAT)} MB`;
 }
 
 /** Download trigger with its own in-flight state, shared with the paged preview. */
@@ -88,6 +104,8 @@ export const DatasetPreview = memo(function DatasetPreview({
     pollInterval,
     editable = false,
 }: DatasetPreviewProps) {
+    // Counts and sizes, in the app's locale (#850).
+    const words = useFormatters();
     const statusQuery = useDatasetStatus(apiUrl, repo, workspace, path, {
         ...(requestOptions != null && { requestOptions }),
         ...(pollInterval !== undefined && { pollInterval }),
@@ -237,7 +255,7 @@ export const DatasetPreview = memo(function DatasetPreview({
             <Flex height="100%" direction="column" align="center" justify="center" layerStyle="banner.stale" borderRadius="0" gap={3} p={6}>
                 <Text fontSize="lg" color="fg.warning" fontWeight="bold">Value too large to display</Text>
                 <Text color="fg.muted" fontSize="sm">
-                    The data is {formatSize(sizeBytes)}, which exceeds the {formatSize(sizeLimit)} display limit.
+                    The data is {formatSize(sizeBytes, words)}, which exceeds the {formatSize(sizeLimit, words)} display limit.
                 </Text>
                 <DownloadButton onClick={download} label="Download value" />
             </Flex>
@@ -255,7 +273,7 @@ export const DatasetPreview = memo(function DatasetPreview({
         : type.type === 'Set' || type.type === 'Dict' ? (decoded as { size: number }).size
         : null;
     const countText = count === null ? ''
-        : `${count.toLocaleString()} ${type?.type === 'Dict' ? 'entries' : 'items'} · `;
+        : `${words.number(count)} ${type?.type === 'Dict' ? 'entries' : 'items'} · `;
 
     return (
         <Flex direction="column" height="100%" overflow="hidden">
@@ -265,7 +283,7 @@ export const DatasetPreview = memo(function DatasetPreview({
                         onJump={setJumpRow} onClear={() => setJumpRow(undefined)} />
                 )}
                 <Flex flex={1} justify="flex-end" align="center" gap={2}>
-                    <Text fontSize="xs" color="fg.muted">{countText}{formatSize(sizeBytes)}</Text>
+                    <Text fontSize="xs" color="fg.muted">{countText}{formatSize(sizeBytes, words)}</Text>
                     <DownloadButton onClick={download} />
                 </Flex>
             </Flex>

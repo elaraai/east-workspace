@@ -31,6 +31,7 @@
 
 import { none, some } from "@elaraai/east";
 import { sliceMatches } from "@elaraai/east-ui/internal";
+import type { Formatters } from "../../format/index.js";
 import { TITLE_KEY, printLinkText, subRowText, type SheetColumnMeta } from "./model.js";
 import type { LensContext, SliceStateValue } from "./sheet-types.js";
 import type { SheetCellValue, SheetLineValue, SheetRowValue } from "./values.js";
@@ -373,12 +374,19 @@ export function revealStep(
     return { positions: [...range(from, from + half - 1), ...range(to - half + 1, to)], steps: next };
 }
 
-/** The `n matches · m context` line, empty without a lens. */
-export function lensCount(hits: readonly boolean[], visible: readonly boolean[]): string {
+/**
+ * The `n matches · m context` line, its counts in the app's locale (#850).
+ *
+ * @param hits - One flag per row: a match
+ * @param visible - One flag per row: shown (a match, its context, a reveal)
+ * @param words - The formatters the counts print through
+ * @returns The line
+ */
+export function lensCount(hits: readonly boolean[], visible: readonly boolean[], words: Formatters): string {
     const n = hits.filter(Boolean).length;
     const shown = visible.filter(Boolean).length;
     const ctx = shown - n;
-    return `${n} match${n === 1 ? "" : "es"}${ctx > 0 ? ` · ${ctx} context` : ""}`;
+    return `${words.number(n)} match${n === 1 ? "" : "es"}${ctx > 0 ? ` · ${words.number(ctx)} context` : ""}`;
 }
 
 /** A view's name from its query (B§8): the query to 16 characters, else `view n`. */

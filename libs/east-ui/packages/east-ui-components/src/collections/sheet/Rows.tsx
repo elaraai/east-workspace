@@ -17,6 +17,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faAngleDown, faAngleUp, faArrowRight, faCheck, faMinus, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { none } from "@elaraai/east";
 import { getSomeorUndefined } from "../../utils.js";
+import { useFormatters } from "../../format/index.js";
 import {
     TITLE_KEY, cellIsBlank, cellText, driverKeyOf, isLinePosition, lineNumberOf, resolveMember,
     type LineGroup, type SheetBand, type SheetColumnIndex, type SheetColumnMeta, type SheetGroupIndex, type SheetRegisterIndex,
@@ -162,6 +163,8 @@ export interface SheetRowProps {
 /** Renders one row. */
 export const SheetRow = memo(function SheetRow(props: SheetRowProps) {
     const { styles, columns, registers, driverColumn, gridTemplate, rowPx, r, number, row, group, linkCtx, selC, range, picked, hit, editor, fills, nextTargetC, hoverC, first } = props;
+    // The sub-row count in the chevron's name, in the app's locale (#850).
+    const words = useFormatters();
     const issuePrefix = useId();
     const self = useRef<HTMLDivElement | null>(null);
     useArrival(self, props.entering);
@@ -209,8 +212,8 @@ export const SheetRow = memo(function SheetRow(props: SheetRowProps) {
                     {props.subRows !== undefined && (
                         <chakra.button type="button" css={styles.subRowChevron} data-slot="subRowChevron" data-open={props.subRows.open ? "" : undefined}
                             aria-expanded={props.subRows.open}
-                            aria-label={`${props.subRows.open ? "Hide" : "Show"} the ${props.subRows.count} row${props.subRows.count === 1 ? "" : "s"} under line ${number}`}
-                            title={`${props.subRows.open ? "Hide" : "Show"} the ${props.subRows.count} row${props.subRows.count === 1 ? "" : "s"} under this line — Space · ⌥ every line in the ${props.noun?.singular ?? "group"}`}
+                            aria-label={`${props.subRows.open ? "Hide" : "Show"} the ${words.number(props.subRows.count)} row${props.subRows.count === 1 ? "" : "s"} under line ${number}`}
+                            title={`${props.subRows.open ? "Hide" : "Show"} the ${words.number(props.subRows.count)} row${props.subRows.count === 1 ? "" : "s"} under this line — Space · ⌥ every line in the ${props.noun?.singular ?? "group"}`}
                             onMouseDown={(event) => { event.preventDefault(); event.stopPropagation(); props.onSubRows?.(r, event.altKey); }}
                             onClick={(event) => { if (event.detail === 0) props.onSubRows?.(r, event.altKey); }}>
                             <Chevron />
@@ -515,6 +518,8 @@ export interface SheetBandRowProps {
 /** A paged source's unloaded run — one band sized by the ledger. */
 export const SheetBandRow = memo(function SheetBandRow({ styles, band, loading }: SheetBandRowProps) {
     const n = Math.max(0, band.to - band.from + 1);
+    // The element count, in the app's locale (#850).
+    const words = useFormatters();
     return (
         <Box
             css={styles.band}
@@ -525,7 +530,7 @@ export const SheetBandRow = memo(function SheetBandRow({ styles, band, loading }
         >
             <Box css={styles.bandRule} aria-hidden="true" />
             <Box as="span" css={styles.bandPill} style={{ position: "sticky", top: "60px", alignSelf: "flex-start", marginTop: "0" }}>
-                {`${n.toLocaleString()} ${loading ? "loading" : "not loaded"}`}
+                {`${words.number(n)} ${loading ? "loading" : "not loaded"}`}
             </Box>
         </Box>
     );
@@ -555,24 +560,26 @@ export const SheetGapRow = memo(function SheetGapRow({ styles, gap, reach, onRev
     // A run inside a group (#740) is bounded by line numbers, not sheet rows.
     const above = isLinePosition(gap.from) ? lineNumberOf(gap.from) - 1 : gap.from;
     const below = isLinePosition(gap.to) ? lineNumberOf(gap.to) + 1 : gap.to + 2;
+    // The hidden count, in the app's locale (#850).
+    const words = useFormatters();
     return (
         <Box css={styles.band} data-slot="band" data-band="lens" data-gap={gap.key} data-hidden={gap.hidden}>
             <Box css={styles.bandRule} aria-hidden="true" />
             <Box as="span" css={styles.bandPill} data-slot="bandPill" data-lens="">
                 {!gap.first && (
                     <Box as="span" css={styles.bandControl} data-slot="bandControl" data-where="top" role="button"
-                        aria-label={`Show ${reach.top} more after row ${above}`} title={`Show the rows just after row ${above}`} onMouseDown={press("top")}>
+                        aria-label={`Show ${words.number(reach.top)} more after row ${above}`} title={`Show the rows just after row ${above}`} onMouseDown={press("top")}>
                         <FontAwesomeIcon icon={faAngleUp} />
-                        {`+${reach.top}`}
+                        {`+${words.number(reach.top)}`}
                     </Box>
                 )}
                 <Box as="span" css={styles.bandCount} data-slot="bandCount" role="button" title="Expand — each click reaches further" onMouseDown={press(middle)}>
-                    {`${gap.hidden.toLocaleString()} hidden`}
+                    {`${words.number(gap.hidden)} hidden`}
                 </Box>
                 {!gap.last && (
                     <Box as="span" css={styles.bandControl} data-slot="bandControl" data-where="bottom" role="button"
-                        aria-label={`Show ${reach.bottom} more before row ${below}`} title={`Show the rows just before row ${below}`} onMouseDown={press("bottom")}>
-                        {`+${reach.bottom}`}
+                        aria-label={`Show ${words.number(reach.bottom)} more before row ${below}`} title={`Show the rows just before row ${below}`} onMouseDown={press("bottom")}>
+                        {`+${words.number(reach.bottom)}`}
                         <FontAwesomeIcon icon={faAngleDown} />
                     </Box>
                 )}
@@ -643,6 +650,8 @@ export const SheetGroupRow = memo(function SheetGroupRow(props: SheetGroupRowPro
     const titleSelected = selC !== undefined && selC < span && editor === undefined;
     const titleEditing = editor !== undefined && editor.c < span;
     const word = group.noun.singular;
+    // The line count, in the app's locale (#850).
+    const words = useFormatters();
     return (
         <Box
             css={styles.groupRow}
@@ -703,7 +712,7 @@ export const SheetGroupRow = memo(function SheetGroupRow(props: SheetGroupRowPro
                     {titleEditing && editor.node}
                 </Box>
                 {sub !== "" && <Box as="span" css={styles.groupSub} data-slot="groupSub">{sub}</Box>}
-                <Box as="span" css={styles.groupCount} data-slot="groupCount">{count}</Box>
+                <Box as="span" css={styles.groupCount} data-slot="groupCount">{words.number(count)}</Box>
                 {columns.list.map((colMeta, c) => {
                     if (c < span) return null;
                     const meta = group.cells.get(colMeta.key);

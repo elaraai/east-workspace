@@ -17,6 +17,7 @@ import { memo } from "react";
 import { Box, chakra } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faMinus } from "@fortawesome/free-solid-svg-icons";
+import { useFormatters } from "../../format/index.js";
 import { countNoun, type SheetColumnMeta } from "./model.js";
 import type { SheetNounValue } from "./values.js";
 
@@ -44,7 +45,9 @@ function DoubleChevron() {
 
 /** Renders the header row. */
 export const SheetHeader = memo(function SheetHeader({ styles, columns, gridTemplate, picked, foldAll }: SheetHeaderProps) {
-    const groups = foldAll !== undefined ? countNoun(foldAll.count, foldAll.noun) : "";
+    // The fold-all's count, in the app's locale (#850).
+    const words = useFormatters();
+    const groups = foldAll !== undefined ? countNoun(foldAll.count, foldAll.noun, words) : "";
     const hint = foldAll !== undefined ? `⌥ on a chevron, ⇧Space on a ${foldAll.noun.singular}` : "";
     return (
         <Box css={styles.header} style={{ gridTemplateColumns: gridTemplate }} data-slot="header" role="row">

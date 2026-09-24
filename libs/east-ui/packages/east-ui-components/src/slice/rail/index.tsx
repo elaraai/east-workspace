@@ -50,6 +50,7 @@ import { railAffordanceKinds } from "../rail-kinds.js";
 // Function-declaration import across the rail ↔ charts module cycle is safe
 // (hoisted; charts/spec imports SliceRailCluster from here the same way).
 import { tickFormatter, type TickFormat } from "../../charts/spec/index.js";
+import { useFormatters } from "../../format/index.js";
 import { SliceDensityContext } from "../density";
 import { BrushStrip } from "../brush-strip.js";
 import { useSliceReactivity } from "../use-slice-reactivity";
@@ -437,6 +438,8 @@ const BRUSH_BUCKETS = 32;
  */
 function RailBrushStrip({ slice, style }: { slice: ValueTypeOf<typeof Slice.Types.Bind>; style: BrushStyle }) {
     const frameStyles = useSlotRecipe({ key: "sliceFrame" })();
+    // The axis labels, in the app's locale (#850).
+    const { locale } = useFormatters();
     const domain = boundRangeDomain(slice.key);
     if (domain === undefined || domain.max <= domain.min) return null;
 
@@ -456,12 +459,12 @@ function RailBrushStrip({ slice, style }: { slice: ValueTypeOf<typeof Slice.Type
     const counts = style.count ? boundRangeHistogram(slice.key, style.buckets) : undefined;
 
     // Formatted axis labels (#190) — the range field's declared `format`
-    // wins; else the kind default (datetime → locale date, numeric → number).
+    // wins; else the kind default (datetime → a UTC date, numeric → number).
     const rangeFieldId = (getSomeorUndefined(slice.rangeFieldId() as never) ?? undefined) as string | undefined;
     const fieldFormat = rangeFieldId !== undefined
         ? getSomeorUndefined((slice.fields().find(f => f.fieldId === rangeFieldId) as { format?: never } | undefined)?.format as never) as TickFormat | undefined
         : undefined;
-    const fmt = tickFormatter(fieldFormat, domain.kind === "datetime" ? "time" : "linear");
+    const fmt = tickFormatter(fieldFormat, domain.kind === "datetime" ? "time" : "linear", locale);
     const axisLabel = (f: number) => {
         const v = fromFraction(f);
         return fmt(domain.kind === "datetime" ? new Date(v) : v);

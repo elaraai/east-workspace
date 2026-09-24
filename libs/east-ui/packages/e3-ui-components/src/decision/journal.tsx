@@ -18,7 +18,7 @@ import { memo, useMemo } from 'react';
 import { Box, Text, useSlotRecipe } from '@chakra-ui/react';
 import { type ValueTypeOf } from '@elaraai/east';
 import { DecisionJournal } from '@elaraai/e3-ui/internal';
-import { implementUIComponent, getSomeorUndefined, ClauseChip } from '@elaraai/east-ui-components';
+import { implementUIComponent, getSomeorUndefined, ClauseChip, useFormatters, type Formatters } from '@elaraai/east-ui-components';
 
 import type { TreePath } from '@elaraai/e3-types';
 import { getBindingTypes, getReactiveDatasetCache } from '../platform/index.js';
@@ -43,12 +43,11 @@ function verdictPresentation(verdict: Verdict): { tone: StatusTone; verb: string
     }
 }
 
-function formatResolvedAt(j: Judgement): string | null {
+/** When a case was resolved — its UTC month, day and 24-hour time, in the app's locale (#850). */
+function formatResolvedAt(j: Judgement, words: Formatters): string | null {
     if (j.resolvedAt.type !== 'some') return null;
     const d = j.resolvedAt.value;
-    const month = d.toLocaleString('en', { month: 'short' });
-    const time = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-    return `${month} ${d.getDate()} · ${time}`;
+    return `${words.monthDay(d)} · ${words.time(d)}`;
 }
 
 export interface EastChakraDecisionJournalProps {
@@ -60,6 +59,7 @@ const EastChakraDecisionJournal = memo(function EastChakraDecisionJournal({ valu
     const eyebrow = useSlotRecipe({ key: 'eyebrowRow' });
     const status = useSlotRecipe({ key: 'status' });
     const es = eyebrow({});
+    const words = useFormatters();
 
     const handle = useDecisionHandle(value.handle);
     const heading = getSomeorUndefined(value.heading) ?? 'Decision journal';
@@ -80,7 +80,7 @@ const EastChakraDecisionJournal = memo(function EastChakraDecisionJournal({ valu
             <Box css={es.root}>
                 <Box css={es.lbl}>{heading}</Box>
                 <Box css={es.meta}>
-                    {entries.length === 1 ? '1 entry' : `${entries.length} entries`}
+                    {entries.length === 1 ? '1 entry' : `${words.number(entries.length)} entries`}
                 </Box>
             </Box>
 
@@ -97,7 +97,7 @@ const EastChakraDecisionJournal = memo(function EastChakraDecisionJournal({ valu
                 if (!verdict) return null;
                 const { tone, verb, detail } = verdictPresentation(verdict);
                 const st = status({ status: tone, size: 'md' });
-                const when = formatResolvedAt(j);
+                const when = formatResolvedAt(j, words);
                 const knowledge = j.knowledge.type === 'some' && j.knowledge.value !== '' ? j.knowledge.value : null;
                 return (
                     <Box
@@ -141,7 +141,7 @@ const EastChakraDecisionJournal = memo(function EastChakraDecisionJournal({ valu
                             <Box display="flex" gap="12px" flexWrap="wrap">
                                 {j.constraints.map((c, k) => {
                                     const tag = (c as unknown as { type: string }).type;
-                                    const f = formatConstraint(c, leverPayloads[tag]);
+                                    const f = formatConstraint(c, leverPayloads[tag], undefined, words);
                                     return <ClauseChip key={k} field={f.lever} op={f.op} value={f.value} />;
                                 })}
                             </Box>

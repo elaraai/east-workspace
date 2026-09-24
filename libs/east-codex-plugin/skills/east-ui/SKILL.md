@@ -5,7 +5,7 @@ description: "Type-safe UI component library for the East language, authored as 
 
 ## Detailed skill scope
 
-Type-safe UI component library for the East language, authored as JSX tags. Use when writing East programs that define user interfaces. Triggers for: (1) Authoring `.tsx` component trees with `@elaraai/east-ui` tags, (2) Layout with <Box>, <Flex>, <Stack>/<VStack>/<HStack>, <Grid>, <Splitter>, <ScrollArea>, <Sticky>, <Expandable>, <Dock>, <Configurator> (control table + live preview + spec readout), (3) Forms with <Input>, <Textarea>, <Select>, <Combobox>, <Checkbox>, <Switch>, <Slider>, <RadioGroup>, <RadioCardGroup>, <TagsInput>, <FileUpload>, <Field>, <DateRangeInput>, <TimeRangeInput>, (4) Data display with <Table>, <TreeView>, <ValueTree>, <DataList>, <Deck>, <Plan> (the composite canvas — heterogeneous keyed rows on ONE shared { time | number | ordinal } axis, paged sources, series library, key search), <Sheet> (the planning spreadsheet — typed columns over the host's raw rows, registers and a driver, directed link cells, an East-function copilot that fills cells and proposes rows, a slice lens with saved-view tabs, Excel round-trip, paged sources with key search), <Matrix>, <Calendar>, <Schematic>, <Map>, <Library>, <Roster>, <Board>, <Blend>, <Slice.Rail>, <Pagination>, <ChipRail>, <Trace>, (5) Charts with <Chart layers={Chart.Line/Column/Bar/Area/Scatter/Band(...)}/> (Column = vertical, Bar = horizontal) plus Chart.refLine/refBand/refDot, <Sparkline>, (6) Overlays with <Dialog>, <Drawer>, <Popover>, <Menu>, <Tooltip>, <HoverCard>, <ToggleTip>, <ActionBar>, <CommandPalette>, <Hotkey>, (7) Feedback with <Banner>, <Status>, <Progress>, <Skeleton>, <EmptyState>, (8) Disclosure with <Tabs>, <Accordion>, <Carousel>, <Collapsible>, <SegmentGroup>, <OptionList>, <Story>, (9) Navigation with <Breadcrumb>, <NavList>, route-stack page switching (Navigation.config / Navigation.bind / <Pages>, plus <Route> to host a remounting per-route slot anywhere), and <App> — the whole application shell (collapsible rail + breadcrumb + logo + routed body from one nav handle, with an east-ui-components AppProvider for host-injected app-bar chrome), (10) Reactive UI via <Reactive>{$ => …}</Reactive> + State.bind, and conditional hosting of stateful components via <Match on cases> (remounts the active variant case on tag change), (11) Shared value formatting — one Chart.format.* spec reused by chart axes, Slice fields, <Stat>, <Numeric> and Deck metrics, (12) Status colour vocabulary — the five status tokens, the Deck.statuses registry, Library.status, rowStatus tints and tone props.
+Type-safe UI component library for the East language, authored as JSX tags. Use when writing East programs that define user interfaces. Triggers for: (1) Authoring `.tsx` component trees with `@elaraai/east-ui` tags, (2) Layout with <Box>, <Flex>, <Stack>/<VStack>/<HStack>, <Grid>, <Splitter>, <ScrollArea>, <Sticky>, <Expandable>, <Dock>, <Configurator> (control table + live preview + spec readout), (3) Forms with <Input>, <Textarea>, <Select>, <Combobox>, <Checkbox>, <Switch>, <Slider>, <RadioGroup>, <RadioCardGroup>, <TagsInput>, <FileUpload>, <Field>, <DateRangeInput>, <TimeRangeInput>, (4) Data display with <Table>, <TreeView>, <ValueTree>, <DataList>, <Deck>, <Plan> (the composite canvas — heterogeneous keyed rows on ONE shared { time | number | ordinal } axis, paged sources, series library, key search), <Sheet> (the planning spreadsheet — typed columns over the host's raw rows, registers and a driver, directed link cells, an East-function copilot that fills cells and proposes rows, a slice lens with saved-view tabs, Excel round-trip, paged sources with key search), <Matrix>, <Calendar>, <Schematic>, <Map>, <Library>, <Roster>, <Board>, <Blend>, <Slice.Rail>, <Pagination>, <ChipRail>, <Trace>, (5) Charts with <Chart layers={Chart.Line/Column/Bar/Area/Scatter/Band(...)}/> (Column = vertical, Bar = horizontal) plus Chart.refLine/refBand/refDot, <Sparkline>, (6) Overlays with <Dialog>, <Drawer>, <Popover>, <Menu>, <Tooltip>, <HoverCard>, <ToggleTip>, <ActionBar>, <CommandPalette>, <Hotkey>, (7) Feedback with <Banner>, <Status>, <Progress>, <Skeleton>, <EmptyState>, (8) Disclosure with <Tabs>, <Accordion>, <Carousel>, <Collapsible>, <SegmentGroup>, <OptionList>, <Story>, (9) Navigation with <Breadcrumb>, <NavList>, route-stack page switching (Navigation.config / Navigation.bind / <Pages>, plus <Route> to host a remounting per-route slot anywhere), and <App> — the whole application shell (collapsible rail + breadcrumb + logo + routed body from one nav handle, with an east-ui-components AppProvider for host-injected app-bar chrome), (10) Reactive UI via <Reactive>{$ => …}</Reactive> + State.bind, and conditional hosting of stateful components via <Match on cases> (remounts the active variant case on tag change), (11) Value formatting — Chart.format.* specs (chart axes, Slice fields, Deck metrics, the Plan) and Format.* specs (<Numeric>, <Stat>) through one interpreter, in the viewer's locale (react-aria's I18nProvider) with every date in UTC, (12) Status colour vocabulary — the five status tokens, the Deck.statuses registry, Library.status, rowStatus tints and tone props.
 
 # East UI
 
@@ -272,7 +272,7 @@ Task → Which tag?
 │   └─ <Numeric> — tabular-num number with sentiment (shares the Formats vocabulary)
 │       └─ Props:
 │           ├─ value (required) — the raw number
-│           ├─ format (optional) — a shared Chart.format.* spec (see the Formats branch)
+│           ├─ format (optional) — a Format.* spec: Format.Currency({ currency: "EUR" }), Format.Percent(…), Format.Compact(), … (see the Formats branch)
 │           ├─ sentiment (optional) — positive | negative | neutral colouring
 │           ├─ showSign (optional) — always render the +/− sign
 │           ├─ textStyle (optional) — typographic preset
@@ -820,7 +820,7 @@ Task → Which tag?
 │   ├─ <Stat> — metric tile with label / value / change indicator
 │   │   └─ Props:
 │   │       ├─ label (required) — metric caption; value (required) — the raw value (Float / Integer / String)
-│   │       ├─ format (optional) — a shared Chart.format.* spec over a numeric value (see the Formats branch)
+│   │       ├─ format (optional) — a Format.* spec over a numeric value: Format.Currency({ currency: "USD", maximumFractionDigits: 0n }), Format.Compact(), … (see the Formats branch)
 │   │       ├─ helpText (optional) — caption beneath the value
 │   │       ├─ baseline / delta / info (optional) — secondary line / change pill / ⓘ ToggleTip trigger (UIComponents)
 │   │       ├─ indicator (optional) — "up"|"down"|"flat" or { direction, sentiment?: positive|negative|neutral, icon? }
@@ -1091,22 +1091,26 @@ Task → Which tag?
 │           ├─ height / minHeight / maxHeight / width / minWidth / maxWidth / flex / overflow (optional) — sizing (a sized Card becomes a flex column constraining its body — see the Sizing pattern)
 │           └─ background / borderColor (optional)
 │
-├─ Formats (shared value formatting — pick ONE spec, reuse it everywhere; #190)
-│   ├─ The contract: every format-bearing prop takes the SAME `ValueFormatType` spec, built with Chart.format.* — a chart axis, a Slice field, a Stat, a Numeric and a Deck metric all format one way. Payloads keep the RAW value; formatting happens at render.
-│   ├─ Factories:
-│   │   ├─ Chart.format.number() — locale-grouped plain number
-│   │   ├─ Chart.format.currency({ code?, compact? }) — currency; compact ⇒ $1.2M
-│   │   ├─ Chart.format.percent() — 0.42 → 42%
-│   │   ├─ Chart.format.compact() — 12400 → 12.4K
-│   │   └─ Chart.format.date(pattern) / Chart.format.time(pattern) / Chart.format.datetime(pattern) — date-token patterns
-│   ├─ Where the SAME spec plugs in:
-│   │   ├─ <Chart> x/y/y2 { format } — axis tick labels
+├─ Formats (value formatting — one interpreter, in the viewer's locale; #190, #850)
+│   ├─ The contract: a format-bearing prop takes a SPEC and the payload keeps the RAW value; the renderer prints it at render through ONE interpreter, in the viewer's LOCALE, every date in UTC. Two spec vocabularies — Chart.format.* and Format.* — and a shared arm prints the same whichever one declared it
+│   ├─ Chart.format.* (`Chart.Spec.Types.TickFormat`) — chart axes, Slice fields, Deck, the Plan:
+│   │   ├─ Chart.format.number() — plain number, grouped in the locale (1,234.5; German 1.234,5)
+│   │   ├─ Chart.format.currency({ code?, compact? }) — currency; compact ⇒ $1.8M (one fraction digit)
+│   │   ├─ Chart.format.percent() — 0.42 → 42% (whole percents)
+│   │   ├─ Chart.format.compact() — 12400 → 12.4K (one fraction digit)
+│   │   └─ Chart.format.date(pattern) / Chart.format.time(pattern) / Chart.format.datetime(pattern) — East date-token patterns
+│   ├─ Format.* (`Format.Types.Tick`) — <Numeric>, <Stat>:
+│   │   ├─ Format.Number({ minimumFractionDigits?, maximumFractionDigits?, signDisplay? }) · Format.Currency({ currency, display?, compact?, minimumFractionDigits?, maximumFractionDigits? }) · Format.Percent({ minimumFractionDigits?, maximumFractionDigits?, signDisplay? }) · Format.Compact({ display? }) · Format.Unit({ unit, display? }) · Format.Scientific() · Format.Engineering()
+│   │   └─ Format.Date(pattern) / Format.Time(pattern) / Format.DateTime(pattern) — East date-token patterns
+│   ├─ Where each plugs in:
+│   │   ├─ <Chart> x/y/y2 { format } — axis tick labels; an undeclared time axis prints the locale's numeric date (6/29/2026; German 29.6.2026)
 │   │   ├─ Slice.config fields { format } — filter chips, brush axis labels, range summaries (string shorthands "number"|"percent"|"compact"|{currency:{code?,compact?}}|{date|time|datetime: pattern} also accepted)
-│   │   ├─ <Stat format> and <Numeric format> — KPI values
-│   │   ├─ Deck.metric / Deck.Readout cells / card fill { format } — board metrics
-│   │   └─ Plan.axis { format } — timeline tick labels (date-pattern strings, same token vocabulary)
+│   │   ├─ <Numeric format> and <Stat format> — KPI values (Format.*)
+│   │   ├─ Deck.metric / Deck.Readout cells / card fill { format } — board metrics (Chart.format.*)
+│   │   └─ Plan.axis { format } — timeline tick labels (a date pattern on a time axis; Chart.format.* on a number axis)
+│   ├─ The locale: react-aria's `<I18nProvider locale="de-DE">` above the app sets it for every component — `@elaraai/east-ui-components` re-exports `I18nProvider`, so a host needs no react-aria dependency of its own — and the browser's language stands in otherwise. Numbers, counts (a pager's total, a footer's "N loaded of M") and the default dates follow it: 1.234,5 · 29.6.2026 · 29. Juni 2026. What the AUTHOR wrote prints as written: labels and footer items, and a date PATTERN — East's tokens, English month and weekday names, whatever the locale
 │   ├─ Accessor alternative: Deck metric/fill format props ALSO accept a text accessor ((value) => String / (value, max) => String) — reified at authoring time into a pre-rendered `text` field; the raw value still ships, and a `none` value renders "—"
-│   ├─ Date tokens: East's date tokens incl. weekdays — dd/ddd/dddd; "ddd DD" → Mon 30. All date rendering is UTC (East DateTime is a UTC instant), so ticks and Plan columns are timezone-independent
+│   ├─ Date tokens: East's date tokens incl. weekdays — dd/ddd/dddd; "ddd DD" → Mon 30. All date rendering is UTC (East DateTime is a UTC instant) — a pattern, an axis, a filter chip, a range preset (Today / 7d / 30d / YTD are UTC days) — so no component depends on the viewer's timezone
 │   └─ tickValues (#318): pin chart ticks to exact floats / DateTime instants (rendered through the date format) to line a Chart up with a Plan's bucket columns
 │
 ├─ Statuses & tones (the shared five-token status vocabulary)

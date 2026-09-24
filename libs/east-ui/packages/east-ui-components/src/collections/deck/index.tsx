@@ -12,9 +12,9 @@
  * bar — so state reads at a glance while the surface stays in the
  * quiet, bordered, shadow-free house style. Status colours are the
  * standard tokens or custom CSS colours; the tint is derived. Metrics
- * render RAW values through the shared {@link ValueFormatType}
- * interpreter (`tickFormatter` — the same code path as chart ticks), so
- * a deck metric and an axis format identically.
+ * render RAW values through the shared format module's one interpreter
+ * (`tickFormatter` — the same code path as chart ticks, #850), in the app's
+ * locale, so a deck metric and an axis format identically.
  *
  * The VIEW state is an anchored POPOVER CARD on the Chakra popover
  * machine (virtual anchor + Positioner): `onClick` / `onHover` content
@@ -37,6 +37,7 @@ import { usePersistedState } from "../../hooks/usePersistedState";
 import { useHoverCapable } from "../../contracts/adaptive.js";
 import { parseCssSize } from "../../style/parse-size.js";
 import { tickFormatter } from "../../charts/spec/index.js";
+import { useFormatters, type Formatters } from "../../format/index.js";
 import { SliceRailCluster } from "../../slice/rail";
 import { railAffordanceKinds } from "../../slice/rail-kinds.js";
 import { useSliceReactivity } from "../../slice/use-slice-reactivity";
@@ -120,18 +121,20 @@ function solidIcon(name: string | undefined) {
     return def ?? undefined;
 }
 
-/** Render a scalar (raw value + shared format / pre-rendered text). */
+/** Render a scalar (raw value + shared format / pre-rendered text), in the
+ *  app's locale. */
 function scalarText(
     value: number | undefined,
     format: ValueTypeOf<typeof Deck.Types.Metric>["format"],
     text: ValueTypeOf<typeof Deck.Types.Metric>["text"],
+    words: Formatters,
 ): string {
     if (value === undefined) return "—";
     const pre = getSomeorUndefined(text);
     if (pre !== undefined) return pre;
     const spec = getSomeorUndefined(format);
-    if (spec !== undefined) return tickFormatter(spec, "linear")(value);
-    return new Intl.NumberFormat().format(value);
+    if (spec !== undefined) return tickFormatter(spec, "linear", words.locale)(value);
+    return words.number(value);
 }
 
 /** The solid status tag — the explicit colour indicator. */
@@ -163,6 +166,7 @@ function DeckCard({ item, st, styles, libStyles, open, activatable, registerEl, 
 }) {
     const icon = solidIcon(getSomeorUndefined(item.icon));
     const sublabel = getSomeorUndefined(item.sublabel);
+    const words = useFormatters();
     const face = getSomeorUndefined(item.face);
     const fill = getSomeorUndefined(item.fill);
     const fillPct = fill !== undefined && fill.max > 0
@@ -212,7 +216,7 @@ function DeckCard({ item, st, styles, libStyles, open, activatable, registerEl, 
                                     <Box as="span" css={styles.metricV}
                                         data-warn={m.warn ? "" : undefined}
                                         data-muted={raw === undefined ? "" : undefined}>
-                                        {scalarText(raw, m.format, m.text)}
+                                        {scalarText(raw, m.format, m.text, words)}
                                     </Box>
                                 </Box>
                             );
@@ -251,8 +255,8 @@ function DeckCard({ item, st, styles, libStyles, open, activatable, registerEl, 
                         <Box as="span" css={styles.fillPct}>
                             {getSomeorUndefined(fill.text)
                                 ?? (getSomeorUndefined(fill.format) !== undefined
-                                    ? tickFormatter(getSomeorUndefined(fill.format), "linear")(fill.value)
-                                    : `${Math.round(fillPct)}%`)}
+                                    ? tickFormatter(getSomeorUndefined(fill.format), "linear", words.locale)(fill.value)
+                                    : words.percent(fillPct / 100))}
                         </Box>
                     </Box>
                 )}
@@ -338,6 +342,7 @@ function DeckPopover({ item, st, body, mode, getAnchorRect, onDismiss, contentRe
  */
 export const EastChakraDeckReadout = memo(function EastChakraDeckReadout({ value }: { value: DeckReadoutValue }) {
     const styles = useSlotRecipe({ key: "deck" })() as SlotStyles;
+    const words = useFormatters();
     return (
         <Box css={styles.readout}>
             {value.cells.map((cell, i) => {
@@ -349,7 +354,7 @@ export const EastChakraDeckReadout = memo(function EastChakraDeckReadout({ value
                         <Box css={styles.readoutV}
                             data-warn={cell.warn ? "" : undefined}
                             data-muted={raw === undefined ? "" : undefined}>
-                            {scalarText(raw, cell.format, cell.text)}
+                            {scalarText(raw, cell.format, cell.text, words)}
                             {unit !== undefined && <Box as="span" css={styles.readoutU}>{unit}</Box>}
                         </Box>
                     </Box>
@@ -411,6 +416,7 @@ function DeckCore({ value, storageKey }: EastChakraDeckProps) {
     const styles = useSlotRecipe({ key: "deck" })() as SlotStyles;
     const libStyles = useSlotRecipe({ key: "library" })() as SlotStyles;
     const chip = useRecipe({ key: "chip" });
+    const words = useFormatters();
 
     const groupOptions = value.groupOptions;
     const { state: toolbar, setState: setToolbar } = usePersistedState<DeckToolbarState>(`${storageKey}.toolbar`, {
@@ -573,7 +579,7 @@ function DeckCore({ value, storageKey }: EastChakraDeckProps) {
                                         <Box as="span" css={styles.groupSwatch} style={{ background: groupSt.color }} />
                                     )}
                                     <Box as="span" css={styles.groupLabel}>{groupSt?.label ?? group.label}</Box>
-                                    <Box as="span" css={styles.groupCount}>{group.items.length}</Box>
+                                    <Box as="span" css={styles.groupCount}>{words.number(group.items.length)}</Box>
                                     {(group.summary ?? groupSt?.hint) !== undefined && (
                                         <Box as="span" css={styles.groupSummary}>{group.summary ?? groupSt?.hint}</Box>
                                     )}
@@ -665,6 +671,8 @@ export const EastChakraDeck = memo(function EastChakraDeck(props: EastChakraDeck
     const slice = chrome?.slice as ValueTypeOf<typeof SliceInternal.Types.Bind> | undefined;
     useSliceReactivity(slice?.key);
     const frameStyles = useSlotRecipe({ key: "sliceFrame" })() as SlotStyles;
+    // The footer's counts, in the app's locale (#850).
+    const words = useFormatters();
     if (chrome === undefined || slice === undefined) return <DeckCore {...props} />;
 
     const state = slice.read();
@@ -683,9 +691,9 @@ export const EastChakraDeck = memo(function EastChakraDeck(props: EastChakraDeck
                 <DeckCore {...props} />
             </Box>
             <Box css={{ ...frameStyles.frameFooter, flexShrink: 0 }}>
-                <Box as="span" css={frameStyles.frameFooterStat}>{result.toLocaleString()}</Box>
-                <Box as="span">{`cards · of ${total.toLocaleString()}`}</Box>
-                {pct > 0 && <Box as="span" css={frameStyles.frameFooterDelta}>{`· −${pct}%`}</Box>}
+                <Box as="span" css={frameStyles.frameFooterStat}>{words.number(result)}</Box>
+                <Box as="span">{`cards · of ${words.number(total)}`}</Box>
+                {pct > 0 && <Box as="span" css={frameStyles.frameFooterDelta}>{`· −${words.percent(pct / 100)}`}</Box>}
             </Box>
         </Box>
     );

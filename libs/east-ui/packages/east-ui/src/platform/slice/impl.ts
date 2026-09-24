@@ -172,15 +172,18 @@ function predicateMatches(pred: variant, row: Record<string, unknown>): boolean 
 // Range — datetimePreset / datetime / integer / float
 // ---------------------------------------------------------------------------
 
+/** A preset's window ending at `now`, on UTC days: East's DateTime is a UTC
+ *  instant, so "today" starts at UTC midnight and the rows a preset keeps never
+ *  depend on the viewer's timezone. The range pill resolves the same way. */
 function resolveDateTimePreset(preset: variant, now: Date): { from: Date; to: Date } {
     const to = now;
     const from = new Date(now);
     switch (preset.type) {
-        case "today":   from.setHours(0, 0, 0, 0); return { from, to };
-        case "last7d":  from.setDate(from.getDate() - 7);  return { from, to };
-        case "last30d": from.setDate(from.getDate() - 30); return { from, to };
-        case "last90d": from.setDate(from.getDate() - 90); return { from, to };
-        case "ytd":     return { from: new Date(now.getFullYear(), 0, 1), to };
+        case "today":   from.setUTCHours(0, 0, 0, 0); return { from, to };
+        case "last7d":  from.setUTCDate(from.getUTCDate() - 7);  return { from, to };
+        case "last30d": from.setUTCDate(from.getUTCDate() - 30); return { from, to };
+        case "last90d": from.setUTCDate(from.getUTCDate() - 90); return { from, to };
+        case "ytd":     return { from: new Date(Date.UTC(now.getUTCFullYear(), 0, 1)), to };
         default: throw new Error(`unknown datetime preset: ${preset.type}`);
     }
 }

@@ -39,11 +39,12 @@ import {
     EastChakraComponent,
     implementUIComponent,
     getSomeorUndefined,
-    formatTick,
+    useFormatters,
     SliceRailCluster,
     usePersistedState,
     useSliceReactivity,
     useContainerBelow,
+    type Formatters,
     type TickFormatOpt,
 } from '@elaraai/east-ui-components';
 
@@ -92,12 +93,14 @@ interface DecisionQueueToolbarState {
     collapsed: string[];
 }
 
-function decisionValue(d: Decision, n: number, showSign = false): string {
-    return formatTick(n, getSomeorUndefined(d.format) as TickFormatOpt, showSign);
+/** A decision value through its declared format, in the app's locale (#850). */
+function decisionValue(words: Formatters, d: Decision, n: number, showSign = false): string {
+    return words.value(n, getSomeorUndefined(d.format) as TickFormatOpt, showSign);
 }
 
-/** Deadline qualifier for the urgency flag — "overdue 2h" / "due 4pm". */
-function deadlineSuffix(d: Decision): string {
+/** Deadline qualifier for the urgency flag — "overdue 2h" / "due 16:00" (the
+ *  deadline's UTC time, in the app's locale — #850). */
+function deadlineSuffix(d: Decision, words: Formatters): string {
     const deadline = getSomeorUndefined(d.deadline);
     if (deadline === undefined) return '';
     if (d.urgency.type === 'overdue') {
@@ -106,13 +109,7 @@ function deadlineSuffix(d: Decision): string {
         if (hours < 48) return ` ${hours}h`;
         return ` ${Math.round(hours / 24)}d`;
     }
-    if (d.urgency.type === 'due') {
-        const h = deadline.getHours();
-        const m = deadline.getMinutes();
-        const meridiem = h >= 12 ? 'pm' : 'am';
-        const clock = h % 12 === 0 ? 12 : h % 12;
-        return m === 0 ? ` ${clock}${meridiem}` : ` ${clock}:${String(m).padStart(2, '0')}${meridiem}`;
-    }
+    if (d.urgency.type === 'due') return ` ${words.time(deadline)}`;
     return '';
 }
 
@@ -158,6 +155,7 @@ const Row = memo(function Row({ decision, handle, selected, narrow, leverPayload
     const status = useSlotRecipe({ key: 'status' });
     const tabs = useSlotRecipe({ key: 'facetTabs' });
     const button = useRecipe({ key: 'button' });
+    const words = useFormatters();
     const rs = dq({});
     const ts = tabs({});
     const st = status({ status: URGENCY_TONE[decision.urgency.type], size: 'md' });
@@ -256,7 +254,7 @@ const Row = memo(function Row({ decision, handle, selected, narrow, leverPayload
     const urgency = (
         <Box as="span" css={st.root} flexShrink={0}>
             <Box as="span" css={st.indicator} />
-            <Box as="span" css={st.label}>{decision.urgency.type}{deadlineSuffix(decision)}</Box>
+            <Box as="span" css={st.label}>{decision.urgency.type}{deadlineSuffix(decision, words)}</Box>
         </Box>
     );
     // Value-axis descriptor: when `signed` is false, the headline value reads
@@ -264,7 +262,7 @@ const Row = memo(function Row({ decision, handle, selected, narrow, leverPayload
     const valueSigned = getSomeorUndefined(decision.valueAxis)?.signed ?? true;
     const valueText = (
         <Text fontFamily="mono" fontWeight="semibold" textAlign="right" {...(valueSigned && decision.value >= 0 && selected ? { color: 'fg.success' } : {})}>
-            {decisionValue(decision, decision.value, valueSigned && selected)}
+            {decisionValue(words, decision, decision.value, valueSigned && selected)}
         </Text>
     );
 
@@ -333,6 +331,7 @@ const RoutineGroup = memo(function RoutineGroup({ routine, acceptAll, leaving, n
     const dq = useSlotRecipe({ key: 'decisionQueue' });
     const status = useSlotRecipe({ key: 'status' });
     const button = useRecipe({ key: 'button' });
+    const words = useFormatters();
     const rs = dq({});
     const st = status({ status: 'neutral', size: 'md' });
 
@@ -358,14 +357,14 @@ const RoutineGroup = memo(function RoutineGroup({ routine, acceptAll, leaving, n
                             <Text as="span" fontFamily="mono">{d.id}</Text>
                             <Text as="span" color="fg.muted"> · {d.kind}</Text>
                         </Box>
-                        <Box css={rs.routineValue}>{decisionValue(d, d.value)}</Box>
+                        <Box css={rs.routineValue}>{decisionValue(words, d, d.value)}</Box>
                     </Box>
                 </Box>
             ))}
             <Box css={rs.summary} {...(narrow ? { marginLeft: '0', flexWrap: 'wrap' } : {})}>
-                <Box as="span" css={rs.summaryCap}>{routine.length} routine</Box>
+                <Box as="span" css={rs.summaryCap}>{words.number(routine.length)} routine</Box>
                 <Text as="span" color="fg.subtle">·</Text>
-                <Text as="span" fontFamily="mono" fontWeight="semibold">{formatTick(total, format)}</Text>
+                <Text as="span" fontFamily="mono" fontWeight="semibold">{words.value(total, format)}</Text>
                 <Text as="span" color="fg.muted">total</Text>
                 {acceptAll && (
                     <Box as="button" css={button({ variant: 'solid', size: 'xs' })} ml="auto" onClick={handleAcceptAll}>
@@ -393,6 +392,7 @@ interface GroupHeadProps {
 const GroupHead = memo(function GroupHead({ group, collapsible, collapsed, onToggle, acceptAll }: GroupHeadProps) {
     const dq = useSlotRecipe({ key: 'decisionQueue' });
     const button = useRecipe({ key: 'button' });
+    const words = useFormatters();
     const rs = dq({});
 
     const format = group.decisions[0] ? (getSomeorUndefined(group.decisions[0].format) as TickFormatOpt) : undefined;
@@ -408,9 +408,9 @@ const GroupHead = memo(function GroupHead({ group, collapsible, collapsed, onTog
     return (
         <Box css={rs.groupHead} {...(collapsible ? { 'data-collapsible': '' } : {})} onClick={handleToggle}>
             {collapsible && <Box as="span" css={rs.groupCaret}>{collapsed ? '▸' : '▾'}</Box>}
-            <Box as="span" css={rs.groupLabel}>{group.label} · {group.decisions.length}</Box>
+            <Box as="span" css={rs.groupLabel}>{group.label} · {words.number(group.decisions.length)}</Box>
             <Box as="span" css={rs.groupSummary}>
-                {formatTick(group.total, format)}{group.pastSla > 0 ? ` · ${group.pastSla} past SLA` : ''}
+                {words.value(group.total, format)}{group.pastSla > 0 ? ` · ${words.number(group.pastSla)} past SLA` : ''}
             </Box>
             {acceptAll && (
                 <Box as="button" css={button({ variant: 'solid', size: 'xs' })} onClick={handleAcceptAll}>
@@ -438,6 +438,7 @@ const EastChakraDecisionQueue = memo(function EastChakraDecisionQueue({ value, s
     // Group-by toggle pills share the slice vocabulary: the `chip` recipe,
     // brand tone when active (the Library toolbar precedent).
     const chip = useRecipe({ key: 'chip' });
+    const words = useFormatters();
 
     const handleRef = value.handle;
     const handle = useDecisionHandle(handleRef);
@@ -663,11 +664,11 @@ const EastChakraDecisionQueue = memo(function EastChakraDecisionQueue({ value, s
                     </Box>
                 )}
                 <Box css={es.meta} gap="10px">
-                    <Box as="span"><Text as="span" color="fg" fontWeight="semibold">{visible}</Text>{narrow ? '' : ' decisions'}</Box>
+                    <Box as="span"><Text as="span" color="fg" fontWeight="semibold">{words.number(visible)}</Text>{narrow ? '' : ' decisions'}</Box>
                     {pastSla > 0 && (
                         <>
                             <Box as="span" css={es.sep}>·</Box>
-                            <Box as="span"><Text as="span" color="fg.danger" fontWeight="semibold">{pastSla}</Text>{narrow ? ' SLA' : ' past SLA'}</Box>
+                            <Box as="span"><Text as="span" color="fg.danger" fontWeight="semibold">{words.number(pastSla)}</Text>{narrow ? ' SLA' : ' past SLA'}</Box>
                         </>
                     )}
                 </Box>

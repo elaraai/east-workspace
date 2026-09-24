@@ -7,14 +7,18 @@ import { memo } from "react";
 import { Box, chakra, useRecipe, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faEye, faEyeSlash, faFilter } from "@fortawesome/free-solid-svg-icons";
-import { type ValueTypeOf, some, none } from "@elaraai/east";
+import { type ValueTypeOf, some, none, variant } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
+import { useFormatters, type TickFormatOpt } from "../../format/index.js";
 import { nextFieldFilters, selectedFieldKeys } from "../key-predicate";
 import { useSliceReactivity } from "../use-slice-reactivity";
 
 /** East Slice.Legend value type. */
 export type SliceLegendValue = ValueTypeOf<typeof Slice.Legend.Types.Legend>;
+
+/** A group's share of the whole, to one decimal. */
+const SHARE: TickFormatOpt = variant("percent", { minimumFractionDigits: some(1n), maximumFractionDigits: some(1n), signDisplay: none });
 
 export interface EastChakraSliceLegendProps {
     value: SliceLegendValue;
@@ -33,6 +37,8 @@ export interface EastChakraSliceLegendProps {
 export const EastChakraSliceLegend = memo(function EastChakraSliceLegend({ value }: EastChakraSliceLegendProps) {
     const { slice } = value;
     useSliceReactivity(slice.key);
+    // Shares and counts, in the app's locale (#850).
+    const words = useFormatters();
     const state = slice.read();
     // `filter` (default, #188) = the facet bar over the SELF-EXCLUDING
     // facetGroups() — options never disappear while selected. `visibility` =
@@ -84,7 +90,7 @@ export const EastChakraSliceLegend = memo(function EastChakraSliceLegend({ value
     // into one aggregated "Others" entry (the only Slice.* that aggregates on overflow).
     const INLINE_CAP = 6;
     const total = groups.reduce((sum, g) => sum + Number(g.count), 0);
-    const pct = (n: number) => total > 0 ? `${((n / total) * 100).toFixed(1)}%` : "—";
+    const pct = (n: number) => total > 0 ? words.value(n / total, SHARE) : "—";
     const shown = groups.slice(0, INLINE_CAP);
     const rest = groups.slice(INLINE_CAP);
     const restTotal = rest.reduce((sum, g) => sum + Number(g.count), 0);
@@ -147,7 +153,7 @@ export const EastChakraSliceLegend = memo(function EastChakraSliceLegend({ value
                 <Box as="span" css={chip({ tone: "dashed", shape: "pill" })}>
                     <Box as="span" width="14px" height="0" borderTopWidth="2px" borderStyle="dashed" borderColor="fg.muted" />
                     <Box as="span" fontWeight="bold" color="fg.muted">Others</Box>
-                    <Box as="span" fontVariantNumeric="tabular-nums" color="fg.subtle">{`${pct(restTotal)} · ${rest.length} series`}</Box>
+                    <Box as="span" fontVariantNumeric="tabular-nums" color="fg.subtle">{`${pct(restTotal)} · ${words.number(rest.length)} series`}</Box>
                 </Box>
             )}
         </Box>

@@ -10,6 +10,7 @@ import { BarStrip } from "@elaraai/east-ui/internal";
 import { EastChakraComponent } from "../../component";
 import { getSomeorUndefined } from "../../utils";
 import { useDensity } from "../../contracts/density";
+import { useFormatters } from "../../format/index.js";
 
 const barStripEqual = equivalentFor(BarStrip.Types.BarStrip);
 
@@ -43,6 +44,8 @@ export const EastChakraBarStrip = memo(function EastChakraBarStrip({ value, stor
     const inheritedDensity = useDensity();
     const localDensity = useMemo(() => getSomeorUndefined(value.density)?.type, [value.density]);
     const density = localDensity ?? inheritedDensity;
+    // The values, in the app's locale (#850).
+    const words = useFormatters();
 
     const thickness = style ? getSomeorUndefined(style.thickness)?.type : undefined;
     const trackColor = style ? getSomeorUndefined(style.trackColor) : undefined;
@@ -88,7 +91,7 @@ export const EastChakraBarStrip = memo(function EastChakraBarStrip({ value, stor
                         </Box>
                         {showValues && (
                             <Box as="span" css={styles.value} color={valueColor}>
-                                {Number(item.value).toLocaleString()}
+                                {words.number(Number(item.value))}
                             </Box>
                         )}
                         {trailing && (

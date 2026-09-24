@@ -10,6 +10,7 @@ import { faPlus, faFilter } from "@fortawesome/free-solid-svg-icons";
 import { type ValueTypeOf, some, none } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
+import { useFormatters } from "../../format/index.js";
 import { SLICE_SERIES_PALETTE } from "../palette";
 import { SliceEditPopover } from "../edit";
 import { useSliceDensity } from "../density";
@@ -44,6 +45,8 @@ export const EastChakraSliceBreakdown = memo(function EastChakraSliceBreakdown({
     const density = useSliceDensity(getSomeorUndefined(value.density)?.type as ("compact" | "focused" | undefined));
     // `editor` renders the flat compact form; its edit surfaces inline via the editor-density disclosure.
     const compact = density !== "focused";
+    // The series counts, in the app's locale (#850).
+    const words = useFormatters();
     const dimensions = slice.dimensions();
     const groups = slice.groups();
 
@@ -163,7 +166,7 @@ export const EastChakraSliceBreakdown = memo(function EastChakraSliceBreakdown({
                                     <>
                                         <Box as="span" width="8px" height="8px" borderRadius="full" background={SLICE_SERIES_PALETTE[i % SLICE_SERIES_PALETTE.length]} />
                                         <Box as="span" fontWeight="semibold" color={applied ? "{colors.brand.700}" : "fg"}>{g.key}</Box>
-                                        <Box as="span" fontFamily="mono" fontVariantNumeric="tabular-nums" color="fg.muted">{Number(g.count).toLocaleString()}</Box>
+                                        <Box as="span" fontFamily="mono" fontVariantNumeric="tabular-nums" color="fg.muted">{words.number(Number(g.count))}</Box>
                                         {applied && (
                                             <Box as="span" color="link" fontSize="9px">
                                                 <FontAwesomeIcon icon={faFilter} />
@@ -216,7 +219,7 @@ export const EastChakraSliceBreakdown = memo(function EastChakraSliceBreakdown({
                                     fontSize="{fontSizes.xs}"
                                     lineHeight="1"
                                 >
-                                    {`+${moreCount} more · ${moreTotal.toLocaleString()}`}
+                                    {`+${moreCount} more · ${words.number(moreTotal)}`}
                                 </Box>
                             )}
                         </Box>

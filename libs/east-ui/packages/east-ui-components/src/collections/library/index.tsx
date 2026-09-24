@@ -19,6 +19,7 @@ import { railAffordanceKinds } from "../../slice/rail-kinds.js";
 import { useSliceReactivity } from "../../slice/use-slice-reactivity";
 import { parseCssSize } from "../../style/parse-size.js";
 import { virtualScrollbarCss } from "../../style/scrollbar.js";
+import { useFormatters } from "../../format/index.js";
 
 const libraryEqual = equivalentFor(Library.Types.Library);
 
@@ -192,9 +193,10 @@ function LibraryCard({ libraryId, item, dimOrder, activeDims, filtered, styles }
 // ============================================================================
 
 function LibraryGroupHead({ label, count, summary, styles }: { label: string; count: number; summary: string | undefined; styles: SlotStyles }) {
+    const words = useFormatters();
     return (
         <Box css={styles.groupHead}>
-            <Box as="span" css={styles.groupLabel}>{label} · {count}</Box>
+            <Box as="span" css={styles.groupLabel}>{label} · {words.number(count)}</Box>
             {summary !== undefined && (
                 <Box as="span" css={styles.groupSummary}>{summary}</Box>
             )}
@@ -219,6 +221,8 @@ function LibraryCore({ value, storageKey, suppressSearch }: LibraryCoreProps) {
     // the quick search wears the sliceFrame `searchPill` chrome.
     const chip = useRecipe({ key: "chip" });
     const frameStyles = useSlotRecipe({ key: "sliceFrame" })() as SlotStyles;
+    // Counts, in the app's locale (#850).
+    const words = useFormatters();
 
     const groupOptions = value.groupOptions;
     const dimOptions = value.dimOptions;
@@ -495,7 +499,7 @@ function LibraryCore({ value, storageKey, suppressSearch }: LibraryCoreProps) {
                 <Box css={styles.footer}>
                     {hiddenCount > 0 && (
                         <Box as="span" css={styles.hiddenNote}>
-                            {hiddenCount} hidden by filter ·{" "}
+                            {words.number(hiddenCount)} hidden by filter ·{" "}
                             <Box as="button" css={styles.showAll} onClick={() => setQuery("")}>Show all</Box>
                         </Box>
                     )}
@@ -534,6 +538,8 @@ export const EastChakraLibrary = memo(function EastChakraLibrary(props: EastChak
     const slice = chrome?.slice as ValueTypeOf<typeof SliceInternal.Types.Bind> | undefined;
     useSliceReactivity(slice?.key);
     const frameStyles = useSlotRecipe({ key: "sliceFrame" })() as SlotStyles;
+    // The footer's counts, in the app's locale (#850).
+    const words = useFormatters();
     if (chrome === undefined || slice === undefined) return <LibraryCore {...props} />;
 
     const state = slice.read();
@@ -552,9 +558,9 @@ export const EastChakraLibrary = memo(function EastChakraLibrary(props: EastChak
                 <LibraryCore {...props} suppressSearch={affordanceKinds.includes("search")} />
             </Box>
             <Box css={{ ...frameStyles.frameFooter, flexShrink: 0 }}>
-                <Box as="span" css={frameStyles.frameFooterStat}>{result.toLocaleString()}</Box>
-                <Box as="span">{`items · of ${total.toLocaleString()}`}</Box>
-                {pct > 0 && <Box as="span" css={frameStyles.frameFooterDelta}>{`· −${pct}%`}</Box>}
+                <Box as="span" css={frameStyles.frameFooterStat}>{words.number(result)}</Box>
+                <Box as="span">{`items · of ${words.number(total)}`}</Box>
+                {pct > 0 && <Box as="span" css={frameStyles.frameFooterDelta}>{`· −${words.percent(pct / 100)}`}</Box>}
             </Box>
         </Box>
     );

@@ -66,7 +66,7 @@ import {
 } from "@elaraai/east";
 import type { TreePath } from "@elaraai/e3-types";
 import { Diff, DiffBindingType } from "@elaraai/e3-ui/internal";
-import { implementUIComponent, useDataStable } from "@elaraai/east-ui-components";
+import { implementUIComponent, useDataStable, useFormatters } from "@elaraai/east-ui-components";
 
 import {
     getStagedStore,
@@ -495,6 +495,8 @@ interface RowProps {
 }
 
 const DiffRow = memo(function DiffRow({ row, depth, bindingPathStr, showActions, onDiscard, annotation, metrics }: RowProps) {
+    // Leaf values, in the app's locale (#850).
+    const words = useFormatters();
     const handleDiscard = useCallback(() => onDiscard(bindingPathStr, row.path), [onDiscard, bindingPathStr, row.path]);
     return (
         <Box
@@ -526,7 +528,7 @@ const DiffRow = memo(function DiffRow({ row, depth, bindingPathStr, showActions,
                         <FontAwesomeIcon icon={faTriangleExclamation} />{" "}
                         {row.stale.actual === undefined
                             ? "stale — source no longer has this entry"
-                            : `stale — source actually has ${formatLeafValue(row.leafType, row.stale.actual)}`}
+                            : `stale — source actually has ${formatLeafValue(row.leafType, row.stale.actual, words)}`}
                     </Text>
                 )}
                 {annotation && (
@@ -538,13 +540,13 @@ const DiffRow = memo(function DiffRow({ row, depth, bindingPathStr, showActions,
             <HStack gap="16px" align="center">
                 <HStack gap="6px" wrap="wrap">
                     {row.before !== undefined && (
-                        <Chip fontSize={metrics.chipFontSize}><Box as="span" color="fg.danger"><FontAwesomeIcon icon={faMinus} /></Box> {formatLeafValue(row.leafType, row.before)}</Chip>
+                        <Chip fontSize={metrics.chipFontSize}><Box as="span" color="fg.danger"><FontAwesomeIcon icon={faMinus} /></Box> {formatLeafValue(row.leafType, row.before, words)}</Chip>
                     )}
                     {row.before !== undefined && row.after !== undefined && (
                         <Box as="span" color="fg.subtle" fontSize="11px"><FontAwesomeIcon icon={faArrowRight} /></Box>
                     )}
                     {row.after !== undefined && (
-                        <Chip fontSize={metrics.chipFontSize}><Box as="span" color="fg.success"><FontAwesomeIcon icon={faPlus} /></Box> {formatLeafValue(row.leafType, row.after)}</Chip>
+                        <Chip fontSize={metrics.chipFontSize}><Box as="span" color="fg.success"><FontAwesomeIcon icon={faPlus} /></Box> {formatLeafValue(row.leafType, row.after, words)}</Chip>
                     )}
                 </HStack>
                 {showActions && (
@@ -567,8 +569,9 @@ interface ConflictRowProps {
 }
 
 const ConflictRow = memo(function ConflictRow({ row, depth, bindingPathStr, serverValue, resolution, onResolve, metrics }: ConflictRowProps) {
-    const yoursStr  = formatLeafValue(row.leafType, row.after);
-    const theirsStr = formatLeafValue(row.leafType, serverValue);
+    const words = useFormatters();
+    const yoursStr  = formatLeafValue(row.leafType, row.after, words);
+    const theirsStr = formatLeafValue(row.leafType, serverValue, words);
     const isYours   = resolution?.type === "keepA";
     const isTheirs  = resolution?.type === "keepB";
     const isManual  = resolution?.type === "manual";

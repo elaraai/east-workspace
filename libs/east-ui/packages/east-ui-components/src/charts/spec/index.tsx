@@ -7,8 +7,8 @@ import { memo, useId, useMemo, useCallback, createContext, useContext, type CSSP
 import { Box, Skeleton, useChakraContext, useSlotRecipe } from "@chakra-ui/react";
 import { useTooltip, useTooltipInPortal } from "@visx/tooltip";
 import { match, equivalentFor, some, none, variant, type ValueTypeOf } from "@elaraai/east";
-import { tokenizeDateTimeFormat, formatDateTime, parseDateTimeFormatted } from "@elaraai/east/internal";
 import { Chart, Slice as SliceInternal } from "@elaraai/east-ui/internal";
+import { formatters, formatPattern, parsePattern, tickFormatOf, useFormatters } from "../../format/index.js";
 import { SliceRailCluster } from "../../slice/rail";
 import { railAffordanceKinds } from "../../slice/rail-kinds.js";
 import { EastChakraSliceLegend } from "../../slice/legend";
@@ -168,82 +168,52 @@ function anchorFor(a: Anchor | undefined): "start" | "middle" | "end" {
     });
 }
 
-/** Tokenized-pattern cache — axis patterns are static and ticks are many. */
-const DATE_PATTERN_TOKENS = new Map<string, ReturnType<typeof tokenizeDateTimeFormat>>();
-
-/** Format a Date against an East datetime format pattern (`YYYY`/`MMM`/`DD`/
- *  `ddd`/`HH`/`mm`/`h`/`A`/… — the FULL `datetime_format` vocabulary), via
- *  East's OWN tokenizer + printer, so the UI and the language agree on every
- *  pattern (`DateTime.printFormatted` and a chart axis format never drift).
- *
- *  #326 — East's `formatDateTime` formats in UTC by definition: East
- *  DateTime values are UTC instants, so a pinned `[min, max)` window (and
- *  the ticks / day-columns derived from it) renders identically regardless
- *  of the viewer's timezone. */
+/** Format a Date against an East datetime format pattern — the shared
+ *  format module's {@link formatPattern} (#850): East's own tokenizer and
+ *  printer, in UTC (#326), so a chart axis and `DateTime.printFormatted`
+ *  agree on every pattern. */
 export function formatDatePattern(pattern: string, d: Date): string {
-    if (isNaN(d.getTime())) return "";
-    return formatDateTime(d, dateTokens(pattern));
+    return formatPattern(pattern, d);
 }
 
-/** The tokens of a pattern, cached — shared by the printer and the parser. */
-function dateTokens(pattern: string): ReturnType<typeof tokenizeDateTimeFormat> {
-    let tokens = DATE_PATTERN_TOKENS.get(pattern);
-    if (tokens === undefined) {
-        tokens = tokenizeDateTimeFormat(pattern);
-        DATE_PATTERN_TOKENS.set(pattern, tokens);
-    }
-    return tokens;
-}
-
-/** Parse text against an East datetime format pattern via East's OWN parser
- *  — the twin of {@link formatDatePattern}, so a calendar entry form is a
- *  pattern the language already knows, never a second grammar. `undefined`
- *  when the text is not that pattern. UTC, like the printer. */
+/** Parse text against an East datetime format pattern — the shared format
+ *  module's {@link parsePattern}: East's OWN parser, the twin of
+ *  {@link formatDatePattern}, so a calendar entry form is a pattern the
+ *  language already knows, never a second grammar. `undefined` when the text
+ *  is not that pattern. UTC, like the printer. */
 export function parseDatePattern(pattern: string, text: string): Date | undefined {
-    const result = parseDateTimeFormatted(text, dateTokens(pattern));
-    return result.success ? result.value : undefined;
+    return parsePattern(pattern, text);
+}
+
+/** A tick value as the instant a date arm prints — a `Date`, an epoch-ms
+ *  number, or the ISO key a band / time domain carries. */
+function instantOf(v: unknown): Date {
+    return v instanceof Date ? v : typeof v === "number" ? new Date(v) : new Date(String(v));
 }
 
 /**
  * Build a tick formatter for an axis from its optional {@link TickFormat} +
- * scale kind. Shared with the `Slice.Rail` brush axis (#190).
+ * scale kind. Shared with the `Slice.Rail` brush axis (#190). It is the shared
+ * format module's one interpreter (#850): a declared format reaches it through
+ * {@link tickFormatOf}, so a `Chart.format.*` spec prints exactly as its
+ * `Format.*` twin does.
  *
  * @param fmt - The axis's declared format, when it has one
  * @param kind - The axis's scale kind
  * @param locale - The BCP 47 locale numbers and default dates format in; the
- *   runtime's default when omitted (a Plan passes its canvas locale, #820)
+ *   runtime's default when omitted (a component passes its app locale)
  * @returns The formatter
  */
 export function tickFormatter(fmt: TickFormat | undefined, kind: ScaleKind, locale?: string): (v: unknown) => string {
+    const f = formatters(locale);
     if (fmt === undefined) {
-        if (kind === "time") return v => (v instanceof Date ? v.toLocaleDateString(locale) : String(v));
+        if (kind === "time") return v => f.numericDate(instantOf(v));
         if (kind === "band") return v => String(v);
-        const nf = new Intl.NumberFormat(locale);
-        return v => nf.format(Number(v));
+        return v => f.number(Number(v));
     }
-    return match(fmt, {
-        number: () => {
-            const nf = new Intl.NumberFormat(locale);
-            return (v: unknown) => nf.format(Number(v));
-        },
-        currency: c => {
-            const opts: Intl.NumberFormatOptions = { style: "currency", currency: c.code || "USD" };
-            if (c.compact) { opts.notation = "compact"; opts.maximumFractionDigits = 1; }
-            const nf = new Intl.NumberFormat(locale, opts);
-            return (v: unknown) => nf.format(Number(v));
-        },
-        percent: () => {
-            const nf = new Intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: 0 });
-            return (v: unknown) => nf.format(Number(v));
-        },
-        compact: () => {
-            const nf = new Intl.NumberFormat(locale, { notation: "compact", maximumFractionDigits: 1 });
-            return (v: unknown) => nf.format(Number(v));
-        },
-        date: p => (v: unknown) => formatDatePattern(p, v instanceof Date ? v : new Date(String(v))),
-        time: p => (v: unknown) => formatDatePattern(p, v instanceof Date ? v : new Date(String(v))),
-        datetime: p => (v: unknown) => formatDatePattern(p, v instanceof Date ? v : new Date(String(v))),
-    });
+    const spec = tickFormatOf(fmt);
+    const dated = spec.type === "date" || spec.type === "time" || spec.type === "datetime";
+    return v => f.value(dated ? instantOf(v).getTime() : Number(v), spec);
 }
 
 /** A numeric `[min, max]` from a {@link Domain} (time arm via epoch ms). */
@@ -632,7 +602,7 @@ function TextMark({ value }: { value: ValueTypeOf<typeof T.Text> }): ReactNode {
 // size wins over the CSS cascade; tick text is formatted per the axis node.
 function AxisBMark({ value }: { value: Axis }): ReactNode {
     const { xAxisScale, xTickValues, xKind, horizontal, innerW, innerH, margin, style } = useScales();
-    const fmt = tickFormatter(getSomeorUndefined(value.tickFormat), xKind);
+    const fmt = tickFormatter(getSomeorUndefined(value.tickFormat), xKind, useFormatters().locale);
     const label = getSomeorUndefined(value.label);
     // #149 — explicit tick control (numTicks / tickValues / hideTicks / hideLine).
     // Explicit `tickValues` win over the band scale's category positions; defaults
@@ -688,7 +658,7 @@ function AxisLMark({ value }: { value: Axis }): ReactNode {
     // as band labels, show every category (visx subsamples only past its
     // default tick budget, mirroring the vertical band x-axis), and keep the
     // baseline rule (the categorical baseline the bars sit on).
-    const fmt = tickFormatter(getSomeorUndefined(value.tickFormat), horizontal ? "band" : "linear");
+    const fmt = tickFormatter(getSomeorUndefined(value.tickFormat), horizontal ? "band" : "linear", useFormatters().locale);
     const label = getSomeorUndefined(value.label);
     const explicitTicks = getSomeorUndefined(value.tickValues);
     const tickValues = explicitTicks !== undefined ? [...explicitTicks.value] : undefined;
@@ -716,7 +686,7 @@ function AxisLMark({ value }: { value: Axis }): ReactNode {
 function AxisRMark({ value }: { value: Axis }): ReactNode {
     const { y, y2, innerW, innerH, y2TitleX, style } = useScales();
     const scale = y2 ?? y;
-    const fmt = tickFormatter(getSomeorUndefined(value.tickFormat), "linear");
+    const fmt = tickFormatter(getSomeorUndefined(value.tickFormat), "linear", useFormatters().locale);
     const label = getSomeorUndefined(value.label);
     const explicitTicks = getSomeorUndefined(value.tickValues);
     const tickValues = explicitTicks !== undefined ? [...explicitTicks.value] : undefined;
@@ -833,6 +803,8 @@ function Frame({ node, brush, onBrushEnd, brushKey }: { node: Spec; brush?: bool
  */
 function Plot({ node, style, brush, onBrushEnd, brushKey }: { node: Spec; style: ChartStyle; brush?: boolean | undefined; onBrushEnd?: BrushEnd | undefined; brushKey?: string | undefined }): ReactNode {
     const { tooltipData, tooltipLeft, tooltipTop, showTooltip, hideTooltip } = useTooltip<TooltipDatum>();
+    // The tooltip's date and values, in the app's locale (#850).
+    const words = useFormatters();
     // Render the tooltip in a Portal (escaping the chart's local stacking context
     // and any sticky sibling chrome — Plan / Table headers) at the `zIndex.tooltip`
     // tier. `containerRef` on the plot box converts the container-relative left/top
@@ -1073,12 +1045,12 @@ function Plot({ node, style, brush, onBrushEnd, brushKey }: { node: Spec; style:
                             // Table column header at z-index 2) paints over it.
                             <TooltipInPortal left={tooltipLeft} top={tooltipTop} style={{ position: "absolute", pointerEvents: "none", zIndex: style.tooltipZIndex }}>
                                 <Box background="bg.surface" borderWidth="1px" borderColor="border.strong" borderRadius="4px" boxShadow="md" paddingX="10px" paddingY="8px" fontFamily="mono" fontSize="10.5px" color="fg" display="flex" flexDirection="column" gap="{spacing.1.5}" minWidth="120px">
-                                    <Box as="span" fontWeight="semibold" letterSpacing="0.04em" color="fg.muted">{xKind === "time" ? new Date(tooltipData.x).toLocaleDateString() : tooltipData.x}</Box>
+                                    <Box as="span" fontWeight="semibold" letterSpacing="0.04em" color="fg.muted">{xKind === "time" ? words.numericDate(new Date(tooltipData.x)) : tooltipData.x}</Box>
                                     {tooltipData.rows.map((rw, i) => (
                                         <Box key={i} display="flex" alignItems="center" gap="{spacing.2}">
                                             <Box as="span" width="9px" height="9px" borderRadius="2px" background={rw.color} flexShrink="0" />
                                             <Box as="span" flex="1" minWidth="0" color="fg.muted">{rw.key}</Box>
-                                            <Box as="span" fontWeight="semibold" fontVariantNumeric="tabular-nums">{rw.value.toLocaleString()}</Box>
+                                            <Box as="span" fontWeight="semibold" fontVariantNumeric="tabular-nums">{words.number(rw.value)}</Box>
                                         </Box>
                                     ))}
                                 </Box>

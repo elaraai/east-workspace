@@ -10,6 +10,7 @@ import { faPlus, faPen } from "@fortawesome/free-solid-svg-icons";
 import { none, some, type ValueTypeOf } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
+import { useFormatters } from "../../format/index.js";
 import { SLICE_SERIES_PALETTE } from "../palette";
 import { formatPredicate } from "../predicate-format";
 import { SlicePredicateBuilder } from "../predicate-builder";
@@ -33,14 +34,6 @@ interface CohortDraft {
     /** The family, as typed — empty = a standalone cohort. */
     group: string;
     clauses: PredicateValue[];
-}
-
-/** `2400n` → `"2.4k"`, `380n` → `"380"`. */
-function fmtCount(n: bigint): string {
-    const num = Number(n);
-    return num >= 1000
-        ? `${(num / 1000).toLocaleString(undefined, { maximumFractionDigits: 1 })}k`
-        : num.toLocaleString();
 }
 
 /**
@@ -105,6 +98,8 @@ export const EastChakraSliceCohort = memo(function EastChakraSliceCohort({ value
     const btn = useRecipe({ key: "button" });
     const inp = useRecipe({ key: "input" });
     const edit = useSlotRecipe({ key: "sliceEdit" })({ size: "lg" });
+    // Counts compact in the app's locale (#850) — `2400` is `2.4K`, `380` stays `380`.
+    const words = useFormatters();
     const { slice } = value;
     useSliceReactivity(slice.key);
 
@@ -180,7 +175,7 @@ export const EastChakraSliceCohort = memo(function EastChakraSliceCohort({ value
                 <Box key={i} css={edit.clauseRow}>
                     <Box as="span" css={edit.clauseConj}>{i === 0 ? "WHEN" : "AND"}</Box>
                     <Box css={edit.clauseBox}>
-                        <Box as="span">{formatPredicate(pred)}</Box>
+                        <Box as="span">{formatPredicate(pred, words)}</Box>
                         <chakra.button
                             type="button"
                             css={edit.moreRowRemove}
@@ -236,7 +231,7 @@ export const EastChakraSliceCohort = memo(function EastChakraSliceCohort({ value
                 >
                     <Box as="span" width="8px" height="8px" borderRadius="full" background={on ? SLICE_SERIES_PALETTE[i % SLICE_SERIES_PALETTE.length] : "border.strong"} />
                     <Box as="span">{c.name}</Box>
-                    {count !== undefined && <Box as="span" color="fg.muted">{`· ${fmtCount(count)}`}</Box>}
+                    {count !== undefined && <Box as="span" color="fg.muted">{`· ${words.compact(Number(count))}`}</Box>}
                 </chakra.button>
                 {manage && (
                     <SliceEditPopover

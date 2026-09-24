@@ -95,8 +95,9 @@ export function TableRowCells({ rowKey, series, split, format, styles, ctx }: Ta
                     const value = cell.value.type === "some" ? cell.value.value : undefined;
                     const partFormat = s.format.type === "some" ? s.format.value : format;
                     const text = cell.text.type === "some" ? cell.text.value
-                        // The declared format, in the canvas's locale (#820).
-                        : value !== undefined ? words.formatted(value, partFormat)
+                        // The declared format, in the canvas's locale (#820),
+                        // through the shared interpreter (#850).
+                        : value !== undefined ? words.value(value, partFormat)
                         : "—";
                     const tone = cell.tone.type === "some" ? cell.tone.value.type
                         : value === undefined ? "muted"

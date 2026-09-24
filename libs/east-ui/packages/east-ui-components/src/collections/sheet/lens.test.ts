@@ -10,6 +10,7 @@
 
 import { describe, test, expect } from "vitest";
 import { none, some, variant } from "@elaraai/east";
+import { formatters } from "../../format/index.js";
 import { foldTabs, lensCount, lensGaps, lensHits, lensVisible, matchRecord, narrowingActive, nextReach, revealStep, viewName, type LensConfig } from "./lens.js";
 import type { SliceStateValue } from "./sheet-types.js";
 import type { SheetColumnMeta } from "./model.js";
@@ -131,8 +132,12 @@ describe("visibility, gaps and reveals", () => {
     });
 
     test("the count line and a view's name", () => {
-        expect(lensCount([true, false, true, false], [true, true, true, false])).toBe("2 matches · 1 context");
-        expect(lensCount([true, false], [true, false])).toBe("1 match");
+        const en = formatters("en-US");
+        expect(lensCount([true, false, true, false], [true, true, true, false], en)).toBe("2 matches · 1 context");
+        expect(lensCount([true, false], [true, false], en)).toBe("1 match");
+        // The counts print in the app's locale (#850).
+        const many = Array.from({ length: 1500 }, () => true);
+        expect(lensCount(many, many, formatters("de-DE"))).toBe("1.500 matches");
         expect(viewName("paint", 3)).toBe("paint");
         expect(viewName("   ", 3)).toBe("view 3");
         expect(viewName("a very long search query indeed", 1)).toBe("a very long sea…");
