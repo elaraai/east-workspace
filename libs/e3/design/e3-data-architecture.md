@@ -207,6 +207,8 @@ It checks the declared type, as `dataset-type.ts` does today, and never decodes 
 
 The backend capabilities every path relies on — ranged reads, adoption by link, `materialize`, plan and owner records, and the adoption memo — become required (F37), and their whole-object fallbacks are deleted (F21).
 
+The door frames inline, on the calling thread. The worker frame pool keeps each finished frame's buffers until that worker's GC runs, which V8 triggers only after about 64 MB of them per worker (#841), so a door that framed on it would hold memory in proportion to the value. Stage 5 bounds the pool, and the door frames on it again.
+
 Scratch defaults to a directory inside the repository, on the object store's filesystem. Runner output then links in without a copy and never sits on tmpfs (F33).
 
 ### 3.7 The engine
@@ -449,6 +451,7 @@ Changes:
   - Delete their fallbacks: `dataset-open.ts:158` and `:439`, `partitionIo.ts:171-173`, `processExec.ts:175` and `:216`.
   - The header of `storage/interfaces.ts` names the backends that exist (F37).
 - **Scratch inside the repository** by default (`scratch.ts`) (F33).
+- **The door frames inline** (`writeCollectionManifest`): the frame pool is not memory-bound (#841).
 
 Acceptance:
 - Every collection stored after this stage is a manifest cut by the v2 rule, whatever door it came through, with a test per door.
@@ -545,9 +548,14 @@ Changes:
 - `jobs.ts` becomes the budget (§3.8), with `--memory` / `E3_MEMORY` and a walk of the cgroup's `memory.max` beside `cgroupCpuQuota`.
 - Reservations come from `peakBytes` history, with probe-then-fan-out, the guard, and per-unit cgroups where delegation exists.
 - Remove `state.concurrency`, `partitionConcurrency` and the deprecated `--concurrency` and `--partition-concurrency` aliases (F33).
+- **The frame pool** (#841):
+  - its memory becomes O(workers × segment): shared buffers reused per slot, and nothing allocated per frame that waits on a worker's GC;
+  - it is sized by the unit's `threads` grant, not the machine;
+  - then the store door frames on it again.
 
 Acceptance:
 - With `--memory` set below the sum of the units' peaks, a run completes without the kernel's OOM killer firing, and stays under the budget plus one unit's margin.
+- The frame pool's peak is the same at two output sizes, in a runner's emit sink and in the door.
 - A unit killed by the guard reruns to identical bytes.
 - With no memory pressure, throughput at the default `-j` is no worse than before.
 
