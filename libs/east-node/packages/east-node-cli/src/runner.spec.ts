@@ -1031,16 +1031,27 @@ describe('frozen inputs', () => {
   }
 
   const NestedT = DictType(IntegerType, StructType({ xs: ArrayType(IntegerType) }));
+  const nestedRows: [bigint, { xs: bigint[] }][] = [[1n, { xs: [1n, 2n] }], [2n, { xs: [] }], [3n, { xs: [3n] }]];
 
   function writeNestedInput(): string {
-    const table = new SortedMap<bigint, { xs: bigint[] }>(
-      [[1n, { xs: [1n, 2n] }], [2n, { xs: [] }], [3n, { xs: [3n] }]],
-      compareFor(IntegerType),
-    );
     const inputPath = join(tempDir, 'nested.beast2');
-    const entries = [...table];
-    writeFileSync(inputPath, encodeBeast2SegmentsFor(NestedT)([new Map(entries.slice(0, 2)), new Map(entries.slice(2))]));
+    writeFileSync(inputPath, encodeBeast2SegmentsFor(NestedT)([new Map(nestedRows.slice(0, 2)), new Map(nestedRows.slice(2))]));
     return inputPath;
+  }
+
+  /** The same rows as a manifest directory — the form e3 stages a stored
+   *  collection in. */
+  function writeNestedManifest(): string {
+    const path = join(tempDir, 'nested.manifest.beast2');
+    const dir = `${path}.segments`;
+    mkdirSync(dir);
+    const writer = new Beast2ManifestWriter(NestedT, {
+      object: (hash, bytes) => writeFileSync(join(dir, `${hash}.beast2`), bytes),
+      manifest: (bytes) => writeFileSync(path, bytes),
+    });
+    for (const row of nestedRows) writer.add(row);
+    writer.finish();
+    return path;
   }
 
   it('an input refuses mutation with the uniform copy-first error', async () => {
@@ -1064,25 +1075,32 @@ describe('frozen inputs', () => {
     assert.equal(decodeBeast2For(IntegerType)(new Uint8Array(readFileSync(outputPath))), 4n);
   });
 
-  it('the frozen shape gate admits nested containers lazily: reads serve, writes refuse', async () => {
+  it('the frozen shape gate admits nested containers lazily, blob or manifest: reads serve, writes refuse', async () => {
     // Frozen is what makes lazy service safe for nested element shapes, so
-    // with a 1-byte threshold this opens pager-backed AND immutable.
+    // with a 1-byte threshold this opens pager-backed AND immutable. A gate
+    // that refused the shape would fall back to the eager frozen decode, which
+    // answers both the same, so the runner's own account, under -v, is what
+    // says the input was paged.
     const read = East.function([NestedT], IntegerType, ($, d) => d.get(1n).xs.size());
-    const outputPath = join(tempDir, 'out.beast2');
-    await runProgram(writeIr(read), [], [], [writeNestedInput()], outputPath,
-      { lazyInputBytes: 1 });
-    assert.equal(decodeBeast2For(IntegerType)(new Uint8Array(readFileSync(outputPath))), 2n);
-
     const write = East.function([NestedT], IntegerType, ($, d) => {
       const row = $.let(d.get(1n));
       $(row.xs.pushLast(42n));
       return d.get(1n).xs.size();
     });
-    await assert.rejects(
-      runProgram(writeIr(write), [], [], [writeNestedInput()], join(tempDir, 'out2.beast2'),
-        { lazyInputBytes: 1 }),
-      /cannot mutate a frozen value \(task inputs are immutable\) — copy first/,
-    );
+    for (const input of [writeNestedInput(), writeNestedManifest()]) {
+      const outputPath = join(tempDir, 'out.beast2');
+      const readErr = await stderrOf(() => runProgram(writeIr(read), [], [], [input], outputPath,
+        { lazyInputBytes: 1, verbose: true }));
+      assert.ok(readErr.includes('input 0: opened lazily'), `${input} was paged:\n${readErr}`);
+      assert.equal(decodeBeast2For(IntegerType)(new Uint8Array(readFileSync(outputPath))), 2n);
+
+      const writeErr = await stderrOf(() => assert.rejects(
+        runProgram(writeIr(write), [], [], [input], join(tempDir, 'out2.beast2'),
+          { lazyInputBytes: 1, verbose: true }),
+        /cannot mutate a frozen value \(task inputs are immutable\) — copy first/,
+      ));
+      assert.ok(writeErr.includes('input 0: opened lazily'), `${input} was paged:\n${writeErr}`);
+    }
   });
 });
 
