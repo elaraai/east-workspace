@@ -391,14 +391,17 @@ Read first:
 10. **String order** (#836). TypeScript's `compareFor` ordered strings by UTF-16 code unit, while east-c and east-py order them by code point. So a Set or Dict that held a character above U+FFFF beside one in U+E000–U+FFFF was written in two orders, and each runtime refused the other's blob.
     - TypeScript moves to code points, keeping `x < y` unless both strings hold a code unit at or above U+D800.
     - SPEC states the rule (§3.4, rule 7), and the corpus pins it.
-11. **SPEC** updated to v2.
+11. **Negative zero in paged reads** (#838). TypeScript's pager decoded each Set or Dict segment into a plain JS `Set` or `Map`, whose keys compare by SameValueZero. So a `-0` element read back as `0`, and a Dict keyed by both read back one entry, through every lazy, keyed, paged and merged read.
+    - The segment decoder builds `SortedSet` and `SortedMap` under the East comparator, as the whole-value decoder does.
+    - A pager test pins it, and the corpus pins the merge.
+12. **SPEC** updated to v2.
 
 Built in five parts, in this order:
 1. per-element aliasing, cut rule v2 (normalized, with the segmentation benchmarks that fixed it), one encoding and one Writer;
 2. the RunSorter and the Merger;
 3. Recut, the Writer's per-segment output, and record applies on Recut;
 4. manifests in every runtime;
-5. the corpus, string order, SPEC v2, and the acceptance tests not yet written.
+5. the corpus, string order, negative zero in paged reads, SPEC v2, and the acceptance tests not yet written.
 
 Acceptance:
 - A `Dict<String, Blob>` of 300 × 1 MiB is stored in segments near the size target, not in one segment.
