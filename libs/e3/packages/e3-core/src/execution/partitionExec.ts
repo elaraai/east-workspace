@@ -41,12 +41,15 @@
 
 import {
   OptionType,
+  SortedMap,
+  SortedSet,
   StructType,
   compareFor,
   decodeEastIR,
   encodeBeast2For,
   equalFor,
   fromEastTypeValue,
+  isEastDict,
   none,
   rebuildBeast2,
   some,
@@ -206,7 +209,7 @@ export async function planPartitions(
     try {
       const lastKeyOf = (segment: unknown): unknown => {
         let last: unknown;
-        if (segment instanceof Map) {
+        if (isEastDict(segment)) {
           for (const k of segment.keys()) last = k;
         } else {
           for (const k of segment as Iterable<unknown>) last = k;
@@ -676,11 +679,14 @@ async function carveRangeParts(
 ): Promise<SplicePart[]> {
   const extents = blob.extents;
   const segCount = extents.offsets.length;
+  // The edge's keys keep East order: a plain Map or Set would read a -0 key as
+  // 0 and merge it with a 0 beside it.
+  const cmp = compareFor((isDict ? (extents.typeValue as any).value.key : (extents.typeValue as any).value) as EastTypeValue);
   const partial = async (seg: number, start: number, end: number | undefined): Promise<SplicePart | null> => {
     const decoded = await blob.segmentValue(seg);
     const batch = isDict
-      ? new Map([...(decoded as Map<unknown, unknown>).entries()].slice(start, end))
-      : new Set([...(decoded as Iterable<unknown>)].slice(start, end));
+      ? new SortedMap([...(decoded as Map<unknown, unknown>).entries()].slice(start, end), cmp)
+      : new SortedSet([...(decoded as Iterable<unknown>)].slice(start, end), cmp);
     if ((batch as Map<unknown, unknown> | Set<unknown>).size === 0) return null;
     return bufferPart(rebuildBeast2(extents.head, [batch], { extents }));
   };

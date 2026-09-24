@@ -21,7 +21,9 @@ import { SortedMap, SortedSet, isEastDict, isEastSet } from "../../../index.js";
 import {
   decodeBeast2For,
   encodeBeast2For,
+  encodeBeast2PagedFor,
   encodeBeast2SegmentsFor,
+  iterBeast2SegmentsFor,
   openBeast2LazyFor,
   openBeast2PagesFor,
   isBeast2LazySafe,
@@ -402,5 +404,29 @@ describe("Beast2 v5 — pages segment cache", () => {
     assert.equal(v1, v2, "the same cached segment serves repeated keyed reads");
     assert.equal((v1 as { name: string }).name, "row-42");
     assert.notEqual(pages.segment(0), pages.segment(0), "segment() decodes fresh so callers cannot poison the cache");
+  });
+});
+
+describe("Beast2 v5 — negative zero keys", () => {
+  // A plain JS Set or Map reads -0 as 0 and merges the two; every paged read
+  // keeps them apart, as the whole-value decode and east-c do. deepStrictEqual
+  // compares numbers by SameValue, so it tells -0 from 0.
+  test("stay apart from zero through every paged and lazy read", () => {
+    const Weights = DictType(FloatType, StringType);
+    const blob = encodeBeast2PagedFor(Weights)(new SortedMap<number, string>(
+      [[-0, "negative"], [0, "positive"], [1.5, "one and a half"]], compareFor(FloatType)));
+    const entries = [[-0, "negative"], [0, "positive"], [1.5, "one and a half"]];
+    const pages = openBeast2PagesFor(Weights)(blob);
+    assert.deepEqual([...(pages.segment(0) as Map<number, string>).entries()], entries, "segment()");
+    assert.deepEqual([...(pages.slice(0, 3) as Map<number, string>).entries()], entries, "slice()");
+    assert.equal(pages.get(-0), "negative");
+    assert.equal(pages.get(0), "positive");
+    assert.deepEqual([...iterBeast2SegmentsFor(Weights)(blob)].flatMap((segment) => [...(segment as Map<number, string>).entries()]), entries, "the segment iterator");
+    assert.deepEqual([...(openBeast2LazyFor(Weights)(blob) as SortedMap<number, string>).entries()], entries, "lazy iteration");
+
+    const Floats = SetType(FloatType);
+    const set = encodeBeast2PagedFor(Floats)(new SortedSet([NaN, 0, -0], compareFor(FloatType)));
+    assert.deepEqual([...(openBeast2PagesFor(Floats)(set).segment(0) as Set<number>)], [-0, 0, NaN]);
+    assert.deepEqual([...openBeast2LazyFor(Floats)(set)], [-0, 0, NaN]);
   });
 });

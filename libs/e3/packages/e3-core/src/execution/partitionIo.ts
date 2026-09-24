@@ -21,6 +21,7 @@
  */
 
 import {
+  isEastDict,
   openBeast2PagesFor,
   readBeast2Extents,
   readBeast2ExtentsRanged,
@@ -288,7 +289,7 @@ export class PartitionBlob {
     let last: unknown;
     if (count > 0) {
       const segment = await this.segmentValue(count - 1);
-      if (segment instanceof Map) {
+      if (isEastDict(segment)) {
         for (const key of segment.keys()) last = key;
       } else {
         for (const element of segment as Iterable<unknown>) last = element;

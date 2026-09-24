@@ -947,7 +947,11 @@ function openSegmented(data: Uint8Array, typeValue: EastTypeValue): { kind: Segm
  *  decoded element/key must exceed `order.prev`. Passing one state across
  *  consecutive segments extends the check over the segment boundary; a fresh
  *  state validates a single segment in isolation. Violations are corruption
- *  (the wire must hold the canonical value), never data to repair. */
+ *  (the wire must hold the canonical value), never data to repair.
+ *
+ *  A Set/Dict segment is a SortedSet/SortedMap under the East comparator, as a
+ *  whole-value decode is: a plain JS Set or Map compares keys by SameValueZero,
+ *  which reads a `-0` key as `0` and merges it with a `0` beside it. */
 function buildSegmentDecoder(typeValue: EastTypeValue, kind: SegmentedKind): (reader: BufferReader, ctx: V5DecodeContext, n: number, order?: SegmentOrder) => any {
   const typeCtx = new Map<bigint, any>();
   const cmp = orderCmpFor(typeValue, kind);
@@ -955,7 +959,7 @@ function buildSegmentDecoder(typeValue: EastTypeValue, kind: SegmentedKind): (re
     const key = buildV5Decoder((typeValue as any).value.key, typeCtx);
     const val = buildV5Decoder((typeValue as any).value.value, typeCtx);
     return (reader, ctx, n, order) => {
-      const map = new Map<any, any>();
+      const map = new SortedMap<any, any>(undefined, cmp!);
       for (let i = 0; i < n; i++) {
         const k = key(reader, ctx);
         if (order) {
@@ -975,7 +979,7 @@ function buildSegmentDecoder(typeValue: EastTypeValue, kind: SegmentedKind): (re
   const elem = buildV5Decoder((typeValue as any).value, typeCtx);
   if (kind === "Set") {
     return (reader, ctx, n, order) => {
-      const set = new Set<any>();
+      const set = new SortedSet<any>(undefined, cmp!);
       for (let i = 0; i < n; i++) {
         const item = elem(reader, ctx);
         if (order) {
@@ -1436,7 +1440,7 @@ export class Beast2Pages<T extends EastType = EastType> {
    * Rows address stream order — for Array roots the element order, for
    * Set/Dict roots the canonical East (key) order, since segments are
    * disjoint ascending ranges. Returns a collection value of the root kind
-   * holding the window (an array, `Set`, or `Map` in that order).
+   * holding the window (an array, `SortedSet`, or `SortedMap` in that order).
    *
    * Clamps like `Array.prototype.slice`: a window past the end returns the
    * available tail (or an empty collection), never throws for being short.
@@ -1452,7 +1456,8 @@ export class Beast2Pages<T extends EastType = EastType> {
     if (!Number.isInteger(offset) || offset < 0 || !Number.isInteger(limit) || limit < 0) {
       throw new Error(`beast2 v5: slice(${offset}, ${limit}) — offset and limit must be non-negative integers`);
     }
-    const empty = (): any => this.kind === "Array" ? [] : this.kind === "Set" ? new Set() : new Map();
+    const empty = (): any => this.kind === "Array" ? []
+      : this.kind === "Set" ? new SortedSet<any>(undefined, this.orderCmp!) : new SortedMap<any, any>(undefined, this.orderCmp!);
     if (limit === 0 || offset >= this.elementCount) return empty() as ValueTypeOf<T>;
 
     if (this.kind === "Array") {
@@ -1475,7 +1480,7 @@ export class Beast2Pages<T extends EastType = EastType> {
     // against the fence of the first untouched segment.
     const fences = this.verifyFences();
     const isSet = this.kind === "Set";
-    const out = (isSet ? new Set<any>() : new Map<any, any>());
+    const out = empty() as Set<any> | Map<any, any>;
     let taken = 0;
     let { seg, base } = this.rowSegment(offset);
     const order: SegmentOrder = { prev: undefined, has: false };
