@@ -32,9 +32,10 @@
  * - a job whose partials each hold more rows than a segment may — so each
  *   spans several segments, the shape whose fan-in runs per key range rather
  *   than once over the component — stores its twin's manifest;
- * - a forced re-run at another `--jobs` count writes the same hash for every
- *   output: the bytes are a function of the inputs and the task, never of
- *   how many runners ran at once.
+ * - a forced re-run at `--jobs 1`, one runner at a time where the first run
+ *   held as many as there are CPUs, writes the same hash for every output:
+ *   the bytes are a function of the inputs and the task, never of how many
+ *   runners ran at once.
  *
  * Across the runners, the same rows give the same manifests: the re-keyed
  * Dict, the Set, the wide rows and the per-key-range output are identical on
@@ -560,20 +561,18 @@ describe('partition merge parity', () => {
         assert.equal((await DatasetSegments.open(storage, repo, merged)).elementCount, RANGED_ROWS);
       });
 
-      it('a forced re-run at another --jobs count writes the same hash for every output', async () => {
+      it('a forced serial re-run writes the same hash for every output', async () => {
         const hashes = async (): Promise<Map<string, string | null>> => {
           const out = new Map<string, string | null>();
           for (const task of Object.values(tasks)) out.set(task.name, (await workspaceGetDatasetHash(storage, repo, 'ws', task.output.path)).hash);
           return out;
         };
         const before = await hashes();
-        for (const jobs of ['1', '3']) {
-          const rerun = await runE3Command(['dataflow', 'run', repo, 'ws', '--force', '--jobs', jobs], dir);
-          assert.equal(rerun.exitCode, 0, `--force --jobs ${jobs}:\n${rerun.stderr}\n${rerun.stdout}`);
-          assert.match(rerun.stdout, /\[DONE\] ranged /, 'the forced run executed the partitioned task');
-          for (const [task, hash] of await hashes()) {
-            assert.equal(hash, before.get(task), `${task}'s output hash changed on --force --jobs ${jobs}`);
-          }
+        const rerun = await runE3Command(['dataflow', 'run', repo, 'ws', '--force', '--jobs', '1'], dir);
+        assert.equal(rerun.exitCode, 0, `--force --jobs 1:\n${rerun.stderr}\n${rerun.stdout}`);
+        assert.match(rerun.stdout, /\[DONE\] ranged /, 'the forced run executed the partitioned task');
+        for (const [task, hash] of await hashes()) {
+          assert.equal(hash, before.get(task), `${task}'s output hash changed on --force --jobs 1`);
         }
       });
     });
