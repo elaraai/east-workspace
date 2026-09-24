@@ -80,6 +80,11 @@ const DEFAULT_MAX_RETRY_MS = 30_000;
  *  schema — old commit/ref blobs still decode. */
 const IDEM_SLOT = '$idem';
 
+/** Reserved slot beside {@link IDEM_SLOT} naming the commit its key answers,
+ *  which stops being the head once a reindex commits; a retry returns it. A
+ *  ref written before this slot existed has the keyed commit as its head. */
+const IDEM_COMMIT_SLOT = '$idem.commit';
+
 /**
  * The outcome of a mutation attempt. Only `committed` writes anything durable;
  * every other outcome leaves the repo byte-identical (bar unreferenced objects
@@ -114,8 +119,9 @@ export interface RecordMutateOptions {
    *  remaining. Omit for the unbounded local behaviour. */
   budgetMs?: number;
   /** Optional client idempotency key. When the record's last mutation carried
-   *  this same key, the reducer is NOT re-run and the prior commit is returned —
-   *  so a client retrying after a gateway timeout cannot double-apply. */
+   *  this same key, the reducer is NOT re-run and that mutation's commit and
+   *  state are returned, whatever reindex has committed since — so a client
+   *  retrying after a gateway timeout cannot double-apply. */
   idempotencyKey?: string;
   /** Optional hard cap on CAS attempts (mainly for tests forcing a conflict). */
   maxAttempts?: number;
@@ -350,11 +356,12 @@ export async function recordMutate(
       }
 
       // Idempotent retry (OPS-3): if the record's last mutation already committed
-      // under this key, return that commit without re-running the reducer.
+      // under this key, return that commit, and the state it wrote, without
+      // re-running the reducer.
       if (opts.idempotencyKey !== undefined && existing.ref.value.versions.get(IDEM_SLOT) === opts.idempotencyKey) {
-        const head = existing.ref.value.versions.get(resolved.selfKeypath);
-        if (head !== undefined) {
-          return { kind: 'committed', commitHash: head, stateHash: existing.ref.value.hash };
+        const keyed = existing.ref.value.versions.get(IDEM_COMMIT_SLOT) ?? existing.ref.value.versions.get(resolved.selfKeypath);
+        if (keyed !== undefined) {
+          return { kind: 'committed', commitHash: keyed, stateHash: decodeRecordCommit(await storage.objects.read(repo, keyed)).state };
         }
       }
 
@@ -394,11 +401,14 @@ export async function recordMutate(
       };
       const commitHash = await storage.objects.write(repo, encodeCommit(commit));
 
-      // Self-vector carries the head commit; the idempotency slot (when keyed)
-      // lets the next retry short-circuit. Both are rewritten each commit, so the
-      // map stays bounded; any other reserved slot rides along untouched.
-      const versions = nextVersions(existing.ref.value.versions, resolved.selfKeypath, commitHash,
-        { [IDEM_SLOT]: opts.idempotencyKey });
+      // Self-vector carries the head commit; the idempotency slots (when keyed)
+      // let the next retry short-circuit. Every mutation rewrites them — one
+      // with no key drops them — so the map stays bounded; any other reserved
+      // slot rides along untouched.
+      const versions = nextVersions(existing.ref.value.versions, resolved.selfKeypath, commitHash, {
+        [IDEM_SLOT]: opts.idempotencyKey,
+        [IDEM_COMMIT_SLOT]: opts.idempotencyKey !== undefined ? commitHash : undefined,
+      });
 
       try {
         await storage.datasets.writeIf(
@@ -424,8 +434,9 @@ export async function recordMutate(
  *
  * @remarks
  * A `$`-prefixed slot is reserved bookkeeping whose owner is whichever writer
- * set it — the last idempotency key, and the applied-schema frontier deploy
- * keeps — so a commit that does not own one **carries it forward verbatim**.
+ * set it — the last idempotency key and the commit it answers, and the
+ * applied-schema frontier deploy keeps — so a commit that does not own one
+ * **carries it forward verbatim**.
  * That is not automatic and it fails silently when it is missed: every commit
  * path builds its vector fresh, so a path that forgets erases the slot, and
  * the writer that set it reads the record afterwards as one that never had it.
@@ -774,12 +785,13 @@ export async function recordReindex(
       }));
 
       try {
+        // A reindex changes no row a retry could apply twice, so it carries
+        // the last idempotency key and the commit that key answers.
         await storage.datasets.writeIf(
           repo, ws, resolved.refPath,
           variant('value', {
             hash: stateHash,
-            versions: nextVersions(existing.ref.value.versions, resolved.selfKeypath, commitHash,
-              { [IDEM_SLOT]: undefined }),
+            versions: nextVersions(existing.ref.value.versions, resolved.selfKeypath, commitHash),
           }),
           existing.revision,
         );
@@ -946,10 +958,12 @@ export async function commitDeployIndexes(
       at,
       delta: none,
     }));
+    // A reindex, like the one recordReindex commits: the idempotency slots
+    // ride along.
     await storage.datasets.write(repo, ws, path,
       variant('value', {
         hash: stateHash,
-        versions: nextVersions(existing.value.versions, selfKeypath, commitHash, { [IDEM_SLOT]: undefined }),
+        versions: nextVersions(existing.value.versions, selfKeypath, commitHash),
       }));
   }
 }
@@ -1102,12 +1116,14 @@ export async function recordCompact(
       };
       const commitHash = await storage.objects.write(repo, encodeCommit(commit));
       try {
+        // A compaction cuts the keyed commit out of the chain, so the key it
+        // answered goes with it.
         await storage.datasets.writeIf(
           repo, ws, resolved.refPath,
           variant('value', {
             hash: stateHash,
             versions: nextVersions(existing.ref.value.versions, resolved.selfKeypath, commitHash,
-              { [IDEM_SLOT]: undefined }),
+              { [IDEM_SLOT]: undefined, [IDEM_COMMIT_SLOT]: undefined }),
           }),
           existing.revision,
         );

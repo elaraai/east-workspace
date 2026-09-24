@@ -548,6 +548,8 @@ describe('records', () => {
     assert.ok(afterMutate && afterMutate.type === 'value');
     assert.strictEqual(afterMutate.value.versions.get('$schema'), 'frontier-hash');
     assert.strictEqual(afterMutate.value.versions.get('$idem'), 'k1', 'the writer that owns $idem still writes it');
+    assert.strictEqual(afterMutate.value.versions.get('$idem.commit'), (mutated as { commitHash: string }).commitHash,
+      'and names the commit the key answers');
 
     const compacted = await recordCompact(storage, repo, ws, 'counter', { actor: 'cli:test' });
     assert.strictEqual(compacted.kind, 'committed');
@@ -555,7 +557,8 @@ describe('records', () => {
     assert.ok(afterCompact && afterCompact.type === 'value');
     assert.strictEqual(afterCompact.value.versions.get('$schema'), 'frontier-hash');
     assert.strictEqual(afterCompact.value.versions.get('$idem'), undefined,
-      'a compaction is not an idempotency-keyed write, so it drops the key it does not own');
+      'a compaction cuts the keyed commit out of the chain, so the key it answered goes with it');
+    assert.strictEqual(afterCompact.value.versions.get('$idem.commit'), undefined);
   });
 
   it('history pages with a from cursor and ends gracefully on an unknown cursor', async () => {
@@ -691,10 +694,27 @@ describe('frozen reducer state (#539)', () => {
     // The nested-container element shape is exactly what the frozen gate
     // admits (unfrozen it would force a whole decode) — so with a 1-byte
     // threshold the reducer's state is pager-served, and its keyed touch
-    // pays O(touched), not a whole decode.
+    // pays O(touched), not a whole decode. The eager frozen fallback would
+    // commit the same row, so the runner's own account, under -v, is what
+    // says the state was paged.
+    let stderr = '';
+    const watching = new Proxy(realRunner, {
+      get(target, property, receiver) {
+        if (property === 'runDetached') {
+          return async (spec: unknown, options: unknown): Promise<DetachedResult> => {
+            const result = await (target.runDetached as (s: unknown, o: unknown) => Promise<DetachedResult>).call(target, spec, options);
+            stderr += result.stderr;
+            return result;
+          };
+        }
+        const value = Reflect.get(target, property, receiver) as unknown;
+        return typeof value === 'function' ? (value as (...a: unknown[]) => unknown).bind(target) : value;
+      },
+    }) as TaskRunner;
     const outcome = await withEnv({ EAST_LAZY_INPUT_BYTES: '1' }, () =>
-      recordMutate(storage, realRunner, repo, ws, 'kv', 'touch', [encodeStr('k-0')], { actor: 'cli:test' }));
+      recordMutate(storage, watching, repo, ws, 'kv', 'touch', [encodeStr('k-0')], { actor: 'cli:test', verbose: true }));
     assert.strictEqual(outcome.kind, 'committed', `touch committed: ${JSON.stringify(outcome)}`);
+    assert.match(stderr, /input 0: opened lazily/, `the state was paged from its file:\n${stderr}`);
 
     const after = await workspaceGetDataset(storage, repo, ws, kvPath) as ValueTypeOf<typeof StateT>;
     assert.strictEqual(after.size, 1, 'the touched row is the whole new state');
@@ -881,6 +901,7 @@ describe('record indexes', () => {
     const primary = await DatasetSegments.open(storage, repo, (await state()).primary);
     assert.ok(primary.segmentCount > 4, `the record spans segments, got ${primary.segmentCount}`);
     const segmentObjects = new Set(primary.manifest!.entries.map((entry) => entry.hash));
+    const before = await countExecutions();
 
     const objects = storage.objects;
     const read = objects.read.bind(objects);
@@ -897,18 +918,19 @@ describe('record indexes', () => {
       objects.read = read;
     }
     assert.strictEqual(rebuilt.kind, 'committed', JSON.stringify(rebuilt));
-    assert.ok(await countExecutions() > 0);
+    assert.ok(await countExecutions() >= before + 2, 'the build really did fan out');
     assert.deepStrictEqual(readWhole, [], 'no segment of the record is read whole');
   });
 
   it('a rebuild over an unchanged record re-runs no unit', async () => {
     await recordMutate(storage, realRunner, repo, ws, 'plans', 'seed_many',
       [encodeBeast2For(IntegerType)(5_000n)], { actor: 'cli:test' });
+    const before = await countExecutions();
     const first = await recordReindex(storage, realRunner, repo, ws, 'plans',
       { actor: 'cli:test', sliceBytes: 32 * 1024 });
     assert.strictEqual(first.kind, 'committed', JSON.stringify(first));
     const after = await countExecutions();
-    assert.ok(after > 0, 'the build ran units');
+    assert.ok(after >= before + 2, 'the first build fanned out into units of its own');
 
     // Every unit is an ordinary content-addressed execution, so the second
     // build finds all of them in the cache and records no new one.
@@ -962,8 +984,8 @@ describe('record indexes', () => {
     const afterReindex = await storage.datasets.read(repo, ws, 'records/plans');
     assert.ok(afterReindex && afterReindex.type === 'value');
     assert.strictEqual(afterReindex.value.versions.get('$schema'), 'frontier-hash');
-    assert.strictEqual(afterReindex.value.versions.get('$idem'), undefined,
-      'a reindex is not an idempotency-keyed write, so it drops the key it does not own');
+    assert.strictEqual(afterReindex.value.versions.get('$idem'), 'k1',
+      'a reindex changes no row a retry could apply twice, so the key still answers');
 
     // A changed declaration: the deploy reindexes the record itself.
     const plans = e3.record('plans', PlansType, new Map());
@@ -981,6 +1003,24 @@ describe('record indexes', () => {
     const afterDeploy = await storage.datasets.read(repo, ws, 'records/plans');
     assert.ok(afterDeploy && afterDeploy.type === 'value');
     assert.strictEqual(afterDeploy.value.versions.get('$schema'), 'frontier-hash');
+    assert.strictEqual(afterDeploy.value.versions.get('$idem'), 'k1');
+  });
+
+  it('a keyed retry after a reindex returns the commit it answers, and applies nothing twice', async () => {
+    // A client whose response was lost retries with the same key. A reindex
+    // committed in between changed no row, so the key still answers: the
+    // retry gets the first attempt's commit and state, and nothing runs.
+    const first = await recordMutate(storage, realRunner, repo, ws, 'plans', 'seed', [], { actor: 'cli:test', idempotencyKey: 'k1' });
+    assert.strictEqual(first.kind, 'committed', JSON.stringify(first));
+    assert.strictEqual((await recordReindex(storage, realRunner, repo, ws, 'plans', { actor: 'cli:test' })).kind, 'committed');
+    const commits = (await recordHistory(storage, repo, ws, 'plans')).length;
+
+    const noRunner = {
+      runDetached: () => { throw new Error('the retry ran the mutation again'); },
+    } as unknown as TaskRunner;
+    const retry = await recordMutate(storage, noRunner, repo, ws, 'plans', 'seed', [], { actor: 'cli:test', idempotencyKey: 'k1' });
+    assert.deepStrictEqual(retry, first, 'the retry answers with the first attempt\'s commit and state');
+    assert.strictEqual((await recordHistory(storage, repo, ws, 'plans')).length, commits, 'nothing was committed');
   });
 
   it('a deploy that cannot build an owed index leaves the workspace as it was', async () => {
@@ -1535,8 +1575,9 @@ describe('the mutation delta', () => {
  * diverges — an emit sink that orders differently, a patch builtin that
  * produces a different op, a segment cut elsewhere — shows up as one hash.
  *
- * Skips where a runtime is not installed, the way every multi-runtime suite
- * here does; CI installs all three.
+ * Compares every runtime installed, and skips with fewer than two. CI has all
+ * three on Linux and macOS, and east-node and east-py on Windows, where it
+ * builds no east-c.
  */
 describe('the mutation delta — cross-runtime parity', () => {
   let repo: string;
@@ -1554,8 +1595,8 @@ describe('the mutation delta — cross-runtime parity', () => {
     ...(onPath('east-c', ['version']) ? [{ ws: 'c', runner: { runner: { runtime: 'east-c' as const, platforms: [] } } }] : []),
     ...(onPath('east-py', ['version']) ? [{ ws: 'py', runner: { runner: { runtime: 'east-py' as const, platforms: [] } } }] : []),
   ];
-  const missing = runtimes.length < 3
-    ? `needs east-c and east-py on PATH; have ${runtimes.map((r) => r.ws).join(', ')}`
+  const missing = runtimes.length < 2
+    ? `needs east-c or east-py on PATH beside east-node; have ${runtimes.map((r) => r.ws).join(', ')}`
     : false;
 
   beforeEach(async () => {
