@@ -26,6 +26,10 @@
  * `process.getBuiltinModule` — as `frames.ts` reaches zlib — so browser
  * bundles never see a `node:` import.
  *
+ * A runner granted a number of threads caps the pool at that many workers
+ * ({@link configureFramePool}): a grant of one thread frames every write
+ * inline.
+ *
  * A worker can die without flipping a status cell — a worker-thread OOM ends
  * its isolate before its `catch` runs — and the main thread cannot receive the
  * worker's `exit` event while it is blocked waiting on that worker's frame. So
@@ -86,8 +90,12 @@ export interface FramePool {
   terminateWorkers(): Promise<void>;
 }
 
-/** The frame pool's tunable timeouts — see {@link configureFramePool}. */
+/** The frame pool's settings — see {@link configureFramePool}. */
 export interface FramePoolSettings {
+  /** The most workers a pool starts — a runner's thread grant. Fewer than two
+   *  frame every write inline. The pool never starts more workers than the
+   *  CPUs the process may use, nor more than 32. */
+  workers?: number;
   /** How long {@link PendingFrame.take} waits for one frame before it presumes
    *  the worker's thread lost, in milliseconds. */
   waitTimeoutMs?: number;
@@ -136,8 +144,9 @@ const FRAME_POOL_IDLE_MS = 30_000;
  *  idle limit is shorter). */
 const IDLE_CHECK_INTERVAL_MS = 10_000;
 
-/** The timeouts in force; {@link configureFramePool} changes them. */
+/** The settings in force; {@link configureFramePool} changes them. */
 const settings: Required<FramePoolSettings> = {
+  workers: FRAME_POOL_MAX_WORKERS,
   waitTimeoutMs: FRAME_WAIT_TIMEOUT_MS,
   idleMs: FRAME_POOL_IDLE_MS,
 };
@@ -153,12 +162,13 @@ let idleCheck: ReturnType<typeof setInterval> | undefined;
  * The process's frame pool, created on first use — and again after an idle
  * pool retired its workers.
  *
- * @returns the pool, or `null` when frames must be written inline — no Node
- *   `worker_threads`, no `SharedArrayBuffer`, a single CPU, not the main thread
- *   (a pool per worker would only oversubscribe), worker start-up failed, or
- *   an earlier pool lost a worker
+ * @returns the pool, or `null` when frames must be written inline — a grant of
+ *   fewer than two workers, no Node `worker_threads`, no `SharedArrayBuffer`, a
+ *   single CPU, not the main thread (a pool per worker would only
+ *   oversubscribe), worker start-up failed, or an earlier pool lost a worker
  */
 export function framePool(): FramePool | null {
+  if (settings.workers < 2) return null;
   if (shared === undefined) {
     shared = createPool();
     armIdleCheck();
@@ -167,14 +177,32 @@ export function framePool(): FramePool | null {
 }
 
 /**
- * Changes the frame pool's timeouts, for tests that cannot wait them out.
+ * Changes the frame pool's settings: the worker cap a runner is granted, and
+ * the timeouts, for tests that cannot wait them out.
  *
  * @param options - the settings to change; an omitted one keeps its value
  * @returns every setting as it was before, to restore afterwards
- * @internal
+ *
+ * @remarks
+ * A new worker cap applies to the next pool. A live pool with no frame
+ * outstanding retires at once, so the next write starts one at the new cap;
+ * one with frames outstanding keeps its workers until it goes idle.
+ *
+ * @example
+ * ```ts
+ * // A runner granted one thread frames every output inline.
+ * configureFramePool({ workers: 1 });
+ * ```
  */
 export function configureFramePool(options: FramePoolSettings): Required<FramePoolSettings> {
   const previous = { ...settings };
+  if (options.workers !== undefined && options.workers !== settings.workers) {
+    settings.workers = options.workers;
+    if (shared instanceof WorkerFramePool && shared.outstanding === 0) {
+      void shared.terminateWorkers();
+      shared = undefined;
+    }
+  }
   if (options.waitTimeoutMs !== undefined) settings.waitTimeoutMs = options.waitTimeoutMs;
   if (options.idleMs !== undefined) settings.idleMs = options.idleMs;
   armIdleCheck();
@@ -286,7 +314,7 @@ function createPool(): FramePool | null {
   const os = getBuiltin("node:os") as OsModule | undefined;
   const fs = getBuiltin("node:fs") as FsModule | undefined;
   if (!threads || !os || !fs || !threads.isMainThread) return null;
-  const cpus = Math.min(FRAME_POOL_MAX_WORKERS, os.availableParallelism?.() ?? os.cpus().length);
+  const cpus = Math.min(settings.workers, FRAME_POOL_MAX_WORKERS, os.availableParallelism?.() ?? os.cpus().length);
   if (cpus < 2) return null;
 
   // Bundled into a single file (or loaded as CommonJS), this module has no

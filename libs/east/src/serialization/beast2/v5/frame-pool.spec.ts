@@ -214,6 +214,26 @@ describe("beast2 v5 parallel frame writer", () => {
     }
   });
 
+  test("a runner's grant caps the pool: one thread frames inline, two start two workers", (t) => {
+    if (framePool() === null) {
+      t.skip("no frame pool on this host — frames are written inline");
+      return;
+    }
+    const type = ArrayType(StringType);
+    const items = strings(24_000, 0x9a7e);
+    const serial = inlineEncode(type, items);
+    const previous = configureFramePool({ workers: 1 });
+    try {
+      assert.equal(framePool(), null, "a grant of one thread frames inline");
+      assert.equal(firstDifference(encodeBeast2PagedFor(type)(items), serial), -1);
+      configureFramePool({ workers: 2 });
+      assert.equal(framePool()?.workers, 2, "a grant of two starts two workers");
+      assert.equal(firstDifference(encodeBeast2PagedFor(type)(items), serial), -1);
+    } finally {
+      configureFramePool(previous);
+    }
+  });
+
   // LAST in this file: losing a worker abandons the process's pool, so every
   // encode after it in this process frames inline.
   test("a lost frame worker fails its frame instead of hanging, and the process frames inline after", async (t) => {

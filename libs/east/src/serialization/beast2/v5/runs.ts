@@ -13,9 +13,10 @@
  * element as every writer scopes it, and once it holds {@link RUN_MAX_COUNT} of
  * them or {@link RUN_MAX_BYTES} of their bytes it sorts them, folds the keys
  * that repeat, and writes them out as one run: the canonical blob of the run's
- * value, cut by the content-defined rule like every other. The runs are merged
- * afterwards (`mergeBeast2For`), a key range at a time if need be, and a key
- * that repeats across runs folds there, in run order.
+ * value, cut by the content-defined rule like every other, or that value as a
+ * manifest directory. The runs are merged afterwards (`mergeBeast2For`), a key
+ * range at a time if need be, and a key that repeats across runs folds there,
+ * in run order.
  *
  * The caps are platform constants, not settings. Where a run closes decides how
  * a repeated key's values group before they fold, which for a fold over floats
@@ -32,6 +33,7 @@ import { BufferWriter } from "../../binary-utils.js";
 import { asTypeValue } from "./type-section.js";
 import { type V5EncodeContext, buildV5Encoder, createV5EncodeContext } from "./codec.js";
 import { Beast2ElementWriter, type Beast2ElementOf, type Beast2ElementWriterOptions } from "./stream.js";
+import { Beast2ManifestWriter, type Beast2ManifestSink } from "./manifest-writer.js";
 import { decodeBeast2FenceFor } from "./boundary.js";
 
 /** Elements a run holds before it closes (pairs, for a Dict). */
@@ -75,8 +77,11 @@ export type Beast2RunSorterOptions = Omit<Beast2ElementWriterOptions, "headerPre
  * by bytes rather than by what the elements decode to. When a run closes its
  * elements sort by key, stably — so a key's values stay in the order they were
  * added — and each run is written through {@link Beast2ElementWriter}, as the
- * bytes a writer of the run's value writes. Runs are numbered from zero in the
- * order they close; a key that repeats across runs is the merge's to fold.
+ * bytes a writer of the run's value writes, or through
+ * {@link Beast2ManifestWriter} as the manifest directory of that value, when
+ * the sink a run opens is a {@link Beast2ManifestSink}. Runs are numbered from
+ * zero in the order they close; a key that repeats across runs is the merge's
+ * to fold.
  *
  * @example
  * ```ts
@@ -97,7 +102,7 @@ export type Beast2RunSorterOptions = Omit<Beast2ElementWriterOptions, "headerPre
 export class Beast2RunSorter<T extends EastType = EastType> {
   private readonly typeValue: EastTypeValue;
   private readonly kind: "Set" | "Dict";
-  private readonly openRun: (run: number) => Beast2RunSink;
+  private readonly openRun: (run: number) => Beast2RunSink | Beast2ManifestSink;
   private readonly writerOptions: Beast2ElementWriterOptions;
   private readonly merge: ((key: any, acc: any, value: any) => any) | null;
   private readonly union: boolean;
@@ -121,13 +126,14 @@ export class Beast2RunSorter<T extends EastType = EastType> {
 
   /**
    * @param type - the collection type the runs hold (Set or Dict)
-   * @param openRun - opens the sink for run `run`
+   * @param openRun - opens the sink for run `run`: a blob's bytes, or a
+   *   manifest directory's objects and manifest
    * @param options - the fold, and the runs' codec, source map and parallel
    *   framing
    * @throws {TypeError} When `type` is not a Set or Dict type, or the fold does
    *   not fit it: a merge function folds a Dict, union a Set.
    */
-  constructor(type: T | EastTypeValue, openRun: (run: number) => Beast2RunSink, options?: Beast2RunSorterOptions) {
+  constructor(type: T | EastTypeValue, openRun: (run: number) => Beast2RunSink | Beast2ManifestSink, options?: Beast2RunSorterOptions) {
     const typeValue = asTypeValue(type);
     if (typeValue.type !== "Set" && typeValue.type !== "Dict") {
       throw new TypeError(`beast2 v5: sorted runs hold Set or Dict values, not ${typeValue.type} — an Array keeps the order it is written in`);
@@ -229,7 +235,8 @@ export class Beast2RunSorter<T extends EastType = EastType> {
   }
 
   /** Sorts the open run, folds its repeated keys, and writes it. A failure
-   *  leaves the run's sink without its `close` — the run is incomplete. */
+   *  leaves the run incomplete: a blob sink without its `close`, a manifest
+   *  directory without its manifest. */
   private writeRun(): void {
     const n = this.keys.length;
     const bytes = this.buffer.toUint8Array();
@@ -241,7 +248,9 @@ export class Beast2RunSorter<T extends EastType = EastType> {
     order.sort((a, b) => this.cmp(keys[a], keys[b]) || a - b);
 
     const sink = this.openRun(this.written);
-    const writer = new Beast2ElementWriter(this.typeValue, (chunk) => sink.write(chunk), this.writerOptions);
+    const writer = "manifest" in sink
+      ? new Beast2ManifestWriter(this.typeValue, sink, this.writerOptions)
+      : new Beast2ElementWriter(this.typeValue, (chunk) => sink.write(chunk), this.writerOptions);
     for (let i = 0; i < n;) {
       const first = order[i]!;
       let j = i + 1;
@@ -270,7 +279,7 @@ export class Beast2RunSorter<T extends EastType = EastType> {
       i = j;
     }
     writer.finish();
-    sink.close();
+    if (!("manifest" in sink)) sink.close();
     this.written++;
     this.buffer.pop();
     this.starts = [];

@@ -118,6 +118,7 @@ export {
 } from "./v5/manifest.js";
 export { Beast2ManifestWriter, type Beast2ManifestSink } from "./v5/manifest-writer.js";
 export { sha256Hex } from "./v5/sha256.js";
+export { configureFramePool, type FramePoolSettings } from "./v5/frame-pool.js";
 export {
   SEGMENT_MIN_COUNT,
   SEGMENT_TARGET_COUNT,

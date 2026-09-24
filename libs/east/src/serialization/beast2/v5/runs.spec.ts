@@ -4,10 +4,10 @@
  */
 
 /**
- * Sorted runs: each run is the canonical blob of its sorted, folded value; a
- * key's values fold in the order they were added; a run closes at the element
- * cap or the byte cap; and the runs a pinned sequence of elements closes are
- * the runs east-c closes for it.
+ * Sorted runs: each run is the canonical blob of its sorted, folded value, or
+ * that value's manifest directory; a key's values fold in the order they were
+ * added; a run closes at the element cap or the byte cap; and the runs a
+ * pinned sequence of elements closes are the runs east-c closes for it.
  */
 
 import { describe, test } from "node:test";
@@ -21,10 +21,12 @@ import {
   RUN_MAX_BYTES,
   RUN_MAX_COUNT,
   decodeBeast2For,
+  decodeCollectionManifest,
   encodeBeast2PagedFor,
   fnv1a64,
   mergeBeast2For,
   openBeast2PagesFor,
+  spliceBeast2,
 } from "../index.js";
 
 /** Sorts `elements` through a run sorter and returns each run's bytes. */
@@ -123,6 +125,28 @@ describe("beast2 v5 sorted runs", () => {
 
   test("writes no run when nothing was added", () => {
     assert.deepEqual(sortInto(DictSI, []), []);
+  });
+
+  test("writes each run as a manifest directory when its sink takes one", () => {
+    // 7919 is prime to 136,072: every key once, in a permuted order, over two
+    // runs.
+    const n = RUN_MAX_COUNT + 5_000;
+    const elements = Array.from({ length: n }, (_, i) => [key((i * 7919) % n), BigInt(i)] as [string, bigint]);
+    const blobs = sortInto(DictSI, elements);
+    const dirs: { objects: Map<string, Uint8Array>; manifest: Uint8Array | null }[] = [];
+    const sorter = new Beast2RunSorter(DictSI, (run) => {
+      assert.equal(run, dirs.length, "runs are numbered in the order they open");
+      const dir = { objects: new Map<string, Uint8Array>(), manifest: null as Uint8Array | null };
+      dirs.push(dir);
+      return { object: (hash, bytes) => { dir.objects.set(hash, bytes); }, manifest: (bytes) => { dir.manifest = bytes; } };
+    });
+    for (const element of elements) sorter.add(element);
+    sorter.finish();
+    assert.equal(dirs.length, 2);
+    dirs.forEach((dir, i) => {
+      const entries = decodeCollectionManifest(dir.manifest!).entries;
+      assert.deepEqual(spliceBeast2(entries.map((entry) => dir.objects.get(entry.hash)!)), blobs[i], `run ${i}'s segments are its blob's`);
+    });
   });
 
   test("refuses a root it cannot sort, and a fold that does not fit the root", () => {
