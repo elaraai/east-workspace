@@ -802,42 +802,107 @@ function buildGroupedBody(input: SheetBodyInput, grouped: NonNullable<SheetBodyI
             return;
         }
         inGap = false;
-        const folded = grouped.foldedOf(row);
-        out.push({ kind: "group", position, residentIndex: i, row, folded, count: row.lines.length });
-        if (folded) return;
-        const lineHits = lens?.lineHits?.[i];
-        const lineVisible = lens?.lineVisible?.[i];
-        const lineGaps = lens?.lineGaps?.[i];
-        let lineGap = false;
-        row.lines.forEach((line, j) => {
-            if (lineVisible !== undefined && !lineVisible[j]) {
-                if (!lineGap) {
-                    const p = linePosition(position, j);
-                    const gap = lineGaps?.find((g) => g.from === p);
-                    if (gap !== undefined) out.push({ kind: "gap", gap });
-                    lineGap = true;
-                }
-                return;
-            }
-            lineGap = false;
-            const lg: LineGroup = { row, key: line.key, index: j, number: j + 1 };
-            out.push({ kind: "real", position, residentIndex: i, row: lineRowOf(row, line), hit: lineHits?.[j] === true, group: lg });
-            // An open line's sub rows hang under it: opened by hand, or by the lens when the line hit only through them.
-            const subRows = line.subRows;
-            if (subRows.length === 0) return;
-            const id = lineId(row.id, line.key);
-            const subRowHits = lens?.lineSubRowHits?.[i]?.[j];
-            const open = grouped.subRowsOpen?.(id) ?? subRowHits?.some(Boolean) === true;
-            if (!open) return;
-            subRows.forEach((subRow, k) => out.push({ kind: "subRow", position, group: lg, lineId: id, subRow, index: k, count: subRows.length, hit: subRowHits?.[k] === true }));
-        });
-        if (input.blanks > 0 && lens === undefined) {
-            out.push({ kind: "blank", position, blankIndex: 0, group: { row, key: "", index: row.lines.length, number: row.lines.length + 1 } });
-        }
+        groupItems(row, i, position, lens, grouped, input.blanks, out);
     });
     failuresAt(input, input.rows.length, out);
     if (input.tail !== undefined) out.push({ kind: "band", band: input.tail });
     return out;
+}
+
+/**
+ * One shown group's items: its band, then — unless folded — its lines, each
+ * open line's sub rows, and its blank line (not under a lens). The body and
+ * the paged driver's window heights both come from here (#855).
+ */
+function groupItems(
+    row: SheetRowValue,
+    i: number,
+    position: number,
+    lens: LensSlice | undefined,
+    grouped: NonNullable<SheetBodyInput["grouped"]>,
+    blanks: number,
+    out: SheetBodyItem[],
+): void {
+    const folded = grouped.foldedOf(row);
+    out.push({ kind: "group", position, residentIndex: i, row, folded, count: row.lines.length });
+    if (folded) return;
+    const lineHits = lens?.lineHits?.[i];
+    const lineVisible = lens?.lineVisible?.[i];
+    const lineGaps = lens?.lineGaps?.[i];
+    let lineGap = false;
+    row.lines.forEach((line, j) => {
+        if (lineVisible !== undefined && !lineVisible[j]) {
+            if (!lineGap) {
+                const p = linePosition(position, j);
+                const gap = lineGaps?.find((g) => g.from === p);
+                if (gap !== undefined) out.push({ kind: "gap", gap });
+                lineGap = true;
+            }
+            return;
+        }
+        lineGap = false;
+        const lg: LineGroup = { row, key: line.key, index: j, number: j + 1 };
+        out.push({ kind: "real", position, residentIndex: i, row: lineRowOf(row, line), hit: lineHits?.[j] === true, group: lg });
+        // An open line's sub rows hang under it: opened by hand, or by the lens when the line hit only through them.
+        const subRows = line.subRows;
+        if (subRows.length === 0) return;
+        const id = lineId(row.id, line.key);
+        const subRowHits = lens?.lineSubRowHits?.[i]?.[j];
+        const open = grouped.subRowsOpen?.(id) ?? subRowHits?.some(Boolean) === true;
+        if (!open) return;
+        subRows.forEach((subRow, k) => out.push({ kind: "subRow", position, group: lg, lineId: id, subRow, index: k, count: subRows.length, hit: subRowHits?.[k] === true }));
+    });
+    if (blanks > 0 && lens === undefined) {
+        out.push({ kind: "blank", position, blankIndex: 0, group: { row, key: "", index: row.lines.length, number: row.lines.length + 1 } });
+    }
+}
+
+/** The heights a sheet draws its items at (#855): a row's, a group band's and a sub row's least height. */
+export interface SheetGeometry {
+    rowPx: number;
+    bandPx: number;
+    subRowPx: number;
+}
+
+/**
+ * A body item's least height (#855): what the rows are estimated at until
+ * they are measured, and what the paged driver sizes a window by.
+ *
+ * @param item - The body item
+ * @param g - The sheet's geometry
+ * @returns Its height in px
+ */
+export function itemPx(item: SheetBodyItem, g: SheetGeometry): number {
+    switch (item.kind) {
+        case "gap": return BAND_MIN_PX;
+        case "group": return g.bandPx;
+        case "subRow": return g.subRowPx;
+        case "failed": return Math.max(BAND_MIN_PX, item.failure.px);
+        case "band": return Math.max(BAND_MIN_PX, item.band.px);
+        default: return g.rowPx;
+    }
+}
+
+/**
+ * What one source row draws, in px (#855): the least height of the items the
+ * body builds for it, with no lens. A flat row is one row; a group is its band
+ * and, unless folded, its lines, their open sub rows and its blank line when
+ * the sheet draws one. The paged driver sizes a window by it, so an unloaded
+ * band is as tall as its rows will be.
+ *
+ * @param row - A source row
+ * @param g - The sheet's geometry
+ * @param grouped - A grouped sheet's folds and open sub rows (`undefined` on a flat sheet)
+ * @param blanks - The grouped sheet's blank lines per group (`0` when it draws none)
+ * @returns Its height in px
+ */
+export function drawnPx(row: SheetRowValue, g: SheetGeometry, grouped: SheetBodyInput["grouped"], blanks: number): number {
+    if (grouped === undefined) return g.rowPx;
+    const items: SheetBodyItem[] = [];
+    groupItems(row, 0, 0, undefined, grouped, blanks, items);
+    let px = 0;
+    for (const it of items) px += itemPx(it, g);
+    return px;
 }
 
 /**

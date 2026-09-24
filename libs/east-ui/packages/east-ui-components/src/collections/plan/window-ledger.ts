@@ -42,10 +42,8 @@
 /** Fallback slot height per element, before any window has landed. */
 const DEFAULT_SLOT_PX = 32;
 
-/** Bounds on the seeded slot height. The upper bound also keeps the document
- *  under the browser's maximum element height on very large sources. */
+/** The least seeded slot height: an element never describes less than a pixel. */
 const MIN_SLOT_PX = 1;
-const MAX_SLOT_PX = 64;
 
 /**
   * The tallest UNVISITED extent to describe. Blink clamps element heights around
@@ -154,13 +152,17 @@ export function observeWindow(ledger: WindowLedger, w: number, measure: WindowMe
     // Seed the slot rate from the first window we ever measure, then freeze it.
     // A later re-measure of the same window updates ITS height, never the rate:
     // re-deriving the rate would move every unvisited window at once, which is
-    // the global re-estimate this design exists to avoid.
+    // the global re-estimate this design exists to avoid. The rate is what
+    // that window's elements drew, however tall — a grouped sheet's element is
+    // its band and its lines (#855) — bounded only by the extent the browser
+    // can describe (`MAX_DOC_PX`). A fixed per-element cap sized such a
+    // sheet's unloaded windows at a third of their rows, and the extent grew
+    // under the scrollbar as each one landed.
     let slotPx = ledger.slotPx;
     if (ledger.measured.size === 0) {
         const elements = elementsIn(ledger, w);
         const perElement = elements > 0 ? measure.px / elements : DEFAULT_SLOT_PX;
-        const ceiling = ledger.total > 0 ? Math.min(MAX_SLOT_PX, MAX_DOC_PX / ledger.total) : MAX_SLOT_PX;
-        slotPx = Math.max(MIN_SLOT_PX, Math.min(ceiling, perElement));
+        slotPx = Math.max(MIN_SLOT_PX, Math.min(MAX_DOC_PX / ledger.total, perElement));
     }
 
     const base: Omit<WindowLedger, "prefix"> = { ...ledger, measured, slotPx };

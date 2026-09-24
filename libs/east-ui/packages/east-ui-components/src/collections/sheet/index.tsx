@@ -55,10 +55,10 @@ import { useFormatters } from "../../format/index.js";
 import { railAffordanceKinds } from "../../slice/rail-kinds.js";
 import { VirtualRows } from "../virtual-rows.js";
 import {
-    BAND_MIN_PX, BOTTOM_PAD_PX, DEFAULT_BLANKS, DEFAULT_GUTTER_PX, NEW_LINE_KEY, NULL_CELL, TITLE_KEY,
-    blankIdOf, bodyIndexOfId, buildBody, cellIsBlank, cellText, countNoun, densityOf, driverKeyOf, groupBandPx, indexColumns, indexGroup, indexRegisters, isRowSpace,
+    BOTTOM_PAD_PX, DEFAULT_BLANKS, DEFAULT_GUTTER_PX, NEW_LINE_KEY, NULL_CELL, TITLE_KEY,
+    blankIdOf, bodyIndexOfId, buildBody, cellIsBlank, cellText, countNoun, densityOf, drawnPx, driverKeyOf, groupBandPx, indexColumns, indexGroup, indexRegisters, isRowSpace, itemPx,
     latencyOf, layoutRun, lineAddress, lineId, linePosition, lineRowsOf, parseWidth, resolveMember as resolveRegisterMember, rowIsBlank, segmentOf, stickyRows, withLine, withProposals, withoutLines,
-    type LineGroup, type SheetBodyItem, type SheetColumnMeta,
+    type LineGroup, type SheetBodyItem, type SheetColumnMeta, type SheetGeometry,
 } from "./model.js";
 import { useSheetPaging, type SheetViewport } from "./paging.js";
 import { useSheetSeek } from "./use-seek.js";
@@ -386,7 +386,30 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
         () => (data.rows.type === "inline" ? (data.rows.value as readonly SheetRowValue[]) : undefined),
         [data.rows],
     );
-    const paging = useSheetPaging(pagedSource, rowPx, bandPx);
+    // ── The state machine ─────────────────────────────────────────────────
+    const [store, dispatchStore] = useReducer(sheetStoreReducer, undefined, () => {
+        // The ring opens on the first blank row's driver column (else its first
+        // column) — the prototype's "type an activity on the empty row"; a
+        // grouped sheet: the first group's blank line.
+        const c = Math.max(0, driverColumn !== undefined ? columns.list.findIndex((col) => col.key === driverColumn) : 0);
+        const first = decodedRows?.[0];
+        const firstFolded = first !== undefined && getSomeorUndefined(first.band)?.folded === true;
+        const r = group !== undefined ? (first !== undefined && !firstFolded ? 1 + first.lines.length : 0) : decodedRows?.length ?? 0;
+        return initialSheetStore({ r, c }, activeView ?? null);
+    });
+    const ui = store.ui;
+    const folds = ui.lens.folds;
+    const foldedOf = useCallback((row: SheetRowValue): boolean => folds.get(row.id) ?? getSomeorUndefined(row.band)?.folded ?? false, [folds]);
+    // A line's sub rows fold under its id like a group under its own: `false` open, `true` closed, absent untouched.
+    const subRowsOpenOf = useCallback((lineKey: string): boolean | undefined => { const f = folds.get(lineKey); return f === undefined ? undefined : !f; }, [folds]);
+    // What the body draws of one source row (#855): the paged driver measures a
+    // window by it, so an unloaded band is as tall as its rows will be.
+    const geometry = useMemo<SheetGeometry>(() => ({ rowPx, bandPx, subRowPx }), [rowPx, bandPx, subRowPx]);
+    const heightOf = useCallback(
+        (row: SheetRowValue) => drawnPx(row, geometry, group !== undefined ? { foldedOf, subRowsOpen: subRowsOpenOf } : undefined, blanks),
+        [geometry, group, foldedOf, subRowsOpenOf, blanks],
+    );
+    const paging = useSheetPaging(pagedSource, heightOf);
     const sourceRows: readonly SheetRowValue[] = decodedRows ?? paging.rows;
     const rowsOffset = decodedRows !== undefined ? 0 : paging.rowsOffset;
     // Each source row's position — its index inline; paged, its place in the
@@ -416,19 +439,6 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
         return layoutRun(rows, rowsOffset, decodedRows !== undefined ? [] : paging.failures, (id) => at.get(id));
     }, [rows, rowsOffset, sourceRows, sourcePositions, decodedRows, paging.failures]);
 
-    // ── The state machine ─────────────────────────────────────────────────
-    const [store, dispatchStore] = useReducer(sheetStoreReducer, undefined, () => {
-        // The ring opens on the first blank row's driver column (else its first
-        // column) — the prototype's "type an activity on the empty row"; a
-        // grouped sheet: the first group's blank line.
-        const c = Math.max(0, driverColumn !== undefined ? columns.list.findIndex((col) => col.key === driverColumn) : 0);
-        const first = decodedRows?.[0];
-        const firstFolded = first !== undefined && getSomeorUndefined(first.band)?.folded === true;
-        const r = group !== undefined ? (first !== undefined && !firstFolded ? 1 + first.lines.length : 0) : decodedRows?.length ?? 0;
-        return initialSheetStore({ r, c }, activeView ?? null);
-    });
-    const ui = store.ui;
-
     // ── The lens (B§8) — hits from the slice engine over the resident rows ──
     // A grouped sheet (#740): a group shows when its title or any line
     // matches (or it is revealed); INSIDE a shown group the lens works on the
@@ -456,10 +466,6 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
     }, [lensOn, sliceState, sliceConfig, rows, runLayout, columns, ui.lens.context, ui.lens.reveals, group]);
 
     // ── The body ──────────────────────────────────────────────────────────
-    const folds = ui.lens.folds;
-    const foldedOf = useCallback((row: SheetRowValue): boolean => folds.get(row.id) ?? getSomeorUndefined(row.band)?.folded ?? false, [folds]);
-    // A line's sub rows fold under its id like a group under its own: `false` open, `true` closed, absent untouched.
-    const subRowsOpenOf = useCallback((lineKey: string): boolean | undefined => { const f = folds.get(lineKey); return f === undefined ? undefined : !f; }, [folds]);
     const bodyBase = useMemo<SheetBodyItem[]>(() => buildBody({
         rows, rowsOffset, positions: runLayout.positions, failures: runLayout.failures,
         blanks: group !== undefined ? blanks : blanks + ui.appended, exhausted,
@@ -1900,15 +1906,11 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
         )
         : null, [edit, editMeta, editDate, styles, editGhost, editResolve, editBadge, editorFocus, onEditorChange, onEditorKey, onEditorBlur, linkView, linkGhostText, onHalfDown, editCombobox, onEditorPick, editWhenLevel]);
     // ── The sticky band (#740, G1) — which band sits under the header at the scroll offset ──
+    // The same heights the paged driver measures windows by (#855).
     const sizeOf = useCallback((i: number): number => {
         const item = body[i];
-        if (item === undefined) return rowPx;
-        if (item.kind === "gap") return BAND_MIN_PX;
-        if (item.kind === "group") return bandPx;
-        if (item.kind === "subRow") return subRowPx;
-        if (item.kind === "failed") return Math.max(BAND_MIN_PX, item.failure.px);
-        return item.kind === "band" ? Math.max(BAND_MIN_PX, item.band.px) : rowPx;
-    }, [body, rowPx, bandPx, subRowPx]);
+        return item === undefined ? rowPx : itemPx(item, geometry);
+    }, [body, rowPx, geometry]);
     const scrollElRef = useRef<HTMLDivElement | null>(null);
     // The view's width: a sub row's well keeps its content inside it while the columns scroll sideways.
     const [viewPx, setViewPx] = useState<number | undefined>(undefined);

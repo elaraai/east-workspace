@@ -10,7 +10,7 @@
 import { describe, test, expect } from "vitest";
 import { none, some, variant } from "@elaraai/east";
 import { formatters } from "../../format/index.js";
-import { buildBody, indexColumns, cellText, printLinkText, cellIsBlank, rowIsBlank, lastRealId, parseWidth, stickyRows, withLine, withoutLines, withProposals, lineId, linePosition, parseLineId, layoutRun, segmentOf, type ItemBox, type SheetWindowFailure } from "./model.js";
+import { BAND_MIN_PX, buildBody, drawnPx, indexColumns, itemPx, cellText, printLinkText, cellIsBlank, rowIsBlank, lastRealId, parseWidth, stickyRows, withLine, withoutLines, withProposals, lineId, linePosition, parseLineId, layoutRun, segmentOf, type ItemBox, type SheetGeometry, type SheetWindowFailure } from "./model.js";
 import { utcDate } from "./parse/date.js";
 import type { SheetCellValue, SheetRowValue, SheetSubRowValue } from "./values.js";
 
@@ -184,6 +184,34 @@ describe("grouped rows (#740)", () => {
         const withRows = withProposals(body, 2, [{ cells: new Map(), meta: "pattern" }]);
         const proposal = withRows[3]!;
         expect(proposal.kind === "proposal" && [proposal.number, proposal.grouped]).toEqual([3, true]);
+    });
+
+    test("what a row draws is what the body builds for it (#855): a group's band, its lines, their open sub rows, and a blank line only when the sheet draws one", () => {
+        const g: SheetGeometry = { rowPx: 36, bandPx: 42, subRowPx: 30 };
+        const tooled = group("t", [line("0", "Assemble", [sub("Cut"), sub("Fit")]), line("1", "Inspect")]);
+        const openFirst = (id: string) => (id === lineId("t", "0") ? true : undefined);
+        const cases: { row: SheetRowValue; blanks: number; subRowsOpen?: (id: string) => boolean | undefined; px: number }[] = [
+            { row: p1, blanks: 1, px: 42 + 2 * 36 + 36 },
+            // A read-only sheet draws no blank line.
+            { row: p1, blanks: 0, px: 42 + 2 * 36 },
+            // Folded, a group is its band.
+            { row: p2, blanks: 1, px: 42 },
+            { row: tooled, blanks: 0, px: 42 + 2 * 36 },
+            { row: tooled, blanks: 0, subRowsOpen: openFirst, px: 42 + 2 * 36 + 2 * 30 },
+        ];
+        for (const { row: r, blanks, subRowsOpen, px } of cases) {
+            const grouped = { foldedOf, subRowsOpen };
+            expect(drawnPx(r, g, grouped, blanks)).toBe(px);
+            const body = buildBody({ rows: [r], rowsOffset: 0, blanks, exhausted: true, total: undefined, head: undefined, tail: undefined, grouped });
+            expect(body.reduce((sum, it) => sum + itemPx(it, g), 0)).toBe(px);
+        }
+        // A flat row is one row, whatever padding the sheet keeps below its rows.
+        expect(drawnPx(row("a", {}), g, undefined, 18)).toBe(36);
+        // The bands the paged arm and the lens draw keep a legible least height.
+        expect(itemPx({ kind: "band", band: { at: "tail", from: 0, to: 0, px: 4 } }, g)).toBe(BAND_MIN_PX);
+        expect(itemPx({ kind: "band", band: { at: "tail", from: 0, to: 999, px: 36_000 } }, g)).toBe(36_000);
+        expect(itemPx({ kind: "failed", failure: { w: 0, from: 0, to: 199, px: 7_200, error: "timeout" } }, g)).toBe(7_200);
+        expect(itemPx({ kind: "gap", gap: { key: "k", from: 0, to: 3, hidden: 4, first: true, last: false } }, g)).toBe(BAND_MIN_PX);
     });
 
     test("what sticks is read off the mounted rows: the band once it scrolls under the header, then an open line pushed up by its last sub row", () => {

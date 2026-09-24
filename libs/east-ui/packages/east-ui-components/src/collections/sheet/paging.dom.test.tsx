@@ -8,8 +8,9 @@
  * is contiguous from the top, the tail band describes the rest, exhaustion
  * arrives with the last window, an unreadable source reports why, a new
  * revision keeps the rows on screen until its own land (#851), a failure
- * belongs to its window (#853), a jump owns the viewport (#854), and a window
- * loading beside the run never hides it (#876).
+ * belongs to its window (#853), a jump owns the viewport (#854), a window
+ * loading beside the run never hides it (#876), and a window is measured by
+ * what the body draws of its rows (#855).
  */
 
 import { describe, test, expect, afterEach, vi } from "vitest";
@@ -58,8 +59,15 @@ let latest: ReturnType<typeof useSheetPaging> | undefined;
 /** Every render's resident row count — what an empty frame would show as a 0. */
 let frames: number[] = [];
 
-function Harness({ src }: { src: SheetPagedSourceValue }) {
-    const paging = useSheetPaging(src, 36);
+/** A flat row's drawn height — one function for the whole file, so the driver never re-measures for a new one. */
+const rowHeight = (): number => 36;
+/** A group's drawn height: its band and three lines (42 + 3 × 36). */
+const groupHeight = (): number => 150;
+/** The same rows after their sub rows opened. */
+const openedHeight = (): number => 50;
+
+function Harness({ src, heightOf = rowHeight }: { src: SheetPagedSourceValue; heightOf?: (row: SheetRowValue) => number }) {
+    const paging = useSheetPaging(src, heightOf);
     latest = paging;
     frames.push(paging.rows.length);
     return (
@@ -248,6 +256,32 @@ describe("sheet paging — a window loading beside the run never hides it (#876)
         inFlight.delete(3);
         rerender(<Harness src={{ ...value }} />);
         await waitFor(() => expect(text("rows")).toBe("0+1200"));
+    });
+});
+
+describe("sheet paging — a window is as tall as the body draws its rows (#855)", () => {
+    test("the unloaded tail is described at the rate the first window's rows drew, however tall a row draws", async () => {
+        const { value } = source(2_000);
+        render(<Harness src={value} heightOf={groupHeight} />);
+        await waitFor(() => expect(text("rows")).toBe("0+600"));
+        expect(latest?.tail?.px).toBe(1_400 * 150);
+    });
+
+    test("a new height function re-measures the landed windows: a window that leaves the run leaves exactly what its rows drew", async () => {
+        const { value } = source(2_000);
+        const { rerender } = render(<Harness src={value} />);
+        await waitFor(() => expect(text("rows")).toBe("0+600"));
+        const sizeVersion = latest!.sizeVersion;
+        // The resident rows now draw 50 px each.
+        rerender(<Harness src={value} heightOf={openedHeight} />);
+        await waitFor(() => expect(latest!.sizeVersion).toBeGreaterThan(sizeVersion));
+        // Centred in window 7, far enough down that the run rebases there and
+        // windows 0–2 leave it for the head band.
+        report({ kind: "band", at: "tail", px: 4 * 200 * 36 + 100 * 36 });
+        await waitFor(() => expect(text("rows")).toBe("1200+800"));
+        // The head band is what windows 0–2 drew, and windows 3–5 — never
+        // visited — at the rate the first window drew.
+        expect(latest!.head!.px).toBe(3 * 200 * 50 + 3 * 200 * 36);
     });
 });
 

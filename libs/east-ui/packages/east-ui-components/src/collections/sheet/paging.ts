@@ -17,7 +17,11 @@
  * does one loading below — even when a window beyond it lands first.
  * Everything above the run is the head band, everything below it the tail
  * band, each sized by the ledger so eviction moves nothing and a window
- * landing beside the run takes exactly its band's slot.
+ * landing beside the run takes exactly its band's slot. The ledger measures
+ * a landed window by what the body draws of its rows — the caller's
+ * `heightOf`, the body's own geometry (#855) — so an unloaded band is sized
+ * at the rate rows are drawn: a group's blank line counts only when the
+ * sheet draws one, a folded group is its band, open sub rows count.
  *
  * # A failure belongs to its window (#853)
  *
@@ -176,15 +180,13 @@ const pagedSourceEquivalent = equivalentFor(Sheet.Types.Root.fields.rows.cases.p
  * Drive a paged sheet source.
  *
  * @param source - The decoded `paged` arm (undefined ⇒ inline sheet; idles)
- * @param rowPx - The fixed pixel height of one row (the ledger's geometry)
- * @param bandPx - A group's band height (#740) — a group row measures its band, its lines and its blank line
+ * @param heightOf - What one source row draws, in px — the body's own geometry (#855); a new function re-measures the landed windows
  * @param policy - Residency policy (defaults to the Plan's)
  * @returns The resident rows, the bands, and the callbacks the renderer feeds
  */
 export function useSheetPaging(
     source: SheetPagedSourceValue | undefined,
-    rowPx: number,
-    bandPx: number = rowPx,
+    heightOf: (row: SheetRowValue) => number,
     policy: ResidencyOptions = DEFAULT_RESIDENCY,
 ): SheetPaging {
     const [ledger, setLedger] = useState<WindowLedger>(() => createLedger(0, SHEET_PAGE_SIZE));
@@ -327,8 +329,10 @@ export function useSheetPaging(
         // rebuilds it, and so does a new total — the content changed size.
         let next = sourceChanged || (sourceTotal !== undefined && sourceTotal !== ledger.total)
             ? createLedger(sourceTotal ?? (sourceChanged ? 0 : ledger.total), SHEET_PAGE_SIZE) : ledger;
+        // A window is as tall as the body draws its rows (#855).
         for (const { w, rows } of landed ?? []) {
-            const px = rows.reduce((sum, r) => sum + (r.band.type === "some" ? (r.band.value.folded ? bandPx : bandPx + (r.lines.length + 1) * rowPx) : rowPx), 0);
+            let px = 0;
+            for (const r of rows) px += heightOf(r);
             next = observeWindow(next, w, { px, rows: rows.length });
         }
         if (sourceChanged) {
@@ -338,7 +342,7 @@ export function useSheetPaging(
         if (next === ledger) return;
         setLedger(next);
         setSizeVersion(v => v + 1);
-    }, [source?.id, sourceTotal, landed, ledger, rowPx, bandPx]);
+    }, [source?.id, sourceTotal, landed, ledger, heightOf]);
     // Between two revisions the source may know no total until the new
     // one's first window lands. While the old rows stand in, the geometry
     // stands too, so the bands, the blank tail and the scroll extent do not
