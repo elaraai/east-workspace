@@ -10,7 +10,7 @@
 | | Decision |
 |---|---|
 | D1 | **Hard cutover.** Packages are re-exported and caches invalidate once. Readers keep reading every stored form ever released; writers write only the current one. |
-| D2 | **#786 merges as is.** Its known gaps — the cutting door's whole decode (F20, F21) and task outputs stored as the runner wrote them (F3) — are Stage 2. |
+| D2 | **#786 is folded into this PR.** The epic branch was started from #786's head and carries every one of its commits unchanged, and #779–#785 close with this PR. Its known gaps — the cutting door's whole decode (F20, F21) and task outputs stored as the runner wrote them (F3) — were Stage 2, and its guarantees are a gate every stage keeps (§7). |
 | D3 | **#790 is replaced by this plan.** Its per-element aliasing change is kept (Stage 1). |
 | D4 | **TypeScript and C both implement every primitive both runtimes need.** TypeScript runs in the browser. A written spec plus a generated conformance corpus is the source of truth for both. |
 | D5 | **One stored form.** Every collection value in the store is a manifest of segment objects, written through one door. |
@@ -338,7 +338,8 @@ Every stage's gates:
 - `make build`, `make test` and `make lint` in each lib it touches and in the libs downstream of them;
 - the conformance corpus once it exists;
 - `REBUILD=1 make leak-check-all` for east-c changes;
-- after east-c changes, an east-py rebuild (`make reinstall-east-py`) before its tests.
+- after east-c changes, an east-py rebuild (`make reinstall-east-py`) before its tests;
+- #786's guarantees (§7).
 
 ### Stage 0 — Specify what exists
 
@@ -547,6 +548,7 @@ Acceptance:
 - A mutation reads O(touched) of the record.
 - A stale write reports a typed conflict.
 - GC keeps every object a unit graph names.
+- Every guarantee in §7 still holds, now that records run on the engine.
 
 ### Stage 5 — Scheduling on cores and memory (e3-core, e3-cli, e3-api-server)
 
@@ -618,3 +620,35 @@ A benchmark harness in `libs/e3/test/`, alongside `partition-scale.spec.ts`, run
 - **Automatic:** the re-key written as `toDict` in an `e3.task` (Stage 6 acceptance).
 
 The PR records each stage's numbers.
+
+## 7. #786's guarantees
+
+#786 is epic #779's delivery: the segment-object layout, secondary indexes, the mutation delta and record steps. It is folded into this PR (D2). Stages 1 and 2 changed some of its code by plan items: the cut rule, record applies on Recut and the one door. Its records and mutation code, API, CLI and UI paging are otherwise as it wrote them. Stage 4 moves index builds and mutations onto the engine.
+
+What #786 guarantees holds through every stage. Each guarantee is pinned by a test, which a stage may rename along with an API it renames, but never weaken:
+
+| Guarantee | Pinned by |
+|---|---|
+| An applied delta writes the manifest the encoder door writes for the resulting value. This covers one-row edits, inserts that split a segment, deletes that merge two, a segment's first key deleted, a record emptied and refilled, randomised edits at the boundaries, a Set target, and a delta with several arms | e3-core `record-apply.spec.ts` |
+| A one-row edit reads and writes the same objects and bytes at 100,000 rows as at 10,000 | `record-apply.spec.ts` |
+| A maintained index equals the index a reindex writes, hash for hash | e3-core `records.spec.ts` |
+| A fanned-out index build writes what the one-unit build writes and never reads the record whole. A rebuild over an unchanged record re-runs no unit | `records.spec.ts` |
+| east-node, east-c and east-py write the same state and index manifests, skip a no-op write, and refuse a stale one in the same words | `records.spec.ts`, cross-runtime parity. It runs where CI builds east-c (Linux, macOS) |
+| Two patches on different keys both commit. A stale patch, update or whole-state replace is a conflict naming the key, and writes nothing | `records.spec.ts`; e3-api-tests `records-keyed` |
+| A patch on a record with no index runs no process | `records.spec.ts` |
+| The runner is handed the record as a stream, never whole | `records.spec.ts` |
+| An indexed record reads as its rows through every ordinary door | `records.spec.ts`; `records-keyed` |
+| A reserved `$` slot survives a mutation and a compaction | `records.spec.ts` |
+| gc keeps every object a commit, its delta and an index name | `records.spec.ts`; `gc.spec.ts` |
+| The generated programs: targets in canonical order; the reduce, edit and patch forms; index maintenance inside the delta; the index build | e3 `mutation-programs.spec.ts`, `record-index.spec.ts` |
+| Keyed records through the API at 10,000 rows (`E3_RECORD_ROWS` raises it) | e3-api-tests `records-keyed`, run by `api-compliance.spec.ts` |
+
+Two of #786's fixes are not pinned by a test yet. One stops a reindex dropping reserved `$` slots. The other makes a record write hold the tasks lock shared, so a gc sweep cannot run under it.
+
+Each of #786's deferrals has a place:
+- the large-write apply and migrations by template run on the engine (stage 4);
+- runners open manifests (stage 1), and task outputs are stored through the door (stage 2);
+- partition slices become sub-manifests (stage 4a);
+- the cloud half is stage 8 (e3-cloud#186, #175).
+
+The Plan and Sheet arms for index-ordered windows stay outside this epic, as #786 left them.
