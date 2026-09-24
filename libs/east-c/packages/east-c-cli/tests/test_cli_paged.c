@@ -13,9 +13,9 @@
  *      key ranges) propagates the pager error instead of answering `false`
  *      with exit 0;
  *   3. collapsed shape gate — a nested-container element shape opens lazily
- *      AND frozen, so a write through a read-out element raises the uniform
- *      error instead of landing (the lazy service itself is pinned by
- *      test_paged_value);
+ *      AND frozen, from a blob and from a manifest directory, so a write
+ *      through a read-out element raises the uniform error instead of landing
+ *      (the lazy service itself is pinned by test_paged_value);
  *   4. residency — a lazily opened input is mapped, not read: the verbose
  *      header says so, and the runner's account of the input pins what a
  *      keyed read into a wide input cost — every fence probed once, ONE
@@ -172,15 +172,17 @@ static void test_paged_shape_gate(const char *bin, const char *fixtures)
 {
     char cmd[2048];
     snprintf(cmd, sizeof(cmd),
-             LAZY_ENV "\"%s\" run \"%s/paged_nested_mutate.beast2\" -i \"%s/paged_nested.beast2\"",
+             LAZY_ENV "\"%s\" run \"%s/paged_nested_mutate.beast2\" -i \"%s/paged_nested.beast2\" -v",
              bin, fixtures, fixtures);
     int rc = run_cli(cmd, "paged_out_nested.txt", "paged_err_nested.txt");
     CHECK(rc == 1, "collapsed gate: expected exit 1, got %d", rc);
     /* The nested-container shape opens lazily AND frozen, so the write
      * through the read-out element raises the uniform error instead of
-     * landing in the input. */
+     * landing in the input. The eager frozen decode refuses the write the same
+     * way, so the verbose account is what says the gate admitted the shape. */
     check_file_contains("paged_err_nested.txt",
                         "cannot mutate a frozen value (task inputs are immutable)");
+    check_file_contains("paged_err_nested.txt", "input 0: opened lazily");
 }
 
 /* A Dict<Integer, String> of `rows` wide rows. */
@@ -415,6 +417,47 @@ static void test_paged_manifest(const char *bin, const char *fixtures)
     remove("manifest_err.txt");
 }
 
+/* The nested fixture as a manifest directory, the form e3 stages a stored
+ * collection in: the manifest opener gates the shape for itself, so it opens
+ * the nested rows lazily AND frozen too. */
+static void test_paged_shape_gate_manifest(const char *bin, const char *fixtures)
+{
+    char fixture[1024];
+    snprintf(fixture, sizeof(fixture), "%s/paged_nested.beast2", fixtures);
+    FILE *f = fopen(fixture, "rb");
+    CHECK(f != NULL, "cannot open %s", fixture);
+    if (!f) return;
+    fseek(f, 0, SEEK_END);
+    long len = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    uint8_t *bytes = malloc(len > 0 ? (size_t)len : 1);
+    size_t rd = bytes ? fread(bytes, 1, len > 0 ? (size_t)len : 0, f) : 0;
+    fclose(f);
+    EastType *type = bytes && rd == (size_t)len ? east_beast2_extract_type(bytes, rd) : NULL;
+    EastValue *rows = type ? east_beast2_decode_full(bytes, rd, type) : NULL;
+    free(bytes);
+    const char *table = "paged_nested_manifest.beast2";
+    bool written = rows && east_beast2_write_manifest_dir(rows, type, EAST_BEAST2_CODEC_NONE, table);
+    if (rows) east_value_release(rows);
+    if (type) east_type_release(type);
+    CHECK(written, "the nested manifest directory was not written");
+    if (!written) return;
+
+    char cmd[2048];
+    snprintf(cmd, sizeof(cmd),
+             LAZY_ENV "\"%s\" run \"%s/paged_nested_mutate.beast2\" -i \"%s\" -v", bin, fixtures,
+             table);
+    int rc = run_cli(cmd, "manifest_nested_out.txt", "manifest_nested_err.txt");
+    CHECK(rc == 1, "manifest gate: expected exit 1, got %d", rc);
+    check_file_contains("manifest_nested_err.txt",
+                        "cannot mutate a frozen value (task inputs are immutable)");
+    check_file_contains("manifest_nested_err.txt", "input 0: opened lazily");
+
+    remove_manifest_dir(table);
+    remove("manifest_nested_out.txt");
+    remove("manifest_nested_err.txt");
+}
+
 int main(int argc, char **argv)
 {
     if (argc != 3) {
@@ -428,6 +471,7 @@ int main(int argc, char **argv)
     test_paged_shape_gate(argv[1], argv[2]);
     test_paged_residency(argv[1], argv[2]);
     test_paged_manifest(argv[1], argv[2]);
+    test_paged_shape_gate_manifest(argv[1], argv[2]);
 
     if (failures > 0) {
         fprintf(stderr, "%d failure(s)\n", failures);
