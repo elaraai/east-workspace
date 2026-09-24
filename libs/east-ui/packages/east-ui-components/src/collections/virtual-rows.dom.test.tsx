@@ -400,3 +400,115 @@ describe("VirtualRows — keys, exact sizes, a watched header (#812)", () => {
         }
     });
 });
+
+describe("VirtualRows — scroll anchoring (#878)", () => {
+    // jsdom has no element `scrollTo`: the frame's writes land on scrollTop,
+    // as a browser's do. Their scroll events are not sent — the virtualizer
+    // already holds the offset it wrote.
+    const proto = HTMLElement.prototype as unknown as { scrollTo?: (options: ScrollToOptions) => void };
+    const realScrollTo = proto.scrollTo;
+    beforeEach(() => {
+        proto.scrollTo = function (this: HTMLElement, options: ScrollToOptions) {
+            if (options.top !== undefined) this.scrollTop = options.top;
+        };
+    });
+    afterEach(() => {
+        if (realScrollTo === undefined) delete proto.scrollTo;
+        else proto.scrollTo = realScrollTo;
+    });
+
+    const keysOf = (prefix: string, n: number): string[] => Array.from({ length: n }, (_u, i) => `${prefix}${i}`);
+    const ROWS = keysOf("r", 100);
+    /** The frame over `keys` — every row may anchor unless `anchorable` says otherwise. */
+    const frame = (keys: readonly string[], opts: { anchorable?: ((i: number) => boolean) | null; scrollToIndex?: number } = {}) => (
+        <ChakraProvider value={system}>
+            <VirtualRows height="200px" maxHeight={undefined} count={keys.length} estimateSize={() => ROW_H} overscan={2}
+                getItemKey={(i) => keys[i]!} anchorable={opts.anchorable === null ? undefined : opts.anchorable ?? (() => true)}
+                scrollToIndex={opts.scrollToIndex}
+                renderRow={(i) => <div data-key={keys[i]}>{keys[i]}</div>} />
+        </ChakraProvider>
+    );
+    /** Where a row sits in the view: its offset from the view's top. */
+    const inView = (container: HTMLElement, key: string): number => {
+        const wrapper = container.querySelector(`[data-key="${key}"]`)!.parentElement as HTMLElement;
+        const top = Number(/translateY\((-?[\d.]+)px\)/.exec(wrapper.style.transform)![1]);
+        return top - (container.firstElementChild as HTMLElement).scrollTop;
+    };
+    /** Scroll the frame and let the virtualizer read it. */
+    const scrollTo = (container: HTMLElement, px: number) => {
+        const scrollEl = container.firstElementChild as HTMLElement;
+        scrollEl.scrollTop = px;
+        fireEvent.scroll(scrollEl);
+        return scrollEl;
+    };
+
+    test("rows inserted above the view leave the row at its top where it is", () => {
+        const { container, rerender } = render(frame(ROWS));
+        const scrollEl = scrollTo(container, 50 * ROW_H);
+        expect(inView(container, "r50")).toBe(0);
+        // Ten rows land above it — a paged window.
+        rerender(frame([...keysOf("n", 10), ...ROWS]));
+        expect(scrollEl.scrollTop).toBe(60 * ROW_H);
+        expect(inView(container, "r50")).toBe(0);
+    });
+
+    test("a row above the view growing leaves the row at its top where it is — its heights re-measured after the render", () => {
+        // A stable key function and exact sizes: the growth reaches the frame
+        // only through its re-measure, after the render that drew the rows.
+        const keyOf = (i: number) => ROWS[i]!;
+        const sized = (sizes: readonly number[]) => (
+            <ChakraProvider value={system}>
+                <VirtualRows height="200px" maxHeight={undefined} count={sizes.length} sizes={sizes} measureRows={false} overscan={2}
+                    getItemKey={keyOf} anchorable={() => true} renderRow={(i) => <div>{ROWS[i]}</div>} />
+            </ChakraProvider>
+        );
+        const flat = ROWS.map(() => ROW_H);
+        const { container, rerender } = render(sized(flat));
+        const scrollEl = scrollTo(container, 50 * ROW_H);
+        // Row 10, far above the view, grows by 64px — a chart opening.
+        rerender(sized(flat.map((h, i) => (i === 10 ? h + 64 : h))));
+        expect(scrollEl.scrollTop).toBe(50 * ROW_H + 64);
+    });
+
+    test("a scroll the frame has not seen yet wins: a programmatic one, and the user's", () => {
+        const { container, rerender } = render(frame(ROWS));
+        const scrollEl = scrollTo(container, 50 * ROW_H);
+        Object.defineProperty(scrollEl, "scrollHeight", { configurable: true, get: () => 110 * ROW_H });
+        // A request for row 80: the frame scrolls there, its event still to come…
+        rerender(frame(ROWS, { scrollToIndex: 80 }));
+        const requested = scrollEl.scrollTop;
+        expect(requested).not.toBe(50 * ROW_H);
+        // …and rows land above before it arrives: the request stands.
+        rerender(frame([...keysOf("n", 10), ...ROWS], { scrollToIndex: 80 }));
+        expect(scrollEl.scrollTop).toBe(requested);
+
+        // The user scrolls, and rows land above before the event arrives: their scroll stands.
+        const { container: c2, rerender: rerender2 } = render(frame(ROWS));
+        const el2 = scrollTo(c2, 50 * ROW_H);
+        el2.scrollTop = 20 * ROW_H;
+        rerender2(frame([...keysOf("n", 10), ...ROWS]));
+        expect(el2.scrollTop).toBe(20 * ROW_H);
+    });
+
+    test("a row that may not anchor never does, and a frame that names none does not anchor at all", () => {
+        // Only the r-rows may anchor: with the view's top on an n-row, the
+        // anchor is the first r-row starting in view — two rows down.
+        const nRows = keysOf("n", 100);
+        const onlyR = (keys: readonly string[]) => (i: number) => keys[i]!.startsWith("r");
+        const mixed = [...nRows.slice(0, 52), "r0", ...nRows.slice(52)];
+        const { container, rerender } = render(frame(mixed, { anchorable: onlyR(mixed) }));
+        const scrollEl = scrollTo(container, 50 * ROW_H);
+        expect(inView(container, "r0")).toBe(2 * ROW_H);
+        // Two rows land between the view's top and the anchor: it keeps its
+        // place, and the n-row at the top gives way.
+        const grown = [...mixed.slice(0, 52), "x0", "x1", ...mixed.slice(52)];
+        rerender(frame(grown, { anchorable: onlyR(grown) }));
+        expect(inView(container, "r0")).toBe(2 * ROW_H);
+        expect(scrollEl.scrollTop).toBe(52 * ROW_H);
+
+        const { container: c2, rerender: rerender2 } = render(frame(ROWS, { anchorable: null }));
+        const el2 = scrollTo(c2, 50 * ROW_H);
+        rerender2(frame([...keysOf("n", 10), ...ROWS], { anchorable: null }));
+        expect(el2.scrollTop).toBe(50 * ROW_H);
+    });
+});

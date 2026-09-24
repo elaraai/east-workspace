@@ -1911,6 +1911,10 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
         const item = body[i];
         return item === undefined ? rowPx : itemPx(item, geometry);
     }, [body, rowPx, geometry]);
+    // A row keeps its place on screen when a window lands above it at a height
+    // its estimate missed (#878) — the frame anchors the scroll on it. An
+    // unloaded band never anchors: rows landing below it move its top.
+    const anchorable = useCallback((i: number): boolean => body[i]?.kind !== "band", [body]);
     const scrollElRef = useRef<HTMLDivElement | null>(null);
     // The view's width: a sub row's well keeps its content inside it while the columns scroll sideways.
     const [viewPx, setViewPx] = useState<number | undefined>(undefined);
@@ -2395,6 +2399,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
                     count={body.length}
                     estimateSize={sizeOf}
                     getItemKey={itemKey}
+                    anchorable={anchorable}
                     scrollElRef={scrollElRef}
                     renderRow={renderRow}
                     minWidth={`${minWidth}px`}

@@ -469,6 +469,37 @@ function buildFramedPlans(n: number): SheetRootValue {
     return value.value;
 }
 
+/**
+ * {@link buildFramedPlans} with windows that draw otherwise than the first
+ * (#878): plans 0–199 have one line (78 px), every later plan two (114 px), so
+ * an unvisited window is described at 78 px a plan and lands 7,200 px taller.
+ */
+function buildVariedPlans(n: number): SheetRootValue {
+    const count = BigInt(n);
+    const sourceId = `sheet_grouped_varied_${n}`;
+    const program = East.function([], UIComponentType, ($) => {
+        const one = $.const([{ task: "Fit", ops: [] }], ArrayType(CutLineType));
+        const two = $.const([{ task: "Cut", ops: [] }, { task: "Fit", ops: [] }], ArrayType(CutLineType));
+        const total = $.const(count);
+        const plans = $.let(East.Array.range(0n, total).map(($2, i) => $2.const({
+            id: East.str`P${i.add(10000n)}`, name: East.str`Plan ${i}`,
+            lines: i.less(200n).ifElse(($3) => one, ($3) => two),
+        }, CutPlanType)), ArrayType(CutPlanType));
+        const source = $.const(Paged.of(sourceId, plans, { key: (p) => p.id }));
+        return Sheet.Root(source, {
+            task: Sheet.column.text(CutLineType, { header: "Task" }),
+        }, {
+            id: "id",
+            group: Sheet.group(CutPlanType, "lines", { title: "name" }),
+            readOnly: true,
+            style: { height: "600px" },
+        });
+    });
+    const value = East.compile(program, getRegisteredPlatformImplementations())() as
+        ValueTypeOf<typeof UIComponentType> & { value: SheetRootValue };
+    return value.value;
+}
+
 describe("the paged arm in a bounded frame: unloaded bands are as tall as their rows (#855)", () => {
     /** A plan's drawn height: its band (42) and two lines (36 each). */
     const PLAN_PX = 42 + 2 * 36;
@@ -563,6 +594,47 @@ describe("the paged arm in a bounded frame: unloaded bands are as tall as their 
         expect(f.extent()).toBe(2_000 * PLAN_PX + change);
         expect(f.bandTop("P11500")).toBe(1_500 * PLAN_PX + change);
     }, 30_000);
+
+    describe("a window drawing otherwise than its estimate (#878)", () => {
+        // The frame anchors its scroll through `scrollTo`, which jsdom lacks:
+        // its writes land on scrollTop, as a browser's do.
+        const proto = HTMLElement.prototype as unknown as { scrollTo?: (options: ScrollToOptions) => void };
+        const realScrollTo = proto.scrollTo;
+        beforeEach(() => {
+            proto.scrollTo = function (this: HTMLElement, options: ScrollToOptions) {
+                if (options.top !== undefined) this.scrollTop = options.top;
+            };
+        });
+        afterEach(() => {
+            if (realScrollTo === undefined) delete proto.scrollTo;
+            else proto.scrollTo = realScrollTo;
+        });
+
+        test("lands above the rows in view and leaves them where they are — the view follows its rows, not its estimate", async () => {
+            const ui = mount(buildVariedPlans(2_000));
+            const f = framed(ui);
+            await waitFor(() => expect(f.transport()).toBe("600 loaded of 2,000"));
+            // Unvisited windows are described at the first window's 78 px a plan.
+            const rate = 42 + 36;
+            const landed = 200 * rate + 2 * 200 * PLAN_PX;
+            expect(f.extent()).toBe(landed + 7 * 200 * rate);
+            // Where the estimate puts plan 1,500: the run rebases to window 7,
+            // which lands there, and grows back to window 6 above it — 200 ×
+            // (114 − 78) px taller than its estimate.
+            const at = landed + 4 * 200 * rate + 100 * rate;
+            f.scrollTo(at);
+            await waitFor(() => expect(f.transport()).toBe("800 loaded of 2,000"), { timeout: 10_000 });
+            // The rows window 7 put in view kept their places: the view moved
+            // with them, by exactly what window 6 drew beyond its estimate.
+            const grew = 200 * (PLAN_PX - rate);
+            expect(f.frame.scrollTop).toBe(at + grew);
+            const line = ui.container.querySelector('[data-slot="row"][data-group-id="P11468"][data-line="1"]')!;
+            const wrapper = line.closest<HTMLElement>('[data-slot="virtualRow"]')!;
+            const top = Number(/translateY\((-?[\d.]+)px\)/.exec(wrapper.style.transform)![1]);
+            // P11468's second line started 30 px into the view when window 7 landed, and still does.
+            expect(top - f.frame.scrollTop).toBe(30);
+        }, 30_000);
+    });
 });
 
 test("grouped key search jumps and steps between summaries without filtering children or changing folds", async () => {

@@ -58,6 +58,19 @@
  * collection that knows its heights passes them as `sizes`, and the frame
  * re-measures whenever one changes at a constant count; a render that changes
  * no height (a selection, a hover) re-measures nothing.
+ *
+ * A keyed frame whose rows are positioned — bounded, or unbounded at scale —
+ * and that says which rows may anchor (`anchorable`) ANCHORS its scroll
+ * (#878): the row at the top of its view stays where it is on screen when rows
+ * above it change height or count (a paged window landing above them at a
+ * height its estimate missed, a row above growing). After every commit the
+ * frame takes its anchor — the first anchorable item that starts inside the
+ * view, else one covering the view — and a render that finds the anchor
+ * moved, with nothing scrolled since, moves the virtualizer's offset by the
+ * same amount (the rows drawn are the ones that will show) and the scroll
+ * position follows before paint. A scroll not yet reported — a programmatic
+ * one — wins. Rows in flow (the unbounded frame below scale) are the
+ * browser's to anchor.
  */
 
 import {
@@ -122,6 +135,16 @@ interface VirtualRowsBaseProps {
      * frame.
      */
     getItemKey?: ((index: number) => string | number) | undefined;
+    /**
+     * Which rows may ANCHOR the scroll (#878) — omitted, the frame does not
+     * anchor. In a keyed frame whose rows are positioned (bounded, or at
+     * scale), the first row that may, starting inside the view, keeps its
+     * place on screen when rows above it change height or count. A placeholder
+     * whose edge moves as content lands beside it — a paged source's unloaded
+     * band — must not anchor: rows landing below it move its top, and keeping
+     * it in place would scroll them out of view.
+     */
+    anchorable?: ((index: number) => boolean) | undefined;
     /**
      * Whether to measure mounted rows (default true). Pass `false` when rows
      * are FIXED-HEIGHT (the given sizes are exact): rows then sit at exact
@@ -394,6 +417,63 @@ export function devicePixels(px: number): number {
 /** A mounted row's height, on the device-pixel grid ({@link devicePixels}). */
 const measureRect = (el: Element): number => devicePixels(el.getBoundingClientRect().height);
 
+/** An item's identity to the virtualizer — its key. */
+type ItemKey = VirtualItem["key"];
+
+/** A frame's scroll anchor (#878): the item it keeps in place, where the item
+ *  started, the scroll offset then, and the item's index — where to look for
+ *  it first. */
+interface ScrollAnchor {
+    key: ItemKey;
+    start: number;
+    offset: number;
+    index: number;
+}
+
+/**
+ * The item a frame keeps in place (#878): the first anchorable item that starts
+ * inside the view, else an anchorable one covering the view's top.
+ *
+ * @param virtualizer - The frame's virtualizer
+ * @param offset - Its scroll offset
+ * @param top - The view's top, in the items' coordinates
+ * @param height - The view's height
+ * @param anchorable - Which items may anchor
+ * @returns The anchor, or null when no item in view may anchor
+ */
+function anchorOf(virtualizer: Rows, offset: number, top: number, height: number, anchorable: (index: number) => boolean): ScrollAnchor | null {
+    const at = virtualizer.getVirtualItemForOffset(top);
+    if (at === undefined) return null;
+    const count = virtualizer.options.count;
+    for (let i = at.start < top ? at.index + 1 : at.index; i < count; i++) {
+        const item = virtualizer.measurementsCache[i];
+        if (item === undefined || item.start >= top + height) break;
+        if (anchorable(i)) return { key: item.key, start: item.start, offset, index: i };
+    }
+    return at.start < top && anchorable(at.index) ? { key: at.key, start: at.start, offset, index: at.index } : null;
+}
+
+/**
+ * Where the item with `key` starts now, looking out from `hint` — rows
+ * inserted or removed above an anchor shift its index by as many.
+ *
+ * @param virtualizer - The frame's virtualizer, its measurements current
+ * @param count - The rows
+ * @param keyOf - A row's key
+ * @param key - The anchor's key
+ * @param hint - The anchor's index when it was taken
+ * @returns Its start, or undefined when it has left the frame
+ */
+function startOfKey(virtualizer: Rows, count: number, keyOf: (index: number) => ItemKey, key: ItemKey, hint: number): number | undefined {
+    for (let d = 0; hint + d < count || hint - d >= 0; d++) {
+        const below = hint + d;
+        if (below < count && keyOf(below) === key) return virtualizer.measurementsCache[below]?.start;
+        const above = hint - d;
+        if (d > 0 && above >= 0 && above < count && keyOf(above) === key) return virtualizer.measurementsCache[above]?.start;
+    }
+    return undefined;
+}
+
 /**
  * @param props - see {@link VirtualRowsProps}
  * @returns the bounded virtual-scroll frame, the unbounded frame at scale
@@ -403,7 +483,7 @@ const measureRect = (el: Element): number => devicePixels(el.getBoundingClientRe
  */
 export function VirtualRows(props: VirtualRowsProps): ReactNode {
     const {
-        header, footer, overlay, count, estimateSize, sizes, getItemKey, renderRow, measureRows = true,
+        header, footer, overlay, count, estimateSize, sizes, getItemKey, anchorable, renderRow, measureRows = true,
         overscan = 4, minWidth, headerZIndex = 3, onScroll, rootCss, fillParent, scrollElRef,
         scrollToIndex, scrollNonce, scrollAlign = "center", onRangeChange, sizeVersion,
         virtualizeUnboundedAt, onAnchorChange, restoreAnchor, rowsProps, rowsRef,
@@ -458,6 +538,10 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
     const ancestorEl = ancestor !== undefined && !isWindow(ancestor) ? ancestor : undefined;
     // Set by the unbounded offset observer while it is subscribed.
     const resample = useRef<(() => void) | null>(null);
+    // The scroll anchor taken at the last commit, and an anchored offset this
+    // render moved to that the commit has yet to write (#878).
+    const anchorRef = useRef<ScrollAnchor | null>(null);
+    const anchorTarget = useRef<number | null>(null);
 
     const estimate = sizes !== undefined
         ? (i: number) => sizes[i] ?? 0
@@ -493,6 +577,53 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
     });
     const virtualizer: Rows = onWindow ? windowRows : elementRows;
     const virtualized = bounded || ancestor !== undefined;
+
+    // Scroll anchoring (#878): when the anchor taken at the last commit has
+    // moved — rows above it changed height or count — and the frame has not
+    // scrolled since, move the virtualizer's offset by as much, here, so the
+    // rows this render draws are the ones that will show; the commit writes the
+    // scroll position before paint. A scroll the virtualizer has not seen yet (a
+    // programmatic one, its event still to come) wins: the live offset must
+    // still be the virtualizer's.
+    const anchoring = virtualized && getItemKey !== undefined && anchorable !== undefined && (bounded || atScale);
+    if (anchoring && anchorTarget.current === null) {
+        const anchor = anchorRef.current;
+        const offset = virtualizer.scrollOffset;
+        if (anchor !== null && offset !== null && offset === anchor.offset) {
+            virtualizer.getTotalSize();  // this render's measurements
+            const start = startOfKey(virtualizer, count, getItemKey, anchor.key, anchor.index);
+            if (start !== undefined && start !== anchor.start) {
+                const live = bounded ? scrollRef.current?.scrollTop : offsetNow(ancestor, itemsRef);
+                if (live !== undefined && Math.abs(live - offset) < 1) {
+                    const target = Math.max(0, offset + start - anchor.start);
+                    virtualizer.scrollOffset = target;
+                    anchorTarget.current = target;
+                }
+            }
+        }
+    }
+    // Write the offset the render anchored to, before paint — through the
+    // frame's own scroll function, so a frame at scale moves its ancestor —
+    // then take the anchor for the next render. Declared before the effects
+    // that re-measure (`sizes`, `sizeVersion`): the anchor is taken where this
+    // render drew the rows, so the re-measured render that follows finds it
+    // moved.
+    useLayoutEffect(() => {
+        if (!anchoring) {
+            anchorRef.current = null;
+            anchorTarget.current = null;
+            return;
+        }
+        const target = anchorTarget.current;
+        if (target !== null) {
+            anchorTarget.current = null;
+            if (onWindow) windowRows.options.scrollToFn(target, {}, windowRows);
+            else elementRows.options.scrollToFn(target, {}, elementRows);
+        }
+        const offset = virtualizer.scrollOffset ?? 0;
+        anchorRef.current = anchorable === undefined ? null
+            : anchorOf(virtualizer, offset, offset + (bounded ? itemsOffset : 0), virtualizer.scrollRect?.height ?? 0, anchorable);
+    });
 
     // Bring a requested row into view. Keyed on the index (and the explicit
     // re-request nonce) alone, so a row set that grows underneath a standing
