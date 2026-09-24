@@ -147,7 +147,7 @@ async function executeLocal(
 
   // Scratch directories an earlier run left behind when its process died.
   try {
-    await sweepScratchDirs({ minAge: 60_000 });
+    await sweepScratchDirs(repoPath, { minAge: 60_000 });
   } catch {
     // Not a reason to fail the run
   }

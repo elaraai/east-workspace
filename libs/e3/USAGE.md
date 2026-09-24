@@ -584,12 +584,13 @@ older `--concurrency` and `--partition-concurrency` are accepted as deprecated
 aliases of the same budget.
 
 A local run gives every execution a scratch directory — its inputs are marshalled
-there and its output written there before it is stored — under `E3_SCRATCH_DIR`,
-or the system temp directory when that is unset. A temp directory on tmpfs holds
-an output in memory until it is stored, so a run with large outputs wants
-`E3_SCRATCH_DIR` on a disk with room for them. Each directory is named after its
-execution and the process that owns it; one left behind by a process that died
-is removed by the next `e3 dataflow run` or `e3 repo gc`.
+there and its output written there before it is stored — inside the repository,
+under `<repo>/tmp/scratch`, or under `E3_SCRATCH_DIR` when that is set. Inside
+the repository it is on the object store's own filesystem, so an output is
+stored by a link rather than a copy, and never waits in memory on a tmpfs temp
+directory. Each directory is named after its execution and the process that owns
+it; one left behind by a process that died is removed by the next
+`e3 dataflow run` or `e3 repo gc`.
 
 `-v` / `--verbose` forwards `-v` to each task's runner so it prints a timing/perf
 block (load, compile, execute, output, total + peak RSS) to the task's logs

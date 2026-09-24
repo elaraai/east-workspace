@@ -20,9 +20,12 @@ import { deadPid } from '../test-helpers.js';
 describe('scratch directories', () => {
   let root: string;
   let previous: string | undefined;
+  /** A repository path, which E3_SCRATCH_DIR overrides wherever it is set. */
+  let repo: string;
 
   beforeEach(() => {
     root = mkdtempSync(path.join(tmpdir(), 'e3-scratch-root-'));
+    repo = path.join(root, 'repo');
     previous = process.env.E3_SCRATCH_DIR;
     process.env.E3_SCRATCH_DIR = root;
   });
@@ -33,9 +36,16 @@ describe('scratch directories', () => {
     rmSync(root, { recursive: true, force: true });
   });
 
+  it('are inside the repository, on the object store\'s filesystem, unless E3_SCRATCH_DIR is set', async () => {
+    delete process.env.E3_SCRATCH_DIR;
+    assert.equal(scratchRoot(repo), path.join(repo, 'tmp', 'scratch'));
+    const dir = await executionScratchDir(repo, 'a'.repeat(64), 'b'.repeat(64));
+    assert.equal(path.dirname(dir), path.join(repo, 'tmp', 'scratch'));
+  });
+
   it('names an execution\'s directory under E3_SCRATCH_DIR after the execution and this process', async () => {
-    assert.equal(scratchRoot(), root);
-    const dir = await executionScratchDir('a'.repeat(64), 'b'.repeat(64));
+    assert.equal(scratchRoot(repo), root);
+    const dir = await executionScratchDir(repo, 'a'.repeat(64), 'b'.repeat(64));
     assert.equal(path.dirname(dir), root);
     const pidStartTime = await getPidStartTime(process.pid);
     assert.match(path.basename(dir), new RegExp(`^e3-exec-aaaaaaaa-bbbbbbbb-${process.pid}-${pidStartTime}-\\d+$`));
@@ -45,7 +55,7 @@ describe('scratch directories', () => {
     const hour = 60 * 60 * 1000;
     const now = Date.now();
     const dead = deadPid();
-    const live = path.basename(await executionScratchDir('a'.repeat(64), 'b'.repeat(64)));
+    const live = path.basename(await executionScratchDir(repo, 'a'.repeat(64), 'b'.repeat(64)));
     const names = {
       live,
       exitedOwner: `e3-exec-aaaaaaaa-bbbbbbbb-${dead}-12345-${now}`,
@@ -57,7 +67,7 @@ describe('scratch directories', () => {
     };
     for (const name of Object.values(names)) mkdirSync(path.join(root, name));
 
-    const removed = await sweepScratchDirs({ minAge: 60_000 });
+    const removed = await sweepScratchDirs(repo, { minAge: 60_000 });
 
     // Every platform but Windows reports a process's start time. Where none
     // is reported, a pid's existence decides, so there the reused pid — this
@@ -84,7 +94,7 @@ describe('scratch directories', () => {
     const dead = path.join(root, `e3-exec-cccccccc-dddddddd-${deadPid()}-0-${Date.now()}`);
     mkdirSync(dead);
 
-    await sweepScratchDirs({ minAge: 0 });
+    await sweepScratchDirs(repo, { minAge: 0 });
 
     assert.ok(existsSync(live), 'the live owner\'s directory stays');
     assert.ok(!existsSync(dead), 'the exited owner\'s directory goes');
@@ -92,6 +102,6 @@ describe('scratch directories', () => {
 
   it('removes nothing when there is no scratch root', async () => {
     process.env.E3_SCRATCH_DIR = path.join(root, 'absent');
-    assert.equal(await sweepScratchDirs({ minAge: 0 }), 0);
+    assert.equal(await sweepScratchDirs(repo, { minAge: 0 }), 0);
   });
 });

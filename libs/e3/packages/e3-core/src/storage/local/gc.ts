@@ -905,7 +905,7 @@ async function collectGarbage(
   // has exited (local-only concern)
   if (!dryRun) {
     try {
-      await sweepScratchDirs({ minAge });
+      await sweepScratchDirs(repo, { minAge });
     } catch {
       // Not a fatal error
     }

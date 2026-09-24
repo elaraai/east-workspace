@@ -16,8 +16,9 @@
  * times its heap.
  *
  * Runs only with `E3_PARTITION_SCALE=1` and east-c on PATH. It writes about
- * 25 GB under the temp directory, so point `TMPDIR` (which `E3_SCRATCH_DIR`
- * defaults to) at a disk — a tmpfs `/tmp` would hold the run in memory:
+ * 25 GB into its repository, scratch directories included, which it creates
+ * under the temp directory, so point `TMPDIR` at a disk — a tmpfs `/tmp` would
+ * hold the run in memory:
  *
  *     TMPDIR=/data/tmp E3_PARTITION_SCALE=1 node --test dist/partition-scale.spec.js
  */

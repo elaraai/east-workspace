@@ -353,11 +353,12 @@ export async function taskExecuteBody(
 ): Promise<ExecutionResult> {
   const { inHash, executionId, startTime } = ids;
 
-  // Step 4: Create scratch directory under E3_SCRATCH_DIR (or the temp dir),
-  // named after the execution and this process — its pid and start time — so
-  // concurrent e3 processes never collide and a directory this process leaves
-  // behind if it dies is swept once it is gone (execution/scratch.ts).
-  const scratchDir = await executionScratchDir(taskHash, inHash);
+  // Step 4: Create scratch directory inside the repository (or under
+  // E3_SCRATCH_DIR), named after the execution and this process — its pid and
+  // start time — so concurrent e3 processes never collide and a directory this
+  // process leaves behind if it dies is swept once it is gone
+  // (execution/scratch.ts).
+  const scratchDir = await executionScratchDir(repo, taskHash, inHash);
   await fs.mkdir(scratchDir, { recursive: true });
 
   try {

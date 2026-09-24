@@ -14,28 +14,29 @@
  * directories behind; {@link sweepScratchDirs} removes them once that process
  * is gone.
  *
- * Scratch directories are created under `E3_SCRATCH_DIR`, or the system temp
- * directory when it is unset. A temp directory on tmpfs holds an output in
- * memory until it is stored, so large outputs want `E3_SCRATCH_DIR` on a
- * disk.
+ * Scratch directories are created inside the repository, under
+ * `<repo>/tmp/scratch`, or under `E3_SCRATCH_DIR` when it is set. Inside the
+ * repository they are on the object store's filesystem, so an output becomes an
+ * object by a link rather than a copy, and never waits in memory on a tmpfs
+ * temp directory.
  */
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { tmpdir } from 'os';
 import { getPidStartTime } from './processHelpers.js';
 
 /** The name prefix of every execution scratch directory. */
 const SCRATCH_PREFIX = 'e3-exec-';
 
 /**
- * The directory execution scratch directories are created under:
- * `E3_SCRATCH_DIR`, or the system temp directory.
+ * The directory a repository's execution scratch directories are created
+ * under: `E3_SCRATCH_DIR`, or `<repo>/tmp/scratch`.
  *
+ * @param repo - Path to the e3 repository
  * @returns The scratch root
  */
-export function scratchRoot(): string {
-  return process.env.E3_SCRATCH_DIR ?? tmpdir();
+export function scratchRoot(repo: string): string {
+  return process.env.E3_SCRATCH_DIR ?? path.join(repo, 'tmp', 'scratch');
 }
 
 /**
@@ -43,14 +44,15 @@ export function scratchRoot(): string {
  * carries the execution's task and inputs hashes, this process's pid and start
  * time, and the creation time.
  *
+ * @param repo - Path to the e3 repository
  * @param taskHash - Hash of the task object
  * @param inHash - Combined inputs hash
  * @returns The directory's path (not yet created)
  */
-export async function executionScratchDir(taskHash: string, inHash: string): Promise<string> {
+export async function executionScratchDir(repo: string, taskHash: string, inHash: string): Promise<string> {
   const pidStartTime = await getPidStartTime(process.pid);
   return path.join(
-    scratchRoot(),
+    scratchRoot(repo),
     `${SCRATCH_PREFIX}${taskHash.slice(0, 8)}-${inHash.slice(0, 8)}-${process.pid}-${pidStartTime}-${Date.now()}`
   );
 }
@@ -93,11 +95,12 @@ function processExists(pid: number): boolean {
  * and the directory is older than `minAge`. Directories of live processes,
  * and anything else under the scratch root, are left alone.
  *
+ * @param repo - Path to the e3 repository whose scratch root is swept
  * @param options - The age gate for directories named in the older form
  * @returns The number of directories removed
  */
-export async function sweepScratchDirs(options: SweepScratchOptions): Promise<number> {
-  const root = scratchRoot();
+export async function sweepScratchDirs(repo: string, options: SweepScratchOptions): Promise<number> {
+  const root = scratchRoot(repo);
   let entries: string[];
   try {
     entries = await fs.readdir(root);

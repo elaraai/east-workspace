@@ -939,10 +939,10 @@ mask, capped by a cgroup quota), or `E3_JOBS`. `--concurrency` and
 
 **`E3_SCRATCH_DIR`** names the directory a local run's per-execution scratch
 directories (inputs marshalled, the output written before it is stored) are
-created under — the system temp directory when unset. A tmpfs temp directory
-holds an output in memory until it is stored, so large outputs want it on a
-disk; a scratch directory left by a dead process is removed by the next run or
-`e3 repo gc`.
+created under — `<repo>/tmp/scratch` when unset, on the object store's own
+disk. Set it only to move scratch to another disk: one on tmpfs holds each
+output in memory until it is stored. A scratch directory left by a dead process
+is removed by the next run or `e3 repo gc`.
 
 **`-v` / `--verbose`** forwards `-v` to each task's runner so it prints a
 timing/perf block (Load / Compile / Execute / Output / Total + Peak RSS) — identical
