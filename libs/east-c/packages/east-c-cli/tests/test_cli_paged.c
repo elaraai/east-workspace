@@ -172,7 +172,8 @@ static void test_paged_shape_gate(const char *bin, const char *fixtures)
 {
     char cmd[2048];
     snprintf(cmd, sizeof(cmd),
-             LAZY_ENV "\"%s\" run \"%s/paged_nested_mutate.beast2\" -i \"%s/paged_nested.beast2\" -v",
+             LAZY_ENV
+             "\"%s\" run \"%s/paged_nested_mutate.beast2\" -i \"%s/paged_nested.beast2\" -v",
              bin, fixtures, fixtures);
     int rc = run_cli(cmd, "paged_out_nested.txt", "paged_err_nested.txt");
     CHECK(rc == 1, "collapsed gate: expected exit 1, got %d", rc);
@@ -437,16 +438,16 @@ static void test_paged_shape_gate_manifest(const char *bin, const char *fixtures
     EastValue *rows = type ? east_beast2_decode_full(bytes, rd, type) : NULL;
     free(bytes);
     const char *table = "paged_nested_manifest.beast2";
-    bool written = rows && east_beast2_write_manifest_dir(rows, type, EAST_BEAST2_CODEC_NONE, table);
+    bool written =
+        rows && east_beast2_write_manifest_dir(rows, type, EAST_BEAST2_CODEC_NONE, table);
     if (rows) east_value_release(rows);
     if (type) east_type_release(type);
     CHECK(written, "the nested manifest directory was not written");
     if (!written) return;
 
     char cmd[2048];
-    snprintf(cmd, sizeof(cmd),
-             LAZY_ENV "\"%s\" run \"%s/paged_nested_mutate.beast2\" -i \"%s\" -v", bin, fixtures,
-             table);
+    snprintf(cmd, sizeof(cmd), LAZY_ENV "\"%s\" run \"%s/paged_nested_mutate.beast2\" -i \"%s\" -v",
+             bin, fixtures, table);
     int rc = run_cli(cmd, "manifest_nested_out.txt", "manifest_nested_err.txt");
     CHECK(rc == 1, "manifest gate: expected exit 1, got %d", rc);
     check_file_contains("manifest_nested_err.txt",
