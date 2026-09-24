@@ -20,11 +20,25 @@ import {
 } from '../handlers/workspaces.js';
 import { decodeBody, sendSuccess, sendError } from '../beast2.js';
 import { WorkspaceCreateRequestType, WorkspaceDeployRequestType, WorkspaceExportRequestType } from '../types.js';
+import type { GetRunner } from './functions.js';
 
+/**
+ * Workspace routes, mounted at `/api/repos/:repo/workspaces`.
+ *
+ * @param storage - Storage backend
+ * @param getRepoPath - The repository identifier for a repo name
+ * @param transferBackend - Serves an asynchronous export; without it `POST
+ *   /:ws/export` is not mounted
+ * @param getRunner - The runner a deploy builds record indexes on, as the
+ *   record routes run mutations on it. Without it, a deploy that owes an index
+ *   build is refused before it writes anything.
+ * @returns The routes
+ */
 export function createWorkspaceRoutes(
   storage: StorageBackend,
   getRepoPath: (repo: string) => string,
   transferBackend?: TransferBackend,
+  getRunner?: GetRunner,
 ) {
   const app = new Hono();
 
@@ -73,7 +87,7 @@ export function createWorkspaceRoutes(
     const repoPath = getRepoPath(repo);
     const ws = c.req.param('ws')!;
     const body = await decodeBody(c, WorkspaceDeployRequestType);
-    return deployWorkspace(storage, repoPath, ws, body.packageRef);
+    return deployWorkspace(storage, repoPath, ws, body.packageRef, getRunner?.(repoPath));
   });
 
   // POST /api/repos/:repo/workspaces/:ws/export - Trigger async workspace export

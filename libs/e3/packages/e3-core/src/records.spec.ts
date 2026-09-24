@@ -25,10 +25,11 @@ import { snapshotInputVersions } from './dataset-refs.js';
 import { WorkspaceLockError } from './errors.js';
 import { workspaceGetDataset, workspaceGetDatasetStatus, workspaceSetDataset } from './trees.js';
 import { packageImport } from './packages.js';
-import { workspaceCreate, workspaceDeploy, workspaceExport } from './workspaces.js';
+import { workspaceCreate, workspaceDeploy, workspaceExport, workspaceGetPackage } from './workspaces.js';
 import { createTestRepo, removeTestRepo, createTempDir, removeTempDir } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
 import { LocalTaskRunner } from './execution/LocalTaskRunner.js';
+import { MockTaskRunner } from './execution/MockTaskRunner.js';
 import type { MutationOutcome, StorageBackend, TaskRunner, DetachedResult } from './index.js';
 
 /** Whether a runtime's CLI answers on PATH — the multi-runtime suites skip
@@ -980,6 +981,35 @@ describe('record indexes', () => {
     const afterDeploy = await storage.datasets.read(repo, ws, 'records/plans');
     assert.ok(afterDeploy && afterDeploy.type === 'value');
     assert.strictEqual(afterDeploy.value.versions.get('$schema'), 'frontier-hash');
+  });
+
+  it('a deploy that cannot build an owed index leaves the workspace as it was', async () => {
+    // A deploy's index builds run user East, so they are the step likeliest
+    // to fail, and a deploy that fails must leave the workspace as it found
+    // it. 2.0.0 declares an input 1.0.0 does not: a deploy that had already
+    // replaced the refs when its build failed would show here as that input.
+    const plans = e3.record('plans', PlansType, new Map());
+    const byDue = e3.recordIndex('by_due', plans, {
+      key: East.function([StringType, PlanRowType], IntegerType, ($, _k, v) => v.due),
+    });
+    const zip = join(tempDir, 'planrecords-2.zip');
+    await e3.export(e3.package('planrecords', '2.0.0', plans, byDue,
+      e3.input('note', StringType, variant('value', '2.0.0'))), zip);
+    await packageImport(storage, repo, zip);
+
+    const datasets = await storage.datasets.list(repo, ws);
+    const record = await storage.datasets.read(repo, ws, 'records/plans');
+    const failing = new MockTaskRunner();
+    failing.setDefaultResult({ state: 'failed', cached: false, exitCode: 1 });
+    for (const [runner, refusal] of [
+      [undefined, /given no task runner/],
+      [failing, /building the indexes of record 'records\/plans' failed/],
+    ] as const) {
+      await assert.rejects(workspaceDeploy(storage, repo, ws, 'planrecords', '2.0.0', { runner }), refusal);
+      assert.strictEqual((await workspaceGetPackage(storage, repo, ws)).version, '1.0.0');
+      assert.deepStrictEqual(await storage.datasets.list(repo, ws), datasets, 'no ref of 2.0.0 was written');
+      assert.deepStrictEqual(await storage.datasets.read(repo, ws, 'records/plans'), record);
+    }
   });
 
   it('resolves the index for reading, with the window and collection types', async () => {

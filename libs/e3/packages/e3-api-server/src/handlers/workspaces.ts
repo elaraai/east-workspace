@@ -18,9 +18,8 @@ import {
   workspaceExport,
   workspaceStatus,
   packageGetLatestVersion,
-  LocalTaskRunner,
 } from '@elaraai/e3-core';
-import type { StorageBackend } from '@elaraai/e3-core';
+import type { StorageBackend, TaskRunner } from '@elaraai/e3-core';
 import { sendSuccess, sendError } from '../beast2.js';
 import { errorToVariant } from '../errors.js';
 import { WorkspaceInfoType, WorkspaceStatusResultType } from '../types.js';
@@ -221,12 +220,22 @@ export async function deleteWorkspace(
 
 /**
  * Deploy a package to a workspace.
+ *
+ * @param storage - Storage backend
+ * @param repoPath - Repository identifier
+ * @param workspace - Workspace name
+ * @param packageRef - `name` or `name@version`
+ * @param runner - What builds the indexes the deploy owes: the runner the
+ *   server runs every record operation on. Without one, a deploy that owes a
+ *   build is refused before it writes anything.
+ * @returns The response: null, or the error
  */
 export async function deployWorkspace(
   storage: StorageBackend,
   repoPath: string,
   workspace: string,
-  packageRef: string
+  packageRef: string,
+  runner?: TaskRunner,
 ): Promise<Response> {
   try {
     const { name: pkgName, version: maybeVersion } = parsePackageRef(packageRef);
@@ -245,10 +254,10 @@ export async function deployWorkspace(
     await workspaceDeploy(storage, repoPath, workspace, pkgName, pkgVersion, {
       resolveFileSources: false,
       sourceWarning: (message) => console.warn(`[deploy ${workspace}] ${message}`),
-      // An index a record declares is built here, on the runner its author
-      // chose — the same runner a mutation on this server runs on. The build
-      // runs inside this request, so the log says what the deploy is doing.
-      runner: new LocalTaskRunner(repoPath),
+      // An index a record declares is built inside this request, by the
+      // runner the server was given — the one its record routes use — so the
+      // log says what the deploy is doing.
+      runner,
       onRecordIndex: (plan) => {
         if (plan.action !== 'keep') console.log(`[deploy ${workspace}] ${plan.action} index ${plan.record}.${plan.index}`);
       },

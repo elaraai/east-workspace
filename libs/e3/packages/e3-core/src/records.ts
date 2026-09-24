@@ -172,8 +172,14 @@ async function withSharedWorkspaceLock<T>(
  * ad-hoc task run does, and the answer is the same one: gc takes this lock
  * exclusively, so the two never overlap and none of it needs rooting. Without
  * it a sweep landing mid-write deletes objects the commit is about to name.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param fn - the work, which writes objects before anything names them
+ * @returns what `fn` returns
+ * @throws {Error} When a garbage collection holds the lock.
  */
-async function withRunningWork<T>(storage: StorageBackend, repo: string, fn: () => Promise<T>): Promise<T> {
+export async function withRunningWork<T>(storage: StorageBackend, repo: string, fn: () => Promise<T>): Promise<T> {
   const lock = await storage.locks.acquire(repo, TASKS_LOCK, variant('dataflow', null), { mode: 'shared' });
   if (!lock) throw new Error('a garbage collection is running in this repository — retry when it finishes');
   try {
@@ -826,55 +832,66 @@ export interface RecordIndexPlan {
 }
 
 /**
- * Bring every record's indexes into line with what its package declares.
+ * What a deploy built for one record's indexes before it wrote anything, for
+ * {@link commitDeployIndexes} to commit once the new refs are in place.
+ */
+export interface DeployIndexBuild {
+  /** The record's dataset ref path. */
+  path: string;
+  /** The state the indexes were built over: the one the deploy writes. */
+  state: string;
+  /** CollectionManifest hash of the record's primary. */
+  primary: string;
+  /** Index name -> the manifest it is held in and the index object it was
+   *  built under: the table the record's new state names. */
+  indexes: Map<string, { manifest: string; index: string }>;
+}
+
+/**
+ * Build the indexes a deploy owes, before it writes anything.
  *
  * @remarks
- * Run by deploy, once the refs are in place. For each record, an index the
- * package declares whose object hash is not the one the state names is BUILT
- * (a freshly minted record names none, so all of them are); one the state
- * names and the package does not is DROPPED; one that matches is KEPT and
- * nothing runs. A record whose indexes all match is not touched at all, so a
- * redeploy that changes no declaration costs nothing and appends no commit.
+ * For each record, an index the package declares whose object hash is not the
+ * one the state names is BUILT (a freshly minted record names none, so all of
+ * them are); one the state names and the package does not is DROPPED; one
+ * that matches is KEPT and nothing runs. A record whose indexes all match is
+ * left out, so a redeploy that changes no declaration costs nothing and
+ * appends no commit.
+ *
+ * A build runs user East, which makes it the step of a deploy likeliest to
+ * fail, so it runs before the deploy replaces a single ref: a deploy that
+ * fails leaves the workspace as it found it. What a build writes is named by
+ * nothing until {@link commitDeployIndexes} commits it, so the caller holds
+ * the tasks lock ({@link withRunningWork}) across both.
  *
  * No `--schema`-style policy governs this: an index is derived, and building
- * one changes no state the audit chain protects. What it does append is one
- * `$reindex` commit per record that changed, so the chain records that the
- * views over the record moved.
+ * one changes no state the audit chain protects.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
- * @param ws - Workspace name
- * @param pkg - the package just deployed
+ * @param pkg - the package being deployed
+ * @param stateOf - the state hash a record will hold once the deploy has
+ *   written its refs, by the record's ref path; `undefined` when it holds none
  * @param runner - Task runner for the build programs
+ * @param onPlan - told what the deploy decided for each index
+ * @returns one build per record whose indexes change
  * @throws {Error} When a build is owed and no runner was given, or a build
- *   program fails — deploy is all-or-nothing, so this surfaces rather than
- *   leaving a record whose index reads answer from nothing.
+ *   program fails.
  */
-export async function reconcileRecordIndexes(
+export async function buildDeployIndexes(
   storage: StorageBackend,
   repo: string,
-  ws: string,
   pkg: { records: Map<string, string> },
+  stateOf: (path: string) => string | undefined,
   runner?: TaskRunner,
   onPlan?: (plan: RecordIndexPlan) => void,
-): Promise<void> {
-  return withRunningWork(storage, repo, () => reconcileIndexes(storage, repo, ws, pkg, runner, onPlan));
-}
-
-async function reconcileIndexes(
-  storage: StorageBackend,
-  repo: string,
-  ws: string,
-  pkg: { records: Map<string, string> },
-  runner?: TaskRunner,
-  onPlan?: (plan: RecordIndexPlan) => void,
-): Promise<void> {
-  const at = new Date();
+): Promise<DeployIndexBuild[]> {
+  const builds: DeployIndexBuild[] = [];
   for (const recHash of pkg.records.values()) {
     const recObj = decodeRecordObject(await storage.objects.read(repo, recHash));
-    const existing = await storage.datasets.read(repo, ws, recObj.path);
-    if (!existing || existing.type !== 'value') continue;
-    const state = await readRecordState(storage, repo, existing.value.hash);
+    const stateHash = stateOf(recObj.path);
+    if (stateHash === undefined) continue;
+    const state = await readRecordState(storage, repo, stateHash);
 
     const build = new Map<string, string>();
     for (const [name, indexHash] of recObj.indexes) {
@@ -905,14 +922,44 @@ async function reconcileIndexes(
 
     // Kept indexes carry over; dropped ones simply are not in the package.
     const indexes = new Map<string, { manifest: string; index: string }>();
-    for (const [name, indexHash] of recObj.indexes) {
-      const rebuilt = outcome.built.get(name);
-      indexes.set(name, rebuilt ?? state.indexes.get(name)!);
-      void indexHash;
+    for (const name of recObj.indexes.keys()) {
+      indexes.set(name, outcome.built.get(name) ?? state.indexes.get(name)!);
     }
-    const stateHash = await writeRecordState(storage, repo, { primary: state.primary, indexes });
+    builds.push({ path: recObj.path, state: stateHash, primary: state.primary, indexes });
+  }
+  return builds;
+}
 
-    const selfKeypath = refPathToKeypath(recObj.path);
+/**
+ * Commit a deploy's index builds: one `$reindex` commit per record, on the ref
+ * the deploy has just written.
+ *
+ * @remarks
+ * The commit is what names the objects a build wrote, so the caller still
+ * holds the tasks lock the builds ran under. Deploy holds the workspace lock
+ * exclusively, so every ref write here is uncontended.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param ws - Workspace name
+ * @param builds - what {@link buildDeployIndexes} built
+ * @throws {Error} When a record does not hold the state its indexes were
+ *   built over — the deploy wrote a ref the builds did not expect.
+ */
+export async function commitDeployIndexes(
+  storage: StorageBackend,
+  repo: string,
+  ws: string,
+  builds: readonly DeployIndexBuild[],
+): Promise<void> {
+  const at = new Date();
+  for (const { path, state, primary, indexes } of builds) {
+    const existing = await storage.datasets.read(repo, ws, path);
+    if (!existing || existing.type !== 'value' || existing.value.hash !== state) {
+      throw new Error(`record '${path}' does not hold the state its indexes were built over (${state})`);
+    }
+    const stateHash = await writeRecordState(storage, repo, { primary, indexes });
+    const selfKeypath = refPathToKeypath(path);
     const prevCommit = existing.value.versions.get(selfKeypath);
     const commitHash = await storage.objects.write(repo, encodeCommit({
       parent: prevCommit !== undefined ? some(prevCommit) : none,
@@ -923,8 +970,7 @@ async function reconcileIndexes(
       at,
       delta: none,
     }));
-    // Deploy holds the workspace lock exclusively, so this is uncontended.
-    await storage.datasets.write(repo, ws, recObj.path,
+    await storage.datasets.write(repo, ws, path,
       variant('value', {
         hash: stateHash,
         versions: nextVersions(existing.value.versions, selfKeypath, commitHash, { [IDEM_SLOT]: undefined }),

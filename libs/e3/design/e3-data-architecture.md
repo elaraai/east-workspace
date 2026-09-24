@@ -623,7 +623,7 @@ The PR records each stage's numbers.
 
 ## 7. #786's guarantees
 
-#786 is epic #779's delivery: the segment-object layout, secondary indexes, the mutation delta and record steps. It is folded into this PR (D2). Stages 1 and 2 changed some of its code by plan items: the cut rule, record applies on Recut and the one door. Its records and mutation code, API, CLI and UI paging are otherwise as it wrote them. Stage 4 moves index builds and mutations onto the engine.
+#786 is epic #779's delivery: the segment-object layout, secondary indexes, the mutation delta and record steps. It is folded into this PR (D2). Stages 1 and 2 changed some of its code by plan items: the cut rule, record applies on Recut and the one door. Its records and mutation code, API, CLI and UI paging are otherwise as it wrote them, apart from the two deploy fixes below. Stage 4 moves index builds and mutations onto the engine.
 
 What #786 guarantees holds through every stage. Each guarantee is pinned by a test, which a stage may rename along with an API it renames, but never weaken:
 
@@ -641,8 +641,14 @@ What #786 guarantees holds through every stage. Each guarantee is pinned by a te
 | A reserved `$` slot survives a mutation, a compaction and a reindex, whether the reindex is run by hand or by a deploy | `records.spec.ts` |
 | gc keeps every object a commit, its delta and an index name | `records.spec.ts`; `gc.spec.ts` |
 | A record write holds the tasks lock shared, so a gc sweep is refused until it commits | `records.spec.ts` |
+| A deploy builds a record's indexes on the runner the server injects, and with none refuses a deploy that owes a build | e3-api-server `workspaces.spec.ts` |
+| A deploy whose index build fails, or that has no runner for one, leaves the workspace as it was | `records.spec.ts` |
 | The generated programs: targets in canonical order; the reduce, edit and patch forms; index maintenance inside the delta; the index build | e3 `mutation-programs.spec.ts`, `record-index.spec.ts` |
 | Keyed records through the API at 10,000 rows (`E3_RECORD_ROWS` raises it) | e3-api-tests `records-keyed`, run by `api-compliance.spec.ts` |
+
+Two defects in #786's deploy are fixed with the fold. Both are in how a deploy builds a record's indexes.
+- **The runner.** The API server's deploy built indexes on a `LocalTaskRunner` it constructed itself, where every other record route takes the runner the server injects. e3-cloud mounts the same routes with a runner of its own, so there the build would run as local processes inside the API function, and fail. The deploy now takes the injected runner. Given none, a deploy that owes a build is refused.
+- **The order.** The build ran after the deploy had replaced the workspace's refs and before it recorded the new package. So a build that failed — a key function that throws on one row, say — left the workspace half-deployed. The builds now run before the deploy writes anything, and only their `$reindex` commits land after the new refs. The tasks lock is held from the builds to those commits, because what a build writes is named by nothing until then.
 
 Each of #786's deferrals has a place:
 - the large-write apply and migrations by template run on the engine (stage 4);

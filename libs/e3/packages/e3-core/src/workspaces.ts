@@ -37,7 +37,7 @@ import {
 } from './errors.js';
 import type { StorageBackend, LockHandle } from './storage/interfaces.js';
 import type { TaskRunner } from './execution/interfaces.js';
-import { readRecordState, reconcileRecordIndexes, type RecordIndexPlan } from './records.js';
+import { buildDeployIndexes, commitDeployIndexes, readRecordState, withRunningWork, type RecordIndexPlan } from './records.js';
 
 /**
  * List workspace names.
@@ -289,9 +289,8 @@ export interface WorkspaceDeployOptions {
    * minted here has no index yet, and a record whose declaration changed has
    * one built under the wrong declaration.
    *
-   * Omit it only where no package can declare an index — a deploy that must
-   * build one without a runner is refused rather than left with a record whose
-   * index reads answer from nothing.
+   * Omit it only where no package can declare an index: a deploy that must
+   * build one without a runner is refused before it writes anything.
    */
   runner?: TaskRunner;
   /**
@@ -379,23 +378,36 @@ export async function workspaceDeploy(
       adoptedSources.set(refPath, hash);
     }
 
-    // Remove any existing dataset refs
-    await storage.datasets.removeAll(repo, name);
-
-    // Initialize per-dataset ref files from the package
-    await writeRefsFromPackage(storage, repo, name, pkg.data.structure, pkg.data.refs);
-
-
-    // Mint each new record's genesis ($init) commit, and restore any existing
-    // record's committed state + history across a redeploy (errors if its type
-    // changed). A record is thus never unassigned and never silently reset.
-    await writeRecordGenesis(storage, repo, name, pkg, priorRecords);
     // An index is derived state a deploy owes: a record minted here has none,
     // and one whose declaration changed has one built under the old
-    // declaration. Reconciling is a `$reindex` commit per record — the
-    // primary is untouched, and no policy governs it, because building an
-    // index changes nothing the audit chain protects.
-    await reconcileRecordIndexes(storage, repo, name, pkg, options.runner, options.onRecordIndex);
+    // declaration. Every build runs before the wipe below, because a build
+    // runs user East and is the step likeliest to fail; each lands as a
+    // `$reindex` commit once the new refs are in place. The tasks lock is held
+    // from the builds to those commits, since nothing names what a build wrote
+    // until then.
+    await withRunningWork(storage, repo, async () => {
+      // The state each record holds once the refs are written, as
+      // writeRecordGenesis writes it: its preserved prior state, else the
+      // package's initial value.
+      const indexBuilds = await buildDeployIndexes(storage, repo, pkg, (path) => {
+        const initial = pkg.data.refs.get(path);
+        if (initial?.type !== 'value') return undefined;
+        const prior = priorRecords?.get(path)?.ref;
+        return prior?.type === 'value' ? prior.value.hash : initial.value.hash;
+      }, options.runner, options.onRecordIndex);
+
+      // Remove any existing dataset refs
+      await storage.datasets.removeAll(repo, name);
+
+      // Initialize per-dataset ref files from the package
+      await writeRefsFromPackage(storage, repo, name, pkg.data.structure, pkg.data.refs);
+
+      // Mint each new record's genesis ($init) commit, and restore any existing
+      // record's committed state and history across a redeploy. A record is
+      // thus never unassigned and never silently reset.
+      await writeRecordGenesis(storage, repo, name, pkg, priorRecords);
+      await commitDeployIndexes(storage, repo, name, indexBuilds);
+    });
 
     const now = new Date();
     const state: WorkspaceState = {

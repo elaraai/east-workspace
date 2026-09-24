@@ -381,8 +381,9 @@ export async function createServer(config: ServerConfig): Promise<Server> {
   app.route('/api/repos/:repo', pkgTransfer.repoApi);
   app.route('/api/repos/:repo/packages', pkgTransfer.pkgApi);
 
-  // Per-repo task runner for function / one-shot calls (cached — the
-  // runner is stateless apart from its repo anchor)
+  // Per-repo task runner for every route that runs user East: function and
+  // one-shot calls, record mutations, and a deploy's index builds (cached —
+  // the runner is stateless apart from its repo anchor)
   const runners = new Map<string, TaskRunner>();
   const getRunner = (repoPath: string): TaskRunner => {
     let runner = runners.get(repoPath);
@@ -400,7 +401,7 @@ export async function createServer(config: ServerConfig): Promise<Server> {
   app.route('/api/repos/:repo/packages/:pkg/:version/functions', createPackageFunctionRoutes(storage, getRepoPath, getRunner));
 
   // Workspace routes: /api/repos/:repo/workspaces/*
-  app.route('/api/repos/:repo/workspaces', createWorkspaceRoutes(storage, getRepoPath, transferBackend));
+  app.route('/api/repos/:repo/workspaces', createWorkspaceRoutes(storage, getRepoPath, transferBackend, getRunner));
 
   // Dataset transfer auth routes (init + commit) mount alongside dataset routes
   app.route('/api/repos/:repo/workspaces/:ws/datasets', dsTransfer.api);

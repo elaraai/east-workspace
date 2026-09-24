@@ -102,7 +102,6 @@ export {
   recordDescribe,
   recordCompact,
   recordReindex,
-  reconcileRecordIndexes,
   readRecordState,
   writeRecordState,
   resolveRecordIndex,
