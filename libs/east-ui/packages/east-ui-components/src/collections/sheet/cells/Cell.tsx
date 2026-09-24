@@ -17,6 +17,7 @@
 import { memo } from "react";
 import { Box } from "@chakra-ui/react";
 import { getSomeorUndefined } from "../../../utils.js";
+import { useFormatters } from "../../../format/index.js";
 import { EMPTY_LINK, cellIsBlank, cellText, memberIsDashed, memberLabel, type SheetColumnMeta } from "../model.js";
 import { LinkCell } from "./LinkCell.js";
 import { actualAgainst, formatWhen, type WhenLevel } from "../parse/date.js";
@@ -55,6 +56,8 @@ export interface SheetCellContentProps {
 
 /** Renders a cell's content. */
 export const SheetCellContent = memo(function SheetCellContent({ styles, meta, cell, rowBlank, unit, member, ghost, link, when }: SheetCellContentProps) {
+    // Numbers in the viewer's language — the one its edit box reads back (#852).
+    const words = useFormatters();
     const blank = cellIsBlank(cell);
     const shown = blank && ghost !== undefined ? ghost : cell;
     const isGhost = blank && ghost !== undefined;
@@ -86,14 +89,14 @@ export const SheetCellContent = memo(function SheetCellContent({ styles, meta, c
                     </>
                 );
             }
-            return <Box as="span" css={isGhost ? styles.cellGhost : styles.cellMono} data-mono="">{cellText(shown, meta)}</Box>;
+            return <Box as="span" css={isGhost ? styles.cellGhost : styles.cellMono} data-mono="">{cellText(shown, meta, words)}</Box>;
         }
         case "quantity":
         case "integer": {
             if (cellIsBlank(shown)) return null;
             return (
                 <>
-                    <Box as="span" css={isGhost ? styles.cellGhost : styles.cellNum} data-num="">{cellText(shown, meta)}</Box>
+                    <Box as="span" css={isGhost ? styles.cellGhost : styles.cellNum} data-num="">{cellText(shown, meta, words)}</Box>
                     {unit !== undefined && <Box as="span" css={styles.cellUnit}>{unit}</Box>}
                 </>
             );
@@ -101,17 +104,17 @@ export const SheetCellContent = memo(function SheetCellContent({ styles, meta, c
         case "enum": {
             if (cellIsBlank(shown)) return rowBlank ? null : <Box as="span" css={styles.cellGhost}>—</Box>;
             const tone = member !== undefined ? getSomeorUndefined(member.tone)?.type : undefined;
-            if (isGhost) return <Box as="span" css={styles.cellGhost}>{cellText(shown, meta)}</Box>;
+            if (isGhost) return <Box as="span" css={styles.cellGhost}>{cellText(shown, meta, words)}</Box>;
             return (
                 <>
                     <Box as="span" css={styles.cellDot} data-tone={tone} />
-                    <Box as="span" css={styles.cellWord}>{cellText(shown, meta)}</Box>
+                    <Box as="span" css={styles.cellWord}>{cellText(shown, meta, words)}</Box>
                 </>
             );
         }
         case "set": {
             if (shown === undefined || shown.type !== "Link") {
-                if (shown !== undefined && !cellIsBlank(shown)) return <Box as="span" css={styles.cellText}>{cellText(shown, meta)}</Box>;
+                if (shown !== undefined && !cellIsBlank(shown)) return <Box as="span" css={styles.cellText}>{cellText(shown, meta, words)}</Box>;
                 return null;
             }
             const set = shown.value;
@@ -127,7 +130,7 @@ export const SheetCellContent = memo(function SheetCellContent({ styles, meta, c
             // The two halves are always drawn once the row has content, so an
             // empty cell still says what it wants; blank rows stay blank.
             if (shown !== undefined && shown.type !== "Link" && !cellIsBlank(shown)) {
-                return <Box as="span" css={styles.cellText}>{cellText(shown, meta)}</Box>;
+                return <Box as="span" css={styles.cellText}>{cellText(shown, meta, words)}</Box>;
             }
             if (rowBlank || link === undefined) return null;
             const value = shown !== undefined && shown.type === "Link" ? shown.value : EMPTY_LINK;
@@ -145,7 +148,7 @@ export const SheetCellContent = memo(function SheetCellContent({ styles, meta, c
         }
         default: {
             if (cellIsBlank(shown)) return null;
-            return <Box as="span" css={isGhost ? styles.cellGhost : styles.cellText}>{cellText(shown, meta)}</Box>;
+            return <Box as="span" css={isGhost ? styles.cellGhost : styles.cellText}>{cellText(shown, meta, words)}</Box>;
         }
     }
 });

@@ -89,6 +89,8 @@ export interface EditBuffer {
     hi: number;
     /** Opened by a printable key — caret at the end, nothing selected. */
     seeded: boolean;
+    /** The text the editor opened with, when it opened on the cell's own value (not a key, not a link) — a commit of that same text writes nothing (#852). */
+    opened?: string | undefined;
     /** The link editor's state — present on a link / set column. */
     link?: LinkEdit;
 }

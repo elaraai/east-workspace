@@ -13,6 +13,7 @@
  */
 
 import { variant } from "@elaraai/east";
+import type { Formatters } from "../../../format/index.js";
 import { parseDate, formatWhenEdit, type WhenLevel } from "./date.js";
 import { parseQuantity, formatNumberBare } from "./quantity.js";
 import { candidateList, type CandidateContext } from "../candidates.js";
@@ -31,6 +32,8 @@ export type ParseOutcome =
 
 /** What a parse may need beside the text and the column. */
 export interface ParseContext extends CandidateContext {
+    /** The viewer's formatters — a number reads with their separators, as the cells print (#852). */
+    words: Formatters;
     /** Today, UTC midnight. */
     today: Date;
     /** The base column's date for a date column with `base`, when the row holds one. */
@@ -67,13 +70,13 @@ export function parseCell(meta: SheetColumnMeta, text: string, ctx: ParseContext
             return { kind: "cell", cell: cellOf("DateTime", d) };
         }
         case "quantity": {
-            const n = parseQuantity(text);
+            const n = parseQuantity(text, ctx.words.separators);
             if (n === undefined) return { kind: "blank" };
             if (n === null) return { kind: "unrecognised" };
             return { kind: "cell", cell: cellOf("Float", n) };
         }
         case "integer": {
-            const n = parseQuantity(text, false);
+            const n = parseQuantity(text, ctx.words.separators, false);
             if (n === undefined) return { kind: "blank" };
             if (n === null || !Number.isSafeInteger(n)) return { kind: "unrecognised" };
             return { kind: "cell", cell: cellOf("Integer", BigInt(n)) };
@@ -124,19 +127,30 @@ export function parseCell(meta: SheetColumnMeta, text: string, ctx: ParseContext
     return { kind: "unrecognised" };
 }
 
-/** A cell's EDIT form — what the editor opens with (dates `17/11/26`, numbers bare); a date at the time level, or one carrying a time of day, keeps it (`17/11/26 19:00`). */
-export function editText(cell: SheetCellValue | undefined, meta: SheetColumnMeta, level?: WhenLevel): string {
+/**
+ * A cell's EDIT form — what the editor opens with: dates `17/11/26`, numbers
+ * bare with the viewer's decimal separator (`1234,5` in German — the grammar
+ * reads it back, #852); a date at the time level, or one carrying a time of
+ * day, keeps it (`17/11/26 19:00`).
+ *
+ * @param cell - The cell
+ * @param meta - Its column
+ * @param words - The viewer's formatters
+ * @param level - A date column's level for the row
+ * @returns The text
+ */
+export function editText(cell: SheetCellValue | undefined, meta: SheetColumnMeta, words: Formatters, level?: WhenLevel): string {
     if (cell === undefined || cell.type === "Null") return "";
     switch (cell.type) {
         case "DateTime": return formatWhenEdit(cell.value, level);
-        case "Float": return formatNumberBare(cell.value);
+        case "Float": return formatNumberBare(cell.value, words);
         case "Integer": return String(cell.value);
         case "Invalid":
         case "String": return cell.value;
         case "Boolean": return String(cell.value);
         case "Link": return printLinkText(cell.value);
     }
-    return cellText(cell, meta);
+    return cellText(cell, meta, words);
 }
 
 /** The labels of a link's members, for the clipboard's two-column form. */

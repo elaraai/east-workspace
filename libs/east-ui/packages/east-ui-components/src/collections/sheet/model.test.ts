@@ -3,11 +3,13 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  *
  * The sheet model (B§7 — Sheet Spec §5 row 15): blanks below the last real
- * row, exhaustion-aware on the paged arm; real row numbers; cell display.
+ * row, exhaustion-aware on the paged arm; real row numbers; cell display, in
+ * the viewer's language (#852).
  */
 
 import { describe, test, expect } from "vitest";
 import { none, some, variant } from "@elaraai/east";
+import { formatters } from "../../format/index.js";
 import { buildBody, indexColumns, cellText, printLinkText, cellIsBlank, rowIsBlank, lastRealId, parseWidth, stickyRows, withLine, withoutLines, withProposals, lineId, linePosition, parseLineId, type ItemBox } from "./model.js";
 import { utcDate } from "./parse/date.js";
 import type { SheetCellValue, SheetRowValue, SheetSubRowValue } from "./values.js";
@@ -37,6 +39,7 @@ describe("the body", () => {
 });
 
 describe("cells", () => {
+    const en = formatters("en-US");
     const columns = indexColumns([
         { key: "start", header: "Start", sub: none, width: some("96px"), kind: { type: "date", value: { base: none, format: none, level: none, actual: none } }, dataType: null, payloadType: null, editable: true, fill: [], detailCell: none },
         { key: "qty", header: "Qty", sub: none, width: none, kind: { type: "quantity", value: { uom: none, format: none } }, dataType: null, payloadType: null, editable: true, fill: [], detailCell: none },
@@ -47,9 +50,9 @@ describe("cells", () => {
         expect(columns.list.map((c) => c.width)).toEqual([96, 112, 72]);
         expect(parseWidth("120")).toBe(120);
         expect(parseWidth("50%")).toBeUndefined();
-        expect(cellText(cell("DateTime", utcDate(2026, 2, 16)), columns.list[0]!)).toBe("16 Feb 26");
-        expect(cellText(cell("Float", 1200), columns.list[1]!)).toBe("1,200");
-        expect(cellText(cell("Integer", 4n), columns.list[2]!)).toBe("4");
+        expect(cellText(cell("DateTime", utcDate(2026, 2, 16)), columns.list[0]!, en)).toBe("16 Feb 26");
+        expect(cellText(cell("Float", 1200), columns.list[1]!, en)).toBe("1,200");
+        expect(cellText(cell("Integer", 4n), columns.list[2]!, en)).toBe("4");
         expect(cellIsBlank(cell("Null", null))).toBe(true);
         expect(cellIsBlank(cell("String", ""))).toBe(true);
         expect(cellIsBlank(cell("Link", { from: [], to: [] }))).toBe(true);
@@ -57,6 +60,14 @@ describe("cells", () => {
         expect(rowIsBlank(row("x", { start: cell("Null", null) }), columns)).toBe(true);
         expect(printLinkText({ from: [variant("identified", { key: "M1104" })], to: [] })).toBe("M1104 >");
         expect(printLinkText({ from: [], to: [variant("range", { from: "M2140", to: "M2145" })] })).toBe("M2140-M2145");
+    });
+
+    test("a number prints in the viewer's language; a date keeps the Sheet's own pattern (#852)", () => {
+        const de = formatters("de-DE");
+        expect(cellText(cell("Float", 1234.5), columns.list[1]!, en)).toBe("1,234.5");
+        expect(cellText(cell("Float", 1234.5), columns.list[1]!, de)).toBe("1.234,5");
+        expect(cellText(cell("Integer", 1234n), columns.list[2]!, de)).toBe("1.234");
+        expect(cellText(cell("DateTime", utcDate(2026, 2, 16)), columns.list[0]!, de)).toBe("16 Feb 26");
     });
 });
 

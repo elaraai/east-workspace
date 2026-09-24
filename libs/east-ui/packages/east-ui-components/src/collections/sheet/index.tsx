@@ -558,12 +558,13 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
         }
         return {
             ...candidateCtxFor(r),
+            words,
             today,
             baseDate,
             wireContext: meta.kind === "custom" ? wireContextFor(r) : undefined,
             linkVocab: meta.kind === "link" || meta.kind === "set" ? linkVocabularies.get(meta.key) : undefined,
         };
-    }, [rowAt, candidateCtxFor, today, wireContextFor, linkVocabularies]);
+    }, [rowAt, candidateCtxFor, words, today, wireContextFor, linkVocabularies]);
 
     // The whole-sheet narrowing, and whether the active tab has drifted from its view (B§8).
     const emptyNarrowing = useMemo(() => (sliceState !== undefined ? clearNarrowing(sliceState) : undefined), [sliceState]);
@@ -603,7 +604,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
         },
         editTextAt: (r, c) => {
             const meta = metaAt(r, c);
-            return meta === undefined ? "" : editText(cellAt(r, c), meta, levelAt(r, meta));
+            return meta === undefined ? "" : editText(cellAt(r, c), meta, words, levelAt(r, meta));
         },
         // A band's cells are never link cells, whatever column they sit under.
         linkAt: (r, c) => { const k = rowAt(r)?.kind; return k === "group" ? undefined : linkCtxFor(r, c); },
@@ -675,7 +676,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
                 group: g.lines.filter((l) => l.subRows.length > 0).map((l) => lineId(g.id, l.key)),
             };
         },
-    }), [rowCount, colCount, lensOn, exhausted, readOnly, canInsertRows, editingState.available, group, noun, columns, rows, rowAt, metaAt, parseCtxFor, candidateCtxFor, cellAt, levelAt, linkCtxFor, rowOf, idAt, driverColumn, views, sliceState, emptyNarrowing, dirty, rowSpace, body]);
+    }), [rowCount, colCount, lensOn, exhausted, readOnly, canInsertRows, editingState.available, group, noun, columns, rows, rowAt, metaAt, parseCtxFor, candidateCtxFor, cellAt, levelAt, words, linkCtxFor, rowOf, idAt, driverColumn, views, sliceState, emptyNarrowing, dirty, rowSpace, body]);
     const ctxRef = useRef(ctx);
     ctxRef.current = ctx;
     const uiRef = useRef(ui);
@@ -1104,7 +1105,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
                 }
                 case "copy": {
                     // A band never copies (G9): a whole-group selection copies its lines.
-                    const text = exportMatrix(cellAt, columns.list, eff, (r) => { const k = rowAt(r)?.kind; return k === "group"; });
+                    const text = exportMatrix(cellAt, columns.list, eff, words, (r) => { const k = rowAt(r)?.kind; return k === "group"; });
                     if (typeof navigator !== "undefined" && navigator.clipboard !== undefined) {
                         void navigator.clipboard.writeText(text).catch(() => {});
                     }
@@ -1405,7 +1406,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
         if (store.ui.edit !== null) return;
         e.preventDefault();
         const rect = selectionRect(store.ui);
-        e.clipboardData.setData("text/plain", exportMatrix(cellAt, columns.list, rect, isBandRow));
+        e.clipboardData.setData("text/plain", exportMatrix(cellAt, columns.list, rect, words, isBandRow));
         let copied = 0;
         for (let r = rect.r0; r <= rect.r1; r++) if (!isBandRow(r)) copied += 1;
         dispatchStore({ t: "patch", patch: { msg: `Copied ${words.number(copied)}×${words.number(rect.c1 - rect.c0 + 1)} to clipboard` } });
@@ -1656,11 +1657,11 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
         const fills = fillOrder(sugg, ctx).map(({ key }) => {
             const f = sugg.fill.get(key)!;
             const meta = columns.byKey.get(key);
-            return { key, header: meta?.header ?? key, text: meta !== undefined ? cellText(f.cell, meta) : "", meta: f.meta, armed: nextTarget?.key === key };
+            return { key, header: meta?.header ?? key, text: meta !== undefined ? cellText(f.cell, meta, words) : "", meta: f.meta, armed: nextTarget?.key === key };
         });
         const pending = sugg.pending.map((key) => ({ key, header: key === "rows" ? "rows" : columns.byKey.get(key)?.header ?? key }));
         return { fills, rows: sugg.rows.length, rowsMeta: sugg.rows[0]?.meta ?? "", pending };
-    }, [edit, ui.sugg, ctx, columns, nextTarget]);
+    }, [edit, ui.sugg, ctx, columns, nextTarget, words]);
 
     // The resting ring's cell detail (#844): the wanted date behind one that has happened, a column's detail text (with an enum member's own meta beside it).
     const detail = useMemo(() => {
@@ -1676,7 +1677,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
         return { label: meta.header.toUpperCase(), chips: d.chips, meta: d.meta !== "" ? d.meta : memberMeta, keys: meta.kind === "date" ? "⏎ edits the wanted date" : "⏎ edit" };
     }, [edit, ui.selEnd, ui.sel, metaAt, rowAt, registers]);
     const strip = useMemo(() => {
-        if (edit === null || editMeta === undefined) return buildStrip({ edit: null, meta: undefined, candidates: undefined, today, baseDate: undefined, unit: undefined, customPreview: undefined, suggested, detail });
+        if (edit === null || editMeta === undefined) return buildStrip({ edit: null, meta: undefined, candidates: undefined, words, today, baseDate: undefined, unit: undefined, customPreview: undefined, suggested, detail });
         const pctx = parseCtxFor(edit.r, editMeta);
         const it = rowAt(edit.r);
         const driverKey = driverKeyOf(it !== undefined && it.kind === "real" ? it.row : undefined, driverColumn);
@@ -1735,14 +1736,14 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
             };
         }
         return buildStrip({
-            edit, meta: editMeta, candidates: pctx, today,
+            edit, meta: editMeta, candidates: pctx, words, today,
             baseDate: pctx.baseDate,
             unit: driverKey !== undefined ? editMeta.uom?.get(driverKey) : undefined,
             customPreview,
             link,
             whenLevel: editWhenLevel,
         });
-    }, [edit, editMeta, today, parseCtxFor, rowAt, driverColumn, linkEdit, linkEditCtx, linkArmed, linkColumns, wireContextFor, suggested, ui.sugg, idAt, editWhenLevel, allowedFor, detail]);
+    }, [edit, editMeta, words, today, parseCtxFor, rowAt, driverColumn, linkEdit, linkEditCtx, linkArmed, linkColumns, wireContextFor, suggested, ui.sugg, idAt, editWhenLevel, allowedFor, detail]);
 
     const wr = wholeRows(ui, colCount);
     const hasFills = ui.sugg !== null && ui.sugg.fill.size > 0;

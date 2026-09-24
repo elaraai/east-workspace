@@ -34,6 +34,9 @@
  *   row appends unless a lens is active or the source is unexhausted), ↑ /
  *   blur stay; an unparseable value becomes an invalid draft carrying the
  *   original input, so it remains visible and undoable after leaving the cell.
+ * - **An unchanged buffer writes nothing** (#852): an editor closed on the
+ *   text it opened with commits no write — nor takes a ghost when it was
+ *   never touched — so opening a cell and pressing ⏎ never changes it.
  * - **A printable key seeds a fresh edit**; ⏎ / F2 edit with the value
  *   selected (⏎ takes a pending suggestion first); esc cancels.
  * - **Whole rows selected + ⌫ deletes the records**; ⌫ on cells clears them
@@ -104,7 +107,10 @@ function startEdit(s: SheetUiState, r: number, c: number, seed: string | undefin
     const moved = moveTo(s, { r, c }, ctx, effects);
     const linkCtx = ctx.linkAt?.(r, c);
     const val = linkCtx !== undefined ? seed ?? "" : seed ?? ctx.editTextAt(r, c);
-    const edit: EditBuffer = { r, c, val, err: false, hi: seed !== undefined && seed.trim() !== "" ? 0 : -1, seeded: seed !== undefined };
+    const edit: EditBuffer = {
+        r, c, val, err: false, hi: seed !== undefined && seed.trim() !== "" ? 0 : -1, seeded: seed !== undefined,
+        opened: seed === undefined && linkCtx === undefined ? val : undefined,
+    };
     if (linkCtx !== undefined) {
         // Existing content becomes chips; a seed replaces it (the spreadsheet convention).
         const groups: LinkGroups = seed !== undefined ? [[], []] : [[...linkCtx.initial[0]], [...linkCtx.initial[1]]];
@@ -157,10 +163,17 @@ function commitEdit(s: SheetUiState, dir: CommitDir, ctx: SheetMachineCtx): Tran
         return { state: next, effects };
     }
     const text = commitText(edit, ctx);
-    const outcome = ctx.parse(edit.r, edit.c, text);
-    const effects: SheetEffect[] = [
-        { t: "write", r: edit.r, c: edit.c, cell: outcome.kind === "cell" ? outcome.cell : outcome.kind === "unrecognised" ? variant("Invalid", text) : null, text },
-    ];
+    const effects: SheetEffect[] = [];
+    // Closed on the text it opened with, nothing changed and nothing is
+    // written (#852): re-reading a cell's own edit form could still change
+    // it — the quantity grammar rounds to a whole number. An untouched
+    // editor (its buffer as it opened, no candidate cycled) never takes a
+    // ghost it was not asked for either.
+    const unchanged = edit.opened !== undefined && (text === edit.opened || (edit.val === edit.opened && edit.hi < 0));
+    if (!unchanged) {
+        const outcome = ctx.parse(edit.r, edit.c, text);
+        effects.push({ t: "write", r: edit.r, c: edit.c, cell: outcome.kind === "cell" ? outcome.cell : outcome.kind === "unrecognised" ? variant("Invalid", text) : null, text });
+    }
     let next: SheetUiState = { ...s, edit: null, armed: null };
     if (dir !== "blur") effects.push({ t: "focus.sheet" });
     next = moveAfterCommit(next, dir, ctx, effects);

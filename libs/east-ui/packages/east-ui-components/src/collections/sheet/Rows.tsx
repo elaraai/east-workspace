@@ -650,7 +650,7 @@ export const SheetGroupRow = memo(function SheetGroupRow(props: SheetGroupRowPro
     const titleSelected = selC !== undefined && selC < span && editor === undefined;
     const titleEditing = editor !== undefined && editor.c < span;
     const word = group.noun.singular;
-    // The line count, in the app's locale (#850).
+    // The line count and the band cells' titles, in the app's locale (#850, #852).
     const words = useFormatters();
     return (
         <Box
@@ -736,7 +736,7 @@ export const SheetGroupRow = memo(function SheetGroupRow(props: SheetGroupRowPro
                             onMouseDown={(e) => props.onCellDown(r, c, e)}
                             onDoubleClick={() => props.onCellDouble(r, c)}
                             onMouseEnter={() => props.onCellEnter(r, c)}
-                            title={meta !== undefined ? `${colMeta.header} — ${cellText(cell, meta)}` : undefined}
+                            title={meta !== undefined ? `${colMeta.header} — ${cellText(cell, meta, words)}` : undefined}
                         >
                             {inRange && <Box css={styles.rangeWash} data-slot="rangeWash" />}
                             {meta !== undefined && (

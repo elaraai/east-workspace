@@ -5,21 +5,31 @@
 
 /**
  * The clipboard matrix (B§10): copy is tab-separated — dates `d/m/yyyy`,
- * numbers bare, a link cell as TWO columns (From, To) printed through the
- * grammar; paste lands at the selection, each cell parsed by its kind, a
- * stamped column skipped, a link column consuming two clipboard cells.
+ * numbers bare with the viewer's decimal separator (`1234,5` in German, what
+ * a spreadsheet in that language reads, #852), a link cell as TWO columns
+ * (From, To) printed through the grammar; paste lands at the selection, each
+ * cell parsed by its kind, a stamped column skipped, a link column consuming
+ * two clipboard cells.
  *
  * @packageDocumentation
  */
 
+import type { Formatters } from "../../format/index.js";
 import { formatDateClipboard } from "./parse/date.js";
 import { formatNumberBare } from "./parse/quantity.js";
 import { linkHalvesText } from "./parse/index.js";
 import type { SheetColumnMeta } from "./model.js";
 import type { SheetCellValue } from "./values.js";
 
-/** A cell's clipboard text — one column, or two for a link. */
-export function exportCell(cell: SheetCellValue | undefined, meta: SheetColumnMeta): string[] {
+/**
+ * A cell's clipboard text — one column, or two for a link.
+ *
+ * @param cell - The cell
+ * @param meta - Its column
+ * @param words - The viewer's formatters (a number's decimal separator)
+ * @returns The clipboard cells
+ */
+export function exportCell(cell: SheetCellValue | undefined, meta: SheetColumnMeta, words: Formatters): string[] {
     if (meta.kind === "link" || meta.kind === "set") {
         if (cell === undefined || cell.type !== "Link") return meta.kind === "link" ? ["", ""] : [""];
         const [from, to] = linkHalvesText(cell.value);
@@ -28,7 +38,7 @@ export function exportCell(cell: SheetCellValue | undefined, meta: SheetColumnMe
     if (cell === undefined || cell.type === "Null") return [""];
     switch (cell.type) {
         case "DateTime": return [formatDateClipboard(cell.value)];
-        case "Float": return [formatNumberBare(cell.value)];
+        case "Float": return [formatNumberBare(cell.value, words)];
         case "Integer": return [String(cell.value)];
         case "Invalid":
         case "String": return [cell.value];
@@ -38,11 +48,22 @@ export function exportCell(cell: SheetCellValue | undefined, meta: SheetColumnMe
     return [""];
 }
 
-/** A block of cells as tab-separated lines; `skipRow` leaves rows out (a group's band, #740 G9). */
+/**
+ * A block of cells as tab-separated lines; `skipRow` leaves rows out (a
+ * group's band, #740 G9).
+ *
+ * @param cellAt - The cell at a row and column
+ * @param columns - The columns
+ * @param rect - The block
+ * @param words - The viewer's formatters (a number's decimal separator)
+ * @param skipRow - Rows to leave out
+ * @returns The clipboard text
+ */
 export function exportMatrix(
     cellAt: (r: number, c: number) => SheetCellValue | undefined,
     columns: readonly SheetColumnMeta[],
     rect: { r0: number; r1: number; c0: number; c1: number },
+    words: Formatters,
     skipRow?: (r: number) => boolean,
 ): string {
     const lines: string[] = [];
@@ -52,7 +73,7 @@ export function exportMatrix(
         for (let c = rect.c0; c <= rect.c1; c++) {
             const meta = columns[c];
             if (meta === undefined) continue;
-            cells.push(...exportCell(cellAt(r, c), meta));
+            cells.push(...exportCell(cellAt(r, c), meta, words));
         }
         lines.push(cells.join("\t"));
     }

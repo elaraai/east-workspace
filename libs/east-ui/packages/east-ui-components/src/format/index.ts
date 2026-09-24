@@ -56,6 +56,10 @@ export type ValueFormat = ValueTypeOf<typeof Chart.Spec.Types.TickFormat>;
 export interface Formatters {
     /** The BCP 47 locale every arm formats in. */
     readonly locale: string;
+    /** The locale's digit-group and decimal separators — `,` and `.` (`.`
+     *  and `,` in `de-DE`; a narrow no-break space and `,` in `fr-FR`): what
+     *  a number typed in this locale is read with (the Sheet's grammar, #852). */
+    readonly separators: { readonly group: string; readonly decimal: string };
     /** A plain number — the default arm, the one an undeclared cell or a
      *  count uses: `1,234.5` (`1.234,5` in `de-DE`). */
     number(n: number | bigint): string;
@@ -316,6 +320,7 @@ function build(locale: string): Formatters {
     // `maximumFractionDigits` wide enough for every float prints 0.1 as
     // 0.1000000000000000055….
     const decimal = plain.formatToParts(1.5).find((p) => p.type === "decimal")?.value ?? ".";
+    const group = plain.formatToParts(1234567).find((p) => p.type === "group")?.value ?? ",";
     const pct = numberFormat({ style: "percent", maximumFractionDigits: 0 });
     const compact = numberFormat({ notation: "compact", maximumFractionDigits: 1 });
     const whole = numberFormat({ useGrouping: false, maximumFractionDigits: 0 });
@@ -327,6 +332,7 @@ function build(locale: string): Formatters {
     const date = dateArm(rangeFormat);
     return {
         locale,
+        separators: { group, decimal },
         number: (n) => plain.format(n),
         bare: (n) => (typeof n === "bigint" ? n.toString() : String(n).replace(".", decimal)),
         float: (n) => printFloat(n).replace(".", decimal),

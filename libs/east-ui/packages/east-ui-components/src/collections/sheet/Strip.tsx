@@ -28,6 +28,7 @@ import { Box, chakra } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faChevronLeft, faChevronRight } from "@fortawesome/free-solid-svg-icons";
 import { getSomeorUndefined } from "../../utils.js";
+import type { Formatters } from "../../format/index.js";
 import { candidateList, candidateAt, type CandidateContext } from "./candidates.js";
 import { cellText, formatQuantity, memberLabel, type SheetColumnMeta } from "./model.js";
 import type { LinkCandidate } from "./link/predict.js";
@@ -77,6 +78,8 @@ const OFF: StripModel = { on: false, label: "", chips: [], meta: "", keys: "" };
 
 /** What the strip reads beside the edit buffer. */
 export interface StripInput {
+    /** The viewer's formatters — a number reads and previews in their language, as the cells print (#852). */
+    words: Formatters;
     edit: EditBuffer | null;
     meta: SheetColumnMeta | undefined;
     candidates: CandidateContext | undefined;
@@ -205,22 +208,24 @@ export function buildStrip(input: StripInput): StripModel {
         }
         case "quantity":
         case "integer": {
-            // The number field: digits and a decimal point; a pasted `1.2k` still parses through the grammar.
+            // The number field: digits and the viewer's decimal separator; a pasted `1.2k` still parses through the grammar (#852).
+            const words = input.words;
+            const accepts = meta.kind === "quantity" ? `${words.bare(1200)} · ${words.bare(1200.5)}` : words.bare(1200);
             if (empty) {
-                return { on: true, label: `${header} · accepts`, chips: flat(meta.kind === "quantity" ? "number + unit" : "number"), meta: meta.kind === "quantity" ? "1200 · 1200.5" : "1200", keys: "↑↓ step · ⏎ commit" };
+                return { on: true, label: `${header} · accepts`, chips: flat(meta.kind === "quantity" ? "number + unit" : "number"), meta: accepts, keys: "↑↓ step · ⏎ commit" };
             }
-            const n = parseQuantity(edit.val);
+            const n = parseQuantity(edit.val, words.separators);
             if (n === null || n === undefined) {
-                return { on: true, label: header, chips: flat("unrecognised"), meta: "", keys: meta.kind === "quantity" ? "1200 · 1200.5" : "1200" };
+                return { on: true, label: header, chips: flat("unrecognised"), meta: "", keys: accepts };
             }
             const unit = meta.kind === "quantity" && input.unit !== undefined ? ` ${input.unit}` : "";
-            return { on: true, label: header, chips: flat(`${formatQuantity(n, meta.kind === "quantity" ? meta.format : undefined)}${unit}`), meta: "", keys: "↑↓ step · ⏎ commit" };
+            return { on: true, label: header, chips: flat(`${formatQuantity(n, meta.kind === "quantity" ? meta.format : undefined, words)}${unit}`), meta: "", keys: "↑↓ step · ⏎ commit" };
         }
         case "custom": {
             if (empty) return { on: true, label: `${header} · accepts`, chips: flat(meta.accepts ?? "a value"), meta: "", keys: "type to parse" };
             const p = input.customPreview;
             if (p === undefined || p === null) return { on: true, label: header, chips: flat("unrecognised"), meta: meta.accepts ?? "", keys: "" };
-            return { on: true, label: header, chips: flat(cellText(p, meta)), meta: meta.accepts ?? "", keys: "" };
+            return { on: true, label: header, chips: flat(cellText(p, meta, input.words)), meta: meta.accepts ?? "", keys: "" };
         }
         default:
             return OFF;

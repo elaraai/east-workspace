@@ -25,8 +25,7 @@
 
 import { none, variant } from "@elaraai/east";
 import { formatDatePattern } from "../../charts/spec/index.js";
-import type { Formatters } from "../../format/index.js";
-import { formatTick, type TickFormatOpt } from "../../typography/numeric/format-tick.js";
+import type { Formatters, TickFormatOpt } from "../../format/index.js";
 import { getSomeorUndefined } from "../../utils.js";
 import type {
     SheetCellValue, SheetColumnValue, SheetContextValue, SheetCustomKindValue, SheetGroupValue, SheetLineValue, SheetLinkValue, SheetMemberValue,
@@ -450,10 +449,18 @@ export function printLinkText(link: SheetLinkValue): string {
     return b;
 }
 
-/** A quantity's display text — locale-grouped through the declared format. */
-export function formatQuantity(n: number, format: TickFormatOpt): string {
+/**
+ * A quantity's display text — through the declared format, in the viewer's
+ * language (#852): `1,234.5`, `1.234,5` in German.
+ *
+ * @param n - The number
+ * @param format - The column's declared format; `undefined` for a plain grouped number
+ * @param words - The viewer's formatters
+ * @returns The text; empty for a non-finite number
+ */
+export function formatQuantity(n: number, format: TickFormatOpt, words: Formatters): string {
     if (!Number.isFinite(n)) return "";
-    return formatTick(n, format);
+    return words.value(n, format);
 }
 
 /** A date's display text — the author's pattern, else `17 Nov 26`; East's own printer either way. */
@@ -463,9 +470,16 @@ export function formatDateCell(d: Date, pattern: string | undefined): string {
 
 /**
  * A cell's display text by kind (the read-only rendering). A link cell prints
- * through the grammar; a custom kind through its compiled `print`.
+ * through the grammar; a custom kind through its compiled `print`; a quantity
+ * or integer in the viewer's language (#852) — the language its edit box
+ * reads back.
+ *
+ * @param cell - The cell
+ * @param meta - Its column
+ * @param words - The viewer's formatters
+ * @returns The text
  */
-export function cellText(cell: SheetCellValue | undefined, meta: SheetColumnMeta): string {
+export function cellText(cell: SheetCellValue | undefined, meta: SheetColumnMeta, words: Formatters): string {
     if (cell === undefined || cell.type === "Null") return "";
     if (cell.type === "Invalid") return cell.value;
     switch (meta.kind) {
@@ -477,11 +491,11 @@ export function cellText(cell: SheetCellValue | undefined, meta: SheetColumnMeta
         case "date":
             return cell.type === "DateTime" ? formatDateCell(cell.value, meta.dateFormat) : rawCellText(cell);
         case "quantity":
-            return cell.type === "Float" ? formatQuantity(cell.value, meta.format)
-                : cell.type === "Integer" ? formatQuantity(Number(cell.value), meta.format) : rawCellText(cell);
+            return cell.type === "Float" ? formatQuantity(cell.value, meta.format, words)
+                : cell.type === "Integer" ? formatQuantity(Number(cell.value), meta.format, words) : rawCellText(cell);
         case "integer":
-            return cell.type === "Integer" ? formatQuantity(Number(cell.value), undefined)
-                : cell.type === "Float" ? formatQuantity(cell.value, undefined) : rawCellText(cell);
+            return cell.type === "Integer" ? formatQuantity(Number(cell.value), undefined, words)
+                : cell.type === "Float" ? formatQuantity(cell.value, undefined, words) : rawCellText(cell);
         default:
             return rawCellText(cell);
     }

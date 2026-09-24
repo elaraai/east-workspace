@@ -109,6 +109,35 @@ describe("editing", () => {
         expect(run(open, [ekey("Escape")]).effects.some(effect => effect.t === "write")).toBe(false);
     });
 
+    test("an editor closed on the text it opened with writes nothing, however it closes; a change or a seed writes (#852)", () => {
+        const wrote = (t: { effects: SheetEffect[] }) => t.effects.some((e) => e.t === "write");
+        const opened = run(initialSheetState({ r: 1, c: 1 }), [key("Enter")]).state;
+        expect(opened.edit).toMatchObject({ val: "v11", opened: "v11" });
+        for (const event of [ekey("Enter"), ekey("Tab"), ekey("ArrowUp"), { t: "editor.blur" } as SheetEvent, { t: "cell.down", r: 2, c: 0, shift: false } as SheetEvent]) {
+            const closed = run(opened, [event]);
+            expect(closed.state.edit).toBeNull();
+            expect(wrote(closed)).toBe(false);
+        }
+        // It still moves the way a commit does.
+        expect(run(opened, [ekey("Enter")]).state.sel).toEqual({ r: 2, c: 1 });
+        // Typed away and back: the same text, nothing to write.
+        expect(wrote(run(opened, [{ t: "editor.change", val: "v1" }, { t: "editor.change", val: "v11" }, ekey("Enter")]))).toBe(false);
+        expect(run(opened, [{ t: "editor.change", val: "w" }, ekey("Enter")]).effects).toContainEqual({ t: "write", r: 1, c: 1, cell: cell("String", "w"), text: "w" });
+        // A printable key replaced the cell: its commit always writes.
+        expect(run(initialSheetState({ r: 1, c: 1 }), [key("v"), { t: "editor.change", val: "v11" }]).state.edit?.opened).toBeUndefined();
+        expect(wrote(run(initialSheetState({ r: 1, c: 1 }), [key("v"), { t: "editor.change", val: "v11" }, ekey("Enter")]))).toBe(true);
+    });
+
+    test("an untouched register cell never takes the ghost its own value shows; a cycled candidate or a taken ghost writes (#852)", () => {
+        // The cell holds `ma`, which the candidates complete to Machining.
+        const ctx = ctxOf({ editTextAt: () => "ma" });
+        const opened = run(initialSheetState(), [key("Enter")], ctx).state;
+        expect(run(opened, [ekey("Enter")], ctx).effects.some((e) => e.t === "write")).toBe(false);
+        const cycled = run(opened, [ekey("]", { alt: true }), ekey("Enter")], ctx);
+        expect(cycled.effects).toContainEqual({ t: "write", r: 0, c: 0, cell: cell("String", "Machining - Roughing"), text: "Machining - Roughing" });
+        expect(run(opened, [ekey("Tab"), ekey("Enter")], ctx).effects.some((e) => e.t === "write")).toBe(true);
+    });
+
     test("esc cancels and refocuses the sheet; an empty buffer commits a blank", () => {
         const open = run(initialSheetState(), [key("x")]).state;
         const cancelled = run(open, [ekey("Escape")]);

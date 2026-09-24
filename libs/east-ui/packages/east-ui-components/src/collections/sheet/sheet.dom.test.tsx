@@ -13,9 +13,10 @@
  * calls are the ones East emits.
  */
 
-import { describe, test, expect, afterEach, beforeEach } from "vitest";
+import { describe, test, expect, afterEach, beforeEach, vi } from "vitest";
 import { render, cleanup, fireEvent, waitFor, act } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
+import { I18nProvider } from "@react-aria/i18n";
 import {
     ArrayType, DateTimeType, East, FloatType, IntegerType, OptionType, StringType, StructType,
     none, some, variant, type ValueTypeOf,
@@ -58,13 +59,18 @@ const STATUSES = [
     { word: "RELEASED", tone: variant("info", null) },
     { word: "CANCELLED", tone: variant("danger", null) },
 ];
+/** j1 holds a fraction, so a whole-number re-read would show (#852). */
+const ROWS_FRACTION = [{ ...ROWS[0]!, qty: some(1234.5) }, ROWS[1]!];
+/** j1 holds more digits than the number field shows (`0.3`). */
+const ROWS_NOISE = [{ ...ROWS[0]!, qty: some(0.30000000000000004) }, ROWS[1]!];
 
-type Options = { selection?: boolean; readOnly?: boolean; blanks?: number };
+type Options = { selection?: boolean; readOnly?: boolean; blanks?: number; rows?: ValueTypeOf<typeof JobType>[] };
 
 /** Build the sheet the way an author does and unwrap the `Sheet` arm. */
 function buildSheet(opts: Options = {}): SheetRootValue {
+    const data = opts.rows ?? ROWS;
     const program = East.function([], UIComponentType, ($) => {
-        const rows = $.const(ROWS, ArrayType(JobType));
+        const rows = $.const(data, ArrayType(JobType));
         const statuses = $.const(STATUSES, ArrayType(StatusType));
         return Sheet.Root(rows, {
             start: Sheet.column.date(JobType, { header: "Start", sub: "d/m · fri · +3d" }),
@@ -115,10 +121,12 @@ function withSpies(root: SheetRootValue) {
     return { value, edits, selects, draft: journal.draft };
 }
 
-function mount(value: SheetRootValue) {
+/** Mount the sheet; with `locale`, under an `I18nProvider` in that language (#852). */
+function mount(value: SheetRootValue, locale?: string) {
+    const sheet = <EastChakraSheet value={value} storageKey="sheet-test" />;
     const utils = render(
         <ChakraProvider value={system}>
-            <EastChakraSheet value={value} storageKey="sheet-test" />
+            {locale !== undefined ? <I18nProvider locale={locale}>{sheet}</I18nProvider> : sheet}
         </ChakraProvider>,
     );
     const card = utils.container.querySelector("[data-sheet-card]") as HTMLElement;
@@ -385,6 +393,93 @@ describe("the clipboard", () => {
         expect(cell(1, "qty").textContent).toBe("18,000");
         expect(edits[0]!.origin.type).toBe("pasted");
         expect(container.querySelectorAll('[data-slot="rangeWash"]')).toHaveLength(3);
+    });
+});
+
+describe("numbers in the viewer's language (#852)", () => {
+    test("German: a quantity shows 1.234,5, the edit box opens on 1234,5, ⏎ leaves it as it was, and copy writes 1234,5", async () => {
+        const { value, edits } = withSpies(buildSheet({ rows: ROWS_FRACTION }));
+        const { container, card, cell, key, editorKey, input, flush } = mount(value, "de-DE");
+        expect(cell(0, "qty").textContent).toBe("1.234,5");
+        fireEvent.mouseDown(cell(0, "qty"), { button: 0 });
+        key("Enter");
+        await flush();
+        expect(input()!.value).toBe("1234,5");
+        editorKey("Enter");
+        await flush();
+        expect(input()).toBeNull();
+        expect(cell(1, "qty").hasAttribute("data-selected")).toBe(true);
+        expect(edits).toHaveLength(0);
+        expect(cell(0, "qty").textContent).toBe("1.234,5");
+        // Copy: the bare form a German spreadsheet reads as 1234.5.
+        fireEvent.mouseDown(cell(0, "qty"), { button: 0 });
+        const set = new Map<string, string>();
+        fireEvent.copy(card, { clipboardData: { setData: (k: string, v: string) => set.set(k, v), getData: () => "" } });
+        expect(set.get("text/plain")).toBe("1234,5");
+        expect(container.querySelector('[data-slot="footerMessage"]')!.textContent).toBe("Copied 1×1 to clipboard");
+    });
+
+    test("German: typing 1.234 saves 1234, 1.234,5 saves 1235 (the whole-number rule), 1,5k saves 1500; a paste reads the same", async () => {
+        const { value, draft } = withSpies(buildSheet({ rows: ROWS_FRACTION }));
+        const { card, cell, key, type, editorKey, flush } = mount(value, "de-DE");
+        for (const [text, n] of [["1.234", 1234], ["1.234,5", 1235], ["1,5k", 1500]] as const) {
+            fireEvent.mouseDown(cell(1, "qty"), { button: 0 });
+            key("1");
+            await flush();
+            type(text);
+            await flush();
+            editorKey("Enter");
+            await flush();
+            expect(draft("j2", Sheet.Types.Draft(JobType)).qty).toEqual(variant("value", some(n)));
+        }
+        expect(cell(1, "qty").textContent).toBe("1.500");
+        fireEvent.mouseDown(cell(1, "qty"), { button: 0 });
+        fireEvent.paste(card, { clipboardData: { getData: () => "2.345,5" } });
+        await flush();
+        expect(draft("j2", Sheet.Types.Draft(JobType)).qty).toEqual(variant("value", some(2346)));
+        expect(cell(1, "qty").textContent).toBe("2.346");
+    });
+
+    test("English: the cell and the edit box are as they always were, and ⏎ on the unchanged box leaves 1234.5 as it was", async () => {
+        const { value, edits } = withSpies(buildSheet({ rows: ROWS_FRACTION }));
+        const { cell, key, editorKey, input, flush } = mount(value, "en-US");
+        expect(cell(0, "qty").textContent).toBe("1,234.5");
+        fireEvent.mouseDown(cell(0, "qty"), { button: 0 });
+        key("Enter");
+        await flush();
+        expect(input()!.value).toBe("1234.5");
+        editorKey("Enter");
+        await flush();
+        expect(input()).toBeNull();
+        expect(edits).toHaveLength(0);
+        expect(cell(0, "qty").textContent).toBe("1,234.5");
+    });
+
+    test("a value with more digits than the number field shows opens rounded in the box, and ⏎ or a blur leaves it as it was", async () => {
+        const { value, edits } = withSpies(buildSheet({ rows: ROWS_NOISE }));
+        const { cell, key, editorKey, input, flush } = mount(value, "de-DE");
+        fireEvent.mouseDown(cell(0, "qty"), { button: 0 });
+        key("Enter");
+        await flush();
+        expect(input()!.value).toBe("0,3");
+        editorKey("Enter");
+        await flush();
+        expect(input()).toBeNull();
+        expect(edits).toHaveLength(0);
+        // A blur (past the grace after opening) commits the same way.
+        fireEvent.mouseDown(cell(0, "qty"), { button: 0 });
+        key("Enter");
+        await flush();
+        const later = Date.now() + 1_000;
+        const clock = vi.spyOn(Date, "now").mockReturnValue(later);
+        try {
+            fireEvent.blur(input()!);
+        } finally {
+            clock.mockRestore();
+        }
+        await flush();
+        expect(input()).toBeNull();
+        expect(edits).toHaveLength(0);
     });
 });
 

@@ -45,6 +45,7 @@ import type { DateValue } from "@internationalized/date";
 import { CompoundDateField, CompoundDateInput, CompoundDateSegment } from "../../forms/input/date/index.js";
 import { dateToCalendarDate, dateValueToDate } from "../../forms/input/index.js";
 import { useDensity } from "../../contracts/density.js";
+import { useFormatters } from "../../format/index.js";
 import { memberIsDashed, memberLabel, type SheetKind } from "./model.js";
 import { formatDateEdit, splitTimeToken, type WhenLevel } from "./parse/date.js";
 import type { LinkVocabulary } from "./link/grammar.js";
@@ -134,6 +135,22 @@ const NO_OPTIONS: readonly EditorOption[] = [];
 /** The keys the machine owns on the combobox — captured before the combobox's own handlers. */
 const COMBOBOX_MACHINE_KEYS = new Set(["Enter", "Escape", "Tab", "ArrowUp", "ArrowDown"]);
 
+/**
+ * The number field's own format, in the viewer's language (#852): the bare
+ * edit form, never grouped — `1234,5` in German. Without format options the
+ * field reads with `parseFloat` and prints with `String` whatever its locale,
+ * so `1234,5` would open as `1234`. Fifteen significant digits: a float prints
+ * as it was written up to there (it carries about sixteen). The field shows
+ * and takes the bare form, so a group separator is never typed into it; a
+ * pasted grouped number still reads through the grammar. On ⏎ and on a blur
+ * the field rewrites its value in this format, but its handlers run after
+ * the editor's (Zag merges the given handlers first), so a commit always
+ * reads the buffer, never that rewrite.
+ */
+const NUMBER_FORMAT: Intl.NumberFormatOptions = { useGrouping: false, maximumSignificantDigits: 15 };
+/** An integer column's number field: whole numbers, every digit. */
+const INTEGER_FORMAT: Intl.NumberFormatOptions = { useGrouping: false, maximumFractionDigits: 0 };
+
 /** The window after a hop in which a blur is the OLD input going away, not the planner leaving. */
 const HOP_GRACE_MS = 300;
 
@@ -160,6 +177,8 @@ function segmentsOf(root: HTMLElement | null): HTMLElement[] {
 export const SheetEditor = memo(function SheetEditor({ styles, kind, value, date, seed, ghost, resolve, badge, error, focus, ariaLabel, link, options, highlighted, browse, onPick, whenLevel, onChange, onKey, onBlur, onHalfDown }: SheetEditorProps) {
     const density = useDensity();
     const controlSize = density === "comfortable" ? "md" : density === "condensed" ? "xs" : "sm";
+    // The number field reads and steps the buffer in the viewer's language — the one the cells print and the grammar reads (#852).
+    const { locale } = useFormatters();
     const rootRef = useRef<HTMLDivElement | null>(null);
     const inputRef = useRef<HTMLInputElement | null>(null);
     const lastFocus = useRef("");
@@ -348,6 +367,8 @@ export const SheetEditor = memo(function SheetEditor({ styles, kind, value, date
             css={styles.editorNumber}
             data-slot="editorNumber"
             value={value}
+            locale={locale}
+            formatOptions={kind === "integer" ? INTEGER_FORMAT : NUMBER_FORMAT}
             inputMode={kind === "integer" ? "numeric" : "decimal"}
             onValueChange={(d) => onChange(d.value)}
         >
