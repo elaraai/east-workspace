@@ -790,6 +790,81 @@ describe("a key-search jump owns the viewport (#854)", () => {
     }, HELD_TEST_MS);
 });
 
+describe("a window loading above the rows never hides them (#876)", () => {
+    test("scrolling up into a window still loading keeps the rows on screen; landing, its rows join above in its place, and an open editor stays on its row", async () => {
+        const restore = emulateWindowScroll();
+        try {
+            const held = heldSheet(8_000);
+            const { container, key, input, flush } = mount(held.value);
+            await waitFor(() => expect(container.querySelector('[data-row-id="r000"]')).toBeTruthy(), { timeout: 15_000 });
+            await seekKey(container, "r6000");
+            await waitFor(() => expect(container.querySelector('[data-row-id="r6000"] [data-key="task"]')?.hasAttribute("data-selected")).toBe(true), { timeout: 10_000 });
+            await flush();
+            // The run around the sought row starts at the first row drawn; an editor opens on a row near its top.
+            const first = Number(container.querySelector('[data-slot="row"][data-row-id]')!.getAttribute("data-row-id")!.slice(1));
+            const above = Math.floor(first / SHEET_PAGE_SIZE) - 1;
+            const rowOf = (n: number) => container.querySelector(`[data-row-id="r${n}"]`) as HTMLElement | null;
+            const row = () => rowOf(first + 5)!;
+            const cell = () => row().querySelector('[data-key="task"]') as HTMLElement;
+            fireEvent.mouseDown(cell(), { button: 0 });
+            key("Enter");
+            await flush();
+            expect(input()!.value).toBe(`Task ${first + 5}`);
+            const top = offsetOf(row());
+            // The window above the run stays on the wire; the one above THAT lands at once.
+            held.state.inFlight.add(above);
+            // Scroll up: the view is centred ten rows above the run, in the held window's slot.
+            const rowPx = parseFloat(row().style.minHeight);
+            act(() => { window.scrollTo({ top: offsetOf(rowOf(first)!) - 10 * rowPx - window.innerHeight / 2 }); });
+            await waitFor(() => expect(held.state.asked).toContain(above - 1), { timeout: 10_000 });
+            await flush();
+            // The rows stay, the editor with them, and nothing has moved.
+            expect(rowOf(first)).toBeTruthy();
+            expect(rowOf(above * SHEET_PAGE_SIZE)).toBeNull();
+            expect(rowOf((above - 1) * SHEET_PAGE_SIZE)).toBeNull();
+            expect(cell().querySelector('[data-slot="editorInput"]')).toBe(input());
+            expect(offsetOf(row())).toBe(top);
+            // The held window lands: its rows and the ones above it join above, in the band's place.
+            held.state.inFlight.delete(above);
+            held.touch();
+            await waitFor(() => expect(rowOf(above * SHEET_PAGE_SIZE)).toBeTruthy(), { timeout: 10_000 });
+            expect(rowOf((above - 1) * SHEET_PAGE_SIZE)).toBeTruthy();
+            expect(offsetOf(row())).toBe(top);
+            expect(cell().querySelector('[data-slot="editorInput"]')).toBe(input());
+            expect(input()!.value).toBe(`Task ${first + 5}`);
+        } finally {
+            restore();
+        }
+    }, HELD_TEST_MS);
+
+    test("a jump whose target lands before the window above it shows the target at once; landing, that window's rows join above and the row stays where it was shown", async () => {
+        const restore = emulateWindowScroll();
+        try {
+            const held = heldSheet(8_000);
+            // Window 29, above element 6,000's, stays on the wire.
+            held.state.inFlight.add(29);
+            const { container } = mount(held.value);
+            await waitFor(() => expect(container.querySelector('[data-row-id="r000"]')).toBeTruthy(), { timeout: 15_000 });
+            await seekKey(container, "r6000");
+            const cell = () => container.querySelector('[data-row-id="r6000"] [data-key="task"]');
+            await waitFor(() => expect(cell()?.hasAttribute("data-selected")).toBe(true), { timeout: 10_000 });
+            expect(container.querySelector('[data-row-id="r5800"]')).toBeNull();
+            const row = container.querySelector('[data-row-id="r6000"]') as HTMLElement;
+            await waitFor(() => expect(window.scrollY).toBeGreaterThan(0));
+            const top = offsetOf(row);
+            expect(window.scrollY).toBeLessThanOrEqual(top);
+            expect(top + parseFloat(row.style.minHeight)).toBeLessThanOrEqual(window.scrollY + window.innerHeight);
+            held.state.inFlight.delete(29);
+            held.touch();
+            await waitFor(() => expect(container.querySelector('[data-row-id="r5800"]')).toBeTruthy(), { timeout: 10_000 });
+            expect(offsetOf(container.querySelector('[data-row-id="r6000"]')!)).toBe(top);
+            expect(cell()?.hasAttribute("data-selected")).toBe(true);
+        } finally {
+            restore();
+        }
+    }, HELD_TEST_MS);
+});
+
 describe("failure is local (#853)", () => {
     test("a window that cannot be read is its own band with the reason and a Retry; the rows around it, the ring, the open editor and the drafts stay; Retry lands it once the source is back", async () => {
         const logged = vi.spyOn(console, "error").mockImplementation(() => {});

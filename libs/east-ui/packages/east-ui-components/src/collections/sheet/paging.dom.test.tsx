@@ -7,8 +7,9 @@
  * The paged sheet's driver (Sheet Spec §3.13, §5 row 21): the resident run
  * is contiguous from the top, the tail band describes the rest, exhaustion
  * arrives with the last window, an unreadable source reports why, a new
- * revision keeps the rows on screen until its own land (#851), and a failure
- * belongs to its window (#853).
+ * revision keeps the rows on screen until its own land (#851), a failure
+ * belongs to its window (#853), a jump owns the viewport (#854), and a window
+ * loading beside the run never hides it (#876).
  */
 
 import { describe, test, expect, afterEach, vi } from "vitest";
@@ -159,22 +160,94 @@ describe("sheet paging — moving", () => {
         await waitFor(() => expect(latest!.rowsOffset).toBe(0));
     });
 
-    test("a jump settles only once every window up to its target is in: the target landing with the window above it still on the wire keeps it pending (#854)", async () => {
+});
+
+describe("sheet paging — a window loading beside the run never hides it (#876)", () => {
+    test("a jump settles once its target's window is in the run, the window above it still on the wire: that window is the head band's until it lands, then its rows join above in its slot", async () => {
         const inFlight = new Set([199, 200]);
         const { value, asked } = source(50_000, { inFlight });
         const { rerender } = render(<Harness src={value} />);
         await waitFor(() => expect(text("rows")).toBe("0+600"));
         act(() => { latest!.jumpToElement(40_000); });
         await waitFor(() => expect(asked).toContain(202));
-        // The target lands; the window above it (the run's first) has not.
+        // The target lands; the window above it (the residency's first) has not.
         inFlight.delete(200);
         rerender(<Harness src={{ ...value }} />);
-        await waitFor(() => expect(asked.filter((w) => w === 200).length).toBeGreaterThanOrEqual(2));
-        expect(latest!.jump).toEqual({ window: 200, settled: false });
+        await waitFor(() => expect(latest!.jump).toEqual({ window: 200, settled: true }));
+        expect(text("rows")).toBe("40000+600");
+        expect(latest!.positions).toContain(40_000);
+        expect(text("head")).toBe("0-39999");
+        expect(latest!.loading).toBe(true);
+        // It lands: its rows join above, and the head band gives up exactly their height.
+        const headPx = latest!.head!.px;
         inFlight.delete(199);
         rerender(<Harness src={{ ...value }} />);
+        await waitFor(() => expect(text("rows")).toBe("39800+800"));
+        expect(text("head")).toBe("0-39799");
+        expect(latest!.head!.px).toBe(headPx - 200 * 36);
+    });
+
+    test("a near jump follows its target past a window still loading: the rows it leaves are the head band's until the gap lands", async () => {
+        const inFlight = new Set([3]);
+        const { value, asked } = source(2_000, { inFlight });
+        const { rerender } = render(<Harness src={value} />);
+        await waitFor(() => expect(text("rows")).toBe("0+600"));
+        // Element 900 is in window 4 — near enough that the run extends to it rather than rebasing.
+        act(() => { latest!.jumpToElement(900); });
+        await waitFor(() => expect(asked).toContain(6));
+        await waitFor(() => expect(latest!.jump).toEqual({ window: 4, settled: true }));
+        expect(text("rows")).toBe("800+600");
+        expect(latest!.positions).toContain(900);
+        expect(text("head")).toBe("0-799");
+        // Window 3 lands: the run spans it again, from the top.
+        inFlight.delete(3);
+        rerender(<Harness src={{ ...value }} />);
+        await waitFor(() => expect(text("rows")).toBe("0+1400"));
+        expect(text("head")).toBe("-");
+    });
+
+    test("a report near the run's top extends it upward, and while that window loads the rows stay — even when the window above it lands first; landing, both windows' rows join above", async () => {
+        const inFlight = new Set<number>();
+        const { value, asked } = source(50_000, { inFlight });
+        const { rerender } = render(<Harness src={value} />);
+        await waitFor(() => expect(text("rows")).toBe("0+600"));
+        act(() => { latest!.jumpToElement(40_000); });
         await waitFor(() => expect(latest!.jump).toEqual({ window: 200, settled: true }));
-        expect(latest!.positions).toContain(40_000);
+        act(() => { latest!.clearJump(); });
+        expect(text("rows")).toBe("39800+800");
+        // Window 198 stays on the wire; 197, above it, lands at once.
+        inFlight.add(198);
+        // The viewport is centred ten rows above the run, in window 198's slot.
+        report({ kind: "band", at: "head", px: latest!.head!.px - 10 * 36 });
+        await waitFor(() => expect(asked).toContain(197));
+        expect(asked).toContain(198);
+        expect(text("rows")).toBe("39800+800");
+        expect(text("head")).toBe("0-39799");
+        expect(latest!.loading).toBe(true);
+        inFlight.delete(198);
+        rerender(<Harness src={{ ...value }} />);
+        await waitFor(() => expect(text("rows")).toBe("39400+1200"));
+        expect(text("head")).toBe("0-39399");
+    });
+
+    test("scrolling down into a window still loading keeps the rows above it, and a report from the tail band is measured from the band's own top", async () => {
+        const inFlight = new Set([3]);
+        const { value, asked } = source(2_000, { inFlight });
+        const { rerender } = render(<Harness src={value} />);
+        await waitFor(() => expect(text("rows")).toBe("0+600"));
+        // The viewport is centred ten rows into the tail band: window 3, still loading.
+        report({ kind: "band", at: "tail", px: 10 * 36 });
+        await waitFor(() => expect(asked).toContain(5));
+        // Windows 4 and 5, past it, land; the rows above it stay.
+        expect(text("rows")).toBe("0+600");
+        expect(text("tail")).toBe("600-1999");
+        // The same place reported again: the band starts after the run, not after
+        // the residency, so the demand does not run ahead of the viewport.
+        report({ kind: "band", at: "tail", px: 10 * 36 });
+        expect([...new Set(asked)].sort((a, b) => a - b)).toEqual([0, 1, 2, 3, 4, 5]);
+        inFlight.delete(3);
+        rerender(<Harness src={{ ...value }} />);
+        await waitFor(() => expect(text("rows")).toBe("0+1200"));
     });
 });
 

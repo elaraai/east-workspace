@@ -1261,7 +1261,7 @@ behaviour lives and how it is tested.
 | 18 | Strip states (six) with their label · chips · meta · keys, plus the pending chip; nothing ever floats over the sheet (B§9) | `Strip.tsx` | DOM |
 | 19 | Footer: counts · state-sensitive key hint · right-aligned `aria-live` message for every action · the paged transport line (B§9) | `Footer.tsx` | DOM |
 | 20 | Clipboard: copy tab-separated, dates `d/m/yyyy`, numbers bare, a link cell (a `Link` value) as TWO columns printed through the grammar; paste lands at the selection appending rows, each cell parsed by its kind (unparseable kept as typed), stamped skipped, a link consumes two cells and joins them; block left selected; suggestions cleared (B§10) | `clipboard.ts` | unit + DOM |
-| 21 | Paged arm: windows land on scroll through the Plan's ledger (residency, in-flight `none`, exhaustion from `total()` — every element resident; the resident run is the contiguous landed prefix, a positional row space carries no hole); the transport line counts source elements; the lens is scope-badged *loaded rows only*; the rail's search is a key search over `seek` when the source is keyed (jump rebases residency); appending needs exhaustion; `onEdit` only | `paging.ts` (adapter over the Plan stack) | DOM (Paged.of fixtures) |
+| 21 | Paged arm: windows land on scroll through the Plan's ledger (residency, in-flight `none`, exhaustion from `total()` — every element resident); the resident run is the stretch of windows that are in nearest the viewport's centre (#876): a failed window is a band where its rows would be (#853), and a window still loading ends the stretch, since a positional row space carries no hole — so a window loading beside the rows on screen never takes them off it, and landing it takes exactly its band's slot; the transport line counts source elements; the lens is scope-badged *loaded rows only*; the rail's search is a key search over `seek` when the source is keyed (the jump rebases residency and owns the viewport until its target is shown, #854); appending needs exhaustion; `onEdit` only | `paging.ts` (adapter over the Plan stack) | DOM (Paged.of and held-source fixtures) |
 | 22 | Visual rules (B§11) | recipe `sheet.ts` | shot loop |
 | 23 | Controlled selection: with `selection` present the ring follows it and the row scrolls into view; every move reports `onSelect`; on the paged arm a non-resident `rowId` seeks when the source can (§3.14) | `sheet-state.ts` + `index.tsx` | DOM |
 
@@ -1285,8 +1285,8 @@ sheet/
   use-links.ts           ~150   the link columns' wiring: vocabularies, halves and locks, checks per row value, the editor's context
   values.ts               ~40   the decoded value types, named once (`SheetRootValue`, `SheetRowValue`, `SheetCellValue`, …)
   model.ts               ~200   decoded value → sheet model: real rows + blank padding (exhaustion-aware), column index, driver lookup, cell display
-  paging.ts              ~250   the paged arm over the Plan stack: window ledger / residency, a positional read-once reader, the contiguous landed run, `total()`-driven exhaustion, `jumpToElement` for the key search
-  paging.dom.test.tsx           the driver harness: first paint, the tail band, exhaustion, a held window, a jump, an unreadable source
+  paging.ts              ~250   the paged arm over the Plan stack: window ledger / residency, a positional read-once reader, the run nearest the viewport (#876), `total()`-driven exhaustion, `jumpToElement` for the key search
+  paging.dom.test.tsx           the driver harness: first paint, the tail band, exhaustion, a held window, a jump, an unreadable source, a failed window (#853), a pending jump (#854), a window loading beside the run (#876)
   parse/date.ts          ~150   B§3 date grammar (UTC, East date tokens for display)
   parse/quantity.ts      ~60
   parse/index.ts         ~80    parse / print dispatch by kind (custom kinds call the compiled East pair)

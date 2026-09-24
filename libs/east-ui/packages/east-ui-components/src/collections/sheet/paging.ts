@@ -8,12 +8,16 @@
  * (#577: the window ledger, the residency policy) over a POSITIONAL source.
  *
  * A sheet window is an `Array<SheetRow>` in stream order, so windows
- * concatenate at their offsets (the Table rule) and the resident rows are
- * the landed run from the residency's low window: a window still in flight
- * inside the run stops the concatenation there, because a positional row
- * space cannot carry a hole it cannot place. Everything above the run is the
- * head band, everything below it the tail band, each sized by the ledger so
- * eviction moves nothing.
+ * concatenate at their offsets (the Table rule). The resident rows are the
+ * RUN: the stretch of resident windows that are in — landed, or failed —
+ * nearest the element the viewport is centred on (#876). A window still in
+ * flight ends the stretch, because a positional row space cannot carry a
+ * hole it cannot place; the windows past it are the bands' until it lands.
+ * So a window loading above the rows on screen never takes them off it, nor
+ * does one loading below — even when a window beyond it lands first.
+ * Everything above the run is the head band, everything below it the tail
+ * band, each sized by the ledger so eviction moves nothing and a window
+ * landing beside the run takes exactly its band's slot.
  *
  * # A failure belongs to its window (#853)
  *
@@ -51,9 +55,10 @@
  * every viewport report is taken from where the sheet still is — over the
  * head band the move left behind — and honouring one would move the run back
  * and undo the jump. So while a jump is pending, reports move nothing. It
- * SETTLES once the run around the target has stopped moving and every window
- * up to it has landed or failed ({@link SheetPaging.jump}) — then the
- * target's place among the rows is final. The sheet shows the target (the
+ * SETTLES once the run around the target has stopped moving and the target's
+ * window is in the run ({@link SheetPaging.jump}) — the windows above it may
+ * still be loading (#876): a window landing beside the run takes its band's
+ * slot, so nothing on screen moves. The sheet shows the target (the
  * ring on its row, or the failed band) and hands the viewport back with
  * {@link SheetPaging.clearJump}, and the reports resume from where it
  * scrolled to. The Plan's driver does the same (#812).
@@ -87,7 +92,7 @@ export type SheetViewport =
 
 /** What the driver returns. */
 export interface SheetPaging {
-    /** The resident rows — the landed run, in stream order (a failed window's rows are not among them, #853). */
+    /** The resident rows — the run nearest the viewport (#876), in stream order (a failed window's rows are not among them, #853). */
     rows: SheetRowValue[];
     /** Each resident row's source position — a row after a failed window keeps its own (#853). */
     positions: readonly number[];
@@ -95,9 +100,9 @@ export interface SheetPaging {
     rowsOffset: number;
     /** The resident windows whose read failed, ascending (#853): each is a band where its rows would be. */
     failures: readonly SheetWindowFailure[];
-    /** The unloaded run above the resident one. */
+    /** Every element above the run — not resident, still loading, or past a window still loading (#876). */
     head: SheetBand | undefined;
-    /** The unloaded run below the resident one. */
+    /** Every element below the run — not resident, still loading, or past a window still loading (#876). */
     tail: SheetBand | undefined;
     /** The source's element count, once known. */
     total: number | undefined;
@@ -111,7 +116,7 @@ export interface SheetPaging {
     error: string | undefined;
     /** Bump for `VirtualRows`' `sizeVersion` — heights change at constant count. */
     sizeVersion: number;
-    /** A pending jump (#854): its target window, and whether it has SETTLED — the run around it has stopped moving and every window up to the target has landed or failed, so the target's place among the rows is final. While one is pending it owns the viewport. */
+    /** A pending jump (#854): its target window, and whether it has SETTLED — the run around it has stopped moving and the target's window is in the run (#876), so the sheet can show it. While one is pending it owns the viewport. */
     jump: { window: number; settled: boolean } | undefined;
     /** Tell the driver where the viewport is. Ignored while a jump is pending (#854). */
     reportViewport: (at: SheetViewport, isScrolling: boolean) => void;
@@ -184,7 +189,10 @@ export function useSheetPaging(
 ): SheetPaging {
     const [ledger, setLedger] = useState<WindowLedger>(() => createLedger(0, SHEET_PAGE_SIZE));
     const [residency, setResidency] = useState<Residency>(NO_RESIDENCY);
-    const [viewportWindow, setViewportWindow] = useState(0);
+    // The element the viewport is centred on — its window is the demand's,
+    // and the run is the stretch nearest it (#876).
+    const [viewportAt, setViewportAt] = useState(0);
+    const viewportWindow = Math.floor(viewportAt / SHEET_PAGE_SIZE);
     const [isScrolling, setIsScrolling] = useState(false);
     const [sizeVersion, setSizeVersion] = useState(0);
     // A Retry reads again (#853): the read depends on it.
@@ -325,7 +333,7 @@ export function useSheetPaging(
         }
         if (sourceChanged) {
             setResidency(NO_RESIDENCY);
-            setViewportWindow(0);
+            setViewportAt(0);
         }
         if (next === ledger) return;
         setLedger(next);
@@ -359,19 +367,42 @@ export function useSheetPaging(
         setSizeVersion((v) => v + 1);
     }, [source, ledger, residency, viewportWindow, isScrolling, policy]);
 
-    // The run from the residency's low window: the landed windows, and a
-    // failed window's band where its rows would be — its elements are known,
-    // so the run crosses it and the rows after it keep their positions
-    // (#853). A window still in flight stops it.
+    // The window the run is anchored on (#876): the resident window that is
+    // in — landed, or failed (#853) — nearest the element the viewport is
+    // centred on. While the viewport's own window is still loading, that is
+    // the nearer of the first window in after it and the last one before
+    // it, so a window loading next to the rows on screen never takes them
+    // off it, whichever way the viewport came and whatever lands beyond it
+    // first.
+    const anchor = useMemo(() => {
+        if (value === undefined || isEmpty(residency)) return undefined;
+        const isIn = new Set([...value.landed.map((l) => l.w), ...value.failed.map((f) => f.w)]);
+        const at = Math.min((residency.hi + 1) * SHEET_PAGE_SIZE - 1, Math.max(residency.lo * SHEET_PAGE_SIZE, viewportAt));
+        const own = Math.floor(at / SHEET_PAGE_SIZE);
+        if (isIn.has(own)) return own;
+        let after: number | undefined;
+        for (let w = own + 1; w <= residency.hi && after === undefined; w++) if (isIn.has(w)) after = w;
+        let before: number | undefined;
+        for (let w = own - 1; w >= residency.lo && before === undefined; w--) if (isIn.has(w)) before = w;
+        if (after === undefined || before === undefined) return after ?? before;
+        return after * SHEET_PAGE_SIZE - at <= at - ((before + 1) * SHEET_PAGE_SIZE - 1) ? after : before;
+    }, [value, residency, viewportAt]);
+
+    // The run: the stretch of windows that are in around the anchor — the
+    // landed windows, and a failed window's band where its rows would be: its
+    // elements are known, so the run crosses it and the rows after it keep
+    // their positions (#853). A window still in flight ends it at either end.
     const run = useMemo(() => {
         const rows: SheetRowValue[] = [];
         const positions: number[] = [];
         const failures: SheetWindowFailure[] = [];
-        if (value === undefined || isEmpty(residency)) return { rows, positions, failures, from: residency.lo, to: residency.lo - 1 };
+        if (value === undefined || anchor === undefined) return { rows, positions, failures, from: residency.lo, to: residency.lo - 1 };
         const byWindow = new Map(value.landed.map((l) => [l.w, l.rows]));
         const failedBy = new Map(value.failed.map((f) => [f.w, f.error]));
+        let from = anchor;
+        while (from > residency.lo && (byWindow.has(from - 1) || failedBy.has(from - 1))) from--;
         const known = total !== undefined && ledger.windows > 0;
-        let w = residency.lo;
+        let w = from;
         for (; w <= residency.hi; w++) {
             const landedRows = byWindow.get(w);
             if (landedRows !== undefined) {
@@ -380,18 +411,20 @@ export function useSheetPaging(
             }
             const error = failedBy.get(w);
             if (error === undefined) break;
-            const from = w * SHEET_PAGE_SIZE;
-            const to = (known ? Math.min(total, from + SHEET_PAGE_SIZE) : from + SHEET_PAGE_SIZE) - 1;
+            const start = w * SHEET_PAGE_SIZE;
+            const to = (known ? Math.min(total, start + SHEET_PAGE_SIZE) : start + SHEET_PAGE_SIZE) - 1;
             // Its ledger slot, so the rows that replace it take the same space; floored so the reason and the Retry stay legible.
-            failures.push({ w, from, to, px: Math.max(BAND_MIN_PX, known && w < ledger.windows ? slotHeight(ledger, w) : 0), error });
+            failures.push({ w, from: start, to, px: Math.max(BAND_MIN_PX, known && w < ledger.windows ? slotHeight(ledger, w) : 0), error });
         }
-        return { rows, positions, failures, from: residency.lo, to: w - 1 };
-    }, [value, residency, ledger, total]);
+        return { rows, positions, failures, from, to: w - 1 };
+    }, [value, anchor, residency, ledger, total]);
 
+    // The bands follow the run, not the residency: the windows past a
+    // loading one are theirs until it lands (#876).
     const bands = useMemo(() => {
         if (isEmpty(residency) || ledger.windows === 0) return { head: undefined, tail: undefined };
-        const head: SheetBand | undefined = residency.lo > 0
-            ? { at: "head", from: 0, to: residency.lo * SHEET_PAGE_SIZE - 1, px: offsetOfWindow(ledger, residency.lo) }
+        const head: SheetBand | undefined = run.from > 0
+            ? { at: "head", from: 0, to: run.from * SHEET_PAGE_SIZE - 1, px: offsetOfWindow(ledger, run.from) }
             : undefined;
         const lastWindow = ledger.windows - 1;
         const tail: SheetBand | undefined = run.to < lastWindow
@@ -403,7 +436,7 @@ export function useSheetPaging(
             }
             : undefined;
         return { head, tail };
-    }, [residency, ledger, total, run.to]);
+    }, [residency, ledger, total, run.from, run.to]);
 
     // Read by the viewport report, so a jump's pin changes nothing it closes over.
     const jumpingRef = useRef(false);
@@ -414,43 +447,44 @@ export function useSheetPaging(
         // target, a report is taken from where the sheet still IS, and moving
         // the demand there would move the run back and undo the jump.
         if (jumpingRef.current) return;
-        setViewportWindow((current) => {
+        setViewportAt((current) => {
             if (at.kind === "band") {
+                // A band's own geometry: the head starts at the top, the tail
+                // right after the run — not after the residency, whose last
+                // windows may still be loading inside the tail (#876).
                 if (at.px !== undefined && ledger.windows > 0) {
-                    const bandTop = at.at === "head" ? 0 : offsetOfWindow(ledger, residency.hi + 1);
-                    return Math.floor(elementAtOffset(ledger, bandTop + Math.max(0, at.px)) / SHEET_PAGE_SIZE);
+                    const bandTop = at.at === "head" ? 0 : offsetOfWindow(ledger, run.to + 1);
+                    return elementAtOffset(ledger, bandTop + Math.max(0, at.px));
                 }
-                return at.at === "head" ? Math.max(0, residency.lo - 1) : residency.hi + 1;
+                return at.at === "head" ? Math.max(0, run.from * SHEET_PAGE_SIZE - 1) : (run.to + 1) * SHEET_PAGE_SIZE;
             }
-            return at.offset >= 0 ? Math.floor(at.offset / SHEET_PAGE_SIZE) : current;
+            return at.offset >= 0 ? at.offset : current;
         });
-    }, [residency.lo, residency.hi, ledger]);
+    }, [run.from, run.to, ledger]);
 
     const jumpToElement = useCallback((element: number) => {
-        const w = Math.floor(Math.max(0, element) / SHEET_PAGE_SIZE);
-        setViewportWindow(w);
+        const at = Math.max(0, element);
+        setViewportAt(at);
         setIsScrolling(false);
-        setResidency((r) => pin(unpinAll(r), w));
+        setResidency((r) => pin(unpinAll(r), Math.floor(at / SHEET_PAGE_SIZE)));
     }, []);
 
     const clearJump = useCallback(() => { setResidency((r) => unpinAll(r)); }, []);
 
     // A pending jump, and whether it has SETTLED (#854): the run around it has
-    // stopped moving (the demand is met), and every window from the run's
-    // start to the target has landed or failed (#853) — so the target's place
-    // among the rows is final, and a scroll to it stays on it. The pin stays
-    // until the sheet has shown the target and calls `clearJump`: dropped on
-    // landing, the reports of the render that first shows the rows (still
-    // from the old place) would undo it.
+    // stopped moving (the demand is met), and the target's window — landed,
+    // or failed (#853) — is in the run, so the sheet can show it. The windows
+    // above it may still be loading: landing, each takes its band's slot, and
+    // nothing on screen moves (#876). The pin stays until the sheet has shown
+    // the target and calls `clearJump`: dropped on landing, the reports of
+    // the render that first shows the rows (still from the old place) would
+    // undo it.
     const pinned = [...residency.pins];
     const target = pinned[0];
     let settled = false;
     if (target !== undefined && value !== undefined && !isEmpty(residency) && ledger.windows > 0) {
-        const done = new Set([...value.landed.map((l) => l.w), ...value.failed.map((f) => f.w)]);
         const met = advance(residency, ledger, viewportWindow, policy) === residency;
-        let upToTarget = true;
-        for (let w = residency.lo; w <= target && upToTarget; w++) upToTarget = done.has(w);
-        settled = met && upToTarget;
+        settled = met && run.from <= target && target <= run.to;
     }
     const jump = target === undefined ? undefined : { window: target, settled };
 
