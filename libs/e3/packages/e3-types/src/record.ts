@@ -11,9 +11,9 @@
  * a content-addressed commit object, so a record's history is a git-style chain
  * — the audit trail of who changed what, when, superseding which state.
  *
- * The record's current state is an ordinary `value` dataset ref — its `hash`
- * names the state, or once the record declares an index a `$record` state
- * naming it — and every read path resolves it, so task inputs, `e3 get` and the
+ * The record's current state is an ordinary `value` dataset ref. Its `hash`
+ * names the state or, once the record declares an index, a `$record` state
+ * naming it, and every read path resolves it, so task inputs, `e3 get` and the
  * UI `Data.bind` read work on records unchanged. Only the write protocol
  * differs.
  */
@@ -152,9 +152,10 @@ export const STALE_WRITE_PREFIX = 'stale write: ';
  *   write, on a Dict or Set record, is O(touched).
  * - `edit` — `(State, …Args, Edit) => Null`, the lazy write: the body reads the
  *   state it is given, lazily, and writes through an `edit` capability, so the
- *   body reads and the commit writes only the entries it touches. The state
- *   still reaches the runner whole, staged as a file of the record's segments
- *   on every attempt — every byte read and written.
+ *   body reads only the entries it touches and the commit rewrites only the
+ *   segments they live in. The state still reaches the runner whole, staged as
+ *   a file of the record's segments on every attempt — every byte read and
+ *   written.
  * - `patch` — no body; the argument is `PatchType(State)`. What an interactive
  *   edit from a view sends. On a record with no index a patch of per-key
  *   changes runs nothing at all, the only write whose cost is independent of

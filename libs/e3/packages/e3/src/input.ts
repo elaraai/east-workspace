@@ -33,9 +33,9 @@ export const inputsTree: DataTreeDef = {
  * holds. A 2 GB delivery written in segments is therefore an ordinary
  * content-addressed dataset — in the inputs hash, paged by every runner,
  * carved by `partitionTask` — instead of a String input plus a
- * `FileSystem.openBeast` inside a task body. A file holding one frame over
- * `@elaraai/east`'s `RUN_MAX_BYTES`, as a whole-value encode of a large
- * collection does, is refused when deploy reads it.
+ * `FileSystem.openBeast` inside a task body. A file holding a frame over
+ * `@elaraai/east`'s `RUN_MAX_BYTES` — a whole-value encode of a large
+ * collection — or a v4 blob that long is refused when deploy reads it.
  *
  * @typeParam T - The East type of the input value
  */

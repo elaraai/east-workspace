@@ -112,8 +112,8 @@ function checkKeyed(surface: string, name: string, rec: RecordDef): void {
  * The reducer sees the whole state, so its cost in the runner is the record's
  * size however little it changes; only its write, for a Dict or Set record, is
  * proportional to what it touched — any other record's state is written whole.
- * {@link editMutation} is the form whose body reads, and whose commit writes,
- * only the entries it touches.
+ * {@link editMutation} is the form whose body reads only the entries it
+ * touches, and whose commit rewrites only the segments they live in.
  *
  * @typeParam Name - Mutation name (literal type)
  * @typeParam T - The owning record's state type
