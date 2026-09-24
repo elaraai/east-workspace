@@ -665,6 +665,16 @@ function heldSheet(n: number) {
 }
 
 /**
+ * The hang guard of a test over the held sheet. Such a test draws every
+ * resident row — about 800 once a jump has landed — and draws them all again
+ * on each gesture, until the sheet mounts a screenful (#856) and a gesture
+ * re-renders only the rows it touches (#858). On the CI runners that takes up
+ * to 31 s, most for the first such test in the file, which warms up what the
+ * rest reuse. The guard is twice that, so only a hang trips it.
+ */
+const HELD_TEST_MS = 60_000;
+
+/**
  * What an unbounded paged sheet reads from the page it scrolls in, for a jsdom
  * that lays nothing out: the sheet sits at the top of a tall document,
  * `window.scrollTo` moves `scrollY` and fires `scroll`, and the rows' top moves
@@ -759,7 +769,7 @@ describe("a key-search jump owns the viewport (#854)", () => {
         } finally {
             restore();
         }
-    }, 30_000);
+    }, HELD_TEST_MS);
 
     test("clearing the search before the target lands drops the jump: the sheet pages where it is scrolled again", async () => {
         const restore = emulateWindowScroll();
@@ -777,7 +787,7 @@ describe("a key-search jump owns the viewport (#854)", () => {
         } finally {
             restore();
         }
-    }, 30_000);
+    }, HELD_TEST_MS);
 });
 
 describe("failure is local (#853)", () => {
@@ -836,7 +846,7 @@ describe("failure is local (#853)", () => {
         } finally {
             logged.mockRestore();
         }
-    }, 30_000);
+    }, HELD_TEST_MS);
 
     test("a source that fails before anything lands is the whole sheet's message, with a Retry that brings it back", async () => {
         const logged = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -920,7 +930,7 @@ describe("failure is local (#853)", () => {
         } finally {
             logged.mockRestore();
         }
-    }, 30_000);
+    }, HELD_TEST_MS);
 
     test("a row that throws while it draws is a one-row diagnostic, and the rows around it draw", async () => {
         const logged = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -965,7 +975,7 @@ describe("failure is local (#853)", () => {
             logged.mockRestore();
             restore();
         }
-    }, 30_000);
+    }, HELD_TEST_MS);
 
     test("an author's callbacks on a row after a failed window see the rows around it, each over its own source entry", async () => {
         const logged = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -991,7 +1001,7 @@ describe("failure is local (#853)", () => {
         } finally {
             logged.mockRestore();
         }
-    }, 30_000);
+    }, HELD_TEST_MS);
 });
 
 // ── The link cell and its editor (P3 — Sheet Spec §5 rows 4–9) ─────────────
