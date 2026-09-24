@@ -600,7 +600,7 @@ In `elaraai/e3-cloud`, on the stages above:
 - GC reads heads (F36);
 - Lambda sizes are chosen from measured peaks.
 
-e3-cloud depends on the e3 and east packages at `latest`. The first release with this PR changes what it relies on (§8), so e3-cloud pins every `@elaraai` dependency to the release before it until this stage lands (e3-cloud#187).
+e3-cloud depends on the e3 and east packages at `latest`, and the first release with this PR changes what it relies on (§8). It is not pinned to the release before: it is migrated to this one directly, and e3-cloud#187 lists what the migration covers.
 
 ## 5. Rules that keep it from drifting
 
@@ -685,7 +685,7 @@ One reviewer took each kind, and a skeptic tried to refute every finding. 31 of 
 | An exclusive lock never re-checked for shared holders after creating its file, so both could be granted | It re-checks after the create and backs out |
 | A `$reindex` dropped `$idem`, so a keyed retry after one applied the mutation twice | The key's slot names the commit it answers, a reindex carries it, and a retry returns that commit |
 
-**e3-cloud** (stage 8; pinned until then, e3-cloud#187). The first release with this PR changes five things the cloud relies on:
+**e3-cloud** (stage 8, which migrates it directly; e3-cloud#187). The first release with this PR changes five things the cloud relies on:
 - the storage interfaces, where nine members are now required;
 - the task-input layout, where a collection input is its manifest plus a segments directory;
 - the mutation run, which passes the state as a stream and adds emit flags;
@@ -717,4 +717,4 @@ The GC mark also reads every dataset it visits whole when it is not given `readH
 - the client compatibility tests match the error they expect;
 - the one-row-change page test checks that no boundary moved and every other segment is unchanged.
 
-**Found in this PR's CI.** #772's stdout-flood test failed once on ubuntu. When a child exits, Node resumes its stdout to drain it, over the capture's pause, so the output still buffered — up to the pipe's capacity and the stream's own buffer — arrived past the 1 MiB cap. The capture now pauses again when a chunk arrives while it is paused, so Node pushes at most one chunk past the cap: what is held stays within the cap plus two chunks. A test holds a child's output at the cap until the child has exited.
+**Found in this PR's CI.** #772's stdout-flood test failed once on ubuntu. When a child exits, Node resumes its stdout to drain it, over the capture's pause, so the output still buffered — up to the pipe's capacity and the stream's own buffer — arrived past the 1 MiB cap. The capture now pauses whenever it is over the cap, paused or not, so Node pushes at most one chunk past it: what is held stays within the cap plus two chunks. A test holds a child's output at the cap until the child has exited.
