@@ -11,10 +11,11 @@
  * a content-addressed commit object, so a record's history is a git-style chain
  * — the audit trail of who changed what, when, superseding which state.
  *
- * The record's current state is an ordinary `value` dataset ref (its `hash`
- * points at the plain state blob), so every existing read path — task inputs,
- * `e3 get`, the UI `Data.bind` read — works on records unchanged. Only the
- * write protocol differs.
+ * The record's current state is an ordinary `value` dataset ref — its `hash`
+ * names the state, or once the record declares an index a `$record` state
+ * naming it — and every read path resolves it, so task inputs, `e3 get` and the
+ * UI `Data.bind` read work on records unchanged. Only the write protocol
+ * differs.
  */
 
 import {
@@ -49,8 +50,10 @@ export const RecordCommitType = StructType({
   /** The mutation delta this commit applied: one sorted collection of the
    *  primary and index changes, addressed by key. History then shows WHAT
    *  changed without diffing two states, and an undo can be synthesised from
-   *  it. A GC leaf like `args` — nothing depends on it, and every state past
-   *  and present reads identically if every delta were deleted.
+   *  it. No state depends on it — every state past and present reads
+   *  identically if every delta were deleted — but it is a collection like any
+   *  other, a manifest naming segment objects, so a collector walks it as a
+   *  value rather than marking it as a leaf the way it marks `args`.
    *
    *  Appended LAST, per the positional rule: struct fields encode positionally
    *  in declaration order, so a new field never goes between existing ones. */
@@ -146,15 +149,16 @@ export const STALE_WRITE_PREFIX = 'stale write: ';
  *
  * - `reduce` — `(State, …Args) => State`, the original surface. Its body and
  *   its diff see the whole state, so its RUNNER cost stays O(state); only its
- *   write is O(touched).
+ *   write, on a Dict or Set record, is O(touched).
  * - `edit` — `(State, …Args, Edit) => Null`, the lazy write: the body reads the
  *   state it is given, lazily, and writes through an `edit` capability, so the
- *   body and the commit cost the entries it touches. The state still reaches
- *   the runner as a stream of the record's segments — its bytes moved, never
- *   held.
+ *   body reads and the commit writes only the entries it touches. The state
+ *   still reaches the runner whole, staged as a file of the record's segments
+ *   on every attempt — every byte read and written.
  * - `patch` — no body; the argument is `PatchType(State)`. What an interactive
- *   edit from a view sends, and the only form whose cost is independent of the
- *   record's size on a cold container.
+ *   edit from a view sends. On a record with no index a patch of per-key
+ *   changes runs nothing at all, the only write whose cost is independent of
+ *   the record's size.
  */
 export type MutationForm = 'reduce' | 'edit' | 'patch';
 
@@ -418,8 +422,8 @@ export interface DeltaTarget {
  * One variant case per target — `primary` plus one per declared index, which
  * is why `primary` is a reserved index name. Canonical order puts every
  * target's ops in one contiguous run, in that target's own key order, so the
- * apply streams the delta segment by segment and never holds it whole, and a
- * delta is a pageable collection like any other.
+ * apply takes the delta one target at a time — holding that target's ops and
+ * one of its segments — and a delta is a pageable collection like any other.
  *
  * Derived on demand and never stored as a type: a delta blob is
  * self-describing, and deriving it means it cannot drift from the record's
@@ -444,8 +448,8 @@ export function mutationDeltaType(targets: readonly DeltaTarget[]): EastType {
  * @remarks
  * An edit body reads the state it is given — lazily, the frozen pager-backed
  * value every runner already serves — and writes through these three
- * functions; it never returns a state, which is what lets its cost be the
- * entries it touches rather than the record's size.
+ * functions; it never returns a state, so its commit rewrites only the
+ * segments the entries it touched live in.
  *
  * Repeated edits of one key fold: `set` after anything is that `set`; `update`
  * after `set` applies to the set value; `update` after `update` composes;

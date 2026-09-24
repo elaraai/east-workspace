@@ -4,18 +4,22 @@
  */
 
 /**
- * Keyed-record test suite — the write forms, and what a write costs.
+ * Keyed-record test suite — the write forms, on a record that spans segments.
  *
- * The scalar-record suite covers the commit protocol; this one covers the
- * thing a remote backend has to reproduce: a record big enough to span
- * segments, written through all three forms, where a commit rewrites the
- * segments it touched and re-announces the rest. Run it against any backend
- * and a write that is secretly O(state) shows up as a page read that no longer
- * matches, or as a record that stops reading like a collection at all.
+ * The scalar-record suite covers the commit protocol; this one covers what a
+ * remote backend has to reproduce for a keyed record: one big enough to span
+ * segments, written through all three forms — each form described, each
+ * commit landing with the delta it wrote, a stale patch refused by key with
+ * nothing written — and read as its rows, and through its index in the
+ * index's own order.
+ *
+ * It pins results, not costs. Content-defined cutting gives an equal value the
+ * same manifest, so a backend that rewrote the whole state on every write
+ * would read back identically and pass; the apply's own cost is measured in
+ * e3-core's tests.
  *
  * `E3_RECORD_ROWS` sizes the record (default 10,000); a perf run raises it to
- * 100,000 without changing an assertion, because every assertion here is a
- * ratio or an identity rather than a time.
+ * 100,000 without changing an assertion, because no assertion here is a time.
  */
 
 import { describe, it } from 'node:test';

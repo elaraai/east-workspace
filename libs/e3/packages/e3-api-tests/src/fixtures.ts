@@ -193,8 +193,8 @@ export const PlanStatusKeyType = StructType({ status: StringType, due: IntegerTy
  *
  * The record carries one secondary index and all three write forms: `seed`
  * (reduce), `retitle` (edit) and `patch`. A scalar record exercises the commit
- * protocol; only a keyed one exercises what a commit COSTS, which is the
- * property a remote backend has to reproduce.
+ * protocol; only a keyed one exercises the delta and the segment-wise apply,
+ * which a remote backend has to reproduce.
  *
  * @param tempDir - Directory to write the zip file
  * @param name - Package name

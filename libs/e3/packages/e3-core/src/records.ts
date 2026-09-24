@@ -289,9 +289,10 @@ function failureOutcome(result: Exclude<DetachedResult, { kind: 'success' }>): M
  *
  * @remarks
  * A state stored as a segment manifest is passed as its splice, streamed from
- * the segment objects, so the runner's argument file is written one segment at
- * a time and the engine never holds the record. A state that is one object —
- * a scalar record, or a collection written before the layout — is that object.
+ * the segment objects: the local runner writes its argument file one segment
+ * at a time, reading every one, and a runner that sends its arguments in one
+ * payload holds the record whole. A state that is one object — a scalar
+ * record, or a collection written before the layout — is that object.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
@@ -509,8 +510,7 @@ async function writeWholeState(
   run: RunContext,
 ): Promise<MutationWrite> {
   // The reducer takes a value, not a layout: a primary held as a segment
-  // manifest is spliced back into one blob for it, exactly as a task input is
-  // staged — streamed, so the engine never holds the record.
+  // manifest is spliced back into one blob for it, as stateArg passes it.
   const result = await runner.runDetached(
     { bodyIr, args: [await stateArg(storage, repo, state.primary), ...args], runner: mutObj.runner, limits: run.limits },
     { signal: run.signal, verbose: run.verbose },
@@ -527,10 +527,12 @@ async function writeWholeState(
  *
  * @remarks
  * One run, whatever the form, and one apply that rewrites the touched segments
- * of the primary and of every index — so a one-row edit of a two-million-row
- * record reads and writes a segment per target rather than the record. A
- * target the delta does not name keeps the manifest it had, which is how an
- * index no write touched costs nothing at all.
+ * of the primary and of every index: applying a one-row edit to a
+ * two-million-row record reads and writes a segment per target rather than
+ * the record. A target the delta does not name keeps the manifest it had, so
+ * an index no write touched is never rewritten. The run is not that cheap:
+ * staging the state for it reads every segment of the record and writes it to
+ * the runner's argument file, on every attempt.
  *
  * The `patch` form on a record with no index skips the run outright: the
  * client already computed the change, and with no index function to evaluate
@@ -555,9 +557,8 @@ async function writeDelta(
   if (deltaHash === null) {
     // The program opens the state lazily from its own file, so a body that
     // touches a few entries decodes the segments they live in and no others.
-    // Writing that file still streams every segment through this process —
-    // one at a time, never the record whole — until a runner opens a record's
-    // segments itself.
+    // Staging that file still reads every segment and writes it out — one at
+    // a time on the local runner — on every attempt.
     const result = await runner.runDetached(
       {
         bodyIr: await storage.objects.read(repo, mutObj.programIr),

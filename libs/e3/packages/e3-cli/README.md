@@ -80,8 +80,8 @@ aliases of the same budget.
 
 A local run's per-execution scratch directories are created inside the
 repository, under `<repo>/tmp/scratch` — on the object store's filesystem, so
-an output is stored by a link rather than a copy — or under `E3_SCRATCH_DIR`
-when it is set. A scratch directory left by a dead process is removed by the
+an output that is not a collection is stored by a link rather than a copy — or
+under `E3_SCRATCH_DIR` when it is set. A scratch directory left by a dead process is removed by the
 next run or `e3 repo gc`.
 
 `-v` / `--verbose` forwards `-v` to each task's runner so it prints a timing/perf

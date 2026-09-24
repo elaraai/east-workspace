@@ -12,8 +12,10 @@
  * canonical blob, cut where the content-defined rule cuts it — which is where
  * every writer of the same value cuts it, on every runtime. The library's
  * merge writes through the same writer, which is what makes a merge's output
- * byte-identical to the sink's for the same entries. Memory is one open
- * segment whatever the output's size.
+ * byte-identical to the sink's for the same entries. Frames deflate on the
+ * worker pool, so memory is the open segment plus the frames in flight — up to
+ * two per worker — and a worker keeps its finished frames' buffers until its
+ * GC runs, so the peak can grow with the output.
  */
 
 import { closeSync, openSync, writeSync } from 'fs';

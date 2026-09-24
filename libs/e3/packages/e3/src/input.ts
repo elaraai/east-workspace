@@ -30,9 +30,12 @@ export const inputsTree: DataTreeDef = {
  * Two cases, one shape: `value` holds the value inline (it travels in the
  * package), while `file` names a beast2 file that stays where it is and is
  * taken into the object store at deploy, a segment at a time, as the value it
- * holds. A 2 GB delivery is therefore an ordinary content-addressed dataset —
- * in the inputs hash, paged by every runner, carved by `partitionTask` —
- * instead of a String input plus a `FileSystem.openBeast` inside a task body.
+ * holds. A 2 GB delivery written in segments is therefore an ordinary
+ * content-addressed dataset — in the inputs hash, paged by every runner,
+ * carved by `partitionTask` — instead of a String input plus a
+ * `FileSystem.openBeast` inside a task body. A file holding one frame over
+ * `@elaraai/east`'s `RUN_MAX_BYTES`, as a whole-value encode of a large
+ * collection does, is refused when deploy reads it.
  *
  * @typeParam T - The East type of the input value
  */

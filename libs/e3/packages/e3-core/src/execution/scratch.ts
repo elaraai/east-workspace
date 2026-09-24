@@ -16,9 +16,11 @@
  *
  * Scratch directories are created inside the repository, under
  * `<repo>/tmp/scratch`, or under `E3_SCRATCH_DIR` when it is set. Inside the
- * repository they are on the object store's filesystem, so an output becomes an
- * object by a link rather than a copy, and never waits in memory on a tmpfs
- * temp directory.
+ * repository they are on the object store's filesystem, so an output that is
+ * one object becomes it by a link rather than a copy, and never waits in memory
+ * on a tmpfs temp directory. A collection output is read back and written as
+ * segment objects, which is a copy: until the execution finishes, the disk
+ * holds the output and its segments both.
  */
 
 import * as fs from 'fs/promises';

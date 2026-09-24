@@ -44,9 +44,11 @@ const SIZE_THRESHOLD = 1 * 1024 * 1024; // 1 MB
 /**
  * Get dataset value as raw BEAST2 bytes.
  *
- * For objects > 1MB, returns a JSON response with a download URL
- * that the client can fetch directly. This avoids browser issues
- * with opaque redirect responses from `redirect: 'manual'`.
+ * A collection held as a segment manifest is streamed as its splice. Any other
+ * object over 1 MB, when a transfer backend is configured, is answered with a
+ * JSON response carrying a download URL the client fetches directly. This
+ * avoids browser issues with opaque redirect responses from
+ * `redirect: 'manual'`.
  */
 export async function getDataset(
   storage: StorageBackend,
@@ -84,8 +86,10 @@ export async function getDataset(
     // A collection held as a segment manifest is many objects, so the
     // transfer backend — which serves ONE object by hash — cannot hand the
     // client a value. The splice is streamed instead, a segment read only
-    // when the client takes the bytes before it, so the server never holds
-    // the value; the download redirect stays for objects that are the value.
+    // when the client takes the bytes before it: a host that streams the
+    // response holds one segment at a time, and one that buffers it into a
+    // single payload holds the value, as far as that payload's limit allows.
+    // The download redirect stays for objects that are the value.
     if (await readManifest(storage, repoPath, hash) !== null) {
       const chunks = (await DatasetSegments.open(storage, repoPath, hash)).splice()[Symbol.asyncIterator]();
       const body = new ReadableStream<Uint8Array>({
@@ -952,9 +956,10 @@ export async function findDatasetKey(
  * Set a dataset value from raw BEAST2 bytes, read as they arrive.
  *
  * @remarks
- * The body is never held whole: its type is read from its head and checked
- * against the dataset's, and a collection goes into the store through its
- * door a segment of the body at a time.
+ * The body's type is read from its head and checked against the dataset's. A
+ * collection then goes into the store through its door a segment of the body
+ * at a time; any other value is collected and decoded whole, so the handler
+ * holds it.
  */
 export async function setDataset(
   storage: StorageBackend,

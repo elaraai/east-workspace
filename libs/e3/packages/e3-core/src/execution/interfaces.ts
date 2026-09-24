@@ -96,11 +96,17 @@ export interface TaskRunner {
 
   /**
    * Run a body IR detached from the dataflow graph (function / one-shot
-   * call): marshal the arg bytes, run on the spec's runner, return the
-   * result inline. Writes nothing durable — no output object, no execution
-   * record, no logs.
+   * call): marshal the args, run on the spec's runner, return the result
+   * inline. Writes nothing durable — no output object, no execution record,
+   * no logs.
    *
-   * @param spec - Body IR, arg bytes, runner, and limits
+   * @remarks
+   * An arg is a value's beast2 bytes or a stream of them: a record's state is
+   * passed as a stream of its segments. An implementation marshals a stream
+   * however it moves its arguments — writing it out as it is read holds one
+   * segment at a time, and sending it in one payload holds it whole.
+   *
+   * @param spec - Body IR, args, runner, and limits
    * @param options - Cancellation + runner search anchor
    */
   runDetached(spec: DetachedSpec, options?: DetachedRunOptions): Promise<DetachedResult>;

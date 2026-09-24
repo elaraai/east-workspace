@@ -632,16 +632,17 @@ What #786 guarantees holds through every stage. Each guarantee is pinned by a te
 | Guarantee | Pinned by |
 |---|---|
 | An applied delta writes the manifest the encoder door writes for the resulting value. This covers one-row edits, inserts that split a segment, deletes that merge two, a segment's first key deleted, a record emptied and refilled, randomised edits at the boundaries, a Set target, and a delta with several arms | e3-core `record-apply.spec.ts` |
-| A one-row edit reads and writes the same objects and bytes at 100,000 rows as at 10,000 | `record-apply.spec.ts` |
+| Applying a one-row edit reads and writes as many objects at 100,000 rows as at 10,000, bar a moved boundary | `record-apply.spec.ts` |
 | A maintained index equals the index a reindex writes, hash for hash | e3-core `records.spec.ts` |
 | A fanned-out index build writes what the one-unit build writes and never reads the record whole. A rebuild over an unchanged record re-runs no unit | `records.spec.ts` |
-| east-node, east-c and east-py write the same state and index manifests, skip a no-op write, and refuse a stale one in the same words | `records.spec.ts`, cross-runtime parity. It runs where CI builds east-c (Linux, macOS) |
+| east-node, east-c and east-py write the same state and index manifests, skip a no-op write, and refuse a stale one in the same words | `records.spec.ts`, cross-runtime parity, over every runtime installed: all three on Linux and macOS, east-node and east-py on Windows |
 | Two patches on different keys both commit. A stale patch, update or whole-state replace is a conflict naming the key, and writes nothing | `records.spec.ts`; e3-api-tests `records-keyed` |
 | A patch on a record with no index runs no process | `records.spec.ts` |
-| The runner is handed the record as a stream, never whole | `records.spec.ts` |
+| The engine passes the runner the record as a stream of its segments, never materialised, and the local runner opens it lazily | `records.spec.ts` |
 | An indexed record reads as its rows through every ordinary door, a task's input included | `records.spec.ts`; `processExec.spec.ts`; `records-keyed` |
 | A package or workspace export carries every object its records and collections consist of, so the import deploys, mutates and reads through its indexes | `records.spec.ts` |
-| A reserved `$` slot survives a mutation, a compaction and a reindex, whether the reindex is run by hand or by a deploy | `records.spec.ts` |
+| A reserved `$` slot survives every commit that does not own it: a mutation, a compaction and a reindex, whether the reindex is run by hand or by a deploy | `records.spec.ts` |
+| A keyed retry returns the commit its key answers, a reindex in between included, and runs nothing | `records.spec.ts` |
 | gc keeps every object a commit, its delta and an index name | `records.spec.ts`; `gc.spec.ts` |
 | A record write holds the tasks lock shared, so a gc sweep is refused until it commits | `records.spec.ts` |
 | A deploy builds a record's indexes on the runner the server injects, and with none refuses a deploy that owes a build | e3-api-server `workspaces.spec.ts` |

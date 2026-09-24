@@ -110,9 +110,10 @@ function checkKeyed(surface: string, name: string, rec: RecordDef): void {
  * raises the uniform copy-first runtime error.
  *
  * The reducer sees the whole state, so its cost in the runner is the record's
- * size however little it changes; only its WRITE is proportional to what it
- * touched. {@link editMutation} is the form whose body and commit cost the
- * entries it touches.
+ * size however little it changes; only its write, for a Dict or Set record, is
+ * proportional to what it touched — any other record's state is written whole.
+ * {@link editMutation} is the form whose body reads, and whose commit writes,
+ * only the entries it touches.
  *
  * @typeParam Name - Mutation name (literal type)
  * @typeParam T - The owning record's state type
@@ -190,8 +191,10 @@ export function mutation(
  * — lazily, so a body that looks at ten entries of a two-million-entry record
  * decodes the segments those ten live in and nothing else — and writes through
  * `edit.set(key, value)`, `edit.delete(key)` and `edit.update(key, patch)`. It
- * never returns a state, which is what lets the whole mutation cost the
- * entries it touched rather than the record's size.
+ * never returns a state, so its commit rewrites only the segments the entries
+ * it touched live in. What it does not escape is the staging: the whole state
+ * is read and written to the runner's argument file before the body runs, on
+ * every attempt.
  *
  * Repeated edits of one key fold: `set` after anything is that `set`; `update`
  * after `set` applies to the set value; `update` after `update` composes;
@@ -278,14 +281,17 @@ export function editMutation(
  * interactive edits.
  *
  * There is no body: the argument IS the change, a `PatchType(State)` sent by
- * whoever made the edit. It is the only form whose cost is independent of the
- * record's size even on a cold process, because the touched keys are known
- * before anything runs — so it is what a view's save should call, and what an
+ * whoever made the edit — so it is what a view's save should call, and what an
  * integration sending diffs should call.
  *
- * On a record with no secondary index the patch IS the delta and no program
- * runs at all; with indexes, one run computes the index entries the change
- * moves, since that is user East and only a runner evaluates it.
+ * On a record with no secondary index a patch of per-key changes IS the delta
+ * and no program runs at all, which makes it the only write whose cost is
+ * independent of the record's size: the touched keys are known before anything
+ * runs. Any other patch, such as one replacing the whole state, runs a program
+ * that checks it against the state, and on a record with indexes one run
+ * computes the index entries the change moves, since that is user East and
+ * only a runner evaluates it. A run stages the whole state for its runner
+ * first.
  *
  * @typeParam Name - Mutation name (literal type)
  * @typeParam T - The owning record's state type (a Dict or a Set)

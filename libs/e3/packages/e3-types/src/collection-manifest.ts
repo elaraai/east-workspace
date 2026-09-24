@@ -23,9 +23,9 @@
  * - **Two states diff in O(changed segments)**, by comparing entry hashes. No
  *   value is decoded to find out what moved, which is what index maintenance
  *   and the mutation delta are built on.
- * - **A segment is verified against its own hash before it is decoded**, which
- *   a ranged read of one blob can never offer: no digest exists for a byte
- *   range.
+ * - **A segment can be checked against its own hash**, which a ranged read of
+ *   one blob can never offer: no digest exists for a byte range. No reader
+ *   checks it — a segment is trusted as stored, like any other object.
  *
  * The manifest is the envelope the garbage collector recognizes, which is why
  * its `kind` is a stored field rather than something inferred: an object whose

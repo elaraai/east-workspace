@@ -19,8 +19,11 @@
  * and `planMergeRanges`, the splice from `spliceBlobs`. Each unit is an
  * ordinary content-addressed execution of a synthesized task — probed in the
  * execution cache and run by whatever `TaskRunner` the caller holds — so a
- * rebuild over an unchanged record costs nothing, and a backend that runs
- * units on its own compute needs no record-specific compute path.
+ * rebuild over an unchanged record re-runs no unit, and a backend that runs
+ * units on its own compute needs no record-specific compute path. Such a
+ * rebuild is not free once the record fans out: every slice is carved before
+ * its unit is probed, so it still reads the whole record and stages every
+ * slice.
  *
  * The one thing a record operation ends in that a task does not is the commit,
  * and it stays the caller's: the compare-and-swap loop, the idempotency slot
@@ -99,8 +102,8 @@ const CUSTOM_RUNTIME_MESSAGE =
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
- * @param runner - What runs the units; its execution cache is what makes a
- *   re-run over an unchanged record free
+ * @param runner - What runs the units; its execution cache is what lets a
+ *   re-run over an unchanged record run no unit
  * @param operation - What to read, run and merge
  * @returns The stored manifest, or why the operation did not finish
  */

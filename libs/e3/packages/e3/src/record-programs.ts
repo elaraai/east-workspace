@@ -235,11 +235,12 @@ function collectOps(
  *
  * @remarks
  * One program, three forms, one output — the mutation delta, emitted key by
- * key in the delta's own canonical order so the engine never sorts and never
- * holds it whole. The engine applies what comes out (segment by segment, per
- * target); it never evaluates the author's East itself, which is what keeps
- * one rule for where user code runs and gives the three runtimes something to
- * agree on byte for byte.
+ * key in the delta's own canonical order so the engine never sorts it. The
+ * engine reads the output whole — one over the mutation's result limit is
+ * refused unread — and applies it one target at a time, segment by segment; it
+ * never evaluates the author's East itself, which is what keeps one rule for
+ * where user code runs and gives the three runtimes something to agree on byte
+ * for byte.
  *
  * The three forms differ only in how the per-key ops are reached — a diff of
  * the reducer's result, the folded writes of an `edit` body, or the client's

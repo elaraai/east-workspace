@@ -32,10 +32,13 @@ import {
  * bytes as a stream.
  *
  * @remarks
- * A stream is what a record's state is passed as. It is written to the
- * runner's argument file as it is read, one segment at a time, so the value is
- * never held whole by the process that stages it — a runner opens the file
- * lazily, and neither side pays for a record's size in memory.
+ * A stream is what a record's state is passed as. {@link runDetached} writes it
+ * to the runner's argument file as it is read, so the process staging it holds
+ * one segment at a time and the runner opens the file lazily — but every
+ * segment is still read and written, so each run's staging costs the record's
+ * size in I/O. A `TaskRunner` that runs the body elsewhere moves the stream its
+ * own way, and one that sends its arguments in a single payload holds the
+ * state whole to do it.
  */
 export type DetachedArg = Uint8Array | AsyncIterable<Uint8Array>;
 

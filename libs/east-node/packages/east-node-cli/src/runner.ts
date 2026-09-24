@@ -355,8 +355,8 @@ function disorderMessage(kind: 'set' | 'dict', printKey: (v: unknown) => string,
 
 /**
  * Builds the emit capability: a host function value that appends elements to
- * the output file through the canonical writer ({@link EmitFileWriter}) — one
- * pass, with one open segment in memory whatever the output's size.
+ * the output file through the canonical writer ({@link EmitFileWriter}) in one
+ * pass, holding what that writer holds.
  *
  * Set/Dict emissions must ascend in East (key) order (issue #770): a key
  * below the previous one is an error naming both, in the same words on every

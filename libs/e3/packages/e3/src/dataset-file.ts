@@ -81,10 +81,14 @@ function fileRangeReader(fd: number, size: number): Beast2SyncRangeReader {
  * destination declares.
  *
  * @remarks
- * The header decides alone. A delivery is taken into the store through its
- * door, which reads a collection a segment at a time in whatever layout it was
- * written — indexed or not, cut by the rule or batched by its writer — so
- * nothing past the type section is needed to accept one.
+ * The check a delivery gets before anything reads its body. The store takes
+ * one in through its door, which reads a collection a frame at a time in
+ * whatever layout it was written — indexed or not, cut by the rule or batched
+ * by its writer — but refuses a frame over `@elaraai/east`'s `RUN_MAX_BYTES`,
+ * or a v4 blob over it, which is what a whole-value encode of a large
+ * collection writes. This check cannot see that: the refusal comes when the
+ * door reads the file, after a local adoption has hashed it or a remote set
+ * has uploaded it.
  *
  * @param file - Path to the delivered file
  * @param subject - How to name the destination in an error, e.g. `input 'table'`
