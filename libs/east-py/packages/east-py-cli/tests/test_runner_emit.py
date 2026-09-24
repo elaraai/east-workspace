@@ -44,6 +44,7 @@ from east import (
     NullType,
     SetType,
     StringType,
+    StructType,
     platform_function,
 )
 from east.runtime.errors import EastError
@@ -305,7 +306,7 @@ def test_wide_rows_cut_near_the_segment_byte_target(tmp_path):
     assert out.read_bytes() == encode_beast2_paged_for(ArrayType(StringType))(rows)
 
 
-def test_lazy_paged_input_pins(tmp_path, monkeypatch):
+def test_lazy_paged_input_pins(tmp_path, monkeypatch, capsys):
     # The lazy paged-input contract end to end on the Python runner
     # (#516, #539), against the same fixtures the east-c cli_paged gate uses.
     monkeypatch.setenv("EAST_LAZY_INPUT_BYTES", "1")
@@ -323,11 +324,22 @@ def test_lazy_paged_input_pins(tmp_path, monkeypatch):
 
     # The collapsed shape gate: a nested-container element shape opens
     # lazily AND frozen, so the write through a read-out element raises the
-    # uniform error instead of landing in the input.
-    with pytest.raises(EastError, match="cannot mutate a frozen value"):
-        run_program(
-            FIXTURES / "paged_nested_mutate.beast2", [], [], [FIXTURES / "paged_nested.beast2"]
-        )
+    # uniform error instead of landing in the input — from the blob, and from
+    # the manifest directory e3 stages a collection as. The account names the
+    # lazy open: an input that fell back to a whole decode would refuse the
+    # write too.
+    from east.serialization.beast2 import Beast2ManifestWriter
+
+    nested = FIXTURES / "paged_nested.beast2"
+    manifest = tmp_path / "paged_nested_manifest.beast2"
+    nested_type = DictType(IntegerType, StructType([("xs", INT_ARRAY)]))
+    with Beast2ManifestWriter(nested_type, manifest, codec="none") as writer:
+        writer.add_all(decode_beast2_with_header_for(nested_type)(nested.read_bytes()))
+    for source in (nested, manifest):
+        capsys.readouterr()
+        with pytest.raises(EastError, match="cannot mutate a frozen value"):
+            run_program(FIXTURES / "paged_nested_mutate.beast2", [], [], [source], verbose=True)
+        assert "input 0: opened lazily" in capsys.readouterr().err, source
 
 
 def test_sink_drives_a_python_invoked_platform_function_natively(tmp_path):
