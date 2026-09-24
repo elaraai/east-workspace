@@ -153,7 +153,14 @@ describe('the memory each door holds', { skip: process.platform === 'linux' ? fa
   /** The child's peak resident memory running `door` on the inputs of one size. */
   function peakKiB(door: string, size: 'small' | 'large'): number {
     const child = spawnSync(process.execPath, [
-      `--max-old-space-size=${HEAP_CAP_MB}`, '--input-type=module', '-e', CHILD,
+      `--max-old-space-size=${HEAP_CAP_MB}`,
+      // In some runs V8 decides, from early survival counts, to pretenure an
+      // object the door makes per element: it is allocated straight into old
+      // space, and the collections that follow grow the heap by about 12 MiB
+      // whatever the input's size. What the door holds is measured without
+      // that decision.
+      '--no-allocation-site-pretenuring',
+      '--input-type=module', '-e', CHILD,
       coreUrl, e3Url, door, repo, JSON.stringify(inputs[size]),
     ], { encoding: 'utf8' });
     if (child.status !== 0) {

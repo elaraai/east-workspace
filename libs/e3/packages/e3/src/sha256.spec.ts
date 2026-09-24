@@ -71,6 +71,17 @@ describe('sha256', () => {
       assert.strictEqual(hash, expectedHash);
     });
 
+    it('hashes a file larger than the buffer it is read through', async () => {
+      const filePath = join(testDir, 'large.bin');
+      // Two and a half megabyte reads and a few bytes more: the last read is
+      // partial.
+      const data = Buffer.alloc(2.5 * 1024 * 1024 + 7);
+      for (let i = 0; i < data.length; i++) data[i] = (i * 31 + (i >> 11)) & 0xff;
+      writeFileSync(filePath, data);
+
+      assert.strictEqual(await sha256File(filePath), sha256Bytes(data));
+    });
+
     it('throws for non-existent file', async () => {
       const filePath = join(testDir, 'does-not-exist.txt');
 

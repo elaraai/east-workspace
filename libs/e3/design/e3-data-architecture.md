@@ -718,3 +718,7 @@ The GC mark also reads every dataset it visits whole when it is not given `readH
 - the one-row-change page test checks that no boundary moved and every other segment is unchanged.
 
 **Found in this PR's CI.** #772's stdout-flood test failed once on ubuntu. When a child exits, Node resumes its stdout to drain it, over the capture's pause, so the output still buffered — up to the pipe's capacity and the stream's own buffer — arrived past the 1 MiB cap. The capture now pauses whenever it is over the cap, paused or not, so Node pushes at most one chunk past it: what is held stays within the cap plus two chunks. A test holds a child's output at the cap until the child has exited.
+
+The door-memory test failed once on ubuntu, on the delivery door, and fails about four runs in ten locally on the upload door. Two things raised a door's peak at the larger input, and neither was the door holding the value: after a full collection, its live heap is the same at both sizes.
+- e3's `sha256File` hashed a delivery through a fresh buffer per 64 KiB chunk, which only a GC frees, and hashing makes too little garbage to prompt one, so the buffers piled up in proportion to the file. It hashes through one reused buffer.
+- In some runs, V8's allocation-site pretenuring moved an allocation on the door's per-element path into old space, where the churn grew the heap by about 12 MiB, whatever the input's size. The test runs its door processes with pretenuring off, so it measures the door, not that decision.
