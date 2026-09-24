@@ -27,7 +27,7 @@
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
-import { chmodSync, constants, copyFileSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, constants, copyFileSync, readFileSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import {
   ArrayType,
@@ -37,9 +37,10 @@ import {
   StringType,
   StructType,
   encodeBeast2For,
+  toEastTypeValue,
   variant,
 } from '@elaraai/east';
-import e3, { type DatasetSource } from '@elaraai/e3';
+import e3, { DatasetFileTypeMismatchError, type DatasetSource } from '@elaraai/e3';
 import { datasetAdoptFile, datasetAdoptObject, deliveryKnown, objectAdoptFile } from './dataset-adopt.js';
 import { DatasetSegments } from './dataset-open.js';
 import { DatasetTypeMismatchError, WorkspaceLockError } from './errors.js';
@@ -337,6 +338,73 @@ describe('path-initialised inputs', () => {
         const delivery = statSync(file, { bigint: true });
         assert.ok(object.dev === delivery.dev && object.ino === delivery.ino, 'the object is the delivery\'s own inode');
       }
+    });
+
+    // A supplier replaces a delivery by writing a new file and renaming it over
+    // the old one. A rename landing after the adoption hashed the first file
+    // would pair that file's hash with the second file's bytes.
+
+    /** `storage`, with some of its stores swapped. */
+    function withStores(stores: Partial<Pick<StorageBackend, 'objects' | 'refs'>>): StorageBackend {
+      return {
+        objects: stores.objects ?? storage.objects,
+        refs: stores.refs ?? storage.refs,
+        locks: storage.locks,
+        logs: storage.logs,
+        repos: storage.repos,
+        datasets: storage.datasets,
+        validateRepository: (repo) => storage.validateRepository(repo),
+      };
+    }
+
+    it('refuses a collection replaced after it was hashed, and remembers nothing of it', async () => {
+      const file = writeDelivery('table.beast2', 16);
+      const first = computeHash(readFileSync(file));
+      // Replaced when the adoption asks the memo what the hashed bytes became.
+      const refs = Object.create(storage.refs, {
+        adoptionRead: {
+          value: async (repo: string, sourceHash: string): Promise<string | null> => {
+            writeFileSync(`${file}.next`, encodeInSegmentsOf(TableType, 8)(rows(16, 1000)));
+            renameSync(`${file}.next`, file);
+            return storage.refs.adoptionRead(repo, sourceHash);
+          },
+        },
+      }) as StorageBackend['refs'];
+
+      await assert.rejects(objectAdoptFile(withStores({ refs }), testRepo, file), /changed while it was adopted/);
+      assert.equal(await deliveryKnown(storage, testRepo, first), false,
+        'the memo pairs the first bytes with nothing, rather than with the second');
+    });
+
+    it('never stores another value under the hash of the file it replaced', async () => {
+      const file = join(tempDir, 'row.beast2');
+      writeFileSync(file, encodeBeast2For(RowType)({ id: 7n, name: 'row-7' }));
+      const first = computeHash(readFileSync(file));
+      // Replaced as the store takes the file in.
+      const objects = Object.create(storage.objects, {
+        adoptFile: {
+          value: async (repo: string, path: string, hash?: string): Promise<{ hash: string; size: number }> => {
+            writeFileSync(`${file}.next`, encodeBeast2For(RowType)({ id: 8n, name: 'row-8' }));
+            renameSync(`${file}.next`, file);
+            return storage.objects.adoptFile(repo, path, hash);
+          },
+        },
+      }) as StorageBackend['objects'];
+
+      await assert.rejects(objectAdoptFile(withStores({ objects }), testRepo, file), /changed while it was adopted/);
+      assert.equal(await storage.objects.exists(testRepo, first), false,
+        'nothing is stored under the first file\'s hash, which a later adoption of it would reuse');
+    });
+
+    it('checks the declared type on the file it stores', async () => {
+      const file = join(tempDir, 'row.beast2');
+      writeFileSync(file, encodeBeast2For(RowType)({ id: 7n, name: 'row-7' }));
+      const before = await storage.objects.count(testRepo);
+      await assert.rejects(
+        objectAdoptFile(storage, testRepo, file, { declared: { subject: "input 'table'", type: toEastTypeValue(TableType) } }),
+        (err: unknown) => err instanceof DatasetFileTypeMismatchError && /input 'table' declares/.test(err.message),
+      );
+      assert.equal(await storage.objects.count(testRepo), before, 'nothing was stored');
     });
   });
 

@@ -169,8 +169,9 @@ export interface ObjectStore {
    * into this process.
    *
    * A backend whose objects are files links it, so a large file becomes an
-   * object for the cost of a link; one whose objects are elsewhere streams it
-   * there. Either way the object's hash is the file's SHA256.
+   * object without being copied; one whose objects are elsewhere streams it
+   * there. Either way the object's hash is the SHA256 of the bytes the store
+   * took, checked against `hash` before anything is stored under it.
    *
    * The file is never opened for writing and its mode and mtime are left
    * alone. A backend may hard-link it, so the caller's contract is that the
@@ -184,6 +185,8 @@ export interface ObjectStore {
    * @param hash - The file's SHA256 when the caller already streamed it;
    *   otherwise the backend computes it
    * @returns The object's hash and size
+   * @throws {Error} When the file does not hash to `hash` — one replaced since
+   *   the caller hashed it — in which case nothing is stored under `hash`
    */
   adoptFile(repo: string, file: string, hash?: string): Promise<{ hash: string; size: number }>;
 

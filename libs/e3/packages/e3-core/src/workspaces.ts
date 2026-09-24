@@ -379,8 +379,8 @@ export async function workspaceDeploy(
       // was validated — ahead of the first destructive write. Only the ref
       // writes come after.
       const adoptedSources = new Map<string, string>();
-      for (const [refPath, file] of sourceFiles) {
-        const { hash } = await objectAdoptFile(storage, repo, file);
+      for (const [refPath, { file, declared }] of sourceFiles) {
+        const { hash } = await objectAdoptFile(storage, repo, file, { declared });
         adoptedSources.set(refPath, hash);
       }
 
@@ -471,8 +471,8 @@ function treePathOfRefPath(refPath: string): TreePath {
  *   rather than failing the deploy
  * @param resolve - Whether this process reads and validates the `file` sources;
  *   false leaves every one unassigned without touching its path
- * @returns refPath -> absolute file path, for the sources to adopt (always
- *   empty when `resolve` is false)
+ * @returns refPath -> the absolute file path and the type it must hold, for
+ *   the sources to adopt (always empty when `resolve` is false)
  * @throws {DatasetTypeMismatchError} When a delivery's type has drifted
  * @throws {Error} When a `file` source is unreadable (and no `warn` sink is
  *   given), or names a path that is not a dataset
@@ -481,12 +481,12 @@ function validateDatasetSources(
   pkg: PackageObject,
   warn: ((message: string) => void) | undefined,
   resolve: boolean,
-): Map<string, string> {
-  const files = new Map<string, string>();
+): Map<string, { file: string; declared: { subject: string; type: EastTypeValue } }> {
+  const files = new Map<string, { file: string; declared: { subject: string; type: EastTypeValue } }>();
   for (const [refPath, source] of pkg.sources) {
     const inputName = refPath.split('/').pop() ?? refPath;
-    const declared = datasetLeafType(pkg.data.structure, refPath);
-    if (!declared) {
+    const type = datasetLeafType(pkg.data.structure, refPath);
+    if (!type) {
       throw new Error(`input '${inputName}': the package declares a source for '${refPath}', which is not a dataset`);
     }
     if (!resolve) {
@@ -496,9 +496,10 @@ function validateDatasetSources(
       );
       continue;
     }
+    const declared = { subject: `input '${inputName}'`, type };
     try {
-      readDatasetFileHeader(source.value.path, `input '${inputName}'`, declared);
-      files.set(refPath, source.value.path);
+      readDatasetFileHeader(source.value.path, declared.subject, declared.type);
+      files.set(refPath, { file: source.value.path, declared });
     } catch (err) {
       if (!warn || err instanceof DatasetFileTypeMismatchError) throw err;
       warn(

@@ -41,6 +41,42 @@ function isUnsupported(err: unknown): boolean {
     code === 'ENOTTY' || code === 'EISDIR';
 }
 
+/**
+ * Places a file at `dest` without reading it into this process: a reflink,
+ * else a hard link when the two are on one volume, else one kernel copy.
+ *
+ * @param file - The file to place
+ * @param dest - Where to place it; a name nothing else uses
+ * @param fileDev - The device the file is on
+ * @param destDir - The directory `dest` is in
+ */
+async function placeFile(file: string, dest: string, fileDev: number, destDir: string): Promise<void> {
+  // 1. Reflink: zero-copy AND copy-on-write, so the object keeps its bytes
+  //    even if the delivery is later overwritten in place. FICLONE_FORCE
+  //    (not FICLONE) so a file system without reflinks fails here instead of
+  //    silently performing a whole copy and skipping the link below.
+  try {
+    await fs.copyFile(file, dest, constants.COPYFILE_FICLONE_FORCE);
+    return;
+  } catch (err) {
+    await fs.unlink(dest).catch(() => { /* may not exist */ });
+    if (!isUnsupported(err)) throw err;
+  }
+
+  // 2. Hard link, when the delivery is on the objects directory's volume.
+  try {
+    if ((await fs.stat(destDir)).dev === fileDev) {
+      await fs.link(file, dest);
+      return;
+    }
+  } catch (err) {
+    if (!isUnsupported(err) && !isNotFoundError(err)) throw err;
+  }
+
+  // 3. One kernel copy, with a reflink where the platform offers one for free.
+  await fs.copyFile(file, dest, constants.COPYFILE_FICLONE);
+}
+
 /** Move a staged file onto the content path, tolerating a concurrent writer
  *  that got there first (the store is content-addressed: identical bytes). */
 async function commitStaged(stagingPath: string, filePath: string): Promise<void> {
@@ -353,65 +389,48 @@ export class LocalObjectStore implements ObjectStore {
    * falls back to the kernel's own copy. The delivered file is only ever
    * opened for reading.
    *
+   * Every strategy places the file under a staging name, and only a staged
+   * file that hashes to the object's hash is renamed into place. The path
+   * names whatever file is there when it is placed, so a delivery replaced
+   * since the caller hashed it is refused rather than stored under the old
+   * bytes' hash — at the cost of one read of a file the store did not hold.
+   *
    * @param repo - Path to the e3 repository
    * @param file - Path to the file to adopt
-   * @param hash - The file's SHA256 when already known; else streamed here
+   * @param hash - The file's SHA256 when already known; else read here
    * @returns The object's hash and size
+   * @throws {Error} When the file placed does not hash to `hash`
    */
   async adoptFile(repo: string, file: string, hash?: string): Promise<{ hash: string; size: number }> {
     const stats = await fs.stat(file);
     if (!stats.isFile()) throw new Error(`Not a file: ${file}`);
-    const digest = hash ?? await sha256File(file);
-    const filePath = objectPath(repo, digest);
-    const dirPath = path.dirname(filePath);
+    if (hash !== undefined && await objectExists(repo, hash)) return { hash, size: (await this.stat(repo, hash)).size };
 
-    if (await objectExists(repo, digest)) return { hash: digest, size: stats.size };
-    await fs.mkdir(dirPath, { recursive: true });
-
-    // 1. Reflink: zero-copy AND copy-on-write, so the object keeps its bytes
-    //    even if the delivery is later overwritten in place. FICLONE_FORCE
-    //    (not FICLONE) so a file system without reflinks fails here instead
-    //    of silently performing a whole copy and skipping the link below.
-    const stagingPath = path.join(dirPath, stagingName(path.basename(filePath)));
+    // Staged at the root of objects/, as a streamed write is: the object's
+    // directory is known only once the placed file is hashed, and the closing
+    // rename stays on one file system.
+    const objectsDir = path.join(repo, 'objects');
+    await fs.mkdir(objectsDir, { recursive: true });
+    const stagingPath = path.join(objectsDir, stagingName('stage'));
     try {
-      await fs.copyFile(file, stagingPath, constants.COPYFILE_FICLONE_FORCE);
-      await commitStaged(stagingPath, filePath);
-      return { hash: digest, size: stats.size };
-    } catch (err) {
-      await fs.unlink(stagingPath).catch(() => { /* may not exist */ });
-      if (!isUnsupported(err)) throw err;
-    }
-
-    // 2. Hard link, when the delivery is on the objects directory's volume.
-    try {
-      const dirStats = await fs.stat(dirPath);
-      if (dirStats.dev === stats.dev) {
-        try {
-          await fs.link(file, filePath);
-          return { hash: digest, size: stats.size };
-        } catch (err) {
-          // EEXIST: a concurrent writer stored the same content first.
-          if ((err as NodeJS.ErrnoException).code === 'EEXIST') {
-            return { hash: digest, size: stats.size };
-          }
-          if (!isUnsupported(err)) throw err;
-        }
+      await placeFile(file, stagingPath, stats.dev, objectsDir);
+      const { size } = await fs.stat(stagingPath);
+      const digest = await sha256File(stagingPath);
+      if (hash !== undefined && digest !== hash) {
+        throw new Error(`${file} changed while it was adopted: it holds ${digest}, not the ${hash} it was hashed as`);
       }
+      const filePath = objectPath(repo, digest);
+      if (await objectExists(repo, digest)) {
+        await fs.unlink(stagingPath);
+        return { hash: digest, size };
+      }
+      await fs.mkdir(path.dirname(filePath), { recursive: true });
+      await commitStaged(stagingPath, filePath);
+      return { hash: digest, size };
     } catch (err) {
-      if (!isUnsupported(err) && !isNotFoundError(err)) throw err;
-    }
-
-    // 3. One kernel copy (with a reflink where the platform offers one for
-    //    free), staged and renamed like every other write.
-    const copyPath = path.join(dirPath, stagingName(path.basename(filePath)));
-    try {
-      await fs.copyFile(file, copyPath, constants.COPYFILE_FICLONE);
-    } catch (err) {
-      await fs.unlink(copyPath).catch(() => { /* may not exist */ });
+      await fs.unlink(stagingPath).catch(() => { /* committed, or never created */ });
       throw err;
     }
-    await commitStaged(copyPath, filePath);
-    return { hash: digest, size: stats.size };
   }
 
   /**

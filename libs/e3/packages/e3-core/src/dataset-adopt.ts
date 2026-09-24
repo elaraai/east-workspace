@@ -134,11 +134,9 @@ export async function deliveryKnown(storage: StorageBackend, repo: string, sourc
  * Take an existing file into the object store as a dataset value.
  *
  * @remarks
- * Repository-level: no workspace and no type check — the caller has already
- * checked the file's header against whatever declares its type (the dataset,
- * for {@link datasetAdoptFile}; the package's structure, at deploy) — and no
- * lock of its own: the caller holds the tasks lock, since nothing names the
- * segments this stores until the caller's ref does.
+ * Repository-level: no workspace, and no lock of its own — the caller holds
+ * the tasks lock, since nothing names the segments this stores until the
+ * caller's ref does.
  *
  * A collection is split into segment objects through the store's door, and the
  * delivery's SHA-256 is remembered with the manifest it became, so the same
@@ -147,36 +145,57 @@ export async function deliveryKnown(storage: StorageBackend, repo: string, sourc
  * content-addressed and immutable, and an adopted object no ref names is gc's
  * to collect.
  *
+ * The path is opened more than once — to hash the file, to read its type, to
+ * store it — and a delivery replaced in between would pair one file's hash
+ * with another's bytes. So the adoption is refused, and nothing recorded,
+ * unless the path names the same file, unchanged, from before its hash to
+ * after its store; the declared type is checked inside that window, on the
+ * file that is stored.
+ *
  * @param storage - Storage backend
  * @param repo - Repository identifier
  * @param file - Path to the file to adopt
  * @param options - The digest the caller was promised, checked before anything
- *   is written
+ *   is written, and the type the destination declares
  * @returns The dataset object's hash — the manifest, for a collection — and the
  *   file's size
+ * @throws {DatasetFileTypeMismatchError} When the file's type is not the
+ *   declared one
  * @throws If the file is missing or unreadable, its digest is not
- *   `options.expectHash`, or the door refuses the collection it holds
+ *   `options.expectHash`, it changed while it was adopted, or the door refuses
+ *   the collection it holds
  */
 export async function objectAdoptFile(
   storage: StorageBackend,
   repo: string,
   file: string,
-  options: { expectHash?: string } = {}
+  options: { expectHash?: string; declared?: { subject: string; type: EastTypeValue } } = {}
 ): Promise<{ hash: string; size: number }> {
+  const delivered = await stat(file, { bigint: true });
   const sourceHash = await sha256File(file);
   if (options.expectHash !== undefined && options.expectHash !== sourceHash) {
     throw new Error(`hash mismatch: expected ${options.expectHash}, got ${sourceHash}`);
   }
-  const type = readDatasetFileType(file);
+  const type = options.declared === undefined
+    ? readDatasetFileType(file)
+    : readDatasetFileHeader(file, options.declared.subject, options.declared.type).typeValue;
+  const unchanged = async (): Promise<void> => {
+    const now = await stat(file, { bigint: true });
+    if (now.dev !== delivered.dev || now.ino !== delivered.ino || now.size !== delivered.size || now.mtimeNs !== delivered.mtimeNs) {
+      throw new Error(`${file} changed while it was adopted, and nothing was recorded — adopt it again once it is complete`);
+    }
+  };
+  const size = Number(delivered.size);
+
   if (!isCollectionRoot(type)) {
-    const { size } = await storage.objects.adoptFile(repo, file, sourceHash);
+    await storage.objects.adoptFile(repo, file, sourceHash);
+    await unchanged();
     return { hash: sourceHash, size };
   }
-  const { size } = await stat(file);
   const known = await adoptedManifest(storage, repo, sourceHash);
-  if (known !== null) return { hash: known.hash, size };
-  const hash = await storeCollection(storage, repo, type, [{ file }]);
-  await storage.refs.adoptionWrite(repo, sourceHash, hash);
+  const hash = known?.hash ?? await storeCollection(storage, repo, type, [{ file }]);
+  await unchanged();
+  if (known === null) await storage.refs.adoptionWrite(repo, sourceHash, hash);
   return { hash, size };
 }
 
@@ -212,18 +231,21 @@ export async function datasetAdoptFile(
   options: DatasetAdoptOptions = {}
 ): Promise<DatasetAdoptResult> {
   return withDatasetWriteLock(storage, repo, ws, treePath, options.lock, async (leaf) => {
-    // Validate from the header before anything is hashed or stored, and
-    // re-raise the mismatch once the workspace and address are known.
+    // Validated from the header before anything is hashed or stored, and
+    // again on the file the adoption stores; a mismatch is re-raised once the
+    // workspace and address are known.
+    const declared = { subject: `dataset '${leaf.address}'`, type: leaf.type };
+    let adopted: { hash: string; size: number };
     try {
-      readDatasetFileHeader(file, `dataset '${leaf.address}'`, leaf.type);
+      readDatasetFileHeader(file, declared.subject, declared.type);
+      adopted = await objectAdoptFile(storage, repo, file, { expectHash: options.expectHash, declared });
     } catch (err) {
       if (err instanceof DatasetFileTypeMismatchError) {
         throw new DatasetTypeMismatchError(ws, leaf.address, err.mismatch);
       }
       throw err;
     }
-
-    const { hash, size } = await objectAdoptFile(storage, repo, file, { expectHash: options.expectHash });
+    const { hash, size } = adopted;
 
     // The self entry is what makes change detection exact: the ref's version
     // vector names the value's hash, so a new delivery invalidates precisely
