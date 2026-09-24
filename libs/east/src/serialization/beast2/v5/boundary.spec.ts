@@ -347,6 +347,25 @@ describe("beast2 v5 content-defined boundaries", () => {
       assert.ok(isContentCut(geometry(blob, type as never).fences, [...readBeast2Extents(blob).counts], sizes));
     });
 
+    test("stores a Dict of 300 rows of 1 MiB as segments of about 1 MiB, not as one", () => {
+      // An average of 1 MiB makes every element a boundary: each row is a
+      // segment of its own, the size target. Written through the segment sink,
+      // as a manifest directory is, so the test holds one segment at a time;
+      // one row value serves every key.
+      const row = new Uint8Array(1024 * 1024).fill(7);
+      const segments: { count: number; logicalBytes: number }[] = [];
+      const writer = new Beast2ElementWriter(DictType(StringType, BlobType), {
+        segment: ({ count, logicalBytes }) => { segments.push({ count, logicalBytes }); },
+      }, { codec: "none" });
+      for (let i = 0; i < 300; i++) writer.add([`r${String(i).padStart(3, "0")}`, row]);
+      writer.finish();
+      assert.equal(segments.length, 300);
+      for (const [i, { count, logicalBytes }] of segments.entries()) {
+        assert.equal(count, 1, `segment ${i} holds one row`);
+        assert.ok(logicalBytes >= SEGMENT_TARGET_BYTES && logicalBytes < SEGMENT_TARGET_BYTES + 64, `segment ${i} is ${logicalBytes} bytes`);
+      }
+    });
+
     test("holds a short collection in one segment", () => {
       const blob = encodeBeast2PagedFor(TableType)(table(SEGMENT_MIN_COUNT - 1));
       assert.equal(openBeast2PagesFor(TableType)(blob).segmentCount, 1);
