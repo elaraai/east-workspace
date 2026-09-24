@@ -9,6 +9,7 @@ import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { ArrayType, DictType, East, IntegerType, NullType, OptionType, StringType, StructType, variant, some, none } from "@elaraai/east";
 import { Paged } from "@elaraai/east-ui";
 import { Plan, Table } from "@elaraai/east-ui/internal";
+import { buildRowSource, resolveRowSource } from "../../src/contracts/source.js";
 import * as ex from "./paged-source.examples.js";
 
 /** A 50-row positional fixture, generated at MODULE scope so the East bodies
@@ -336,5 +337,52 @@ describe("Paged.of refusals (#829)", () => {
         assert.throws(() => Paged.of("p", rows, { pageLimit: 0 }), /pageLimit.*positive integer.*got 0/);
         assert.throws(() => Paged.of("p", rows, { pageLimit: -3 }), /got -3/);
         assert.throws(() => Paged.of("p", rows, { pageLimit: 2.5 }), /got 2\.5/);
+    });
+});
+
+describe("Paged source lifecycle — revision and refresh (#744, #821)", () => {
+    const Row = StructType({ id: StringType, nested: ArrayType(IntegerType) });
+    const Rows = ArrayType(Row);
+    const capture = East.function([Rows], Paged.Types.Source(Rows), (_$, rows) => Paged.of("snapshot", rows));
+
+    hostTest("Paged.of detaches nested mutable input and refuses an unrelated revision", () => {
+        const input = [{ id: "a", nested: [1n] }];
+        const source = East.compile(capture, [])(input);
+        input[0]!.nested.push(2n);
+        input.push({ id: "b", nested: [] });
+        assert.deepEqual(source.page(0n, 10n), some([{ id: "a", nested: [1n] }]));
+        assert.deepEqual(source.total(), some(1n));
+        assert.deepEqual(source.revision(), some("snapshot"));
+        source.refresh(none);
+        source.refresh(some("snapshot"));
+        assert.throws(() => source.refresh(some("other")), /immutable snapshot/);
+        assert.deepEqual(source.revision(), some("snapshot"));
+    });
+
+    hostTest("mapped row sources forward lifecycle methods with their original closure", () => {
+        const program = East.function([Rows], Paged.Types.RowSource(Rows), ($, rows) => {
+            const source = $.let(Paged.of("snapshot", rows));
+            return buildRowSource(resolveRowSource(source, "fixture"), Rows, r => r as never, "mapped");
+        });
+        const value = East.compile(program, [])([{ id: "a", nested: [1n] }]);
+        assert.equal(value.type, "paged");
+        if (value.type !== "paged") return;
+        assert.equal(value.value.id, "snapshot#mapped");
+        assert.deepEqual(value.value.revision(), some("snapshot"));
+        assert.throws(() => value.value.refresh(some("other")), /immutable snapshot/);
+    });
+
+    hostTest("a legacy producer normalizes to read-only lifecycle without inventing a revision", () => {
+        const program = East.function([Rows], Paged.Types.RowSource(Rows), ($, rows) => {
+            const current = $.let(Paged.of("legacy", rows));
+            const legacy = $.let({ id: current.id, page: current.page, total: current.total, seek: current.seek });
+            return buildRowSource(resolveRowSource(legacy, "fixture"), Rows, r => r as never);
+        });
+        const value = East.compile(program, [])([]);
+        assert.equal(value.type, "paged");
+        if (value.type !== "paged") return;
+        assert.deepEqual(value.value.revision(), none);
+        assert.throws(() => value.value.refresh(none), /legacy source cannot refresh/);
+        assert.deepEqual(value.value.page(0n, 10n), some([]));
     });
 });

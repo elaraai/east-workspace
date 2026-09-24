@@ -19,13 +19,25 @@
  * type the next row) appears only once every source element is resident —
  * a blank row above unloaded rows would lie about where the end is.
  *
+ * # A new revision keeps the rows (#851)
+ *
+ * The rows cached for a source belong to its `revision()` — the snapshot its
+ * windows are served from. When the revision moves (the dataset was written,
+ * a `refresh` was asked for), the resident windows are read again at the new
+ * one, and until each lands the rows it had stand in: the sheet never empties
+ * between two snapshots of its data, and a row whose id survives keeps its
+ * element. The geometry stays too — the ledger's measured heights, and its
+ * total until the new snapshot's total says otherwise — so the scroll
+ * position, the bands and the blank tail hold. The Plan's driver does the
+ * same (#821).
+ *
  * @packageDocumentation
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { equivalentFor } from "@elaraai/east";
 import { Sheet } from "@elaraai/east-ui/internal";
-import { pagedSnapshot, pagedSnapshotEqual, pagedSourceEqual, type PagedSnapshot } from "../paged-snapshot.js";
+import { pagedSnapshot, pagedSourceEqual } from "./paged-snapshot.js";
 import { useTrackedEvaluation } from "../../reactive/index.js";
 import {
     createLedger, observeWindow, documentHeight, elementAtOffset, offsetOfWindow,
@@ -88,6 +100,27 @@ function readFailure(err: unknown): string {
 /** The caller-owned read-once cache, keyed by window index. */
 type WindowCache = Map<number, readonly SheetRowValue[]>;
 
+/** What the driver has read from a source, and at which revision. */
+interface SourceCache {
+    /** The source that filled it — a source that is not EQUIVALENT drops it (#809). */
+    source: SheetPagedSourceValue | undefined;
+    /** The revision `windows` hold (#851). */
+    revision: string | undefined;
+    /** The windows landed at `revision`. */
+    windows: WindowCache;
+    /** The previous revision's windows, served for a window until its own
+     *  lands at `revision` (#851). */
+    stale: WindowCache | undefined;
+    /** The source's last known `total()`, and the revision it was read at. */
+    total: number | undefined;
+    totalRevision: string | undefined;
+}
+
+/** A cache holding nothing. */
+function emptyCache(source: SheetPagedSourceValue | undefined): SourceCache {
+    return { source, revision: undefined, windows: new Map(), stale: undefined, total: undefined, totalRevision: undefined };
+}
+
 /** Whether two paged sources serve the same rows: the same id AND equivalent
  *  functions — `page` is the bridge over the author's projection, so its
  *  captures are what the rows are projected WITH (#809). */
@@ -113,23 +146,33 @@ export function useSheetPaging(
     const [viewportWindow, setViewportWindow] = useState(0);
     const [isScrolling, setIsScrolling] = useState(false);
     const [sizeVersion, setSizeVersion] = useState(0);
-    // Read-once cache, keyed by the SNAPSHOT (the source's id and revision)
-    // and by the source that filled it: a `page` whose closures changed
-    // serves different rows under the same id and revision, so a source that
-    // is not EQUIVALENT to the filler drops the cache too and the resident
-    // windows re-read (#809). Reset here rather than in an effect so a
-    // swapped source cannot serve the previous one's rows for a frame.
-    const cacheRef = useRef<{ source: SheetPagedSourceValue | undefined; snapshot: PagedSnapshot; total: number | undefined; cache: WindowCache }>({ source: undefined, snapshot: pagedSnapshot(undefined, undefined), total: undefined, cache: new Map() });
-    const geometryRef = useRef(pagedSnapshot(undefined, undefined));
+    // Read-once cache, owned by the source that filled it: a `page` whose
+    // closures changed serves different rows under the same id and revision,
+    // so a source that is not EQUIVALENT to the filler drops the cache and
+    // the resident windows re-read (#809). Reset here rather than in an
+    // effect so a swapped source cannot serve the previous one's rows for a
+    // frame. Within one source the cache follows its revision (#851).
+    const cacheRef = useRef<SourceCache>(emptyCache(undefined));
+    // The source the geometry was built for.
+    const geometryRef = useRef(pagedSnapshot(undefined, undefined).source);
 
     const read = useCallback(() => {
         if (source === undefined) return undefined;
+        if (cacheRef.current.source === undefined || !pagedSourceEquivalent(cacheRef.current.source, source)) {
+            cacheRef.current = emptyCache(source);
+        }
+        const held = cacheRef.current;
+        // The snapshot first: every window below is read at it. A new one
+        // is read afresh, and the rows each window had stand in until its
+        // own land (#851).
         const currentRevision = source.revision?.();
         const revision = currentRevision?.type === "some" ? currentRevision.value : undefined;
-        const snapshot = pagedSnapshot(source.id, revision);
-        const filledBy = cacheRef.current.source;
-        if (filledBy === undefined || !pagedSourceEquivalent(filledBy, source) || !pagedSnapshotEqual(cacheRef.current.snapshot, snapshot)) {
-            cacheRef.current = { source, snapshot, total: undefined, cache: new Map() };
+        if (revision !== held.revision) {
+            // A cache that holds nothing (a revision the source was still
+            // discovering) leaves the last one that had rows standing in.
+            if (held.windows.size > 0) held.stale = held.windows;
+            held.windows = new Map();
+            held.revision = revision;
         }
         let total: number | undefined;
         let error: string | undefined;
@@ -140,15 +183,24 @@ export function useSheetPaging(
             console.error("[Sheet] paged source total failed:", err);
             error = readFailure(err);
         }
-        if (total !== undefined && cacheRef.current.total !== undefined && total !== cacheRef.current.total) {
+        // Same id and revision ⇒ same rows is the source's contract: a total
+        // that moves under ONE revision has broken it, and the cached rows
+        // cannot be trusted. One that moves with the revision is the content
+        // changing.
+        if (total !== undefined && held.total !== undefined && total !== held.total && held.totalRevision === revision) {
             console.warn(`[Sheet] paged source "${source.id}" changed total() without a revision change; dropping cached windows.`);
-            cacheRef.current.cache.clear();
+            held.windows.clear();
+            held.stale = undefined;
         }
-        cacheRef.current.total = total;
+        if (total !== undefined) {
+            held.total = total;
+            held.totalRevision = revision;
+        }
         const landed: { w: number; rows: readonly SheetRowValue[] }[] = [];
         let loading = false;
+        let standingIn = false;
         for (const w of residentWindows(residency)) {
-            const known = cacheRef.current.cache.get(w);
+            const known = held.windows.get(w);
             if (known !== undefined) { landed.push({ w, rows: known }); continue; }
             let win: ReturnType<SheetPagedSourceValue["page"]>;
             try {
@@ -158,28 +210,44 @@ export function useSheetPaging(
                 error ??= readFailure(err);
                 continue;
             }
-            if (win.type !== "some") { loading = true; continue; }
+            if (win.type !== "some") {
+                // In flight — its channel is tracked, so the landing re-reads.
+                // Until then the rows it had at the previous revision stand in.
+                loading = true;
+                const previous = held.stale?.get(w);
+                if (previous !== undefined) {
+                    landed.push({ w, rows: previous });
+                    standingIn = true;
+                }
+                continue;
+            }
             const rows = win.value as readonly SheetRowValue[];
-            cacheRef.current.cache.set(w, rows);
+            held.windows.set(w, rows);
             landed.push({ w, rows });
         }
-        return { revision, total, landed, loading, error };
+        // Every resident window reads at the new revision now: the old one
+        // has nothing left to stand in for.
+        if (!standingIn) held.stale = undefined;
+        return { total, landed, loading, error, standingIn };
     }, [source, residency]);
 
     const { result } = useTrackedEvaluation(read);
     const value = result.ok ? result.value : undefined;
     const readError = result.ok ? value?.error : readFailure(result.error);
 
-    const total = value?.total;
-    const revision = value?.revision;
+    // The source's own total — the ledger is built from it, never from the
+    // stand-in below.
+    const sourceTotal = value?.total;
     const landed = value?.landed;
     useEffect(() => {
-        const snapshot = pagedSnapshot(source?.id, revision);
-        const sourceChanged = !pagedSourceEqual(geometryRef.current.source, snapshot.source);
-        const snapshotChanged = !pagedSnapshotEqual(geometryRef.current, snapshot);
-        geometryRef.current = snapshot;
-        let next = snapshotChanged || (total !== undefined && total !== ledger.total)
-            ? createLedger(total ?? (sourceChanged ? 0 : ledger.total), SHEET_PAGE_SIZE) : ledger;
+        const id = pagedSnapshot(source?.id, undefined).source;
+        const sourceChanged = !pagedSourceEqual(geometryRef.current, id);
+        geometryRef.current = id;
+        // The geometry belongs to the source: a new revision keeps the
+        // measured heights, so nothing on screen moves (#851). A new source
+        // rebuilds it, and so does a new total — the content changed size.
+        let next = sourceChanged || (sourceTotal !== undefined && sourceTotal !== ledger.total)
+            ? createLedger(sourceTotal ?? (sourceChanged ? 0 : ledger.total), SHEET_PAGE_SIZE) : ledger;
         for (const { w, rows } of landed ?? []) {
             const px = rows.reduce((sum, r) => sum + (r.band.type === "some" ? (r.band.value.folded ? bandPx : bandPx + (r.lines.length + 1) * rowPx) : rowPx), 0);
             next = observeWindow(next, w, { px, rows: rows.length });
@@ -191,7 +259,12 @@ export function useSheetPaging(
         if (next === ledger) return;
         setLedger(next);
         setSizeVersion(v => v + 1);
-    }, [source?.id, revision, total, landed, ledger, rowPx, bandPx]);
+    }, [source?.id, sourceTotal, landed, ledger, rowPx, bandPx]);
+    // Between two revisions the source may know no total until the new
+    // one's first window lands. While the old rows stand in, the geometry
+    // stands too, so the bands, the blank tail and the scroll extent do not
+    // collapse under the reader (#851).
+    const total = sourceTotal ?? (value?.standingIn === true && ledger.total > 0 ? ledger.total : undefined);
 
     // Demand follows the viewport, at idle only.
     useEffect(() => {
@@ -204,8 +277,11 @@ export function useSheetPaging(
         const next = advance(residency, ledger, viewportWindow, policy);
         if (next === residency) return;
         setResidency(next);
+        // Whatever left the run leaves the cache with it, a stand-in too.
         const keep = new Set(residentWindows(next));
-        for (const w of [...cacheRef.current.cache.keys()]) if (!keep.has(w)) cacheRef.current.cache.delete(w);
+        const { windows, stale } = cacheRef.current;
+        for (const w of [...windows.keys()]) if (!keep.has(w)) windows.delete(w);
+        if (stale !== undefined) for (const w of [...stale.keys()]) if (!keep.has(w)) stale.delete(w);
         setSizeVersion((v) => v + 1);
     }, [source, ledger, residency, viewportWindow, isScrolling, policy]);
 

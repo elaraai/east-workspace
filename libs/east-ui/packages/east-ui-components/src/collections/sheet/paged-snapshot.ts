@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-/** Identity of a paged source snapshot shared by positional search controls. @packageDocumentation */
+/** The Sheet's identity of a paged source snapshot — its id and revision — for its key search and its driver (#851: the Sheet is its only user). @packageDocumentation */
 import { OptionType, StringType, StructType, equalFor, none, printFor, some, type ValueTypeOf } from "@elaraai/east";
 
 /** An absent source and a source discovering its revision remain distinct. */

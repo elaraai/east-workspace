@@ -4,21 +4,27 @@
  *
  * @vitest-environment jsdom
  *
- * A Plan over a bound paged source follows its dataset (#821) — the real
- * `Data.bindPaged` runtime (`defaultPagedRuntime`, its channels, its revision
- * pinning and `refresh`) behind a stand-in paging service, rendered by the
- * real canvas. Writing the dataset moves the source to the new content hash,
- * and the canvas swaps each row's content in place: the row element survives,
- * and the old rows stay on screen until the new revision's window lands.
+ * A Plan (#821) and a Sheet (#851) over a bound paged source follow its
+ * dataset — the real `Data.bindPaged` runtime (`defaultPagedRuntime`, its
+ * channels, its revision pinning and `refresh`) behind a stand-in paging
+ * service, rendered by the real component. Writing the dataset moves the
+ * source to the new content hash, and the component swaps each row's content
+ * in place: the row element survives, and the old rows stay on screen until
+ * the new revision's window lands.
  */
 
 import { describe, test, expect, afterEach } from "vitest";
 import { render, screen, cleanup, act } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import {
-    DictType, StringType, StructType, compareFor, encodeBeast2For, none, some, toEastTypeValue, variant,
+    DictType, East, StringType, StructType, compareFor, encodeBeast2For, none, some, toEastTypeValue, variant,
 } from "@elaraai/east";
-import { EastChakraPlan, system, type PlanRootValue, type PlanRowValue } from "@elaraai/east-ui-components";
+import { Paged } from "@elaraai/east-ui";
+import { Sheet, UIComponentType } from "@elaraai/east-ui/internal";
+import {
+    EastChakraPlan, EastChakraSheet, getRegisteredPlatformImplementations, system,
+    type PlanRootValue, type PlanRowValue, type SheetRootValue,
+} from "@elaraai/east-ui-components";
 import type { DatasetPage } from "@elaraai/e3-api-client";
 import type { TreePath } from "@elaraai/e3-types";
 import { clearPagedApi, defaultPagedRuntime, initializePagedApi, type PagedApi } from "./paged-runtime.js";
@@ -178,5 +184,50 @@ describe("a Plan over Data.bindPaged follows its dataset (#821)", () => {
         await screen.findByText("B-M1");
         expect(screen.queryByText("A-M1")).toBeNull();
         expect(container.querySelector('[data-plan-row="m1"]')).toBe(row);
+    });
+});
+
+/** A Sheet as an author writes it — a text column over the bound machines,
+ *  the handle its input — so the rows reach the renderer through the Sheet's
+ *  own derived source. */
+const sheetProgram = East.function([Paged.Types.Source(Machines)], UIComponentType, (_$, machines) =>
+    Sheet.Root(machines, { label: Sheet.column.text(Machine, { header: "Label" }) }, { blanks: 0 }));
+
+/** The Sheet root over the bound handle. */
+function sheetOver(handle: Record<string, unknown>): SheetRootValue {
+    const ui = East.compile(sheetProgram, getRegisteredPlatformImplementations())(handle as never) as unknown as { value: SheetRootValue };
+    return ui.value;
+}
+
+describe("a Sheet over Data.bindPaged follows its dataset (#851)", () => {
+    test("writing the dataset swaps each row's content in place — no remount, no empty frame", async () => {
+        const server = standInServer({ hash: "A", labels: { m1: "A-M1", m2: "A-M2" } });
+        initializePagedApi(server.api, "ws");
+        const handle = defaultPagedRuntime.buildHandle(toEastTypeValue(Machines), MACHINES_PATH);
+        const { container } = render(
+            <ChakraProvider value={system}>
+                <EastChakraSheet value={sheetOver(handle)} storageKey="e3-851-sheet" />
+            </ChakraProvider>,
+        );
+        await screen.findByText("A-M1");
+        const row = container.querySelector('[data-row-id="m1"]');
+        expect(row).toBeTruthy();
+
+        // The dataset is written, and the next status poll reports it. B's
+        // window is still on the wire.
+        server.write({ hash: "B", labels: { m1: "B-M1", m2: "B-M2" } });
+        await act(async () => { server.poll(); });
+        await settle();
+        // The same row, still showing A — an empty frame would have unmounted it.
+        expect(container.querySelector('[data-row-id="m1"]')).toBe(row);
+        expect(screen.getByText("A-M1")).toBeTruthy();
+        expect(screen.queryByText("B-M1")).toBeNull();
+
+        // B's window lands: the row swaps its content, in place.
+        server.release("B");
+        await settle();
+        await screen.findByText("B-M1");
+        expect(screen.queryByText("A-M1")).toBeNull();
+        expect(container.querySelector('[data-row-id="m1"]')).toBe(row);
     });
 });

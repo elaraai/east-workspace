@@ -26,7 +26,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { StringType, toEastTypeValue, type EastTypeValue } from "@elaraai/east";
 import type { DatasetKeyMatchRange, DatasetKeyQuery } from "../key-search/index.js";
-import { pagedSnapshot, pagedSnapshotEqual, pagedSnapshotKey } from "../paged-snapshot.js";
+import { pagedSnapshot, pagedSnapshotEqual, pagedSnapshotKey } from "./paged-snapshot.js";
 import { useTrackedEvaluation } from "../../reactive/index.js";
 import { soughtKeyOf, toSeekQuery } from "../plan/use-seek.js";
 import type { SheetPagedSourceValue, SheetRowValue } from "./values.js";

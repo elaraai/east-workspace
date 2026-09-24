@@ -6,12 +6,13 @@
  *
  * The paged sheet's driver (Sheet Spec §3.13, §5 row 21): the resident run
  * is contiguous from the top, the tail band describes the rest, exhaustion
- * arrives with the last window, and an unreadable source reports why.
+ * arrives with the last window, an unreadable source reports why, and a new
+ * revision keeps the rows on screen until its own land (#851).
  */
 
-import { describe, test, expect, afterEach } from "vitest";
+import { describe, test, expect, afterEach, vi } from "vitest";
 import { render, screen, cleanup, act, waitFor } from "@testing-library/react";
-import { some, none } from "@elaraai/east";
+import { some, none, variant } from "@elaraai/east";
 import { useSheetPaging, SHEET_PAGE_SIZE, type SheetViewport } from "./paging.js";
 import type { SheetPagedSourceValue, SheetRowValue } from "./values.js";
 
@@ -39,10 +40,13 @@ function source(total: number, opts: { holdWindow?: number } = {}) {
 }
 
 let latest: ReturnType<typeof useSheetPaging> | undefined;
+/** Every render's resident row count — what an empty frame would show as a 0. */
+let frames: number[] = [];
 
 function Harness({ src }: { src: SheetPagedSourceValue }) {
     const paging = useSheetPaging(src, 36);
     latest = paging;
+    frames.push(paging.rows.length);
     return (
         <div>
             <span data-testid="rows">{`${paging.rowsOffset}+${paging.rows.length}`}</span>
@@ -137,6 +141,125 @@ describe("sheet paging — content revisions", () => {
         rerender(<Harness src={{ ...base.value, page, revision: () => some("B") }} />);
         await waitFor(() => expect(latest!.rows[0]!.id).toBe("updated-r00000"));
         expect(latest!.rows).toHaveLength(450);
-        expect(latest!.sizeVersion).toBeGreaterThan(oldVersion);
+        // The rows are the same height: the geometry holds, nothing re-measures (#851).
+        expect(latest!.sizeVersion).toBe(oldVersion);
+    });
+});
+
+/** A source whose content has revisions (#851). It serves `state.revision` —
+ *  or names none while it is not `known`, as a source does while it
+ *  discovers one — whose windows and total are in flight until it is `open`;
+ *  every row names the revision that served it in its `rev` cell. The
+ *  functions are fixed, so `{ ...value }` is the same source, re-read. */
+function revisioned(total: number) {
+    const state = { revision: "A", known: true, open: new Set(["A"]), totals: new Map([["A", total]]) };
+    const size = () => state.totals.get(state.revision) ?? total;
+    const value = {
+        id: "sheet-revisioned",
+        page: (offset: bigint, limit: bigint) => {
+            if (!state.open.has(state.revision)) return none;
+            const rows: SheetRowValue[] = [];
+            for (let i = Number(offset); i < Math.min(size(), Number(offset) + Number(limit)); i++) {
+                rows.push({ id: `r${String(i).padStart(5, "0")}`, owned: false, cells: new Map([["rev", variant("String", state.revision)]]), lines: [], band: none, subRows: [] } as SheetRowValue);
+            }
+            return some(rows);
+        },
+        total: () => (state.open.has(state.revision) ? some(BigInt(size())) : none),
+        seek: none,
+        revision: () => (state.known ? some(state.revision) : none),
+        refresh: () => null,
+    } as unknown as SheetPagedSourceValue;
+    return { value, state };
+}
+
+const revOf = (row: SheetRowValue): unknown => row.cells.get("rev")?.value;
+
+describe("sheet paging — a new revision keeps the rows (#851)", () => {
+    test("the old rows stand in until the new revision's windows land — never an empty frame — and the geometry holds", async () => {
+        const { value, state } = revisioned(2_000);
+        const { rerender } = render(<Harness src={value} />);
+        await waitFor(() => expect(text("rows")).toBe("0+600"));
+        const before = { first: latest!.rows[0], tail: latest!.tail, sizeVersion: latest!.sizeVersion };
+        frames = [];
+        // The dataset is written: the source serves revision B, whose windows
+        // and total are still on the wire.
+        state.revision = "B";
+        rerender(<Harness src={{ ...value }} />);
+        expect(text("rows")).toBe("0+600");
+        expect(latest!.rows[0]).toBe(before.first);
+        expect(latest!.loading).toBe(true);
+        expect(latest!.total).toBe(2_000);
+        expect(latest!.tail).toEqual(before.tail);
+        expect(latest!.exhausted).toBe(false);
+        // B lands: every row takes B's content, in the same place.
+        state.open.add("B");
+        rerender(<Harness src={{ ...value }} />);
+        await waitFor(() => expect(revOf(latest!.rows[0]!)).toBe("B"));
+        expect(text("rows")).toBe("0+600");
+        expect(latest!.rows.every((row) => revOf(row) === "B")).toBe(true);
+        expect(latest!.rows[0]!.id).toBe(before.first!.id);
+        expect(latest!.loading).toBe(false);
+        expect(latest!.tail).toEqual(before.tail);
+        expect(latest!.sizeVersion).toBe(before.sizeVersion);
+        // No render between the two showed an empty sheet.
+        expect(frames.length).toBeGreaterThan(0);
+        expect(frames.every((n) => n === 600)).toBe(true);
+    });
+
+    test("a revision the source is still discovering keeps the last rows standing in", async () => {
+        const { value, state } = revisioned(450);
+        const { rerender } = render(<Harness src={value} />);
+        await waitFor(() => expect(latest?.exhausted).toBe(true));
+        const first = latest!.rows[0];
+        // A refresh: the source names no revision yet, then names B — its
+        // windows still in flight throughout.
+        state.known = false;
+        state.revision = "B";
+        rerender(<Harness src={{ ...value }} />);
+        expect(latest!.rows[0]).toBe(first);
+        expect(latest!.exhausted).toBe(true);
+        state.known = true;
+        rerender(<Harness src={{ ...value }} />);
+        expect(latest!.rows[0]).toBe(first);
+        expect(latest!.loading).toBe(true);
+        state.open.add("B");
+        rerender(<Harness src={{ ...value }} />);
+        await waitFor(() => expect(revOf(latest!.rows[0]!)).toBe("B"));
+        expect(latest!.rows).toHaveLength(450);
+    });
+
+    test("a total that moves WITH the revision is the content changing: the geometry rebuilds, and nothing is reported", async () => {
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        try {
+            const { value, state } = revisioned(2_000);
+            const { rerender } = render(<Harness src={value} />);
+            await waitFor(() => expect(text("rows")).toBe("0+600"));
+            const sizeVersion = latest!.sizeVersion;
+            state.revision = "C";
+            state.totals.set("C", 2_400);
+            state.open.add("C");
+            rerender(<Harness src={{ ...value }} />);
+            await waitFor(() => expect(latest!.total).toBe(2_400));
+            expect(text("tail")).toBe("600-2399");
+            expect(latest!.sizeVersion).toBeGreaterThan(sizeVersion);
+            expect(warn).not.toHaveBeenCalled();
+        } finally {
+            warn.mockRestore();
+        }
+    });
+
+    test("a total that moves under ONE revision breaks the source's contract: it is reported", async () => {
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        try {
+            const { value, state } = revisioned(2_000);
+            const { rerender } = render(<Harness src={value} />);
+            await waitFor(() => expect(text("rows")).toBe("0+600"));
+            state.totals.set("A", 2_400);
+            rerender(<Harness src={{ ...value }} />);
+            await waitFor(() => expect(latest!.total).toBe(2_400));
+            expect(warn).toHaveBeenCalledWith(expect.stringMatching(/changed total\(\) without a revision change/));
+        } finally {
+            warn.mockRestore();
+        }
     });
 });
