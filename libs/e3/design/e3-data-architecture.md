@@ -600,6 +600,8 @@ In `elaraai/e3-cloud`, on the stages above:
 - GC reads heads (F36);
 - Lambda sizes are chosen from measured peaks.
 
+e3-cloud depends on the e3 and east packages at `latest`. The first release with this PR changes what it relies on (§8), so e3-cloud pins every `@elaraai` dependency to the release before it until this stage lands (e3-cloud#187).
+
 ## 5. Rules that keep it from drifting
 
 - A PR that adds or changes a wire field states which migration rule it follows.
@@ -637,7 +639,8 @@ What #786 guarantees holds through every stage. Each guarantee is pinned by a te
 | Two patches on different keys both commit. A stale patch, update or whole-state replace is a conflict naming the key, and writes nothing | `records.spec.ts`; e3-api-tests `records-keyed` |
 | A patch on a record with no index runs no process | `records.spec.ts` |
 | The runner is handed the record as a stream, never whole | `records.spec.ts` |
-| An indexed record reads as its rows through every ordinary door | `records.spec.ts`; `records-keyed` |
+| An indexed record reads as its rows through every ordinary door, a task's input included | `records.spec.ts`; `processExec.spec.ts`; `records-keyed` |
+| A package or workspace export carries every object its records and collections consist of, so the import deploys, mutates and reads through its indexes | `records.spec.ts` |
 | A reserved `$` slot survives a mutation, a compaction and a reindex, whether the reindex is run by hand or by a deploy | `records.spec.ts` |
 | gc keeps every object a commit, its delta and an index name | `records.spec.ts`; `gc.spec.ts` |
 | A record write holds the tasks lock shared, so a gc sweep is refused until it commits | `records.spec.ts` |
@@ -657,3 +660,57 @@ Each of #786's deferrals has a place:
 - the cloud half is stage 8 (e3-cloud#186, #175).
 
 The Plan and Sheet arms for index-ordered windows stay outside this epic, as #786 left them.
+
+## 8. The audit of this PR
+
+This PR, #786 included, was audited for four kinds of shortcut:
+- code that works in only one deployment;
+- work that can fail after an irreversible write;
+- comments that claim what the code does not do;
+- tests that pass without testing what they claim.
+
+One reviewer took each kind, and a skeptic tried to refute every finding. 31 of 32 findings survived. Each is fixed here with a test that fails before the fix, or moves to stage 8.
+
+**Defects:**
+
+| Finding | Fix |
+|---|---|
+| A task input naming an indexed record reached a stock runner as the `$record` state struct: staging resolved the state to its primary's manifest, then linked the state object | Staging links the collection object `openDatasetObject` resolves |
+| `packageExport` exported a collection default's manifest without its header or segments, and no record objects at all | `packageExport` and `workspaceExport` walk one closure: manifests, record states, records, mutations and index declarations |
+| Two indexes, or two mutations, of one name on one record were both accepted, and the package kept the last | `e3.package` refuses the second, unless it is the same declaration passed twice |
+| A dataset write through the door held only the workspace lock, which gc does not take, so a sweep could delete segments that a manifest written minutes later names | Every door write holds the tasks lock shared, from its first object to its ref, as record writes do |
+| An adoption hashed the delivery and then opened it again, so a delivery replaced in between was stored under the old bytes' memo entry | An adoption refuses a delivery whose file changed between the hash and the store |
+| Transfer init's dedup re-cut a legacy delivery holding no lock, so a deploy or a removal could finish inside it | It holds the workspace lock shared and the tasks lock, as `datasetAdoptFile` does |
+| An exclusive lock never re-checked for shared holders after creating its file, so both could be granted | It re-checks after the create and backs out |
+| A `$reindex` dropped `$idem`, so a keyed retry after one applied the mutation twice | The key's slot names the commit it answers, a reindex carries it, and a retry returns that commit |
+
+**e3-cloud** (stage 8; pinned until then, e3-cloud#187). The first release with this PR changes five things the cloud relies on:
+- the storage interfaces, where nine members are now required;
+- the task-input layout, where a collection input is its manifest plus a segments directory;
+- the mutation run, which passes the state as a stream and adds emit flags;
+- the download path, which streams a manifest;
+- the upload check, which reads only the header because the door re-cuts every delivery.
+
+The GC mark also reads every dataset it visits whole when it is not given `readHead`.
+
+**Docs** that claimed what the code does not do are rewritten to say what it does:
+- a mutation's cost: the delta is applied over the touched segments, but the program is handed the whole state until stage 4b;
+- segment objects are not re-hashed on read;
+- what is held whole: a non-collection PUT body, and the delta a program emits;
+- scratch: a collection output is rewritten through the door, not linked;
+- the emit writer's memory, which is O(workers × segment) until stage 5;
+- a rebuild over an unchanged record still carves its slices;
+- the delta is a GC value, not a leaf;
+- the keyed-record suite pins results, not costs;
+- the header check does not guarantee the door's 64 MiB frame cap;
+- the indexed-record read claim;
+- `getDataset`'s download path;
+- the detached run's streaming, which only the local runner does.
+
+**Tests** that passed without testing what they claim now check it:
+- the cross-runtime parity suite runs the runtimes it has;
+- the index platform-function guard has a test;
+- the lazy nested-shape tests check that the input opened lazily;
+- the staging test checks the inode;
+- the fan-out tests count the operation's own units;
+- the client compatibility tests match the error they expect.
