@@ -150,6 +150,13 @@ jobs:
         working-directory: libs/east-c
         run: ./packages/east-c/scripts/run_compliance.sh build/ir-east build/packages/east-c/test_compliance
 
+      # The beast2 conformance corpus the export writes beside the IR: every
+      # value, run and merge, written here to TypeScript's bytes. The ctest
+      # gates above ran before the artifact landed, so it skipped there.
+      - name: beast2 conformance corpus
+        working-directory: libs/east-c
+        run: ./build/packages/east-c/test_beast2_corpus build/ir-east/beast2_corpus build
+
       # The fs compliance IR bakes the export host's tmpdir() (/tmp/...). On
       # Windows the C runtime resolves that to <drive>:\tmp, absent by default,
       # so create it — writeFile/readFile then round-trip as they do on Unix.

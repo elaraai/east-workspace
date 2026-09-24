@@ -488,6 +488,19 @@ target_link_libraries(test_platform_check east-c)
 add_test(NAME platform_check COMMAND test_platform_check)
 set_tests_properties(platform_check PROPERTIES SKIP_RETURN_CODE 77)
 
+# The beast2 conformance corpus TypeScript exports beside the compliance IR
+# (east/test/beast2_corpus.spec.ts): every value's whole-value blob, paged
+# blob and manifest directory, every emission sequence's runs and their merge,
+# and every merge as a blob and a manifest directory, written here to
+# TypeScript's bytes. Skips (exit 77) unless `make test-export` has produced
+# /tmp/east-test-ir/beast2_corpus. Run under ASan/LSan for the sorter's, the
+# merge's and the manifest writer's lifetimes.
+add_executable(test_beast2_corpus tests/test_beast2_corpus.c)
+target_link_libraries(test_beast2_corpus east-c)
+add_test(NAME beast2_corpus COMMAND test_beast2_corpus)
+set_tests_properties(beast2_corpus PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 600
+                     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+
 # Beast2 encode/decode timing harnesses (dev profiling — build Release for real
 # numbers). profile_collections builds large Dict/Set values in C and times
 # encode + decode per call; profile_beast2_decode times a given .beast2 file.
