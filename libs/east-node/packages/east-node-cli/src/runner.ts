@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { statSync, writeFileSync } from 'fs';
+import { readFileSync, statSync, writeFileSync } from 'fs';
 import { extname } from 'path';
 import {
     EastIR,
@@ -15,6 +15,7 @@ import {
     isTypeValueEqual,
     printFor,
     variant,
+    type UnitResult,
 } from '@elaraai/east';
 import type { PlatformFunction, EastTypeValue } from '@elaraai/east/internal';
 import { printTypeValue } from '@elaraai/east/internal';
@@ -235,10 +236,13 @@ export async function runProgram(
         const t4 = emitSink
             ? finishEmit(emitSink, outputPath!, verbose)
             : maybeWriteOutput(outputPath, result, outputType, verbose);
-        const t5 = now();
 
         if (verbose) {
-            printTimingAndMemory(t0, t1, t2, t3, t4, t5);
+            printResult({
+                outcome: variant('ok', null),
+                peakBytes: peakBytes(),
+                timings: { load: elapsed(t0, t1), compile: elapsed(t1, t2), execute: elapsed(t2, t3), output: elapsed(t3, t4) },
+            });
             reportLazyReads();
         }
     } else {
@@ -251,10 +255,13 @@ export async function runProgram(
         const t4 = emitSink
             ? finishEmit(emitSink, outputPath!, verbose)
             : maybeWriteOutput(outputPath, result, outputType, verbose);
-        const t5 = now();
 
         if (verbose) {
-            printTimingAndMemory(t0, t1, t2, t3, t4, t5);
+            printResult({
+                outcome: variant('ok', null),
+                peakBytes: peakBytes(),
+                timings: { load: elapsed(t0, t1), compile: elapsed(t1, t2), execute: elapsed(t2, t3), output: elapsed(t3, t4) },
+            });
             reportLazyReads();
         }
     }
@@ -458,18 +465,38 @@ function maybeWriteOutput(outputPath: string | undefined, result: unknown, outpu
     return t;
 }
 
-function printTimingAndMemory(t0: bigint, t1: bigint, t2: bigint, t3: bigint, t4: bigint, t5: bigint): void {
+/**
+ * Prints a unit's result as `-v` shows it: where the time went, and the
+ * process's peak memory.
+ *
+ * @param result - the result
+ */
+export function printResult(result: UnitResult): void {
+    const { load, compile, execute, output } = result.timings;
     console.error('\nTiming:');
-    console.error(`  Load:     ${elapsed(t0, t1).toFixed(1).padStart(8)} ms`);
-    console.error(`  Compile:  ${elapsed(t1, t2).toFixed(1).padStart(8)} ms`);
-    console.error(`  Execute:  ${elapsed(t2, t3).toFixed(1).padStart(8)} ms`);
-    console.error(`  Output:   ${elapsed(t3, t4).toFixed(1).padStart(8)} ms`);
-    console.error(`  Total:    ${elapsed(t0, t5).toFixed(1).padStart(8)} ms`);
-
-    const rssBytes = process.memoryUsage().rss;
-    const rssMB = rssBytes / (1024 * 1024);
+    console.error(`  Load:     ${load.toFixed(1).padStart(8)} ms`);
+    console.error(`  Compile:  ${compile.toFixed(1).padStart(8)} ms`);
+    console.error(`  Execute:  ${execute.toFixed(1).padStart(8)} ms`);
+    console.error(`  Output:   ${output.toFixed(1).padStart(8)} ms`);
+    console.error(`  Total:    ${(load + compile + execute + output).toFixed(1).padStart(8)} ms`);
     console.error('\nMemory:');
-    console.error(`  Peak RSS: ${rssMB.toFixed(1).padStart(8)} MB`);
+    console.error(`  Peak RSS: ${(Number(result.peakBytes) / (1024 * 1024)).toFixed(1).padStart(8)} MB`);
+}
+
+/**
+ * The process's peak resident memory in bytes: VmHWM on Linux, where
+ * `ru_maxrss` carries a parent's peak across exec, and `ru_maxrss` elsewhere.
+ *
+ * @returns the peak
+ */
+export function peakBytes(): bigint {
+    try {
+        const hwm = /^VmHWM:\s+(\d+) kB$/m.exec(readFileSync('/proc/self/status', 'utf8'));
+        if (hwm !== null) return BigInt(hwm[1]!) * 1024n;
+    } catch {
+        // No /proc: not Linux.
+    }
+    return BigInt(process.resourceUsage().maxRSS) * 1024n;
 }
 
 /** Whether an output root type is a collection (Array/Set/Dict). */

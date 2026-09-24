@@ -10,14 +10,14 @@ import { Worker } from 'node:worker_threads';
 import { createRequire } from 'module';
 import { EastError } from '@elaraai/east/internal';
 import { loadPlatforms, loadPlatformWithMetadata } from './loader.js';
-import { runProgram, UsageError, type RunProgramOptions } from './runner.js';
+import { printResult, runProgram, UsageError, type RunProgramOptions } from './runner.js';
 import { mergeBlobs } from './merge.js';
-import { writeSnapshot, readSnapshot } from './snapshot.js';
+import { executeUnit, readUnit } from './exec.js';
 import { encodeRebuilt, isDirectory, transpile, transpileDir } from './transpile.js';
 import { exportFunctionsFromModule } from './export-functions.js';
 import { serve as serveLsp } from './lsp.js';
 import { checkModule, formatFinding } from './check.js';
-import { East } from '@elaraai/east';
+import { East, UnitResultType, encodeBeast2For, type UnitResult } from '@elaraai/east';
 
 const require = createRequire(import.meta.url);
 const pkg = require('../package.json') as { version: string; name: string };
@@ -27,8 +27,6 @@ interface RunOptions {
     input?: string[];
     output?: string;
     verbose?: boolean;
-    snapshot?: string;
-    fromSnapshot?: string;
     emit?: string;
     stream?: string[];
     merge?: string;
@@ -121,7 +119,7 @@ interface ExportFunctionsOptions {
 }
 
 /**
- * Print `message` to stderr and exit 1 once the write has FLUSHED.
+ * Print `message` to stderr and exit with `code` once the write has FLUSHED.
  *
  * A write to `process.stderr` is asynchronous on a POSIX pipe (and on a
  * Windows terminal), so `console.error(...)` followed by `process.exit(1)` can
@@ -131,10 +129,10 @@ interface ExportFunctionsOptions {
  * resolves (the process exits from the write callback), so `return fail(...)`
  * ends the caller exactly like the exit it replaces.
  */
-function fail(message: string): Promise<never> {
-    process.exitCode = 1;
+function fail(message: string, code = 1): Promise<never> {
+    process.exitCode = code;
     return new Promise(() => {
-        process.stderr.write(`${message}\n`, () => process.exit(1));
+        process.stderr.write(`${message}\n`, () => process.exit(code));
     });
 }
 
@@ -186,59 +184,14 @@ function startLifeline(options: { exitWithParent?: boolean }): void {
 async function cmdRun(irFile: string | undefined, options: RunOptions): Promise<void> {
     startLifeline(options);
     try {
-        // --from-snapshot is exclusive with <ir_file>, -i, -p
-        if (options.fromSnapshot) {
-            if (irFile || (options.input && options.input.length > 0) ||
-                (options.package && options.package.length > 0)) {
-                return fail('Error: --from-snapshot cannot be combined with <ir_file>, -i, or -p');
-            }
-            const ex = await readSnapshot(options.fromSnapshot);
-            try {
-                const platformFns = await loadPlatforms(ex.packages);
-                await runProgram(
-                    ex.irPath,
-                    platformFns,
-                    ex.packages,
-                    ex.inputPaths,
-                    options.output,
-                    { verbose: options.verbose ?? false, ...streamingOptions(options) },
-                );
-            } finally {
-                ex.cleanup();
-            }
-            return;
-        }
-
         if (!irFile) {
-            return fail('Error: Missing <ir_file> argument (or use --from-snapshot PATH)');
+            return fail('Error: Missing <ir_file> argument');
         }
 
         const packages = options.package ?? [];
         if (packages.length === 0) {
             return fail('Error: At least one platform package is required.\n' +
                 'Example: east-node run program.beast2 -p @elaraai/east-node-std');
-        }
-
-        // The manifest carries no streaming flags (format v1), so a captured
-        // emit/stream invocation would replay with the wrong arity — refuse
-        // at capture with the fix instead of failing confusingly at replay.
-        if (options.snapshot && (options.emit !== undefined || options.stream !== undefined)) {
-            return fail(
-                'Error: --snapshot does not capture --emit/--stream (snapshot format v1 has no ' +
-                'streaming flags); replay with --from-snapshot passing --emit/--stream explicitly',
-            );
-        }
-
-        // Write the snapshot BEFORE execution so crashes still leave the bundle behind.
-        if (options.snapshot) {
-            await writeSnapshot({
-                outPath:    options.snapshot,
-                irPath:     irFile,
-                inputPaths: options.input ?? [],
-                packages,
-                cliVersion: `${pkg.name} ${pkg.version}`,
-            });
-            if (options.verbose) console.error(`Snapshot: ${options.snapshot}`);
         }
 
         const platformFns = await loadPlatforms(packages);
@@ -265,6 +218,30 @@ async function cmdRun(irFile: string | undefined, options: RunOptions): Promise<
         return fail(err instanceof EastError
             ? `Error: ${err.toString()}`
             : (e.stack ?? `Error: ${e.message ?? String(err)}`));
+    }
+}
+
+/**
+ * `east-node exec <unit>`: the runner protocol. The unit's work is done, its
+ * output written and its result recorded where it says; the exit status is 0
+ * for an `ok` outcome and 1 for a failure, whose message and locations also go
+ * to stderr. A unit that cannot be read, or a result that cannot be written,
+ * leaves no result: exit 2.
+ */
+async function cmdExec(unitPath: string, options: { verbose?: boolean; exitWithParent?: boolean }): Promise<void> {
+    startLifeline(options);
+    let result: UnitResult;
+    try {
+        const read = readUnit(unitPath);
+        result = await executeUnit(read);
+        writeFileSync(read.at(read.unit.result), encodeBeast2For(UnitResultType)(result));
+    } catch (err) {
+        return fail(`Error: exec ${unitPath}: ${(err as Error).message ?? String(err)}`, 2);
+    }
+    if (options.verbose) printResult(result);
+    if (result.outcome.type === 'failed') {
+        const { message, locations } = result.outcome.value;
+        return fail(['Error: ' + message, ...locations.map((l) => `  at ${l.filename}:${l.line}:${l.column}`)].join('\n'));
     }
 }
 
@@ -401,9 +378,6 @@ export function main(): void {
         .option('-i, --input <file>', 'Input data file (can be repeated, order matches function parameters)', collect, [])
         .option('-o, --output <file>', 'Output file path for result')
         .option('-v, --verbose', 'Enable verbose output')
-        .option('--snapshot <path>', 'Write a .east-snapshot bundle (IR + inputs + manifest)')
-        .option('--from-snapshot <path>',
-            'Replay from a .east-snapshot bundle (exclusive with <ir_file>, -i, -p)')
         .option('--emit <kind>',
             "Write the output incrementally from the function's trailing emit parameter (array|set|dict)")
         .option('--merge <file>',
@@ -415,6 +389,15 @@ export function main(): void {
             'Open indexed collection inputs at or above this size lazily (0 disables; default 64 MiB)')
         .option('--exit-with-parent', EXIT_WITH_PARENT_HELP)
         .action(cmdRun);
+
+    program
+        .command('exec')
+        .description('Execute a unit, the runner protocol: run a program, or merge the parts of an output, as the unit file ' +
+            'says, write the output by its kind and record the result; exit 0 when it is ok and 1 when it failed')
+        .argument('<unit>', 'The unit file (.beast2); relative paths in it are relative to its directory')
+        .option('-v, --verbose', 'Print where the time went and the peak memory')
+        .option('--exit-with-parent', EXIT_WITH_PARENT_HELP)
+        .action(cmdExec);
 
     program
         .command('merge')

@@ -49,6 +49,7 @@ import {
     readBeast2Manifest,
     readBeast2Type,
     toEastTypeValue,
+    type Beast2ManifestSink,
     type Beast2ManifestSource,
     type Beast2SyncRangeReader,
     type CollectionManifest,
@@ -267,11 +268,12 @@ function readRange(path: string, keyType: EastTypeValue): KeyRange {
 }
 
 /**
- * Merges sorted Set or Dict blobs of one type into one canonical blob — the
- * `merge` command.
+ * Merges sorted Set or Dict blobs of one type into one canonical collection —
+ * the `merge` command, and an `exec` merge unit's set or dict parts.
  *
  * @param inputPaths - the inputs, in the order equal keys fold; at least one
- * @param outputPath - the output blob
+ * @param output - the output blob's path, or the sink a manifest directory is
+ *   written through
  * @param options - the fold, its platforms, the key range, verbosity
  * @returns the account: inputs merged, entries written, keys folded
  * @throws {Error} With the merge's message — an input of another type than
@@ -279,9 +281,9 @@ function readRange(path: string, keyType: EastTypeValue): KeyRange {
  *   signature does not match the inputs, a range blob of another shape than
  *   the bounds over the inputs' key type, a file that cannot be opened, a
  *   shared key without a fold — leaving the output unfinalised (no
- *   terminator or index).
+ *   terminator or index, or no manifest).
  */
-export function mergeBlobs(inputPaths: readonly string[], outputPath: string, options: MergeBlobsOptions = {}): MergeBlobsStats {
+export function mergeBlobs(inputPaths: readonly string[], output: string | Beast2ManifestSink, options: MergeBlobsOptions = {}): MergeBlobsStats {
     const started = performance.now();
     if (inputPaths.length === 0) throw new Error('merge: at least one input is needed');
     if (options.mergePath !== undefined && options.union) {
@@ -312,11 +314,11 @@ export function mergeBlobs(inputPaths: readonly string[], outputPath: string, op
             labels: inputPaths,
             // Frames deflate on worker threads (#763).
             parallel: true,
-        })(opened.map((input) => input.source), (bytes) => {
+        })(opened.map((input) => input.source), typeof output !== 'string' ? output : (bytes) => {
             // The output is created with its first bytes, which the merge
             // writes once every input has opened, so a refused input leaves
             // no file behind.
-            if (fd < 0) fd = openSync(outputPath, 'w');
+            if (fd < 0) fd = openSync(output, 'w');
             writeAll(fd, bytes);
         });
     } finally {
@@ -325,7 +327,7 @@ export function mergeBlobs(inputPaths: readonly string[], outputPath: string, op
     }
     if (options.verbose) {
         console.error(`merge: ${stats.inputs} input(s), ${stats.entries} entries, ${stats.folds} fold(s)`);
-        console.error(`Output: ${outputPath}  (${formatFileSize(outputPath)})`);
+        if (typeof output === 'string') console.error(`Output: ${output}  (${formatFileSize(output)})`);
         console.error('\nTiming:');
         console.error(`  Total:    ${(performance.now() - started).toFixed(1).padStart(8)} ms`);
     }
