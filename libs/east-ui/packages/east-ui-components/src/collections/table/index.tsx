@@ -1384,7 +1384,13 @@ const TableCore = function TableCore({
 
                         const rowKey = virtualRow.index;
                         const rowState = rowStates.get(rowKey) || { status: 'unloaded' };
-                        const isRowLoading = !rowStateManager.isRowLoaded(rowKey) || rowState.status === 'loading';
+                        // The skeleton stands for a DELAYED load. Rows with nothing
+                        // to wait for (`loadingDelay` 0, an in-memory value) render
+                        // at once: a skeleton row for a frame is taller than a text
+                        // row, so every mount would change the table's height, and a
+                        // virtualized host that remounts it would chase that.
+                        const isRowLoading = loadingDelay > 0
+                            && (!rowStateManager.isRowLoaded(rowKey) || rowState.status === 'loading');
                         const rowIndex = BigInt(row.index);
                         const isSelected = !!row.getIsSelected?.();
                         const isOdd = virtualRow.index % 2 === 1;

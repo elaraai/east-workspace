@@ -18,9 +18,10 @@ import {
 } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faChevronDown, faChevronRight } from "@fortawesome/free-solid-svg-icons";
-import { EastFunction, type EastFunctionProps } from "@elaraai/east-ui-components";
+import { EastFunction } from "@elaraai/east-ui-components";
 import type { CatalogEntry, CodeEntry, LiveEntry } from "../catalog";
 import { useCodeLanguage, type CodeLanguage } from "../code-language";
+import { exampleIr } from "./example-ir";
 
 import hljs from "highlight.js/lib/core";
 import typescriptLang from "highlight.js/lib/languages/typescript";
@@ -141,11 +142,8 @@ export function PatternEntry({ entry }: { entry: CatalogEntry }) {
  *  measures rows dynamically, so the frame needs no fixed height — `minH`
  *  just keeps tiny artifacts (a lone badge) from collapsing it to a sliver. */
 function LiveBody({ entry }: { entry: LiveEntry }) {
-    /* `ExampleDef.fn`'s return type is erased to `EastType` at the package
-     * boundary (to keep downstream `.d.ts` small); `<EastFunction>` needs
-     * the precise `EastIR<[], UIComponentType>`. The cast narrows it back —
-     * every live example in the showcase is a UI component by construction. */
-    const ir = useMemo(() => entry.fn.toIR() as EastFunctionProps["ir"], [entry]);
+    // One IR per example, so a remount renders what was compiled (example-ir).
+    const ir = exampleIr(entry);
     return (
         <>
             <Box

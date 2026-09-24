@@ -19,6 +19,7 @@ import { type UIStoreInterface } from "./state-store.js";
 import { getStore } from "./state-runtime.js";
 import { EastChakraComponent } from "../component.js";
 import type { EastIR, ValueTypeOf } from "@elaraai/east";
+import type { PlatformFunction } from "@elaraai/east/internal";
 import { getRegisteredPlatformImplementations } from "./registry.js";
 import { EastErrorBoundary, EastErrorDisplay, toEastErrorInfo } from "../reactive/error-display.js";
 
@@ -232,8 +233,12 @@ export interface EastFunctionProps {
  *
  * @remarks
  * This component takes an IR (intermediate representation) from an East function,
- * compiles it with the StateImpl platform, and renders the result.
- * The compilation happens once on mount.
+ * compiles it with the registered platform implementations, and renders the
+ * result. The first mount of an IR compiles after the first paint, behind a
+ * skeleton. The compiled function is kept for that IR object, so a remount
+ * (a virtualized row scrolled back into range, a panel reopened) renders its
+ * content in its first paint, at the size it had. It is compiled again only
+ * when the platform registrations change.
  *
  * This component renders once and does NOT re-render on state changes.
  * For reactive behavior, use `Reactive.Root` within your East function.
@@ -263,15 +268,28 @@ export function EastFunction({ ir, storageKey }: EastFunctionProps) {
     // Defer compile until after the first paint so the skeleton can show
     // immediately. The closure-compiler in libs/east/src/compile.ts is sync
     // and per-example takes ~30ms — without deferral it blocks the paint.
-    const [state, setState] = useState<CompileState>({ kind: "loading" });
+    // An IR compiled before renders at once instead: a remount that flashed
+    // the skeleton would change size, and a virtualized host whose rows
+    // remount as it scrolls would chase that size change forever.
+    const [state, setState] = useState<CompileState>(() => {
+        const compiled = compiledFor(ir);
+        return compiled !== undefined ? { kind: "ready", compiled } : { kind: "loading" };
+    });
 
     useEffect(() => {
+        const cached = compiledFor(ir);
+        if (cached !== undefined) {
+            setState(prev => (prev.kind === "ready" && prev.compiled === cached ? prev : { kind: "ready", compiled: cached }));
+            return undefined;
+        }
         setState({ kind: "loading" });
         let cancelled = false;
         const run = () => {
             if (cancelled) return;
             try {
-                const compiled = ir.compile(getRegisteredPlatformImplementations());
+                const platforms = getRegisteredPlatformImplementations();
+                const compiled = ir.compile(platforms);
+                compiledByIr.set(ir, { platforms, compiled });
                 if (!cancelled) setState({ kind: "ready", compiled });
             } catch (error) {
                 if (!cancelled) setState({ kind: "error", error });
@@ -302,6 +320,21 @@ type CompileState =
     | { kind: "loading" }
     | { kind: "ready"; compiled: () => ValueTypeOf<UIComponentType> }
     | { kind: "error"; error: unknown };
+
+/** The compiled function of each IR object an {@link EastFunction} has
+ *  compiled, with the platform registrations it was compiled against. */
+const compiledByIr = new WeakMap<EastFunctionProps["ir"], {
+    platforms: readonly PlatformFunction[];
+    compiled: () => ValueTypeOf<UIComponentType>;
+}>();
+
+/** `ir`'s compiled function, when it was compiled against the platform
+ *  registrations in force now. The registry replaces its array whenever a
+ *  module registers or unregisters, so identity is the version. */
+function compiledFor(ir: EastFunctionProps["ir"]): (() => ValueTypeOf<UIComponentType>) | undefined {
+    const hit = compiledByIr.get(ir);
+    return hit !== undefined && hit.platforms === getRegisteredPlatformImplementations() ? hit.compiled : undefined;
+}
 
 /** Schedule a compile during browser idle time, falling back to setTimeout. */
 function scheduleIdle(fn: () => void): number {

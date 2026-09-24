@@ -13,9 +13,13 @@
  * Also the affordance that must be withdrawn: client sort over a loaded prefix
  * sorts "within whatever happened to load" while looking like a sort of the
  * table, so a paged table offers no sort and says so where the counts are.
+ *
+ * And the first frame: rows with nothing to wait for render their cells at
+ * once, so a table mounts at the height it keeps.
  */
 
 import { describe, test, expect, afterEach } from "vitest";
+import { useLayoutEffect } from "react";
 import { render, screen, cleanup } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { variant, some, none, toEastTypeValue, StringType, IntegerType } from "@elaraai/east";
@@ -131,5 +135,31 @@ describe("Table paged source (#576)", () => {
         const band = await screen.findByText(/NO ROWS — the paged source could not be read/);
         expect(band.textContent).toMatch(/no paging service/);
         expect(container.querySelector("[data-table-error]")).toBeTruthy();
+    });
+});
+
+/** Records the page's text at the first commit — a later sibling's layout
+ *  effect runs once the table's DOM is in place, before any passive effect. */
+function FirstFrame({ seen }: { seen: string[] }) {
+    useLayoutEffect(() => {
+        seen.push(document.body.textContent ?? "");
+    }, [seen]);
+    return null;
+}
+
+describe("Table rows on the first frame", () => {
+    test("rows with nothing to wait for render their cells in the first frame, not a skeleton", () => {
+        // A skeleton row is taller than a text row. When every mount opened
+        // on skeletons, a table changed height a frame after it mounted, and
+        // a virtualized host that remounts it as it scrolls chased the change.
+        const seen: string[] = [];
+        render(
+            <ChakraProvider value={system}>
+                <EastChakraTable value={tableRoot(variant("inline", [row("alpha", 1n), row("bravo", 2n)]))} storageKey="table-first-frame" />
+                <FirstFrame seen={seen} />
+            </ChakraProvider>,
+        );
+        expect(seen[0]).toContain("alpha");
+        expect(seen[0]).toContain("bravo");
     });
 });
