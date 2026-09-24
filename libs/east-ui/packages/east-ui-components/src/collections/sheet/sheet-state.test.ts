@@ -203,7 +203,7 @@ describe("rows", () => {
     test("a run that moved under the ring: the ring, a range, the editor, the hover and the armed fill follow their rows; a row that left keeps its index (#854)", () => {
         const open = { ...run(initialSheetState({ r: 1, c: 1 }), [key("x")]).state, selEnd: { r: 2, c: 1 }, hover: { r: 2, c: 0 }, armed: { r: 1, c: 2 } };
         // Two rows landed above: every row sits two further down; the row at 3 left.
-        const moved = (r: number): number | undefined => (r === 3 ? undefined : r + 2);
+        const moved = (r: number): number | null => (r === 3 ? null : r + 2);
         const after = run(open, [{ t: "rows.changed", moved }], ctxOf({ rowCount: 6 }));
         expect(after.state.sel).toEqual({ r: 3, c: 1 });
         expect(after.state.selEnd).toEqual({ r: 4, c: 1 });
@@ -214,6 +214,18 @@ describe("rows", () => {
         expect(run(initialSheetState({ r: 3, c: 0 }), [{ t: "rows.changed", moved }], ctxOf({ rowCount: 6 })).state.sel).toEqual({ r: 3, c: 0 });
         // Nothing moved: the same state.
         expect(run(open, [{ t: "rows.changed", moved: (r) => r }]).state).toBe(open);
+    });
+
+    test("an open editor whose row left closes, uncommitted, and the footer says why; the ring keeps its index (#877)", () => {
+        const open = run(initialSheetState({ r: 3, c: 0 }), [key("x")]).state;
+        const moved = (r: number): number | null => (r === 3 ? null : r);
+        const left = run(open, [{ t: "rows.changed", moved }], ctxOf({ rowCount: 6 }));
+        expect(left.state.edit).toBeNull();
+        expect(left.state.sel).toEqual({ r: 3, c: 0 });
+        expect(left.state.msg).toBe("The edited row left the sheet — its edit was not kept");
+        expect(left.effects).toEqual([{ t: "focus.sheet" }]);
+        // Nothing known of the row: the editor stays where it is.
+        expect(run(open, [{ t: "rows.changed", moved: () => undefined }], ctxOf({ rowCount: 6 })).state.edit).toMatchObject({ r: 3, c: 0, val: "x" });
     });
 });
 

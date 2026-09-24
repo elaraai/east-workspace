@@ -206,18 +206,34 @@ function keyOfItem(it: SheetBodyItem | undefined, i: number): string {
     return `#${i}`;
 }
 
-/** A row-space item's identity — a row's or a group's id, a blank row's synthetic one. */
-function rowIdOf(it: SheetBodyItem): string | undefined {
-    return it.kind === "real" || it.kind === "group" ? it.row.id : it.kind === "blank" ? blankIdOf(it) : undefined;
+/**
+ * A row-space place's identity (#854): a row's or a group's id, a group's
+ * blank line's (it names its group) — or, for a padding row, its place among
+ * the padding: padding rows are alike, and their ids name positions that a
+ * row inserted above moves (#877).
+ */
+type RowSlot = { id: string } | { blank: number };
+
+/** The identity of a row-space item. */
+function slotOf(it: SheetBodyItem): RowSlot | undefined {
+    if (it.kind === "real" || it.kind === "group") return { id: it.row.id };
+    if (it.kind === "blank") return it.group !== undefined ? { id: blankIdOf(it) } : { blank: it.blankIndex };
+    return undefined;
 }
 
-/** Where each row-space index of `before` sits in `after`, by the row's identity — `undefined` for a row that left (#854). */
-function followRows(before: readonly (string | undefined)[], after: readonly (string | undefined)[]): (r: number) => number | undefined {
-    const at = new Map<string, number>();
-    after.forEach((id, r) => { if (id !== undefined && !at.has(id)) at.set(id, r); });
+/** Where each row-space place of `before` sits in `after` (#854) — `null` for a row that left (#877), `undefined` where `before` held nothing. */
+function followRows(before: readonly (RowSlot | undefined)[], after: readonly (RowSlot | undefined)[]): (r: number) => number | null | undefined {
+    const byId = new Map<string, number>();
+    const byBlank = new Map<number, number>();
+    after.forEach((slot, r) => {
+        if (slot === undefined) return;
+        if ("id" in slot) { if (!byId.has(slot.id)) byId.set(slot.id, r); }
+        else if (!byBlank.has(slot.blank)) byBlank.set(slot.blank, r);
+    });
     return (r) => {
-        const id = before[r];
-        return id === undefined ? undefined : at.get(id);
+        const slot = before[r];
+        if (slot === undefined) return undefined;
+        return ("id" in slot ? byId.get(slot.id) : byBlank.get(slot.blank)) ?? null;
     };
 }
 
@@ -719,21 +735,22 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
     uiRef.current = ui;
     const dispatch = useCallback((e: SheetEvent) => dispatchStore({ t: "event", e, ctx: ctxRef.current }), []);
 
-    // The rows changed underneath: clamp the ring, drop an editor whose row
-    // went, a suggestion whose anchor went. A paged run that moved under them
-    // — a window landing above the ring, a failed one landing after a Retry —
-    // shifts every row after by its rows: the ring, a range and an open editor
-    // follow their ROWS, not the indices they had (#854). Only a move of the
-    // SOURCE's rows is followed: the sheet's own writes put the ring where
-    // the new rows have it.
-    const rowSpaceIds = useMemo(() => rowSpace.bodyIndexOf.map((bi) => rowIdOf(body[bi]!)), [rowSpace, body]);
-    const seenRows = useRef({ source: sourceRows, ids: rowSpaceIds });
+    // The rows changed underneath: clamp the ring, drop a suggestion whose
+    // anchor went. Source rows that moved under them — a window landing above
+    // the ring, a failed one landing after a Retry, a new revision, the
+    // host's write-back — shift the rows after: the ring, a range and an open
+    // editor follow their ROWS, not the indices they had (#854), and an
+    // editor whose row left closes (#877). Only a move of the SOURCE's rows
+    // is followed: the sheet's own writes put the ring where the new rows
+    // have it.
+    const rowSpaceSlots = useMemo(() => rowSpace.bodyIndexOf.map((bi) => slotOf(body[bi]!)), [rowSpace, body]);
+    const seenRows = useRef({ source: sourceRows, slots: rowSpaceSlots });
     useEffect(() => {
         const seen = seenRows.current;
-        seenRows.current = { source: sourceRows, ids: rowSpaceIds };
-        const moved = decodedRows === undefined && seen.source !== sourceRows ? followRows(seen.ids, rowSpaceIds) : undefined;
+        seenRows.current = { source: sourceRows, slots: rowSpaceSlots };
+        const moved = seen.source !== sourceRows ? followRows(seen.slots, rowSpaceSlots) : undefined;
         dispatch({ t: "rows.changed", moved });
-    }, [rows, rowCount, colCount, sourceRows, rowSpaceIds, decodedRows, dispatch]);
+    }, [rows, rowCount, colCount, sourceRows, rowSpaceSlots, dispatch]);
 
     // The slice's narrowing changed underneath the lens (a keystroke in the
     // search, a filter): reveals reset and the ring returns to the top — unless

@@ -508,22 +508,26 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
             return { state: { ...closed.state, sel, selEnd: null }, effects: closed.effects };
         }
         case "rows.changed": {
-            // Each index follows its row when the run moved under it (#854);
-            // a row that left keeps the index, clamped, as before.
+            // Each place follows its row when the rows moved under it (#854);
+            // one whose row left keeps its index, clamped — but not an open
+            // editor: over the row now at that index its text would land on
+            // that row. It closes, uncommitted, and the footer says why (#877).
             const follow = <T extends CellRef>(ref: T): T => {
                 const r = e.moved?.(ref.r);
-                return r === undefined || r === ref.r ? ref : { ...ref, r };
+                return r === undefined || r === null || r === ref.r ? ref : { ...ref, r };
             };
+            const editLeft = s.edit !== null && e.moved?.(s.edit.r) === null;
             const sel = clamp(follow(s.sel), ctx);
             const selEnd = s.selEnd !== null ? clamp(follow(s.selEnd), ctx) : null;
-            const moved = s.edit !== null ? follow(s.edit) : null;
+            const moved = s.edit !== null && !editLeft ? follow(s.edit) : null;
             const edit = moved !== null && moved.r < ctx.rowCount && moved.c < ctx.colCount ? moved : null;
             const hover = s.hover !== null ? follow(s.hover) : null;
             const armed = s.armed !== null ? follow(s.armed) : null;
-            const clamped = same(sel, s.sel) && (selEnd === null ? s.selEnd === null : same(selEnd, s.selEnd)) && edit === s.edit && hover === s.hover && armed === s.armed
+            const msg = editLeft ? "The edited row left the sheet — its edit was not kept" : s.msg;
+            const clamped = same(sel, s.sel) && (selEnd === null ? s.selEnd === null : same(selEnd, s.selEnd)) && edit === s.edit && hover === s.hover && armed === s.armed && msg === s.msg
                 ? s
-                : { ...s, sel, selEnd, edit, hover, armed };
-            return { state: afterRowsChanged(clamped, ctx), effects: [] };
+                : { ...s, sel, selEnd, edit, hover, armed, msg };
+            return { state: afterRowsChanged(clamped, ctx), effects: editLeft ? [{ t: "focus.sheet" }] : [] };
         }
         case "msg":
             return s.msg === e.msg ? { state: s, effects: [] } : { state: { ...s, msg: e.msg }, effects: [] };

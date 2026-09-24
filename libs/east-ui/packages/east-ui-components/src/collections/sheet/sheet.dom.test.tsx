@@ -661,7 +661,13 @@ function heldSheet(n: number) {
         } }),
         editing: { ...root.editing, onApply: some(variant("sync", apply)) },
     } as SheetRootValue;
-    return { value, state, touch: () => act(() => { move(); }) };
+    /** Another planner changes the jobs: the source serves them at a new revision (#877). */
+    const rewrite = (next: (rows: ValueTypeOf<typeof JobType>[]) => ValueTypeOf<typeof JobType>[]) => act(() => {
+        jobs = next(jobs);
+        state.revision += 1;
+        move();
+    });
+    return { value, state, touch: () => act(() => { move(); }), rewrite };
 }
 
 /**
@@ -863,6 +869,67 @@ describe("a window loading above the rows never hides them (#876)", () => {
             restore();
         }
     }, HELD_TEST_MS);
+});
+
+describe("an editor whose row leaves the sheet (#877)", () => {
+    const LEFT = "The edited row left the sheet — its edit was not kept";
+
+    test("a new revision without the edited row closes its editor: nothing is written to the row that took its place, and the footer says why", async () => {
+        const held = heldSheet(20);
+        const { value, edits } = withSpies(held.value);
+        const { container, cell, key, type, input, flush } = mount(value);
+        await waitFor(() => expect(container.querySelectorAll('[data-slot="row"][data-blank]')).toHaveLength(2));
+        fireEvent.mouseDown(cell(5, "task"), { button: 0 });
+        key("x");
+        type("Typed");
+        await flush();
+        expect(input()!.value).toBe("Typed");
+        // Another planner deletes r005: the rows below move up into its place.
+        held.rewrite((rows) => rows.filter((row) => row.id !== "r005"));
+        await waitFor(() => expect(container.querySelector('[data-row-id="r005"]')).toBeNull());
+        await flush();
+        expect(input()).toBeNull();
+        expect(container.querySelector('[data-slot="footerMessage"]')!.textContent).toBe(LEFT);
+        expect(cell(5, "task").textContent).toBe("Task 6");
+        expect(edits).toHaveLength(0);
+    });
+
+    test("an editor typing a new row into the padding stays in the padding when another planner's row joins above it", async () => {
+        const held = heldSheet(20);
+        const { value } = withSpies(held.value);
+        const { container, rows, cell, key, type, input, flush } = mount(value);
+        await waitFor(() => expect(container.querySelectorAll('[data-slot="row"][data-blank]')).toHaveLength(2));
+        fireEvent.mouseDown(cell(20, "task"), { button: 0 });
+        key("N");
+        type("New job");
+        await flush();
+        // Another planner's row joins at the end: the padding moves down one.
+        held.rewrite((jobs) => [...jobs, HELD_JOBS[20]!]);
+        await waitFor(() => expect(container.querySelector('[data-row-id="r020"]')).toBeTruthy());
+        await flush();
+        expect(rows()[21]!.hasAttribute("data-blank")).toBe(true);
+        expect(cell(21, "task").querySelector('[data-slot="editorInput"]')).toBe(input());
+        expect(input()!.value).toBe("New job");
+        expect(cell(20, "task").textContent).toBe("Task 20");
+    });
+
+    test("on the inline arm, a host write-back without the edited row closes its editor", async () => {
+        const { value, edits } = withSpies(buildSheet());
+        const { container, cell, key, type, input, flush, rerender } = mount(value);
+        fireEvent.mouseDown(cell(1, "task"), { button: 0 });
+        key("x");
+        type("Typed");
+        await flush();
+        expect(input()!.value).toBe("Typed");
+        // The host drops j2 — another control, a sync — and writes the rows back.
+        const next = withSpies(buildSheet({ rows: [ROWS[0]!] })).value;
+        rerender(<ChakraProvider value={system}><EastChakraSheet value={next} storageKey="sheet-test" /></ChakraProvider>);
+        await flush();
+        expect(container.querySelector('[data-row-id="j2"]')).toBeNull();
+        expect(input()).toBeNull();
+        expect(container.querySelector('[data-slot="footerMessage"]')!.textContent).toBe(LEFT);
+        expect(edits).toHaveLength(0);
+    });
 });
 
 describe("failure is local (#853)", () => {

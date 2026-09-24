@@ -178,13 +178,16 @@ export type SheetEvent =
     | { t: "select.set"; r: number; c: number }
     /**
      * The rows changed underneath (a new value, a landed window): clamp.
-     * `moved` says where each row-space index from before now sits, by the
-     * row's identity — a paged run that moved under the ring (a window
-     * landing above it) shifts every row after by its rows, and the ring, a
-     * range, the editor, the hover and the armed fill follow their rows
-     * (#854); `undefined` for a row that left.
+     * `moved` says where each row-space index from before now sits — a row
+     * by its identity, a padding row by its place among the padding — so the
+     * ring, a range, the editor, the hover and the armed fill follow their
+     * rows when rows move under them: a window landing above, a new
+     * revision, a host's write-back (#854). `null` for a row that LEFT the
+     * row space: an editor on it closes, since it would sit over another row
+     * and its text would land there (#877); every other place keeps its
+     * index, clamped. `undefined` where nothing is known of the row.
      */
-    | { t: "rows.changed"; moved?: ((r: number) => number | undefined) | undefined }
+    | { t: "rows.changed"; moved?: ((r: number) => number | null | undefined) | undefined }
     | { t: "msg"; msg: string }
     | { t: "clipboard.copy" }
     | { t: "clipboard.paste"; text: string }
