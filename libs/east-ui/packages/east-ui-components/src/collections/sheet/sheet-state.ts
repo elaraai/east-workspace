@@ -42,6 +42,9 @@
  * - **Grouped rows (#740)**: arrows land on a band like a row; Space or the
  *   chevron folds it; the summary gutter selects its children. Insertion
  *   uses explicit controls. Grouped sheets have no local lens or view tabs.
+ *   A line with SUB ROWS takes Space the way a band does: they show or
+ *   hide (⇧Space: every line of the group); the ring never lands on a sub
+ *   row.
  *
  * @packageDocumentation
  */
@@ -215,7 +218,65 @@ function toggleFold(s: SheetUiState, r: number, ctx: SheetMachineCtx): Transitio
     folds.set(g.id, !g.folded);
     const effects: SheetEffect[] = [];
     const moved = moveTo(s, { r, c: s.sel.c }, ctx, effects, false);
-    return { state: { ...moved, lens: { ...moved.lens, folds }, msg: g.folded ? "Opened the plan" : "Folded the plan — Space or the chevron opens it" }, effects };
+    return { state: { ...moved, lens: { ...moved.lens, folds }, msg: g.folded ? `Opened the ${nounOf(ctx).singular}` : `Folded the ${nounOf(ctx).singular} — Space or the chevron opens it` }, effects };
+}
+
+/** The word the messages use for a group — the host's, `group` by default. */
+function nounOf(ctx: SheetMachineCtx): { singular: string; plural: string } {
+    return ctx.groupNoun ?? { singular: "group", plural: "groups" };
+}
+
+/** `n group(s)` in the host's word. */
+function groupsWord(n: number, ctx: SheetMachineCtx): string {
+    const noun = nounOf(ctx);
+    return `${n} ${n === 1 ? noun.singular : noun.plural}`;
+}
+
+/** The group the ring is on: its band's row when the ring is on the band, else the nearest band above (a line's group). */
+function groupOfRing(r: number, ctx: SheetMachineCtx): { id: string; folded: boolean } | undefined {
+    for (let k = r; k >= 0; k--) {
+        if (ctx.rowKindAt?.(k) === "group") return ctx.groupAt?.(k);
+    }
+    return undefined;
+}
+
+/**
+ * Fold or open EVERY group (the header's corner, ⌥ on a chevron, ⇧Space on a
+ * band). The groups a lens hides fold too, so the state means the same once
+ * the search clears. The ring stays with its group: the body re-forms
+ * under it, so it is re-found by id once the rows have settled.
+ */
+function foldAll(s: SheetUiState, folded: boolean, ctx: SheetMachineCtx): Transition {
+    const ids = ctx.groupIds ?? [];
+    if (ids.length === 0) return { state: s, effects: [] };
+    const folds = new Map(s.lens.folds);
+    for (const id of ids) folds.set(id, folded);
+    const effects: SheetEffect[] = [];
+    const group = groupOfRing(s.sel.r, ctx);
+    if (group !== undefined) effects.push({ t: "select.id", id: group.id, c: s.sel.c });
+    const msg = folded ? `Folded ${groupsWord(ids.length, ctx)} — the corner, ⌥ on a chevron or ⇧Space opens them` : `Opened ${groupsWord(ids.length, ctx)}`;
+    return { state: { ...s, selEnd: null, gsel: null, lens: { ...s.lens, folds }, msg }, effects };
+}
+
+/**
+ * Show or hide the sub rows under the line at `r` (its chevron, Space);
+ * `all` takes every line of its group the way this one goes. A hand's choice
+ * is a fold override, so it persists with the view like a group's.
+ */
+function toggleSubRows(s: SheetUiState, r: number, all: boolean, ctx: SheetMachineCtx): Transition {
+    const st = ctx.lineSubRowsAt?.(r);
+    if (st === undefined) return { state: s, effects: [] };
+    const open = !st.open;
+    const folds = new Map(s.lens.folds);
+    const ids = all ? st.group : [st.id];
+    for (const id of ids) folds.set(id, !open);
+    const effects: SheetEffect[] = [];
+    const moved = moveTo(s, { r, c: s.sel.c }, ctx, effects, false);
+    const n = all ? ids.length : st.count;
+    const msg = all
+        ? open ? `Showing the sub rows under ${n} line${n === 1 ? "" : "s"} of the ${nounOf(ctx).singular} — ⇧Space hides them` : `Hid the sub rows under the ${nounOf(ctx).singular}'s lines`
+        : open ? `Showing ${n} sub row${n === 1 ? "" : "s"} under the line — Space hides them` : "Hid the sub rows — Space shows them";
+    return { state: { ...moved, lens: { ...moved.lens, folds }, msg }, effects };
 }
 
 /** The sheet's keyboard (B§6) — no editor open. */
@@ -224,9 +285,17 @@ function sheetKey(s: SheetUiState, e: Extract<SheetEvent, { t: "key" }>, ctx: Sh
     if (e.meta && (e.key === "/" || e.key === "f")) return { state: s, effects: [{ t: "focus.search" }] };
     if (ctx.rowCount === 0 || ctx.colCount === 0) return { state: s, effects: [] };
     const effects: SheetEffect[] = [];
-    // A summary folds on Space.
+    // A summary folds on Space; ⇧Space folds or opens every group the way this one goes.
     const rowKind = ctx.rowKindAt?.(s.sel.r);
-    if (rowKind === "group" && e.key === " " && !e.meta && !e.alt) return toggleFold(s, s.sel.r, ctx);
+    if (rowKind === "group" && e.key === " " && !e.meta && !e.alt) {
+        if (!e.shift) return toggleFold(s, s.sel.r, ctx);
+        const g = ctx.groupAt?.(s.sel.r);
+        return g === undefined ? { state: s, effects: [] } : foldAll(s, !g.folded, ctx);
+    }
+    // A line with sub rows: Space shows or hides them, ⇧Space every line's in the group (a line without them still takes Space as a keystroke).
+    if (rowKind === "row" && e.key === " " && !e.meta && !e.alt && ctx.lineSubRowsAt?.(s.sel.r) !== undefined) {
+        return toggleSubRows(s, s.sel.r, e.shift, ctx);
+    }
     const dropPick = (t: Transition): Transition => (t.state.gsel === null ? t : { ...t, state: { ...t.state, gsel: null } });
     const move = (dr: number, dc: number): Transition => {
         const base = e.shift && s.selEnd !== null ? s.selEnd : s.sel;
@@ -342,10 +411,8 @@ function editorKey(s: SheetUiState, e: Extract<SheetEvent, { t: "editor.key" }>,
  * @returns The next state plus the effects the component must run
  */
 export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCtx): Transition {
-    // Queued chrome events must not alter a grouped sheet after a mode change.
-    if (ctx.grouped === true && (e.t.startsWith("tab.") || e.t.startsWith("lens.") || e.t === "band.reveal" || e.t === "search.key")) {
-        return { state: s, effects: [] };
-    }
+    // Tab, lens, band and search events run on a grouped sheet too: its lens
+    // works on the lines (#845).
     switch (e.t) {
         case "cell.down": {
             // A click commits an open editor in place first.
@@ -507,7 +574,20 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
         // ── Grouped rows (#740) ───────────────────────────────────────────
         case "fold.toggle": {
             const closed = s.edit !== null ? commitEdit(s, "stay", ctx) : { state: s, effects: [] as SheetEffect[] };
-            const t = toggleFold(closed.state, e.r, ctx);
+            // ⌥ on the chevron: every group goes the way this one does.
+            const g = e.all === true ? ctx.groupAt?.(e.r) : undefined;
+            const t = g !== undefined ? foldAll(closed.state, !g.folded, ctx) : toggleFold(closed.state, e.r, ctx);
+            return { state: t.state, effects: [...closed.effects, ...t.effects] };
+        }
+        case "fold.all": {
+            const closed = s.edit !== null ? commitEdit(s, "stay", ctx) : { state: s, effects: [] as SheetEffect[] };
+            const t = foldAll(closed.state, e.folded, ctx);
+            return { state: t.state, effects: [...closed.effects, ...t.effects] };
+        }
+        case "subRows.toggle": {
+            // A line's chevron: an open editor commits first, the ring lands on the line.
+            const closed = s.edit !== null ? commitEdit(s, "stay", ctx) : { state: s, effects: [] as SheetEffect[] };
+            const t = toggleSubRows(closed.state, e.r, e.all === true, ctx);
             return { state: t.state, effects: [...closed.effects, ...t.effects] };
         }
     }

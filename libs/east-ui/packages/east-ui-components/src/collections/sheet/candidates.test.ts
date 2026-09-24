@@ -23,12 +23,12 @@ const registers = indexRegisters(new Map([["activity", { members: ACTS.map(membe
 
 const lookupMeta: SheetColumnMeta = indexColumns([{
     key: "activity", header: "Activity", sub: none, width: none,
-    kind: { type: "lookup", value: { register: "activity" } },
-    dataType: null, payloadType: null, editable: true, fill: [],
+    kind: { type: "lookup", value: { register: "activity", options: none } },
+    dataType: null, payloadType: null, editable: true, fill: [], detailCell: none,
 } as never]).list[0]!;
 
 function row(id: string, activity: string): SheetRowValue {
-    return { id, owned: false, cells: new Map([["activity", variant("String", activity)]]), lines: [], band: none };
+    return { id, owned: false, cells: new Map([["activity", variant("String", activity)]]), lines: [], band: none, subRows: [] };
 }
 
 describe("scoring", () => {

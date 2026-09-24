@@ -6,7 +6,10 @@
 /**
  * One read-only cell by kind (B§11): text · mono (date, stamped) · num + unit
  * (quantity, integer) · enum dot + word · the split link cell (`LinkCell`)
- * · a custom kind's `print`. A ghost (a pending fill, P4) draws in
+ * · a custom kind's `print`. A date read at a level (#844) prints `dd/mm/yy`
+ * (and its time at the time level) with the resolution as a tag; once its
+ * actual is known it prints when the work happened instead, the tag saying
+ * how that stands against the wanted date. A ghost (a pending fill, P4) draws in
  * `fg.subtle` over the brand hatch; the next Tab target carries the dotted
  * underline.
  */
@@ -16,6 +19,7 @@ import { Box } from "@chakra-ui/react";
 import { getSomeorUndefined } from "../../../utils.js";
 import { EMPTY_LINK, cellIsBlank, cellText, memberIsDashed, memberLabel, type SheetColumnMeta } from "../model.js";
 import { LinkCell } from "./LinkCell.js";
+import { actualAgainst, formatWhen, type WhenLevel } from "../parse/date.js";
 import type { LinkVocabulary } from "../link/grammar.js";
 import type { LinkHalves } from "../link/sides.js";
 import { NO_FLAGS, type LinkFlags } from "../link/checks.js";
@@ -45,10 +49,12 @@ export interface SheetCellContentProps {
     ghost: SheetCellValue | undefined;
     /** The link cell's halves, vocabulary and flags. */
     link: LinkCellContext | undefined;
+    /** A date cell's level for its row, and the actual instant once the work has happened (#844). */
+    when?: { level: WhenLevel; actual?: Date | undefined } | undefined;
 }
 
 /** Renders a cell's content. */
-export const SheetCellContent = memo(function SheetCellContent({ styles, meta, cell, rowBlank, unit, member, ghost, link }: SheetCellContentProps) {
+export const SheetCellContent = memo(function SheetCellContent({ styles, meta, cell, rowBlank, unit, member, ghost, link, when }: SheetCellContentProps) {
     const blank = cellIsBlank(cell);
     const shown = blank && ghost !== undefined ? ghost : cell;
     const isGhost = blank && ghost !== undefined;
@@ -56,8 +62,29 @@ export const SheetCellContent = memo(function SheetCellContent({ styles, meta, c
     switch (meta.kind) {
         case "date":
         case "stamped": {
+            // Once the work has happened the cell prints when, to the minute; the tag says how that stands against the wanted date.
+            if (meta.kind === "date" && when?.actual !== undefined && !isGhost) {
+                const a = formatWhen(when.actual, "time");
+                const vs = shown?.type === "DateTime" ? actualAgainst(shown.value, when.level, when.actual) : { tag: "actual", tone: "on" as const };
+                return (
+                    <>
+                        <Box as="span" css={styles.cellMono} data-mono="" data-actual="">{a.text}</Box>
+                        <Box as="span" css={styles.cellRes} data-slot="whenRes" data-actual={vs.tone}>{vs.tag}</Box>
+                    </>
+                );
+            }
             if (cellIsBlank(shown)) {
                 return meta.kind === "stamped" && !rowBlank ? <Box as="span" css={styles.cellGhost}>—</Box> : null;
+            }
+            // At a level the date prints `dd/mm/yy` (its time at the time level) and the resolution as a tag at the cell's right edge.
+            if (meta.kind === "date" && when !== undefined && shown?.type === "DateTime") {
+                const w = formatWhen(shown.value, when.level);
+                return (
+                    <>
+                        <Box as="span" css={isGhost ? styles.cellGhost : styles.cellMono} data-mono="" data-level={when.level}>{w.text}</Box>
+                        <Box as="span" css={styles.cellRes} data-slot="whenRes" data-level={when.level}>{w.suffix}</Box>
+                    </>
+                );
             }
             return <Box as="span" css={isGhost ? styles.cellGhost : styles.cellMono} data-mono="">{cellText(shown, meta)}</Box>;
         }

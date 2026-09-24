@@ -91,7 +91,7 @@ test("Alt+Insert and the selection strip share the ordinary insertion path", asy
     fireEvent.keyDown(ui.container.querySelector('[data-sheet-card]')!, { key: "Insert", altKey: true }); await ui.flush();
     expect(ui.input().closest('[data-row-id]')).toBe(ui.rows()[1]);
     fireEvent.keyDown(ui.input(), { key: "Escape" }); await ui.flush();
-    await ui.press(ui.rows()[0]!.querySelector('[data-slot="membershipMarker"]')!);
+    await ui.press(ui.rows()[0]!.querySelector('[data-slot="checkbox"]')!);
     await ui.press(ui.getByRole("button", { name: "Insert above", exact: true }));
     expect(ui.input().closest('[data-row-id]')).toBe(ui.rows()[0]);
 });
@@ -108,7 +108,7 @@ test("insertion disabled hides controls and blocks keyboard and paste extension 
     expect(ui.rows()).toHaveLength(2);
     expect(journal.events).toHaveLength(1);
     expect(journal.draft("b", Sheet.Types.Draft(Row)).task).toEqual(variant("value", "Changed"));
-    await ui.press(ui.rows()[0]!.querySelector('[data-slot="membershipMarker"]')!);
+    await ui.press(ui.rows()[0]!.querySelector('[data-slot="checkbox"]')!);
     expect(ui.queryByRole("group", { name: "Row insertion" })).toBeNull();
     fireEvent.keyDown(card, { key: "Backspace" }); await ui.flush();
     expect(ui.rows()).toHaveLength(2);

@@ -8,14 +8,16 @@
  * vocabulary per link / set column, the per-driver halves and locks, the
  * checks run once per row value (a `WeakMap` over the immutable row), and the
  * link editor's context — candidates over the vocabulary, resolution, the
- * prediction from the column's pending fill, the cell for the halves.
+ * prediction from the column's pending fill, the cell for the halves. What a
+ * row is OFFERED may be narrower than what it may hold: a column's `options`
+ * rule (#844) narrows the candidates, never the resolution of typed text.
  */
 
 import { useCallback, useMemo } from "react";
 import { none, some, variant } from "@elaraai/east";
 import { getSomeorUndefined } from "../../utils.js";
 import { driverKeyOf, type SheetBodyItem, type SheetColumnIndex, type SheetColumnMeta, type SheetRegisterIndex } from "./model.js";
-import { linkVocabulary, usedKeys, type LinkVocabulary } from "./link/grammar.js";
+import { linkVocabulary, narrowVocabulary, usedKeys, type LinkVocabulary } from "./link/grammar.js";
 import { halvesFor, sidesDeclOf, type SidesDecl } from "./link/sides.js";
 import { linkCandidates, linkCandidateAt, resolveBuffer, predictedMembers } from "./link/predict.js";
 import { checksOf, checkLink, NO_FLAGS, type CheckDecl, type LinkFlags } from "./link/checks.js";
@@ -42,6 +44,8 @@ export interface UseSheetLinksArgs {
     rowAt: (r: number) => SheetBodyItem | undefined;
     /** The copilot's pending fill for a link cell — what the editor predicts from (`undefined` = none). */
     predictedLink: (r: number, key: string) => SheetLinkValue | undefined;
+    /** The member keys a row is OFFERED on a link column — its `options` rule (`undefined` = the whole register). */
+    allowedFor?: ((r: number, meta: SheetColumnMeta) => ReadonlySet<string> | undefined) | undefined;
 }
 
 export interface SheetLinks {
@@ -53,7 +57,7 @@ export interface SheetLinks {
 }
 
 /** The link columns' vocabularies, halves, checks and editor contexts. */
-export function useSheetLinks({ drafts, columns, registers, driver, driverColumn, body, rowAt, predictedLink }: UseSheetLinksArgs): SheetLinks {
+export function useSheetLinks({ drafts, columns, registers, driver, driverColumn, body, rowAt, predictedLink, allowedFor }: UseSheetLinksArgs): SheetLinks {
     const linkVocabularies = useMemo(() => {
         const out = new Map<string, LinkVocabulary>();
         for (const meta of columns.list) {
@@ -134,16 +138,18 @@ export function useSheetLinks({ drafts, columns, registers, driver, driverColumn
             : halvesFor(lc.sides, driverKeyOf(row, driverColumn));
         const vocab = lc.vocab;
         const usedOf = (groups: LinkGroups) => usedKeys([...groups[0], ...groups[1]], vocab);
+        const allowed = allowedFor?.(r, meta);
+        const offer = allowed !== undefined ? narrowVocabulary(vocab, allowed) : vocab;
         return {
             halves,
             initial: [current !== undefined ? [...current.from] : [], current !== undefined ? [...current.to] : []],
-            candidates: (text, groups) => linkCandidates(text, vocab, usedOf(groups)),
-            candidateAt: (text, hi, groups) => linkCandidateAt(text, hi, vocab, usedOf(groups)),
+            candidates: (text, groups) => linkCandidates(text, offer, usedOf(groups)),
+            candidateAt: (text, hi, groups) => linkCandidateAt(text, hi, offer, usedOf(groups)),
             resolve: (text, cand) => resolveBuffer(text, cand, vocab),
             predicted: (side, groups, typed) => predictedMembers(predictedLink(r, meta.key), side, groups, side === 0 ? halves.from.live : halves.to.live, typed, vocab),
             cell: (groups): SheetCellValue | null => (groups[0].length === 0 && groups[1].length === 0 ? null : variant("Link", { from: groups[0], to: groups[1] })),
             driverName: driverName(row),
         };
-    }, [columns, linkColumns, rowAt, driverColumn, driverName, predictedLink]);
+    }, [columns, linkColumns, rowAt, driverColumn, driverName, predictedLink, allowedFor]);
     return { linkVocabularies, linkColumns, driverName, linkCellCtx, linkCtxFor };
 }

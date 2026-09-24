@@ -21,7 +21,7 @@ import type { SheetKind } from "./model.js";
 import type { ParseOutcome } from "./parse/index.js";
 import type { LinkCandidate } from "./link/predict.js";
 import type { LinkHalves } from "./link/sides.js";
-import type { SheetCellValue, SheetMemberValue, SheetViewValue } from "./values.js";
+import type { SheetCellValue, SheetMemberValue, SheetNounValue, SheetViewValue } from "./values.js";
 
 /** The slice's narrowing — the decoded `Slice.Types.State` a view snapshots. */
 export type SliceStateValue = ValueTypeOf<typeof Slice.Types.State>;
@@ -225,8 +225,12 @@ export type SheetEvent =
     /** A key in the rail's search box the tabs claim: ⏎ updates a dirty tab; esc reverts a dirty tab, returns a clean one to the sheet, or clears the search. */
     | { t: "search.key"; key: string }
     // ── Grouped rows (#740) ──
-    /** The chevron, or Space with the ring on a band: the group folds or opens. */
-    | { t: "fold.toggle"; r: number };
+    /** The chevron, or Space with the ring on a band: the group folds or opens; `all` (⌥ on the chevron) applies the band's new state to every group. */
+    | { t: "fold.toggle"; r: number; all?: boolean }
+    /** The header corner's fold-all, or ⇧Space on a band: every group folds (`true`) or opens. */
+    | { t: "fold.all"; folded: boolean }
+    /** A line's chevron, or Space with the ring on a line that has sub rows (#844): they show or hide; `all` (⌥ on the chevron, ⇧Space) takes every line of its group the same way. */
+    | { t: "subRows.toggle"; r: number; all?: boolean };
 
 /** Where an edit came from (the wire `SheetSourceType` tags). */
 export type EditSource = "typed" | "pasted" | "fill" | "row" | "pattern";
@@ -253,6 +257,8 @@ export type SheetEffect =
     | { t: "emit.select"; r: number; c: number }
     /** Bring a row into view. */
     | { t: "scroll.to"; r: number }
+    /** Move the ring to a row by ID once the body has re-formed (a fold-all keeps the ring on its group's band). */
+    | { t: "select.id"; id: string; c: number }
     /** Re-ask the copilot for the edited row after the kind's latency (`instant` = 150 ms). */
     | { t: "schedule.suggest"; latency: "instant" | "idle" }
     /** The views changed — `onViewsChange`. */
@@ -316,6 +322,12 @@ export interface SheetMachineCtx {
     groupAt?: (r: number) => { id: string; folded: boolean; lines: { r0: number; r1: number } | undefined } | undefined;
     /** The columns one cell spans (#740): a band's title spans its first columns; `undefined` ⇒ one column. */
     spanAt?: (r: number, c: number) => { c0: number; c1: number } | undefined;
+    /** Every group's id in sheet order, the ones a lens hides included: what fold-all folds. */
+    groupIds?: readonly string[] | undefined;
+    /** The word the messages use for a group (#844) — the host's. */
+    groupNoun?: SheetNounValue | undefined;
+    /** A line's SUB ROWS at a row-space index (#844): the line's id (the key they open under), how many, whether they show, and every line of its group that has sub rows. `undefined` = not a line, or a line with none. */
+    lineSubRowsAt?: ((r: number) => { id: string; count: number; open: boolean; group: readonly string[] } | undefined) | undefined;
 }
 
 /** What the link editor asks about its cell — built by the component per render. */

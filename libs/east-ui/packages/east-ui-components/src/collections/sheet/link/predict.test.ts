@@ -36,15 +36,15 @@ const column = indexColumns([{
     kind: { type: "link", value: {
         register: "stations",
         members: [
-            { kind: "machine", identified: true, countable: false, resolvesTo: none },
-            { kind: "range", identified: true, countable: false, resolvesTo: none },
-            { kind: "line", identified: false, countable: true, resolvesTo: some("machine") },
-            { kind: "family", identified: false, countable: true, resolvesTo: some("machine") },
+            { kind: "machine", identified: true, countable: false, resolvesTo: none, ranged: false },
+            { kind: "range", identified: true, countable: false, resolvesTo: none, ranged: false },
+            { kind: "line", identified: false, countable: true, resolvesTo: some("machine"), ranged: false },
+            { kind: "family", identified: false, countable: true, resolvesTo: some("machine"), ranged: false },
         ],
         multiple: some({ forms: ["N x kind", "kind x N"], ops: ["x", "X", "*", "×"], appliesTo: "countable" }),
-        sides: none, arity: none, check: [], store: { type: "asTyped", value: null },
+        sides: none, arity: none, check: [], store: { type: "asTyped", value: null }, options: none,
     } },
-    dataType: null, payloadType: null, editable: true, fill: [],
+    dataType: null, payloadType: null, editable: true, fill: [], detailCell: none,
 }] as never).list[0]!;
 const vocab = linkVocabulary(column, MEMBERS);
 const m = (type: string, value: unknown): SheetMemberValue => variant(type, value) as SheetMemberValue;
@@ -66,7 +66,7 @@ describe("candidates", () => {
         const rng = linkCandidates("M2140-45", vocab, NONE);
         expect(rng).toHaveLength(1);
         expect(rng[0]!.label).toBe("M2140-M2145");
-        expect(rng[0]!.meta).toBe("→ 3 members: M2140, M2141, M2145");
+        expect(rng[0]!.meta).toBe("→ 3 machines: M2140, M2141, M2145");
         expect(rng[0]!.members[0]!.type).toBe("range");
     });
 

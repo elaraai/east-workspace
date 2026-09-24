@@ -21,6 +21,8 @@ export function groupColor(id: string): number {
 
 function groupId(item: SheetBodyItem | undefined): string | undefined {
     if (item?.kind === "group") return item.row.id;
+    // A line's sub rows sit inside its group: the rail runs through them.
+    if (item?.kind === "subRow") return item.group.row.id;
     return item?.kind === "real" ? item.group?.row.id : undefined;
 }
 

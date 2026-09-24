@@ -20,6 +20,12 @@
  * would precede the base. Display `17 Nov 26`; edit form `17/11/26`; strip
  * preview `Mon 17 Nov 26`; clipboard `17/11/2026`.
  *
+ * A date column may read each row's date at a LEVEL (`Sheet.Types.DateLevel`,
+ * #844): the week it falls in, the day, one end of a range of days, or the
+ * day and its time. The cell is still one UTC instant; the level decides how
+ * it prints, how it is typed (a trailing `hh:mm` at the time level) and how
+ * an ACTUAL instant — when the work really happened — compares with it.
+ *
  * @packageDocumentation
  */
 
@@ -112,6 +118,13 @@ function parseUndated(text: string, year: number): Date | undefined {
  * @returns the date; `undefined` for an empty buffer (a blank); `null` when unrecognised
  */
 export function parseDate(text: string, ctx: DateParseContext): Date | null | undefined {
+    // A trailing `hh:mm` rides on the day (`fri 07:30`, `22/3 19:00`, or `19:00` alone on the base day).
+    const split = splitTimeToken(text);
+    if (split.time !== undefined) {
+        const day = split.rest === "" ? utcMidnight(ctx.base ?? ctx.today) : parseDate(split.rest, ctx);
+        if (day === null || day === undefined) return null;
+        return withTime(day, split.time.hh, split.time.mm);
+    }
     const t = text.trim().toLowerCase().replace(/\s+/g, " ");
     if (t === "") return undefined;
     const base = ctx.base ?? ctx.today;
@@ -157,4 +170,130 @@ export function formatDateLong(d: Date): string {
 /** `17/11/2026` — the clipboard form (B§10). */
 export function formatDateClipboard(d: Date): string {
     return formatDatePattern(DATE_CLIPBOARD_PATTERN, d);
+}
+
+// ── Levels ────────────────────────────────────────────────────────────────
+
+/** How deep a date is read and typed — the tags of `Sheet.Types.DateLevel`. */
+export type WhenLevel = "week" | "day" | "range" | "time";
+
+/** Whether a string names a level — what a level rule cell holds. */
+export function isWhenLevel(s: string): s is WhenLevel {
+    return s === "week" || s === "day" || s === "range" || s === "time";
+}
+
+/** The instant at `hh:mm` on `d`'s day. */
+export function withTime(d: Date, hh: number, mm: number): Date {
+    return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), hh, mm));
+}
+
+/** Whether an instant carries a time of day. */
+export const hasTime = (d: Date): boolean => d.getUTCHours() !== 0 || d.getUTCMinutes() !== 0;
+
+const two = (n: number): string => String(n).padStart(2, "0");
+/** `19:00`. */
+export const formatTime = (d: Date): string => `${two(d.getUTCHours())}:${two(d.getUTCMinutes())}`;
+
+/** The Monday of `d`'s week (UTC). */
+export function weekStart(d: Date): Date {
+    const m = utcMidnight(d);
+    return addDays(m, -((m.getUTCDay() + 6) % 7));
+}
+
+/** A trailing `hh:mm` on typed text, split off: the rest, and the time it names. */
+export function splitTimeToken(text: string): { rest: string; time?: { hh: number; mm: number } } {
+    const t = text.trim();
+    const m = /^(.*?)\s*\b(\d{1,2}):(\d{2})$/.exec(t);
+    if (m !== null) {
+        const hh = Number(m[2]);
+        const mm = Number(m[3]);
+        if (hh < 24 && mm < 60) return { rest: m[1]!.trim(), time: { hh, mm } };
+    }
+    return { rest: t };
+}
+
+/**
+ * The edit form at a level: the day alone up to the range level, the day and
+ * the clock at the time level (`22/3/26 19:00`). With no level, a date that
+ * carries a time of day keeps it.
+ *
+ * @param d - The instant
+ * @param level - The row's level, if the column declares one
+ * @returns The text the editor opens with
+ */
+export function formatWhenEdit(d: Date, level?: WhenLevel): string {
+    const day = formatDateEdit(d);
+    if (level === "week" || level === "day" || level === "range") return day;
+    if (level === "time" || hasTime(d)) return `${day} ${formatTime(d)}`;
+    return day;
+}
+
+/** The cell's display form at a level — `22/03/26`. */
+export const WHEN_DISPLAY_PATTERN = "DD/MM/YY";
+
+/**
+ * What a date cell prints at a level: the day as `dd/mm/yy` (at the week
+ * level, the week's Monday), the time after it at the time level, and the
+ * RESOLUTION as a tag — `wk` · `day` · `range` · `time` — so a reader never
+ * infers the precision from the shape of the text.
+ *
+ * @param d - The instant
+ * @param level - The level it is read at
+ * @returns The text and its resolution tag
+ */
+export function formatWhen(d: Date, level: WhenLevel): { text: string; suffix: string } {
+    switch (level) {
+        case "week":  return { text: formatDatePattern(WHEN_DISPLAY_PATTERN, weekStart(d)), suffix: "wk" };
+        case "day":   return { text: formatDatePattern(WHEN_DISPLAY_PATTERN, d), suffix: "day" };
+        case "range": return { text: formatDatePattern(WHEN_DISPLAY_PATTERN, d), suffix: "range" };
+        case "time":  return { text: `${formatDatePattern(WHEN_DISPLAY_PATTERN, d)} ${formatTime(d)}`, suffix: "time" };
+    }
+}
+
+/**
+ * The forms a level accepts — the strip's `accepts` line.
+ *
+ * @param level - The level
+ * @returns The chip and the meta line
+ */
+export function whenAccepts(level: WhenLevel): { chip: string; meta: string } {
+    switch (level) {
+        case "week":  return { chip: "a week — any day in it", meta: "22/3 · fri · +7d · shown as its Monday" };
+        case "day":   return { chip: "a day", meta: "22/3 · fri · +3d" };
+        case "range": return { chip: "one end of the days it can run in", meta: "18/3 here, 22/3 at the other end" };
+        case "time":  return { chip: "a day and a time", meta: "22/3 19:00 · fri 07:30" };
+    }
+}
+
+/**
+ * How an ACTUAL instant stands against the WANTED date at its level. Inside
+ * the window the level names — the week, the day, an hour either side of a
+ * time — it is on time; otherwise late or early by whole days, or by hours
+ * under a day, measured from the wanted instant.
+ *
+ * @param wanted - The wanted date, as the cell holds it
+ * @param level - The level it is read at
+ * @param actual - When the work really happened
+ * @returns The tag (`+1d` · `−3h` · `actual`), its tone, and the words the cell's detail says (`3 hours late`)
+ */
+export function actualAgainst(wanted: Date, level: WhenLevel, actual: Date): { tag: string; tone: "on" | "late" | "early"; words: string } {
+    let lo: number;
+    let hi: number;
+    switch (level) {
+        case "week": lo = weekStart(wanted).getTime(); hi = lo + 7 * DAY_MS; break;
+        case "day": case "range": lo = utcMidnight(wanted).getTime(); hi = lo + DAY_MS; break;
+        case "time": lo = wanted.getTime() - 3_600_000; hi = wanted.getTime() + 3_600_000; break;
+    }
+    const t = actual.getTime();
+    if (t >= lo && t < hi) return { tag: "actual", tone: "on", words: "on time" };
+    const off = Math.abs(t - wanted.getTime());
+    const late = t >= hi;
+    const days = Math.max(1, Math.round(off / DAY_MS));
+    const hours = Math.max(1, Math.round(off / 3_600_000));
+    const inDays = off >= 20 * 3_600_000;
+    const amount = inDays ? `${days}d` : `${hours}h`;
+    const spelled = inDays ? `${days} day${days === 1 ? "" : "s"}` : `${hours} hour${hours === 1 ? "" : "s"}`;
+    return late
+        ? { tag: `+${amount}`, tone: "late", words: `${spelled} late` }
+        : { tag: `−${amount}`, tone: "early", words: `${spelled} early` };
 }

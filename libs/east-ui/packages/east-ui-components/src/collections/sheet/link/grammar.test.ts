@@ -34,15 +34,15 @@ const column = indexColumns([{
     kind: { type: "link", value: {
         register: "stations",
         members: [
-            { kind: "machine", identified: true, countable: false, resolvesTo: none },
-            { kind: "range", identified: true, countable: false, resolvesTo: none },
-            { kind: "line", identified: false, countable: true, resolvesTo: some("machine") },
-            { kind: "family", identified: false, countable: true, resolvesTo: some("machine") },
+            { kind: "machine", identified: true, countable: false, resolvesTo: none, ranged: false },
+            { kind: "range", identified: true, countable: false, resolvesTo: none, ranged: false },
+            { kind: "line", identified: false, countable: true, resolvesTo: some("machine"), ranged: false },
+            { kind: "family", identified: false, countable: true, resolvesTo: some("machine"), ranged: false },
         ],
         multiple: some({ forms: ["N x kind", "kind x N"], ops: ["x", "X", "*", "×"], appliesTo: "countable" }),
-        sides: none, arity: none, check: [], store: { type: "asTyped", value: null },
+        sides: none, arity: none, check: [], store: { type: "asTyped", value: null }, options: none,
     } },
-    dataType: null, payloadType: null, editable: true, fill: [],
+    dataType: null, payloadType: null, editable: true, fill: [], detailCell: none,
 }] as never).list[0]!;
 const vocab = linkVocabulary(column, MEMBERS);
 
@@ -112,7 +112,7 @@ describe("meta and used keys", () => {
         expect(memberMeta(m("counted", { n: 4n, key: "CNC lathe" }), vocab)).toBe("unassigned");
         expect(memberMeta(m("counted", { n: 2n, key: "Line 2" }), vocab)).toBe("unassigned");
         expect(memberMeta(m("counted", { n: 2n, key: "nowhere" }), vocab)).toBe("");
-        expect(memberMeta(m("range", { from: "M2140", to: "M2145" }), vocab)).toBe("3 members");
+        expect(memberMeta(m("range", { from: "M2140", to: "M2145" }), vocab)).toBe("3 machines");
         expect(memberMeta(m("text", "x"), vocab)).toBe("");
     });
 

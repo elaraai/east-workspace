@@ -13,7 +13,7 @@
  */
 
 import { variant } from "@elaraai/east";
-import { parseDate, formatDateEdit } from "./date.js";
+import { parseDate, formatWhenEdit, type WhenLevel } from "./date.js";
 import { parseQuantity, formatNumberBare } from "./quantity.js";
 import { candidateList, type CandidateContext } from "../candidates.js";
 import { cellText, memberLabel, printLinkText, type SheetColumnMeta } from "../model.js";
@@ -124,11 +124,11 @@ export function parseCell(meta: SheetColumnMeta, text: string, ctx: ParseContext
     return { kind: "unrecognised" };
 }
 
-/** A cell's EDIT form — what the editor opens with (dates `17/11/26`, numbers bare). */
-export function editText(cell: SheetCellValue | undefined, meta: SheetColumnMeta): string {
+/** A cell's EDIT form — what the editor opens with (dates `17/11/26`, numbers bare); a date at the time level, or one carrying a time of day, keeps it (`17/11/26 19:00`). */
+export function editText(cell: SheetCellValue | undefined, meta: SheetColumnMeta, level?: WhenLevel): string {
     if (cell === undefined || cell.type === "Null") return "";
     switch (cell.type) {
-        case "DateTime": return formatDateEdit(cell.value);
+        case "DateTime": return formatWhenEdit(cell.value, level);
         case "Float": return formatNumberBare(cell.value);
         case "Integer": return String(cell.value);
         case "Invalid":

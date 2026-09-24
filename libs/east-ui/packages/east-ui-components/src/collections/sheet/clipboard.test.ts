@@ -15,12 +15,12 @@ import { utcDate } from "./parse/date.js";
 import type { SheetCellValue } from "./values.js";
 
 const col = (key: string, kind: unknown, editable = true) => ({
-    key, header: key, sub: none, width: none, kind, dataType: null, payloadType: null, editable, fill: [],
+    key, header: key, sub: none, width: none, kind, dataType: null, payloadType: null, editable, fill: [], detailCell: none,
 });
 const columns = indexColumns([
-    col("start", { type: "date", value: { base: none, format: none } }),
+    col("start", { type: "date", value: { base: none, format: none, level: none, actual: none } }),
     col("qty", { type: "quantity", value: { uom: none, format: none } }),
-    col("stations", { type: "link", value: { register: "v", members: [], multiple: none, sides: none, arity: none, check: [], store: { type: "asTyped", value: null } } }),
+    col("stations", { type: "link", value: { register: "v", members: [], multiple: none, sides: none, arity: none, check: [], store: { type: "asTyped", value: null }, options: none } }),
     col("code", { type: "stamped", value: { owner: none } }, false),
     col("notes", { type: "text", value: null }),
 ] as never);

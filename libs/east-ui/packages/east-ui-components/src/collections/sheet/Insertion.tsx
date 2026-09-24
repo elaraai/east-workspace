@@ -16,48 +16,71 @@ export interface InsertionActions {
     ordered: boolean;
     groupOrdered: boolean;
     preview?: ((kind: "row" | "group" | undefined) => void) | undefined;
+    /** What a row is called here — `line` on a grouped sheet, else `row`. */
+    rowWord: string;
+    /** What a group is called — the host's noun (#844). */
+    groupWord: string;
+    /**
+     * Where the chips sit: in the gutter's actions column unless an action
+     * button occupies that column on either row the seam divides, when they
+     * move to the body side of the gutter edge so nothing overlaps.
+     */
+    side: "gutter" | "body";
 }
-/** Two independent actions at the gutter seam; keyboard activation never types into the sheet. */
+/**
+ * Two independent actions at the row boundary; keyboard activation never
+ * types into the sheet.
+ *
+ * The SEAM is a hit band centred on the row boundary across the gutter;
+ * hovering it reveals both chips — row (plus) and group (layer-group), 24 px
+ * outlined — threaded on the insertion line. They sit in the gutter's actions
+ * column unless an action button is in that column on either row the seam
+ * divides, when they move to the body side of the gutter edge, so they never
+ * collide with the connector, the numbers or the actions. The chips stay
+ * inert until the seam is hovered, so they never intercept a press on what
+ * they float over; once shown they are reachable without leaving the seam.
+ */
 export function SheetInsertPoint({ styles, actions }: { styles: Styles; actions: InsertionActions }) {
     const point = useRef<HTMLDivElement>(null);
     const defaultKind = actions.row ? "row" : "group";
     const preview = actions.preview;
-    // The buttons are revealed by the whole gutter, so its hover owns the default preview too.
     useEffect(() => {
-        const gutter = point.current?.closest("[data-slot=gutter]");
-        if (!gutter) return;
+        const seam = point.current;
+        if (!seam) return;
         const enter = () => preview?.(defaultKind);
         const leave = () => preview?.(undefined);
-        gutter.addEventListener("mouseenter", enter);
-        gutter.addEventListener("mouseleave", leave);
-        return () => { gutter.removeEventListener("mouseenter", enter); gutter.removeEventListener("mouseleave", leave); };
+        seam.addEventListener("mouseenter", enter);
+        seam.addEventListener("mouseleave", leave);
+        return () => { seam.removeEventListener("mouseenter", enter); seam.removeEventListener("mouseleave", leave); };
     }, [preview, defaultKind]);
-    const restore = () => actions.preview?.(point.current?.closest("[data-slot=gutter]")?.matches(":hover") ? defaultKind : undefined);
-    return <Box ref={point} css={styles.insertPoint} data-slot="insertPoint" onKeyDown={event => event.stopPropagation()}>
-        {actions.row && <chakra.button type="button" css={styles.insertButton} data-slot="insertRow"
-            aria-label={actions.ordered ? "Insert row before" : "Add row"} title={actions.ordered ? "Insert row before" : "Add row in key order"}
-            onMouseDown={event => { event.preventDefault(); event.stopPropagation(); }}
-            onMouseEnter={() => actions.preview?.("row")} onMouseLeave={restore}
-            onFocus={() => actions.preview?.("row")} onBlur={restore}
-            onClick={event => { event.stopPropagation(); actions.row?.(); }}><FontAwesomeIcon icon={faPlus} /></chakra.button>}
-        {actions.group && <chakra.button type="button" css={styles.insertButton} data-slot="insertGroup"
-            aria-label={actions.groupOrdered ? "New group" : "Add group"} title={actions.groupOrdered ? "New group at the nearest group boundary" : "Add group in key order"}
-            onMouseDown={event => { event.preventDefault(); event.stopPropagation(); }}
-            onMouseEnter={() => actions.preview?.("group")} onMouseLeave={restore}
-            onFocus={() => actions.preview?.("group")} onBlur={restore}
-            onClick={event => { event.stopPropagation(); actions.group?.(); }}>
-            <Box as="span" css={styles.insertGroupIcon} aria-hidden="true"><FontAwesomeIcon icon={faLayerGroup} /><Box as="span" css={styles.insertGroupPlus}>+</Box></Box>
-        </chakra.button>}
+    const restore = () => actions.preview?.(point.current?.matches(":hover") ? defaultKind : undefined);
+    const { rowWord, groupWord } = actions;
+    return <Box ref={point} css={styles.insertPoint} data-slot="insertPoint" data-side={actions.side} onKeyDown={event => event.stopPropagation()}>
+        <Box css={styles.insertHit} data-slot="insertHit" aria-hidden="true" />
+        <Box css={styles.insertChips} data-slot="insertChips" role="group" aria-label="Insert here">
+            {actions.row && <chakra.button type="button" css={styles.insertButton} data-slot="insertRow"
+                aria-label={actions.ordered ? `Insert ${rowWord} before` : `Add ${rowWord}`} title={actions.ordered ? `Insert a ${rowWord} here` : `Add a ${rowWord} in key order`}
+                onMouseDown={event => { event.preventDefault(); event.stopPropagation(); }}
+                onMouseEnter={() => actions.preview?.("row")} onMouseLeave={restore}
+                onFocus={() => actions.preview?.("row")} onBlur={restore}
+                onClick={event => { event.stopPropagation(); actions.row?.(); }}><FontAwesomeIcon icon={faPlus} /></chakra.button>}
+            {actions.group && <chakra.button type="button" css={styles.insertButton} data-slot="insertGroup"
+                aria-label={actions.groupOrdered ? `New ${groupWord}` : `Add ${groupWord}`} title={actions.groupOrdered ? `Start a new ${groupWord} at the nearest ${groupWord} boundary` : `Add a ${groupWord} in key order`}
+                onMouseDown={event => { event.preventDefault(); event.stopPropagation(); }}
+                onMouseEnter={() => actions.preview?.("group")} onMouseLeave={restore}
+                onFocus={() => actions.preview?.("group")} onBlur={restore}
+                onClick={event => { event.stopPropagation(); actions.group?.(); }}><FontAwesomeIcon icon={faLayerGroup} /></chakra.button>}
+        </Box>
     </Box>;
 }
 /** A visible alternative to the gutter controls when whole rows are selected. */
-export function SheetInsertStrip({ styles, ordered, above, below, group }: {
-    styles: Styles; ordered: boolean; above?: (() => void) | undefined; below?: (() => void) | undefined; group?: (() => void) | undefined;
+export function SheetInsertStrip({ styles, ordered, above, below, group, groupWord = "group" }: {
+    styles: Styles; ordered: boolean; above?: (() => void) | undefined; below?: (() => void) | undefined; group?: (() => void) | undefined; groupWord?: string;
 }) {
     if (!above && !below && !group) return null;
     return <Box css={styles.insertStrip} role="group" aria-label="Row insertion">
         {ordered && above && <chakra.button type="button" css={styles.insertChoice} onClick={above}>Insert above</chakra.button>}
         {below && <chakra.button type="button" css={styles.insertChoice} onClick={below}>{ordered ? "Insert below" : "Add row"}</chakra.button>}
-        {group && <chakra.button type="button" css={styles.insertChoice} onClick={group}>New group</chakra.button>}
+        {group && <chakra.button type="button" css={styles.insertChoice} onClick={group}>{`New ${groupWord}`}</chakra.button>}
     </Box>;
 }

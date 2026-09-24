@@ -33,6 +33,10 @@ import type { SheetRootValue, SheetSelectionValue } from "./values.js";
 afterEach(cleanup);
 beforeEach(() => { initializeStore(new UIStore()); });
 
+// jsdom has no `CSS.escape`; the enum editor's combobox selects its items with it.
+(globalThis as unknown as { CSS?: { escape?: (s: string) => string } }).CSS ??= {};
+(globalThis as unknown as { CSS: { escape?: (s: string) => string } }).CSS.escape ??= (s: string) => s.replace(/[^a-zA-Z0-9_-]/g, (c) => `\\${c}`);
+
 const JobType = StructType({
     id: StringType,
     start: OptionType(DateTimeType),
@@ -509,7 +513,8 @@ describe("the link cell (B§4.3)", () => {
         const p1 = cell("p1");
         expect(p1.querySelector('[data-slot="linkCell"]')!.getAttribute("data-sides")).toBe("both");
         expect([...p1.querySelectorAll('[data-half="from"] [data-slot="chip"]')].map((c) => c.textContent)).toEqual(["M2140CNC lathe"]);
-        expect([...p1.querySelectorAll('[data-half="to"] [data-slot="chip"]')].map((c) => c.textContent)).toEqual(["4 × CNC latheunassigned"]);
+        // A counted member prints its kind; its count, worded in the kind it resolves to, is the chip's meta.
+        expect([...p1.querySelectorAll('[data-half="to"] [data-slot="chip"]')].map((c) => c.textContent)).toEqual(["CNC lathe4 machines"]);
         // In place: From locked with its tag, the divider a minus, the placeholder dashed.
         const p2 = cell("p2");
         expect(p2.querySelector('[data-slot="linkCell"]')!.getAttribute("data-sides")).toBe("in");
@@ -562,7 +567,7 @@ describe("the link editor (B§4.4)", () => {
         expect(link.value.to).toEqual([variant("counted", { n: 4n, key: "CNC lathe" }), variant("identified", { key: "M7301" })]);
         // The committed cell draws its chips; the custom check flags the bench.
         const committed = container.querySelector('[data-row-id="p4"] [data-key="stations"]')!;
-        expect([...committed.querySelectorAll('[data-half="to"] [data-slot="chip"]')].map((c) => c.textContent)).toEqual(["4 × CNC lathe", "M7301"]);
+        expect([...committed.querySelectorAll('[data-half="to"] [data-slot="chip"]')].map((c) => c.textContent)).toEqual(["CNC lathe4 machines", "M7301"]);
         const flagged = committed.querySelector('[data-slot="chip"][data-flag]')!;
         expect(flagged.textContent).toBe("M7301");
         expect(flagged.getAttribute("title")).toBe("M7301 is not a lathe");

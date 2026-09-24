@@ -721,25 +721,45 @@ describe("grouped rows", () => {
         expect(run(band.state, [key("Backspace")], ctx).effects).toContainEqual({ t: "delete.rows", r0: 4, r1: 4 });
     });
 
-    test("queued local search and view events cannot change a grouped sheet or its folds", () => {
-        const ctx = groupedCtxOf({ views: VIEWS, narrowing: PAINT, emptyNarrowing: EMPTY });
-        const folded = run(initialSheetState(), [{ t: "fold.toggle", r: 4 }], ctx).state;
-        const events: SheetEvent[] = [
-            { t: "tab.open", id: "paint" }, { t: "tab.switch", id: "lathe" }, { t: "tab.create" },
-            { t: "tab.close", id: "paint" }, { t: "tab.update" }, { t: "tab.revert" },
-            { t: "tab.rename.start", id: "paint" }, { t: "tab.rename.change", val: "Changed" },
-            { t: "tab.rename.commit" }, { t: "tab.rename.cancel" }, { t: "tab.reorder", id: "paint", to: 1 },
-            { t: "lens.context", context: 3 }, { t: "lens.narrowed" },
-            { t: "band.reveal", key: "hidden", from: 0, to: 10, where: "all" },
-            { t: "search.key", key: "Enter" }, { t: "search.key", key: "Escape" },
-        ];
-        for (const event of events) {
-            const result = sheetReducer(folded, event, ctx);
-            expect(result.state).toBe(folded);
-            expect(result.effects).toEqual([]);
-        }
-        expect(folded.lens.folds).toEqual(new Map([["p2", false]]));
-        expect(run(folded, [key("f", { meta: true })], ctx).effects).toEqual([{ t: "focus.search" }]);
+    test("a grouped sheet runs the lens and the view tabs too", () => {
+        const ctx = groupedCtxOf({ views: VIEWS, narrowing: PAINT, emptyNarrowing: EMPTY, lensActive: true });
+        const revealed = run(initialSheetState(), [{ t: "band.reveal", key: "g", from: 1_000_001, to: 1_000_002, where: "all" }], ctx);
+        expect([...revealed.state.lens.reveals]).toEqual([1_000_001, 1_000_002]);
+        const switched = run(initialSheetState(), [{ t: "tab.switch", id: "lathe" }], ctx);
+        expect(switched.state.tabs.active).toBe("lathe");
+        expect(written(switched)).toBe(LATHE);
+    });
+
+    test("fold-all folds every group, the hidden ones too, and keeps the ring on its group; ⇧Space and ⌥ on a chevron go the way that band goes", () => {
+        const ctx = groupedCtxOf({ groupIds: ["p1", "p2"], groupNoun: { singular: "order", plural: "orders" } });
+        const folded = run(initialSheetState({ r: 2, c: 1 }), [{ t: "fold.all", folded: true }], ctx);
+        expect(folded.state.lens.folds).toEqual(new Map([["p1", true], ["p2", true]]));
+        expect(folded.effects).toContainEqual({ t: "select.id", id: "p1", c: 1 });
+        expect(folded.state.msg).toMatch(/^Folded 2 orders/);
+        // ⇧Space on p1's band (open) folds every group.
+        expect(run(initialSheetState({ r: 0, c: 0 }), [key(" ", { shift: true })], ctx).state.lens.folds).toEqual(new Map([["p1", true], ["p2", true]]));
+        // ⌥ on p2's chevron (folded) opens every group.
+        const opened = run(initialSheetState({ r: 0, c: 0 }), [{ t: "fold.toggle", r: 4, all: true }], ctx);
+        expect(opened.state.lens.folds).toEqual(new Map([["p1", false], ["p2", false]]));
+        expect(opened.state.msg).toBe("Opened 2 orders");
+    });
+
+    test("Space on a line with sub rows shows them, ⇧Space every line's in the group; the chevron does the same; a line without them still edits", () => {
+        const ctx = groupedCtxOf({
+            groupNoun: { singular: "order", plural: "orders" },
+            lineSubRowsAt: (r) => (r === 1 ? { id: "L1", count: 2, open: false, group: ["L1", "L2"] } : undefined),
+        });
+        const shown = run(initialSheetState({ r: 1, c: 0 }), [key(" ")], ctx);
+        expect(shown.state.lens.folds).toEqual(new Map([["L1", false]]));
+        expect(shown.state.edit).toBeNull();
+        expect(shown.state.msg).toBe("Showing 2 sub rows under the line — Space hides them");
+        const all = run(initialSheetState({ r: 1, c: 0 }), [key(" ", { shift: true })], ctx);
+        expect(all.state.lens.folds).toEqual(new Map([["L1", false], ["L2", false]]));
+        expect(all.state.msg).toMatch(/of the order/);
+        const chevron = run(initialSheetState({ r: 0, c: 0 }), [{ t: "subRows.toggle", r: 1 }], ctx);
+        expect(chevron.state.lens.folds).toEqual(new Map([["L1", false]]));
+        expect(chevron.state.sel.r).toBe(1);
+        expect(run(initialSheetState({ r: 2, c: 0 }), [key(" ")], ctx).state.edit).not.toBeNull();
     });
 
     test("arrows step over a spanned title and cannot reach an invisible new-group row", () => {

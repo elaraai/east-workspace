@@ -8,8 +8,9 @@
  * from 1 per plan, legacy blank children during the insertion migration;
  * folds; a line's commit, a blank line's insert, a band cell's commit and
  * the title rename; explicit group insertion; the two-step delete;
- * paste into a plan and a copy that skips summaries; source key search. Every
- * value built by the east-ui factory and COMPILED.
+ * paste into a plan and a copy that skips summaries; the lens on lines and
+ * source key search. The group's noun is the host's (`plan`). Every value
+ * built by the east-ui factory and COMPILED.
  */
 
 import { describe, test, expect, afterEach, beforeEach } from "vitest";
@@ -36,6 +37,9 @@ beforeEach(() => { initializeStore(new UIStore()); });
 // jsdom lacks the browser APIs Chakra's Combobox positioner relies on.
 class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
 (globalThis as unknown as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverStub;
+// jsdom has no `CSS.escape`; the enum editor's combobox selects its items with it.
+(globalThis as unknown as { CSS?: { escape?: (s: string) => string } }).CSS ??= {};
+(globalThis as unknown as { CSS: { escape?: (s: string) => string } }).CSS.escape ??= (s: string) => s.replace(/[^a-zA-Z0-9_-]/g, (c) => `\\${c}`);
 
 const LineType = StructType({ start: OptionType(DateTimeType), task: StringType, qty: OptionType(FloatType), status: StringType });
 const PlanType = StructType({ id: StringType, name: StringType, owner: StringType, status: StringType, total: FloatType, lines: ArrayType(LineType) });
@@ -90,6 +94,7 @@ function buildGrouped(opts: Options = {}): SheetRootValue {
                     status: Sheet.group.cell.enum(PlanType, "statuses", "status"),
                 },
                 folded: (p) => p.status.equal("COMPLETE"),
+                noun: { singular: "plan", plural: "plans" },
             }),
             registers: { statuses: Sheet.register.members(statuses, { kind: "status", key: (s) => s.word, label: (s) => s.word, tone: (s) => some(s.tone) }) },
             ...(opts.lens ? { slice, affordances: ["search" as const], views, activeView: some("paint") } : {}),
@@ -155,17 +160,16 @@ describe("the body (G1–G3, G6, G12)", () => {
         expect(band("p2")!.hasAttribute("data-folded")).toBe(true);
         expect(band("p2")!.querySelector('[data-slot="groupCount"]')!.textContent).toBe("1");
         expect(lines("p2")).toHaveLength(0);
-        // Lines keep the full grid; only the gutter connects adjacent members.
+        // Lines keep the full grid; only the gutter's connector joins adjacent members.
         expect(lines("p1")[0]!.querySelectorAll('[data-slot="cell"]')).toHaveLength(4);
         expect(container.querySelectorAll('[data-slot="edge"]')).toHaveLength(0);
-        const rails = [...container.querySelectorAll('[data-slot="membershipRail"]')];
-        expect(rails.map(rail => [rail.hasAttribute("data-above"), rail.hasAttribute("data-below")])).toEqual([
+        const connectors = [...container.querySelectorAll('[data-slot="connector"]')];
+        expect(connectors.map(c => [c.hasAttribute("data-above"), c.hasAttribute("data-below")])).toEqual([
             [false, true], [true, true], [true, false], [false, false],
         ]);
-        const colors = [...container.querySelectorAll('[data-slot="membershipLane"][data-group-color]')].map(lane => lane.getAttribute("data-group-color"));
-        expect(colors[0]).toBe(colors[1]);
-        expect(colors[1]).toBe(colors[2]);
+        // The host's noun names the groups.
         expect(container.querySelector('[data-slot="footerSummary"]')!.textContent).toBe("2 plans · 3 lines");
+        expect(container.querySelector('[data-slot="foldAll"]')!.getAttribute("aria-label")).toBe("Fold 2 plans");
     });
 
     test("writable gutters expose group insertion without a ghost band; read-only sheets hide insertion", () => {
@@ -330,25 +334,22 @@ describe("the clipboard (G9)", () => {
     });
 });
 
-describe("grouped search", () => {
-    test("legacy slice and view props never hide children, activate tabs or change folds", async () => {
+describe("the lens on a grouped sheet", () => {
+    test("a view's search narrows the groups, then the lines inside a shown group — a hit keeps its number, the rest collapse into bands; folds are untouched", async () => {
         const value = buildGrouped({ lens: true });
         const { container, band, lines, flush } = mount(value);
         await flush();
-        expect(container.querySelector("[data-sheet]")!.hasAttribute("data-lens")).toBe(false);
-        expect(container.querySelector("[data-sheet]")!.hasAttribute("data-view")).toBe(false);
-        expect(container.querySelector('[data-slot="tabs"]')).toBeNull();
-        expect(container.querySelector('[data-slot="toolbar"]')).toBeNull();
-        expect(container.querySelector('[data-band="lens"]')).toBeNull();
-        expect(band("p1")!.querySelector('[data-slot="groupCount"]')!.textContent).toBe("2");
-        expect(lines("p1").map(row => row.querySelector('[data-key="task"]')!.textContent)).toEqual(["Machining", "Painting"]);
-        expect(band("p2")!.hasAttribute("data-folded")).toBe(true);
-        fireEvent.mouseDown(band("p2")!.querySelector('[data-slot="fold"]')!, { button: 0 });
-        await flush();
-        expect(lines("p2")).toHaveLength(1);
-        // The unused slice is not even read/written by the renderer.
-        expect(value.slice.type).toBe("some");
-        if (value.slice.type === "some") expect(value.slice.value.slice.read().search).toEqual(none);
+        await waitFor(() => expect(container.querySelector("[data-sheet]")!.hasAttribute("data-lens")).toBe(true));
+        expect(container.querySelector("[data-sheet]")!.getAttribute("data-view")).toBe("paint");
+        expect(container.querySelector('[data-slot="tabs"]')).toBeTruthy();
+        // p1 shows through its `Painting` line — line 2, a hit — and its Machining line collapses into a band.
+        expect(lines("p1").map(row => row.querySelector('[data-key="task"]')!.textContent)).toEqual(["Painting"]);
+        expect(lines("p1")[0]!.querySelector('[data-slot="gutterNumber"]')!.textContent).toBe("2");
+        expect(lines("p1")[0]!.querySelector('[data-slot="gutterNumber"]')!.hasAttribute("data-hit")).toBe(true);
+        // p2 matches nothing: it is hidden in a band of its own, and it stays folded.
+        expect(band("p2")).toBeNull();
+        expect(container.querySelectorAll('[data-band="lens"]')).toHaveLength(2);
+        expect(container.querySelector('[data-slot="toolbarCount"]')!.textContent).toBe("1 match");
     });
 });
 
@@ -386,7 +387,7 @@ test("clicking a selected row marker deselects it without editing the data", asy
     const { value, edits } = withSpy(buildGrouped());
     const { lines, flush } = mount(value);
     const row = () => lines("p1")[0]!;
-    const marker = () => row().querySelector('[data-slot="membershipMarker"]')!;
+    const marker = () => row().querySelector('[data-slot="checkbox"]')!;
     expect(marker().getAttribute("aria-pressed")).toBe("false");
     fireEvent.click(marker(), { button: 0 });
     expect(marker().getAttribute("aria-pressed")).toBe("true");

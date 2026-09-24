@@ -69,10 +69,12 @@ export interface SheetToolbarProps {
     search?: SheetSearch | undefined;
     /** A key in the rail's search box the tabs claim (⏎ · esc); returns `true` when claimed. */
     onSearchKey?: ((key: string) => boolean) | undefined;
+    /** Controls at the rail group's end, right of the search — the history controls (undo · redo · discard · apply). */
+    trailing?: ReactNode | undefined;
 }
 
 /** Renders the toolbar. */
-export const SheetToolbar = memo(function SheetToolbar({ styles, slice, affordances, count, partial, tabs, context, search, onSearchKey }: SheetToolbarProps) {
+export const SheetToolbar = memo(function SheetToolbar({ styles, slice, affordances, count, partial, tabs, context, search, onSearchKey, trailing }: SheetToolbarProps) {
     // A seek-capable source replaces `search` outright (the Plan's rule):
     // filtering the loaded prefix and seeking the whole source are different
     // operations, and one word for both would mislead.
@@ -160,6 +162,7 @@ export const SheetToolbar = memo(function SheetToolbar({ styles, slice, affordan
                     </Box>
                 )}
                 {partial && <Box as="span" css={styles.toolbarBadge} data-slot="toolbarBadge">loaded rows only</Box>}
+                {trailing}
             </Box>
         </Box>
     );

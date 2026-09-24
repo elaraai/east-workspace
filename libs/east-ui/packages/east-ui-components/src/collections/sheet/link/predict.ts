@@ -23,7 +23,7 @@ import { variant } from "@elaraai/east";
 import { getSomeorUndefined } from "../../../utils.js";
 import { memberLabel } from "../model.js";
 import {
-    classifyToken, isCountable, isIdentified, memberMeta, parseRange, resolveMember, usedKeys,
+    classifyToken, isCountable, isIdentified, memberMeta, parseRange, pluralKind, resolveMember, usedKeys,
     type LinkVocabulary,
 } from "./grammar.js";
 import type { SheetLinkValue, SheetMemberValue, SheetRegisterMemberValue } from "../values.js";
@@ -60,9 +60,10 @@ export function linkCandidates(query: string, vocab: LinkVocabulary, used: Reado
     const rng = parseRange(t, vocab);
     if (rng !== undefined) {
         const names = rng.members.map((m) => m.key).join(", ");
+        // The span in the kind's own word (`→ 6 machines: …`).
         return [{
             label: `${rng.from}-${rng.to}`,
-            meta: `→ ${rng.members.length} members: ${names.length > 34 ? `${names.slice(0, 34)}…` : names}`,
+            meta: `→ ${rng.members.length} ${pluralKind(rng.members[0]!.kind)}: ${names.length > 34 ? `${names.slice(0, 34)}…` : names}`,
             members: [variant("range", { from: rng.from, to: rng.to })],
         }];
     }
@@ -173,12 +174,42 @@ export function predictedMembers(
     return out.slice(0, 5);
 }
 
-/** The entry menu of a link half — the countable abstractions first (nobody guesses a code), not yet used. */
+/** Whether `b` is the code after `a`: the same letters and suffix, the next number (`M2140` → `M2141`). */
+function follows(a: SheetRegisterMemberValue, b: SheetRegisterMemberValue): boolean {
+    if (a.kind !== b.kind) return false;
+    const x = /^([A-Za-z]*)(\d+)([A-Za-z]?)$/.exec(a.key);
+    const y = /^([A-Za-z]*)(\d+)([A-Za-z]?)$/.exec(b.key);
+    return x !== null && y !== null && x[1]!.toLowerCase() === y[1]!.toLowerCase() && x[3]!.toLowerCase() === y[3]!.toLowerCase() && Number(y[2]) === Number(x[2]) + 1;
+}
+
+/**
+ * The entry menu of a link half, in the vocabulary's order (the options rule's,
+ * when the row is offered a subset): the countable abstractions (nobody guesses
+ * a code) and each RUN of a ranged kind's consecutive codes as one range
+ * (`M2140-M2145`, #844); the identified codes only when nothing else is
+ * offered. Nothing already used.
+ */
 export function linkEntryCandidates(vocab: LinkVocabulary, used: ReadonlySet<string>): LinkCandidate[] {
     const out: LinkCandidate[] = [];
-    for (const m of vocab.members) {
-        if (!isCountable(vocab, m) || used.has(m.key.toLowerCase())) continue;
-        out.push({ label: m.label, meta: getSomeorUndefined(m.meta) ?? m.kind, members: [identified(m.key)] });
+    const ranged = new Set(vocab.kinds.filter((k) => k.ranged).map((k) => k.kind));
+    const members = vocab.members.filter((m) => !used.has(m.key.toLowerCase()));
+    const one = (m: SheetRegisterMemberValue): LinkCandidate => ({ label: m.label, meta: getSomeorUndefined(m.meta) ?? m.kind, members: [identified(m.key)] });
+    for (let i = 0; i < members.length && out.length < 8; i++) {
+        const m = members[i]!;
+        if (ranged.has(m.kind) && isIdentified(vocab, m)) {
+            let last = m;
+            let n = 1;
+            while (i + 1 < members.length && follows(last, members[i + 1]!)) { last = members[++i]!; n++; }
+            if (n === 1) out.push(one(m));
+            else out.push({ label: `${m.key}-${last.key}`, meta: `${n} ${pluralKind(m.kind)}`, members: [variant("range", { from: m.key, to: last.key })] });
+            continue;
+        }
+        if (isCountable(vocab, m)) out.push(one(m));
+    }
+    if (out.length > 0) return out;
+    for (const m of members) {
+        if (!isIdentified(vocab, m)) continue;
+        out.push(one(m));
         if (out.length >= 8) break;
     }
     return out;

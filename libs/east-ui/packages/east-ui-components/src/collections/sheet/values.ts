@@ -15,10 +15,14 @@ import type { Sheet } from "@elaraai/east-ui/internal";
 
 /** The decoded Sheet root. */
 export type SheetRootValue = ValueTypeOf<typeof Sheet.Types.Root>;
-/** One decoded wire row — `{ id, owned, cells, lines, band }`. */
+/** One decoded wire row — `{ id, owned, cells, lines, band, subRows }`. */
 export type SheetRowValue = ValueTypeOf<typeof Sheet.Types.Row>;
-/** One line of a group row on the wire (#740) — `{ key, cells }`. */
+/** One line of a group row on the wire (#740) — `{ key, cells, subRows }`. */
 export type SheetLineValue = ValueTypeOf<typeof Sheet.Types.Line>;
+/** One read-only sub row under a line (#844) — `{ code, name, chips, facets, id }`. */
+export type SheetSubRowValue = ValueTypeOf<typeof Sheet.Types.SubRow>;
+/** The word the renderer prints for a group (#844) — `{ singular, plural }`. */
+export type SheetNounValue = ValueTypeOf<typeof Sheet.Types.Noun>;
 /** The band a group row draws (#740) — `{ sub, folded }`. */
 export type SheetBandValue = ValueTypeOf<typeof Sheet.Types.Band>;
 /** The group declaration on the wire (#740) — the lines field, `keyed`, the band's cells. */
