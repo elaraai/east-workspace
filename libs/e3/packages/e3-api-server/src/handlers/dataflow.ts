@@ -38,7 +38,6 @@ import {
   setActiveExecution,
   getActiveExecution,
   getLatestExecution,
-  getExecutionStartTime,
   clearActiveExecution,
 } from '../orchestrator-manager.js';
 
@@ -283,6 +282,12 @@ export async function getTaskLogs(
  *
  * Returns the current execution state including events for progress tracking.
  * Supports offset/limit for paginating events.
+ *
+ * A run reads as running until it has let go of the workspace. Its record
+ * turns terminal first — the orchestrator then writes the run record and the
+ * workspace's run id, and releases its locks — so a client that acts on a
+ * terminal status (a gc, a deploy, the next run) finds the workspace free, as
+ * a caller awaiting the orchestrator's `wait()` does.
  */
 export async function getDataflowExecution(
   repoPath: string,
@@ -373,8 +378,12 @@ export async function getDataflowExecution(
     }
   }
 
+  // Still this workspace's active execution: finishing, not finished.
+  const finishing = getActiveExecution(repoPath, workspace)?.id === handle.id;
+  const coreStatus: DataflowExecutionStatus = finishing ? 'running' : coreState.status as DataflowExecutionStatus;
+
   // Convert status to API format
-  const apiStatus = coreStatusToApiStatus(coreState.status as DataflowExecutionStatus);
+  const apiStatus = coreStatusToApiStatus(coreStatus);
   let status: DataflowExecutionState['status'];
   switch (apiStatus) {
     case 'running':
@@ -391,28 +400,28 @@ export async function getDataflowExecution(
       break;
   }
 
-  // Calculate duration
-  const startTime = getExecutionStartTime(repoPath, workspace, handle.id);
-  const duration = startTime ? Date.now() - startTime : 0;
+  // A finished run's duration, from its own record: every terminal status
+  // stamps `completedAt`.
+  const completedAt = coreStatus !== 'running' && coreState.completedAt.type === 'some'
+    ? coreState.completedAt.value
+    : undefined;
 
   // Build summary if not running
   let summary: DataflowExecutionState['summary'];
-  if (coreState.status !== 'running') {
+  if (coreStatus !== 'running') {
     summary = some({
       executed: coreState.executed,
       cached: coreState.cached,
       failed: coreState.failed,
       skipped: coreState.skipped,
-      duration,
+      duration: completedAt !== undefined ? completedAt.getTime() - coreState.startedAt.getTime() : 0,
     });
   } else {
     summary = none;
   }
 
   // Get completedAt value (handle Option type)
-  const completedAtValue = coreState.completedAt.type === 'some'
-    ? some(coreState.completedAt.value.toISOString())
-    : none;
+  const completedAtValue = completedAt !== undefined ? some(completedAt.toISOString()) : none;
 
   const state: DataflowExecutionState = {
     status,
