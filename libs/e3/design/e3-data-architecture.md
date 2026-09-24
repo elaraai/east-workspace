@@ -394,14 +394,17 @@ Read first:
 11. **Negative zero in paged reads** (#838). TypeScript's pager decoded each Set or Dict segment into a plain JS `Set` or `Map`, whose keys compare by SameValueZero. So a `-0` element read back as `0`, and a Dict keyed by both read back one entry, through every lazy, keyed, paged and merged read.
     - The segment decoder builds `SortedSet` and `SortedMap` under the East comparator, as the whole-value decoder does.
     - A pager test pins it, and the corpus pins the merge.
-12. **SPEC** updated to v2.
+12. **Canonical recursive ids in manifests** (#839). A manifest's `type` recorded recursive type wrappers under the ids its writer's process allocated, so the manifest of one recursive-typed value had different bytes, and so a different store hash, per runtime and even per process.
+    - The manifest writers (TypeScript's, and east-c's, which east-py binds) number recursive wrappers in preorder from 0 before encoding. Readers compare types up to renaming, so they are unchanged.
+    - SPEC states the rule, and the corpus's recursive value pins it.
+13. **SPEC** updated to v2.
 
 Built in five parts, in this order:
 1. per-element aliasing, cut rule v2 (normalized, with the segmentation benchmarks that fixed it), one encoding and one Writer;
 2. the RunSorter and the Merger;
 3. Recut, the Writer's per-segment output, and record applies on Recut;
 4. manifests in every runtime;
-5. the corpus, string order, negative zero in paged reads, SPEC v2, and the acceptance tests not yet written.
+5. the corpus, string order, negative zero in paged reads, canonical recursive ids in manifests, SPEC v2, and the acceptance tests not yet written.
 
 Acceptance:
 - A `Dict<String, Blob>` of 300 × 1 MiB is stored in segments near the size target, not in one segment.
