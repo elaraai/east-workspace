@@ -26,6 +26,12 @@
  * the rows start BELOW the in-flow sticky header — `scrollMargin` (the items
  * container's `offsetTop`) corrects the window so the visible range is not
  * offset by the header height.
+ *
+ * Measured rows are keyed by `getItemKey` when the host gives one (a row
+ * keeps its element and its height when rows change above it), carry
+ * `data-slot="virtualRow"` so a host recipe can style the wrappers (a
+ * transform transition), and are sized to whole device pixels
+ * ({@link devicePixels}) so every row sits on the pixel grid.
  */
 
 import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
@@ -55,6 +61,15 @@ export interface VirtualRowsProps {
     count: number;
     /** Estimated pixel height of row `index` (measured precisely once mounted). */
     estimateSize: (index: number) => number;
+    /**
+     * Row `index`'s identity (default: the index). The frame keys its row
+     * wrappers and the virtualizer's size cache by this value, so when rows
+     * are inserted, removed or folded above a row it keeps its DOM element —
+     * a CSS transition can slide it to its new offset — and its measured
+     * height. Keyed by index, every wrapper after the change would swap the
+     * row it shows and inherit another row's height.
+     */
+    getItemKey?: ((index: number) => string | number) | undefined;
     /**
      * Whether to measure mounted rows (default true). Pass `false` when rows
      * are FIXED-HEIGHT (`estimateSize` is exact): rows then sit at exact
@@ -139,13 +154,32 @@ export interface VirtualRowsProps {
 }
 
 /**
+ * Rounds a measured CSS-pixel height to whole DEVICE pixels.
+ *
+ * Measured rows sit at the sum of the heights above them, so one row a
+ * fraction of a device pixel tall — fractional line boxes, or a 1.25× / 1.5×
+ * screen scale that makes a whole CSS pixel a fraction of a device one —
+ * leaves every row below it between device pixels, where a 1px rule smears
+ * across two pixel rows or drops out (the #533 family). The browser paints
+ * a box to whole device pixels anyway, so the rounded slot is the height the
+ * row is drawn at.
+ *
+ * @param px - A measured height in CSS pixels
+ * @returns The height rounded to whole device pixels, in CSS pixels
+ */
+export function devicePixels(px: number): number {
+    const dpr = typeof window !== "undefined" && window.devicePixelRatio > 0 ? window.devicePixelRatio : 1;
+    return Math.round(px * dpr) / dpr;
+}
+
+/**
  * @param props - see {@link VirtualRowsProps}
  * @returns the bounded virtual-scroll frame, or the unbounded grow-to-content
  *   flow when no height / maxHeight / fillParent is set
  */
 export function VirtualRows(props: VirtualRowsProps): ReactNode {
     const {
-        header, footer, count, estimateSize, renderRow, measureRows = true,
+        header, footer, count, estimateSize, getItemKey, renderRow, measureRows = true,
         overscan = 4, minWidth, headerZIndex = 3, onScroll, rootCss, fillParent, scrollElRef,
         scrollToIndex, scrollAlign = "center", onRangeChange, sizeVersion,
     } = props;
@@ -171,7 +205,8 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
         estimateSize,
         overscan,
         scrollMargin: itemsOffset,
-        measureElement: (el) => el?.getBoundingClientRect().height,
+        measureElement: (el) => devicePixels(el.getBoundingClientRect().height),
+        ...(getItemKey !== undefined ? { getItemKey } : {}),
     });
 
     // Bring a requested row into view. Keyed on the index alone, so a row set
@@ -243,6 +278,7 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
                         <Box
                             key={item.key}
                             data-index={item.index}
+                            data-slot="virtualRow"
                             ref={virtualizer.measureElement}
                             position="absolute"
                             top="0"

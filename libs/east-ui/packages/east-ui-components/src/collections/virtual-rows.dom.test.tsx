@@ -17,7 +17,7 @@ import { describe, test, expect, beforeEach, afterEach } from "vitest";
 import { render, cleanup, fireEvent } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { system } from "../theme/index.js";
-import { VirtualRows } from "./virtual-rows.js";
+import { VirtualRows, devicePixels } from "./virtual-rows.js";
 
 const ROW_H = 32;
 /** What zoomed measurement reports for a nominally 32px row. */
@@ -87,6 +87,54 @@ describe("VirtualRows fixed-row geometry", () => {
         const match = /translateY\((-?[\d.]+)px\)/.exec(column.style.transform);
         expect(match, "the window column carries the one translateY").toBeTruthy();
         expect(Number(match![1]) % ROW_H, "the window offset is an exact row multiple").toBe(0);
+    });
+});
+
+describe("VirtualRows measured rows — device pixels and identity (#843)", () => {
+    const offsets = (container: HTMLElement): number[] =>
+        [...container.querySelectorAll<HTMLElement>("[data-slot=virtualRow]")]
+            .map((el) => Number(/translateY\((-?[\d.]+)px\)/.exec(el.style.transform)![1]));
+
+    test("devicePixels rounds a CSS height to whole device pixels at the current ratio", () => {
+        const dpr = window.devicePixelRatio;
+        try {
+            Object.defineProperty(window, "devicePixelRatio", { configurable: true, value: 1 });
+            expect(devicePixels(31.594)).toBe(32);
+            Object.defineProperty(window, "devicePixelRatio", { configurable: true, value: 1.25 });
+            // 30 CSS px = 37.5 device px → 38 device px = 30.4 CSS px.
+            expect(devicePixels(30)).toBeCloseTo(30.4, 10);
+            expect((devicePixels(30) * 1.25) % 1).toBeCloseTo(0, 10);
+        } finally {
+            Object.defineProperty(window, "devicePixelRatio", { configurable: true, value: dpr });
+        }
+    });
+
+    test("fractional measurements never put a measured row between device pixels", () => {
+        const { container } = render(
+            <ChakraProvider value={system}>
+                <VirtualRows height="200px" maxHeight={undefined} count={20} estimateSize={() => ROW_H} overscan={6}
+                    renderRow={(i) => <div>row {i}</div>} />
+            </ChakraProvider>,
+        );
+        const ys = offsets(container);
+        expect(ys.length).toBeGreaterThan(2);
+        // Rows measure 31.594px (the zoom scenario); each slot rounds to 32, so offsets stay whole.
+        for (const y of ys) expect(Number.isInteger(y), `offset ${y} is a whole device pixel`).toBe(true);
+    });
+
+    test("a keyed row keeps its element when a row is inserted above it", () => {
+        const frame = (keys: readonly string[]) => (
+            <ChakraProvider value={system}>
+                <VirtualRows height="200px" maxHeight={undefined} count={keys.length} estimateSize={() => ROW_H} overscan={6}
+                    getItemKey={(i) => keys[i]!} renderRow={(i) => <div data-key={keys[i]}>{keys[i]}</div>} />
+            </ChakraProvider>
+        );
+        const { container, rerender } = render(frame(["a", "b", "c", "d"]));
+        const wrapperOf = (key: string) => container.querySelector(`[data-key="${key}"]`)!.parentElement;
+        const before = wrapperOf("c");
+        rerender(frame(["new", "a", "b", "c", "d"]));
+        expect(wrapperOf("c"), "the same wrapper element follows its row").toBe(before);
+        expect(before!.dataset["index"], "…to its new index").toBe("3");
     });
 });
 
