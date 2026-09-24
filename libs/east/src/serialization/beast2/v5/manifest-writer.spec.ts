@@ -14,9 +14,10 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { ArrayType, DictType, IntegerType, SetType, StringType } from "../../../types.js";
+import { ArrayType, DictType, IntegerType, RecursiveType, SetType, StringType, StructType, VariantType } from "../../../types.js";
 import { compareFor } from "../../../comparison.js";
-import { SortedMap, SortedSet } from "../../../index.js";
+import { isTypeValueEqual, toEastTypeValue } from "../../../type_of_type.js";
+import { SortedMap, SortedSet, variant } from "../../../index.js";
 import {
   Beast2ManifestWriter,
   type Beast2ManifestSink,
@@ -169,6 +170,22 @@ describe("beast2 v5 manifest writer", () => {
     assert.equal(manifestOf(SetS, set.keys()), "7b2c57db1da82f98ef88018589dc7a4f96bac120472b35e9826dbd60c395789c");
     assert.equal(manifestOf(ArrayS, array), "127030afceae0c9590ad26ed26521cff170b8024229f28ccd54d647fc218df4c");
     assert.equal(manifestOf(DictSI, []), "356518ed344e3e210d0a2acb26eef7eff25cd76ba08b1aedd0640af5256cefb0");
+  });
+
+  test("records a recursive collection type under canonical ids, not this process's", () => {
+    // The ids a runtime gives recursive types are its own; the manifest's
+    // hash names the collection, so the type is recorded renamed — the
+    // wrapper numbered 0 — and east-c records the same (the corpus pins it).
+    const TreeType = RecursiveType((tree) => VariantType({ leaf: IntegerType, node: StructType({ left: tree, right: tree }) }));
+    const type = ArrayType(TreeType);
+    const dir = directory();
+    const writer = new Beast2ManifestWriter(type, dir.sink);
+    writer.add(variant("node", { left: variant("leaf", 1n), right: variant("leaf", 2n) }));
+    writer.finish();
+    const recorded = decodeCollectionManifest(dir.manifest()).type;
+    assert.ok(isTypeValueEqual(recorded, toEastTypeValue(type)));
+    const wrapper = (recorded.value as { value: { value: { id: bigint } } }).value.value;
+    assert.equal(wrapper.id, 0n);
   });
 
   test("writes what a merge writes as a manifest directory", () => {

@@ -14,6 +14,7 @@
 #include "internal_v5.h"
 
 #include <east/file_map.h>
+#include <east/ir_normalize.h>
 #include <east/sha256.h>
 #include <east/type_of_type.h>
 
@@ -409,10 +410,21 @@ bool east_beast2_manifest_writer_finish(Beast2ManifestWriter *w)
     EastType *manifest_type = east_beast2_manifest_type();
     const char *rule = w->type->kind == EAST_TYPE_ARRAY ? EAST_BEAST2_SEGMENT_RULE_ARRAY
                                                         : EAST_BEAST2_SEGMENT_RULE_KEYED;
+    /* The ids this process gave the type's recursive types are its own: the
+     * manifest records them renumbered, so one collection has one manifest
+     * whichever runtime writes it. */
+    EastValue *type_value = east_type_to_value(w->type);
+    EastValue *canonical_type = type_value ? east_type_value_normalize(type_value) : NULL;
+    if (type_value) east_value_release(type_value);
+    if (!canonical_type) {
+        east_builtin_error("beast2 v5: out of memory writing a manifest");
+        w->failed = true;
+        return false;
+    }
     east_value_retain(w->entries); /* the manifest takes this reference */
     EastValue *fields[6] = {east_string(EAST_BEAST2_MANIFEST_KIND),
                             east_integer(0),
-                            east_type_to_value(w->type),
+                            canonical_type,
                             east_string(rule),
                             east_string(w->header_hash),
                             w->entries};

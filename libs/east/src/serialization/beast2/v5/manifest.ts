@@ -35,7 +35,7 @@ import {
   StructType,
   type ValueTypeOf,
 } from "../../../types.js";
-import { EastTypeType, toEastTypeValue, type EastTypeValue } from "../../../type_of_type.js";
+import { EastTypeType, canonicalTypeValue, toEastTypeValue, type EastTypeValue } from "../../../type_of_type.js";
 import { readTypeSection } from "./type-section.js";
 import { BufferReader } from "../../binary-utils.js";
 import { MAGIC_BYTES_V5, encodeBeast2V5For, decodeBeast2V5For } from "./codec.js";
@@ -158,9 +158,15 @@ function codec(): NonNullable<typeof manifestCodec> {
  *
  * @param manifest - the manifest
  * @returns the beast2 bytes
+ *
+ * @remarks
+ * The collection type is written with its recursive types renamed
+ * canonically ({@link canonicalTypeValue}): the ids a runtime gives them are
+ * its own, and a manifest's hash names the collection in a store, so one
+ * collection must have one manifest whichever runtime writes it.
  */
 export function encodeCollectionManifest(manifest: CollectionManifest): Uint8Array {
-  return codec().encode(manifest);
+  return codec().encode({ ...manifest, type: canonicalTypeValue(manifest.type) });
 }
 
 /**
