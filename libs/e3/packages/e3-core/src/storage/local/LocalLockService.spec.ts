@@ -250,5 +250,23 @@ describe('LocalLockService', () => {
       assert.strictEqual(committed, N, 'every acquirer ran its critical section');
       assert.strictEqual(maxConcurrent, 1, 'mutual exclusion held throughout');
     });
+
+    it('an exclusive and a shared acquirer started together are never both granted', async () => {
+      // The exclusive side checks for shared holders, then creates its file;
+      // the shared side writes its file, then checks for an exclusive holder.
+      // Started together, the shared side can write between the exclusive
+      // side's check and its create, and re-check before that create lands:
+      // a deploy beside a mutation, gc beside a record write.
+      for (let i = 0; i < 200; i++) {
+        const resource = `ws-both-${i}`;
+        const outcomes = await Promise.allSettled([
+          acquireWorkspaceLock(repoPath, resource, variant('deployment', null)),
+          acquireWorkspaceLock(repoPath, resource, variant('dataset_write', null), { mode: 'shared' }),
+        ]);
+        const granted = outcomes.flatMap((outcome) => (outcome.status === 'fulfilled' ? [outcome.value] : []));
+        for (const lock of granted) await lock.release();
+        assert.ok(granted.length <= 1, `attempt ${i}: the exclusive and the shared lock were both granted`);
+      }
+    });
   });
 });

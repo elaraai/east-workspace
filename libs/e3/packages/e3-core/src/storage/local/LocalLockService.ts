@@ -350,8 +350,17 @@ async function tryExclusiveOnce(repoPath: string, workspace: string, operation: 
   // Atomic create-with-content — false (not us) if another holder beat us to it.
   const { state } = await buildLockState(operation);
   const encoder = encodeBeast2For(LockStateType);
-  const created = await atomicCreateLockFile(lockPath, encoder(state));
-  return created ? lockPath : null;
+  if (!(await atomicCreateLockFile(lockPath, encoder(state)))) return null;
+
+  // A shared acquirer may have written its file after the check above and
+  // looked for ours before it existed, and so holds the lock. Each side
+  // checks for the other only after its own file exists, so at most one of
+  // them finds nothing, and one that finds the other backs out.
+  if ((await liveSharedLocks(repoPath, workspace)).length > 0) {
+    await unlinkWithRetry(lockPath);
+    return null;
+  }
+  return lockPath;
 }
 
 /** Try once to acquire a shared lock. Returns lock path or null. */
