@@ -11,8 +11,9 @@
  * only by shape or colour.
  */
 
-import { describe, test, expect, afterEach, beforeEach } from "vitest";
+import { describe, test, expect, afterEach, beforeEach, vi } from "vitest";
 import { render, screen, cleanup, fireEvent, act, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { ChakraProvider } from "@chakra-ui/react";
 import { none, some, variant } from "@elaraai/east";
 import { system } from "../../theme/index.js";
@@ -32,10 +33,37 @@ const cleanups: (() => void)[] = [];
 beforeEach(() => { initializeStore(new UIStore()); });
 afterEach(() => {
     cleanup();
+    vi.restoreAllMocks();
     while (cleanups.length > 0) cleanups.pop()!();
     setBodyRowRenderProbe(undefined);
     localStorage.clear();
 });
+
+/**
+ * Waits, each call, for the open popover to arm its dismissal (the #816
+ * tests' watch). Zag arms it on the document after the popover opens — the
+ * Escape listener a frame later, the outside-press listener (a capture
+ * `pointerdown`) a frame and a task after that, which is what this counts. A
+ * user's Escape always comes later; a test's can come first, and then meets
+ * the canvas's own rung instead of the popover's.
+ */
+function watchPopoverArming(): () => Promise<void> {
+    let armings = 0;
+    let waited = 0;
+    const add = EventTarget.prototype.addEventListener;
+    vi.spyOn(document, "addEventListener").mockImplementation(function (
+        this: Document, ...args: Parameters<EventTarget["addEventListener"]>
+    ) {
+        const [type, , options] = args;
+        if (type === "pointerdown" && options === true
+            && document.querySelector('[data-plan-overlay="popover"]') !== null) armings += 1;
+        add.apply(this, args);
+    } as typeof document.addEventListener);
+    return async () => {
+        await waitFor(() => expect(armings).toBeGreaterThan(waited));
+        waited = armings;
+    };
+}
 
 // ── Fixtures ──────────────────────────────────────────────────────────────
 const W27 = new Date("2026-06-29T00:00:00Z");
@@ -348,10 +376,15 @@ describe("one tab stop, and the keyboard map (#819)", () => {
         expect(focusedItem()).toBe("r:pin");
         expect(grid.getAttribute("tabindex")).toBe("-1");
         expect(item(container, "r:pin").getAttribute("tabindex")).toBe("0");
-        // One stop in the whole canvas — every row control and element is out of the order.
-        const stops = [...container.querySelectorAll("[data-plan-body] *")].filter((el) => (el as HTMLElement).tabIndex >= 0
-            && (el.matches("button, [tabindex]")));
-        expect(stops).toEqual([item(container, "r:pin")]);
+        // One stop in the grid — every row control and element is out of the
+        // order. The toolbar is not the grid: its controls keep stops of their
+        // own, and a segment is ONE (#632 — the grain's, on its checked radio).
+        const stops = (root: Element) => [...root.querySelectorAll("*")].filter((el) => (el as HTMLElement).tabIndex >= 0
+            && el.matches("button, [tabindex]"));
+        const toolbar = container.querySelector("[data-slot='toolbar']")!;
+        expect(stops(container.querySelector("[data-plan-body]")!).filter((el) => !toolbar.contains(el)))
+            .toEqual([item(container, "r:pin")]);
+        expect(stops(toolbar)).toEqual([container.querySelector("[data-plan-seg='grain'] [aria-checked='true']")]);
     });
 
     test("every row is reachable by ↓ from the first, and ↑ walks back", () => {
@@ -454,6 +487,7 @@ describe("one tab stop, and the keyboard map (#819)", () => {
     });
 
     test("Enter on an element opens its popover and does what its click does; Esc closes it, then returns to the row", async () => {
+        const armed = watchPopoverArming();
         const clicks: unknown[] = [];
         const popover = () => some(variant("Text", { value: "RUN DETAIL", style: none }));
         const { container } = renderPlan(planRoot([planRow("m", span([run("b214", W27, day("2026-07-27"))]))],
@@ -467,9 +501,13 @@ describe("one tab stop, and the keyboard map (#819)", () => {
         expect(screen.getByText("RUN DETAIL")).toBeTruthy();
         expect(row.getAttribute("aria-selected")).toBe("true");
         await waitFor(() => expect(clicks).toEqual([{ row: "m", run: "b214" }]));
-        // The popover's Esc first — its surface closes, focus back on the bar…
-        fireEvent.keyDown(bar, { key: "Escape" });
-        expect(screen.queryByText("RUN DETAIL")).toBeNull();
+        // The popover's Esc first — met, as a user's always is, by its armed
+        // layer: the surface closes and focus is back on the bar… (An Esc
+        // inside the first frame, before the layer listens, is the canvas's
+        // rung — `plan-overlays.dom.test.tsx` covers that path.)
+        await armed();
+        await userEvent.setup().keyboard("{Escape}");
+        await waitFor(() => expect(screen.queryByText("RUN DETAIL")).toBeNull());
         expect(document.activeElement).toBe(bar);
         // …then the element's: back to the row, the selection standing.
         press("Escape");

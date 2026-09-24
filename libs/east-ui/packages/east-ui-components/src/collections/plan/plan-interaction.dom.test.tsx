@@ -14,7 +14,7 @@
 
 import { describe, test, expect, afterEach } from "vitest";
 import { Profiler } from "react";
-import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, waitFor, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ChakraProvider } from "@chakra-ui/react";
 import { variant, some, none } from "@elaraai/east";
@@ -94,7 +94,7 @@ function rowCollection(rows: PlanRowValue[]): Map<string, PlanRowValue> {
     return new Map(rows.map((r) => [r.key, r]));
 }
 
-function planRoot(rows: PlanRowValue[], opts?: { footer?: unknown[]; now?: Date | undefined; slice?: unknown; resolutions?: unknown[]; links?: unknown[]; popover?: unknown; hover?: unknown; expandRender?: unknown; source?: unknown; pick?: unknown; axis?: unknown; style?: { height?: string; maxHeight?: string }; clicks?: { onRunClick?: unknown; onEventClick?: unknown; onMarkClick?: unknown; onChipClick?: unknown; onCellClick?: unknown } }): PlanRootValue {
+function planRoot(rows: PlanRowValue[], opts?: { footer?: unknown[]; now?: Date | undefined; slice?: unknown; resolutions?: unknown[]; links?: unknown[]; popover?: unknown; hover?: unknown; expandRender?: unknown; source?: unknown; pick?: unknown; axis?: unknown; style?: { height?: string; maxHeight?: string }; clicks?: { onRunClick?: unknown; onEventClick?: unknown; onMarkClick?: unknown; onChipClick?: unknown; onCellClick?: unknown }; onGrainChange?: unknown }): PlanRootValue {
     return {
         rows: opts?.source !== undefined ? variant("paged", opts.source) : variant("inline", rowCollection(rows)),
         links: opts?.links ?? [],
@@ -122,7 +122,8 @@ function planRoot(rows: PlanRowValue[], opts?: { footer?: unknown[]; now?: Date 
         onMarkClick: opts?.clicks?.onMarkClick !== undefined ? some(opts.clicks.onMarkClick) : none,
         onChipClick: opts?.clicks?.onChipClick !== undefined ? some(opts.clicks.onChipClick) : none,
         onCellClick: opts?.clicks?.onCellClick !== undefined ? some(opts.clicks.onCellClick) : none,
-        onGroupToggle: none, onGrainChange: none,
+        onGroupToggle: none,
+        onGrainChange: opts?.onGrainChange !== undefined ? some(opts.onGrainChange) : none,
         style: opts?.style !== undefined
             ? some({
                 height: opts.style.height !== undefined ? some(opts.style.height) : none,
@@ -338,6 +339,139 @@ describe("Plan keyboard rungs (#569)", () => {
         expect(screen.getAllByText("GROUP").length).toBeGreaterThan(0);
         fireEvent.keyDown(container.querySelector('[tabindex="0"]')!, { key: "g" });
         expect(screen.getAllByText("RESOURCE").length).toBeGreaterThan(0);
+    });
+});
+
+describe("The toolbar's grain segment (#632)", () => {
+    const group = () => variant("group", { summary: none, summaryAggregate: none, collapsed: none });
+    /** Two root groups, a row in each. */
+    const grouped = () => [
+        planRow("line1", group(), { gutter: gutter("Line 1") }),
+        planRow("m1", spanKind([]), { parent: "line1" }),
+        planRow("line2", group(), { gutter: gutter("Line 2") }),
+        planRow("m2", spanKind([]), { parent: "line2" }),
+    ];
+    const segment = (container: HTMLElement) => container.querySelector<HTMLElement>("[data-plan-seg='grain']");
+    const radio = (container: HTMLElement, name: string) =>
+        [...segment(container)!.querySelectorAll<HTMLElement>("[role='radio']")].find((r) => r.textContent === name)!;
+    /** The ruler's gutter caption — the active grain's name. */
+    const caption = (container: HTMLElement) => container.querySelector("[data-slot='ruler']")!.firstElementChild!.textContent;
+    const announced = (container: HTMLElement) => container.querySelector("[data-plan-announce]")!.textContent;
+
+    test("a canvas with a root group mounts it, slice or no slice; without one there is nothing to fold, and no segment", () => {
+        const { container } = renderPlan(planRoot(grouped()), "plan-632-mount");
+        // No slice, no search, no library: the segment alone mounts the bar.
+        expect(container.querySelector("[data-slot='toolbar']")).not.toBeNull();
+        const seg = segment(container)!;
+        expect(seg.getAttribute("role")).toBe("radiogroup");
+        expect(seg.getAttribute("aria-label")).toBe("Grain");
+        expect([...seg.querySelectorAll("[role='radio']")].map((r) => [r.textContent, r.getAttribute("aria-checked")]))
+            .toEqual([["GROUP", "false"], ["RESOURCE", "true"]]);
+
+        // Ungrouped: neither the segment nor a toolbar for it.
+        const flat = renderPlan(planRoot([planRow("f1", spanKind([])), planRow("f2", spanKind([]))]), "plan-632-flat");
+        expect(segment(flat.container)).toBeNull();
+        expect(flat.container.querySelector("[data-slot='toolbar']")).toBeNull();
+        // The grain folds ROOT groups: a group under another row gives it
+        // nothing to fold.
+        const nested = renderPlan(planRoot([
+            planRow("p", spanKind([])),
+            planRow("g", group(), { parent: "p" }),
+            planRow("n1", spanKind([]), { parent: "g" }),
+        ]), "plan-632-nested");
+        expect(segment(nested.container)).toBeNull();
+    });
+
+    test("GROUP folds every root group to its strip and RESOURCE brings the rows back — the swap g makes; onGrainChange reports it, the ruler caption follows", async () => {
+        const seen: unknown[] = [];
+        const { container } = renderPlan(planRoot(grouped(), { onGrainChange: (g: unknown) => { seen.push(g); } }), "plan-632-swap");
+        expect(caption(container)).toBe("RESOURCE");
+
+        fireEvent.click(radio(container, "GROUP"));
+        expect(container.querySelector("[data-plan-row='m1']")).toBeNull();
+        expect(container.querySelector("[data-plan-row='m2']")).toBeNull();
+        expect(container.querySelector("[data-plan-group='line1']")!.getAttribute("aria-expanded")).toBe("false");
+        expect(container.querySelector("[data-plan-group='line2']")!.getAttribute("aria-expanded")).toBe("false");
+        expect(caption(container)).toBe("GROUP");
+        expect(radio(container, "GROUP").getAttribute("aria-checked")).toBe("true");
+        await waitFor(() => expect(seen).toEqual([variant("group", null)]));
+
+        fireEvent.click(radio(container, "RESOURCE"));
+        expect(container.querySelector("[data-plan-row='m1']")).not.toBeNull();
+        expect(container.querySelector("[data-plan-row='m2']")).not.toBeNull();
+        expect(caption(container)).toBe("RESOURCE");
+        await waitFor(() => expect(seen).toEqual([variant("group", null), variant("resource", null)]));
+
+        // One control, two ways in: the segment follows the `g` key.
+        fireEvent.keyDown(container.querySelector("[data-plan-body]")!, { key: "g" });
+        expect(radio(container, "GROUP").getAttribute("aria-checked")).toBe("true");
+        expect(container.querySelector("[data-plan-row='m1']")).toBeNull();
+    });
+
+    test("the segment is ONE tab stop; ← / → and Home / End move and pick, and the live region says so", () => {
+        const { container } = renderPlan(planRoot(grouped()), "plan-632-keys");
+        const groupRadio = radio(container, "GROUP");
+        const resourceRadio = radio(container, "RESOURCE");
+        // The tab stop is the checked segment.
+        expect(resourceRadio.tabIndex).toBe(0);
+        expect(groupRadio.tabIndex).toBe(-1);
+
+        act(() => resourceRadio.focus());
+        fireEvent.keyDown(resourceRadio, { key: "ArrowLeft" });
+        expect(document.activeElement).toBe(groupRadio);
+        expect(groupRadio.getAttribute("aria-checked")).toBe("true");
+        expect(groupRadio.tabIndex).toBe(0);
+        expect(resourceRadio.tabIndex).toBe(-1);
+        expect(container.querySelector("[data-plan-row='m1']")).toBeNull();
+        expect(announced(container)).toBe("Grain: group");
+
+        // ← wraps from the first to the last; Home and End go to the ends.
+        fireEvent.keyDown(groupRadio, { key: "ArrowLeft" });
+        expect(document.activeElement).toBe(resourceRadio);
+        expect(resourceRadio.getAttribute("aria-checked")).toBe("true");
+        expect(announced(container)).toBe("Grain: resource");
+        fireEvent.keyDown(resourceRadio, { key: "Home" });
+        expect(document.activeElement).toBe(groupRadio);
+        expect(groupRadio.getAttribute("aria-checked")).toBe("true");
+        fireEvent.keyDown(groupRadio, { key: "End" });
+        expect(document.activeElement).toBe(resourceRadio);
+        expect(container.querySelector("[data-plan-row='m1']")).not.toBeNull();
+    });
+
+    test("the resolution segment is the same radio group — → re-buckets through the slice", async () => {
+        initializeStore(new UIStore());
+        const cfg = {
+            fields: new Map<string, unknown>([
+                ["at", variant("datetime", { label: "At", accessor: (r: { at: Date }) => r.at, format: none })],
+            ]),
+            rangeFieldId: some("at"), searchFieldIds: [], breakdownFieldIds: [],
+        };
+        const initial = {
+            range: some(variant("datetime", { from: W27, to: W39 })),
+            compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
+            breakdown: none, search: none, visible: none, selectedIndex: none,
+            resolution: some(variant("week", null)),
+        };
+        const handle = buildSliceHandle("plan.632.resolution", cfg as never, initial as never, [{ at: W27 }] as never, none) as never as {
+            read(): { resolution: { type: string; value: { type: string } } };
+        };
+        const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], {
+            slice: some({ slice: handle, affordances: [] }),
+            resolutions: [variant("week", null), variant("day", null)],
+        }), "plan-632-resolution");
+        const seg = container.querySelector<HTMLElement>("[data-plan-seg='resolution']")!;
+        expect(seg.getAttribute("role")).toBe("radiogroup");
+        expect(seg.getAttribute("aria-label")).toBe("Resolution");
+        const [week, day] = [...seg.querySelectorAll<HTMLElement>("[role='radio']")];
+        expect(week!.getAttribute("aria-checked")).toBe("true");
+        expect(week!.tabIndex).toBe(0);
+
+        act(() => week!.focus());
+        fireEvent.keyDown(week!, { key: "ArrowRight" });
+        expect(document.activeElement).toBe(day);
+        expect(handle.read().resolution.value.type).toBe("day");
+        await waitFor(() => expect(day!.getAttribute("aria-checked")).toBe("true"));
+        expect(day!.tabIndex).toBe(0);
     });
 });
 

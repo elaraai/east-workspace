@@ -21,6 +21,7 @@ import { PlanDecisionHeader } from "../shell/Review.js";
 import type { PlanTransport } from "../shell/transport.js";
 import type { PlanSearch } from "../use-seek.js";
 import type { PlanInstantValue } from "../instant.js";
+import type { PlanGrain } from "../plan-state.js";
 import type { PlanUiView } from "./view.js";
 
 type Styles = Record<string, Record<string, unknown>>;
@@ -38,6 +39,9 @@ export interface PlanHeaderProps {
     affordances: ReadonlyArray<string>;
     resolution: string;
     resolutions: ReadonlyArray<string>;
+    /** The active grain, when the canvas has a root group for it to fold —
+     *  the toolbar's GROUP · RESOURCE segment (#632). */
+    grain: PlanGrain | undefined;
     transport: PlanTransport | undefined;
     search: PlanSearch | undefined;
     pick: PickBindValue | undefined;
@@ -62,22 +66,23 @@ export interface PlanHeaderProps {
 
 /** The sticky header band. */
 export function PlanHeader({
-    styles, gridTemplate, headerRef, chrome, slice, affordances, resolution, resolutions,
+    styles, gridTemplate, headerRef, chrome, slice, affordances, resolution, resolutions, grain,
     transport, search, pick, diagnostics, now, rulerCaption, cursorChipRef, reviewLabel,
     pinned, pinnedId, focus, linkCounts,
 }: PlanHeaderProps) {
     return (
         <Box background="bg.surface" ref={headerRef} data-plan-header>
-            {/* The toolbar is SLICE chrome (§2) — the grain / resolution
-                segments ride the slice rail. It ALSO carries the key search,
-                which is a capability of the SOURCE: a keyed paged source
-                declares `seek` whether or not a slice was ever bound, so the
-                bar mounts for either reason. The series library (#590) is the
-                same argument again, and the diagnostics (#811) — a canvas that
-                carried on past a failure must say so, slice or no slice. */}
-            {(chrome || search !== undefined || pick !== undefined || hasDiagnostics(diagnostics)) && (
+            {/* The toolbar is SLICE chrome (§2) — the resolution segment
+                rides the slice rail. It ALSO carries the key search, which is
+                a capability of the SOURCE: a keyed paged source declares
+                `seek` whether or not a slice was ever bound, so the bar mounts
+                for either reason. The series library (#590) is the same
+                argument again, the diagnostics (#811) — a canvas that carried
+                on past a failure must say so, slice or no slice — and the
+                grain segment (#632), which folds the canvas's own groups. */}
+            {(chrome || search !== undefined || pick !== undefined || hasDiagnostics(diagnostics) || grain !== undefined) && (
                 <PlanToolbar styles={styles} slice={slice} affordances={affordances}
-                    resolution={resolution} resolutions={resolutions}
+                    resolution={resolution} resolutions={resolutions} grain={grain}
                     transport={transport} search={search} pick={pick} diagnostics={diagnostics} />
             )}
             {/* The brush mounts only where the slice's range domain speaks the

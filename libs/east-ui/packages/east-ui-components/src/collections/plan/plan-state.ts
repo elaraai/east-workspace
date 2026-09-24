@@ -98,7 +98,9 @@ export type PlanEffect =
     | { t: "scroll.toNow" }
     | { t: "pan"; buckets: number };
 
-const GRAIN_CYCLE: PlanGrain[] = ["group", "resource"];
+/** The §5 grains, in the order the `g` key cycles them and the toolbar's
+ *  grain segment lists them (#632) — one list, so the two cannot drift. */
+export const PLAN_GRAINS: readonly PlanGrain[] = ["group", "resource"];
 
 /** The initial UI state for a decoded root. */
 export function initialPlanState(
@@ -227,7 +229,7 @@ function keyEvent(s: PlanUiState, key: "esc" | "n" | "[" | "]" | "g"): { state: 
         case "]":
             return { state: s, effects: [{ t: "pan", buckets: 1 }] };
         case "g": {
-            const next = GRAIN_CYCLE[(GRAIN_CYCLE.indexOf(s.grain) + 1) % GRAIN_CYCLE.length]!;
+            const next = PLAN_GRAINS[(PLAN_GRAINS.indexOf(s.grain) + 1) % PLAN_GRAINS.length]!;
             return {
                 state: { ...s, grain: next, selected: null, focus: null },
                 effects: [{ t: "emit.grainChange", grain: next }],

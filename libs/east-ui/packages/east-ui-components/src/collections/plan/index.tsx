@@ -300,6 +300,9 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     const pinned = useMemo(
         () => pinnedRows(index).map((row): VisibleRow => ({ row, depth: 0, collapsed: false })),
         [index]);
+    // The grain folds ROOT groups to their strips (`visibleRows`), so the
+    // toolbar's GROUP · RESOURCE segment mounts only where it folds one (#632).
+    const hasRootGroup = useMemo(() => index.roots.some((r) => r.kind.type === "group"), [index]);
 
     // ── The frame ─────────────────────────────────────────────────────────
     // The canvas body: the ribbons' positioning parent, the keyboard surface,
@@ -522,6 +525,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     const header = (
         <PlanHeader styles={styles} gridTemplate={gridTemplate} headerRef={headerRef} chrome={chrome}
             slice={slice} affordances={affordances} resolution={scale.resolution ?? ""} resolutions={resolutions}
+            grain={hasRootGroup ? grain : undefined}
             transport={transport} search={search} pick={pick} diagnostics={diagnostics} now={now}
             // The ruler's gutter caption is the active grain's name (the §1 mock).
             rulerCaption={grain.toUpperCase()} cursorChipRef={cursorChipRef}

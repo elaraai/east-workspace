@@ -4,14 +4,16 @@
  */
 
 /**
- * The Plan toolbar (44px, `Plan Spec.html` §1) — slice chrome + the
- * resolution segment. Slice affordances mount through the shared
+ * The Plan toolbar (44px, `Plan Spec.html` §1) — slice chrome and the grain
+ * and resolution segments. Slice affordances mount through the shared
  * `SliceRailCluster` (the rail's measured ladder, verbatim); `resolution`
  * renders the WEEK/DAY `seg` strip (a slice write via the machine), `summary`
- * the right-edge `N of M · narrowings` line.
+ * the right-edge `N of M · narrowings` line. The GROUP · RESOURCE strip is
+ * the canvas's own (#632): a canvas with a root group mounts it, slice or no
+ * slice, between the search and the range — where the §1 mock puts it.
  */
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type KeyboardEvent } from "react";
 import { Box, chakra, useRecipe, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faLayerGroup } from "@fortawesome/free-solid-svg-icons";
@@ -21,6 +23,7 @@ import { SliceRailCluster } from "../../../slice/rail/index.js";
 import { railAffordanceKinds } from "../../../slice/rail-kinds.js";
 import { useSliceReactivity } from "../../../slice/use-slice-reactivity.js";
 import { usePlanDispatch } from "../context.js";
+import { PLAN_GRAINS, type PlanGrain } from "../plan-state.js";
 import { DatasetKeySearch } from "../../key-search/index.js";
 import { SliceEditPopover } from "../../../slice/edit/index.js";
 import { EastChakraPickPanel } from "../../../pick/panel/index.js";
@@ -40,25 +43,63 @@ type SliceBindValue = ValueTypeOf<typeof Slice.Types.Bind>;
 /** The decoded pick bind — DERIVED from the East type, never mirrored (#617). */
 type PickBindValue = ValueTypeOf<typeof Pick.Types.Bind>;
 
-/** The compact chrome segment strip (`seg` recipe). */
-export function Seg({ items, active, onPick }: {
-    items: ReadonlyArray<{ key: string; label: string }>;
+/**
+ * The compact chrome segment strip (`seg` recipe) — a radio group (#632).
+ * It is ONE tab stop, on the checked segment (the first while none is);
+ * ← / → and Home / End move between the segments and pick the one they land
+ * on, as the WAI-ARIA radio group pattern has it, and a click, Enter or Space
+ * picks the one it is on.
+ */
+export function Seg<K extends string>({ label, name, items, active, onPick }: {
+    /** What the strip picks — its radio group's accessible name. */
+    label: string;
+    /** Which strip it is, as `data-plan-seg` says. */
+    name: string;
+    /** The segments, in order. */
+    items: ReadonlyArray<{ key: K; label: string }>;
+    /** The checked segment's key — any other string checks none. */
     active: string;
-    onPick: (key: string) => void;
+    /** Picks a segment. */
+    onPick: (key: K) => void;
 }) {
     const seg = useSlotRecipe({ key: "seg" });
     const ss = useMemo(() => seg({}) as unknown as Styles, [seg]);
+    const stop = items.some((it) => it.key === active) ? active : items[0]?.key;
+    const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+        const radios = Array.from(e.currentTarget.querySelectorAll<HTMLElement>("[role='radio']"));
+        const i = radios.indexOf(e.target as HTMLElement);
+        if (i < 0) return;
+        const last = radios.length - 1;
+        let j: number;
+        switch (e.key) {
+            case "ArrowRight": case "ArrowDown": j = i === last ? 0 : i + 1; break;
+            case "ArrowLeft": case "ArrowUp": j = i === 0 ? last : i - 1; break;
+            case "Home": j = 0; break;
+            case "End": j = last; break;
+            default: return;
+        }
+        // Handled: the page does not scroll, and the canvas's own keys skip it.
+        e.preventDefault();
+        radios[j]!.focus();
+        const it = items[j];
+        if (it !== undefined && it.key !== active) onPick(it.key);
+    };
     return (
-        <Box css={ss.root} data-slot="seg">
+        <Box css={ss.root} data-slot="seg" data-plan-seg={name} role="radiogroup" aria-label={label} onKeyDown={onKeyDown}>
             {items.map((it) => (
-                <Box key={it.key} as="button" css={ss.item} data-state={it.key === active ? "on" : undefined}
+                <chakra.button key={it.key} type="button" css={ss.item} role="radio"
+                    aria-checked={it.key === active} tabIndex={it.key === stop ? 0 : -1}
+                    data-state={it.key === active ? "on" : undefined}
                     onClick={() => onPick(it.key)}>
                     {it.label}
-                </Box>
+                </chakra.button>
             ))}
         </Box>
     );
 }
+
+/** The grain segment's strip — every grain, by its name. */
+const GRAIN_ITEMS = PLAN_GRAINS.map((g) => ({ key: g, label: g.toUpperCase() }));
 
 export interface PlanToolbarProps {
     styles: Styles;
@@ -69,6 +110,10 @@ export interface PlanToolbarProps {
     resolution: string;
     /** The resolution segment options (`[]` ⇒ no segment). */
     resolutions: ReadonlyArray<string>;
+    /** The active grain, when the canvas has a root group for it to fold —
+     *  it mounts the GROUP · RESOURCE segment (#632). Absent on a canvas with
+     *  no root group, where the grain changes nothing. */
+    grain?: PlanGrain | undefined;
     /** Paged transport state — omitted on an inline canvas. */
     transport?: PlanTransport | undefined;
     /** Key search over the source — mounted IN PLACE of the slice `search`
@@ -83,7 +128,7 @@ export interface PlanToolbarProps {
 }
 
 /** The 44px toolbar band. */
-export function PlanToolbar({ styles, slice, affordances, resolution, resolutions, transport, search, pick, diagnostics }: PlanToolbarProps) {
+export function PlanToolbar({ styles, slice, affordances, resolution, resolutions, grain, transport, search, pick, diagnostics }: PlanToolbarProps) {
     const dispatch = usePlanDispatch();
     const btn = useRecipe({ key: "button" });
     const [libraryOpen, setLibraryOpen] = useState(false);
@@ -148,6 +193,14 @@ export function PlanToolbar({ styles, slice, affordances, resolution, resolution
                     onListRange={search.listRange} onJump={search.jump} onClear={search.clear} />
             )}
             <Box css={styles.toolbarGroup}>
+                {/* The grain is canvas state, not a slice write: the segment
+                    drives the same `grain.set` the `g` key does, bound slice
+                    or not. It leads the group — after the search, before the
+                    range, where the §1 mock puts it. */}
+                {grain !== undefined && (
+                    <Seg label="Grain" name="grain" items={GRAIN_ITEMS} active={grain}
+                        onPick={(g) => dispatch({ t: "grain.set", grain: g })} />
+                )}
                 {slice !== undefined && rangeKinds.length > 0 && (
                     <SliceRailCluster slice={slice} affordanceKinds={rangeKinds} />
                 )}
@@ -158,6 +211,8 @@ export function PlanToolbar({ styles, slice, affordances, resolution, resolution
                     persist fallback); until then, no slice ⇒ no segment. */}
                 {slice !== undefined && resolutions.length > 0 && (
                     <Seg
+                        label="Resolution"
+                        name="resolution"
                         items={resolutions.map((r) => ({ key: r, label: r.toUpperCase() }))}
                         active={resolution}
                         onPick={(r) => dispatch({ t: "resolution.set", resolution: r })}
