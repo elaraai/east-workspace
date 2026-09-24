@@ -1,14 +1,14 @@
 {
   "version": 2,
   "stats": {
-    "totalEntries": 1170,
+    "totalEntries": 1172,
     "totalFiles": 196,
     "packages": {
       "east": 550,
       "east-node-std": 54,
       "east-node-io": 63,
       "east-py-datascience": 94,
-      "east-ui": 351,
+      "east-ui": 353,
       "e3-ui": 39,
       "e3": 7,
       "e3-ui-cli": 7,
@@ -32964,6 +32964,77 @@
         "tsx"
       ],
       "source": "// Insert rows with the gutter buttons, selection strip or Alt+Insert; existing-row deletion is disabled while new drafts can be discarded\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const RowType = StructType({ id: StringType, task: StringType, qty: IntegerType, createdBy: StringType });\n            const jobs = $.const(State.bind([ArrayType(RowType)], \"sheet_insertion_jobs\", [\n                { id: \"rough\", task: \"Rough machining\", qty: 120n, createdBy: \"planner\" },\n                { id: \"inspect\", task: \"Inspect lots\", qty: 4n, createdBy: \"planner\" },\n                { id: \"finish\", task: \"Finish housings\", qty: 120n, createdBy: \"planner\" },\n            ]));\n            const saved = $.const(jobs.read());\n            return <VStack gap=\"3\" align=\"stretch\">\n                <Text textStyle=\"caption\" color=\"fg.muted\">Hover or focus a gutter to insert before a row. Select a row marker for Insert above/below, or use Alt+Insert and Alt+Shift+Insert. Name the draft and Apply to save it.</Text>\n                <Sheet data={jobs} id=\"id\" columns={{ task: Sheet.column.text(RowType), qty: Sheet.column.integer(RowType) }}\n                    edits={{ insertRows: true, removeRows: false, moveRows: \"none\" }}\n                    newRow={East.function([Sheet.Types.NewRow], Sheet.Types.Patch(RowType), () => Sheet.patch(RowType, { qty: 1n, createdBy: \"planner\" }))}\n                    onUpdate={jobs.write} blanks={2n} />\n                <Text.MonoLabel>{East.str`SAVED · ${saved.map((_$, row) => row.task).stringJoin(\" → \")}`}</Text.MonoLabel>\n            </VStack>;\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "east-ui:sheet.examples.tsx:sheetSubRows",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/sheet.examples.tsx",
+      "suite": "",
+      "test": "Sub rows under each line — operations with chips and facets, bookings matched from a variant — declared per array field like columns, under groups the host calls orders",
+      "keywords": [
+        "Sheet",
+        "subRows",
+        "subRow",
+        "sub rows",
+        "SubRow",
+        "Facet",
+        "chips",
+        "facets",
+        "lead",
+        "detail",
+        "group",
+        "noun",
+        "variant",
+        "match",
+        "read-only",
+        "Reactive",
+        "State"
+      ],
+      "imports": [
+        "import {",
+        "import {"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// Sub rows under each line — operations with chips and facets, bookings matched from a variant — declared per array field like columns, under groups the host calls orders\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const OperationType = StructType({\n                id: StringType, code: StringType, name: StringType, materials: ArrayType(StringType),\n                station: OptionType(StringType), by: OptionType(StringType),\n            });\n            const BookingType = VariantType({\n                space:     StructType({ area: StringType, units: IntegerType }),\n                labour:    StructType({ team: StringType, people: IntegerType, hours: FloatType }),\n                equipment: StructType({ resource: StringType }),\n            });\n            const JobType = StructType({\n                task: StringType, qty: OptionType(FloatType), notes: StringType,\n                operations: ArrayType(OperationType),   // no column — shown as sub rows\n                bookings: ArrayType(BookingType),       // no column — shown as sub rows\n            });\n            const OrderType = StructType({ id: StringType, name: StringType, jobs: ArrayType(JobType) });\n            const orders = $.let(State.bind([ArrayType(OrderType)], \"sheet_subrows_orders\", [\n                { id: \"wo-1042\", name: \"WO-1042 · Frames\", jobs: [\n                    { task: \"Assemble frames\", qty: some(40.0), notes: \"Two benches\", operations: [\n                        { id: \"WO-1042-1\", code: \"CUT\", name: \"Cut rails to length\", materials: [\"Rail stock × 80\"], station: some(\"Saw 2\"), by: none },\n                        { id: \"WO-1042-2\", code: \"ASM\", name: \"Assemble frame\", materials: [\"M6 bolts × 12\", \"Frame kit\"], station: some(\"Bench 7\"), by: some(\"Assembly\") },\n                    ], bookings: [\n                        variant(\"labour\", { team: \"Assembly\", people: 2n, hours: 12.0 }),\n                        variant(\"equipment\", { resource: \"Torque driver\" }),\n                    ] },\n                    { task: \"Inspect frames\", qty: some(40.0), notes: \"\", operations: [], bookings: [\n                        variant(\"space\", { area: \"Test bay\", units: 2n }),\n                    ] },\n                ] },\n                { id: \"wo-1043\", name: \"WO-1043 · Housings\", jobs: [\n                    { task: \"Paint housings\", qty: some(250.0), notes: \"Primer first\", operations: [\n                        { id: \"WO-1043-1\", code: \"PNT\", name: \"Prime and paint\", materials: [\"Primer\", \"Topcoat\"], station: none, by: none },\n                    ], bookings: [] },\n                ] },\n            ]));\n            return (\n                <Sheet\n                    data={orders}\n                    id=\"id\"\n                    group={Sheet.group(OrderType, \"jobs\", { title: \"name\", noun: { singular: \"order\", plural: \"orders\" } })}\n                    columns={{\n                        task:  Sheet.column.text(JobType, { header: \"Task\", width: \"220px\" }),\n                        qty:   Sheet.column.quantity(JobType, { header: \"Qty\", width: \"96px\" }),\n                        notes: Sheet.column.text(JobType, { header: \"Notes\", width: \"240px\" }),\n                    }}\n                    subRows={Sheet.subRows(JobType, {\n                        operations: (op) => Sheet.subRow({\n                            code:   op.code,\n                            name:   op.name,\n                            chips:  op.materials,\n                            facets: { station: op.station, by: op.by },   // a none drops out\n                            id:     op.id,\n                        }),\n                        bookings: (b) => b.match({\n                            space:     (_$2, s) => Sheet.subRow({ code: \"CLAIM\", name: East.str`${s.area} · ${s.units} units` }),\n                            labour:    (_$2, l) => Sheet.subRow({ code: \"LABOUR\", name: East.str`${l.team} · ${l.people} people · ${l.hours} person-hours` }),\n                            equipment: (_$2, e) => Sheet.subRow({ code: \"EQUIPMENT\", name: e.resource }),\n                        }),\n                    })}\n                    newRow={East.function([Sheet.Types.NewRow], Sheet.Types.Patch(JobType), () => Sheet.patch(JobType, { notes: \"\", operations: [], bookings: [] }))}\n                    newGroup={East.function([Sheet.Types.NewGroup], Sheet.Types.Patch(OrderType), () => Sheet.patch(OrderType, { jobs: [] }))}\n                    onUpdate={orders.write}\n                    style={{ height: \"420px\" }}\n                />\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "east-ui:sheet.examples.tsx:sheetRules",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/sheet.examples.tsx",
+      "suite": "",
+      "test": "Column rules — an options rule narrowing an enum",
+      "keywords": [
+        "Sheet",
+        "options",
+        "level",
+        "actual",
+        "detail",
+        "ranged",
+        "DateLevel",
+        "week",
+        "day",
+        "range",
+        "time",
+        "enum",
+        "date",
+        "set",
+        "members",
+        "rule",
+        "Reactive",
+        "State"
+      ],
+      "imports": [
+        "import {",
+        "import {"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// Column rules — an options rule narrowing an enum\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const JobType = StructType({\n                id: StringType, task: StringType, start: OptionType(DateTimeType), level: Sheet.Types.DateLevel,\n                started: OptionType(DateTimeType), status: StringType, orderCode: StringType, machines: Sheet.Types.Link,\n            });\n            const Ctx = Sheet.Types.DraftContext(JobType);\n            const StatusType = StructType({ word: StringType, tone: Status.Types.Value });\n            const statuses = $.const([\n                { word: \"PLANNED\", tone: variant(\"neutral\", null) }, { word: \"RELEASED\", tone: variant(\"info\", null) },\n                { word: \"IN PROGRESS\", tone: variant(\"warning\", null) }, { word: \"COMPLETE\", tone: variant(\"success\", null) },\n            ], ArrayType(StatusType));\n            const machines = $.const([\"M2140\", \"M2141\", \"M2142\", \"M2143\", \"M3210\", \"M3211\"], ArrayType(StringType));\n            const noMembers = $.const([], ArrayType(Sheet.Types.Member));\n            const jobs = $.let(State.bind([ArrayType(JobType)], \"sheet_rules_jobs\", [\n                { id: \"j1\", task: \"Rough blanks\", start: some(new Date(\"2026-02-16T00:00:00Z\")), level: variant(\"week\", null), started: none, status: \"PLANNED\", orderCode: \"\", machines: { from: [], to: [] } },\n                { id: \"j2\", task: \"Finish blanks\", start: some(new Date(\"2026-02-18T00:00:00Z\")), level: variant(\"day\", null), started: some(new Date(\"2026-02-19T07:30:00Z\")), status: \"IN PROGRESS\", orderCode: \"WO-26001\", machines: { from: [], to: [] } },\n                { id: \"j3\", task: \"Changeover\", start: some(new Date(\"2026-02-19T14:00:00Z\")), level: variant(\"time\", null), started: none, status: \"RELEASED\", orderCode: \"WO-26002\", machines: { from: [], to: [] } },\n            ]));\n            // Until a row has an order code it may only be planned or released.\n            const statusOptions = $.const(East.function([Ctx], OptionType(ArrayType(StringType)), ($, ctx) => {\n                const whole = $.const(none, OptionType(ArrayType(StringType)));\n                const early = $.const(some([\"PLANNED\", \"RELEASED\"]), OptionType(ArrayType(StringType)));\n                return ctx.row.orderCode.match({ value: (_$2, code) => code.length().equal(0n).ifElse(() => early, () => whole) }, () => early);\n            }));\n            return (\n                <Sheet\n                    data={jobs}\n                    id=\"id\"\n                    registers={{\n                        statuses: Sheet.register.members(statuses, { kind: \"status\", key: s => s.word, label: s => s.word, tone: s => some(s.tone) }),\n                        machines: Sheet.register.members(machines, { kind: \"machine\", key: m => m, label: m => m }),\n                    }}\n                    columns={{\n                        task:     Sheet.column.text(JobType, { header: \"Task\", width: \"180px\" }),\n                        start:    Sheet.column.date(JobType, { header: \"Start\", sub: \"at the row's level\", width: \"168px\", level: r => r.level, actual: r => r.started }),\n                        status:   Sheet.column.enum(JobType, \"statuses\", { header: \"Status\", width: \"132px\", options: statusOptions, detail: r => r.orderCode }),\n                        machines: Sheet.column.set(JobType, \"machines\", { header: \"Machines\", sub: \"M2140-43 · a run\", width: \"220px\",\n                                      members: [{ kind: \"machine\", identified: true, ranged: true }] }),\n                    }}\n                    newRow={East.function([Sheet.Types.NewRow], Sheet.Types.Patch(JobType), () => Sheet.patch(JobType, {\n                        level: variant(\"day\", null), started: none, orderCode: \"\", machines: { from: noMembers, to: noMembers },\n                    }))}\n                    onUpdate={jobs.write}\n                    blanks={4n}\n                />\n            );\n        }}</Reactive>\n    ))"
     },
     {
       "id": "east-ui:table.examples.tsx:tableBasic",

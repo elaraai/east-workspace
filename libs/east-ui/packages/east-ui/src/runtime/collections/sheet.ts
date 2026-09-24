@@ -109,7 +109,8 @@ function SheetTag(
  * Carries the whole authoring namespace — `Sheet.column.*` (the builders),
  * `Sheet.register.members` / `.concat`, `Sheet.driver`, `Sheet.link.arity` /
  * `.check` / `.parse` / `.print`, `Sheet.patch`, `Sheet.group` /
- * `Sheet.group.cell.*` (grouped rows, #740), and `Sheet.Types.*` (the
+ * `Sheet.group.cell.*` (grouped rows, #740), `Sheet.subRows` / `Sheet.subRow`
+ * (sub rows, #844), and `Sheet.Types.*` (the
  * closed wire types plus the typed constructors `Context(R, D)` / `Fill(T)` /
  * `Patch(R)` / `Proposal(R)` / `Edit(R)` / `CheckContext(R)`). Desugars to
  * `Sheet.Root(data, columns, options)`.
@@ -120,6 +121,8 @@ export const Sheet: typeof SheetTag & {
     driver: typeof SheetFactory.driver;
     link: typeof SheetFactory.link;
     patch: typeof SheetFactory.patch;
+    subRows: typeof SheetFactory.subRows;
+    subRow: typeof SheetFactory.subRow;
     group: typeof SheetFactory.group;
     Types: typeof SheetFactory.Types;
 } = Object.assign(SheetTag, {
@@ -128,6 +131,8 @@ export const Sheet: typeof SheetTag & {
     driver: SheetFactory.driver,
     link: SheetFactory.link,
     patch: SheetFactory.patch,
+    subRows: SheetFactory.subRows,
+    subRow: SheetFactory.subRow,
     group: SheetFactory.group,
     Types: SheetFactory.Types,
 });

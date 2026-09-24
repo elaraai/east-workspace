@@ -15,7 +15,8 @@
  * `types.ts` (the closed wire types + the typed constructors) ·
  * `columns.ts` (`Sheet.column.*`) · `registers.ts` (`Sheet.register.*`,
  * `Sheet.driver`) · `link.ts` (`Sheet.link.*`) · `bridge.ts` (the typed
- * bridge) · `root.ts` (`Sheet.Root`).
+ * bridge) · `root.ts` (`Sheet.Root`) · `sub-rows.ts` (`Sheet.subRows` /
+ * `Sheet.subRow`).
  *
  * One namespace object per category, the `Plan.series` / `Plan.at` /
  * `Plan.Types` split, so categories never mix as they grow.
@@ -75,6 +76,11 @@ import {
     SheetFillTypeFor,
     SheetPatchTypeFor,
     SheetProposalTypeFor,
+    SheetFacetType,
+    SheetSubRowType,
+    SheetDateLevelType,
+    SheetOptionsRuleType,
+    SheetNounType,
     sheetContextType,
     sheetCheckContextType,
     type SheetPatchInput,
@@ -84,6 +90,7 @@ import { text, date, quantity, integer, lookup, reference, enumColumn, set, link
 import { createMembers, concatMembers, createDriver } from "./registers.js";
 import { createArity, check, parseLink, printLink, SheetMembersType, SheetRegisterMembersType } from "./link.js";
 import { createSheet } from "./root.js";
+import { createSubRows, createSubRow } from "./sub-rows.js";
 import {
     createGroup,
     text as groupText,
@@ -111,7 +118,14 @@ export {
     SheetRowType,
     SheetLineType,
     SheetBandType,
+    SheetFacetType,
+    SheetSubRowType,
+    SheetDateLevelType,
+    type SheetDateLevelLiteral,
+    SheetOptionsRuleType,
+    SheetNounType,
     SHEET_TITLE_CELL,
+    sheetRuleCell,
     SheetGroupCellType,
     SheetGroupType,
     SheetRowsCollectionType,
@@ -179,6 +193,7 @@ export {
     type SheetFieldKey,
     type SheetMemberArrayField,
     type SheetFillInput,
+    type SheetOptionsInput,
     type SheetColumnBaseConfig,
     type SheetValueConfig,
     type SheetTextConfig,
@@ -234,7 +249,16 @@ export {
     type SheetFieldOf,
     createGroup,
 } from "./group.js";
-export { type SheetColumnMeta, describeColumn, describeGroupCell, optionPayload, cellTagOf } from "./bridge.js";
+export {
+    type SheetArrayField,
+    type SheetElementOf,
+    type SheetSubRowSources,
+    type SheetSubRowsValue,
+    type SheetSubRowInput,
+    createSubRows,
+    createSubRow,
+} from "./sub-rows.js";
+export { type SheetColumnMeta, type SheetRuleCellMeta, describeColumn, describeGroupCell, optionPayload, cellTagOf } from "./bridge.js";
 
 // ============================================================================
 // Sheet.patch
@@ -324,6 +348,10 @@ export interface SheetNamespace {
     };
     /** A row patch — the fields a proposal sets (§3.6). */
     patch: typeof createPatch;
+    /** Sub rows (#844) — `Sheet.subRows(R, { field: (item, row) => Sheet.subRow({ … }) })`, keyed by `R`'s array fields. */
+    subRows: typeof createSubRows;
+    /** One sub row — `Sheet.subRow({ code?, name, chips?, facets?, id? })`. */
+    subRow: typeof createSubRow;
     /** Applies a checked entry batch atomically to a collection. */
     apply: typeof applySheet;
     /**
@@ -400,6 +428,16 @@ export interface SheetNamespace {
         Row: typeof SheetRowType;
         /** One line of a group row on the wire ({@link SheetLineType}). */
         Line: typeof SheetLineType;
+        /** One sub row — a lead, a detail and an id ({@link SheetSubRowType}). */
+        SubRow: typeof SheetSubRowType;
+        /** One labelled fact of a sub row's detail ({@link SheetFacetType}). */
+        Facet: typeof SheetFacetType;
+        /** How deep a date column reads a row's date ({@link SheetDateLevelType}). */
+        DateLevel: typeof SheetDateLevelType;
+        /** A column's options rule on the wire ({@link SheetOptionsRuleType}). */
+        OptionsRule: typeof SheetOptionsRuleType;
+        /** The word the renderer prints for a group ({@link SheetNounType}). */
+        Noun: typeof SheetNounType;
         /** The band a group row draws ({@link SheetBandType}). */
         Band: typeof SheetBandType;
         /** The group declaration on the wire ({@link SheetGroupType}). */
@@ -494,7 +532,8 @@ export interface SheetNamespace {
  * `Sheet.Root` (the `<Sheet>` tag), declare columns with `Sheet.column.*`
  * (row type first), registers with `Sheet.register.members` / `.concat` and
  * the driver with `Sheet.driver`, link rules with `Sheet.link.*`, proposed
- * rows with `Sheet.patch`, grouped rows with `Sheet.group` (#740), and reach
+ * rows with `Sheet.patch`, grouped rows with `Sheet.group` (#740), sub rows
+ * with `Sheet.subRows` / `Sheet.subRow` (#844), and reach
  * every East type — the closed wire types and the typed constructors
  * `Context(R, D)` / `Fill(T)` / `Patch(R)` / `Proposal(R)` / `PatchEvent(E)` /
  * `CheckContext(R)` — via `Sheet.Types.*`.
@@ -506,6 +545,8 @@ export const Sheet: SheetNamespace = {
     driver: createDriver,
     link: { arity: createArity, check, parse: parseLink, print: printLink },
     patch: createPatch,
+    subRows: createSubRows,
+    subRow: createSubRow,
     apply: applySheet,
     group: Object.assign(createGroup, {
         cell: { text: groupText, date: groupDate, quantity: groupQuantity, integer: groupInteger, reference: groupReference, enum: groupEnum, stamped: groupStamped },
@@ -535,6 +576,11 @@ export const Sheet: SheetNamespace = {
         Root: SheetRootType,
         Row: SheetRowType,
         Line: SheetLineType,
+        SubRow: SheetSubRowType,
+        Facet: SheetFacetType,
+        DateLevel: SheetDateLevelType,
+        OptionsRule: SheetOptionsRuleType,
+        Noun: SheetNounType,
         Band: SheetBandType,
         Group: SheetGroupType,
         GroupCell: SheetGroupCellType,

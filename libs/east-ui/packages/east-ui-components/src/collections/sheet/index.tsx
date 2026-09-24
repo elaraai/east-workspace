@@ -138,7 +138,7 @@ function withCell(row: SheetRowValue, key: string, cell: SheetCellValue): SheetR
 
 /** A fresh row — every declared cell blank; no lines and no band (a flat row, or a line as a pseudo row). */
 function blankRow(id: string, columns: readonly SheetColumnMeta[]): SheetRowValue {
-    return { id, owned: false, cells: new Map(columns.map((c) => [c.key, NULL_CELL])), lines: [], band: none };
+    return { id, owned: false, cells: new Map(columns.map((c) => [c.key, NULL_CELL])), lines: [], band: none, subRows: [] };
 }
 
 let mintCounter = 0;
@@ -648,7 +648,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
                     const key = group.keyed && newLineKeyFn !== undefined ? newLineKeyFn() : mintLineKey(g0);
                     const index = g0.lines.length;
                     const last = g0.lines[index - 1];
-                    const g: SheetRowValue = { ...g0, lines: [...g0.lines, { key, cells }] };
+                    const g: SheetRowValue = { ...g0, lines: [...g0.lines, { key, cells, subRows: [] }] };
                     events.push(variant("lineInsert", {
                         rowId: g.id, offset: BigInt(it.position),
                         after: last !== undefined ? some(lineAddress(group.keyed, last.key, index - 1)) : none,

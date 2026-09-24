@@ -21,7 +21,7 @@ if (flat.type !== "Sheet") throw new Error("Expected Sheet");
 const flatFill = flat.value.columns[1]!.fill[0]!;
 if (flatFill.type !== "sync") throw new Error("Expected synchronous fill");
 const now = new Date("2026-01-05T00:00:00Z");
-const wire: ValueTypeOf<typeof Sheet.Types.Row> = { id: "a", owned: false, cells: new Map([["qty", variant("Integer", 1n)]]), lines: [], band: none };
+const wire: ValueTypeOf<typeof Sheet.Types.Row> = { id: "a", owned: false, cells: new Map([["qty", variant("Integer", 1n)]]), lines: [], band: none, subRows: [] };
 const context: ValueTypeOf<typeof Sheet.Types.WireContext> = {
     drafts: new Map(), rowIndex: 0n, rowId: "a", offset: 0n, line: none, row: new Map(), rows: [wire],
     rowsOffset: 0n, partial: false, driver: none, today: now,
@@ -68,10 +68,10 @@ test("reordered children retain their hidden draft values and provisional group 
         ],
     });
     const groupWire: ValueTypeOf<typeof Sheet.Types.Row> = {
-        id: "g", owned: false, cells: new Map([["$title", variant("String", "Group")]]), band: some({ sub: "", folded: false }),
+        id: "g", owned: false, cells: new Map([["$title", variant("String", "Group")]]), band: some({ sub: "", folded: false }), subRows: [],
         lines: [
-            { key: "1", cells: new Map([["task", variant("String", "Second")]]) },
-            { key: "0", cells: new Map([["task", variant("String", "First")]]) },
+            { key: "1", cells: new Map([["task", variant("String", "Second")]]), subRows: [] },
+            { key: "0", cells: new Map([["task", variant("String", "First")]]), subRows: [] },
         ],
     };
     const result = groupFill.value({

@@ -10,7 +10,7 @@ import { Sheet, UIComponentType } from "@elaraai/east-ui/internal";
 
 const Row = StructType({ id: StringType, qty: IntegerType, note: OptionType(StringType), hidden: ArrayType(StringType) });
 const Draft = Sheet.Types.Draft(Row);
-const wire = { id: "a", owned: false, cells: new Map([["qty", variant("Integer", 5n)]]), lines: [], band: none };
+const wire = { id: "a", owned: false, cells: new Map([["qty", variant("Integer", 5n)]]), lines: [], band: none, subRows: [] };
 const encodeWire = encodeBeast2For(Sheet.Types.Row);
 const source = East.value([{ id: "a", qty: 1n, note: none, hidden: ["keep"] }], ArrayType(Row));
 const view = East.function([], UIComponentType, () => Sheet.Root(source, {

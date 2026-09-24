@@ -43,6 +43,8 @@ import type {
     SheetColumnKindLiteral,
     SheetAnyContextOf,
     SheetFillOf,
+    SheetDateLevelType,
+    SheetDateLevelLiteral,
 } from "./types.js";
 import type { SheetArityInput, SheetCheckInput, SheetLocksInput } from "./link.js";
 
@@ -123,6 +125,18 @@ export type SheetFillInput<R extends StructType, T extends EastType> =
     | SubtypeExprOrValue<AsyncFunctionType<[SheetAnyContextOf<R>], OptionType<SheetFillOf<T>>>>;
 
 /**
+ * An OPTIONS rule (#844) — an East function over `Sheet.Types.Context(R, D)`
+ * to the register member keys the row may be OFFERED; `none` offers the
+ * whole register. Typed text still resolves against the whole register, so
+ * the rule narrows the menu, never what may be entered. The driver type is
+ * checked at build time, as a fill provider's is.
+ *
+ * @typeParam R - The host's row type (a grouped sheet: the line type)
+ */
+export type SheetOptionsInput<R extends StructType> =
+    SubtypeExprOrValue<FunctionType<[SheetAnyContextOf<R>], OptionType<ArrayType<StringType>>>>;
+
+/**
  * The fields every column kind shares.
  *
  * @typeParam R - The host's row type
@@ -132,6 +146,7 @@ export type SheetFillInput<R extends StructType, T extends EastType> =
  * @property width - CSS width
  * @property editable - `false` makes the column read-only
  * @property fill - Fill providers; the first that yields wins
+ * @property detail - The cell's detail — text the hover and the strip show beyond the value (#844); `""` or `none` shows none
  */
 export interface SheetColumnBaseConfig<R extends StructType, T extends EastType> {
     /** The header line. */
@@ -144,6 +159,8 @@ export interface SheetColumnBaseConfig<R extends StructType, T extends EastType>
     editable?: boolean;
     /** Fill providers — the first that yields wins (§3.5). */
     fill?: SheetFillInput<R, T>[];
+    /** The cell's detail, over the row — projected into an unrendered cell. */
+    detail?: (row: ExprType<R>) => SubtypeExprOrValue<StringType | OptionType<StringType>>;
 }
 
 /**
@@ -165,14 +182,27 @@ export type SheetTextConfig<R extends StructType> = SheetColumnBaseConfig<R, Str
 /**
  * Config for `Sheet.column.date`.
  *
+ * @remarks
+ * `level` and `actual` (#844) are accessors over the row, evaluated in the
+ * row projection into unrendered cells: they follow the host's row, not an
+ * open edit. With an `actual`, a cell whose work has happened prints that
+ * instant with its difference from the wanted date, and the wanted date
+ * becomes the cell's detail.
+ *
  * @property base - The column relative entry counts from (`4d` = base + 4, B§3)
  * @property format - A display pattern (East date tokens); omit ⇒ `17 Nov 26`
+ * @property level - How deep the row's date is read and typed — `week` · `day` · `range` · `time`; omit ⇒ `day`
+ * @property actual - When the work really happened (`none` until it has)
  */
 export interface SheetDateConfig<R extends StructType> extends SheetColumnBaseConfig<R, DateTimeType> {
     /** The column relative entry counts from (`4d` means base + 4). */
     base?: SheetFieldKey<R>;
     /** A display pattern (East date tokens). */
     format?: SubtypeExprOrValue<StringType>;
+    /** How deep the row's date is read and typed. */
+    level?: (row: ExprType<R>) => SubtypeExprOrValue<SheetDateLevelType> | SheetDateLevelLiteral;
+    /** When the work really happened. */
+    actual?: (row: ExprType<R>) => SubtypeExprOrValue<DateTimeType | OptionType<DateTimeType>>;
 }
 
 /**
@@ -192,14 +222,28 @@ export interface SheetQuantityConfig<R extends StructType, D extends StructType>
 /** Config for `Sheet.column.integer`. */
 export type SheetIntegerConfig<R extends StructType> = SheetColumnBaseConfig<R, IntegerType>;
 
-/** Config for `Sheet.column.lookup` — the driver column; its register is the driver's. */
-export type SheetLookupConfig<R extends StructType> = SheetColumnBaseConfig<R, StringType>;
+/**
+ * Config for `Sheet.column.lookup` — the driver column; its register is the driver's.
+ *
+ * @property options - The members a row may be offered (#844)
+ */
+export interface SheetLookupConfig<R extends StructType> extends SheetColumnBaseConfig<R, StringType> {
+    /** The members a row may be offered. */
+    options?: SheetOptionsInput<R>;
+}
 
 /** Config for `Sheet.column.reference` — a lookup over a flat member list. */
 export type SheetReferenceConfig<R extends StructType> = SheetColumnBaseConfig<R, StringType>;
 
-/** Config for `Sheet.column.enum` — an upper-cased register word with a valence dot. */
-export type SheetEnumConfig<R extends StructType> = SheetColumnBaseConfig<R, StringType>;
+/**
+ * Config for `Sheet.column.enum` — an upper-cased register word with a valence dot.
+ *
+ * @property options - The members a row may be offered (#844)
+ */
+export interface SheetEnumConfig<R extends StructType> extends SheetColumnBaseConfig<R, StringType> {
+    /** The members a row may be offered. */
+    options?: SheetOptionsInput<R>;
+}
 
 /**
  * One member kind a `set` / `link` column accepts (B§4.1).
@@ -208,6 +252,7 @@ export type SheetEnumConfig<R extends StructType> = SheetColumnBaseConfig<R, Str
  * @property identified - Resolves by code (bare digits try the code prefix)
  * @property countable - Takes the counted form (`N x kind`)
  * @property resolvesTo - What a counted member resolves to later
+ * @property ranged - Offer and print runs of consecutive codes as one range (#844)
  */
 export interface SheetMemberKindInput {
     /** The register member kind. */
@@ -218,6 +263,8 @@ export interface SheetMemberKindInput {
     countable?: boolean;
     /** What a counted member resolves to later. */
     resolvesTo?: string;
+    /** Offer and print runs of consecutive codes as one range. */
+    ranged?: boolean;
 }
 
 /**
@@ -289,6 +336,7 @@ export interface SheetSidesInput<D extends StructType> {
  * @property arity - The arity rule (`Sheet.link.arity`)
  * @property check - Member checks (`Sheet.link.check.exists()` and author rules)
  * @property store - How a `String` field is written back
+ * @property options - The members a row may be offered (#844)
  */
 export interface SheetLinkConfig<R extends StructType, D extends StructType> extends SheetColumnBaseConfig<R, SheetLinkType> {
     /** When the column sits on the `to` half: the field holding the `from` members. */
@@ -307,6 +355,8 @@ export interface SheetLinkConfig<R extends StructType, D extends StructType> ext
     check?: SheetCheckInput<R>[];
     /** How a `String` field is written back. */
     store?: SheetStoreLiteral;
+    /** The members a row may be offered. */
+    options?: SheetOptionsInput<R>;
 }
 
 /**

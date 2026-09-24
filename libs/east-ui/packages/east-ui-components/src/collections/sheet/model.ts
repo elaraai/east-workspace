@@ -221,7 +221,7 @@ export function indexGroup(group: SheetGroupValue, columns: SheetColumnIndex): S
     for (const cell of group.cells) {
         const meta = indexColumns([{
             key: cell.key, header: cell.key === TITLE_KEY ? "Title" : columns.byKey.get(cell.key)?.header ?? cell.key,
-            sub: none, width: none, kind: cell.kind, dataType: cell.dataType, payloadType: cell.payloadType, editable: cell.editable, fill: [],
+            sub: none, width: none, kind: cell.kind, dataType: cell.dataType, payloadType: cell.payloadType, editable: cell.editable, fill: [], detailCell: none,
         }]).list[0]!;
         cells.set(cell.key, meta);
     }
@@ -234,13 +234,13 @@ export function indexGroup(group: SheetGroupValue, columns: SheetColumnIndex): S
 // identity is stable across body builds (the check cache, the row memo).
 const lineRows = new WeakMap<SheetRowValue, Map<string, SheetRowValue>>();
 
-/** A line as a wire row — its group's id and key in the id, the group's `owned`, the line's cells. */
+/** A line as a wire row — its group's id and key in the id, the group's `owned`, the line's cells and sub rows. */
 export function lineRowOf(group: SheetRowValue, line: SheetLineValue): SheetRowValue {
     let byKey = lineRows.get(group);
     if (byKey === undefined) { byKey = new Map(); lineRows.set(group, byKey); }
     const known = byKey.get(line.key);
     if (known !== undefined && known.cells === line.cells) return known;
-    const row: SheetRowValue = { id: lineId(group.id, line.key), owned: group.owned, cells: line.cells, lines: [], band: none };
+    const row: SheetRowValue = { id: lineId(group.id, line.key), owned: group.owned, cells: line.cells, lines: [], band: none, subRows: line.subRows };
     byKey.set(line.key, row);
     return row;
 }
@@ -252,8 +252,8 @@ export function lineRowsOf(group: SheetRowValue): SheetRowValue[] {
 
 /** A group row with one line's cells replaced (by wire key), or appended when the key is not among its lines. */
 export function withLine(group: SheetRowValue, key: string, cells: ReadonlyMap<string, SheetCellValue>): SheetRowValue {
-    const lines = group.lines.map((l) => (l.key === key ? { key, cells: cells as Map<string, SheetCellValue> } : l));
-    if (!group.lines.some((l) => l.key === key)) lines.push({ key, cells: cells as Map<string, SheetCellValue> });
+    const lines = group.lines.map((l) => (l.key === key ? { ...l, cells: cells as Map<string, SheetCellValue> } : l));
+    if (!group.lines.some((l) => l.key === key)) lines.push({ key, cells: cells as Map<string, SheetCellValue>, subRows: [] });
     return { ...group, lines };
 }
 

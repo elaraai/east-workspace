@@ -5,7 +5,7 @@
 
 /** Explicit creation defaults, retaining omitted fields as missing. @packageDocumentation */
 import { ArrayType, East, FunctionType, OptionType, StructType, none, variant, type EastType, type ExprType, type SubtypeExprOrValue } from "@elaraai/east";
-import { SheetRowType, SheetLineType, SheetPatchTypeFor } from "./types.js";
+import { SheetRowType, SheetLineType, SheetSubRowType, SheetPatchTypeFor } from "./types.js";
 import { SheetSeedType } from "./editing-types.js";
 import { SheetDraftFieldType, SheetDraftTypeFor } from "./transactions.js";
 import { SheetDraftGroupTypeFor } from "./drafts.js";
@@ -31,6 +31,8 @@ export function buildSheetSeed(
         const patch = $.const(create(context), patchType);
         const fields: Record<string, unknown> = {};
         let lines = $.const([], ArrayType(SheetLineType));
+        // A seed shows no sub rows until the host's rebuild projects them.
+        const noSubRows = $.const([], ArrayType(SheetSubRowType));
         for (const [field, type] of Object.entries(rowType.fields)) {
             const supplied = patch[field] as ExprType<OptionType<EastType>>;
             if (field === children?.field && childType !== undefined && liftChild !== undefined) {
@@ -40,7 +42,7 @@ export function buildSheetSeed(
                 const lift = $.const(liftChild);
                 const projectRow = $.const(children.project);
                 fields[field] = rows.map((_$, row) => lift(row));
-                lines = $.const(rows.map((_$, row, index) => ({ key: East.str`seed:${index}`, cells: projectRow(row) })), ArrayType(SheetLineType));
+                lines = $.const(rows.map((_$, row, index) => ({ key: East.str`seed:${index}`, cells: projectRow(row), subRows: noSubRows })), ArrayType(SheetLineType));
             } else {
                 const draftField = SheetDraftFieldType(type);
                 fields[field] = supplied.match({
@@ -50,7 +52,7 @@ export function buildSheetSeed(
             }
         }
         const draft = $.const(fields as SubtypeExprOrValue<StructType>, draftType);
-        const row = $.const({ id: "", owned: false, cells: project(patch), lines, band: none }, SheetRowType);
+        const row = $.const({ id: "", owned: false, cells: project(patch), lines, band: none, subRows: noSubRows }, SheetRowType);
         return { draft: East.Blob.encodeBeast(draft, "v2"), row: East.Blob.encodeBeast(row, "v2") };
     });
 }

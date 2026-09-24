@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Sheet, Paged, UIComponentType } from "@elaraai/east-ui/internal";
 import {
-    East, ArrayType, DateTimeType, DictType, FloatType, IntegerType, NullType, OptionType, StringType, StructType,
+    East, ArrayType, DateTimeType, DictType, FloatType, IntegerType, NullType, OptionType, StringType, StructType, VariantType,
     none, some, variant, type ExprType,
 } from "@elaraai/east";
 import * as ex from "./sheet.examples.js";
@@ -58,20 +58,44 @@ const PLANS = [
 // Wire rows the edit and context tests send — a group row's band cells, its
 // lines keyed by SOURCE index (a minted key for a line the source lacks).
 // Plain host data, spelt out (no helper builds East values).
-const LINE_0 = { key: "0", cells: new Map<string, unknown>([["start", variant("Null", null)], ["task", variant("String", "Machining")], ["qty", variant("Float", 120.0)], ["note", variant("String", "first")]]) as never };
-const LINE_1 = { key: "1", cells: new Map<string, unknown>([["start", variant("Null", null)], ["task", variant("String", "Inspection")], ["qty", variant("Null", null)], ["note", variant("String", "second")]]) as never };
-const LINE_1_PAINTED = { key: "1", cells: new Map<string, unknown>([["start", variant("Null", null)], ["task", variant("String", "Painting")], ["qty", variant("Null", null)], ["note", variant("String", "second")]]) as never };
-const LINE_NEW = { key: "new", cells: new Map<string, unknown>([["start", variant("Null", null)], ["task", variant("String", "Between")], ["qty", variant("Null", null)], ["note", variant("String", "")]]) as never };
+const LINE_0 = { key: "0", cells: new Map<string, unknown>([["start", variant("Null", null)], ["task", variant("String", "Machining")], ["qty", variant("Float", 120.0)], ["note", variant("String", "first")]]) as never, subRows: [] };
+const LINE_1 = { key: "1", cells: new Map<string, unknown>([["start", variant("Null", null)], ["task", variant("String", "Inspection")], ["qty", variant("Null", null)], ["note", variant("String", "second")]]) as never, subRows: [] };
+const LINE_1_PAINTED = { key: "1", cells: new Map<string, unknown>([["start", variant("Null", null)], ["task", variant("String", "Painting")], ["qty", variant("Null", null)], ["note", variant("String", "second")]]) as never, subRows: [] };
+const LINE_NEW = { key: "new", cells: new Map<string, unknown>([["start", variant("Null", null)], ["task", variant("String", "Between")], ["qty", variant("Null", null)], ["note", variant("String", "")]]) as never, subRows: [] };
 const P1_CELLS = new Map<string, unknown>([["$title", variant("String", "Line 2 week 8")], ["qty", variant("Float", 300.0)], ["note", variant("String", "PLANNED")]]) as never;
 const BAND = some({ sub: "", folded: false });
-const P1_ROW = { id: "p1", owned: false, cells: P1_CELLS, lines: [LINE_0, LINE_1], band: BAND };
-const P1_PAINTED = { id: "p1", owned: false, cells: P1_CELLS, lines: [LINE_0, LINE_1_PAINTED], band: BAND };
-const P1_INSERTED = { id: "p1", owned: false, cells: P1_CELLS, lines: [LINE_0, LINE_NEW, LINE_1], band: BAND };
-const P1_REMOVED = { id: "p1", owned: false, cells: P1_CELLS, lines: [LINE_0], band: BAND };
-const P1_RENAMED = { id: "p1", owned: false, cells: new Map<string, unknown>([["$title", variant("String", "Renamed")], ["qty", variant("Float", 999.0)], ["note", variant("String", "PLANNED")]]) as never, lines: [LINE_0, LINE_1], band: BAND };
-const P2_ROW = { id: "p2", owned: false, cells: new Map<string, unknown>([["$title", variant("String", "Line 3 week 8")]]) as never, lines: [], band: BAND };
-const P3_ROW = { id: "p3", owned: false, cells: new Map<string, unknown>([["$title", variant("String", "New plan")]]) as never, lines: [], band: BAND };
+const P1_ROW = { id: "p1", owned: false, cells: P1_CELLS, lines: [LINE_0, LINE_1], band: BAND, subRows: [] };
+const P1_PAINTED = { id: "p1", owned: false, cells: P1_CELLS, lines: [LINE_0, LINE_1_PAINTED], band: BAND, subRows: [] };
+const P1_INSERTED = { id: "p1", owned: false, cells: P1_CELLS, lines: [LINE_0, LINE_NEW, LINE_1], band: BAND, subRows: [] };
+const P1_REMOVED = { id: "p1", owned: false, cells: P1_CELLS, lines: [LINE_0], band: BAND, subRows: [] };
+const P1_RENAMED = { id: "p1", owned: false, cells: new Map<string, unknown>([["$title", variant("String", "Renamed")], ["qty", variant("Float", 999.0)], ["note", variant("String", "PLANNED")]]) as never, lines: [LINE_0, LINE_1], band: BAND, subRows: [] };
+const P2_ROW = { id: "p2", owned: false, cells: new Map<string, unknown>([["$title", variant("String", "Line 3 week 8")]]) as never, lines: [], band: BAND, subRows: [] };
+const P3_ROW = { id: "p3", owned: false, cells: new Map<string, unknown>([["$title", variant("String", "New plan")]]) as never, lines: [], band: BAND, subRows: [] };
 const EDITING_CELLS = new Map<string, unknown>([["task", variant("String", "Painting")]]) as never;
+
+// ── Sub rows and column rules (#844).
+const OpType = StructType({ id: StringType, code: StringType, name: StringType, materials: ArrayType(StringType), station: OptionType(StringType) });
+const BookingType = VariantType({ labour: StructType({ team: StringType, people: IntegerType }), equipment: StructType({ resource: StringType }) });
+const WorkType = StructType({ task: StringType, ops: ArrayType(OpType), bookings: ArrayType(BookingType) });
+const OrderType = StructType({ id: StringType, name: StringType, work: ArrayType(WorkType) });
+const ORDERS = [
+    { id: "o1", name: "Frames", work: [
+        { task: "Assemble", ops: [
+            { id: "o1-1", code: "CUT", name: "Cut rails", materials: ["Rail × 8"], station: some("Saw 2") },
+            { id: "o1-2", code: "", name: "Fit", materials: [], station: none },
+        ], bookings: [variant("labour", { team: "Assembly", people: 2n }), variant("equipment", { resource: "Driver" })] },
+        { task: "Inspect", ops: [], bookings: [] },
+    ] },
+];
+const FlatWorkType = StructType({ id: StringType, task: StringType, ops: ArrayType(OpType) });
+const RuleRowType = StructType({
+    id: StringType, start: OptionType(DateTimeType), level: Sheet.Types.DateLevel, started: OptionType(DateTimeType),
+    status: StringType, code: StringType, activity: StringType, stations: Sheet.Types.Link,
+});
+const RULE_ROWS = [
+    { id: "r1", start: some(new Date("2026-02-16T00:00:00Z")), level: variant("week", null), started: some(new Date("2026-02-17T07:30:00Z")), status: "PLANNED", code: "WO-1", activity: "Machining", stations: { from: [], to: [] } },
+    { id: "r2", start: none, level: variant("time", null), started: none, status: "RELEASED", code: "", activity: "Machining", stations: { from: [], to: [] } },
+];
 
 describeEast("Sheet", (test) => {
     Assert.examples(test, {
@@ -85,6 +109,8 @@ describeEast("Sheet", (test) => {
         sheetReadiness: ex.sheetReadiness,
         sheetInsertion: ex.sheetInsertion,
         sheetPaged: ex.sheetPaged,
+        sheetSubRows: ex.sheetSubRows,
+        sheetRules: ex.sheetRules,
         sheetStress: ex.sheetStress,
     });
 
@@ -312,7 +338,7 @@ describeEast("Sheet", (test) => {
         const row = $.const({
             id: "1", owned: false,
             cells: new Map([["machines", variant("Link", { from: [variant("identified", { key: "M2140" })], to: [variant("counted", { n: 4n, key: "CNC lathe" })] })]]),
-            lines: [], band: none,
+            lines: [], band: none, subRows: [],
         }, Sheet.Types.Row);
         const bytes = $.const(East.Blob.encodeBeast(row, "v2"));
         const canonicalDraft = $.const(canonical.unwrap().unwrap("Sheet").editing.decode(bytes, none, none).decodeBeast(Sheet.Types.Draft(PlanRowType), "v2"));
@@ -366,7 +392,7 @@ describeEast("Sheet", (test) => {
         const cells = $.const((new Map<string, unknown>([["task", variant("String", "Machining")], ["qty", variant("Null", null)]]) as never), DictType(StringType, Sheet.Types.Cell));
         const ctx = $.const({
             drafts: new Map(), rowIndex: 0n, rowId: "a", offset: 0n, line: none, row: cells,
-            rows: [{ id: "a", owned: false, cells, lines: [], band: none }], rowsOffset: 0n, partial: false, driver: none, today: new Date("2026-01-05T00:00:00Z"),
+            rows: [{ id: "a", owned: false, cells, lines: [], band: none, subRows: [] }], rowsOffset: 0n, partial: false, driver: none, today: new Date("2026-01-05T00:00:00Z"),
         }, Sheet.Types.WireContext);
         const fill = $.let(wire(ctx).unwrap("some"));
         $(Assert.equal(fill.value.unwrap("Float"), 2000.0));
@@ -393,7 +419,7 @@ describeEast("Sheet", (test) => {
         const cells = $.const((new Map<string, unknown>([["task", variant("String", "Machining")], ["qty", variant("Float", 1.0)], ["count", variant("Integer", 2n)]]) as never), DictType(StringType, Sheet.Types.Cell));
         const ctx = $.const({
             drafts: new Map(), rowIndex: 0n, rowId: "a", offset: 0n, line: none, row: cells,
-            rows: [{ id: "a", owned: false, cells, lines: [], band: none }], rowsOffset: 0n, partial: false, driver: none, today: new Date("2026-01-05T00:00:00Z"),
+            rows: [{ id: "a", owned: false, cells, lines: [], band: none, subRows: [] }], rowsOffset: 0n, partial: false, driver: none, today: new Date("2026-01-05T00:00:00Z"),
         }, Sheet.Types.WireContext);
         const proposals = $.let(wire(ctx));
         $(Assert.equal(proposals.size(), 1n));
@@ -619,6 +645,132 @@ describeEast("Sheet", (test) => {
         }, Sheet.Types.WireContext);
         $(Assert.equal(wire(fresh).unwrap("some").value.unwrap("String"), "Line 2 week 8 · line 2 Painting · 3 lines · 2 plans · missing"));
     });
+
+    // =========================================================================
+    // Sub rows and column rules (#844)
+    // =========================================================================
+
+    test("sub rows: each source maps its array in declaration order onto the line, blanks filled and none facets dropped", $ => {
+        const orders = $.const(ORDERS, ArrayType(OrderType));
+        const sheet = $.let(Sheet.Root(orders, { task: Sheet.column.text(WorkType) }, {
+            id: "id",
+            group: Sheet.group(OrderType, "work", { title: "name", noun: { singular: "order", plural: "orders" } }),
+            subRows: Sheet.subRows(WorkType, {
+                ops: (op, row) => Sheet.subRow({ code: op.code, name: East.str`${op.name} · ${row.task}`, chips: op.materials, facets: { station: op.station, kind: "op" }, id: some(op.id) }),
+                bookings: (b) => b.match({
+                    labour:    (_$, l) => Sheet.subRow({ code: "LABOUR", name: East.str`${l.team} · ${l.people} people` }),
+                    equipment: (_$, e) => Sheet.subRow({ code: "EQUIPMENT", name: e.resource, id: none }),
+                }),
+            }),
+        }));
+        const root = $.let(sheet.unwrap().unwrap("Sheet"));
+        const group = $.let(root.rows.unwrap("inline").get(0n));
+        $(Assert.equal(group.subRows.size(), 0n));
+        const first = $.let(group.lines.get(0n).subRows);
+        $(Assert.equal(first.size(), 4n));
+        $(Assert.equal(first.get(0n).code, "CUT"));
+        $(Assert.equal(first.get(0n).name, "Cut rails · Assemble"));
+        $(Assert.equal(first.get(0n).chips.get(0n), "Rail × 8"));
+        $(Assert.equal(first.get(0n).facets.size(), 2n));
+        $(Assert.equal(first.get(0n).facets.get(0n).label, "station"));
+        $(Assert.equal(first.get(0n).facets.get(0n).value, "Saw 2"));
+        $(Assert.equal(first.get(0n).facets.get(1n).value, "op"));
+        $(Assert.equal(first.get(0n).id, "o1-1"));
+        // A none facet drops out; an empty code stays empty.
+        $(Assert.equal(first.get(1n).facets.size(), 1n));
+        $(Assert.equal(first.get(1n).code, ""));
+        // The variant source follows, after every op.
+        $(Assert.equal(first.get(2n).code, "LABOUR"));
+        $(Assert.equal(first.get(2n).name, "Assembly · 2 people"));
+        $(Assert.equal(first.get(2n).chips.size(), 0n));
+        $(Assert.equal(first.get(2n).id, ""));
+        $(Assert.equal(first.get(3n).name, "Driver"));
+        $(Assert.equal(group.lines.get(1n).subRows.size(), 0n));
+        // The group's noun rides on the declaration; the default is "group".
+        $(Assert.equal(root.group.unwrap("some").noun.singular, "order"));
+        $(Assert.equal(root.group.unwrap("some").noun.plural, "orders"));
+        const plain = $.let(Sheet.Root(orders, { task: Sheet.column.text(WorkType) }, { id: "id", group: Sheet.group(OrderType, "work", { title: "name" }) }).unwrap().unwrap("Sheet"));
+        $(Assert.equal(plain.group.unwrap("some").noun.plural, "groups"));
+        $(Assert.equal(plain.rows.unwrap("inline").get(0n).lines.get(0n).subRows.size(), 0n));
+    });
+
+    test("sub rows on a flat sheet ride on the row", $ => {
+        const rows = $.const([{ id: "w1", task: "Assemble", ops: [{ id: "x", code: "ASM", name: "Assemble", materials: [], station: none }] }], ArrayType(FlatWorkType));
+        const root = $.let(Sheet.Root(rows, { task: Sheet.column.text(FlatWorkType) }, {
+            id: "id", subRows: Sheet.subRows(FlatWorkType, { ops: (op) => Sheet.subRow({ code: op.code, name: op.name, id: op.id }) }),
+        }).unwrap().unwrap("Sheet"));
+        const row = $.let(root.rows.unwrap("inline").get(0n));
+        $(Assert.equal(row.subRows.size(), 1n));
+        $(Assert.equal(row.subRows.get(0n).code, "ASM"));
+        $(Assert.equal(row.subRows.get(0n).facets.size(), 0n));
+    });
+
+    test("a date's level and actual and a column's detail project into unrendered cells the wire names", $ => {
+        const rows = $.const(RULE_ROWS, ArrayType(RuleRowType));
+        const root = $.let(Sheet.Root(rows, {
+            start:  Sheet.column.date(RuleRowType, { header: "Start", level: r => r.level, actual: r => r.started }),
+            status: Sheet.column.text(RuleRowType, { header: "Status", detail: r => r.code }),
+            code:   Sheet.column.text(RuleRowType, { header: "Code", detail: r => r.code.length().equal(0n).ifElse(() => East.value(none, OptionType(StringType)), () => East.value(some(East.str`order ${r.code}`), OptionType(StringType))) }),
+        }, { id: "id" }).unwrap().unwrap("Sheet"));
+        const date = $.let(root.columns.get(0n).kind.unwrap("date"));
+        $(Assert.equal(date.level.unwrap("some"), "$level:start"));
+        $(Assert.equal(date.actual.unwrap("some"), "$actual:start"));
+        $(Assert.equal(root.columns.get(0n).detailCell.hasTag("none"), true));
+        $(Assert.equal(root.columns.get(1n).detailCell.unwrap("some"), "$detail:status"));
+        const r1 = $.let(root.rows.unwrap("inline").get(0n).cells);
+        $(Assert.equal(r1.get("$level:start").unwrap("String"), "week"));
+        $(Assert.equal(r1.get("$actual:start").hasTag("DateTime"), true));
+        $(Assert.equal(r1.get("$detail:status").unwrap("String"), "WO-1"));
+        $(Assert.equal(r1.get("$detail:code").unwrap("String"), "order WO-1"));
+        const r2 = $.let(root.rows.unwrap("inline").get(1n).cells);
+        $(Assert.equal(r2.get("$level:start").unwrap("String"), "time"));
+        $(Assert.equal(r2.get("$actual:start").hasTag("Null"), true));
+        $(Assert.equal(r2.get("$detail:code").hasTag("Null"), true));
+        // Without the rules nothing extra crosses.
+        const plain = $.let(Sheet.Root(rows, { start: Sheet.column.date(RuleRowType) }, { id: "id" }).unwrap().unwrap("Sheet"));
+        $(Assert.equal(plain.columns.get(0n).kind.unwrap("date").level.hasTag("none"), true));
+        $(Assert.equal(plain.rows.unwrap("inline").get(0n).cells.size(), 1n));
+    });
+
+    test("options rules bridge onto enum, lookup and link kinds and run over the wire context; ranged kinds round-trip", $ => {
+        const rows = $.const(RULE_ROWS, ArrayType(RuleRowType));
+        const activities = $.const(ACTIVITIES, ArrayType(ActivityType));
+        const Ctx = Sheet.Types.DraftContext(RuleRowType, ActivityType);
+        const Keys = OptionType(ArrayType(StringType));
+        const byCode = $.const(East.function([Ctx], Keys, ($, ctx) => {
+            const whole = $.const(none, Keys);
+            return ctx.row.code.match({ value: (_$, code) => code.length().equal(0n).ifElse(() => East.value(some(["PLANNED"]), Keys), () => whole) }, () => whole);
+        }));
+        const root = $.let(Sheet.Root(rows, {
+            activity: Sheet.column.lookup(RuleRowType, { options: byCode }),
+            status:   Sheet.column.enum(RuleRowType, "statuses", { options: byCode }),
+            stations: Sheet.column.link(RuleRowType, ActivityType, "stations", { options: byCode, members: [{ kind: "machine", identified: true, ranged: true }, { kind: "line" }] }),
+            code:     Sheet.column.text(RuleRowType),
+        }, {
+            id: "id",
+            driver: Sheet.driver("activity", activities, { key: a => a.name, label: a => a.name }),
+            registers: { statuses: Sheet.register.members(East.value(["PLANNED", "RELEASED"], ArrayType(StringType)), { kind: "status", key: s => s, label: s => s }), stations: East.value(MEMBERS, Sheet.Types.RegisterMembers) },
+        }).unwrap().unwrap("Sheet"));
+        $(Assert.equal(root.columns.get(0n).kind.unwrap("lookup").options.hasTag("some"), true));
+        const link = $.let(root.columns.get(2n).kind.unwrap("link"));
+        $(Assert.equal(link.members.get(0n).ranged, true));
+        $(Assert.equal(link.members.get(1n).ranged, false));
+        const rule = $.let(root.columns.get(1n).kind.unwrap("enum").options.unwrap("some"));
+        const cells = $.const((new Map<string, unknown>([["code", variant("String", "")]]) as never), DictType(StringType, Sheet.Types.Cell));
+        const ctx = $.const({
+            drafts: new Map(), rowIndex: 1n, rowId: "r2", offset: 1n, line: none, row: cells,
+            rows: [], rowsOffset: 0n, partial: false, driver: none, today: new Date("2026-01-05T00:00:00Z"),
+        }, Sheet.Types.WireContext);
+        $(Assert.equal(rule(ctx).unwrap("some").get(0n), "PLANNED"));
+        const coded = $.const((new Map<string, unknown>([["code", variant("String", "WO-9")]]) as never), DictType(StringType, Sheet.Types.Cell));
+        $(Assert.equal(rule($.const({
+            drafts: new Map(), rowIndex: 1n, rowId: "r2", offset: 1n, line: none, row: coded,
+            rows: [], rowsOffset: 0n, partial: false, driver: none, today: new Date("2026-01-05T00:00:00Z"),
+        }, Sheet.Types.WireContext)).hasTag("none"), true));
+        // Without a rule the kinds carry none.
+        const plain = $.let(Sheet.Root(rows, { status: Sheet.column.enum(RuleRowType, "s") }, { id: "id", registers: { s: East.value(MEMBERS, Sheet.Types.RegisterMembers) } }).unwrap().unwrap("Sheet"));
+        $(Assert.equal(plain.columns.get(0n).kind.unwrap("enum").options.hasTag("none"), true));
+    });
 }, { platformFns: TestImpl });
 
 // ============================================================================
@@ -693,6 +845,22 @@ describe("Sheet refusals", () => {
         assert.throws(() => Sheet.Root(plans, lineColumns, { id: "id", group: Sheet.group(PlanType, "lines", { title: "name", cells: { owner: Sheet.group.cell.text(PlanType, "owner") } as never }) }), /band cell "owner" is not a declared column/);
         assert.throws(() => Sheet.Root(plans, lineColumns, { id: "id", group: Sheet.group(PlanType, "lines", { title: "name", cells: { task: Sheet.group.cell.quantity(PlanType, "total") } }) }), /band cell "task" is a quantity cell/);
         assert.throws(() => Sheet.Root(plans, lineColumns, { id: "id", group: Sheet.group(PlanType, "lines", { title: "name", cells: { task: Sheet.group.cell.date(PlanType, "owner" as never) } }) }), /band cell "task" — date column "owner"/);
+    });
+    // Sub rows and column rules (#844).
+    hostTest("sub rows built over another type, or naming a field that is not an array, are refused", () => {
+        const orders = East.value(ORDERS, ArrayType(OrderType));
+        const group = Sheet.group(OrderType, "work", { title: "name" });
+        assert.throws(() => Sheet.Root(orders, { task: Sheet.column.text(WorkType) }, { id: "id", group, subRows: Sheet.subRows(OrderType, { work: (w) => Sheet.subRow({ name: w.task }) }) as never }), /`subRows` was built over a different type/);
+        assert.throws(() => Sheet.Root(orders, { task: Sheet.column.text(WorkType) }, { id: "id", group, subRows: Sheet.subRows(WorkType, { task: ((t: never) => Sheet.subRow({ name: t })) } as never) }), /`subRows` names "task", which is a String field/);
+    });
+    hostTest("level and actual on a non-date column, and options on a kind without members, are refused", () => {
+        const ruleRows = East.value(RULE_ROWS, ArrayType(RuleRowType));
+        assert.throws(() => Sheet.Root(ruleRows, { code: Sheet.column.text(RuleRowType, { level: (() => "day") } as never) }, { id: "id" }), /`level` and `actual` are date-column rules/);
+        const keys = East.function([Sheet.Types.DraftContext(RuleRowType)], OptionType(ArrayType(StringType)), () => East.value(none, OptionType(ArrayType(StringType))));
+        assert.throws(() => Sheet.Root(ruleRows, { code: Sheet.column.text(RuleRowType, { options: keys } as never) }, { id: "id" }), /an `options` rule narrows an enum, lookup or link column/);
+        const asyncKeys = East.asyncFunction([Sheet.Types.DraftContext(RuleRowType)], OptionType(ArrayType(StringType)), () => East.value(none, OptionType(ArrayType(StringType))));
+        assert.throws(() => Sheet.Root(ruleRows, { status: Sheet.column.enum(RuleRowType, "s", { options: asyncKeys as never }) }, { id: "id", registers: { s: East.value(MEMBERS, Sheet.Types.RegisterMembers) } }), /options rule must be synchronous/);
+        assert.throws(() => Sheet.Root(ruleRows, { start: Sheet.column.date(RuleRowType, { actual: ((r: ExprType<typeof RuleRowType>) => r.code) as never }) }, { id: "id" }), /`actual` rule returning String/);
     });
     hostTest("a grouped provider must take the grouped context", () => {
         const flat = East.function([Sheet.Types.DraftContext(LineType)], OptionType(Sheet.Types.Fill(StringType)), (_$, _ctx) => East.value(none, OptionType(Sheet.Types.Fill(StringType))));

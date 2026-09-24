@@ -43,7 +43,7 @@ export function insertionGesture(request: InsertRequest, rows: readonly SheetRow
         const index = anchor.tail ? parent.lines.length : childAt < 0 ? 0 : childAt + (anchor.side === "after" ? 1 : 0);
         const key = makeChild(parent);
         const lines = [...parent.lines];
-        lines.splice(index, 0, { key, cells: new Map() });
+        lines.splice(index, 0, { key, cells: new Map(), subRows: [] });
         return { id: parent.id, child: key, event: variant("lineInsert", {
             rowId: parent.id, offset: BigInt(offset + at), after: index > 0 ? some(String(index - 1)) : none,
             line: String(index), row: { ...parent, lines }, source: variant("typed", null),
@@ -53,6 +53,6 @@ export function insertionGesture(request: InsertRequest, rows: readonly SheetRow
     if (rows.some(row => row.id === id)) throw new Error("The new row id already exists in this sheet");
     const side = kind === "group" && parent !== undefined ? groupInsertionSide(parent, anchor) : anchor.side;
     const placement: Placement = some(keyed ? variant("keyOrder", null) : variant("ordered", parent === undefined ? variant("end", null) : variant(side, parent.id)));
-    const row: SheetRowValue = { id, owned: false, cells: new Map(), lines: [], band: kind === "group" ? some({ sub: "", folded: false }) : none };
+    const row: SheetRowValue = { id, owned: false, cells: new Map(), lines: [], band: kind === "group" ? some({ sub: "", folded: false }) : none, subRows: [] };
     return { id, placement, event: variant("insert", { afterRowId: none, row, source: variant("typed", null) }) };
 }

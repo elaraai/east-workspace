@@ -138,6 +138,45 @@ export const SheetCellType = VariantType({
 export type SheetCellType = typeof SheetCellType;
 
 /**
+ * One labelled fact of a sub row's detail (#844).
+ *
+ * @property label - What the fact is (the renderer sets it in capitals)
+ * @property value - The fact, printed
+ */
+export const SheetFacetType = StructType({
+    label: StringType,
+    value: StringType,
+});
+/** Type alias for {@link SheetFacetType}. */
+export type SheetFacetType = typeof SheetFacetType;
+
+/**
+ * One SUB ROW on the wire (#844) — a read-only row under a line (or a flat
+ * row) that shares none of the sheet's columns: a lead (`code` and `name`),
+ * a detail (`chips`, then `facets`) and an `id` pinned right.
+ *
+ * @remarks
+ * `code` and `id` are display strings, `""` for none (the band's `sub`
+ * precedent). Build one with `Sheet.subRow({ … })`; declare where they come
+ * from with `Sheet.subRows(R, { … })`.
+ *
+ * @property code - The lead's code (`"ASM"`, or a word for what the row is); `""` for none
+ * @property name - The lead's words
+ * @property chips - The detail's parameter chips, first
+ * @property facets - The detail's labelled facts, after the chips
+ * @property id - The record the sub row traces to; `""` for none
+ */
+export const SheetSubRowType = StructType({
+    code:   StringType,
+    name:   StringType,
+    chips:  ArrayType(StringType),
+    facets: ArrayType(SheetFacetType),
+    id:     StringType,
+});
+/** Type alias for {@link SheetSubRowType}. */
+export type SheetSubRowType = typeof SheetSubRowType;
+
+/**
  * One LINE of a group row on the wire (#740) — its cells, addressed within
  * its group by `key`.
  *
@@ -148,10 +187,12 @@ export type SheetCellType = typeof SheetCellType;
  *
  * @property key - The line's address within its group
  * @property cells - Column key → cell, one entry per declared line column
+ * @property subRows - The line's sub rows, in declaration order (#844; empty without `subRows`)
  */
 export const SheetLineType = StructType({
-    key:   StringType,
-    cells: DictType(StringType, SheetCellType),
+    key:     StringType,
+    cells:   DictType(StringType, SheetCellType),
+    subRows: ArrayType(SheetSubRowType),
 });
 /** Type alias for {@link SheetLineType}. */
 export type SheetLineType = typeof SheetLineType;
@@ -174,6 +215,19 @@ export type SheetBandType = typeof SheetBandType;
 export const SHEET_TITLE_CELL = "$title";
 
 /**
+ * The key of an UNRENDERED cell a column's rule projects into (#844) — a
+ * date column's `level` / `actual`, a column's `detail`. The `$` prefix keeps
+ * it clear of every field name, as {@link SHEET_TITLE_CELL} is.
+ *
+ * @param rule - The rule (`"level"`, `"actual"`, `"detail"`)
+ * @param column - The column key
+ * @returns The cell key (`"$level:start"`)
+ */
+export function sheetRuleCell(rule: "level" | "actual" | "detail", column: string): string {
+    return `$${rule}:${column}`;
+}
+
+/**
  * One wire row — the closed projection of a host row.
  *
  * @remarks
@@ -192,13 +246,15 @@ export const SHEET_TITLE_CELL = "$title";
  * @property cells - Column key → cell, one entry per declared column
  * @property lines - A group row's lines, in order (empty on a flat sheet)
  * @property band - A group row's band (`none` on a flat sheet)
+ * @property subRows - A flat row's sub rows (#844; empty on a grouped sheet, whose lines carry them)
  */
 export const SheetRowType = StructType({
-    id:    StringType,
-    owned: BooleanType,
-    cells: DictType(StringType, SheetCellType),
-    lines: ArrayType(SheetLineType),
-    band:  OptionType(SheetBandType),
+    id:      StringType,
+    owned:   BooleanType,
+    cells:   DictType(StringType, SheetCellType),
+    lines:   ArrayType(SheetLineType),
+    band:    OptionType(SheetBandType),
+    subRows: ArrayType(SheetSubRowType),
 });
 /** Type alias for {@link SheetRowType}. */
 export type SheetRowType = typeof SheetRowType;
@@ -331,12 +387,14 @@ export type SheetStoreLiteral = "asTyped" | "canonical";
  * @property identified - The kind resolves by code (bare digits try the code prefix)
  * @property countable - The kind takes the counted form (`N x kind`)
  * @property resolvesTo - What a counted member of this kind resolves to later (`"machine"`)
+ * @property ranged - Runs of consecutive identified codes are offered and printed as one range (`M2140-45`, #844)
  */
 export const SheetMemberKindType = StructType({
     kind:       StringType,
     identified: BooleanType,
     countable:  BooleanType,
     resolvesTo: OptionType(StringType),
+    ranged:     BooleanType,
 });
 /** Type alias for {@link SheetMemberKindType}. */
 export type SheetMemberKindType = typeof SheetMemberKindType;
@@ -570,6 +628,33 @@ export type SheetArityType = typeof SheetArityType;
 // ============================================================================
 
 /**
+ * How deep a date column reads and takes a row's date (#844) —
+ * `Sheet.Types.DateLevel`, what a date column's `level` rule returns.
+ *
+ * @remarks
+ * The cell is still one UTC instant; the level says how it is printed,
+ * typed and compared with an `actual`.
+ *
+ * @property week - The week the date falls in (printed as its Monday)
+ * @property day - The day
+ * @property range - One end of the days the work may run in
+ * @property time - The day and the time of day
+ */
+export const SheetDateLevelType = VariantType({ week: NullType, day: NullType, range: NullType, time: NullType });
+/** Type alias for {@link SheetDateLevelType}. */
+export type SheetDateLevelType = typeof SheetDateLevelType;
+/** String-literal shorthand for {@link SheetDateLevelType}. */
+export type SheetDateLevelLiteral = "week" | "day" | "range" | "time";
+
+/**
+ * A column's OPTIONS rule on the wire (#844) — the register member keys a
+ * row may be offered; `none` offers the whole register.
+ */
+export const SheetOptionsRuleType = FunctionType([SheetContextType], OptionType(ArrayType(StringType)));
+/** Type alias for {@link SheetOptionsRuleType}. */
+export type SheetOptionsRuleType = typeof SheetOptionsRuleType;
+
+/**
  * The column kind — what a column parses, displays and proposes (§3.2).
  *
  * @remarks
@@ -580,26 +665,37 @@ export type SheetArityType = typeof SheetArityType;
  * applies them over the driver data, and they land as dictionaries keyed by
  * the driver member's key.
  *
+ * A date's `level` and `actual` and an `options` rule (#844) ride here too:
+ * `level` / `actual` name the unrendered cell ({@link sheetRuleCell}) the
+ * row projection filled, `options` is the bridged rule over the wire
+ * context — the renderer offers only those members, while typed text still
+ * resolves against the whole register.
+ *
  * @property text - Free text
- * @property date - A UTC-midnight date; `base` names the column relative entry counts from, `format` a display pattern
+ * @property date - A UTC-midnight date; `base` names the column relative entry counts from, `format` a display pattern, `level` the cell holding the row's {@link SheetDateLevelType} tag, `actual` the cell holding when the work really happened
  * @property quantity - A float with a unit per driver member (`uom`) and a display format
  * @property integer - A whole number
- * @property lookup - A scored register lookup — the driver column names the driver's register
+ * @property lookup - A scored register lookup — the driver column names the driver's register; `options` narrows what a row is offered
  * @property reference - A lookup over a flat member list
- * @property enum - An upper-cased register word with a valence dot
+ * @property enum - An upper-cased register word with a valence dot; `options` narrows what a row is offered
  * @property set - Comma members, the link grammar without an arrow
- * @property link - `from > to` — the split cell (§3.4)
+ * @property link - `from > to` — the split cell (§3.4); `options` narrows what a row is offered
  * @property stamped - A read-only code an upstream system owns
  * @property custom - An author parse / print pair over the field's own payload
  */
 export const SheetColumnKindType = VariantType({
     text:      NullType,
-    date:      StructType({ base: OptionType(StringType), format: OptionType(StringType) }),
+    date:      StructType({
+        base:   OptionType(StringType),
+        format: OptionType(StringType),
+        level:  OptionType(StringType),
+        actual: OptionType(StringType),
+    }),
     quantity:  StructType({ uom: OptionType(DictType(StringType, StringType)), format: OptionType(TickFormatType) }),
     integer:   NullType,
-    lookup:    StructType({ register: StringType }),
+    lookup:    StructType({ register: StringType, options: OptionType(SheetOptionsRuleType) }),
     reference: StructType({ register: StringType }),
-    enum:      StructType({ register: StringType }),
+    enum:      StructType({ register: StringType, options: OptionType(SheetOptionsRuleType) }),
     set:       StructType({
         register: StringType,
         members:  ArrayType(SheetMemberKindType),
@@ -614,6 +710,7 @@ export const SheetColumnKindType = VariantType({
         arity:    OptionType(SheetArityType),
         check:    ArrayType(SheetCheckType),
         store:    SheetStoreType,
+        options:  OptionType(SheetOptionsRuleType),
     }),
     stamped:   StructType({ owner: OptionType(StringType) }),
     custom:    StructType({
@@ -648,6 +745,7 @@ export type SheetColumnKindLiteral =
  * @property payloadType - The kind's payload type
  * @property editable - Whether the sheet writes the column
  * @property fill - The fill providers; the first that yields wins
+ * @property detailCell - The unrendered cell whose text is the column's detail — the hover and the strip (#844)
  */
 export const SheetColumnType = StructType({
     key:         StringType,
@@ -659,6 +757,7 @@ export const SheetColumnType = StructType({
     payloadType: EastTypeType,
     editable:    BooleanType,
     fill:        ArrayType(SheetProviderType),
+    detailCell:  OptionType(StringType),
 });
 /** Type alias for {@link SheetColumnType}. */
 export type SheetColumnType = typeof SheetColumnType;
@@ -690,17 +789,34 @@ export const SheetGroupCellType = StructType({
 export type SheetGroupCellType = typeof SheetGroupCellType;
 
 /**
+ * The word the renderer prints for a group (#844) — fold-all, the footer
+ * count, hints and the new-group button. Host-set; `"group"` / `"groups"`
+ * when the declaration names none.
+ *
+ * @property singular - One group (`"order"`)
+ * @property plural - Several (`"orders"`)
+ */
+export const SheetNounType = StructType({
+    singular: StringType,
+    plural:   StringType,
+});
+/** Type alias for {@link SheetNounType}. */
+export type SheetNounType = typeof SheetNounType;
+
+/**
  * The group declaration (#740) — how a grouped sheet's rows carry their
  * lines, and what the band draws.
  *
  * @property lines - The group row's field that holds the lines
  * @property keyed - `true` ⇒ `Dict<String, L>` lines (keys are stable), `false` ⇒ `Array<L>` lines (a line's key is its position)
  * @property cells - The band's cells, the title first under {@link SHEET_TITLE_CELL}
+ * @property noun - The word the renderer prints for a group (#844)
  */
 export const SheetGroupType = StructType({
     lines: StringType,
     keyed: BooleanType,
     cells: ArrayType(SheetGroupCellType),
+    noun:  SheetNounType,
 });
 /** Type alias for {@link SheetGroupType}. */
 export type SheetGroupType = typeof SheetGroupType;

@@ -44,7 +44,7 @@ function edit(row: SheetRowValue, qty: bigint) {
 test("author ready cannot bypass missing required hidden fields", () => {
     const root = unwrap(render(permissive)());
     const hook = mount(root);
-    const row: SheetRowValue = { id: "new", owned: false, cells: new Map([["qty", variant("Integer", 2n)]]), lines: [], band: none };
+    const row: SheetRowValue = { id: "new", owned: false, cells: new Map([["qty", variant("Integer", 2n)]]), lines: [], band: none, subRows: [] };
     act(() => hook.result.current.record([variant("insert", { afterRowId: some("a"), row, source: variant("insert", null) })]));
     expect(hook.result.current.session.canApply).toBe(false);
     expect(hook.result.current.session.readiness).toMatchObject({ type: "incomplete", value: expect.arrayContaining([{ entry: "new", row: none, field: some("hidden"), message: "A value is required" }]) });

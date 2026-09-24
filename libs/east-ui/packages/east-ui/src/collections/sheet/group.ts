@@ -186,6 +186,7 @@ export function stamped<P extends StructType>(_groupType: P, field: SheetFieldOf
  * @property sub - The band's eyebrow — an accessor over the group row, display only
  * @property cells - Band cells keyed by the LINE column they sit under
  * @property folded - Whether a group opens folded — an accessor over the group row
+ * @property noun - The word the renderer prints for a group — fold-all, the footer count, hints, the new-group button (default `"group"` / `"groups"`, #844)
  */
 export interface SheetGroupConfig<P extends StructType, L extends StructType = StructType> {
     /** The band's title — a `String` field of the group row. */
@@ -196,6 +197,13 @@ export interface SheetGroupConfig<P extends StructType, L extends StructType = S
     cells?: { [K in SheetFieldKey<L>]?: SheetGroupCell<P> };
     /** Whether a group opens folded. */
     folded?: (row: ExprType<P>) => SubtypeExprOrValue<BooleanType>;
+    /** The word the renderer prints for a group. */
+    noun?: {
+        /** One group (`"order"`). */
+        singular: SubtypeExprOrValue<StringType>;
+        /** Several (`"orders"`). */
+        plural: SubtypeExprOrValue<StringType>;
+    };
 }
 
 /**
@@ -215,7 +223,7 @@ export interface SheetGroupValue<P extends StructType, F extends string> {
 }
 
 /**
- * Declares grouped rows — `Sheet.group(P, "lines", { title, sub?, cells?, folded? })`
+ * Declares grouped rows — `Sheet.group(P, "lines", { title, sub?, cells?, folded?, noun? })`
  * (#740): the group is the row, `lines` names the field holding its lines
  * (an `Array<Line>` or a `Dict<String, Line>`), and the band draws the
  * title, the eyebrow and the `cells` under their line columns.

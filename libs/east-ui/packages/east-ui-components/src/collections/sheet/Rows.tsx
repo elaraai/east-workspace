@@ -258,7 +258,7 @@ export interface SheetProposalRowProps {
 /** A proposed row (B§5.2): dashed-topped, hatched, real numbers; ✓ adds it, × rejects it. */
 export const SheetProposalRow = memo(function SheetProposalRow(props: SheetProposalRowProps) {
     const { styles, columns, registers, driverColumn, gridTemplate, rowPx, index, number, cells, meta, picked, linkCtx } = props;
-    const pseudo: SheetRowValue = { id: "", owned: false, cells: cells as Map<string, SheetCellValue>, lines: [], band: none };
+    const pseudo: SheetRowValue = { id: "", owned: false, cells: cells as Map<string, SheetCellValue>, lines: [], band: none, subRows: [] };
     const driverKey = driverKeyOf(pseudo, driverColumn);
     const pick = (e: MouseEvent) => { if (e.button !== 0) return; e.preventDefault(); e.stopPropagation(); props.onPick(index); };
     return (

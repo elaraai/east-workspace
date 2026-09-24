@@ -4,7 +4,7 @@
  */
 /** @jsxImportSource @elaraai/east-ui */
 import {
-    East, ArrayType, BooleanType, DateTimeType, DictType, FloatType, IntegerType, NullType, OptionType, StringType, StructType,
+    East, ArrayType, BooleanType, DateTimeType, DictType, FloatType, IntegerType, NullType, OptionType, StringType, StructType, VariantType,
     example, none, some, variant,
 } from "@elaraai/east";
 import {
@@ -15,7 +15,7 @@ import {
 // The Sheet corpus — the five slots of EXAMPLES_AUTHORING.md §8 (Sheet Spec.md §8 P1):
 // `sheetBasic` · `sheetVariants` (THE configurator) · `sheetPlan` (the flagship)
 // · the behavioural isolates `sheetCopilot` / `sheetLens` / `sheetWriteBack` /
-// `sheetPaged` · `sheetStress`. Every example is self-contained — types,
+// `sheetPaged` / `sheetSubRows` / `sheetRules` · `sheetStress`. Every example is self-contained — types,
 // fixtures and constructors inside the body, bulk data derived East-side —
 // and the fixtures are the prototype's synthetic registers and rows: a
 // discrete manufacturing plant (machines on lines, work orders moving parts
@@ -1073,6 +1073,150 @@ export const sheetInsertion = example({
                     onUpdate={jobs.write} blanks={2n} />
                 <Text.MonoLabel>{East.str`SAVED · ${saved.map((_$, row) => row.task).stringJoin(" → ")}`}</Text.MonoLabel>
             </VStack>;
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+/**
+ * Sub rows (#844) — read-only rows under each line that share none of its
+ * columns. `Sheet.subRows` is keyed like `columns`: each key names an array
+ * field of the line type and maps one element to a sub row — a struct source
+ * with chips and labelled facets (a `none` facet drops out), and a variant
+ * source matched arm by arm. The group's noun is the host's word.
+ */
+export const sheetSubRows = example({
+    keywords: ["Sheet", "subRows", "subRow", "sub rows", "SubRow", "Facet", "chips", "facets", "lead", "detail", "group", "noun", "variant", "match", "read-only", "Reactive", "State"],
+    description: "Sub rows under each line — operations with chips and facets, bookings matched from a variant — declared per array field like columns, under groups the host calls orders",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const OperationType = StructType({
+                id: StringType, code: StringType, name: StringType, materials: ArrayType(StringType),
+                station: OptionType(StringType), by: OptionType(StringType),
+            });
+            const BookingType = VariantType({
+                space:     StructType({ area: StringType, units: IntegerType }),
+                labour:    StructType({ team: StringType, people: IntegerType, hours: FloatType }),
+                equipment: StructType({ resource: StringType }),
+            });
+            const JobType = StructType({
+                task: StringType, qty: OptionType(FloatType), notes: StringType,
+                operations: ArrayType(OperationType),   // no column — shown as sub rows
+                bookings: ArrayType(BookingType),       // no column — shown as sub rows
+            });
+            const OrderType = StructType({ id: StringType, name: StringType, jobs: ArrayType(JobType) });
+            const orders = $.let(State.bind([ArrayType(OrderType)], "sheet_subrows_orders", [
+                { id: "wo-1042", name: "WO-1042 · Frames", jobs: [
+                    { task: "Assemble frames", qty: some(40.0), notes: "Two benches", operations: [
+                        { id: "WO-1042-1", code: "CUT", name: "Cut rails to length", materials: ["Rail stock × 80"], station: some("Saw 2"), by: none },
+                        { id: "WO-1042-2", code: "ASM", name: "Assemble frame", materials: ["M6 bolts × 12", "Frame kit"], station: some("Bench 7"), by: some("Assembly") },
+                    ], bookings: [
+                        variant("labour", { team: "Assembly", people: 2n, hours: 12.0 }),
+                        variant("equipment", { resource: "Torque driver" }),
+                    ] },
+                    { task: "Inspect frames", qty: some(40.0), notes: "", operations: [], bookings: [
+                        variant("space", { area: "Test bay", units: 2n }),
+                    ] },
+                ] },
+                { id: "wo-1043", name: "WO-1043 · Housings", jobs: [
+                    { task: "Paint housings", qty: some(250.0), notes: "Primer first", operations: [
+                        { id: "WO-1043-1", code: "PNT", name: "Prime and paint", materials: ["Primer", "Topcoat"], station: none, by: none },
+                    ], bookings: [] },
+                ] },
+            ]));
+            return (
+                <Sheet
+                    data={orders}
+                    id="id"
+                    group={Sheet.group(OrderType, "jobs", { title: "name", noun: { singular: "order", plural: "orders" } })}
+                    columns={{
+                        task:  Sheet.column.text(JobType, { header: "Task", width: "220px" }),
+                        qty:   Sheet.column.quantity(JobType, { header: "Qty", width: "96px" }),
+                        notes: Sheet.column.text(JobType, { header: "Notes", width: "240px" }),
+                    }}
+                    subRows={Sheet.subRows(JobType, {
+                        operations: (op) => Sheet.subRow({
+                            code:   op.code,
+                            name:   op.name,
+                            chips:  op.materials,
+                            facets: { station: op.station, by: op.by },   // a none drops out
+                            id:     op.id,
+                        }),
+                        bookings: (b) => b.match({
+                            space:     (_$2, s) => Sheet.subRow({ code: "CLAIM", name: East.str`${s.area} · ${s.units} units` }),
+                            labour:    (_$2, l) => Sheet.subRow({ code: "LABOUR", name: East.str`${l.team} · ${l.people} people · ${l.hours} person-hours` }),
+                            equipment: (_$2, e) => Sheet.subRow({ code: "EQUIPMENT", name: e.resource }),
+                        }),
+                    })}
+                    newRow={East.function([Sheet.Types.NewRow], Sheet.Types.Patch(JobType), () => Sheet.patch(JobType, { notes: "", operations: [], bookings: [] }))}
+                    newGroup={East.function([Sheet.Types.NewGroup], Sheet.Types.Patch(OrderType), () => Sheet.patch(OrderType, { jobs: [] }))}
+                    onUpdate={orders.write}
+                    style={{ height: "420px" }}
+                />
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+/**
+ * Column rules (#844) — what a column offers, how deep a date reads, and
+ * what a cell says beyond its value: an `options` rule narrows the status
+ * menu until the row has an order code; the start date reads at the row's
+ * own `level` and prints the `actual` start once one is recorded; the status
+ * cell's `detail` is the order code; machines are a `ranged` kind, so runs
+ * of consecutive codes are offered and printed as one range.
+ */
+export const sheetRules = example({
+    keywords: ["Sheet", "options", "level", "actual", "detail", "ranged", "DateLevel", "week", "day", "range", "time", "enum", "date", "set", "members", "rule", "Reactive", "State"],
+    description: "Column rules — an options rule narrowing an enum's menu, a date read at each row's level with its actual start, a status detail, and a ranged machine kind",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const JobType = StructType({
+                id: StringType, task: StringType, start: OptionType(DateTimeType), level: Sheet.Types.DateLevel,
+                started: OptionType(DateTimeType), status: StringType, orderCode: StringType, machines: Sheet.Types.Link,
+            });
+            const Ctx = Sheet.Types.DraftContext(JobType);
+            const StatusType = StructType({ word: StringType, tone: Status.Types.Value });
+            const statuses = $.const([
+                { word: "PLANNED", tone: variant("neutral", null) }, { word: "RELEASED", tone: variant("info", null) },
+                { word: "IN PROGRESS", tone: variant("warning", null) }, { word: "COMPLETE", tone: variant("success", null) },
+            ], ArrayType(StatusType));
+            const machines = $.const(["M2140", "M2141", "M2142", "M2143", "M3210", "M3211"], ArrayType(StringType));
+            const noMembers = $.const([], ArrayType(Sheet.Types.Member));
+            const jobs = $.let(State.bind([ArrayType(JobType)], "sheet_rules_jobs", [
+                { id: "j1", task: "Rough blanks", start: some(new Date("2026-02-16T00:00:00Z")), level: variant("week", null), started: none, status: "PLANNED", orderCode: "", machines: { from: [], to: [] } },
+                { id: "j2", task: "Finish blanks", start: some(new Date("2026-02-18T00:00:00Z")), level: variant("day", null), started: some(new Date("2026-02-19T07:30:00Z")), status: "IN PROGRESS", orderCode: "WO-26001", machines: { from: [], to: [] } },
+                { id: "j3", task: "Changeover", start: some(new Date("2026-02-19T14:00:00Z")), level: variant("time", null), started: none, status: "RELEASED", orderCode: "WO-26002", machines: { from: [], to: [] } },
+            ]));
+            // Until a row has an order code it may only be planned or released.
+            const statusOptions = $.const(East.function([Ctx], OptionType(ArrayType(StringType)), ($, ctx) => {
+                const whole = $.const(none, OptionType(ArrayType(StringType)));
+                const early = $.const(some(["PLANNED", "RELEASED"]), OptionType(ArrayType(StringType)));
+                return ctx.row.orderCode.match({ value: (_$2, code) => code.length().equal(0n).ifElse(() => early, () => whole) }, () => early);
+            }));
+            return (
+                <Sheet
+                    data={jobs}
+                    id="id"
+                    registers={{
+                        statuses: Sheet.register.members(statuses, { kind: "status", key: s => s.word, label: s => s.word, tone: s => some(s.tone) }),
+                        machines: Sheet.register.members(machines, { kind: "machine", key: m => m, label: m => m }),
+                    }}
+                    columns={{
+                        task:     Sheet.column.text(JobType, { header: "Task", width: "180px" }),
+                        start:    Sheet.column.date(JobType, { header: "Start", sub: "at the row's level", width: "168px", level: r => r.level, actual: r => r.started }),
+                        status:   Sheet.column.enum(JobType, "statuses", { header: "Status", width: "132px", options: statusOptions, detail: r => r.orderCode }),
+                        machines: Sheet.column.set(JobType, "machines", { header: "Machines", sub: "M2140-43 · a run", width: "220px",
+                                      members: [{ kind: "machine", identified: true, ranged: true }] }),
+                    }}
+                    newRow={East.function([Sheet.Types.NewRow], Sheet.Types.Patch(JobType), () => Sheet.patch(JobType, {
+                        level: variant("day", null), started: none, orderCode: "", machines: { from: noMembers, to: noMembers },
+                    }))}
+                    onUpdate={jobs.write}
+                    blanks={4n}
+                />
+            );
         }}</Reactive>
     )),
     inputs: [],

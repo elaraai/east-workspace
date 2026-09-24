@@ -185,7 +185,7 @@ test("creation defaults survive a multi-event gesture, later clearing, and appli
     const getView = () => { const result = compile(); if (result.type !== "Sheet") throw new Error("Expected Sheet"); return result.value; };
     const root = getView();
     const hook = renderHook(({ root }) => useEditing(root), { initialProps: { root } });
-    const inserted: SheetRowValue = { id: "new", owned: false, cells: new Map([["qty", variant("Integer", 9n)], ["note", variant("Null", null)]]), lines: [], band: none };
+    const inserted: SheetRowValue = { id: "new", owned: false, cells: new Map([["qty", variant("Integer", 9n)], ["note", variant("Null", null)]]), lines: [], band: none, subRows: [] };
     act(() => hook.result.current.record([
         variant("insert", { afterRowId: none, row: inserted, source: variant("row", null) }),
         variant("commit", { rowId: "new", offset: 0n, key: "qty", row: { ...inserted, cells: new Map(inserted.cells).set("qty", variant("Integer", 12n)) }, source: variant("row", null) }),
@@ -227,7 +227,7 @@ test("group and child constructors keep hidden fields and receive the actual chi
     const result = compile();
     if (result.type !== "Sheet") throw new Error("Expected Sheet");
     const hook = renderHook(() => useEditing(result.value));
-    const row: SheetRowValue = { id: "g", owned: false, cells: new Map([["$title", variant("Null", null)]]), lines: [{ key: "new-child", cells: new Map([["qty", variant("Integer", 8n)]]) }], band: some({ sub: "", folded: false }) };
+    const row: SheetRowValue = { id: "g", owned: false, cells: new Map([["$title", variant("Null", null)]]), lines: [{ key: "new-child", cells: new Map([["qty", variant("Integer", 8n)]]), subRows: [] }], band: some({ sub: "", folded: false }), subRows: [] };
     act(() => hook.result.current.record([
         variant("insert", { afterRowId: none, row, source: variant("typed", null) }),
         variant("commit", { rowId: "g", offset: 0n, key: "$title", row: { ...row, cells: new Map([["$title", variant("String", "Named group")]]) }, source: variant("typed", null) }),
