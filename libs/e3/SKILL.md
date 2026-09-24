@@ -117,7 +117,7 @@ Task → What do you need?
 ├─ Datasets (read / write values)
 │   ├─ Read a value         → e3 dataset get <repo> <ws.name> [-f east|json|beast2]
 │   ├─ Write a value        → e3 dataset set <repo> <ws.name> <file>
-│   ├─ Adopt a .beast2 file  → e3 dataset set <repo> <ws.name> --from-file <path> (by hash, never read whole)
+│   ├─ Adopt a .beast2 file  → e3 dataset set <repo> <ws.name> --from-file <path> (a segment at a time, never read whole)
 │   ├─ List all paths       → e3 dataset list <repo> <ws> [-l]
 │   ├─ Status (kind/type)   → e3 dataset status <repo> <ws.name>
 │   └─ Search               → e3 dataset find <repo> <ws> <pattern>
@@ -155,7 +155,7 @@ The third argument is always a **source variant** — there is no bare-value for
 | Source | Meaning |
 |---|---|
 | `variant('value', v)` | An inline value, carried in the package. |
-| `variant('file', path)` | A beast2 file on the machine that **deploys** the package. The package carries only the path; deploy adopts the file into the object store **by hash** (reflink, hard link, or one kernel copy — never read whole, never modified). Relative paths resolve against the working directory at export. |
+| `variant('file', path)` | A beast2 file on the machine that **deploys** the package. The package carries only the path; deploy takes the file into the object store as the value it holds — a collection a segment at a time, as the store's own segment objects; any other value by reflink, hard link or one kernel copy. Never read whole, never modified. Relative paths resolve against the working directory at export. |
 | omitted | Unassigned until something sets it. |
 
 ```typescript
@@ -171,10 +171,14 @@ A `file` source is checked twice against the declared type: at `e3.export`
 (a schema drift is a build error naming the input and the first differing
 field) and at deploy, before the workspace is touched (a missing or drifted
 delivery fails the deploy with the previous deployment intact). A collection
-delivery must be an indexed, self-contained v5 blob — the at-rest contract
-every collection dataset keeps, and what lets runners page it and
-`partitionTask` carve it. Deliveries are immutable by contract: the object may
-be a hard link to the file, so replace a delivery with a new file rather than
+delivery may be in any layout a beast2 writer produces — segmented or encoded
+whole, indexed or not — so long as no segment of it is larger than a collection
+is read in at once (64 MiB): a large value encoded whole is one such segment,
+refused with a message to write it segmented, the Writer's default. The store
+cuts a delivery into its own segments, so a new delivery that differs from the
+last in a few rows stores only the segments around them, and the same bytes
+delivered again are not read a second time. Any other value's object may be a
+hard link to the file, so replace a delivery with a new file rather than
 editing it in place.
 
 A `file` source is read on the machine that runs `e3 workspace deploy`, local
@@ -878,7 +882,7 @@ Paths use the flat form `<ws>.<name>`. The resolver maps `<name>` to its storage
 ```bash
 e3 dataset get <repo> <ws.name> [-f east|json|beast2]
 e3 dataset set <repo> <ws.name> <file> [--type <spec>] [--type-file <path>]
-e3 dataset set <repo> <ws.name> --from-file <path.beast2>  # adopt by hash: streamed SHA-256, header checked, link/copy — never decoded
+e3 dataset set <repo> <ws.name> --from-file <path.beast2>  # streamed SHA-256, header checked; a collection re-cut a segment at a time (bytes seen before cost their hash), anything else linked/copied
 e3 dataset list <repo> <ws> [-l]            # List dataset paths (-l adds columns)
 e3 dataset status <repo> <ws.name>          # Kind/type/status/size for one dataset
 e3 dataset find <repo> <ws> <pattern>       # Substring or glob (`*`, `?`) match

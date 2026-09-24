@@ -434,22 +434,26 @@ it (the client retries a transient failure from a fresh read of the range). The
 client commits once every part has been sent.
 
 **Commit.** The server checks the staged bytes are `size` bytes hashing to
-`hash`, checks the header against the dataset's declared type, stores the
-object and points the dataset at it (with the version-vector self entry). A
-refusal is an `error` answer, or the `dataset_type_mismatch` API error. A
+`hash`, checks the header against the dataset's declared type, and takes the
+bytes into the store — a collection through the store's door, split a segment
+at a time into the store's own segments; any other value as the object the
+bytes are — then points the dataset at what it stored (with the version-vector
+self entry). A refusal is an `error` answer, or the `dataset_type_mismatch` API error. A
 protocol-2 commit may answer `processing` instead; the client polls
 `GET …/upload/<id>` (100 ms, doubling to 1 s) until it answers `completed` or
 `error`. A finished commit's answer stays pollable for a while, so a client
 whose response was lost asks again and hears the same thing. A protocol-1
 commit answers only when it is done.
 
-**Dedup.** An init whose hash is already stored answers `completed` after
-checking that object's header against the dataset's declared type — the one
-door that skips the commit.
+**Dedup.** An init whose hash the store already knows answers `completed`: it
+knows the bytes as the manifest a delivery of them was split into (the
+adoption memo), or as an object. Either is checked against the dataset's
+declared type first, and a collection object goes through the store's door.
+It is the one door that skips the commit.
 
 **Local server (`e3-api-server`).** Parts stream to their own offsets in one
-staged file under `<repo>/tmp/transfers`, so the commit adopts the file exactly
-as a single `PUT`'s, by link or rename; the server refuses a part longer or
+staged file under `<repo>/tmp/transfers`, so the commit takes the file in
+exactly as a single `PUT`'s; the server refuses a part longer or
 shorter than its range (a longer one would overwrite its neighbour), and a
 part never sent leaves a hole the hash check refuses. `transferPartBytes`
 (default 64 MiB) sets the plan, and the commit runs in the background:
