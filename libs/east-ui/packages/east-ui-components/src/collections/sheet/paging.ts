@@ -9,11 +9,24 @@
  *
  * A sheet window is an `Array<SheetRow>` in stream order, so windows
  * concatenate at their offsets (the Table rule) and the resident rows are
- * the CONTIGUOUS landed run from the residency's low window: a window still
- * in flight inside the run stops the concatenation there, because a
- * positional row space cannot carry a hole. Everything above the run is the
+ * the landed run from the residency's low window: a window still in flight
+ * inside the run stops the concatenation there, because a positional row
+ * space cannot carry a hole it cannot place. Everything above the run is the
  * head band, everything below it the tail band, each sized by the ledger so
  * eviction moves nothing.
+ *
+ * # A failure belongs to its window (#853)
+ *
+ * A window whose read throws is recorded against that window and the rest
+ * of the run reads on: the run CROSSES it — its elements are known, so the
+ * rows after it keep their positions ({@link SheetPaging.positions}) — and
+ * the renderer draws its band where its rows would be, with the reason and
+ * a Retry. The reader never asks a failed window again by itself (a failing
+ * source would be hammered once per frame); {@link SheetPaging.retry} does.
+ * A `total()` or `revision()` that throws is the SOURCE's failure: chrome
+ * beside the rows, never in their place. Only a source that fails before
+ * anything has landed replaces the sheet — there is nothing else to show.
+ * The Plan's driver does the same (#811).
  *
  * Exhaustion comes from `total()`: the blank tail (the sheet's invitation to
  * type the next row) appears only once every source element is resident —
@@ -40,14 +53,14 @@ import { Sheet } from "@elaraai/east-ui/internal";
 import { pagedSnapshot, pagedSourceEqual } from "./paged-snapshot.js";
 import { useTrackedEvaluation } from "../../reactive/index.js";
 import {
-    createLedger, observeWindow, documentHeight, elementAtOffset, offsetOfWindow,
+    createLedger, observeWindow, documentHeight, elementAtOffset, offsetOfWindow, slotHeight,
     type WindowLedger,
 } from "../plan/window-ledger.js";
 import {
     NO_RESIDENCY, DEFAULT_RESIDENCY, advance, isEmpty, residentWindows, pin, unpinAll,
     type Residency, type ResidencyOptions,
 } from "../plan/window-residency.js";
-import type { SheetBand } from "./model.js";
+import { BAND_MIN_PX, type SheetBand, type SheetWindowFailure } from "./model.js";
 import type { SheetPagedSourceValue, SheetRowValue } from "./values.js";
 
 /** Source elements per window. */
@@ -60,10 +73,14 @@ export type SheetViewport =
 
 /** What the driver returns. */
 export interface SheetPaging {
-    /** The resident rows — the contiguous landed run, in stream order. */
+    /** The resident rows — the landed run, in stream order (a failed window's rows are not among them, #853). */
     rows: SheetRowValue[];
+    /** Each resident row's source position — a row after a failed window keeps its own (#853). */
+    positions: readonly number[];
     /** The source offset of `rows[0]`. */
     rowsOffset: number;
+    /** The resident windows whose read failed, ascending (#853): each is a band where its rows would be. */
+    failures: readonly SheetWindowFailure[];
     /** The unloaded run above the resident one. */
     head: SheetBand | undefined;
     /** The unloaded run below the resident one. */
@@ -74,7 +91,9 @@ export interface SheetPaging {
     exhausted: boolean;
     /** Whether a requested window is still in flight. */
     loading: boolean;
-    /** Why the source could not be read, when it could not be. */
+    /** Why the SOURCE could not be read — its `total()` or `revision()` threw — while its rows show (#853): chrome, never their replacement. */
+    sourceError: string | undefined;
+    /** Why the source could not be read before anything landed: there is nothing else to show, so this is the whole sheet (#853). */
     error: string | undefined;
     /** Bump for `VirtualRows`' `sizeVersion` — heights change at constant count. */
     sizeVersion: number;
@@ -84,12 +103,14 @@ export interface SheetPaging {
     jumpToElement: (element: number) => void;
     /** Drop any pending jump pin. */
     clearJump: () => void;
+    /** Ask again (#853): the failed window `w`, or — with none — the source and every failed window. The source's own rate limit applies. */
+    retry: (w?: number) => void;
 }
 
 const IDLE: SheetPaging = {
-    rows: [], rowsOffset: 0, head: undefined, tail: undefined, total: undefined,
-    exhausted: true, loading: false, error: undefined, sizeVersion: 0,
-    reportViewport: () => {}, jumpToElement: () => {}, clearJump: () => {},
+    rows: [], positions: [], rowsOffset: 0, failures: [], head: undefined, tail: undefined, total: undefined,
+    exhausted: true, loading: false, sourceError: undefined, error: undefined, sizeVersion: 0,
+    reportViewport: () => {}, jumpToElement: () => {}, clearJump: () => {}, retry: () => {},
 };
 
 /** One line naming why a source read failed. */
@@ -114,11 +135,15 @@ interface SourceCache {
     /** The source's last known `total()`, and the revision it was read at. */
     total: number | undefined;
     totalRevision: string | undefined;
+    /** Why each failed window's read threw, at `revision` (#853) — not asked again while recorded. */
+    failures: Map<number, string>;
+    /** Whether any window of this source has landed — until one has, a failure is the whole sheet (#853). */
+    landedOnce: boolean;
 }
 
 /** A cache holding nothing. */
 function emptyCache(source: SheetPagedSourceValue | undefined): SourceCache {
-    return { source, revision: undefined, windows: new Map(), stale: undefined, total: undefined, totalRevision: undefined };
+    return { source, revision: undefined, windows: new Map(), stale: undefined, total: undefined, totalRevision: undefined, failures: new Map(), landedOnce: false };
 }
 
 /** Whether two paged sources serve the same rows: the same id AND equivalent
@@ -146,6 +171,8 @@ export function useSheetPaging(
     const [viewportWindow, setViewportWindow] = useState(0);
     const [isScrolling, setIsScrolling] = useState(false);
     const [sizeVersion, setSizeVersion] = useState(0);
+    // A Retry reads again (#853): the read depends on it.
+    const [retries, setRetries] = useState(0);
     // Read-once cache, owned by the source that filled it: a `page` whose
     // closures changed serves different rows under the same id and revision,
     // so a source that is not EQUIVALENT to the filler drops the cache and
@@ -157,6 +184,7 @@ export function useSheetPaging(
     const geometryRef = useRef(pagedSnapshot(undefined, undefined).source);
 
     const read = useCallback(() => {
+        void retries;
         if (source === undefined) return undefined;
         if (cacheRef.current.source === undefined || !pagedSourceEquivalent(cacheRef.current.source, source)) {
             cacheRef.current = emptyCache(source);
@@ -164,24 +192,37 @@ export function useSheetPaging(
         const held = cacheRef.current;
         // The snapshot first: every window below is read at it. A new one
         // is read afresh, and the rows each window had stand in until its
-        // own land (#851).
-        const currentRevision = source.revision?.();
-        const revision = currentRevision?.type === "some" ? currentRevision.value : undefined;
+        // own land (#851). A source that cannot say which snapshot it serves
+        // has failed as a whole (#853) — its windows then say so each, where
+        // their rows would be.
+        let revision = held.revision;
+        let sourceError: string | undefined;
+        try {
+            const r = source.revision?.();
+            revision = r?.type === "some" ? r.value : undefined;
+        } catch (err) {
+            console.error("[Sheet] paged source revision failed:", err);
+            sourceError = readFailure(err);
+        }
         if (revision !== held.revision) {
             // A cache that holds nothing (a revision the source was still
             // discovering) leaves the last one that had rows standing in.
             if (held.windows.size > 0) held.stale = held.windows;
             held.windows = new Map();
+            held.failures = new Map();
             held.revision = revision;
         }
         let total: number | undefined;
-        let error: string | undefined;
         try {
             const t = source.total();
             if (t.type === "some") total = Number(t.value);
         } catch (err) {
             console.error("[Sheet] paged source total failed:", err);
-            error = readFailure(err);
+            sourceError ??= readFailure(err);
+            // The count this revision last gave still holds — same revision,
+            // same rows — so the bands, the blank tail and the transport's
+            // count stand while the source says why beside them (#853).
+            if (held.totalRevision === revision) total = held.total;
         }
         // Same id and revision ⇒ same rows is the source's contract: a total
         // that moves under ONE revision has broken it, and the cached rows
@@ -197,17 +238,23 @@ export function useSheetPaging(
             held.totalRevision = revision;
         }
         const landed: { w: number; rows: readonly SheetRowValue[] }[] = [];
+        const failed: { w: number; error: string }[] = [];
         let loading = false;
         let standingIn = false;
         for (const w of residentWindows(residency)) {
             const known = held.windows.get(w);
             if (known !== undefined) { landed.push({ w, rows: known }); continue; }
+            // A failed window is not asked again by the reader — only by a Retry (#853).
+            const recorded = held.failures.get(w);
+            if (recorded !== undefined) { failed.push({ w, error: recorded }); continue; }
             let win: ReturnType<SheetPagedSourceValue["page"]>;
             try {
                 win = source.page(BigInt(w * SHEET_PAGE_SIZE), BigInt(SHEET_PAGE_SIZE));
             } catch (err) {
                 console.error(`[Sheet] paged source page ${w} failed:`, err);
-                error ??= readFailure(err);
+                const reason = readFailure(err);
+                held.failures.set(w, reason);
+                failed.push({ w, error: reason });
                 continue;
             }
             if (win.type !== "some") {
@@ -223,17 +270,25 @@ export function useSheetPaging(
             }
             const rows = win.value as readonly SheetRowValue[];
             held.windows.set(w, rows);
+            held.landedOnce = true;
             landed.push({ w, rows });
         }
         // Every resident window reads at the new revision now: the old one
         // has nothing left to stand in for.
         if (!standingIn) held.stale = undefined;
-        return { total, landed, loading, error, standingIn };
-    }, [source, residency]);
+        return { total, landed, failed, loading, sourceError, standingIn, landedOnce: held.landedOnce };
+    }, [source, residency, retries]);
 
     const { result } = useTrackedEvaluation(read);
     const value = result.ok ? result.value : undefined;
-    const readError = result.ok ? value?.error : readFailure(result.error);
+    const readError = result.ok ? undefined : readFailure(result.error);
+
+    const retry = useCallback((w?: number) => {
+        const held = cacheRef.current;
+        if (w === undefined) held.failures.clear();
+        else held.failures.delete(w);
+        setRetries((n) => n + 1);
+    }, []);
 
     // The source's own total — the ledger is built from it, never from the
     // stand-in below.
@@ -277,27 +332,45 @@ export function useSheetPaging(
         const next = advance(residency, ledger, viewportWindow, policy);
         if (next === residency) return;
         setResidency(next);
-        // Whatever left the run leaves the cache with it, a stand-in too.
+        // Whatever left the run leaves the cache with it, a stand-in too; a
+        // failure record leaves as well, so a window demanded again later is
+        // asked afresh (#853).
         const keep = new Set(residentWindows(next));
-        const { windows, stale } = cacheRef.current;
+        const { windows, stale, failures } = cacheRef.current;
         for (const w of [...windows.keys()]) if (!keep.has(w)) windows.delete(w);
         if (stale !== undefined) for (const w of [...stale.keys()]) if (!keep.has(w)) stale.delete(w);
+        for (const w of [...failures.keys()]) if (!keep.has(w)) failures.delete(w);
         setSizeVersion((v) => v + 1);
     }, [source, ledger, residency, viewportWindow, isScrolling, policy]);
 
-    // The contiguous landed run from the residency's low window.
+    // The run from the residency's low window: the landed windows, and a
+    // failed window's band where its rows would be — its elements are known,
+    // so the run crosses it and the rows after it keep their positions
+    // (#853). A window still in flight stops it.
     const run = useMemo(() => {
-        const out: SheetRowValue[] = [];
-        if (value === undefined || isEmpty(residency)) return { rows: out, from: residency.lo, to: residency.lo - 1 };
+        const rows: SheetRowValue[] = [];
+        const positions: number[] = [];
+        const failures: SheetWindowFailure[] = [];
+        if (value === undefined || isEmpty(residency)) return { rows, positions, failures, from: residency.lo, to: residency.lo - 1 };
         const byWindow = new Map(value.landed.map((l) => [l.w, l.rows]));
+        const failedBy = new Map(value.failed.map((f) => [f.w, f.error]));
+        const known = total !== undefined && ledger.windows > 0;
         let w = residency.lo;
         for (; w <= residency.hi; w++) {
-            const rows = byWindow.get(w);
-            if (rows === undefined) break;
-            out.push(...rows);
+            const landedRows = byWindow.get(w);
+            if (landedRows !== undefined) {
+                landedRows.forEach((row, k) => { rows.push(row); positions.push(w * SHEET_PAGE_SIZE + k); });
+                continue;
+            }
+            const error = failedBy.get(w);
+            if (error === undefined) break;
+            const from = w * SHEET_PAGE_SIZE;
+            const to = (known ? Math.min(total, from + SHEET_PAGE_SIZE) : from + SHEET_PAGE_SIZE) - 1;
+            // Its ledger slot, so the rows that replace it take the same space; floored so the reason and the Retry stay legible.
+            failures.push({ w, from, to, px: Math.max(BAND_MIN_PX, known && w < ledger.windows ? slotHeight(ledger, w) : 0), error });
         }
-        return { rows: out, from: residency.lo, to: w - 1 };
-    }, [value, residency]);
+        return { rows, positions, failures, from: residency.lo, to: w - 1 };
+    }, [value, residency, ledger, total]);
 
     const bands = useMemo(() => {
         if (isEmpty(residency) || ledger.windows === 0) return { head: undefined, tail: undefined };
@@ -348,19 +421,27 @@ export function useSheetPaging(
 
     if (source === undefined) return IDLE;
 
+    // Until anything has landed there is nothing to show beside a failure:
+    // it is the whole sheet (#853).
+    const nothingShown = value === undefined || !value.landedOnce;
+    const failure = value?.failed[0]?.error ?? value?.sourceError;
     const exhausted = total !== undefined && run.from === 0 && run.rows.length >= total;
     return {
         rows: run.rows,
+        positions: run.positions,
         rowsOffset: run.from * SHEET_PAGE_SIZE,
+        failures: run.failures,
         head: bands.head,
         tail: bands.tail,
         total,
         exhausted,
         loading: value?.loading ?? false,
-        error: readError,
+        sourceError: nothingShown ? undefined : value?.sourceError,
+        error: readError ?? (nothingShown ? failure : undefined),
         sizeVersion,
         reportViewport,
         jumpToElement,
         clearJump,
+        retry,
     };
 }

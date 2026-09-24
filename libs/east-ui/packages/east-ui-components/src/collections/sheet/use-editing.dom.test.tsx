@@ -5,6 +5,7 @@
  */
 
 import { afterEach, expect, test } from "vitest";
+import { useMemo } from "react";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { ArrayType, East, IntegerType, StringType, StructType, decodeBeast2For, encodeBeast2For, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Sheet, Paged, State, UIComponentType } from "@elaraai/east-ui/internal";
@@ -25,9 +26,13 @@ function view(): SheetRootValue {
     if (result.type !== "Sheet") throw new Error("Expected Sheet");
     return result.value;
 }
+/** Each row's position — its index (a paged source's may skip a failed window, #853). */
+function useIndexes(resident: readonly SheetRowValue[]): number[] {
+    return useMemo(() => resident.map((_r, i) => i), [resident]);
+}
 function useEditing(root: SheetRootValue, key = "main") {
     if (root.rows.type !== "inline") throw new Error("Expected inline rows");
-    return useSheetEditing(root.editing, undefined, root.rows.value, 0, key);
+    return useSheetEditing(root.editing, undefined, root.rows.value, useIndexes(root.rows.value), key);
 }
 function commit(row: SheetRowValue, qty: bigint): SheetEditValue {
     return variant("commit", { rowId: row.id, offset: row.id === "a" ? 0n : 1n, key: "qty", row: { ...row, cells: new Map([["qty", variant("Integer", qty)]]) }, source: variant("typed", null) });
@@ -157,7 +162,7 @@ test("paged deletion retires only after its exact committed revision and a loade
         domain = applied.value;
         return variant("applied", { revision: some("r1") });
     })) };
-    const hook = renderHook(() => useSheetEditing(editing, { ...source }, projected, 0, "paged-delete"));
+    const hook = renderHook(() => useSheetEditing(editing, { ...source }, projected, useIndexes(projected), "paged-delete"));
     act(() => hook.result.current.record([variant("remove", { rowIds: ["a"] })]));
     await act(async () => { await hook.result.current.session.apply(); });
     expect(domain.map(row => row.id)).toEqual(["b"]);

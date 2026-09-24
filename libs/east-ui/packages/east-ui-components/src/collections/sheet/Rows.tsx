@@ -18,9 +18,10 @@ import { faAngleDown, faAngleUp, faArrowRight, faCheck, faMinus, faXmark } from 
 import { none } from "@elaraai/east";
 import { getSomeorUndefined } from "../../utils.js";
 import { useFormatters } from "../../format/index.js";
+import { EastErrorBoundary } from "../../reactive/error-display.js";
 import {
     TITLE_KEY, cellIsBlank, cellText, driverKeyOf, isLinePosition, lineNumberOf, resolveMember,
-    type LineGroup, type SheetBand, type SheetColumnIndex, type SheetColumnMeta, type SheetGroupIndex, type SheetRegisterIndex,
+    type LineGroup, type SheetBand, type SheetColumnIndex, type SheetColumnMeta, type SheetGroupIndex, type SheetRegisterIndex, type SheetWindowFailure,
 } from "./model.js";
 import { SheetCellContent, type LinkCellContext } from "./cells/Cell.js";
 import { cellDetail } from "./detail.js";
@@ -535,6 +536,91 @@ export const SheetBandRow = memo(function SheetBandRow({ styles, band, loading }
         </Box>
     );
 });
+
+export interface SheetRetryProps {
+    styles: Styles;
+    /** Ask again. */
+    onRetry: () => void;
+}
+
+/** The one Retry control (#853) — a failed window's band, the transport line and the whole-sheet message all ask again through it. */
+export function SheetRetry({ styles, onRetry }: SheetRetryProps) {
+    return (
+        <chakra.button type="button" css={styles.retry} data-slot="retry"
+            onMouseDown={(event) => { event.preventDefault(); event.stopPropagation(); }}
+            onClick={(event) => { event.stopPropagation(); onRetry(); }}>
+            Retry
+        </chakra.button>
+    );
+}
+
+export interface SheetFailedBandRowProps {
+    styles: Styles;
+    failure: SheetWindowFailure;
+    /** Ask the window again. */
+    onRetry: (w: number) => void;
+}
+
+/**
+ * A resident window whose read failed (#853) — one band where its rows would
+ * be, sized by the ledger like an unloaded band, saying which source elements
+ * could not be read (1-based, like the transport line) and why, with a Retry.
+ * Every other window keeps landing around it: a failure belongs to its
+ * window, never to the sheet.
+ */
+export const SheetFailedBandRow = memo(function SheetFailedBandRow({ styles, failure, onRetry }: SheetFailedBandRowProps) {
+    // The element numbers, in the app's locale (#850).
+    const words = useFormatters();
+    return (
+        <Box
+            css={styles.band}
+            style={{ height: `${Math.max(1, failure.px)}px` }}
+            data-slot="band"
+            data-band="failed"
+            data-failed={failure.w}
+            data-elements={failure.to - failure.from + 1}
+        >
+            <Box css={styles.bandRule} aria-hidden="true" />
+            <Box as="span" css={styles.bandPill} data-failed="">
+                <Box as="span" role="alert">{`Elements ${words.number(failure.from + 1)}–${words.number(failure.to + 1)} could not be read — ${failure.error}`}</Box>
+                <SheetRetry styles={styles} onRetry={() => onRetry(failure.w)} />
+            </Box>
+        </Box>
+    );
+});
+
+export interface SheetRowBoundaryProps {
+    styles: Styles;
+    /** The row's least height (px). */
+    rowPx: number;
+    /** Its 1-based number — what the diagnostic names. */
+    number: number;
+    /** The row's data — when it changes, the boundary tries again. */
+    resetKey: unknown;
+    children: ReactNode;
+}
+
+/**
+ * A render failure stays in its row (#853): a row that throws while it
+ * renders shows as a one-row diagnostic in its place, and the rows around it
+ * keep working. It resets when the row's data changes. The Plan's part
+ * boundary does the same (#811).
+ */
+export function SheetRowBoundary({ styles, rowPx, number, resetKey, children }: SheetRowBoundaryProps) {
+    return (
+        <EastErrorBoundary
+            title={`Sheet row ${number}`}
+            resetKey={resetKey}
+            fallback={({ message }) => (
+                <Box css={styles.rowError} data-slot="rowError" data-row-error={number} role="row" style={{ minHeight: `${rowPx}px` }}>
+                    <Box as="span" role="alert">{`Row ${number} could not be drawn — ${message}`}</Box>
+                </Box>
+            )}
+        >
+            {children}
+        </EastErrorBoundary>
+    );
+}
 
 export interface SheetGapRowProps {
     styles: Styles;

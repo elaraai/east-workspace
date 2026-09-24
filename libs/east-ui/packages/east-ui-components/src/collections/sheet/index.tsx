@@ -57,7 +57,7 @@ import { VirtualRows } from "../virtual-rows.js";
 import {
     BAND_MIN_PX, BOTTOM_PAD_PX, DEFAULT_BLANKS, DEFAULT_GUTTER_PX, NEW_LINE_KEY, NULL_CELL, TITLE_KEY,
     blankIdOf, bodyIndexOfId, buildBody, cellIsBlank, cellText, countNoun, densityOf, driverKeyOf, groupBandPx, indexColumns, indexGroup, indexRegisters, isRowSpace,
-    latencyOf, lineAddress, lineId, linePosition, lineRowsOf, parseWidth, resolveMember as resolveRegisterMember, rowIsBlank, stickyRows, withLine, withProposals, withoutLines,
+    latencyOf, layoutRun, lineAddress, lineId, linePosition, lineRowsOf, parseWidth, resolveMember as resolveRegisterMember, rowIsBlank, segmentOf, stickyRows, withLine, withProposals, withoutLines,
     type LineGroup, type SheetBodyItem, type SheetColumnMeta,
 } from "./model.js";
 import { useSheetPaging, type SheetViewport } from "./paging.js";
@@ -83,7 +83,7 @@ import { SheetInsertLayer, SheetInsertPoint, SheetInsertStrip, type InsertionAct
 import { insertionGesture, groupInsertionSide, type InsertRequest, type InsertionAnchor } from "./insertion-gesture.js";
 import { membershipAt } from "./membership.js";
 import { SheetHeader } from "./Header.js";
-import { SheetRow, SheetBandRow, SheetGapRow, SheetProposalRow, SheetGroupRow, SheetSubRow } from "./Rows.js";
+import { SheetRow, SheetBandRow, SheetFailedBandRow, SheetGapRow, SheetProposalRow, SheetGroupRow, SheetRowBoundary, SheetSubRow, SheetRetry } from "./Rows.js";
 import { SheetTabs, type SheetTabView } from "./Tabs.js";
 import { SheetEditor, type EditorFocusRequest, type EditorOption, type LinkEditorView } from "./Editor.js";
 import { SheetStrip, buildStrip, type StripAction, type StripLinkInput, type StripSuggestInput } from "./Strip.js";
@@ -199,6 +199,7 @@ function keyOfItem(it: SheetBodyItem | undefined, i: number): string {
         case "subRow": return `sub:${it.lineId}#${it.index}`;
         case "blank": return `blank:${blankIdOf(it)}`;
         case "band": return `band:${it.band.at}`;
+        case "failed": return `failed:${it.failure.w}`;
         case "gap": return `gap:${it.gap.key}`;
         case "proposal": return `proposal:${it.anchorR}#${it.index}`;
     }
@@ -357,8 +358,12 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
     const paging = useSheetPaging(pagedSource, rowPx, bandPx);
     const sourceRows: readonly SheetRowValue[] = decodedRows ?? paging.rows;
     const rowsOffset = decodedRows !== undefined ? 0 : paging.rowsOffset;
+    // Each source row's position — its index inline; paged, its place in the
+    // source, which a failed window before it does not move (#853).
+    const inlinePositions = useMemo(() => decodedRows?.map((_r, i) => i), [decodedRows]);
+    const sourcePositions: readonly number[] = inlinePositions ?? paging.positions;
     const exhausted = decodedRows !== undefined || paging.exhausted;
-    const editingState = useSheetEditing(value.editing, pagedSource, sourceRows, rowsOffset, storageKey);
+    const editingState = useSheetEditing(value.editing, pagedSource, sourceRows, sourcePositions, storageKey);
     const session = editingState.session;
     const readiness = session.readiness;
     const draftType = useMemo(() => fromEastTypeValue(value.editing.draftType), [value.editing.draftType]);
@@ -373,6 +378,12 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
     layerRef.current = layer;
     const setLayer = useCallback((fn: (prev: LocalLayer) => LocalLayer) => { layerRef.current = fn(layerRef.current); }, []);
     const rows = useMemo(() => applyLayer(sourceRows, layer, value.editing.keyed), [sourceRows, layer, value.editing.keyed]);
+    // Each row's position on screen, where each failed window sits among the
+    // rows, and the contiguous runs between them (#853).
+    const runLayout = useMemo(() => {
+        const at = new Map(sourceRows.map((row, i) => [row.id, sourcePositions[i]!] as const));
+        return layoutRun(rows, rowsOffset, decodedRows !== undefined ? [] : paging.failures, (id) => at.get(id));
+    }, [rows, rowsOffset, sourceRows, sourcePositions, decodedRows, paging.failures]);
 
     // ── The state machine ─────────────────────────────────────────────────
     const [store, dispatchStore] = useReducer(sheetStoreReducer, undefined, () => {
@@ -395,7 +406,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
     // title matches shows every line.
     const lens = useMemo(() => {
         if (!lensOn || sliceState === undefined || sliceConfig === undefined) return undefined;
-        const positions = rows.map((_r, i) => rowsOffset + i);
+        const positions = runLayout.positions;
         const hits = lensHits(sliceState, sliceConfig, rows, columns.list);
         if (group === undefined) {
             const visible = lensVisible(hits, positions, ui.lens.context, ui.lens.reveals);
@@ -411,7 +422,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
         // Which sub rows a search answers through: a line hit only there shows them.
         const lineSubRowHits = rows.map((g, i) => lensSubRowHits(sliceState, g, lineHits[i]!));
         return { hits, visible, gaps: lensGaps(hits, visible, positions), lineHits, lineVisible, lineGaps, lineSubRowHits };
-    }, [lensOn, sliceState, sliceConfig, rows, rowsOffset, columns, ui.lens.context, ui.lens.reveals, group]);
+    }, [lensOn, sliceState, sliceConfig, rows, runLayout, columns, ui.lens.context, ui.lens.reveals, group]);
 
     // ── The body ──────────────────────────────────────────────────────────
     const folds = ui.lens.folds;
@@ -419,11 +430,12 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
     // A line's sub rows fold under its id like a group under its own: `false` open, `true` closed, absent untouched.
     const subRowsOpenOf = useCallback((lineKey: string): boolean | undefined => { const f = folds.get(lineKey); return f === undefined ? undefined : !f; }, [folds]);
     const bodyBase = useMemo<SheetBodyItem[]>(() => buildBody({
-        rows, rowsOffset, blanks: group !== undefined ? blanks : blanks + ui.appended, exhausted,
+        rows, rowsOffset, positions: runLayout.positions, failures: runLayout.failures,
+        blanks: group !== undefined ? blanks : blanks + ui.appended, exhausted,
         total: paging.total, head: paging.head, tail: paging.tail,
         lens,
         grouped: group !== undefined ? { foldedOf, subRowsOpen: subRowsOpenOf } : undefined,
-    }), [rows, rowsOffset, blanks, ui.appended, exhausted, paging.total, paging.head, paging.tail, lens, group, foldedOf, subRowsOpenOf]);
+    }), [rows, rowsOffset, runLayout, blanks, ui.appended, exhausted, paging.total, paging.head, paging.tail, lens, group, foldedOf, subRowsOpenOf]);
     // The copilot's proposed rows sit under their anchor, outside the row space.
     const body = useMemo<SheetBodyItem[]>(() => {
         const sugg = ui.sugg;
@@ -516,27 +528,36 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
     /** The wire context over a row — the copilot's, a check's, a custom parse's (§4.4); a line's names its group and its key (#740). */
     const wireContextOf = useCallback((row: SheetRowValue | undefined, residentIndex: number, position: number, rowsNow: SheetRowValue[], lg?: LineGroup): SheetContextValue => {
         const driverKey = driverKeyOf(row, driverColumn);
+        // The rows an author sees are the contiguous run around this one: a
+        // failed window is never inside them, so `rowsOffset + index` stays
+        // each one's position — the bridge reads their entries by it (#853).
+        const segments = runLayout.segments;
+        const seg = segmentOf(segments, residentIndex);
+        const last = seg === segments[segments.length - 1];
         return {
             drafts,
-            rowIndex: BigInt(lg !== undefined ? lg.index : residentIndex),
+            rowIndex: BigInt(lg !== undefined ? lg.index : residentIndex - seg.start),
             rowId: lg !== undefined ? lg.row.id : row?.id ?? "",
             offset: BigInt(position),
             line: lg !== undefined ? some(lg.key === "" ? NEW_LINE_KEY : lg.key) : none,
             row: row?.cells ?? new Map(columns.list.map((c) => [c.key, NULL_CELL])),
-            rows: rowsNow,
-            rowsOffset: BigInt(rowsOffset),
+            rows: rowsNow.slice(seg.start, last ? undefined : seg.end),
+            rowsOffset: BigInt(seg.position),
             partial: !exhausted,
             driver: driverKey !== undefined ? some(driverKey) : none,
             today,
         };
-    }, [driverColumn, columns, rowsOffset, exhausted, today, drafts]);
+    }, [driverColumn, columns, runLayout, exhausted, today, drafts]);
+    // The position after the last row — where a blank row or an append lands.
+    const lastSegment = runLayout.segments[runLayout.segments.length - 1]!;
+    const endPosition = lastSegment.position + (lastSegment.end - lastSegment.start);
     const wireContextFor = useCallback((r: number): SheetContextValue => {
         const it = rowAt(r);
         const row = it !== undefined && (it.kind === "real" || it.kind === "group") ? it.row : undefined;
-        const position = it !== undefined && it.kind !== "band" && it.kind !== "gap" ? it.position : rowsOffset + rows.length;
+        const position = it !== undefined && (it.kind === "real" || it.kind === "blank" || it.kind === "group") ? it.position : endPosition;
         const lg = it !== undefined && (it.kind === "real" || it.kind === "blank") ? it.group : undefined;
         return wireContextOf(row, it !== undefined && (it.kind === "real" || it.kind === "group") ? it.residentIndex : rows.length, position, rows, lg);
-    }, [rowAt, rows, rowsOffset, wireContextOf]);
+    }, [rowAt, rows, endPosition, wireContextOf]);
     wireContextForRef.current = wireContextFor;
     // The link editor predicts from the column's pending fill (B§4.5).
     const predictedLink = useCallback((r: number, key: string): SheetLinkValue | undefined => {
@@ -1286,13 +1307,13 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
     }, [rowAt]);
     const executeInsertion = useCallback((request: InsertRequest) => {
         if (!editingState.available || (request.kind === "row" ? !canInsertRows : !canInsertGroups)) return;
-        const gesture = insertionGesture(request, rows, rowsOffset, group !== undefined, value.editing.keyed,
+        const gesture = insertionGesture(request, rows, (i) => runLayout.positions[i] ?? endPosition, group !== undefined, value.editing.keyed,
             () => newRowIdFn?.() ?? mintId(id => rows.some(row => row.id === id)), mintLineKey);
         if (gesture === undefined) return;
         recordGesture([gesture.event], gesture.placement === undefined ? undefined : new Map([[gesture.id, gesture.placement]]), "insert");
         pendingInsertFocus.current = { id: gesture.id, ...(gesture.child === undefined ? {} : { child: gesture.child }) };
         dispatchStore({ t: "patch", patch: { sugg: null, selEnd: null, msg: request.kind === "group" ? `New ${noun.singular}` : "New row" } });
-    }, [editingState.available, canInsertRows, canInsertGroups, rows, rowsOffset, group, noun, value.editing.keyed, newRowIdFn, recordGesture]);
+    }, [editingState.available, canInsertRows, canInsertGroups, rows, runLayout, endPosition, group, noun, value.editing.keyed, newRowIdFn, recordGesture]);
     const onInsert = useCallback((kind: "row" | "group", r: number, side: "before" | "after") => {
         const request: InsertRequest = { kind, anchor: anchorFor(r, side) };
         if (uiRef.current.edit !== null) { pendingInsertion.current = request; dispatch({ t: "editor.blur" }); }
@@ -1526,10 +1547,12 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
         loaded: paging.rows.length,
         total: paging.total,
         loading: paging.loading,
-    }), [pagedSource, paging.rows.length, paging.total, paging.loading]);
+        // A source that could not count itself says so here, beside the rows it did serve (#853).
+        error: paging.sourceError,
+    }), [pagedSource, paging.rows.length, paging.total, paging.loading, paging.sourceError]);
 
     // ── The key search over a keyed paged source (§3.13) ──────────────────
-    const seek = useSheetSeek(pagedSource, paging.rows, paging.rowsOffset, paging.jumpToElement, paging.clearJump);
+    const seek = useSheetSeek(pagedSource, paging.rows, paging.positions, paging.jumpToElement, paging.clearJump);
     useEffect(() => {
         // The sought row landed: the ring goes to it (no echo — the host hears the move through onSelect).
         if (seek.target === undefined) return;
@@ -1778,6 +1801,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
         let at: SheetViewport;
         if (item.kind === "band") at = { kind: "band", at: item.band.at, px: center?.withinPx };
         else if (item.kind === "gap") at = { kind: "row", offset: item.gap.from };
+        else if (item.kind === "failed") at = { kind: "row", offset: item.failure.from };
         else at = { kind: "row", offset: item.position };
         reportViewport(at, isScrolling);
     }, [body, reportViewport]);
@@ -1818,6 +1842,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
         if (item.kind === "gap") return BAND_MIN_PX;
         if (item.kind === "group") return bandPx;
         if (item.kind === "subRow") return subRowPx;
+        if (item.kind === "failed") return Math.max(BAND_MIN_PX, item.failure.px);
         return item.kind === "band" ? Math.max(BAND_MIN_PX, item.band.px) : rowPx;
     }, [body, rowPx, bandPx, subRowPx]);
     const scrollElRef = useRef<HTMLDivElement | null>(null);
@@ -2028,6 +2053,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
         const item = body[i];
         if (item === undefined) return null;
         if (item.kind === "band") return <SheetBandRow styles={styles} band={item.band} loading={paging.loading} />;
+        if (item.kind === "failed") return <SheetFailedBandRow styles={styles} failure={item.failure} onRetry={paging.retry} />;
         if (item.kind === "subRow") {
             return (
                 <SheetSubRow
@@ -2084,6 +2110,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
         if (item.kind === "group") {
             if (group === undefined) return null;
             return (
+                <SheetRowBoundary styles={styles} rowPx={bandPx} number={item.position + 1} resetKey={item.row}>
                 <SheetGroupRow
                     styles={styles}
                     columns={columns}
@@ -2114,6 +2141,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
                     onRowPick={onRowPick}
                     onFold={onFold}
                 />
+                </SheetRowBoundary>
             );
         }
         const lg = item.group;
@@ -2122,6 +2150,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
         const nextItem = body[i + 1];
         const subRows = subRowCount > 0 ? { count: subRowCount, open: nextItem !== undefined && nextItem.kind === "subRow" && item.kind === "real" && nextItem.lineId === item.row.id } : undefined;
         return (
+            <SheetRowBoundary styles={styles} rowPx={rowPx} number={lg !== undefined ? lg.number : item.position + 1} resetKey={item.kind === "real" ? item.row : undefined}>
             <SheetRow
                 styles={styles}
                 columns={columns}
@@ -2160,14 +2189,17 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
                 noun={noun}
                 entering={lg !== undefined && arriving.has(`group:${lg.row.id}`) ? Math.min(lg.index, 8) : undefined}
             />
+            </SheetRowBoundary>
         );
     // eslint-disable-next-line react-hooks/exhaustive-deps -- draftVersion tracks changes within the stable transaction session.
     }, [session, draftType, childField, draftVersion, readiness, insertionFor, seamSide, insertPreview, onDiscardDraft, body, styles, paging.loading, rowSpace, ui.selEnd, ui.sel, ui.sugg, ui.gsel, ui.hover, ui.lens.steps, rect, columns, registers, driverColumn, gridTemplate, rowPx, bandPx, subRowPx, gutterPx, viewPx, group, noun, colCount, wr, bandMixed, edit, editorNode, anchorR, nextTarget, onCellDown, onCellDouble, onCellEnter, onRowPick, onTake, onFillRow, onProposalPick, onProposalAccept, onProposalReject, onReveal, onFold, onSubRows, linkCellCtx, arriving]);
 
+    // A source that failed before anything landed: nothing else to show (#853).
     if (paging.error !== undefined) {
         return (
-            <Box css={styles.diagnostic} data-sheet-error>
-                {`NO ROWS — the paged source could not be read. ${paging.error}`}
+            <Box css={styles.diagnostic} data-sheet-error role="alert">
+                {`NO ROWS — the paged source could not be read. ${paging.error} `}
+                <SheetRetry styles={styles} onRetry={() => paging.retry()} />
             </Box>
         );
     }
@@ -2318,7 +2350,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
                 group={canInsertGroups ? () => onInsert("group", wr?.r1 ?? ui.sel.r, "after") : undefined}
                 groupWord={noun.singular} />}
             <SheetStrip styles={styles} model={strip} onAction={onStripAction} />
-            <SheetFooter styles={styles} items={value.footer} summary={summary} hint={hint} message={ui.msg} transport={transport} />
+            <SheetFooter styles={styles} items={value.footer} summary={summary} hint={hint} message={ui.msg} transport={transport} onRetry={paging.retry} />
         </Box>
     );
 

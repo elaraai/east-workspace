@@ -4,6 +4,7 @@
  * @vitest-environment jsdom
  */
 import { afterEach, beforeEach, expect, test } from "vitest";
+import { useMemo } from "react";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { ArrayType, East, FloatType, IntegerType, NullType, OptionType, StringType, StructType, none, some, variant } from "@elaraai/east";
 import { Sheet, State, UIComponentType } from "@elaraai/east-ui/internal";
@@ -34,8 +35,12 @@ function rows(root: SheetRootValue): SheetRowValue[] {
     if (root.rows.type !== "inline") throw new Error("Expected inline");
     return root.rows.value;
 }
+/** Each inline row's position — its index (a paged source's may skip a failed window, #853). */
+function useIndexes(resident: readonly SheetRowValue[]): number[] {
+    return useMemo(() => resident.map((_r, i) => i), [resident]);
+}
 function mount(root: SheetRootValue) {
-    return renderHook(({ value }) => useSheetEditing(value.editing, undefined, rows(value), 0, "readiness"), { initialProps: { value: root } });
+    return renderHook(({ value }) => useSheetEditing(value.editing, undefined, rows(value), useIndexes(rows(value)), "readiness"), { initialProps: { value: root } });
 }
 function edit(row: SheetRowValue, qty: bigint) {
     return variant("commit", { rowId: row.id, offset: 0n, key: "qty", row: { ...row, cells: new Map(row.cells).set("qty", variant("Integer", qty)) }, source: variant("typed", null) });
@@ -122,7 +127,7 @@ test("external state read by readiness is tracked without a new Sheet value", as
     }).toIR().compile(StateImpl);
     const value = view(); if (value.type !== "Sheet") throw new Error("Expected Sheet");
     const hook = renderHook(() => {
-        const editing = useSheetEditing(value.value.editing, undefined, rows(value.value), 0, "readiness");
+        const editing = useSheetEditing(value.value.editing, undefined, rows(value.value), useIndexes(rows(value.value)), "readiness");
         return { ...editing, renderedCanApply: editing.session.canApply };
     });
     act(() => hook.result.current.record([edit(rows(value.value)[0]!, 5n)]));

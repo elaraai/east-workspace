@@ -28,8 +28,20 @@ export function groupInsertionSide(row: SheetRowValue, anchor: InsertionAnchor):
     return slot <= row.lines.length / 2 ? "before" : "after";
 }
 
-/** Build one wire gesture; constructors and draft decoding still run at the common transaction boundary. */
-export function insertionGesture(request: InsertRequest, rows: readonly SheetRowValue[], offset: number, grouped: boolean, keyed: boolean,
+/**
+ * Build one wire gesture; constructors and draft decoding still run at the
+ * common transaction boundary.
+ *
+ * @param request - What to insert, and where
+ * @param rows - The rows on screen, in order
+ * @param positionOf - A row's position by its index — a failed window before it counts (#853)
+ * @param grouped - Whether the rows are groups
+ * @param keyed - Whether the source is keyed
+ * @param makeEntry - Mints a new entry's id
+ * @param makeChild - Mints a new line's key in a group
+ * @returns The gesture, or `undefined` when its anchor is gone
+ */
+export function insertionGesture(request: InsertRequest, rows: readonly SheetRowValue[], positionOf: (index: number) => number, grouped: boolean, keyed: boolean,
     makeEntry: () => string, makeChild: (group: SheetRowValue) => string,
 ): { event: SheetEditValue; placement?: Placement; id: string; child?: string } | undefined {
     const { kind, anchor } = request;
@@ -45,7 +57,7 @@ export function insertionGesture(request: InsertRequest, rows: readonly SheetRow
         const lines = [...parent.lines];
         lines.splice(index, 0, { key, cells: new Map(), subRows: [] });
         return { id: parent.id, child: key, event: variant("lineInsert", {
-            rowId: parent.id, offset: BigInt(offset + at), after: index > 0 ? some(String(index - 1)) : none,
+            rowId: parent.id, offset: BigInt(positionOf(at)), after: index > 0 ? some(String(index - 1)) : none,
             line: String(index), row: { ...parent, lines }, source: variant("typed", null),
         }) };
     }

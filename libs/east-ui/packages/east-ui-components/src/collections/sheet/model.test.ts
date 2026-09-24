@@ -10,7 +10,7 @@
 import { describe, test, expect } from "vitest";
 import { none, some, variant } from "@elaraai/east";
 import { formatters } from "../../format/index.js";
-import { buildBody, indexColumns, cellText, printLinkText, cellIsBlank, rowIsBlank, lastRealId, parseWidth, stickyRows, withLine, withoutLines, withProposals, lineId, linePosition, parseLineId, type ItemBox } from "./model.js";
+import { buildBody, indexColumns, cellText, printLinkText, cellIsBlank, rowIsBlank, lastRealId, parseWidth, stickyRows, withLine, withoutLines, withProposals, lineId, linePosition, parseLineId, layoutRun, segmentOf, type ItemBox, type SheetWindowFailure } from "./model.js";
 import { utcDate } from "./parse/date.js";
 import type { SheetCellValue, SheetRowValue, SheetSubRowValue } from "./values.js";
 
@@ -22,7 +22,7 @@ describe("the body", () => {
         const rows = [row("a", {}), row("b", {})];
         const body = buildBody({ rows, rowsOffset: 0, blanks: 3, exhausted: true, total: undefined, head: undefined, tail: undefined });
         expect(body.map((it) => it.kind)).toEqual(["real", "real", "blank", "blank", "blank"]);
-        expect(body.map((it) => (it.kind === "band" || it.kind === "gap" ? -1 : it.position))).toEqual([0, 1, 2, 3, 4]);
+        expect(body.map((it) => (it.kind === "band" || it.kind === "gap" || it.kind === "failed" ? -1 : it.position))).toEqual([0, 1, 2, 3, 4]);
         expect(lastRealId(body)).toBe("b");
     });
 
@@ -34,7 +34,46 @@ describe("the body", () => {
         expect(body.map((it) => it.kind)).toEqual(["band", "real", "band"]);
         expect(body[1]!.kind === "real" && body[1]!.position).toBe(200);
         const done = buildBody({ rows, rowsOffset: 0, blanks: 2, exhausted: true, total: 1, head: undefined, tail: undefined });
-        expect(done.map((it) => (it.kind === "band" || it.kind === "gap" ? -1 : it.position))).toEqual([0, 1, 2]);
+        expect(done.map((it) => (it.kind === "band" || it.kind === "gap" || it.kind === "failed" ? -1 : it.position))).toEqual([0, 1, 2]);
+    });
+});
+
+describe("a run with failed windows (#853)", () => {
+    const failed = (w: number, from: number, to: number): SheetWindowFailure => ({ w, from, to, px: 36, error: "gateway timeout" });
+    const positionOf = (at: Record<string, number>) => (id: string): number | undefined => at[id];
+
+    test("a failed window's band sits where its rows would be; the rows after it keep their places; the contiguous runs split around it", () => {
+        const rows = [row("a", {}), row("b", {}), row("c", {}), row("d", {})];
+        const window1 = failed(1, 2, 3);
+        const run = layoutRun(rows, 0, [window1], positionOf({ a: 0, b: 1, c: 4, d: 5 }));
+        expect(run.positions).toEqual([0, 1, 4, 5]);
+        expect(run.failures).toEqual([{ failure: window1, at: 2 }]);
+        expect(run.segments).toEqual([{ start: 0, end: 2, position: 0 }, { start: 2, end: 4, position: 4 }]);
+        // A row's segment is the run an author's context sees; past the end (a blank row, an append) is the last one.
+        expect(segmentOf(run.segments, 1)).toEqual({ start: 0, end: 2, position: 0 });
+        expect(segmentOf(run.segments, 3)).toEqual({ start: 2, end: 4, position: 4 });
+        expect(segmentOf(run.segments, 9)).toEqual({ start: 2, end: 4, position: 4 });
+        const body = buildBody({ rows, rowsOffset: 0, positions: run.positions, failures: run.failures, blanks: 3, exhausted: false, total: 6, head: undefined, tail: undefined });
+        expect(body.map((it) => it.kind)).toEqual(["real", "real", "failed", "real", "real"]);
+        expect(body.map((it) => (it.kind === "real" ? it.position : -1))).toEqual([0, 1, -1, 4, 5]);
+    });
+
+    test("a row the planner added follows the row before it, a row removed renumbers the rows after it, and a failure past the last row sits at the end", () => {
+        // `b` removed, `x` added after `c`; windows 1 (2–3) and 3 (6–7) failed.
+        const rows = [row("a", {}), row("c", {}), row("x", {})];
+        const run = layoutRun(rows, 0, [failed(1, 2, 3), failed(3, 6, 7)], positionOf({ a: 0, c: 4 }));
+        expect(run.positions).toEqual([0, 3, 4]);
+        expect(run.failures.map((p) => [p.failure.w, p.at])).toEqual([[1, 1], [3, 3]]);
+        expect(run.segments).toEqual([{ start: 0, end: 1, position: 0 }, { start: 1, end: 3, position: 3 }]);
+        const body = buildBody({ rows, rowsOffset: 0, positions: run.positions, failures: run.failures, blanks: 0, exhausted: false, total: 8, head: undefined, tail: undefined });
+        expect(body.map((it) => it.kind)).toEqual(["real", "failed", "real", "real", "failed"]);
+    });
+
+    test("no failures: the positions count on from the offset, one run; nothing resident: the failure alone", () => {
+        const rows = [row("a", {}), row("b", {})];
+        expect(layoutRun(rows, 200, [], positionOf({ a: 200, b: 201 }))).toEqual({ positions: [200, 201], failures: [], segments: [{ start: 0, end: 2, position: 200 }] });
+        const only = failed(0, 0, 199);
+        expect(layoutRun([], 0, [only], positionOf({}))).toEqual({ positions: [], failures: [{ failure: only, at: 0 }], segments: [{ start: 0, end: 0, position: 0 }] });
     });
 });
 

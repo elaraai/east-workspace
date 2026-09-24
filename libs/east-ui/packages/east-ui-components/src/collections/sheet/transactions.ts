@@ -109,6 +109,8 @@ export class SheetTransactions {
     issues: Issue[] = [];
     error: string | undefined;
     stale = false;
+    /** Why the confirmation read last failed, while it is the error shown (#853). */
+    private confirmReason: string | undefined;
 
     constructor(binding: SheetTransactionBinding) {
         this.binding = binding;
@@ -324,6 +326,25 @@ export class SheetTransactions {
     }
 
     /**
+     * The confirmation read after an Apply could not read the source back
+     * (#853): the session stays reconciling and the history bar says why —
+     * its Retry refresh asks again, and a read that fails again says so
+     * again. `undefined` once a read gets through, which clears the reason
+     * (never a refresh's own error, which shows instead while it stands).
+     *
+     * @param reason - Why the read failed, or `undefined` when it got through
+     */
+    confirmFailed(reason: string | undefined): void {
+        if (reason !== undefined && this.status !== "reconciling") return;
+        const error = this.error === undefined || this.error === this.confirmReason ? reason : this.error;
+        // Only a change is announced: the read runs again on every announcement.
+        if (reason === this.confirmReason && error === this.error) return;
+        this.error = error;
+        this.confirmReason = reason;
+        this.changed();
+    }
+
+    /**
      * Retire overlays only at the acknowledged revision, after affected entries
      * have been read. Inline callers supply the exact authoritative snapshot.
      * `matches` checks decoded domain values against each requested result.
@@ -339,7 +360,7 @@ export class SheetTransactions {
             if (!blobEqual(actual, request.expected)) return false;
         }
         this.base = this.cloneBase(base); this.baseline = new Map(request.after);
-        this.submission = undefined; request.release?.(); this.status = "idle"; this.error = undefined; this.issues = []; this.stale = false;
+        this.submission = undefined; request.release?.(); this.status = "idle"; this.error = undefined; this.confirmReason = undefined; this.issues = []; this.stale = false;
         this.changed(); return true;
     }
 }

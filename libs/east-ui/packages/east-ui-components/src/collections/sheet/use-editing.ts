@@ -34,8 +34,17 @@ export interface LocalLayer {
 }
 export const EMPTY_LAYER: LocalLayer = { edits: new Map(), appended: [], removed: new Set(), placements: new Map() };
 
-/** Bind decoded callbacks and retain unresolved requests through remounts. */
-export function useSheetEditing(editing: Editing, source: SheetPagedSourceValue | undefined, rows: readonly SheetRowValue[], offset: number, storageKey: string) {
+/**
+ * Bind decoded callbacks and retain unresolved requests through remounts.
+ *
+ * @param editing - The decoded editing declaration
+ * @param source - The paged source, on the paged arm
+ * @param rows - The source's resident rows
+ * @param positions - Each resident row's source position — a failed window before it does not move it (#853)
+ * @param storageKey - The view's key
+ * @returns The session, its layer and gesture recorder, the drafts, and whether editing is available
+ */
+export function useSheetEditing(editing: Editing, source: SheetPagedSourceValue | undefined, rows: readonly SheetRowValue[], positions: readonly number[], storageKey: string) {
     const store = getStore();
     const entryType = useMemo(() => fromEastTypeValue(editing.entryType), [editing.entryType]);
     const draftType = useMemo(() => fromEastTypeValue(editing.draftType), [editing.draftType]);
@@ -49,13 +58,13 @@ export function useSheetEditing(editing: Editing, source: SheetPagedSourceValue 
     }, [store, sourceId]);
     const binding = useMemo<SheetTransactionBinding>(() => ({
         sourceId, entryType, draftType,
-        ready: authorReadiness(editing, rows, offset, source !== undefined),
+        ready: authorReadiness(editing, rows, positions, source !== undefined),
         idField: editing.idField.type === "some" ? editing.idField.value : undefined,
         children: editing.children.type === "some" ? editing.children.value : undefined,
         apply: editing.onApply.type === "some" ? editing.onApply.value.value : undefined,
         patch: editing.onPatch.type === "some" ? editing.onPatch.value : undefined,
         refresh: source?.refresh, auto: editing.mode.type === "auto",
-    }), [sourceId, entryType, draftType, editing, source, rows, offset]);
+    }), [sourceId, entryType, draftType, editing, source, rows, positions]);
     const schemaKey = useMemo(() => sessionKey({ view: storageKey, entry: editing.entryType, draft: editing.draftType }), [storageKey, editing.entryType, editing.draftType]);
     const session = useMemo(() => {
         const previous = sourceSessions.sessions.get(schemaKey);
@@ -99,7 +108,7 @@ export function useSheetEditing(editing: Editing, source: SheetPagedSourceValue 
         if (session.status === "reconciling" && source !== undefined) {
             for (const [id, entry] of session.entries) {
                 const resident = rows.findIndex(row => stringEqual(row.id, id));
-                let at = resident >= 0 ? offset + resident : entryOffsets.get(session)?.get(id);
+                let at = resident >= 0 ? positions[resident] : entryOffsets.get(session)?.get(id);
                 if (editing.keyed && source.seek.type === "some") {
                     const found = source.seek.value(variant("key", id));
                     if (found.type === "none") continue;
@@ -122,10 +131,15 @@ export function useSheetEditing(editing: Editing, source: SheetPagedSourceValue 
         return { base: variant("revision", revision.value), matches };
         // Session status and entries change under the external-store version.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [editing, source, rows, offset, codecs, session, version, binding]);
+    }, [editing, source, rows, positions, codecs, session, version, binding]);
     const { result } = useTrackedEvaluation(read);
     const observed = result.ok ? result.value : undefined;
     useLayoutEffect(() => {
+        // A read that throws — the source's revision, an entry read back
+        // after an Apply — keeps the session reconciling, and the history bar
+        // says why (#853): editing is never turned off silently. Keyed on the
+        // evaluation, so a read that fails again after a Retry says so again.
+        session.confirmFailed(result.ok ? undefined : result.error instanceof Error ? result.error.message : String(result.error));
         if (!observed) return;
         session.reconcile(observed.base, (id, expected) => {
             // The session checks the complete inline target, including order.
@@ -135,7 +149,7 @@ export function useSheetEditing(editing: Editing, source: SheetPagedSourceValue 
             return expected === undefined ? actual === undefined : actual !== undefined && codecs.entryEqual(actual, expected);
         });
         session.observeBase(observed.base);
-    }, [session, observed, codecs]);
+    }, [session, result, observed, codecs]);
 
     const placeOf = useCallback((id: string): Placement => {
         if (editing.keyed) return some(variant("keyOrder", null));
@@ -152,11 +166,12 @@ export function useSheetEditing(editing: Editing, source: SheetPagedSourceValue 
         if (existing) return existing;
         const index = rows.findIndex(row => stringEqual(row.id, id));
         if (index < 0) return absent;
-        const raw = editing.readEntry(id, BigInt(offset + index));
-        entryOffsets.get(session)?.set(id, offset + index);
+        const at = positions[index]!;
+        const raw = editing.readEntry(id, BigInt(at));
+        entryOffsets.get(session)?.set(id, at);
         if (raw.type !== "some") throw new Error("The source entry is not available at this revision; wait for its page before editing");
         return { draft: liftDraft(draftType, codecs.decodeEntry(raw.value)), wire: rows[index], place: placeOf(id) };
-    }, [session, rows, editing, offset, draftType, codecs, placeOf]);
+    }, [session, rows, editing, positions, draftType, codecs, placeOf]);
 
     /** Aggregate the renderer's writes into one transaction at the effect boundary. */
     const record = useCallback((events: readonly SheetEditValue[], placements?: ReadonlyMap<string, Placement>, originOverride?: Origin) => {

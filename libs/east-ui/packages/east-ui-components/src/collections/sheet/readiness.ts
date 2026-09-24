@@ -16,8 +16,16 @@ type Issue = ValueTypeOf<typeof Sheet.Types.Issue>;
 const encodeContext = encodeBeast2For(Sheet.Types.WireContext);
 const compareId = compareFor(StringType);
 
-/** Build one checker whose inputs are captured at the current source generation. */
-export function authorReadiness(editing: Editing, resident: readonly SheetRowValue[], offset: number, partial: boolean) {
+/**
+ * Build one checker whose inputs are captured at the current source generation.
+ *
+ * @param editing - The decoded editing declaration
+ * @param resident - The source's resident rows
+ * @param positions - Each resident row's source position — a failed window before it does not move it (#853)
+ * @param partial - Whether the rows are a window of a paged source
+ * @returns The checker, or `undefined` when the author declared no checks
+ */
+export function authorReadiness(editing: Editing, resident: readonly SheetRowValue[], positions: readonly number[], partial: boolean) {
     const rowCheck = editing.readyRow.type === "some" ? editing.readyRow.value : undefined;
     const groupCheck = editing.readyGroup.type === "some" ? editing.readyGroup.value : undefined;
     if (rowCheck === undefined && groupCheck === undefined) return undefined;
@@ -41,7 +49,11 @@ export function authorReadiness(editing: Editing, resident: readonly SheetRowVal
         // changes. No callback can accidentally decode a neighbour's payload.
         for (const [index, wire] of resident.entries()) {
             if (entries.has(wire.id)) continue;
-            const payload = editing.readEntry(wire.id, BigInt(offset + index));
+            // A base read that throws leaves the row to the bridge: a check
+            // that needs it reports why, and the sheet stays up (#853).
+            let payload: ReturnType<Editing["readEntry"]>;
+            try { payload = editing.readEntry(wire.id, BigInt(positions[index]!)); }
+            catch { continue; }
             if (payload.type === "some") drafts.set(wire.id, encodeDraft(liftDraft(draftType, decodeEntry(payload.value))));
         }
         const byId = new Map(resident.map(row => [row.id, row]));
@@ -64,6 +76,11 @@ export function authorReadiness(editing: Editing, resident: readonly SheetRowVal
         }
         const today = new Date();
         today.setUTCHours(0, 0, 0, 0);
+        // Each row's position: a source row's own (a failed window before it
+        // does not move it, #853); a new row, the row before it's plus one.
+        const sourceAt = new Map(resident.map((wire, i) => [wire.id, positions[i]!] as const));
+        const placedAt: number[] = [];
+        rows.forEach((row, i) => placedAt.push(sourceAt.get(row.id) ?? (i > 0 ? placedAt[i - 1]! + 1 : positions[0] ?? 0)));
         for (const [id, entry] of entries) {
             if (entry.draft === undefined || entry.wire === undefined) continue;
             const position = rows.findIndex(row => row.id === id);
@@ -71,7 +88,7 @@ export function authorReadiness(editing: Editing, resident: readonly SheetRowVal
                 if (rowCheck === undefined) return;
                 const driver = driverColumn === undefined ? undefined : cells.get(driverColumn);
                 const context: SheetContextValue = {
-                    drafts, rows, rowsOffset: BigInt(offset), rowId: id, offset: BigInt(offset + position),
+                    drafts, rows, rowsOffset: BigInt(placedAt[0] ?? 0), rowId: id, offset: BigInt(placedAt[position] ?? 0),
                     rowIndex: BigInt(index), line: key === undefined ? none : some(key), row: cells,
                     partial, today, driver: driver?.type === "String" ? some(driver.value) : none,
                 };

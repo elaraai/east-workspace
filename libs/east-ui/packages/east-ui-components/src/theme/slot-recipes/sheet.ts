@@ -48,7 +48,11 @@
  *   - Context switch: r-md, options mono 10, active brandTint.
  *   - Bands: 22 px; 1 px dashed `border.strong` at 50 %; pill mono 9
  *     `fg.subtle` on `bg.surface` 1 px `border.subtle` r-sm; the lens band's
- *     pill opens on hover (`shadow.xs`) with brand controls.
+ *     pill opens on hover (`shadow.xs`) with brand controls. A failed
+ *     window's band (#853) is the same band with its reason in `fg.danger`
+ *     and a brand Retry, the pill kept in view while the band scrolls past;
+ *     a row that could not be drawn is one row of `fg.danger` mono on the
+ *     invalid row's wash.
  *   - A group's band (#740, G1): 40 px `bg.panel`, no extra top rule,
  *     `border.subtle` below (`border.strong` when folded); a 10 px stroke
  *     chevron, ink-3; count mono 10; title
@@ -125,7 +129,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
         "editorCombobox", "editorMenu", "editorOption", "editorOptionMeta",
         "editorTime",
         "linkGrid", "half", "halfLabel", "chip", "chipDashed", "chipPicked", "chipMeta", "lockTag", "lockWarn", "arrow",
-        "band", "bandRule", "bandPill", "bandControl", "bandCount",
+        "band", "bandRule", "bandPill", "bandControl", "bandCount", "retry", "rowError",
         "gutterAction", "groupSummary",
         "groupRow", "groupChevron", "groupCount", "groupTitle", "groupTitleText", "groupSub", "groupCell",
         "strip", "stripLabel", "stripChips", "stripChip", "stripChipOn", "stripChipFlat", "stripMeta", "stripKeys",
@@ -1214,6 +1218,39 @@ export const sheetSlotRecipe = defineSlotRecipe({
             // Where nothing can hover they stay open.
             _hoverNone: { "&[data-lens] [data-slot=bandControl]": { display: "inline-flex" } },
             _coarse: { paddingY: "4px", gap: "10px" },
+            // A failed window's pill (#853): the reason in the danger ink, kept in view while its band scrolls past, the Retry beside it.
+            "&[data-failed]": { position: "sticky", top: "60px", alignSelf: "flex-start", color: "fg.danger", cursor: "default" },
+        },
+        // The one Retry (#853) — a failed window's band, the transport line, the whole-sheet message: the band controls' brand, a button.
+        retry: {
+            display: "inline-flex",
+            alignItems: "center",
+            paddingX: "4px",
+            border: "none",
+            background: "transparent",
+            borderRadius: "{radii.sm}",
+            fontFamily: "mono",
+            fontSize: "inherit",
+            letterSpacing: "0.06em",
+            color: "brand.solid",
+            fontWeight: "600",
+            cursor: "pointer",
+            _hover: { background: "brandTint" },
+            _focusVisible: { outline: "2px solid", outlineColor: "brand.solid", outlineOffset: "1px" },
+            _coarse: { paddingX: "8px", paddingY: "4px" },
+        },
+        // A row that could not be drawn (#853): one row, where it would be, the reason in the danger ink on the invalid row's wash.
+        rowError: {
+            display: "flex",
+            alignItems: "center",
+            paddingLeft: "138px",
+            fontFamily: "mono",
+            fontSize: "10px",
+            letterSpacing: "0.06em",
+            color: "fg.danger",
+            background: "color-mix(in oklch, var(--chakra-colors-status-neg) 8%, var(--chakra-colors-bg-surface))",
+            borderBottomWidth: "1px",
+            borderBottomColor: "border.subtle",
         },
         bandControl: {
             display: "inline-flex",
@@ -1518,6 +1555,8 @@ export const sheetSlotRecipe = defineSlotRecipe({
             fontSize: "10px",
             color: "fg.subtle",
             whiteSpace: "nowrap",
+            // A source that could not be read (#853): its reason in the danger ink, the Retry beside it.
+            "& [data-slot=transportError]": { color: "fg.danger" },
         },
         diagnostic: {
             padding: "20px",

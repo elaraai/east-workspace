@@ -534,6 +534,91 @@ export interface SheetBand {
     px: number;
 }
 
+/** A resident window of a paged source whose read failed (#853) — one band where its rows would be. */
+export interface SheetWindowFailure {
+    /** The window. */
+    w: number;
+    /** Its first and last source element (inclusive). */
+    from: number;
+    to: number;
+    /** Its height — the ledger's slot for it, so the rows that replace it take the same space. */
+    px: number;
+    /** Why its read failed. */
+    error: string;
+}
+
+/** A failed window, and the row it sits before (`rows.length`: after the last). */
+export interface PlacedFailure {
+    failure: SheetWindowFailure;
+    at: number;
+}
+
+/** A contiguous run of rows between failed windows: `[start, end)`, and the source position of `start`. */
+export interface RowSegment {
+    start: number;
+    end: number;
+    position: number;
+}
+
+/**
+ * Where a paged run's failed windows sit among the rows on screen, and each
+ * row's position (#853). The rows are the source's resident rows with the
+ * local layer applied: a row the source served keeps its place relative to
+ * the failed windows (by its source position), a row the planner added
+ * follows the row before it. A position counts the rows before it — a row
+ * removed locally renumbers the rows after it, as it always has — and every
+ * element of a failed window before it: those rows exist, they could not be
+ * read.
+ *
+ * @param rows - The rows on screen, in order
+ * @param rowsOffset - The position of the run's first element
+ * @param failures - The failed windows, ascending
+ * @param sourcePosition - A row's source position, by id — `undefined` for a row the source did not serve
+ * @returns Each row's position, where each failed window sits, and the contiguous segments between them
+ */
+export function layoutRun(
+    rows: readonly SheetRowValue[],
+    rowsOffset: number,
+    failures: readonly SheetWindowFailure[],
+    sourcePosition: (id: string) => number | undefined,
+): { positions: number[]; failures: PlacedFailure[]; segments: RowSegment[] } {
+    const positions = new Array<number>(rows.length);
+    const placed: PlacedFailure[] = [];
+    let next = 0;
+    let skipped = 0;
+    rows.forEach((row, i) => {
+        const at = sourcePosition(row.id);
+        while (at !== undefined && next < failures.length && at > failures[next]!.to) {
+            const failure = failures[next++]!;
+            placed.push({ failure, at: i });
+            skipped += failure.to - failure.from + 1;
+        }
+        positions[i] = rowsOffset + i + skipped;
+    });
+    for (; next < failures.length; next++) placed.push({ failure: failures[next]!, at: rows.length });
+    const segments: RowSegment[] = [];
+    let start = 0;
+    for (const { at } of placed) {
+        if (at > start) segments.push({ start, end: at, position: positions[start]! });
+        start = Math.max(start, at);
+    }
+    if (start < rows.length || segments.length === 0) segments.push({ start, end: rows.length, position: positions[start] ?? rowsOffset + rows.length + skipped });
+    return { positions, failures: placed, segments };
+}
+
+/**
+ * The segment a row sits in — the contiguous run an author's context sees
+ * around it (#853), so `rowsOffset + index` stays each of its rows' position.
+ * A row past the end (a blank row, an append) is in the last one.
+ *
+ * @param segments - The run's segments ({@link layoutRun})
+ * @param i - The row's index
+ * @returns Its segment
+ */
+export function segmentOf(segments: readonly RowSegment[], i: number): RowSegment {
+    return segments.find((s) => i >= s.start && i < s.end) ?? segments[segments.length - 1]!;
+}
+
 /** The lens over one run of rows (B§8): which are hits, which show, and the hidden runs between them. */
 export interface LensSlice {
     hits: readonly boolean[];
@@ -606,6 +691,8 @@ export type SheetBodyItem =
         count: number;
     }
     | { kind: "band"; band: SheetBand }
+    /** A resident window whose read failed (#853): its band, where its rows would be, with the reason and a Retry. */
+    | { kind: "failed"; failure: SheetWindowFailure }
     | {
         kind: "proposal";
         /** The proposal's index under its anchor. */
@@ -628,6 +715,10 @@ export interface SheetBodyInput {
     rows: readonly SheetRowValue[];
     /** The source offset of `rows[0]` (`0` on the inline arm). */
     rowsOffset: number;
+    /** Each row's position when the run has failed windows in it (#853, {@link layoutRun}); else `rowsOffset + i`. */
+    positions?: readonly number[] | undefined;
+    /** The failed windows, each drawn as a band before the row it sits before (#853). */
+    failures?: readonly PlacedFailure[] | undefined;
     /** Padding rows below the last real one (a grouped sheet: `> 0` ⇒ each open group ends with a blank line). */
     blanks: number;
     /** Whether blanks may show — the inline arm, or a paged source that is exhausted. */
@@ -642,12 +733,17 @@ export interface SheetBodyInput {
     grouped?: { foldedOf: (row: SheetRowValue) => boolean; subRowsOpen?: ((lineId: string) => boolean | undefined) | undefined } | undefined;
 }
 
+/** Each failed window placed before row `i`, as body items (#853). */
+function failuresAt(input: SheetBodyInput, i: number, out: SheetBodyItem[]): void {
+    for (const p of input.failures ?? []) if (p.at === i) out.push({ kind: "failed", failure: p.failure });
+}
+
 /**
- * The body items, in order: head band · real rows · tail band · blanks.
- * Under a lens the real rows the narrowing hides collapse into gaps and
- * the blank tail is not shown — a lens narrows the sheet, it never invites
- * the next row (B§8). A grouped sheet builds bands with their lines
- * ({@link buildGroupedBody}).
+ * The body items, in order: head band · real rows (a failed window's band
+ * where its rows would be, #853) · tail band · blanks. Under a lens the real
+ * rows the narrowing hides collapse into gaps and the blank tail is not
+ * shown — a lens narrows the sheet, it never invites the next row (B§8). A
+ * grouped sheet builds bands with their lines ({@link buildGroupedBody}).
  */
 export function buildBody(input: SheetBodyInput): SheetBodyItem[] {
     if (input.grouped !== undefined) return buildGroupedBody(input, input.grouped);
@@ -656,7 +752,8 @@ export function buildBody(input: SheetBodyInput): SheetBodyItem[] {
     const lens = input.lens;
     let inGap = false;
     input.rows.forEach((row, i) => {
-        const position = input.rowsOffset + i;
+        failuresAt(input, i, out);
+        const position = input.positions?.[i] ?? input.rowsOffset + i;
         if (lens !== undefined && !lens.visible[i]) {
             if (!inGap) {
                 const gap = lens.gaps.find((g) => g.from === position);
@@ -668,6 +765,7 @@ export function buildBody(input: SheetBodyInput): SheetBodyItem[] {
         inGap = false;
         out.push({ kind: "real", position, residentIndex: i, row, hit: lens !== undefined && lens.hits[i] === true });
     });
+    failuresAt(input, input.rows.length, out);
     if (input.tail !== undefined) out.push({ kind: "band", band: input.tail });
     if (input.exhausted && lens === undefined) {
         const last = input.total ?? input.rowsOffset + input.rows.length;
@@ -693,7 +791,8 @@ function buildGroupedBody(input: SheetBodyInput, grouped: NonNullable<SheetBodyI
     const lens = input.lens;
     let inGap = false;
     input.rows.forEach((row, i) => {
-        const position = input.rowsOffset + i;
+        failuresAt(input, i, out);
+        const position = input.positions?.[i] ?? input.rowsOffset + i;
         if (lens !== undefined && !lens.visible[i]) {
             if (!inGap) {
                 const gap = lens.gaps.find((g) => g.from === position);
@@ -736,6 +835,7 @@ function buildGroupedBody(input: SheetBodyInput, grouped: NonNullable<SheetBodyI
             out.push({ kind: "blank", position, blankIndex: 0, group: { row, key: "", index: row.lines.length, number: row.lines.length + 1 } });
         }
     });
+    failuresAt(input, input.rows.length, out);
     if (input.tail !== undefined) out.push({ kind: "band", band: input.tail });
     return out;
 }
@@ -841,7 +941,7 @@ export function stickyRows(
             if (!it.folded && (boxes.get(i)?.top ?? -Infinity) <= headerBottom - 1) band = i;
             break;
         }
-        if (it.kind === "band") break;
+        if (it.kind === "band" || it.kind === "failed") break;
     }
     const group = band !== undefined ? body[band] : undefined;
     if (group?.kind !== "group") return { band, line: undefined };

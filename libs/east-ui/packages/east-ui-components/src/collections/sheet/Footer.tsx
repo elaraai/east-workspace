@@ -14,6 +14,7 @@ import { getSomeorUndefined } from "../../utils.js";
 import { useFormatters } from "../../format/index.js";
 import type { ValueTypeOf } from "@elaraai/east";
 import type { Sheet } from "@elaraai/east-ui/internal";
+import { SheetRetry } from "./Rows.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
@@ -25,6 +26,8 @@ export interface SheetTransport {
     loaded: number;
     total: number | undefined;
     loading: boolean;
+    /** Why the source could not be read — its `total()` or `revision()` threw — while its rows show (#853). */
+    error?: string | undefined;
 }
 
 export interface SheetFooterProps {
@@ -35,10 +38,12 @@ export interface SheetFooterProps {
     hint: string;
     message: string;
     transport: SheetTransport | undefined;
+    /** Ask the source again, when the transport line says it could not be read (#853). */
+    onRetry?: (() => void) | undefined;
 }
 
 /** Renders the footer. */
-export const SheetFooter = memo(function SheetFooter({ styles, items, summary, hint, message, transport }: SheetFooterProps) {
+export const SheetFooter = memo(function SheetFooter({ styles, items, summary, hint, message, transport, onRetry }: SheetFooterProps) {
     // The transport counts, in the app's locale (#850).
     const words = useFormatters();
     return (
@@ -59,6 +64,12 @@ export const SheetFooter = memo(function SheetFooter({ styles, items, summary, h
                         ? `${words.number(transport.loaded)} loaded of ${words.number(transport.total)}`
                         : `${words.number(transport.loaded)} loaded`}
                     {transport.loading ? " · Loading…" : ""}
+                    {transport.error !== undefined && (
+                        <Box as="span" data-slot="transportError" role="alert">
+                            {` · could not be read — ${transport.error} `}
+                            {onRetry !== undefined && <SheetRetry styles={styles} onRetry={() => onRetry()} />}
+                        </Box>
+                    )}
                 </Box>
             )}
             <Box as="span" css={styles.footerHint} data-slot="footerHint">{hint}</Box>

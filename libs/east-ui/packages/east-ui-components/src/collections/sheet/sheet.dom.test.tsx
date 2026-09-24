@@ -8,28 +8,30 @@
  * §9): the body and its blanks, the ring and the range, editing and the
  * commit directions, the typed parse through the editor, an insert from a
  * blank row, clearing and deleting, the controlled selection, the clipboard,
- * and the paged arm's bands, transport line and exhaustion — every value
- * built by the east-ui factory and COMPILED, so the closures the renderer
- * calls are the ones East emits.
+ * and the paged arm's bands, transport line and exhaustion, and a failure
+ * kept to where it happened (#853) — every value built by the east-ui
+ * factory and COMPILED, so the closures the renderer calls are the ones East
+ * emits.
  */
 
 import { describe, test, expect, afterEach, beforeEach, vi } from "vitest";
-import { render, cleanup, fireEvent, waitFor, act } from "@testing-library/react";
+import { render, cleanup, fireEvent, waitFor, act, within } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { I18nProvider } from "@react-aria/i18n";
 import {
     ArrayType, DateTimeType, East, FloatType, IntegerType, OptionType, StringType, StructType,
-    none, some, variant, type ValueTypeOf,
+    decodeBeast2For, encodeBeast2For, none, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import { Paged, StatusValueType } from "@elaraai/east-ui";
 import { Sheet, UIComponentType } from "@elaraai/east-ui/internal";
 import { system } from "../../theme/index.js";
-import { initializeStore } from "../../platform/state-runtime.js";
+import { getStore, initializeStore, trackKey } from "../../platform/state-runtime.js";
 import { UIStore } from "../../platform/state-store.js";
 import { getRegisteredPlatformImplementations } from "../../platform/registry.js";
 import { EastChakraSheet } from "./index.js";
+import { SHEET_PAGE_SIZE } from "./paging.js";
 import { sheetJournal } from "./journal.test-utils.js";
-import type { SheetRootValue, SheetSelectionValue } from "./values.js";
+import type { SheetRootValue, SheetRowValue, SheetSelectionValue } from "./values.js";
 
 afterEach(cleanup);
 beforeEach(() => { initializeStore(new UIStore()); });
@@ -508,6 +510,328 @@ describe("the paged arm (§3.13)", () => {
         key("4");
         expect(input()).toBeNull();
         expect(container.querySelector('[data-slot="history"]')).toBeNull();
+    }, 30_000);
+});
+
+// ── Failure is local (#853) ─────────────────────────────────────────────────
+
+/** The held source's jobs: `r000`, `r001`, … — ids that sort as they stand; `code` has no column. */
+const HELD_JOBS: ValueTypeOf<typeof JobType>[] = Array.from({ length: 410 }, (_, i) => ({
+    id: `r${String(i).padStart(3, "0")}`, start: none, task: `Task ${i}`, qty: none, code: `C${i}`, status: "",
+}));
+/** The State key a held source's reads track: a write to it is the source's channel saying something moved. */
+const HELD_KEY = "sheet-held-source";
+const encodeMove = encodeBeast2For(IntegerType);
+const HeldSource = Paged.Types.Source(ArrayType(JobType));
+/**
+ * The held Sheet, built by its own factory over the source it is called
+ * with. Two author callbacks read the `code` of the row above, which has no
+ * column, so it reaches them only through that row's own source entry: the
+ * `status` column's fill proposes it, and the row's readiness check wants it.
+ */
+const heldProgram = East.function([HeldSource], UIComponentType, ($, held) => {
+    const Context = Sheet.Types.Context(JobType);
+    const StringFill = OptionType(Sheet.Types.Fill(StringType));
+    const Ready = Sheet.Types.Readiness;
+    const codeAbove = $.const(East.function([Context], StringFill, ($2, ctx) => {
+        const noFill = $2.const(none, StringFill);
+        return ctx.rowIndex.greater(0n).ifElse(
+            (_$3) => ctx.rows.get(ctx.rowIndex.subtract(1n)).code.match({
+                value: ($4, code) => $4.const(some({ value: code, meta: "the code above" }), StringFill),
+            }, (_$4) => noFill),
+            (_$3) => noFill,
+        );
+    }));
+    const codeAboveKept = $.const(East.function([Sheet.Types.Draft(JobType), Sheet.Types.DraftContext(JobType)], Ready, ($2, _row, ctx) => {
+        const ready = $2.const(variant("ready", null), Ready);
+        const lost = $2.const(variant("incomplete", [{ field: "code", message: "The row above has no code" }]), Ready);
+        return ctx.rowIndex.greater(0n).ifElse(
+            (_$3) => ctx.rows.get(ctx.rowIndex.subtract(1n)).code.hasTag("value").ifElse((_$4) => ready, (_$4) => lost),
+            (_$3) => ready,
+        );
+    }));
+    return Sheet.Root(held, {
+        task: Sheet.column.text(JobType, { header: "Task" }),
+        qty: Sheet.column.quantity(JobType, { header: "Qty" }),
+        status: Sheet.column.text(JobType, { header: "Status", fill: [codeAbove] }),
+    }, {
+        id: "id", blanks: 2, ready: { row: codeAboveKept },
+        onApply: East.function([Sheet.Types.ChangeSet(JobType)], Sheet.Types.ApplyResult, () => variant("conflict", [])),
+    });
+});
+
+/** A wire row that throws as it is drawn — its `owned`, which only the row's own render reads, throws. */
+function brokenRow(row: SheetRowValue): SheetRowValue {
+    return Object.defineProperty({ ...row }, "owned", { enumerable: true, get: () => { throw new Error("bad row"); } });
+}
+
+/**
+ * A held paged source (#853): `n` jobs served a window at a time, while the
+ * test decides what the source does — which windows are in flight or throw,
+ * whether it is down, whether its count or a single entry's read (the
+ * read-back after an Apply) throws, which row the renderer is handed broken.
+ * The Sheet is built by its own factory over it, so the projection, the base
+ * reads and every author context read through it. Every read tracks
+ * {@link HELD_KEY}, so `touch` reaches the reads that saw the source, as a
+ * real source's channel does; an Apply writes the jobs and moves the
+ * revision, as a real write does.
+ */
+function heldSheet(n: number) {
+    const state = {
+        revision: 1,
+        down: undefined as string | undefined,
+        totalError: undefined as string | undefined,
+        entryError: undefined as string | undefined,
+        failing: new Map<number, string>(),
+        inFlight: new Set<number>(),
+        broken: undefined as string | undefined,
+        /** What happens to the source once an Apply's batch is written. */
+        afterApply: undefined as (() => void) | undefined,
+        refreshes: 0,
+        /** The window of every page read. */
+        asked: [] as number[],
+    };
+    let jobs = HELD_JOBS.slice(0, n);
+    let moves = 0n;
+    const move = (): void => { getStore().write(HELD_KEY, encodeMove(++moves)); };
+    const read = (): void => {
+        trackKey(HELD_KEY);
+        if (state.down !== undefined) throw new Error(state.down);
+    };
+    const source: ValueTypeOf<typeof HeldSource> = {
+        id: "sheet_held",
+        page: (offset, limit) => {
+            read();
+            const w = Math.floor(Number(offset) / SHEET_PAGE_SIZE);
+            state.asked.push(w);
+            if (limit === 1n && state.entryError !== undefined) throw new Error(state.entryError);
+            const failure = state.failing.get(w);
+            if (failure !== undefined) throw new Error(failure);
+            if (state.inFlight.has(w)) return none;
+            return some(jobs.slice(Number(offset), Number(offset + limit)));
+        },
+        total: () => {
+            read();
+            if (state.totalError !== undefined) throw new Error(state.totalError);
+            return some(BigInt(jobs.length));
+        },
+        seek: none,
+        revision: () => { read(); return some(`rev-${state.revision}`); },
+        refresh: () => { state.refreshes += 1; move(); return null; },
+    };
+    const applyBatch = East.compile(Sheet.apply(JobType, "id"), []);
+    const decodeBatch = decodeBeast2For(Sheet.Types.ChangeSet(JobType));
+    const apply = (payload: Uint8Array) => {
+        const applied = applyBatch(jobs, decodeBatch(payload), some(`rev-${state.revision}`));
+        if (applied.type === "conflict") return variant("conflict", applied.value);
+        jobs = applied.value;
+        state.revision += 1;
+        state.afterApply?.();
+        move();
+        return variant("applied", { revision: some(`rev-${state.revision}`) });
+    };
+    const built = East.compile(heldProgram, getRegisteredPlatformImplementations())(source) as ValueTypeOf<typeof UIComponentType>;
+    if (built.type !== "Sheet" || built.value.rows.type !== "paged") throw new Error("Expected a paged Sheet");
+    const root = built.value;
+    const served = built.value.rows.value;
+    const value = {
+        ...root,
+        // The renderer is handed the broken row as it draws it; the factory's own reads see it whole.
+        rows: variant("paged", { ...served, page: (offset: bigint, limit: bigint) => {
+            const window = served.page(offset, limit);
+            return window.type === "some" ? some(window.value.map((row) => (row.id === state.broken ? brokenRow(row) : row))) : window;
+        } }),
+        editing: { ...root.editing, onApply: some(variant("sync", apply)) },
+    } as SheetRootValue;
+    return { value, state, touch: () => act(() => { move(); }) };
+}
+
+describe("failure is local (#853)", () => {
+    test("a window that cannot be read is its own band with the reason and a Retry; the rows around it, the ring, the open editor and the drafts stay; Retry lands it once the source is back", async () => {
+        const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+        try {
+            const held = heldSheet(410);
+            held.state.inFlight.add(1);
+            const { value, draft } = withSpies(held.value);
+            const { container, cell, key, type, editorKey, input, flush } = mount(value);
+            await waitFor(() => expect(container.querySelector('[data-row-id="r199"]')).toBeTruthy(), { timeout: 15_000 });
+            // Window 1 is on the wire: the run stops there, window 2 waits behind it.
+            expect(container.querySelector('[data-row-id="r400"]')).toBeNull();
+            // The planner works: a draft on the first row, an editor open on the sixth.
+            fireEvent.mouseDown(cell(0, "task"), { button: 0 });
+            key("x");
+            type("Edited");
+            editorKey("Enter");
+            await flush();
+            fireEvent.mouseDown(cell(5, "task"), { button: 0 });
+            key("Enter");
+            await flush();
+            expect(input()!.value).toBe("Task 5");
+            // Window 1's read throws.
+            held.state.inFlight.delete(1);
+            held.state.failing.set(1, "gateway timeout");
+            held.touch();
+            await waitFor(() => expect(container.querySelector('[data-band="failed"]')).toBeTruthy());
+            const band = container.querySelector('[data-band="failed"]')!;
+            expect(band.getAttribute("data-elements")).toBe("200");
+            expect(band.querySelector('[role="alert"]')!.textContent).toBe("Elements 201–400 could not be read — gateway timeout");
+            expect(band.querySelector('[data-slot="retry"]')!.textContent).toBe("Retry");
+            // Windows 0 and 2 draw around it; a row after it keeps its number.
+            expect(container.querySelector('[data-row-id="r000"]')).toBeTruthy();
+            expect(container.querySelector('[data-row-id="r200"]')).toBeNull();
+            expect(container.querySelector('[data-row-id="r400"] [data-slot="gutterNumber"]')!.textContent).toBe("401");
+            expect(container.querySelector("[data-sheet-error]")).toBeNull();
+            // The open editor, where the ring is, and the draft are as they were.
+            expect(cell(5, "task").querySelector('[data-slot="editorInput"]')).toBe(input());
+            expect(input()!.value).toBe("Task 5");
+            expect(cell(0, "task").textContent).toBe("Edited");
+            expect(draft("r000", Sheet.Types.Draft(JobType)).task).toEqual(variant("value", "Edited"));
+            // The source recovers and says so: the reader does not ask the failed window again by itself.
+            const asks = held.state.asked.filter((w) => w === 1).length;
+            held.state.failing.delete(1);
+            held.touch();
+            expect(held.state.asked.filter((w) => w === 1)).toHaveLength(asks);
+            expect(container.querySelector('[data-band="failed"]')).toBeTruthy();
+            // Retry does, and the rows land in place.
+            fireEvent.click(band.querySelector('[data-slot="retry"]')!);
+            await waitFor(() => expect(container.querySelector('[data-row-id="r200"]')).toBeTruthy());
+            expect(container.querySelector('[data-band="failed"]')).toBeNull();
+            expect(container.querySelector('[data-row-id="r200"] [data-slot="gutterNumber"]')!.textContent).toBe("201");
+            expect(input()!.value).toBe("Task 5");
+            expect(draft("r000", Sheet.Types.Draft(JobType)).task).toEqual(variant("value", "Edited"));
+        } finally {
+            logged.mockRestore();
+        }
+    }, 30_000);
+
+    test("a source that fails before anything lands is the whole sheet's message, with a Retry that brings it back", async () => {
+        const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+        try {
+            const held = heldSheet(20);
+            held.state.down = "no route to the dataset";
+            const { container } = mount(held.value);
+            await waitFor(() => expect(container.querySelector("[data-sheet-error]")).toBeTruthy());
+            const message = container.querySelector("[data-sheet-error]")!;
+            expect(message.getAttribute("role")).toBe("alert");
+            expect(message.textContent).toBe("NO ROWS — the paged source could not be read. no route to the dataset Retry");
+            held.state.down = undefined;
+            fireEvent.click(message.querySelector('[data-slot="retry"]')!);
+            await waitFor(() => expect(container.querySelectorAll('[data-slot="row"]:not([data-blank])')).toHaveLength(20));
+            expect(container.querySelector("[data-sheet-error]")).toBeNull();
+            expect(container.querySelector('[data-slot="footerTransport"]')!.textContent).toBe("20 loaded of 20");
+        } finally {
+            logged.mockRestore();
+        }
+    });
+
+    test("a count the source cannot give is said on the transport line with a Retry; the rows, the blank tail and the count stay", async () => {
+        const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+        try {
+            const held = heldSheet(20);
+            const { container } = mount(held.value);
+            await waitFor(() => expect(container.querySelectorAll('[data-slot="row"][data-blank]')).toHaveLength(2));
+            held.state.totalError = "count unavailable";
+            held.touch();
+            await waitFor(() => expect(container.querySelector('[data-slot="transportError"]')).toBeTruthy());
+            const transport = container.querySelector('[data-slot="footerTransport"]')!;
+            expect(transport.textContent).toBe("20 loaded of 20 · could not be read — count unavailable Retry");
+            expect(transport.querySelector('[data-slot="transportError"]')!.getAttribute("role")).toBe("alert");
+            expect(container.querySelectorAll('[data-slot="row"]:not([data-blank])')).toHaveLength(20);
+            expect(container.querySelectorAll('[data-slot="row"][data-blank]')).toHaveLength(2);
+            held.state.totalError = undefined;
+            fireEvent.click(transport.querySelector('[data-slot="retry"]')!);
+            await waitFor(() => expect(container.querySelector('[data-slot="transportError"]')).toBeNull());
+            expect(container.querySelector('[data-slot="footerTransport"]')!.textContent).toBe("20 loaded of 20");
+        } finally {
+            logged.mockRestore();
+        }
+    });
+
+    test("a confirmation read that throws keeps the Apply waiting, with its reason and Retry on the history bar; a Retry that fails again says so again; one that gets through confirms it", async () => {
+        const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+        try {
+            // The edited row sits after a failed window: it is read back at its own position.
+            const held = heldSheet(410);
+            held.state.failing.set(1, "gateway timeout");
+            const { container, key, type, editorKey, flush } = mount(held.value);
+            await waitFor(() => expect(container.querySelector('[data-row-id="r401"]')).toBeTruthy(), { timeout: 15_000 });
+            const task = () => container.querySelector('[data-row-id="r401"] [data-key="task"]')!;
+            fireEvent.mouseDown(task(), { button: 0 });
+            key("x");
+            type("Applied");
+            editorKey("Enter");
+            await flush();
+            // The source takes the write, but from then on reading an entry back fails — the
+            // readiness check's reads too, which it reports as an issue: the sheet stays up.
+            held.state.afterApply = () => { held.state.entryError = "read-back refused"; };
+            const bar = container.querySelector('[data-slot="history"]') as HTMLElement;
+            fireEvent.click(within(bar).getByRole("button", { name: "Apply changes" }));
+            await waitFor(() => expect(within(bar).getByRole("alert").textContent).toBe("read-back refused"));
+            expect(within(bar).getByRole("status").textContent).toBe("Applied — loading the confirmed revision…");
+            expect(within(bar).getByRole("button", { name: "1 issue" })).toBeTruthy();
+            expect(held.state.refreshes).toBe(1);
+            // Retry asks the source again; the read fails again, and the bar says so again.
+            fireEvent.click(within(bar).getByRole("button", { name: "Retry refresh" }));
+            await flush();
+            expect(held.state.refreshes).toBe(2);
+            expect(within(bar).getByRole("alert").textContent).toBe("read-back refused");
+            // The read gets through: the Apply is confirmed, and the bar is clear.
+            held.state.entryError = undefined;
+            held.touch();
+            await waitFor(() => expect(within(bar).queryByRole("alert")).toBeNull());
+            expect(within(bar).queryByRole("status")).toBeNull();
+            expect(within(bar).queryByRole("button", { name: "Retry refresh" })).toBeNull();
+            expect(within(bar).getByRole("button", { name: "0 issues" })).toBeTruthy();
+            expect(task().textContent).toBe("Applied");
+        } finally {
+            logged.mockRestore();
+        }
+    }, 30_000);
+
+    test("a row that throws while it draws is a one-row diagnostic, and the rows around it draw", async () => {
+        const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+        try {
+            const held = heldSheet(20);
+            held.state.broken = "r003";
+            const { container } = mount(held.value);
+            await waitFor(() => expect(container.querySelector("[data-row-error]")).toBeTruthy());
+            const diagnostic = container.querySelector("[data-row-error]")!;
+            expect(diagnostic.getAttribute("data-row-error")).toBe("4");
+            expect(diagnostic.getAttribute("role")).toBe("row");
+            expect(diagnostic.textContent).toBe("Row 4 could not be drawn — bad row");
+            expect(container.querySelector('[data-row-id="r002"] [data-slot="gutterNumber"]')!.textContent).toBe("3");
+            expect(container.querySelector('[data-row-id="r004"] [data-slot="gutterNumber"]')!.textContent).toBe("5");
+            expect(container.querySelectorAll('[data-slot="row"]:not([data-blank])')).toHaveLength(19);
+            expect(container.querySelector("[data-sheet-error]")).toBeNull();
+        } finally {
+            logged.mockRestore();
+        }
+    });
+
+    test("an author's callbacks on a row after a failed window see the rows around it, each over its own source entry", async () => {
+        const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+        try {
+            const held = heldSheet(410);
+            held.state.failing.set(1, "gateway timeout");
+            const { container, key, editorKey, flush } = mount(held.value);
+            await waitFor(() => expect(container.querySelector('[data-row-id="r401"]')).toBeTruthy(), { timeout: 15_000 });
+            // A quantity typed on r401 reads its own entry, then runs the copilot and the
+            // readiness check for it. Both read the code of the row above, r400 — a field with
+            // no column, which reaches them only through r400's own entry in the source.
+            const status = () => container.querySelector('[data-row-id="r401"] [data-key="status"]')!;
+            fireEvent.mouseDown(container.querySelector('[data-row-id="r401"] [data-key="qty"]')!, { button: 0 });
+            key("5");
+            await flush();
+            editorKey("Enter");
+            await flush();
+            await waitFor(() => expect(status().hasAttribute("data-proposed")).toBe(true));
+            expect(status().textContent).toBe("C400");
+            const bar = container.querySelector('[data-slot="history"]') as HTMLElement;
+            expect(within(bar).getByRole("button", { name: "0 issues" })).toBeTruthy();
+            expect(within(bar).getByRole("button", { name: "Apply changes" }).hasAttribute("disabled")).toBe(false);
+        } finally {
+            logged.mockRestore();
+        }
     }, 30_000);
 });
 

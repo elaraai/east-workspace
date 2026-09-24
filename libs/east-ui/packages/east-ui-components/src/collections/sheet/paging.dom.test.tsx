@@ -6,8 +6,9 @@
  *
  * The paged sheet's driver (Sheet Spec §3.13, §5 row 21): the resident run
  * is contiguous from the top, the tail band describes the rest, exhaustion
- * arrives with the last window, an unreadable source reports why, and a new
- * revision keeps the rows on screen until its own land (#851).
+ * arrives with the last window, an unreadable source reports why, a new
+ * revision keeps the rows on screen until its own land (#851), and a failure
+ * belongs to its window (#853).
  */
 
 import { describe, test, expect, afterEach, vi } from "vitest";
@@ -18,14 +19,24 @@ import type { SheetPagedSourceValue, SheetRowValue } from "./values.js";
 
 afterEach(cleanup);
 
+/** What a source's reads throw, while they do (#853) — the test moves them between renders. */
+interface Faults {
+    /** Why a window's read throws, by window. */
+    windows: Map<number, string>;
+    /** Why `total()` throws. */
+    total?: string | undefined;
+}
+
 /** A synchronous positional source of `total` rows. Records which windows were asked for. */
-function source(total: number, opts: { holdWindow?: number } = {}) {
+function source(total: number, opts: { holdWindow?: number; faults?: Faults } = {}) {
     const asked: number[] = [];
     const value = {
         id: `sheet-driver-${total}`,
         page: (offset: bigint, limit: bigint) => {
             const w = Number(offset) / SHEET_PAGE_SIZE;
             asked.push(w);
+            const fault = opts.faults?.windows.get(w);
+            if (fault !== undefined) throw new Error(fault);
             if (opts.holdWindow === w) return none;
             const rows: SheetRowValue[] = [];
             for (let i = Number(offset); i < Math.min(total, Number(offset) + Number(limit)); i++) {
@@ -33,7 +44,10 @@ function source(total: number, opts: { holdWindow?: number } = {}) {
             }
             return some(rows);
         },
-        total: () => some(BigInt(total)),
+        total: () => {
+            if (opts.faults?.total !== undefined) throw new Error(opts.faults.total);
+            return some(BigInt(total));
+        },
         seek: none,
     } as unknown as SheetPagedSourceValue;
     return { value, asked };
@@ -260,6 +274,93 @@ describe("sheet paging — a new revision keeps the rows (#851)", () => {
             expect(warn).toHaveBeenCalledWith(expect.stringMatching(/changed total\(\) without a revision change/));
         } finally {
             warn.mockRestore();
+        }
+    });
+});
+
+describe("sheet paging — a failure belongs to its window (#853)", () => {
+    test("a window whose read throws is recorded against it: the run crosses it, the rows after it keep their positions, and only a retry asks it again", async () => {
+        const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+        try {
+            const faults: Faults = { windows: new Map([[1, "gateway timeout"]]) };
+            const { value, asked } = source(1_000, { faults });
+            const { rerender } = render(<Harness src={value} />);
+            await waitFor(() => expect(latest!.failures).toHaveLength(1));
+            // Its band sits where its rows would be, sized by the ledger's slot for it.
+            expect(latest!.failures[0]).toEqual({ w: 1, from: 200, to: 399, px: 200 * 36, error: "gateway timeout" });
+            // Windows 0 and 2 are resident around it, each row at its own place in the source.
+            expect(latest!.rows).toHaveLength(400);
+            expect(latest!.positions[199]).toBe(199);
+            expect(latest!.positions[200]).toBe(400);
+            expect(latest!.rows[200]!.id).toBe("r00400");
+            // It is neither in flight nor the sheet's failure: something landed.
+            expect(latest!.loading).toBe(false);
+            expect(latest!.error).toBeUndefined();
+            expect(latest!.sourceError).toBeUndefined();
+            expect(text("tail")).toBe("600-999");
+            // The source recovers, and the rows are read again: a failed window is not asked by the reader.
+            const asks = asked.filter((w) => w === 1).length;
+            faults.windows.clear();
+            rerender(<Harness src={{ ...value }} />);
+            expect(asked.filter((w) => w === 1)).toHaveLength(asks);
+            expect(latest!.failures).toHaveLength(1);
+            // A retry of that window asks it once more, and it lands in place.
+            act(() => { latest!.retry(1); });
+            await waitFor(() => expect(latest!.failures).toHaveLength(0));
+            expect(asked.filter((w) => w === 1)).toHaveLength(asks + 1);
+            expect(latest!.rows).toHaveLength(600);
+            expect(latest!.positions[200]).toBe(200);
+            expect(latest!.rows[200]!.id).toBe("r00200");
+        } finally {
+            logged.mockRestore();
+        }
+    });
+
+    test("a total() that throws is the source's failure beside its rows, and the count this revision last gave stands", async () => {
+        const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+        try {
+            const faults: Faults = { windows: new Map() };
+            const { value } = source(450, { faults });
+            const { rerender } = render(<Harness src={value} />);
+            await waitFor(() => expect(latest!.exhausted).toBe(true));
+            const sizeVersion = latest!.sizeVersion;
+            faults.total = "count unavailable";
+            rerender(<Harness src={{ ...value }} />);
+            expect(latest!.sourceError).toBe("count unavailable");
+            expect(latest!.error).toBeUndefined();
+            // Nothing else moves: the rows, the count, exhaustion (so the blank tail), the geometry.
+            expect(latest!.rows).toHaveLength(450);
+            expect(latest!.total).toBe(450);
+            expect(latest!.exhausted).toBe(true);
+            expect(latest!.sizeVersion).toBe(sizeVersion);
+            // A retry asks the source again.
+            faults.total = undefined;
+            act(() => { latest!.retry(); });
+            await waitFor(() => expect(latest!.sourceError).toBeUndefined());
+            expect(latest!.total).toBe(450);
+        } finally {
+            logged.mockRestore();
+        }
+    });
+
+    test("before anything lands a failure is the whole sheet's, and a retry asks the source and every failed window again", async () => {
+        const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+        try {
+            const faults: Faults = { windows: new Map([[0, "no route"], [1, "no route"], [2, "no route"]]) };
+            const { value } = source(450, { faults });
+            render(<Harness src={value} />);
+            await waitFor(() => expect(latest!.error).toBe("no route"));
+            expect(latest!.rows).toHaveLength(0);
+            // The windows stay recorded: the reader does not hammer a failing source.
+            expect(latest!.loading).toBe(false);
+            faults.windows.clear();
+            act(() => { latest!.retry(); });
+            await waitFor(() => expect(latest!.exhausted).toBe(true));
+            expect(latest!.error).toBeUndefined();
+            expect(latest!.failures).toHaveLength(0);
+            expect(latest!.rows).toHaveLength(450);
+        } finally {
+            logged.mockRestore();
         }
     });
 });
