@@ -277,21 +277,11 @@ const fixtures = {
 
   // ---- Lazy paged-input pins (#516) ----------------------------------
 
-  // Inputs are frozen: mutating a dict input (inside its own $.for) must
-  // raise the uniform copy-first error on a lazily-opened input, refused
-  // before any hydration.
-  'paged_for_mutate.beast2': encodeEastIR(
-    East.function([IntStringDict], NullType, ($, d) => {
-      $.for(d, (_$, _v, _k) => d.insert(999n, 'x'));
-      return null;
-    }).toIR(),
-  ),
-  'paged_table.beast2': segmented(IntStringDict, 2, Array.from({ length: 10 }, (_, i) => [BigInt(i), `row-${i}`]),
-    (chunk) => new SortedMap(chunk, intCmp)),
-
-  // A corrupt paged blob (a high key range spliced BEFORE a low one, so the
-  // fences are not disjoint ascending): a keyed `has` on it must propagate
-  // the pager error, never answer `false`.
+  // A keyed `has`, which the residency tests run over their inputs, and a
+  // corrupt paged blob (a high key range spliced BEFORE a low one, so the
+  // fences are not disjoint ascending), which `merge` must refuse. The keyed
+  // read of the corrupt blob, and the writes to a frozen input, are runner
+  // protocol corpus cases (east/test/runner_corpus.spec.ts).
   'paged_has.beast2': encodeEastIR(
     East.function([IntStringDict], BooleanType, (_$, d) => d.has(5n)).toIR(),
   ),

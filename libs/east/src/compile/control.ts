@@ -4,7 +4,7 @@
  */
 import type { AnalyzedIR } from "../analyze.js";
 import { compile_internal } from "./ir.js";
-import { BreakException, ContinueException, lockForIteration, ReturnException, type RuntimeContext, unlockForIteration } from "./runtime.js";
+import { BreakException, ContinueException, lazyReadErrorAt, lockForIteration, ReturnException, type RuntimeContext, unlockForIteration } from "./runtime.js";
 import { variant } from "../containers/variant.js";
 import { EastError } from "../error.js";
 import type { BreakIR, ContinueIR, ErrorIR, ForArrayIR, ForDictIR, ForSetIR, IfElseIR, IR, MatchIR, ReturnIR, TryCatchIR, WhileIR } from "../ir.js";
@@ -242,6 +242,7 @@ export function compile_control(ir: AnalyzedIR<ErrorIR | TryCatchIR | IfElseIR |
     ctx2[value_name] = value_type;
     const compiled_body = compile_internal(ir.value.body, ctx2, platform, asyncPlatformFns, platformDef, true, compilingNodes);
     const label = ir.value.label.name;
+    const loc_id = ir.value.loc_id;
 
     if (ir.value.isAsync) {
       return async (ctx: RuntimeContext) => {
@@ -265,6 +266,8 @@ export function compile_control(ir: AnalyzedIR<ErrorIR | TryCatchIR | IfElseIR |
             }
           }
           return null;
+        } catch (e: unknown) {
+          throw lazyReadErrorAt(e, loc_id, source_map);
         } finally {
           unlockForIteration(array);
         }
@@ -291,6 +294,8 @@ export function compile_control(ir: AnalyzedIR<ErrorIR | TryCatchIR | IfElseIR |
             }
           }
           return null;
+        } catch (e: unknown) {
+          throw lazyReadErrorAt(e, loc_id, source_map);
         } finally {
           unlockForIteration(array);
         }
@@ -304,6 +309,7 @@ export function compile_control(ir: AnalyzedIR<ErrorIR | TryCatchIR | IfElseIR |
     ctx2[key_name] = key_type;
     const compiled_body = compile_internal(ir.value.body, ctx2, platform, asyncPlatformFns, platformDef, true, compilingNodes);
     const label = ir.value.label.name;
+    const loc_id = ir.value.loc_id;
 
     if (ir.value.isAsync) {
       return async (ctx: RuntimeContext) => {
@@ -326,6 +332,8 @@ export function compile_control(ir: AnalyzedIR<ErrorIR | TryCatchIR | IfElseIR |
             }
           }
           return null;
+        } catch (e: unknown) {
+          throw lazyReadErrorAt(e, loc_id, source_map);
         } finally {
           unlockForIteration(set);
         }
@@ -351,6 +359,8 @@ export function compile_control(ir: AnalyzedIR<ErrorIR | TryCatchIR | IfElseIR |
             }
           }
           return null;
+        } catch (e: unknown) {
+          throw lazyReadErrorAt(e, loc_id, source_map);
         } finally {
           unlockForIteration(set);
         }
@@ -367,6 +377,7 @@ export function compile_control(ir: AnalyzedIR<ErrorIR | TryCatchIR | IfElseIR |
     ctx2[value_name] = value_type;
     const compiled_body = compile_internal(ir.value.body, ctx2, platform, asyncPlatformFns, platformDef, true, compilingNodes);
     const label = ir.value.label.name;
+    const loc_id = ir.value.loc_id;
 
     if (ir.value.isAsync) {
       return async (ctx: RuntimeContext) => {
@@ -390,6 +401,8 @@ export function compile_control(ir: AnalyzedIR<ErrorIR | TryCatchIR | IfElseIR |
             }
           }
           return null;
+        } catch (e: unknown) {
+          throw lazyReadErrorAt(e, loc_id, source_map);
         } finally {
           unlockForIteration(dict);
         }
@@ -416,6 +429,8 @@ export function compile_control(ir: AnalyzedIR<ErrorIR | TryCatchIR | IfElseIR |
             }
           }
           return null;
+        } catch (e: unknown) {
+          throw lazyReadErrorAt(e, loc_id, source_map);
         } finally {
           unlockForIteration(dict);
         }

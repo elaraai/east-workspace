@@ -306,28 +306,16 @@ def test_wide_rows_cut_near_the_segment_byte_target(tmp_path):
     assert out.read_bytes() == encode_beast2_paged_for(ArrayType(StringType))(rows)
 
 
-def test_lazy_paged_input_pins(tmp_path, monkeypatch, capsys):
-    # The lazy paged-input contract end to end on the Python runner
-    # (#516, #539), against the same fixtures the east-c cli_paged gate uses.
+def test_a_nested_input_opens_lazily_and_frozen(tmp_path, monkeypatch, capsys):
+    # The collapsed shape gate on the Python runner (#516, #539), against the
+    # fixtures the east-c cli_paged gate uses: a nested-container element
+    # shape opens lazily AND frozen, so the write through a read-out element
+    # raises the uniform error instead of landing in the input — from the
+    # blob, and from the manifest directory e3 stages a collection as. The
+    # account names the lazy open: an input that fell back to a whole decode
+    # would refuse the write too. The errors a lazily opened input raises are
+    # runner protocol corpus cases (test_exec_corpus.py).
     monkeypatch.setenv("EAST_LAZY_INPUT_BYTES", "1")
-
-    # Inputs are frozen: mutating a dict input (inside its own $.for) raises
-    # the uniform copy-first error on a lazily-opened input, refused before
-    # any hydration.
-    with pytest.raises(EastError, match="cannot mutate a frozen value"):
-        run_program(FIXTURES / "paged_for_mutate.beast2", [], [], [FIXTURES / "paged_table.beast2"])
-
-    # A keyed `has` over a corrupt blob (non-disjoint spliced key ranges)
-    # propagates the pager error instead of answering false.
-    with pytest.raises(EastError, match="not disjoint ascending key ranges"):
-        run_program(FIXTURES / "paged_has.beast2", [], [], [FIXTURES / "paged_corrupt.beast2"])
-
-    # The collapsed shape gate: a nested-container element shape opens
-    # lazily AND frozen, so the write through a read-out element raises the
-    # uniform error instead of landing in the input — from the blob, and from
-    # the manifest directory e3 stages a collection as. The account names the
-    # lazy open: an input that fell back to a whole decode would refuse the
-    # write too.
     from east.serialization.beast2 import Beast2ManifestWriter
 
     nested = FIXTURES / "paged_nested.beast2"

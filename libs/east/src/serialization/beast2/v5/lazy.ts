@@ -33,6 +33,7 @@
 import { type EastTypeValue } from "../../../type_of_type.js";
 import type { EastType, ValueTypeOf } from "../../../types.js";
 import { compareFor } from "../../../comparison.js";
+import { LazyReadError } from "../../../error.js";
 import { markFrozen } from "../../../frozen.js";
 import { SortedMap } from "../../../containers/sortedmap.js";
 import { SortedSet } from "../../../containers/sortedset.js";
@@ -45,8 +46,19 @@ import { type Beast2ManifestSource } from "./manifest.js";
 
 /** The canonical-order violation error, in the eager decoders' words —
  *  the same sentence on every runtime for the same blob. */
-function orderError(kind: "Set" | "Dict"): Error {
-  return new Error(`beast2 v5: ${kind === "Dict" ? "Dict keys" : "Set elements"} are not strictly ascending in East order — the wire must hold the canonical value (corrupt or pre-contract blob)`);
+function orderError(kind: "Set" | "Dict"): LazyReadError {
+  return new LazyReadError(`beast2 v5: ${kind === "Dict" ? "Dict keys" : "Set elements"} are not strictly ascending in East order — the wire must hold the canonical value (corrupt or pre-contract blob)`);
+}
+
+/** Makes one read from the pager, raising its failure — corrupt bytes, or a
+ *  segment that could not be fetched — as a {@link LazyReadError}, which
+ *  compiled East code raises at the operation that made the read. */
+function served<R>(read: () => R): R {
+  try {
+    return read();
+  } catch (err) {
+    throw new LazyReadError((err as Error)?.message ?? String(err), { cause: err });
+  }
 }
 
 /** Streams a Dict blob's entries segment by segment in canonical order,
@@ -58,9 +70,9 @@ function orderError(kind: "Set" | "Dict"): Error {
 function* lazyDictEntries<K, V>(pages: Beast2Pages, cmp: (a: K, b: K) => number, from?: K): Generator<[K, V]> {
   let prev: K | undefined;
   let has = false;
-  const start = from === undefined ? 0 : pages.segmentFor(from as never);
+  const start = from === undefined ? 0 : served(() => pages.segmentFor(from as never));
   for (let i = start; i < pages.segmentCount; i++) {
-    const segment = pages.segment(i) as Map<K, V>;
+    const segment = served(() => pages.segment(i)) as Map<K, V>;
     for (const [k, v] of segment) {
       if (has && cmp(prev as K, k) >= 0) throw orderError("Dict");
       prev = k;
@@ -77,9 +89,9 @@ function* lazyDictEntries<K, V>(pages: Beast2Pages, cmp: (a: K, b: K) => number,
 function* lazySetKeys<K>(pages: Beast2Pages, cmp: (a: K, b: K) => number, from?: K): Generator<K> {
   let prev: K | undefined;
   let has = false;
-  const start = from === undefined ? 0 : pages.segmentFor(from as never);
+  const start = from === undefined ? 0 : served(() => pages.segmentFor(from as never));
   for (let i = start; i < pages.segmentCount; i++) {
-    const segment = pages.segment(i) as Set<K>;
+    const segment = served(() => pages.segment(i)) as Set<K>;
     for (const k of segment) {
       if (has && cmp(prev as K, k) >= 0) throw orderError("Set");
       prev = k;
@@ -107,13 +119,20 @@ class LazySortedMap<K, V> extends SortedMap<K, V> {
     super(undefined, cmp);
   }
 
-  /** Decodes every segment into the underlying B-tree once. */
+  /** Decodes every segment into the underlying B-tree once. A read that fails
+   *  leaves the map unread rather than half-filled, so the next access reads
+   *  again. */
   private hydrate(): void {
     if (this.hydrated) return;
-    this.hydrated = true;
-    for (const [k, v] of lazyDictEntries<K, V>(this.pages, this.cmp)) {
-      super.set(k, v);
+    try {
+      for (const [k, v] of lazyDictEntries<K, V>(this.pages, this.cmp)) {
+        super.set(k, v);
+      }
+    } catch (err) {
+      super.clear();
+      throw err;
     }
+    this.hydrated = true;
   }
 
   override get size(): number {
@@ -123,7 +142,7 @@ class LazySortedMap<K, V> extends SortedMap<K, V> {
   override get(key: K): V | undefined {
     if (this.hydrated) return super.get(key);
     if (this.pages.elementCount === 0) return undefined;
-    return this.pages.get(key as never) as V | undefined;
+    return served(() => this.pages.get(key as never)) as V | undefined;
   }
 
   override has(key: K): boolean {
@@ -170,7 +189,7 @@ class LazySortedMap<K, V> extends SortedMap<K, V> {
   override minKey(): K | undefined {
     if (this.hydrated) return super.minKey();
     if (this.pages.elementCount === 0) return undefined;
-    return this.pages.fence(0) as K;
+    return served(() => this.pages.fence(0)) as K;
   }
 
   override maxKey(): K | undefined {
@@ -178,7 +197,7 @@ class LazySortedMap<K, V> extends SortedMap<K, V> {
     const n = this.pages.segmentCount;
     if (n === 0) return undefined;
     let last: K | undefined;
-    for (const k of (this.pages.segment(n - 1) as Map<K, V>).keys()) last = k;
+    for (const k of (served(() => this.pages.segment(n - 1)) as Map<K, V>).keys()) last = k;
     return last;
   }
 
@@ -234,13 +253,20 @@ class LazySortedSet<K> extends SortedSet<K> {
     super(undefined, cmp);
   }
 
-  /** Decodes every segment into the underlying B-tree once. */
+  /** Decodes every segment into the underlying B-tree once. A read that fails
+   *  leaves the set unread rather than half-filled, so the next access reads
+   *  again. */
   private hydrate(): void {
     if (this.hydrated) return;
-    this.hydrated = true;
-    for (const k of lazySetKeys<K>(this.pages, this.cmp)) {
-      super.add(k);
+    try {
+      for (const k of lazySetKeys<K>(this.pages, this.cmp)) {
+        super.add(k);
+      }
+    } catch (err) {
+      super.clear();
+      throw err;
     }
+    this.hydrated = true;
   }
 
   override get size(): number {
@@ -250,7 +276,7 @@ class LazySortedSet<K> extends SortedSet<K> {
   override has(key: K): boolean {
     if (this.hydrated) return super.has(key);
     if (this.pages.elementCount === 0) return false;
-    return this.pages.get(key as never) !== undefined;
+    return served(() => this.pages.get(key as never)) !== undefined;
   }
 
   override add(key: K): this {
@@ -328,7 +354,7 @@ class LazySortedSet<K> extends SortedSet<K> {
   override minKey(): K | undefined {
     if (this.hydrated) return super.minKey();
     if (this.pages.elementCount === 0) return undefined;
-    return this.pages.fence(0) as K;
+    return served(() => this.pages.fence(0)) as K;
   }
 
   override maxKey(): K | undefined {
@@ -336,7 +362,7 @@ class LazySortedSet<K> extends SortedSet<K> {
     const n = this.pages.segmentCount;
     if (n === 0) return undefined;
     let last: K | undefined;
-    for (const k of this.pages.segment(n - 1) as Set<K>) last = k;
+    for (const k of served(() => this.pages.segment(n - 1)) as Set<K>) last = k;
     return last;
   }
 
@@ -378,19 +404,26 @@ const LAZY_ARRAY_READS = new Set<PropertyKey>(["entries", "keys", "values", "for
 function lazyArray(pages: Beast2Pages, frozen: boolean = false): unknown[] {
   const target: unknown[] = [];
   let hydrated = false;
+  // A read that fails leaves the array unread rather than half-filled, so
+  // the next access reads again.
   const hydrate = (): void => {
     if (hydrated) return;
-    hydrated = true;
-    for (let i = 0; i < pages.segmentCount; i++) {
-      // Element-by-element append — a spread (`push(...segment)`) passes the
-      // segment as arguments and overflows the engine's argument limit on
-      // ~100k+-element segments.
-      for (const item of pages.segment(i) as unknown[]) target.push(item);
+    try {
+      for (let i = 0; i < pages.segmentCount; i++) {
+        // Element-by-element append — a spread (`push(...segment)`) passes the
+        // segment as arguments and overflows the engine's argument limit on
+        // ~100k+-element segments.
+        for (const item of served(() => pages.segment(i)) as unknown[]) target.push(item);
+      }
+    } catch (err) {
+      target.length = 0;
+      throw err;
     }
+    hydrated = true;
   };
   function* elements(): Generator<unknown> {
     for (let i = 0; i < pages.segmentCount; i++) {
-      yield* pages.segment(i) as unknown[];
+      yield* served(() => pages.segment(i)) as unknown[];
     }
   }
   const lazyReads: Record<PropertyKey, unknown> = {
@@ -419,7 +452,7 @@ function lazyArray(pages: Beast2Pages, frozen: boolean = false): unknown[] {
           // array, and must stay so here.
           const row = Number(prop);
           if (Number.isInteger(row) && row >= 0 && String(row) === prop) {
-            return row < pages.elementCount ? pages.element(row) : undefined;
+            return row < pages.elementCount ? served(() => pages.element(row)) : undefined;
           }
         }
         hydrate();
@@ -487,6 +520,11 @@ function lazyArray(pages: Beast2Pages, frozen: boolean = false): unknown[] {
  * segment decodes frozen as it materializes, mutation throws instead of
  * hydrating, and the collection compares as a value type under `Is` — see
  * {@link isBeast2LazySafe} for the wider shapes a frozen open admits.
+ *
+ * A read the value serves that fails — corrupt bytes, or a segment the source
+ * cannot give — throws a {@link LazyReadError}, which compiled East code
+ * raises at the operation that made the read. A hydration that fails leaves
+ * the value unread, so the next access reads the blob again.
  *
  * @param type - the collection type (Array/Set/Dict)
  * @param options - decode options (platform functions for decoded functions,

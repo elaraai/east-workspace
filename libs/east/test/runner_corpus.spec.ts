@@ -10,7 +10,7 @@ import {
     ArrayType, BlobType, BooleanType, DictType, FloatType, FunctionType, IntegerType, NullType, OptionType, SetType, StringType, StructType,
     East, EastError, SortedMap, SortedSet, compareFor, none, some, variant,
     Beast2ManifestWriter, Beast2RunSorter, UnitOutcomeType, UnitType,
-    decodeBeast2For, decodeCollectionManifest, encodeBeast2For, encodeBeast2PagedFor, encodeEastIR, mergeBeast2For,
+    decodeBeast2For, decodeCollectionManifest, encodeBeast2For, encodeBeast2PagedFor, encodeEastIR, mergeBeast2For, openBeast2LazyFor, spliceBeast2,
     type Beast2ManifestSource, type Beast2RunSorterOptions, type EastIR, type EastType, type ValueTypeOf,
 } from "../src/index.js";
 
@@ -509,6 +509,56 @@ describe("runner protocol corpus", () => {
                     })],
                 ]),
                 expected: { name: "mutating a lazily opened input fails with the frozen-input error", lazy: true, outcome: variant("failed", { message: err.eastMessage, locations: err.location }), outputs: [], absent: [] },
+            });
+        });
+
+        test("writing through an element of a lazily opened input fails with the frozen-input error", () => {
+            const type = DictType(IntegerType, StructType({ xs: ArrayType(IntegerType) }));
+            const program = East.function([type], IntegerType, ($, d) => {
+                const row = $.let(d.get(1n));
+                $(row.xs.pushLast(42n));
+                return d.get(1n).xs.size();
+            }).toIR();
+            const input = new SortedMap<bigint, { xs: bigint[] }>([[1n, { xs: [1n, 2n] }], [2n, { xs: [] }], [3n, { xs: [3n] }]], compareFor(IntegerType));
+            const files = new Map<string, Uint8Array>([["program.beast2", encodeEastIR(program)]]);
+            addManifest(files, "input-0.beast2", type, input.entries());
+            files.set("unit.beast2", encodeBeast2For(UnitType)({
+                work: variant("run", { program: "program.beast2", inputs: ["input-0.beast2"], output: variant("value", "output.beast2") }),
+                platforms: [],
+                threads: 1n,
+                result: "result.beast2",
+            }));
+            const err = errorOf(program, [openBeast2LazyFor(type, { frozen: true })(manifestSource(files, "input-0.beast2"))]);
+            cases.push({
+                dir: "failed-frozen-nested",
+                files,
+                expected: { name: "writing through an element of a lazily opened input fails with the frozen-input error", lazy: true, outcome: variant("failed", { message: err.eastMessage, locations: err.location }), outputs: [], absent: [] },
+            });
+        });
+
+        test("a keyed read of a corrupt input opened lazily fails at the read, naming the segments", () => {
+            // A high key range spliced before a low one: the segments' first
+            // keys do not ascend, which the read checks before it looks.
+            const type = DictType(IntegerType, StringType);
+            const program = East.function([type], BooleanType, (_$, d) => d.has(5n)).toIR();
+            const blob = spliceBeast2([1000, 0].map((from) => encodeBeast2PagedFor(type)(
+                new SortedMap(Array.from({ length: 6 }, (_, i) => [BigInt(from + i), `row-${from + i}`] as [bigint, string]), compareFor(IntegerType)))));
+            const err = errorOf(program, [openBeast2LazyFor(type, { frozen: true })(blob)]);
+            assert.equal(err.eastMessage, "beast2 v5: segments 0 and 1 are not disjoint ascending key ranges — the wire must hold the canonical value (corrupt or pre-contract blob)");
+            assert.ok(err.location.length > 0, "the error is at the read");
+            cases.push({
+                dir: "failed-corrupt-read",
+                files: new Map([
+                    ["program.beast2", encodeEastIR(program)],
+                    ["input-0.beast2", blob],
+                    ["unit.beast2", encodeBeast2For(UnitType)({
+                        work: variant("run", { program: "program.beast2", inputs: ["input-0.beast2"], output: variant("value", "output.beast2") }),
+                        platforms: [],
+                        threads: 1n,
+                        result: "result.beast2",
+                    })],
+                ]),
+                expected: { name: "a keyed read of a corrupt input opened lazily fails at the read, naming the segments", lazy: true, outcome: variant("failed", { message: err.eastMessage, locations: err.location }), outputs: [], absent: [] },
             });
         });
     });

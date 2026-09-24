@@ -17,6 +17,7 @@ import {
   type EastType,
 } from "../../../types.js";
 import { compareFor, equalFor } from "../../../comparison.js";
+import { LazyReadError } from "../../../error.js";
 import { SortedMap, SortedSet, isEastDict, isEastSet } from "../../../index.js";
 import {
   decodeBeast2For,
@@ -428,5 +429,59 @@ describe("Beast2 v5 — negative zero keys", () => {
     const set = encodeBeast2PagedFor(Floats)(new SortedSet([NaN, 0, -0], compareFor(FloatType)));
     assert.deepEqual([...(openBeast2PagesFor(Floats)(set).segment(0) as Set<number>)], [-0, 0, NaN]);
     assert.deepEqual([...openBeast2LazyFor(Floats)(set)], [-0, 0, NaN]);
+  });
+});
+
+describe("Beast2 v5 — lazy reads that fail", () => {
+  /** An assertion that a read failed with a {@link LazyReadError} saying `message`. */
+  const lazyReadError = (message: string) => (err: unknown): boolean =>
+    err instanceof LazyReadError && err.message === message;
+
+  test("a Dict read raises a LazyReadError, and a fill that fails leaves the map unread", () => {
+    const high = paged(TableType, makeTable(100, 1000));
+    const low = paged(TableType, makeTable(100, 0));
+    const lazy = openBeast2LazyFor(TableType)(spliceBeast2([high, low]));
+    const orderMessage = "beast2 v5: Dict keys are not strictly ascending in East order — the wire must hold the canonical value (corrupt or pre-contract blob)";
+
+    assert.throws(() => lazy.get(1050n), lazyReadError(
+      "beast2 v5: segments 0 and 1 are not disjoint ascending key ranges — the wire must hold the canonical value (corrupt or pre-contract blob)",
+    ));
+    assert.throws(() => [...lazy], lazyReadError(orderMessage));
+    // The fill reads the high segment, then fails on the low one.
+    assert.throws(() => lazy.set(5000n, { id: 5000n, name: "added" }), lazyReadError(orderMessage));
+    assert.equal(lazy.size, 200, "the map is unread, not half-filled");
+    assert.throws(() => lazy.set(5000n, { id: 5000n, name: "added" }), lazyReadError(orderMessage), "the next write reads again");
+  });
+
+  test("an Array whose segment cannot be read raises a LazyReadError, and a fill that fails leaves it unread", () => {
+    const Rows = ArrayType(StringType);
+    const rows = Array.from({ length: 260 }, (_, i) => `row-${i}`);
+    const blob = paged(Rows, rows);
+    const extents = readBeast2Extents(blob);
+    assert.equal(extents.offsets.length, 3);
+    let failing = true;
+    const reader: Beast2SyncRangeReader = {
+      size: blob.length,
+      read(offset, length) {
+        if (failing && offset >= extents.offsets[1]! && offset < extents.segmentsEnd) {
+          throw new Error("EIO: the segment could not be read");
+        }
+        return blob.subarray(offset, offset + length);
+      },
+    };
+    const lazy = openBeast2LazyFor(Rows)(reader);
+    const ioError = lazyReadError("EIO: the segment could not be read");
+
+    assert.equal(lazy[0], "row-0");
+    assert.throws(() => lazy[150], ioError);
+    assert.throws(() => [...lazy], ioError);
+    // The fill reads segment 0, then fails on segment 1.
+    assert.throws(() => lazy.slice(0, 2), ioError);
+    assert.equal(lazy.length, 260, "the array is unread, not half-filled");
+
+    failing = false;
+    assert.deepEqual(lazy.slice(0, 2), ["row-0", "row-1"], "the next access reads again");
+    assert.equal(lazy.length, 260);
+    assert.equal(lazy[259], "row-259");
   });
 });

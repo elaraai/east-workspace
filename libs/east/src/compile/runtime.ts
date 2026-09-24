@@ -4,8 +4,8 @@
  */
 import type { BuiltinName } from "../builtins.js";
 import { variant } from "../containers/variant.js";
-import { EastError, InternalError } from "../error.js";
-import type { SourceMap } from "../location.js";
+import { EastError, InternalError, LazyReadError } from "../error.js";
+import type { Location, SourceMap } from "../location.js";
 import type { PlatformFunction } from "../platform.js";
 import { printFor } from "../serialization/east.js";
 import { type EastTypeValue, EastTypeValueType } from "../type_of_type.js";
@@ -122,6 +122,16 @@ export function call_function(loc_id: bigint, source_map: SourceMap | null, comp
       throw(e);
     }
   }
+}
+
+/** @internal The error a node that reads collections throws for `e`: a read a
+ * lazy input served that failed becomes an East error at this node's
+ * location, where east-c raises it, so a program can catch it; anything else
+ * is thrown as it is. */
+export function lazyReadErrorAt(e: unknown, loc_id: bigint, source_map: SourceMap | null): unknown {
+  return e instanceof LazyReadError
+    ? new EastError(e.message, { location: (source_map?.resolve(loc_id) ?? []) as Location[], cause: e })
+    : e;
 }
 
 /** Builds a builtin's implementation from its node: its location and source map, for

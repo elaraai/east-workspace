@@ -1932,10 +1932,17 @@ static bool pages_fence_search(Beast2Pages *p, EastValue *key, bool or_equal, si
     return true;
 }
 
-static void pages_disjoint_error(void)
+/* Segments `a` and `a + 1` overlap or descend: posted in TypeScript's words,
+ * naming the two segments and whether their ranges are of Dict keys or Set
+ * elements, so every runtime fails a corrupt blob with one message. */
+static void pages_disjoint_error(Beast2Pages *p, size_t a)
 {
-    east_builtin_error("beast2 v5: segments are not disjoint ascending key ranges — the wire "
-                       "must hold the canonical value (corrupt or pre-contract blob)");
+    char msg[256];
+    snprintf(msg, sizeof(msg),
+             "beast2 v5: segments %zu and %zu are not disjoint ascending %s ranges — the wire "
+             "must hold the canonical value (corrupt or pre-contract blob)",
+             a, a + 1, p->type->kind == EAST_TYPE_DICT ? "key" : "element");
+    east_builtin_error(msg);
 }
 
 /* Keyed reads assume the fences ascend STRICTLY (unique keys, disjoint
@@ -1965,7 +1972,7 @@ static bool pages_verify_fences(Beast2Pages *p)
         prev = f;
         if (c >= 0) {
             east_value_release(prev);
-            pages_disjoint_error();
+            pages_disjoint_error(p, i - 1);
             return false;
         }
     }
@@ -1989,7 +1996,7 @@ static bool pages_tail_guard(Beast2Pages *p, size_t s, EastValue *seg)
     int c = east_value_compare(last, f);
     east_value_release(f);
     if (c >= 0) {
-        pages_disjoint_error();
+        pages_disjoint_error(p, s);
         return false;
     }
     return true;

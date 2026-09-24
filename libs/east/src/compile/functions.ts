@@ -5,7 +5,7 @@
 import type { AnalyzedIR } from "../analyze.js";
 import { builtin_evaluators } from "./builtins/index.js";
 import { compile_internal } from "./ir.js";
-import { BreakException, ContinueException, EAST_CAPTURES_SYMBOL, EAST_IR_SYMBOL, EAST_SOURCE_MAP_SYMBOL, getContextValue, ReturnException, type RuntimeContext } from "./runtime.js";
+import { BreakException, ContinueException, EAST_CAPTURES_SYMBOL, EAST_IR_SYMBOL, EAST_SOURCE_MAP_SYMBOL, getContextValue, lazyReadErrorAt, ReturnException, type RuntimeContext } from "./runtime.js";
 import { variant } from "../containers/variant.js";
 import { EastError } from "../error.js";
 import type { AsyncFunctionIR, BuiltinIR, CallAsyncIR, CallIR, FunctionIR, IR, PlatformIR } from "../ir.js";
@@ -388,6 +388,8 @@ export function compile_functions(ir: AnalyzedIR<FunctionIR | AsyncFunctionIR | 
       }
     }
 
+    // Builtins are synchronous, so a failed read of a lazy input is thrown
+    // here in either form.
     const evaluator = builtin_evaluators[ir.value.builtin](ir.value.loc_id, source_map, platformDef, ...ir.value.type_parameters);
     if (argsAsync) {
       return async (ctx: RuntimeContext) => {
@@ -395,10 +397,21 @@ export function compile_functions(ir: AnalyzedIR<FunctionIR | AsyncFunctionIR | 
         for (const a of args) {
           args_resolved.push(await a(ctx));
         }
-        return evaluator(...args_resolved);
+        try {
+          return evaluator(...args_resolved);
+        } catch (e: unknown) {
+          throw lazyReadErrorAt(e, loc_id, source_map);
+        }
       }
     } else {
-      return (ctx: RuntimeContext) => evaluator(...args.map(a => a(ctx)));
+      return (ctx: RuntimeContext) => {
+        const args_resolved = args.map(a => a(ctx));
+        try {
+          return evaluator(...args_resolved);
+        } catch (e: unknown) {
+          throw lazyReadErrorAt(e, loc_id, source_map);
+        }
+      };
     }
   } else if (ir.type === "Platform") {
     const loc_id = ir.value.loc_id;
@@ -443,16 +456,35 @@ export function compile_functions(ir: AnalyzedIR<FunctionIR | AsyncFunctionIR | 
       }
     }
 
+    // A platform function that reads a lazy input can fail the read by
+    // throwing or, when it is async, by rejecting its promise; both are
+    // raised at this call.
     if (argsAsync) {
       return async (ctx: RuntimeContext) => {
         const args_resolved: any[] = [];
         for (const a of args) {
           args_resolved.push(await a(ctx));
         }
-        return evaluator(...args_resolved); // evaluator can return Promise unconditionally in tail position if the platform function is async
+        try {
+          return await evaluator(...args_resolved);
+        } catch (e: unknown) {
+          throw lazyReadErrorAt(e, loc_id, source_map);
+        }
       }
     } else {
-      return (ctx: RuntimeContext) => evaluator(...args.map(a => a(ctx))); // evaluator can return Promise unconditionally in tail position if the platform function is async
+      return (ctx: RuntimeContext) => {
+        const args_resolved = args.map(a => a(ctx));
+        let result: unknown;
+        try {
+          result = evaluator(...args_resolved);
+        } catch (e: unknown) {
+          throw lazyReadErrorAt(e, loc_id, source_map);
+        }
+        // An async platform function's promise is returned, as the caller awaits it.
+        return result instanceof Promise
+          ? result.catch((e: unknown) => { throw lazyReadErrorAt(e, loc_id, source_map); })
+          : result;
+      };
     }
   } else {
     throw new Error(`Unhandled IR type ${(ir satisfies never as IR).type} at loc_id ${(ir as IR).value.loc_id}`); // The `satisfies never` here ensures that this branch is unreachable if all IR types are handled
