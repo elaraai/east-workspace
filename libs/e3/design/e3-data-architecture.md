@@ -714,4 +714,5 @@ The GC mark also reads every dataset it visits whole when it is not given `readH
 - the lazy nested-shape tests check that the input opened lazily;
 - the staging test checks the inode;
 - the fan-out tests count the operation's own units;
-- the client compatibility tests match the error they expect.
+- the client compatibility tests match the error they expect;
+- the one-row-change page test checks that no boundary moved and every other segment is unchanged.

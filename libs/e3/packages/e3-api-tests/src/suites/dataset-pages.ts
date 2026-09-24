@@ -237,19 +237,37 @@ export function datasetPageTests(setup: TestSetup<TestContext>): void {
       const ctx = await withTablePackage(t);
       const opts = await ctx.opts();
 
+      /** Every segment window in order: where it starts, its size, its rows. */
+      const segmentWindows = async (): Promise<{ offset: number; count: number; rows: Map<string, bigint> }[]> => {
+        const status = await datasetGetStatus(ctx.config.baseUrl, ctx.repoName, 'pages-ws', lookupPath, opts);
+        const windows: { offset: number; count: number; rows: Map<string, bigint> }[] = [];
+        for (let i = 0; i < Number(status.segments.type === 'some' ? status.segments.value : 0n); i++) {
+          const page = await datasetGetPage(ctx.config.baseUrl, ctx.repoName, 'pages-ws', lookupPath, { segment: i }, opts);
+          windows.push({ offset: page.offset, count: page.count, rows: decodeBeast2For(LookupType)(page.data) as Map<string, bigint> });
+        }
+        return windows;
+      };
+
       const entries = Array.from({ length: 3000 }, (_, i) => [`k${String(i).padStart(5, '0')}`, BigInt(i)] as [string, bigint]);
       await datasetSet(ctx.config.baseUrl, ctx.repoName, 'pages-ws', lookupPath, encodeBeast2For(LookupType)(entries.reduce((m, [k, v]) => m.set(k, v), new Map<string, bigint>())), opts);
       const before = await datasetGetStatus(ctx.config.baseUrl, ctx.repoName, 'pages-ws', lookupPath, opts);
-      assert.equal(before.segments.type, 'some');
+      const windowsBefore = await segmentWindows();
+      assert.ok(windowsBefore.length >= 2, `the value spans segments, got ${windowsBefore.length}`);
 
       const edited = new Map(entries);
       edited.set('k01500', 999999n);
       await datasetSet(ctx.config.baseUrl, ctx.repoName, 'pages-ws', lookupPath, encodeBeast2For(LookupType)(edited), opts);
       const after = await datasetGetStatus(ctx.config.baseUrl, ctx.repoName, 'pages-ws', lookupPath, opts);
+      const windowsAfter = await segmentWindows();
 
       assert.notDeepEqual(after.hash, before.hash, 'the value changed, so its address must');
-      assert.deepEqual(after.segments, before.segments,
-        'one changed row must not move a boundary — only the segment holding it is re-cut');
+      assert.deepEqual(
+        windowsAfter.map((w) => [w.offset, w.count]),
+        windowsBefore.map((w) => [w.offset, w.count]),
+        'one changed row must not move a boundary');
+      const changed = windowsAfter.filter((w, i) => !equalFor(LookupType)(w.rows, windowsBefore[i]!.rows));
+      assert.equal(changed.length, 1, 'only the segment holding the row is re-cut');
+      assert.ok(changed[0]!.rows.has('k01500'), 'and it is the one holding the row');
 
       // ...and the change is visible where it was made, with its neighbours
       // untouched.
