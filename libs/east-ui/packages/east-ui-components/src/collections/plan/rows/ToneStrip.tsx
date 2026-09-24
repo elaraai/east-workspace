@@ -20,13 +20,25 @@
  * which is the point. Three kinds collapse into one vocabulary the canvas
  * already speaks, instead of three new ones.
  *
+ * Luminance is colour alone, so every block also carries its value as
+ * visually hidden text (#819).
+ *
  * @packageDocumentation
  */
 
-import { Box } from "@chakra-ui/react";
+import { Box, VisuallyHidden } from "@chakra-ui/react";
 import { usePlanScale } from "../context.js";
 import type { PlanInstantValue } from "../instant.js";
 import { maxOf, minOf } from "../reductions.js";
+import { formatDerived } from "../format.js";
+import { cellName } from "../a11y.js";
+
+/** A tone block's value in words — the number, what its tone adds, or no data. */
+function toneWords(d: ToneDatum): string {
+    if (d.value === undefined) return "no data";
+    const n = formatDerived(d.value);
+    return d.tone === "warn" ? `${n}, beyond threshold` : n;
+}
 
 type Styles = Record<string, Record<string, unknown>>;
 
@@ -91,7 +103,9 @@ export function ToneStrip({ data, styles }: ToneStripProps) {
                         background={d.tone === undefined && !nodata
                             ? `color-mix(in srgb, var(--chakra-colors-brand-600) ${Math.round(depth * 100)}%, transparent)`
                             : undefined}
-                    />
+                    >
+                        <VisuallyHidden>{cellName(scale, b, toneWords(d))}</VisuallyHidden>
+                    </Box>
                 );
             })}
         </>

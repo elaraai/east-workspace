@@ -16,6 +16,7 @@
 
 import type { SystemStyleObject } from "@chakra-ui/react";
 import { lifecycleStates } from "./states.js";
+import { planElementFocus } from "./focus.js";
 
 /** The slots this part styles. */
 export const elementsSlots = [
@@ -72,6 +73,7 @@ export const elementsBase = {
             transition: "height 380ms cubic-bezier(0.16, 1, 0.3, 1), padding 380ms cubic-bezier(0.16, 1, 0.3, 1)",
             "@media (prefers-reduced-motion: reduce)": { transition: "none" },
         },
+        ...planElementFocus,
     },
     barQty: {
         opacity: 0.72,
@@ -149,6 +151,7 @@ export const elementsBase = {
         // the outline is the payload: shrink it, never make it
         // transparent — that would erase the row's whole meaning.
         "&[data-ctx]": { width: "6px", height: "6px", borderRadius: 0},
+        ...planElementFocus,
     },
     // ── Chart rows — axis ticks + ref labels (marks are SVG, data-coloured) ──
     chartTickLeft: {
@@ -233,6 +236,7 @@ export const elementsBase = {
         // the outline is the payload: shrink it, never make it
         // transparent — that would erase the row's whole meaning.
         "&[data-ctx]": { width: "5px", height: "5px"},
+        ...planElementFocus,
     },
     exceptionTri: {
         position: "absolute",
@@ -251,6 +255,7 @@ export const elementsBase = {
             borderRightWidth: "3.5px",
             borderBottomWidth: "6px",
         },
+        ...planElementFocus,
     },
     // K7 icon swap — hosts choose the glyph, never the geometry
     // (12px, kind-coloured: brand default, warn for exceptions).
@@ -270,6 +275,7 @@ export const elementsBase = {
         // (see `EventsRow`) and this element never mounts collapsed. The
         // rule stays as a backstop for any path that does mount one.
         "&[data-ctx]": { display: "none" },
+        ...planElementFocus,
     },
     markLabel: {
         position: "absolute",

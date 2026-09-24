@@ -36,7 +36,7 @@ export {
     type DerivedBand, type HeatScale, type PlanRowDiagnostic, type PlanDerived,
 } from "./derive.js";
 export {
-    linkedRowKeys, bodyItemKey, placeFailures, firstDiagnosticItem, elideForFocus, deriveLinkFamily,
+    linkedRowKeys, bodyItemKey, rowItemKey, placeFailures, firstDiagnosticItem, elideForFocus, deriveLinkFamily,
     type FocusGap, type PlanBand, type PlanWindowFailure, type PlanBodyItem, type LinkFamily,
 } from "./body-items.js";
 

@@ -277,7 +277,12 @@ describe("one overlay layer (#816)", () => {
         expect(document.activeElement).toBe(bar);
         // The popover's layer took that Esc — the selection stands.
         expect(row.hasAttribute("data-selected")).toBe(true);
-        // The next one, with nothing open, is the canvas's: it deselects.
+        // The next one, with nothing open, returns from the element to its
+        // row (#819) — one rung; the selection still stands.
+        await user.keyboard("{Escape}");
+        expect(document.activeElement).toBe(row);
+        expect(row.hasAttribute("data-selected")).toBe(true);
+        // The one after is the canvas's: it deselects.
         await user.keyboard("{Escape}");
         expect(row.hasAttribute("data-selected")).toBe(false);
         expect(pop.calls).toEqual(["run:m1/b214"]);
@@ -326,11 +331,17 @@ describe("one overlay layer (#816)", () => {
         try {
             fireEvent.keyDown(bar, { key: "Escape" });
             expect(row.hasAttribute("data-selected")).toBe(true);
+            // Not even the element's own rung ran: focus stayed on it.
+            expect(document.activeElement).toBe(bar);
         } finally {
             document.removeEventListener("keydown", layer, true);
         }
-        // The same key, taken by nothing nearer, is the canvas's.
+        // The same key, taken by nothing nearer, is the canvas's: from the
+        // element it returns to the row (#819), and from the row it deselects.
         fireEvent.keyDown(bar, { key: "Escape" });
+        expect(document.activeElement).toBe(row);
+        expect(row.hasAttribute("data-selected")).toBe(true);
+        fireEvent.keyDown(row, { key: "Escape" });
         expect(row.hasAttribute("data-selected")).toBe(false);
     });
 

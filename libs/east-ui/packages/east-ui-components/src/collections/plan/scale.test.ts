@@ -127,6 +127,36 @@ describe('planScale — time axis', () => {
         });
     });
 
+    describe('words for accessible names (#819)', () => {
+        it('an instant is its UTC date, with the time only when it has one', () => {
+            const scale = time("2026-06-29T00:00:00Z", "2026-09-21T00:00:00Z", "week");
+            expect(scale.instantText(t("2026-06-29T00:00:00Z"))).toBe("29 Jun 2026");
+            expect(scale.instantText(t("2026-07-06T14:30:00Z"))).toBe("6 Jul 2026 14:30");
+            // An instant of another arm has no words on this axis.
+            expect(scale.instantText(n(3))).toBe("");
+        });
+
+        it('an hour-resolution axis always says the time', () => {
+            const scale = time("2026-06-29T00:00:00Z", "2026-06-30T00:00:00Z", "hour");
+            expect(scale.instantText(t("2026-06-29T00:00:00Z"))).toBe("29 Jun 2026 00:00");
+            expect(scale.bucketText(scale.buckets[9]!)).toBe("29 Jun 2026 09:00");
+        });
+
+        it('a bucket says the period it covers, not its ruler tick — even under a custom format', () => {
+            const week = time("2026-06-29T00:00:00Z", "2026-09-21T00:00:00Z", "week", undefined, "MMM DD");
+            expect(week.buckets[0]!.label).toBe("Jun 29");
+            expect(week.bucketText(week.buckets[0]!)).toBe("Week of 29 Jun 2026");
+            const day = time("2026-03-30T00:00:00Z", "2026-04-06T00:00:00Z", "day");
+            expect(day.bucketText(day.buckets[1]!)).toBe("Tue 31 Mar 2026");
+            const month = time("2026-01-01T00:00:00Z", "2027-01-01T00:00:00Z", "month");
+            expect(month.bucketText(month.buckets[6]!)).toBe("July 2026");
+            const quarter = time("2026-01-01T00:00:00Z", "2027-01-01T00:00:00Z", "quarter");
+            expect(quarter.bucketText(quarter.buckets[2]!)).toBe("Q3 2026");
+            const year = time("2026-01-01T00:00:00Z", "2028-01-01T00:00:00Z", "year");
+            expect(year.bucketText(year.buckets[1]!)).toBe("2027");
+        });
+    });
+
     describe('DST irrelevance (UTC bucketing)', () => {
         it('a window across a European DST change keeps exact 7-day weeks', () => {
             // DST in Europe changed 2026-03-29; UTC bucketing must not care.
@@ -321,6 +351,9 @@ describe('planScale — number axis (#631)', () => {
             format: variant("percent", null) as never,
         })!;
         expect(scale.buckets.map(b => b.label)).toEqual(["0%", "25%", "50%", "75%"]);
+        // An accessible name speaks the same format (#819).
+        expect(scale.instantText(n(0.5))).toBe("50%");
+        expect(scale.bucketText(scale.buckets[1]!)).toBe("25%");
     });
 
     it('a non-positive step or an inverted window yields no scale', () => {
@@ -377,6 +410,13 @@ describe('planScale — ordinal axis (#631)', () => {
         expect(scale.fromNumber(99)).toEqual(o("SHIP"));
         expect(scale.toNumber(o("PACK"))).toBe(4);
         expect(scale.snap(o("QC"))).toEqual(o("QC"));
+    });
+
+    it('an instant and a bucket are their value in words (#819)', () => {
+        const scale = ord();
+        expect(scale.instantText(o("QC"))).toBe("QC");
+        expect(scale.bucketText(scale.buckets[1]!)).toBe("PREP");
+        expect(scale.instantText(o("DONE"))).toBe("");
     });
 
     it('an empty list yields no scale; a repeated value is one bucket', () => {

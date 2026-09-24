@@ -11,7 +11,8 @@
  */
 
 import { describe, test, expect, afterEach, beforeEach } from "vitest";
-import { render, screen, cleanup, fireEvent } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, act, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { ChakraProvider } from "@chakra-ui/react";
 import { variant, some, none } from "@elaraai/east";
 import { system } from "../../theme/index.js";
@@ -33,6 +34,11 @@ afterEach(() => {
 // slice / schematic dom-test convention).
 class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
 (globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverStub;
+// jsdom has no `CSS.escape`, and Zag's tabs find their triggers through it
+// when an arrow key moves between them (#819) — every browser has one. A
+// stand-in escaping whatever an id may hold.
+const cssApi = ((globalThis as { CSS?: { escape?: (s: string) => string } }).CSS ??= {});
+cssApi.escape ??= (s: string) => s.replace(/[^\w-]/g, (c) => `\\${c}`);
 
 const W27 = new Date("2026-06-29T00:00:00Z");           // Monday, ISO week 27
 const W39 = new Date("2026-09-21T00:00:00Z");           // exclusive max → 12 weeks
@@ -242,7 +248,7 @@ describe("Plan narrow layout (§10 / #570)", () => {
         expect(l1h.hasAttribute("data-ctx")).toBe(false);
         expect(l1h.querySelector("[data-ctx]")).toBeNull();
         // Esc walks the ladder: the drill returns, the selection holds.
-        fireEvent.keyDown(container.querySelector('[tabindex="0"]')!, { key: "Escape" });
+        fireEvent.keyDown(container.querySelector("[data-plan-body]")!, { key: "Escape" });
         expect(m1().hasAttribute("data-expanded")).toBe(false);
         expect(m1().hasAttribute("data-selected")).toBe(true);
         // ← Groups goes back to the strip list.
@@ -250,7 +256,7 @@ describe("Plan narrow layout (§10 / #570)", () => {
         expect(container.querySelector("[data-plan-tab='groups']")!.hasAttribute("data-selected")).toBe(true);
     });
 
-    test("Measures stacks the chart rows at expanded density with their ticks overlaid; a two-finger drag pans the window", () => {
+    test("Measures stacks the chart rows at expanded density with their ticks overlaid; a two-finger drag pans the window", async () => {
         initializeStore(new UIStore());
         const cfg = {
             fields: new Map<string, unknown>([
@@ -269,9 +275,10 @@ describe("Plan narrow layout (§10 / #570)", () => {
                 read(): { range: { value: { value: { from: Date; to: Date } } } };
             };
         const { container } = renderPlan(fixture({ slice: some({ slice: handle, affordances: [variant("range", null)] }) }), "plan-570-measures");
+        // A tab is Zag's (#819): its click selects on the machine's next turn.
         fireEvent.click(container.querySelector("[data-plan-tab='measures']")!);
+        await waitFor(() => expect(container.querySelector("[data-plan-card='cov']")).toBeTruthy());
         const cov = container.querySelector("[data-plan-card='cov']") as HTMLElement;
-        expect(cov).toBeTruthy();
         // Expanded density — the plot's viewBox spans 88px, not the spark's 32.
         expect(cov.querySelector('[data-plan-mark="line"]')!.closest("svg")!.getAttribute("viewBox")).toBe("0 0 1000 88");
         // The value ticks overlay the plot's left edge (no gutter to print them in).
@@ -325,6 +332,56 @@ describe("Plan narrow layout (§10 / #570)", () => {
         fireEvent.click(container.querySelector("[data-plan-back]")!);
         expect(container.querySelectorAll("[data-plan-section]")).toHaveLength(2);
         expect(container.querySelector("[data-plan-tab='rows']")!.hasAttribute("data-selected")).toBe(true);
+    });
+
+    test("the tabs are a real tablist (#819): arrow keys move between them, and each controls its own tabpanel", async () => {
+        const { container } = renderPlan(fixture(), "plan-819-tabs");
+        const tab = (key: string) => container.querySelector(`[data-plan-tab='${key}']`) as HTMLElement;
+        const panelOf = (key: string) => container.querySelector(`[role='tabpanel'][aria-labelledby='${tab(key).id}']`);
+        expect(container.querySelector("[data-slot='narrowTabs']")!.getAttribute("role")).toBe("tablist");
+        // Every tab has a tabpanel of its own; only the selected one shows,
+        // and the selected tab says which panel it controls.
+        for (const key of ["groups", "rows", "measures"]) {
+            expect(tab(key).getAttribute("role")).toBe("tab");
+            expect(panelOf(key)).toBeTruthy();
+            expect(panelOf(key)!.hasAttribute("hidden")).toBe(key !== "groups");
+        }
+        expect(tab("groups").getAttribute("aria-controls")).toBe(panelOf("groups")!.id);
+        // One tab stop: the selected tab.
+        expect(tab("groups").getAttribute("tabindex")).toBe("0");
+        expect(tab("rows").getAttribute("tabindex")).toBe("-1");
+        // An arrow key focuses the next tab in one animation-frame callback and
+        // selects the focused tab in the next, the focus's own event queued as
+        // a microtask between them. A browser checks microtasks after every
+        // callback; jsdom runs a frame's callbacks back to back — so each gets
+        // a task of its own here, as a browser's checkpoint would give it.
+        const raf = window.requestAnimationFrame;
+        const caf = window.cancelAnimationFrame;
+        window.requestAnimationFrame = (cb) => setTimeout(() => cb(performance.now()), 0) as unknown as number;
+        window.cancelAnimationFrame = (id) => clearTimeout(id);
+        try {
+            // The arrow keys walk the tabs, and a tab they land on is selected.
+            const user = userEvent.setup();
+            act(() => tab("groups").focus());
+            await user.keyboard("{ArrowRight}");
+            await waitFor(() => expect(tab("rows").getAttribute("aria-selected")).toBe("true"));
+            expect(document.activeElement).toBe(tab("rows"));
+            // The list moved with it: the rows panel is the list now.
+            const rowsPanel = panelOf("rows")!;
+            expect(rowsPanel.hasAttribute("hidden")).toBe(false);
+            expect(rowsPanel.getAttribute("data-slot")).toBe("narrowList");
+            expect(rowsPanel.querySelector("[data-plan-card]")).toBeTruthy();
+            // The panel it left hides once its presence settles.
+            await waitFor(() => expect(panelOf("groups")!.hasAttribute("hidden")).toBe(true));
+            await user.keyboard("{ArrowLeft}");
+            await waitFor(() => expect(tab("groups").getAttribute("aria-selected")).toBe("true"));
+            await user.keyboard("{End}");
+            await waitFor(() => expect(tab("measures").getAttribute("aria-selected")).toBe("true"));
+            expect(document.activeElement).toBe(tab("measures"));
+        } finally {
+            window.requestAnimationFrame = raf;
+            window.cancelAnimationFrame = caf;
+        }
     });
 
     test("at 480px and above nothing reflows — the canvas is the canvas", () => {

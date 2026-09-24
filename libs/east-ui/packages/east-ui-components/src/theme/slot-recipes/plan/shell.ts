@@ -16,6 +16,7 @@
  */
 
 import type { SystemStyleObject } from "@chakra-ui/react";
+import { planElementFocus, planRowFocus } from "./focus.js";
 
 /** The slots this part styles. */
 export const shellSlots = [
@@ -313,6 +314,8 @@ export const shellBase = {
             backgroundImage: "none",
             background: "color-mix(in srgb, {colors.status.neg} 5%, {colors.bg.panel})",
         },
+        // A band is a row of the grid — the keyboard lands on it (#819).
+        ...planRowFocus,
     },
     // Sticky, so it stays legible wherever you are inside a band that may
     // be thousands of pixels tall.
@@ -366,6 +369,7 @@ export const shellBase = {
         // The narrow layout's failure card: the reason on the left, the
         // Retry at the card head's right edge.
         "[data-plan-narrow] &": { marginLeft: "auto" },
+        ...planElementFocus,
     },
     // ── Overlays ──
     nowLine: {

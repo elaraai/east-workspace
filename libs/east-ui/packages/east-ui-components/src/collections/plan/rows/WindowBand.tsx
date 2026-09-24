@@ -17,11 +17,18 @@
  * Its height comes from the ledger, so this band and the rows that replace it
  * occupy exactly the same space: scrolling in loads content without moving
  * anything below, and eviction puts the band back with nothing shifting either.
+ *
+ * In the treegrid (#819) each band is ONE row — the grid's row count is then
+ * exact, and says only what is known: the band stands for its run, and a
+ * keyboard move onto it asks the source for the window beside it.
  */
 
 import { Box } from "@chakra-ui/react";
 import { bandElements, type PlanBand, type PlanWindowFailure } from "../use-plan-paging.js";
 import { formatDerived } from "../format.js";
+import { bodyItemKey } from "../model.js";
+import { usePlanItemNav } from "../controller/react.js";
+import { usePlanGridRow } from "../root/grid.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
@@ -54,10 +61,19 @@ export function bandCaption(band: PlanBand, loading: boolean): string {
 export function WindowBand({ band, styles, loading }: WindowBandProps) {
     const count = bandElements(band);
     const caption = bandCaption(band, loading);
+    const itemKey = bodyItemKey({ kind: "band", band });
+    const { active, focusSeq } = usePlanItemNav(itemKey);
+    const grid = usePlanGridRow(itemKey, active, focusSeq);
     return (
         <Box
+            ref={grid.ref}
             css={styles.windowBand}
             height={`${Math.max(0, band.px)}px`}
+            role="row"
+            aria-level={1}
+            tabIndex={grid.tabIndex}
+            onFocus={grid.onFocus}
+            data-plan-item={itemKey}
             data-plan-window-band={band.at}
             data-plan-elements={count}
             // The ledger-derived height, as data: the height itself compiles
@@ -66,7 +82,7 @@ export function WindowBand({ band, styles, loading }: WindowBandProps) {
             data-plan-px={Math.round(Math.max(0, band.px))}
             aria-busy={loading ? "true" : undefined}
         >
-            <Box css={styles.windowBandCaption}>{caption}</Box>
+            <Box css={styles.windowBandCaption} role="gridcell">{caption}</Box>
         </Box>
     );
 }
@@ -99,17 +115,27 @@ export interface WindowFailureBandProps {
  * @returns The failed window's band
  */
 export function WindowFailureBand({ failure, styles, onRetry }: WindowFailureBandProps) {
+    const itemKey = bodyItemKey({ kind: "failed", failure });
+    const { active, focusSeq } = usePlanItemNav(itemKey);
+    const grid = usePlanGridRow(itemKey, active, focusSeq);
     return (
         <Box
+            ref={grid.ref}
             css={styles.windowBand}
             height={`${failure.px}px`}
+            role="row"
+            aria-level={1}
+            tabIndex={grid.tabIndex}
+            onFocus={grid.onFocus}
+            data-plan-item={itemKey}
             data-plan-failed={failure.w}
             data-plan-px={Math.round(failure.px)}
-            role="alert"
         >
-            <Box css={styles.windowBandCaption}>
-                <Box as="span">{failureCaption(failure)}</Box>
-                <Box as="button" css={styles.windowRetry} data-plan-retry={failure.w}
+            <Box css={styles.windowBandCaption} role="gridcell">
+                {/* The reason is an alert; the band is a row of the grid. */}
+                <Box as="span" role="alert">{failureCaption(failure)}</Box>
+                {/* Out of the tab order — the row's Tab walk reaches it (#819). */}
+                <Box as="button" css={styles.windowRetry} data-plan-retry={failure.w} tabIndex={-1}
                     onClick={(e: React.MouseEvent) => { e.stopPropagation(); onRetry(failure.w); }}>
                     Retry
                 </Box>

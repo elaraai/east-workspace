@@ -15,6 +15,7 @@
  */
 
 import type { SystemStyleObject } from "@chakra-ui/react";
+import { planElementFocus, planRowFocus } from "./focus.js";
 
 /** The slots this part styles. */
 export const rowsSlots = [
@@ -59,6 +60,8 @@ export const rowsBase = {
             transition: "background 380ms cubic-bezier(0.16, 1, 0.3, 1)",
             "@media (prefers-reduced-motion: reduce)": { transition: "none" },
         },
+        // The grid's one tab stop, on the keyboard (#819).
+        ...planRowFocus,
     },
     gutterCell: {
         display: "flex",
@@ -279,6 +282,10 @@ export const rowsBase = {
         "[data-plan-row]:hover &": { opacity: 1 },
         "&:has([data-active])": { opacity: 1 },
         "@media (hover: none)": { opacity: 1 },
+        // A keyboard reader sees them too: on the focused row, and while one
+        // of them has focus (the row's Tab walk, #819).
+        "[data-plan-row]:focus-visible &": { opacity: 1 },
+        "&:focus-within": { opacity: 1 },
         // A strip is one click target — returning. Row controls inside it
         // would compete with that, and there is no room for them anyway.
         "&[data-ctx]": { display: "none" },
@@ -302,6 +309,7 @@ export const rowsBase = {
         padding: 0,
         "&:hover": { color: "fg.default", background: "bg.panel" },
         "&[data-active]": { color: "brand.fg", background: "{colors.brandTint}" },
+        ...planElementFocus,
     },
     // The UPSTREAM / DOWNSTREAM / LINKED tag on gathered family rows.
     focusTag: {
@@ -327,6 +335,7 @@ export const rowsBase = {
         borderBottomColor: "border.subtle",
         cursor: "pointer",
         "&:hover": { background: "{colors.brandTint}" },
+        ...planRowFocus,
     },
     // R1 gap band — ONE double-height ⋯ band replacing a RUN of
     // unrelated rows (a lone straggler keeps its 11px rail); click
@@ -340,6 +349,7 @@ export const rowsBase = {
         borderBottomColor: "border.subtle",
         cursor: "pointer",
         "&:hover": { background: "{colors.brandTint}" },
+        ...planRowFocus,
     },
     focusGapInner: {
         display: "flex",
@@ -480,6 +490,7 @@ export const rowsBase = {
         borderBottomWidth: "1px",
         borderBottomColor: "border.subtle",
         cursor: "pointer",
+        ...planRowFocus,
     },
     groupName: {
         position: "relative",

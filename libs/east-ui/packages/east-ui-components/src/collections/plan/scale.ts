@@ -128,6 +128,24 @@ export function defaultTickLabel(start: Date, res: PlanResolution): string {
     }
 }
 
+/** A UTC instant as words: the date, and the time when there is one. */
+function dateText(d: Date, withTime: boolean): string {
+    const time = withTime || d.getUTCHours() !== 0 || d.getUTCMinutes() !== 0;
+    return formatDatePattern(time ? "D MMM YYYY HH:mm" : "D MMM YYYY", d);
+}
+
+/** The period starting at a UTC instant as words, at a resolution. */
+export function periodText(start: Date, res: PlanResolution): string {
+    switch (res) {
+        case "hour": return formatDatePattern("D MMM YYYY HH:mm", start);
+        case "day": return formatDatePattern("ddd D MMM YYYY", start);
+        case "week": return `Week of ${formatDatePattern("D MMM YYYY", start)}`;
+        case "month": return formatDatePattern("MMMM YYYY", start);
+        case "quarter": return `Q${Math.floor(start.getUTCMonth() / 3) + 1} ${formatDatePattern("YYYY", start)}`;
+        case "year": return formatDatePattern("YYYY", start);
+    }
+}
+
 /** One bucket of the scale. */
 export interface PlanBucket {
     /** Bucket index (0-based). */
@@ -238,6 +256,19 @@ export interface PlanScale {
      * `[0, 1]`.
      */
     renderBucketOf(t: PlanInstantValue): PlanBucket | undefined;
+    /**
+     * An instant as words — what an accessible name says (#819): a full UTC
+     * date on a time axis (`29 Jun 2026`, with the time when the instant has
+     * one or the axis runs at hour resolution), the axis's own number format,
+     * or the ordinal value. `""` for an instant of another arm.
+     */
+    instantText(t: PlanInstantValue): string;
+    /**
+     * A bucket as words (#819) — the period it covers, where the ruler label
+     * is only a tick (`W27`, `MON`): `Week of 29 Jun 2026`, `Mon 29 Jun 2026`,
+     * `July 2026`, `Q3 2026`; the ruler label on a number or ordinal axis.
+     */
+    bucketText(b: PlanBucket): string;
 }
 
 /** The three kinds, reduced to one numeric domain with a period function. */
@@ -255,6 +286,10 @@ interface Domain {
     fromN(n: number): PlanInstantValue;
     /** The ruler label of the period starting at a domain number. */
     label(n: number): string;
+    /** A domain number as words — an accessible name's instant (#819). */
+    text(n: number): string;
+    /** The period starting at a domain number as words (#819). */
+    periodText(n: number): string;
     /** Whole periods overscanned each side. */
     overscan: number;
     /** Whether an interval END names its last bucket (inclusive) rather than an edge. */
@@ -277,6 +312,8 @@ function timeDomain(spec: Extract<PlanScaleSpec, { kind: "time" }>): Domain {
         label: (n) => (format !== undefined
             ? formatDatePattern(format, new Date(n))
             : defaultTickLabel(new Date(n), spec.resolution)),
+        text: (n) => dateText(new Date(n), spec.resolution === "hour"),
+        periodText: (n) => periodText(new Date(n), spec.resolution),
         overscan: PLAN_OVERSCAN_BUCKETS,
         endInclusive: false,
         resolution: spec.resolution,
@@ -299,6 +336,8 @@ function numberDomain(spec: Extract<PlanScaleSpec, { kind: "number" }>): Domain 
         toN: (t) => (t.type === "number" ? t.value : NaN),
         fromN: (n) => numberInstant(n),
         label: (n) => fmt(n),
+        text: (n) => fmt(n),
+        periodText: (n) => fmt(n),
         overscan: PLAN_OVERSCAN_BUCKETS,
         endInclusive: false,
         resolution: undefined,
@@ -323,6 +362,8 @@ function ordinalDomain(spec: Extract<PlanScaleSpec, { kind: "ordinal" }>): Domai
         toN: (t) => (t.type === "ordinal" ? (index.get(t.value) ?? NaN) : NaN),
         fromN: (n) => ordinalInstant(at(n)),
         label: (n) => at(n),
+        text: (n) => at(n),
+        periodText: (n) => at(n),
         overscan: 0,
         endInclusive: true,
         resolution: undefined,
@@ -491,6 +532,15 @@ export function planScale(spec: PlanScaleSpec): PlanScale | undefined {
         ? fracOfN(dom.now)
         : undefined;
 
+    const instantText = (t: PlanInstantValue): string => {
+        const n = toN(t);
+        return Number.isFinite(n) ? dom.text(n) : "";
+    };
+    const bucketText = (b: PlanBucket): string => {
+        const n = toN(b.start);
+        return Number.isFinite(n) ? dom.periodText(n) : b.label;
+    };
+
     return {
         kind: dom.kind,
         window: { min: dom.fromN(minN), max: dom.fromN(maxN) },
@@ -500,5 +550,6 @@ export function planScale(spec: PlanScaleSpec): PlanScale | undefined {
         xOf, fracOf, endFracOf, bucketOf, bucketAtFrac, snap, floor, offset,
         toNumber: toN, fromNumber: dom.fromN,
         nowFrac, renderMin, renderMax, renderBucketOf,
+        instantText, bucketText,
     };
 }

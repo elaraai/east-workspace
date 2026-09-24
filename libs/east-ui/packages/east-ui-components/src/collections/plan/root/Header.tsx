@@ -50,6 +50,10 @@ export interface PlanHeaderProps {
     reviewLabel: string | undefined;
     /** The pinned rows, already rendered. */
     pinned: ReactNode;
+    /** The id of the pinned rows' group — the treegrid owns it (`aria-owns`,
+     *  #819), so the pinned rows are its first rows though they render here.
+     *  Absent when there are none. */
+    pinnedId: string | undefined;
     /** The active row focus. */
     focus: PlanUiView["focus"];
     /** Family sizes under a links focus. */
@@ -60,7 +64,7 @@ export interface PlanHeaderProps {
 export function PlanHeader({
     styles, gridTemplate, headerRef, chrome, slice, affordances, resolution, resolutions,
     transport, search, pick, diagnostics, now, rulerCaption, cursorChipRef, reviewLabel,
-    pinned, focus, linkCounts,
+    pinned, pinnedId, focus, linkCounts,
 }: PlanHeaderProps) {
     return (
         <Box background="bg.surface" ref={headerRef} data-plan-header>
@@ -86,7 +90,7 @@ export function PlanHeader({
                 trailing={reviewLabel !== undefined ? <PlanDecisionHeader label={reviewLabel} /> : undefined} />
             {/* Pinned rows collapse like every other row under a focus — they
                 are not exempt from "collapse, never remove". */}
-            {pinned}
+            {pinnedId !== undefined && <Box role="rowgroup" id={pinnedId}>{pinned}</Box>}
             {/* The R1/R2 focus band — a SECTION row between the header and the
                 body (`← ALL ROWS` + caption); the ruler never moves. */}
             {focus !== null && <FocusBar styles={styles} focus={focus} counts={linkCounts} />}

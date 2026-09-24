@@ -135,8 +135,12 @@ export function LinksOverlay({
     }, [lit, layout]);
 
     const { ribbons, fades } = layout;
+    // Drawn inside the treegrid, over its rows, and pointer-only: a reader
+    // hears the family from the rows' own UPSTREAM / DOWNSTREAM tags and the
+    // focus announcement instead (#819). A ribbon's `aria-label` stays — it
+    // is the tooltip's text.
     return (
-        <Box ref={layerRef} css={styles.ribbons} data-plan-ribbons>
+        <Box ref={layerRef} css={styles.ribbons} data-plan-ribbons aria-hidden="true">
             {(ribbons.length > 0 || fades.length > 0) && (
                 <svg width={width} height={body.height}>
                     <defs>

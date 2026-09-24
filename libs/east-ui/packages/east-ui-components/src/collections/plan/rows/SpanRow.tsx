@@ -14,6 +14,10 @@
  * layer opens them from a bar's `data-run` or a diamond's `data-mark` (#816),
  * and a labelled port's tooltip is its `aria-label`. Decision diamonds ride
  * the `mark` arm of the element ref.
+ *
+ * Every bar and diamond is a button whose name says what its look encodes —
+ * label, span and state (`a11y.ts`, #819); a labelled port is an image named
+ * by its label.
  */
 
 import { useMemo } from "react";
@@ -22,6 +26,7 @@ import { variant, type ValueTypeOf } from "@elaraai/east";
 import { Plan } from "@elaraai/east-ui/internal";
 import { usePlanDispatch, usePlanResolvers, usePlanScale, type PlanElementRefValue } from "../context.js";
 import { formatDerived } from "../format.js";
+import { decisionName, runName } from "../a11y.js";
 import type { DerivedBand } from "../model.js";
 
 type Styles = Record<string, Record<string, unknown>>;
@@ -104,8 +109,11 @@ export function SpanRow({ rowKey, kind, bands: rollBands, styles, barHeight, par
                         data-runoff={runoff ? "" : undefined}
                         data-run={run.key}
                         data-plan-frac={left.toFixed(4)}
-                        // Focusable: Enter opens its popover (#816).
+                        // Focusable: Enter opens its popover (#816), and the
+                        // row's Tab walk reaches it (#819).
                         tabIndex={-1}
+                        role="button"
+                        aria-label={runName(run, scale)}
                         left={`${left * 100}%`}
                         width={`${width * 100}%`}
                         // The bar height is a style PROP, and a style prop
@@ -153,7 +161,8 @@ export function SpanRow({ rowKey, kind, bands: rollBands, styles, barHeight, par
                 // The label is the port's accessible name, and the canvas's
                 // one tooltip shows it on hover (#816) — the design-system
                 // tooltip, never the native `title=` (#617).
-                return <Box key={`port-${i}`} css={styles.port} left={`${x * 100}%`} data-port={i} aria-label={label} />;
+                return <Box key={`port-${i}`} css={styles.port} left={`${x * 100}%`} data-port={i}
+                    role="img" aria-label={label} />;
             })}
             {kind.decisions.map((dec) => {
                 const x = scale.fracOf(dec.at);
@@ -161,8 +170,15 @@ export function SpanRow({ rowKey, kind, bands: rollBands, styles, barHeight, par
                 const ref = variant("mark", { row: rowKey, mark: dec.key }) as PlanElementRefValue;
                 return (
                     <Box key={dec.key} css={styles.diamond} data-applied={dec.applied ? "" : undefined} data-ctx={ctxAttr}
-                        data-mark={dec.key} left={`${x * 100}%`} tabIndex={-1}
-                        onClick={(e) => { e.stopPropagation(); onElementClick?.(ref); }} cursor="pointer" />
+                        data-mark={dec.key} data-plan-frac={x.toFixed(4)} left={`${x * 100}%`} tabIndex={-1}
+                        role="button" aria-label={decisionName(dec, scale)}
+                        // Selects its row like every other element — Enter on
+                        // it does the same (#819).
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            dispatch({ t: "row.select", key: rowKey });
+                            onElementClick?.(ref);
+                        }} cursor="pointer" />
                 );
             })}
         </>

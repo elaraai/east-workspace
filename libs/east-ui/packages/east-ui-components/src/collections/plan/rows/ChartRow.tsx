@@ -29,6 +29,9 @@
  * with `vector-effect: non-scaling-stroke` keeping stroke widths true. Every
  * mark sits at its TRUE position: a vertex beyond the window keeps its x and
  * the plot clips the segment — clamping it moved the data.
+ *
+ * A chart is a shape, so to a reader it is an image named by its summary —
+ * each data layer's min, max and last value, and its breaches (#819).
  */
 
 import { useCallback, useEffect, useMemo, useRef, type ReactNode } from "react";
@@ -37,6 +40,7 @@ import { Area, Bar, LinePath } from "@visx/shape";
 import { curveLinear } from "@visx/curve";
 import { usePlanCursor, usePlanDispatch, usePlanScale } from "../context.js";
 import type { PlanScale } from "../scale.js";
+import { chartSummary } from "../a11y.js";
 import { ToneStrip, type ToneDatum } from "./ToneStrip.js";
 import {
     axisFormatter, axisTicks, breached, chartDomains, drawnPoints, layoutColumns, readoutLayers, readoutTable,
@@ -191,6 +195,9 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: Ch
     }, [readings, scale]);
     useEffect(() => cursor.subscribe(showReading), [cursor, showReading]);
 
+    // The chart's words (#819) — a strip says its values block by block instead.
+    const summary = useMemo(() => (ctx === true ? "" : chartSummary(kind, scale)), [ctx, kind, scale]);
+
     // Branch HERE, after every hook: the hooks above must run on every
     // render, or React sees a different hook order for a focused canvas than
     // an unfocused one.
@@ -277,7 +284,8 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: Ch
 
     const right = kind.right.type === "some" ? kind.right.value : undefined;
     return (
-        <Box position="absolute" inset={0} onClick={() => dispatch({ t: "row.select", key: rowKey })}>
+        <Box position="absolute" inset={0} role="img" aria-label={summary} data-plan-chart
+            onClick={() => dispatch({ t: "row.select", key: rowKey })}>
             {/* refBand paper washes under everything — across the render
                 bounds, so a pan reveals the rest of the band */}
             {kind.layers.map((layer, li) => {
@@ -300,6 +308,7 @@ export function ChartRowPlot({ kind, styles, height, expanded, rowKey, ctx }: Ch
             })}
             <svg width="100%" height="100%" viewBox={`0 0 ${VW} ${height}`} preserveAspectRatio="none"
                 style={{ position: "absolute", inset: 0, zIndex: 3, display: "block", overflow: "visible" }}>
+                <title>{summary}</title>
                 {columns.drawn.map((c, i) => {
                     const s = ys(c.side);
                     const yTop = s(c.hi);
@@ -381,10 +390,12 @@ export function ChartLeftTicks({ kind, styles, height }: { kind: ChartKindValue;
     const ticks = axisTicks(left);
     if (left === undefined || ticks.length === 0) return null;
     const fmt = axisFormatter(left);
+    // The axis labels the plot's scale for the eye; the plot's own name says
+    // its values (#819), so a reader skips these — they sit in the rowheader.
     return (
         <>
             {ticks.map((v, i) => (
-                <Box key={i} css={styles.chartTickLeft} top={`${s(v)}px`} data-plan-tickpx={s(v)}>
+                <Box key={i} css={styles.chartTickLeft} top={`${s(v)}px`} data-plan-tickpx={s(v)} aria-hidden="true">
                     {fmt(v)}
                 </Box>
             ))}

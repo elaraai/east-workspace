@@ -59,7 +59,8 @@ import {
 } from "../persisted.js";
 import { createPagingDriver, type PlanPagingSnapshot } from "./paging.js";
 import { CANVAS_KEY_TYPE, createSeekDriver, firstAtOrAfter, type PlanSeekSnapshot } from "./seek.js";
-import { runPlanEffects } from "./effects.js";
+import { currentScale, runPlanEffects } from "./effects.js";
+import { announcementOf, landedText } from "../a11y.js";
 
 /** A resolved overlay body (a resolver's some-value). */
 export type PlanOverlayBody = Extract<ReturnType<PlanElementResolver>, { type: "some" }>["value"];
@@ -96,15 +97,48 @@ export interface PlanAnchorState {
     restore: { index: number; offset: number } | undefined;
 }
 
+/** How a keyboard move brings its item into view (#819) — the least scroll
+ *  that shows it, or one of its edges at the viewport's. */
+export type PlanNavAlign = "auto" | "start" | "end";
+
 /** Who owns the scroll position the frame is asked for (#811). */
 export interface PlanScrollTarget {
-    /** A key search's target, or the first skipped row the chip seeks. */
-    owner: "search" | "skipped";
+    /** A key search's target, the first skipped row the chip seeks, or the
+     *  item keyboard navigation moved to (#819). */
+    owner: "search" | "skipped" | "nav";
     /** Bumped per chip click, so the chip scrolls there again after the user moved. */
     skippedSeq: number;
     /** The key search's target row — the first LOADED row at-or-after the
      *  sought key — once it has landed. */
     targetKey: string | undefined;
+    /** The keyboard's target item (`bodyItemKey`), how to bring it into view,
+     *  and a nonce per move — so moving back onto a row the user has since
+     *  scrolled away from scrolls to it again. */
+    nav: { key: string; align: PlanNavAlign; seq: number } | undefined;
+}
+
+/**
+ * Where keyboard focus rests in the canvas (#819) — the roving tab stop, and a
+ * move of DOM focus the keyboard asked for.
+ */
+export interface PlanNav {
+    /** The body item (`bodyItemKey`) holding the canvas's ONE tab stop — the
+     *  last one focused. `null` until something in the grid takes focus: the
+     *  grid itself is the tab stop until then, and whenever the active item
+     *  is not mounted. */
+    active: string | null;
+    /** A requested move of DOM focus: the item focuses itself once it is
+     *  mounted (it may first have to scroll into view), then reports
+     *  {@link PlanController.focusDone} — so a later remount never takes
+     *  focus back. */
+    request: { key: string; seq: number } | null;
+}
+
+/** The live region's latest message (#819). `seq` counts up, so the same
+ *  words said twice are two messages. */
+export interface PlanAnnouncement {
+    text: string;
+    seq: number;
 }
 
 /** Everything the canvas renders from — replaced whole, parts kept by identity. */
@@ -115,6 +149,8 @@ export interface PlanSnapshot {
     overlay: PlanOverlays;
     anchor: PlanAnchorState;
     scroll: PlanScrollTarget;
+    nav: PlanNav;
+    announce: PlanAnnouncement | null;
 }
 
 /** Options for {@link createPlanController}. */
@@ -170,6 +206,17 @@ export interface PlanController {
     readonly search: PlanSearch;
     /** The diagnostics chip asked for the first skipped row (#811). */
     seekSkipped(): void;
+    /**
+     * Keyboard navigation (#819): make `key` (a `bodyItemKey`) the canvas's
+     * tab stop and move DOM focus onto it — scrolled into view first when an
+     * `align` is given (a move onto an item already beside the focused one
+     * needs none).
+     */
+    focusItem(key: string, align?: PlanNavAlign): void;
+    /** DOM focus landed in an item (a click, a Tab) — it holds the tab stop. */
+    itemFocused(key: string): void;
+    /** The item a focus request named has taken focus. */
+    focusDone(seq: number): void;
     /** Place the persisted anchor against the body the canvas rendered (#813).
      *  A no-op once it has settled. */
     placeAnchor(items: readonly PlanBodyItem[], bounded: boolean): void;
@@ -190,6 +237,7 @@ export interface PlanController {
 }
 
 const NO_OVERLAYS: PlanOverlays = { popover: null, hover: null, tooltip: null };
+const NO_NAV: PlanNav = { active: null, request: null };
 const NO_ROWS: readonly PlanRowValue[] = [];
 const refEqual = equalFor(Plan.Types.ElementRef);
 
@@ -265,7 +313,10 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
         phase: restored.anchor === null ? "settled" : "pending",
         restore: undefined,
     };
-    let scroll: PlanScrollTarget = { owner: "search", skippedSeq: 0, targetKey: undefined };
+    let scroll: PlanScrollTarget = { owner: "search", skippedSeq: 0, targetKey: undefined, nav: undefined };
+    let nav = NO_NAV;
+    let navSeq = 0;
+    let announce: PlanAnnouncement | null = null;
     // What storage holds — compared before every write, so nothing is written
     // that is already there.
     let persisted = restored;
@@ -284,10 +335,14 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
             : windowRestHeight(rows, declaredGrainOf(value), denseOf(value), value.axis.type)),
         policy: options.policy,
         onChange: () => batch(() => {
+            const landed = paging.getSnapshot();
             // Rows that arrive WITHOUT a data change carry their own declared
             // collapse: seed each declared key ONCE, the first time its row
             // appears — in the same notification as the rows themselves.
-            store = planStoreReducer(store, { t: "seed", declaredCollapsed: declaredCollapsedOf(paging.getSnapshot().rows) }).store;
+            store = planStoreReducer(store, { t: "seed", declaredCollapsed: declaredCollapsedOf(landed.rows) }).store;
+            // What landed, for the live region (#819) — in the same
+            // notification too, so a landing is still one commit.
+            say(landedText(snapshot.paging.resident, landed.resident, landed.total));
         }),
     });
     const seek = createSeekDriver({
@@ -297,7 +352,7 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
     });
 
     let snapshot: PlanSnapshot = {
-        store, paging: paging.getSnapshot(), seek: seek.getSnapshot(), overlay, anchor, scroll,
+        store, paging: paging.getSnapshot(), seek: seek.getSnapshot(), overlay, anchor, scroll, nav, announce,
     };
 
     /** Rebuild the snapshot from the parts — the same object when none moved. */
@@ -314,14 +369,25 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
         }
         const quiet = store === quietStore;
         quietStore = undefined;
-        if (snapshot.store === store && snapshot.paging === p && snapshot.seek === s
-            && snapshot.overlay === overlay && snapshot.anchor === anchor && snapshot.scroll === scroll) return;
+        const othersSame = snapshot.paging === p && snapshot.seek === s && snapshot.overlay === overlay
+            && snapshot.anchor === anchor && snapshot.scroll === scroll && snapshot.nav === nav
+            && snapshot.announce === announce;
+        if (snapshot.store === store && othersSame) return;
         // Only the store moved, and to what every reader already shows: no one
         // needs telling (see `setValue`).
-        const drawn = quiet && snapshot.paging === p && snapshot.seek === s
-            && snapshot.overlay === overlay && snapshot.anchor === anchor && snapshot.scroll === scroll;
-        snapshot = { store, paging: p, seek: s, overlay, anchor, scroll };
+        const drawn = quiet && othersSame;
+        snapshot = { store, paging: p, seek: s, overlay, anchor, scroll, nav, announce };
         if (!drawn) dirty = true;
+    }
+
+    /** A row's name as the live region says it — its gutter label. */
+    function labelOf(key: RowKey): string {
+        return rows().find((r) => r.key === key)?.gutter.label ?? key;
+    }
+
+    /** Put words in the live region (#819) — nothing when there are none. */
+    function say(text: string | undefined): void {
+        if (text !== undefined) announce = { text, seq: (announce?.seq ?? 0) + 1 };
     }
 
     /** Run `fn` as one action: whatever it changes notifies once, at the end. */
@@ -432,11 +498,38 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
         },
         dispatch(e) {
             batch(() => {
+                const before = store.ui;
+                // A resolution lives in the slice: what it was, to say what it became.
+                const resolutionBefore = e.t === "resolution.set" && value !== undefined
+                    ? currentScale(value, rows())?.resolution : undefined;
                 const step = planStoreReducer(store, { t: "event", e });
                 store = step.store;
                 if (value !== undefined && step.effects.length > 0) runPlanEffects(step.effects, value, rows());
                 persistToggles();
+                // What the interaction changed, for the live region (#819) —
+                // said by the action that did it, so a reconcile or a landing
+                // that moves the same state says nothing.
+                say(announcementOf(e, before, store.ui, labelOf));
+                if (e.t === "resolution.set" && value !== undefined) {
+                    const after = currentScale(value, rows())?.resolution;
+                    if (after !== undefined && after !== resolutionBefore) say(`Resolution: ${after}`);
+                }
             });
+        },
+        focusItem(key, align) {
+            batch(() => {
+                navSeq += 1;
+                nav = { active: key, request: { key, seq: navSeq } };
+                if (align !== undefined) scroll = { ...scroll, owner: "nav", nav: { key, align, seq: navSeq } };
+            });
+        },
+        itemFocused(key) {
+            if (nav.active === key) return;
+            batch(() => { nav = { ...nav, active: key }; });
+        },
+        focusDone(seq) {
+            if (nav.request === null || nav.request.seq !== seq) return;
+            batch(() => { nav = { ...nav, request: null }; });
         },
         elementClick(ref) {
             if (value === undefined) return;

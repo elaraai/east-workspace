@@ -15,6 +15,7 @@
 
 import type { SystemStyleObject } from "@chakra-ui/react";
 import { lifecycleStates } from "./states.js";
+import { planElementFocus } from "./focus.js";
 
 /** The slots this part styles. */
 export const cellsSlots = [
@@ -56,6 +57,7 @@ export const cellsBase = {
             transition: "height 380ms cubic-bezier(0.16, 1, 0.3, 1)",
             "@media (prefers-reduced-motion: reduce)": { transition: "none" },
         },
+        ...planElementFocus,
     },
     heatLabel: {
         fontFamily: "mono",
@@ -78,6 +80,7 @@ export const cellsBase = {
         "&[data-planned]": {
             background: "color-mix(in srgb, {colors.brand.600} 45%, {colors.bg.surface})",
         },
+        ...planElementFocus,
     },
     segmentTrack: {
         position: "absolute",
@@ -88,6 +91,7 @@ export const cellsBase = {
         display: "flex",
         overflow: "hidden",
         zIndex: 2,
+        ...planElementFocus,
     },
     segmentPart: {
         display: "flex",
@@ -187,6 +191,7 @@ export const cellsBase = {
             transition: "height 380ms cubic-bezier(0.16, 1, 0.3, 1)",
             "@media (prefers-reduced-motion: reduce)": { transition: "none" },
         },
+        ...planElementFocus,
     },
     // A labelled tile's text — its own flex item, so a label wider than
     // the tile (a stretched tile in a 356px lane cell) ellipsizes instead
@@ -267,6 +272,7 @@ export const cellsBase = {
             transition: "height 380ms cubic-bezier(0.16, 1, 0.3, 1), padding 380ms cubic-bezier(0.16, 1, 0.3, 1)",
             "@media (prefers-reduced-motion: reduce)": { transition: "none" },
         },
+        ...planElementFocus,
     },
     // ── Table cells (K5) — the Table `.tcell` verbatim: right-aligned
     //    mono numerals per bucket (renderer sets left/width per bucket);
@@ -324,6 +330,7 @@ export const cellsBase = {
             textTransform: "uppercase",
             color: "fg.subtle",
         },
+        ...planElementFocus,
     },
     // One value position inside a table cell — tone derives per cell
     // (neg / em-dash) or from the SERIES' declaration; `strong` is the

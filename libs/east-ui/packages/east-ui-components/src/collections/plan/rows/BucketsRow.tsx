@@ -13,6 +13,9 @@
  * lifecycle axis. A marker rings its CELL (`data-over`) and pins the corner
  * status icon, whose message is its accessible name and the canvas's one
  * tooltip (#816).
+ *
+ * A tile is a button named by its label, bucket, lane and state (#819) — the
+ * ✓ and dashed `plan` chips say their state only by look.
  */
 
 import type { ReactNode } from "react";
@@ -31,6 +34,7 @@ import { runStateKey } from "./SpanRow.js";
 import type { PlanBucket } from "../scale.js";
 import type { PlanInstantValue } from "../instant.js";
 import { appendAll } from "../reductions.js";
+import { tileName } from "../a11y.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 type BucketsKindValue = Extract<ValueTypeOf<typeof Plan.Types.Row>["kind"], { type: "buckets" }>["value"];
@@ -58,12 +62,17 @@ export interface BucketsRowProps {
 }
 
 /** One event chip — the `.chk` / `.pchip` resting looks + labelled tiles. */
-function EventChip({ ev, styles, rowKey, ctx }: {
+function EventChip({ ev, styles, rowKey, ctx, bucket, lane }: {
     ev: BucketEventValue; styles: Styles; rowKey: string; ctx?: boolean | undefined;
+    /** The bucket the tile renders in — its place in the row's time order (#819). */
+    bucket: PlanBucket;
+    /** Its lane's caption, when the lane has one. */
+    lane: string | undefined;
 }) {
     const dispatch = usePlanDispatch();
     const { onElementClick } = usePlanResolvers();
     const system = useChakraContext();
+    const scale = usePlanScale();
     const ref = variant("event", { row: rowKey, event: ev.key }) as PlanElementRefValue;
     const label = ev.label.type === "some" ? ev.label.value : undefined;
     const icon = ev.icon.type === "some" ? ev.icon.value : undefined;
@@ -77,8 +86,12 @@ function EventChip({ ev, styles, rowKey, ctx }: {
     return (
         <Box css={styles.tile}
             data-event={ev.key}
-            // Focusable: Enter opens its popover (#816).
+            data-plan-frac={bucket.x0.toFixed(4)}
+            // Focusable: Enter opens its popover (#816), and the row's Tab
+            // walk reaches it (#819).
             tabIndex={-1}
+            role="button"
+            aria-label={tileName(ev, bucket, lane, scale)}
             data-ctx={ctx === true ? "" : undefined}
             data-state={stateKey}
             data-tone={ev.tone.type === "some" ? ev.tone.value.type : undefined}
@@ -118,6 +131,13 @@ export function BucketsRow({ rowKey, kind, styles, ctx }: BucketsRowProps) {
         if (lanes.length === 0 || lane.type === "none") return undefined;
         const i = lanes.findIndex((l) => l.key === lane.value);
         return i >= 0 ? i : undefined;
+    };
+    // A tile's own lane caption — what its accessible name says (#819), even
+    // in a spanned bucket where its lane has no row of its own.
+    const laneCaption = (lane: LaneRef): string | undefined => {
+        const li = laneIndex(lane);
+        const l = li !== undefined ? lanes[li] : undefined;
+        return l !== undefined && l.label.type === "some" ? l.label.value : undefined;
     };
 
     // Group events + markers by (bucket, lane); lane: none ⇒ the full cell
@@ -198,11 +218,12 @@ export function BucketsRow({ rowKey, kind, styles, ctx }: BucketsRowProps) {
             >
                 {caption !== undefined && ctx !== true && <Box css={styles.laneLabel}>{caption}</Box>}
                 {events.map((ev) => (
-                    <EventChip key={ev.key} ev={ev} styles={styles} rowKey={rowKey} ctx={ctx} />
+                    <EventChip key={ev.key} ev={ev} styles={styles} rowKey={rowKey} ctx={ctx}
+                        bucket={b} lane={laneCaption(ev.lane)} />
                 ))}
                 {marker !== undefined && (
                     <Box css={styles.markerIcon} data-status={marker.status.type}
-                        data-marker={`${bi}:${li ?? "full"}`} aria-label={marker.message}>
+                        data-marker={`${bi}:${li ?? "full"}`} role="img" aria-label={marker.message}>
                         <FontAwesomeIcon icon={STATUS_ICON[marker.status.type] ?? faCircleInfo} />
                     </Box>
                 )}

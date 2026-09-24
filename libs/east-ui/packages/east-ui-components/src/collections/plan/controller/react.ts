@@ -12,6 +12,7 @@
 
 import { createContext, useCallback, useContext, useRef, useSyncExternalStore } from "react";
 import type { RowKey } from "../plan-state.js";
+import { rowItemKey } from "../body-items.js";
 import type { PlanController, PlanSnapshot } from "./index.js";
 
 /** The canvas's controller, provided once by the canvas root. */
@@ -79,8 +80,27 @@ export function usePlanSelector<T>(select: (s: PlanSnapshot) => T, isEqual: (a: 
     return useControllerSelector(usePlanController(), select, isEqual);
 }
 
+/** One grid item's keyboard facts (#819). */
+export interface PlanItemNav {
+    /** The item holds the canvas's one tab stop. */
+    active: boolean;
+    /** A pending keyboard move onto the item (its request's number), or 0. */
+    focusSeq: number;
+}
+
+const sameItemNav = (a: PlanItemNav, b: PlanItemNav): boolean =>
+    a.active === b.active && a.focusSeq === b.focusSeq;
+
+/** An item's keyboard facts in a snapshot. */
+function itemNavOf(s: PlanSnapshot, itemKey: string): PlanItemNav {
+    return {
+        active: s.nav.active === itemKey,
+        focusSeq: s.nav.request !== null && s.nav.request.key === itemKey ? s.nav.request.seq : 0,
+    };
+}
+
 /** One body row's own slice of the UI state. */
-export interface PlanRowState {
+export interface PlanRowState extends PlanItemNav {
     /** The row is the selection. */
     selected: boolean;
     /** The user toggled this chart row to expanded. */
@@ -90,11 +110,12 @@ export interface PlanRowState {
 }
 
 const sameRowState = (a: PlanRowState, b: PlanRowState): boolean =>
-    a.selected === b.selected && a.chartExpanded === b.chartExpanded && a.activeControl === b.activeControl;
+    a.selected === b.selected && a.chartExpanded === b.chartExpanded && a.activeControl === b.activeControl
+    && sameItemNav(a, b);
 
 /**
  * A body row's own UI facts — the row re-renders when THESE change, never on
- * another row's selection or toggle.
+ * another row's selection, toggle or tab stop.
  *
  * @param key - The row key
  * @returns The row's state
@@ -106,7 +127,20 @@ export function usePlanRowState(key: RowKey): PlanRowState {
             selected: ui.selected === key,
             chartExpanded: ui.chartsExpanded.has(key),
             activeControl: ui.focus !== null && ui.focus.key === key ? ui.focus.kind : undefined,
+            ...itemNavOf(s, rowItemKey(key)),
         };
     }, [key]);
     return usePlanSelector(select, sameRowState);
+}
+
+/**
+ * A non-row grid item's keyboard facts (#819) — a gap band, a window band, a
+ * failed window: whether it holds the tab stop, and a keyboard move onto it.
+ *
+ * @param itemKey - The item's `bodyItemKey`
+ * @returns Its keyboard facts
+ */
+export function usePlanItemNav(itemKey: string): PlanItemNav {
+    const select = useCallback((s: PlanSnapshot): PlanItemNav => itemNavOf(s, itemKey), [itemKey]);
+    return usePlanSelector(select, sameItemNav);
 }

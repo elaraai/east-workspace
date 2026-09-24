@@ -43,10 +43,14 @@
  * The cards (`cards.tsx`), the ruler and resolution chip (`chrome.tsx`), the
  * list demand (`demand.ts`) and the row walks (`lists.ts`) live beside this
  * shell (#815).
+ *
+ * The tabs are Chakra's `Tabs` (Zag, #819): a tablist with a roving tab stop,
+ * the arrow keys between tabs, and a tabpanel per tab — the list is the
+ * selected tab's panel.
  */
 
 import { useMemo, useRef, useState, type ComponentProps, type PointerEvent, type ReactNode } from "react";
-import { Box, useSlotRecipe } from "@chakra-ui/react";
+import { Box, Tabs } from "@chakra-ui/react";
 import { type ValueTypeOf } from "@elaraai/east";
 import { Plan, Slice } from "@elaraai/east-ui/internal";
 import type { EastChakraComponent } from "../../../component.js";
@@ -164,7 +168,6 @@ export function PlanNarrow({
     const selected = usePlanSelector(selectSelected);
     // Paged demand (#812): row cards and the load-more card enrol here.
     const watch = useListDemand(paging);
-    const tabsRecipe = useSlotRecipe({ key: "tabs" });
     // The auto-appended cohort chip appears when the STORE moves (#611).
     const sliceVersion = useSliceReactivity(slice?.key);
     const railKinds = useMemo(
@@ -427,12 +430,12 @@ export function PlanNarrow({
         );
     }
 
-    // The tab strip is the production `tabs` recipe (`<Tabs>`'s line
-    // variant) — underline only, no fill, the mono eyebrow grammar, the
-    // hairline baseline the active underline overlaps — so the strip cannot
-    // drift from the spec by re-declaring it. Counts ride each label as
-    // plain numerals (never a tinted pill); a paged prefix marks them `~`.
-    const tabStyles = tabsRecipe({ variant: "line", size: "md" }) as unknown as Styles;
+    // The tab strip is `<Tabs>` itself, in its line variant — underline only,
+    // no fill, the mono eyebrow grammar, the hairline baseline the active
+    // underline overlaps — so the strip cannot drift from the spec by
+    // re-declaring it, and brings Zag's keyboard and tabpanels (#819).
+    // Counts ride each label as plain numerals (never a tinted pill); a paged
+    // prefix marks them `~`.
     const rowCount = allDataRows(index).length;
     const tabs: Array<{ key: NarrowTab; label: string; count: number }> = [
         ...(hasGroups ? [{ key: "groups" as const, label: "Groups", count: rootGroups.length }] : []),
@@ -446,50 +449,55 @@ export function PlanNarrow({
     const sliceChips = slice !== undefined && (railKinds.length > 0 || resolutions.length > 0);
 
     return (
-        <Box css={styles.narrowRoot} data-plan-narrow data-plan-fill={fill ? "" : undefined}>
-            {(sliceChips || hasDiagnostics(narrowDiagnostics)) && (
-                <Box css={styles.narrowChips} data-slot="narrowChips">
-                    {slice !== undefined && railKinds.length > 0 && <SliceRailCluster slice={slice} affordanceKinds={railKinds} />}
-                    {slice !== undefined && resolutions.length > 0 && (
-                        <ResolutionChip resolution={resolution} resolutions={resolutions}
-                            onPick={(r) => dispatch({ t: "resolution.set", resolution: r })} />
-                    )}
-                    {hasDiagnostics(narrowDiagnostics) && <PlanDiagnosticChips diagnostics={narrowDiagnostics} styles={styles} />}
-                </Box>
-            )}
-            <Box css={tabStyles.list} role="tablist" data-slot="narrowTabs" data-part="list" flexShrink={0}>
-                {tabs.map((t) => (
-                    <Box key={t.key} as="button" role="tab" css={tabStyles.trigger} data-part="trigger"
-                        data-plan-tab={t.key} data-selected={activeTab === t.key ? "" : undefined}
-                        aria-selected={activeTab === t.key}
-                        onClick={() => setTab(t.key)}>
-                        {t.label}
-                        <Box as="span" css={styles.narrowTabCount} data-plan-tabcount={t.count}>
-                            {`${partial === true && t.key !== "groups" ? "~" : ""}${formatDerived(t.count)}`}
-                        </Box>
+        <Tabs.Root asChild value={activeTab} onValueChange={(d) => setTab(d.value as NarrowTab)}
+            variant="line" size="md">
+            <Box css={styles.narrowRoot} data-plan-narrow data-plan-fill={fill ? "" : undefined}>
+                {(sliceChips || hasDiagnostics(narrowDiagnostics)) && (
+                    <Box css={styles.narrowChips} data-slot="narrowChips">
+                        {slice !== undefined && railKinds.length > 0 && <SliceRailCluster slice={slice} affordanceKinds={railKinds} />}
+                        {slice !== undefined && resolutions.length > 0 && (
+                            <ResolutionChip resolution={resolution} resolutions={resolutions}
+                                onPick={(r) => dispatch({ t: "resolution.set", resolution: r })} />
+                        )}
+                        {hasDiagnostics(narrowDiagnostics) && <PlanDiagnosticChips diagnostics={narrowDiagnostics} styles={styles} />}
                     </Box>
-                ))}
-            </Box>
-            <Box ref={listRef} css={styles.narrowList} data-slot="narrowList"
-                onPointerDown={onPointerDown} onPointerMove={onPointerMove}
-                onPointerUp={onPointerEnd} onPointerCancel={onPointerEnd}>
-                <NarrowRuler styles={styles} />
-                {/* A window whose read failed (#811) — its reason and a Retry,
-                    above whatever did land. */}
-                {(failures ?? []).map((f) => (
-                    <Box key={`failed-${f.w}`} css={styles.narrowCard} data-plan-failed={f.w} role="alert">
-                        <Box css={styles.narrowCardHead}>
-                            <Box css={styles.partError}>{failureCaption(f)}</Box>
-                            <Box as="button" css={styles.windowRetry} data-plan-retry={f.w}
-                                onClick={(e: React.MouseEvent) => { e.stopPropagation(); onRetry?.(f.w); }}>
-                                Retry
+                )}
+                <Tabs.List data-slot="narrowTabs" flexShrink={0}>
+                    {tabs.map((t) => (
+                        <Tabs.Trigger key={t.key} value={t.key} data-plan-tab={t.key}>
+                            {t.label}
+                            <Box as="span" css={styles.narrowTabCount} data-plan-tabcount={t.count}>
+                                {`${partial === true && t.key !== "groups" ? "~" : ""}${formatDerived(t.count)}`}
                             </Box>
-                        </Box>
-                    </Box>
-                ))}
-                {list}
+                        </Tabs.Trigger>
+                    ))}
+                </Tabs.List>
+                {/* One tabpanel per tab; the selected one IS the list. Only it
+                    wears the list's styles: a recipe `display` outranks the
+                    `hidden` Zag puts on the others. */}
+                {tabs.map((t) => (t.key !== activeTab ? <Tabs.Content key={t.key} value={t.key} /> : (
+                    <Tabs.Content key={t.key} value={t.key} ref={listRef} css={styles.narrowList} data-slot="narrowList"
+                        onPointerDown={onPointerDown} onPointerMove={onPointerMove}
+                        onPointerUp={onPointerEnd} onPointerCancel={onPointerEnd}>
+                        <NarrowRuler styles={styles} />
+                        {/* A window whose read failed (#811) — its reason and a Retry,
+                            above whatever did land. */}
+                        {(failures ?? []).map((f) => (
+                            <Box key={`failed-${f.w}`} css={styles.narrowCard} data-plan-failed={f.w} role="alert">
+                                <Box css={styles.narrowCardHead}>
+                                    <Box css={styles.partError}>{failureCaption(f)}</Box>
+                                    <Box as="button" css={styles.windowRetry} data-plan-retry={f.w}
+                                        onClick={(e: React.MouseEvent) => { e.stopPropagation(); onRetry?.(f.w); }}>
+                                        Retry
+                                    </Box>
+                                </Box>
+                            </Box>
+                        ))}
+                        {list}
+                    </Tabs.Content>
+                )))}
+                <PlanFooter styles={styles} items={footer} transport={transport} />
             </Box>
-            <PlanFooter styles={styles} items={footer} transport={transport} />
-        </Box>
+        </Tabs.Root>
     );
 }

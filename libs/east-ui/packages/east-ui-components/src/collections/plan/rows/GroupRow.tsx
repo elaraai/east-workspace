@@ -9,6 +9,9 @@
  * collapsed with a `summary`, the plot renders the factory-computed heat
  * strip (delegating the cell painting to {@link HeatCells}); expanded (or
  * summary-less) the plot stays a plain band.
+ *
+ * A treegrid row (#819) at its level, expanded or not, its name the
+ * `rowheader`.
  */
 
 import { Box } from "@chakra-ui/react";
@@ -22,7 +25,9 @@ import { GridSeparators, INDENT_PX } from "./RowShell.js";
 import { PlanPartBoundary } from "./PartBoundary.js";
 import { RowDiagnostic } from "./RowDiagnostic.js";
 import { membersMeta } from "../format.js";
-import type { HeatScale, PlanRowDiagnostic, PlanRowValue } from "../model.js";
+import { statusText } from "../a11y.js";
+import { rowItemKey, type HeatScale, type PlanRowDiagnostic, type PlanRowValue } from "../model.js";
+import type { PlanGridRow } from "../root/grid.js";
 
 type HeatCellsValue = ValueTypeOf<typeof Plan.Types.HeatCells>;
 type HeatCellValue = ValueTypeOf<typeof Plan.Types.HeatCell>;
@@ -71,10 +76,12 @@ export interface GroupRowProps {
      *  (#811): the band keeps its toggle and its members, and its plot says
      *  why it shows no strip. */
     diagnostic?: PlanRowDiagnostic | undefined;
+    /** The band's grid plumbing (#819) — `usePlanGridRow`. */
+    grid: PlanGridRow;
 }
 
 /** One group band — full-width strip on the shared template. */
-export function GroupRow({ row, kind, styles, gridTemplate, height, depth, collapsed, summaryCells, summaryScale, memberCount, partial, diagnostic }: GroupRowProps) {
+export function GroupRow({ row, kind, styles, gridTemplate, height, depth, collapsed, summaryCells, summaryScale, memberCount, partial, diagnostic, grid }: GroupRowProps) {
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
     // A declared meta line wins; otherwise the derived member count stands in.
@@ -91,9 +98,16 @@ export function GroupRow({ row, kind, styles, gridTemplate, height, depth, colla
 
     return (
         <Box
+            ref={grid.ref}
             css={styles.groupBand}
             gridTemplateColumns={gridTemplate}
             height={`${height}px`}
+            role="row"
+            aria-level={depth + 1}
+            aria-expanded={!collapsed}
+            tabIndex={grid.tabIndex}
+            onFocus={grid.onFocus}
+            data-plan-item={rowItemKey(row.key)}
             data-plan-group={row.key}
             // The height the model laid the band out at (#817).
             data-plan-h={height}
@@ -101,7 +115,7 @@ export function GroupRow({ row, kind, styles, gridTemplate, height, depth, colla
             data-plan-partial={partial === true ? "" : undefined}
             onClick={() => dispatch({ t: "group.toggle", key: row.key })}
         >
-            <Box css={styles.groupName} paddingLeft={`${12 + depth * INDENT_PX}px`}>
+            <Box css={styles.groupName} role="rowheader" paddingLeft={`${12 + depth * INDENT_PX}px`}>
                 <Box as="span" css={styles.caret} data-collapsed={collapsed ? "" : undefined}>
                     <FontAwesomeIcon icon={faCaretDown} />
                 </Box>
@@ -112,12 +126,13 @@ export function GroupRow({ row, kind, styles, gridTemplate, height, depth, colla
                 {(meta !== undefined || value !== undefined || statusTone !== undefined) && (
                     <Box css={styles.gutterRight}>
                         {meta !== undefined && <Box as="span" css={styles.groupMeta}>{meta}</Box>}
-                        {statusTone !== undefined && <Box as="span" css={styles.statusDot} data-tone={statusTone} />}
+                        {statusTone !== undefined && <Box as="span" css={styles.statusDot} data-tone={statusTone}
+                            role="img" aria-label={statusText(statusTone)} />}
                         {value !== undefined && <Box as="span" css={styles.gutterValue}>{value}</Box>}
                     </Box>
                 )}
             </Box>
-            <Box css={styles.plot}>
+            <Box css={styles.plot} role="gridcell">
                 {diagnostic !== undefined && <RowDiagnostic diagnostic={diagnostic} styles={styles} />}
                 {summary !== undefined && (
                     <PlanPartBoundary part={`group ${row.gutter.label}`} resetKey={summary} styles={styles}>

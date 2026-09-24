@@ -45,9 +45,15 @@
  * events and the component's dispatches are a closed loop (#569). Every
  * element's popover, hover card and tooltip come from ONE overlay layer the
  * body delegates to (#816, `root/overlays.tsx`).
+ *
+ * The body is a TREEGRID (#819): every row, group band, gap band and window
+ * band is a `row` at its `aria-rowindex` (`root/grid.ts`), with ONE tab stop
+ * roving between them, a keyboard map over rows and their elements
+ * (`root/keyboard.ts`), a polite live region (`root/announce.tsx`), and words
+ * for everything the canvas says only by shape or colour (`a11y.ts`).
  */
 
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent } from "react";
 import { Box, useSlotRecipe } from "@chakra-ui/react";
 import { equalFor, equivalentFor } from "@elaraai/east";
 import { Plan } from "@elaraai/east-ui/internal";
@@ -70,7 +76,7 @@ import { axisNow, axisResolutions, ordinalIndexOf } from "./axis.js";
 import type { PlanInstantValue } from "./instant.js";
 import type { PlanEvent } from "./plan-state.js";
 import {
-    derivePlan, indexRows, linkedRowKeys, pinnedRows, pxOf, visibleRows,
+    bodyItemKey, derivePlan, indexRows, linkedRowKeys, pinnedRows, pxOf, rowHeight, rowItemKey, visibleRows,
     type PlanRootValue, type VisibleRow,
 } from "./model.js";
 import { PlanNarrow, PLAN_NARROW_BELOW } from "./narrow/index.js";
@@ -96,7 +102,13 @@ import { PlanGapBand, renderPlanRow, type PlanRowContext } from "./root/rows.js"
 import { PlanHeader } from "./root/Header.js";
 import { usePlanCursorController } from "./root/cursor.js";
 import { usePlanDropTarget } from "./root/drop.js";
-import { PlanOverlays, createOverlayAnchors, usePlanOverlayHandlers } from "./root/overlays.js";
+import { PLAN_ELEMENT_SELECTOR, PlanOverlays, createOverlayAnchors, refOfElement, usePlanOverlayHandlers } from "./root/overlays.js";
+import { PlanGridContext, createRowPositions, type PlanGridContextValue } from "./root/grid.js";
+import {
+    gridItemOf, planNavItems, planNavKey, plotElements, resolveNavIntent, rowWidgets,
+    type PlanNavEdges, type PlanNavIntent, type PlanNavMove,
+} from "./root/keyboard.js";
+import { PlanAnnouncer } from "./root/announce.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
@@ -120,8 +132,9 @@ const GUTTER_W = 168;
  *  content-sized examples and captures keep their full render. */
 const VIRTUALIZE_UNBOUNDED_AT = 400;
 
-/** The keyboard map (§11) — esc runs the one-rung ladder, `n` / `[` / `]`
- *  move the window, `g` cycles the grain. */
+/** The canvas-wide keys (§11) — esc runs the one-rung ladder, `n` / `[` / `]`
+ *  move the window, `g` cycles the grain. They work from anywhere in the
+ *  canvas; the grid's own keys (`root/keyboard.ts`) come first. */
 const KEYS: Readonly<Record<string, PlanEvent>> = {
     Escape: { t: "key", key: "esc" },
     n: { t: "key", key: "n" },
@@ -304,10 +317,17 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
         { scrollElRef, headerRef }, !narrow);
     // Entering a row focus can swap the body tree (R2 unmounts the clicked
     // control), dropping browser focus to <body> and killing the esc rung —
-    // re-anchor keyboard focus on the canvas surface.
+    // re-anchor keyboard focus on the focused ROW (#819: it holds the tab
+    // stop from then on), or on the canvas surface in the narrow layout,
+    // which has no grid. Focus that stayed in the canvas is left where it is.
     useEffect(() => {
-        if (view.focus !== null) focusBodyRef.current?.focus();
-    }, [view.focus]);
+        if (view.focus === null) return;
+        const bodyEl = focusBodyRef.current;
+        const at = document.activeElement;
+        if (bodyEl === null || (at !== null && at !== document.body && bodyEl.contains(at))) return;
+        if (narrow) bodyEl.focus();
+        else controller.focusItem(rowItemKey(view.focus.key));
+    }, [view.focus, narrow, controller]);
     // The hover cursor: direct DOM writes, zero renders (#609).
     const cursorChipRef = useRef<HTMLDivElement | null>(null);
     const cursor = usePlanCursorController(focusBodyRef, cursorChipRef, scale);
@@ -417,6 +437,71 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     const resolutions = useMemo(() => axisResolutions(data.axis), [data.axis]);
     const now = useMemo(() => axisNow(data.axis), [data.axis]);
 
+    // ── The treegrid (#819) ───────────────────────────────────────────────
+    // Every item's place in the grid — the pinned rows first — published to
+    // the rows, which write it onto themselves: a collapse or a landing at
+    // the head renumbers every row below it without rendering one
+    // (`root/grid.ts`).
+    const gridRef = useRef<HTMLElement | null>(null);
+    const [positions] = useState(createRowPositions);
+    const gridCtx = useMemo<PlanGridContextValue>(() => ({ positions, gridRef }), [positions]);
+    const positionMap = useMemo(() => {
+        const m = new Map<string, number>();
+        pinned.forEach((v, i) => m.set(rowItemKey(v.row.key), i + 1));
+        body.items.forEach((it, i) => m.set(bodyItemKey(it), pinned.length + i + 1));
+        return m;
+    }, [pinned, body.items]);
+    useLayoutEffect(() => { positions.set(positionMap); }, [positions, positionMap]);
+    const uid = useId();
+    const pinnedId = `${uid}-pinned`;
+    // The grid's items as the keyboard walks them.
+    const pinnedHeights = useMemo(
+        () => pinned.map((v) => rowHeight(v, dense, chartsExpanded, heightCtx, derived)),
+        [pinned, dense, chartsExpanded, heightCtx, derived]);
+    const navItems = useMemo(() => planNavItems({
+        pinned, pinnedHeights, items: body.items, heights: body.heights, index, chartsExpanded, focusCtx,
+    }), [pinned, pinnedHeights, body.items, body.heights, index, chartsExpanded, focusCtx]);
+    // What the grid knows of its source's ends — a pending band move waits
+    // while a window is in flight, and Home / End until the source's own
+    // first / last element is resident.
+    const navEdges = useMemo<PlanNavEdges>(() => ({
+        loading: paging.loading,
+        atStart: !paged || (paging.head === undefined && paging.resident?.from === 0),
+        atEnd: !paged || (paging.tail === undefined && paging.resident !== undefined
+            && paging.total !== undefined && paging.resident.to >= paging.total),
+    }), [paged, paging.loading, paging.head, paging.tail, paging.resident, paging.total]);
+    // A keyboard move onto a band waits — on the band, or on the item it set
+    // out from when the demand took the band away — for the rows, then goes
+    // on to the row it was headed for (`resolveNavIntent`).
+    const navIntent = useRef<{ holder: string; intent: PlanNavIntent } | null>(null);
+    useEffect(() => {
+        const pending = navIntent.current;
+        if (pending !== null) {
+            // Moved on meanwhile: the move is theirs now.
+            if (controller.getSnapshot().nav.active !== pending.holder) {
+                navIntent.current = null;
+            } else {
+                const r = resolveNavIntent(navItems, pending.intent, navEdges);
+                if (r.t !== "pending") {
+                    navIntent.current = null;
+                    if (r.t === "resolved") controller.focusItem(r.key, "auto");
+                    return;
+                }
+            }
+        }
+        const snap = controller.getSnapshot();
+        // A keyboard move whose item the grid no longer holds — a grain change
+        // folded the row away — is dropped (left standing, it would take
+        // focus if the item ever came back), and the grid takes focus
+        // instead, handing it on to a row. A host data change that takes a
+        // row away asks for no move, and moves nothing.
+        const req = snap.nav.request;
+        if (req !== null && !navItems.some((it) => it.key === req.key)) {
+            controller.focusDone(req.seq);
+            if (!narrow) gridRef.current?.focus();
+        }
+    }, [navItems, navEdges, controller, narrow]);
+
     // A source that cannot be READ no longer replaces the canvas (#811): its
     // windows fail one by one, each as its own band with the reason and a
     // Retry. A missing WINDOW is the one thing no row can be placed without.
@@ -444,27 +529,169 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
             pinned={pinned.map((v) => (
                 <Box key={v.row.key} background="bg.surface">{renderPlanRow(v, rowCtx)}</Box>
             ))}
+            pinnedId={pinned.length > 0 ? pinnedId : undefined}
             focus={view.focus}
             linkCounts={linkFamily !== undefined
                 ? { upstream: linkFamily.upstream.size, downstream: linkFamily.downstream.size }
                 : undefined} />
     );
 
+    // ── The grid's keys (#819, `root/keyboard.ts`) ────────────────────────
+    // How far a page moves: the frame's viewport less its pinned header, or
+    // the window's on an unbounded canvas.
+    const pageHeight = (): number => {
+        const el = scrollElRef.current;
+        if (frameFills && el !== null) return Math.max(0, el.clientHeight - (headerRef.current?.offsetHeight ?? 0));
+        return typeof window !== "undefined" ? window.innerHeight : 0;
+    };
+    const runMove = (move: PlanNavMove, from: string) => {
+        switch (move.t) {
+            case "focus":
+                controller.focusItem(move.key, move.align);
+                break;
+            case "band": {
+                // The window beside the run, asked for now — whatever the
+                // scroll reports after. The demand may take the band away (its
+                // windows in flight now, with no band standing for them):
+                // focus then stays where it is until the rows land.
+                controller.reportViewport(move.demand, false);
+                const p = controller.getSnapshot().paging;
+                const stays = (move.demand.kind === "band" && move.demand.at === "head" ? p.head : p.tail) !== undefined;
+                navIntent.current = { holder: stays ? move.key : from, intent: move.intent };
+                if (stays) controller.focusItem(move.key, move.align);
+                break;
+            }
+            case "event":
+                controller.dispatch(move.event);
+                // Focus stays on (or lands on) its item: the event may have
+                // re-rendered it as another element — a rail becoming a row.
+                controller.focusItem(move.focus);
+                break;
+            case "none":
+                break;
+        }
+    };
+    // An element's activation from the keyboard does what its click does:
+    // the popover, the row's selection, the author's element callback.
+    const activateElement = (el: HTMLElement) => {
+        const ref = refOfElement(el);
+        if (ref === undefined) return;
+        overlayHandlers.openAt(el);
+        controller.dispatch({ t: "row.select", key: ref.value.row });
+        controller.elementClick(ref);
+    };
+    /** A key in the grid — `true` when it was the grid's. */
+    const gridKeys = (e: KeyboardEvent<HTMLDivElement>, bodyEl: HTMLElement): boolean => {
+        const item = gridItemOf(e.target, bodyEl);
+        if (item === null || e.altKey || e.ctrlKey || e.metaKey) return false;
+        const itemKey = item.getAttribute("data-plan-item") ?? "";
+        if (e.target === item) {
+            // The row itself: Tab walks into its widgets; the rest is the map.
+            if (e.key === "Tab") {
+                if (e.shiftKey) return false;
+                const ring = rowWidgets(item, bodyEl);
+                if (ring.length === 0) return false;
+                e.preventDefault();
+                ring[0]!.focus();
+                return true;
+            }
+            const move = planNavKey(navItems, itemKey, e.key, pageHeight());
+            if (move === undefined) return false;
+            e.preventDefault();
+            runMove(move, itemKey);
+            return true;
+        }
+        // A widget of the row: an element, a control, a review button.
+        const widget = e.target as HTMLElement;
+        const isElement = widget.matches(PLAN_ELEMENT_SELECTOR);
+        switch (e.key) {
+            case "Escape":
+                // Back to the row — one rung; the next Escape is the ladder's.
+                e.preventDefault();
+                item.focus({ preventScroll: true });
+                return true;
+            case "Tab": {
+                const ring = rowWidgets(item, bodyEl);
+                const i = ring.indexOf(widget);
+                if (e.shiftKey) {
+                    e.preventDefault();
+                    (i > 0 ? ring[i - 1]! : item).focus();
+                    return true;
+                }
+                // Past the last widget, Tab leaves the canvas as it would.
+                if (i < 0 || i >= ring.length - 1) return false;
+                e.preventDefault();
+                ring[i + 1]!.focus();
+                return true;
+            }
+            case "ArrowLeft": case "ArrowRight": case "Home": case "End": {
+                if (!isElement) return false;
+                const els = plotElements(item, bodyEl);
+                const i = els.indexOf(widget);
+                if (i < 0) return false;
+                const j = e.key === "Home" ? 0 : e.key === "End" ? els.length - 1
+                    : Math.max(0, Math.min(els.length - 1, i + (e.key === "ArrowRight" ? 1 : -1)));
+                e.preventDefault();
+                els[j]!.focus();
+                return true;
+            }
+            case "ArrowUp": case "ArrowDown": {
+                // Up and down leave the row's widgets for the next row.
+                const move = planNavKey(navItems, itemKey, e.key, pageHeight());
+                if (move === undefined) return false;
+                e.preventDefault();
+                runMove(move, itemKey);
+                return true;
+            }
+            case "Enter": case " ":
+                // A button's own key activates it; an element is the canvas's to.
+                if (!isElement) return false;
+                e.preventDefault();
+                activateElement(widget);
+                return true;
+            default:
+                return false;
+        }
+    };
+
     const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+        const bodyEl = focusBodyRef.current;
         const t = e.target as HTMLElement;
         // Keys typed in portalled content — an open popover's body, a toolbar
         // menu — bubble here through the React tree; they are not the canvas's.
-        if (!(t instanceof Node) || focusBodyRef.current?.contains(t) !== true) return;
+        if (bodyEl === null || !(t instanceof Node) || !bodyEl.contains(t)) return;
         if (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable) return;
         // Nor is a key something nearer already handled — an open overlay's
         // Escape (its layer listens on the document, ahead of the canvas), a
         // widget in an expand render, a nested canvas's own ladder.
         if (e.defaultPrevented) return;
+        // An open popover is the ladder's top rung.
+        if (e.key === "Escape" && overlayHandlers.onKeyDown(e)) return;
+        if (gridKeys(e, bodyEl)) return;
+        // Enter on an element outside the grid — a narrow card's.
         if (overlayHandlers.onKeyDown(e)) return;
         const ev = KEYS[e.key];
         if (ev === undefined) return;
         e.preventDefault();
         controller.dispatch(ev);
+        // A key pressed on a row keeps focus on it: the ladder may re-render
+        // it as another element (a rail returning to a row).
+        const item = gridItemOf(t, bodyEl);
+        if (item !== null && item === t) controller.focusItem(item.getAttribute("data-plan-item") ?? "");
+    };
+
+    // Focus landing on the grid itself (it is the tab stop while no mounted
+    // row holds it) goes on to a row: the one that held it, else the
+    // selection, else the first — scrolled into view first if it must be.
+    const onGridFocus = (e: FocusEvent<HTMLDivElement>) => {
+        if (e.target !== e.currentTarget) return;
+        const snap = controller.getSnapshot();
+        const keys = new Set(navItems.map((it) => it.key));
+        const selected = snap.store.ui.selected !== null ? rowItemKey(snap.store.ui.selected) : undefined;
+        const target = snap.nav.active !== null && keys.has(snap.nav.active) ? snap.nav.active
+            : selected !== undefined && keys.has(selected) ? selected
+                : navItems[0]?.key;
+        if (target !== undefined) controller.focusItem(target, "auto");
     };
 
     const canvas = (
@@ -474,9 +701,12 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
         <PlanDispatchContext.Provider value={controller.dispatch}>
         <PlanCursorContext.Provider value={cursor}>
         <PlanResolversContext.Provider value={resolvers}>
+        <PlanGridContext.Provider value={gridCtx}>
             <Box
                 ref={focusBodyRef}
-                tabIndex={0}
+                // The keyboard surface and the focus anchor, but not a tab
+                // stop: the grid's one stop is its active row (#819).
+                tabIndex={-1}
                 outline="none"
                 position="relative"
                 width="100%"
@@ -525,6 +755,21 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                         measureRows={false}
                         scrollToIndex={target.toIndex}
                         scrollNonce={target.nonce}
+                        scrollAlign={target.align}
+                        // The rows' container IS the treegrid (#819): every
+                        // body item is a row of it, the pinned rows join by
+                        // `aria-owns`, and its count is exact — an unloaded
+                        // run is one row, the band that stands for it.
+                        rowsRef={gridRef}
+                        rowsProps={{
+                            role: "treegrid",
+                            "aria-label": "Plan",
+                            "aria-rowcount": pinned.length + body.items.length,
+                            ...(pinned.length > 0 ? { "aria-owns": pinnedId } : {}),
+                            // The tab stop while no mounted row holds it.
+                            tabIndex: 0,
+                            onFocus: onGridFocus,
+                        }}
                         onRangeChange={paged ? reportRange : undefined}
                         // Unbounded, a large canvas mounts only what its
                         // scrolling ancestor shows (#812) — the same threshold
@@ -583,7 +828,9 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                     full-width under the canvas (the shared convention). */}
                 {review !== undefined && <ReviewFoot controller={review} storageKey={storageKey} />}
                 <PlanOverlays anchors={anchors} styles={styles} storageKey={storageKey} />
+                <PlanAnnouncer />
             </Box>
+        </PlanGridContext.Provider>
         </PlanResolversContext.Provider>
         </PlanCursorContext.Provider>
         </PlanDispatchContext.Provider>

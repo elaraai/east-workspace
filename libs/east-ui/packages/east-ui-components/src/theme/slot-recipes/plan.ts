@@ -12,7 +12,8 @@
  * `plan/rows.ts` (the alignment contract, gutter, focus, groups),
  * `plan/elements.ts` (marks at an instant), `plan/cells.ts` (what is quantised
  * to a bucket) and `plan/narrow.ts` (the §10 layout) — with the lifecycle
- * axis shared from `plan/states.ts`.
+ * axis shared from `plan/states.ts` and the keyboard focus rings from
+ * `plan/focus.ts` (#819).
  *
  * Every height the model also computes — rows, rails, gap bands, strips and
  * their marks, bars, tiles, chips, the chrome bands — is read from the

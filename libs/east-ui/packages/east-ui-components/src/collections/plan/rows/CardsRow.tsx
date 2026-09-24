@@ -9,6 +9,7 @@
  * recipe `cardChip` slot's `data-state` axis (confirmed brand tint · proposed
  * dashed · `proposed(removed)` warn strikethrough · estimated ghost). A chip's
  * popover and hover card come from the canvas's one overlay layer (#816).
+ * Each chip is a button named by its label, span and state (#819).
  */
 
 import { variant, type ValueTypeOf } from "@elaraai/east";
@@ -18,6 +19,7 @@ import type { IconName, IconPrefix } from "@fortawesome/fontawesome-svg-core";
 import { Plan } from "@elaraai/east-ui/internal";
 import { usePlanDispatch, usePlanResolvers, usePlanScale, type PlanElementRefValue } from "../context.js";
 import { runStateKey } from "./SpanRow.js";
+import { chipName } from "../a11y.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 type CardsKindValue = Extract<ValueTypeOf<typeof Plan.Types.Row>["kind"], { type: "cards" }>["value"];
@@ -59,8 +61,11 @@ export function CardsRow({ rowKey, kind, styles, ctx }: CardsRowProps) {
                     <Box key={chip.key} css={styles.cardChip}
                         data-ctx={ctxAttr}
                         data-chip={chip.key}
-                        // Focusable: Enter opens its popover (#816).
+                        // Focusable: Enter opens its popover (#816), and the
+                        // row's Tab walk reaches it (#819).
                         tabIndex={-1}
+                        role="button"
+                        aria-label={chipName(chip, scale)}
                         data-plan-frac={left.toFixed(4)}
                         data-state={runStateKey(chip.state)}
                         left={`calc(${left * 100}% + 2px)`}

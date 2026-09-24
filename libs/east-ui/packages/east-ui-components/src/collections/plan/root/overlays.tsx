@@ -159,6 +159,10 @@ export interface PlanOverlayHandlers {
     /** Enter on a focused element opens its popover, and Esc closes an open
      *  one; `true` when the key was the layer's (the canvas then ignores it). */
     onKeyDown: (e: KeyboardEvent<HTMLElement>) => boolean;
+    /** Open an element's popover as Enter does — never a toggle, so a second
+     *  press keeps it open. The keyboard's activation of an element (#819);
+     *  `true` when the root declares a popover and the element names a ref. */
+    openAt: (el: HTMLElement) => boolean;
 }
 
 /**
@@ -223,6 +227,7 @@ export function usePlanOverlayHandlers(
                 e.preventDefault();
                 return true;
             },
+            openAt: (el) => hasPopover && openPopover(el, false),
             onPointerOver: (e) => {
                 const body = bodyRef.current;
                 const tip = elementIn(body, e.target, PLAN_TIP_SELECTOR);

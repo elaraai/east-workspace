@@ -34,7 +34,10 @@
  * The bounded virtualizer's window is measured from the scroll element's
  * origin, but the rows start BELOW the in-flow sticky header — `scrollMargin`
  * (the items container's `offsetTop`) corrects the window so the visible range
- * is not offset by the header height. The header is WATCHED, not measured
+ * is not offset by the header height, and `scrollPaddingStart` (the same
+ * height) says the pinned header covers the top of the viewport, so a row
+ * brought into view at its start — or `auto` going up — lands under the
+ * header, not behind it (#819). The header is WATCHED, not measured
  * once: a focus bar mounting, a toolbar wrapping or a web font landing moves
  * the rows, and the margin follows (#812). An unbounded frame that watches its
  * ancestor needs no margin at all: it reads the ancestor's scroll position FROM
@@ -54,7 +57,10 @@
  * no height (a selection, a hover) re-measures nothing.
  */
 
-import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import {
+    Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState,
+    type HTMLAttributes, type MutableRefObject, type ReactNode, type RefObject,
+} from "react";
 import { Box } from "@chakra-ui/react";
 import { debounce, useVirtualizer, useWindowVirtualizer, type VirtualItem, type Virtualizer } from "@tanstack/react-virtual";
 import { parseCssSize } from "../style/parse-size.js";
@@ -89,6 +95,15 @@ interface VirtualRowsBaseProps {
      * — and every row mounted in it — stays put as the overlay appears.
      */
     overlay?: ReactNode | undefined;
+    /**
+     * Attributes for the element that holds the rows — the ONE element that
+     * contains every row in every mode (and the `overlay`), so a collection
+     * can make it the rows' container for assistive tech (the Plan's
+     * `role="treegrid"`, #819). Omitted, the frame's DOM is unchanged.
+     */
+    rowsProps?: HTMLAttributes<HTMLDivElement> | undefined;
+    /** Receives the element that holds the rows (see `rowsProps`). */
+    rowsRef?: MutableRefObject<HTMLElement | null> | undefined;
     /** Total number of body rows. */
     count: number;
     /**
@@ -365,7 +380,7 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
         header, footer, overlay, count, estimateSize, sizes, getItemKey, renderRow, measureRows = true,
         overscan = 4, minWidth, headerZIndex = 3, onScroll, rootCss, fillParent, scrollElRef,
         scrollToIndex, scrollNonce, scrollAlign = "center", onRangeChange, sizeVersion,
-        virtualizeUnboundedAt, onAnchorChange, restoreAnchor,
+        virtualizeUnboundedAt, onAnchorChange, restoreAnchor, rowsProps, rowsRef,
     } = props;
     const h = parseCssSize(props.height);
     const mh = parseCssSize(props.maxHeight);
@@ -386,6 +401,11 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
     // virtualizer re-renders once the state settles). Unbounded, it is what
     // the watched ancestor's scroll position is read against.
     const itemsRef = useRef<HTMLDivElement | null>(null);
+    // The element that holds the rows, handed to the collection too.
+    const setRows = useCallback((el: HTMLDivElement | null) => {
+        itemsRef.current = el;
+        if (rowsRef !== undefined) rowsRef.current = el;
+    }, [rowsRef]);
     const [itemsOffset, setItemsOffset] = useState(0);
     // Re-measure when the row set changes (the header may rewrap); the header
     // observer below catches every other move. Only a MOVED offset is set: a
@@ -424,6 +444,8 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
         ...keyed,
         overscan,
         scrollMargin: bounded ? itemsOffset : 0,
+        // The pinned header covers this much of a bounded viewport's top.
+        scrollPaddingStart: bounded ? itemsOffset : 0,
         enabled: bounded || ancestorEl !== undefined,
         measureElement: measureRect,
         ...(bounded ? {} : {
@@ -538,9 +560,11 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
         return (
             <Box css={rootCss}>
                 {header}
-                {overlay === undefined ? everyRow() : (
+                {overlay === undefined && rowsProps === undefined && rowsRef === undefined ? everyRow() : (
                     // The overlay's box: the rows, and nothing else.
-                    <Box position="relative">{everyRow()}{overlay}</Box>
+                    <Box ref={setRows} position={overlay !== undefined ? "relative" : undefined} {...rowsProps}>
+                        {everyRow()}{overlay}
+                    </Box>
                 )}
                 {footer}
             </Box>
@@ -553,10 +577,10 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
     const margin = bounded ? itemsOffset : 0;
     const total = virtualized ? virtualizer.getTotalSize() : 0;
     const virtualWindow = () => (
-        <Box ref={itemsRef} position="relative" height={`${total}px`} minWidth={minWidth}
+        <Box ref={setRows} position="relative" height={`${total}px`} minWidth={minWidth}
             // The extent, as data: the height compiles to a class, which jsdom
             // does not resolve — this is what a DOM test holds geometry to.
-            data-virtual-extent={total}>
+            data-virtual-extent={total} {...rowsProps}>
             {measureRows ? (
                 items.map((item) => (
                     <Box
@@ -615,8 +639,8 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
             <Box ref={rootRef} css={rootCss} data-virtual-rows={atScale ? "ancestor" : "watched"}>
                 {header !== undefined && <Box ref={setHeaderEl}>{header}</Box>}
                 {atScale ? virtualWindow() : (
-                    <Box ref={itemsRef} position={overlay !== undefined ? "relative" : undefined}
-                        data-virtual-extent={total}>
+                    <Box ref={setRows} position={overlay !== undefined ? "relative" : undefined}
+                        data-virtual-extent={total} {...rowsProps}>
                         {everyRow()}
                         {overlay}
                     </Box>

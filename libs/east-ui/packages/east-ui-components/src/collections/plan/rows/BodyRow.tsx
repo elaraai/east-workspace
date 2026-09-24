@@ -28,16 +28,19 @@
  */
 
 import { memo, useEffect, type ReactNode } from "react";
-import { Box } from "@chakra-ui/react";
+import { Box, VisuallyHidden } from "@chakra-ui/react";
 import { RowShell, type PlanRowDrop } from "./RowShell.js";
 import { GroupRow } from "./GroupRow.js";
 import { ChartLeftTicks } from "./ChartRow.js";
 import { KindPlot } from "./KindPlot.js";
 import { PlanPartBoundary } from "./PartBoundary.js";
 import { RowDiagnostic } from "./RowDiagnostic.js";
+import { rowToggle } from "./row-facts.js";
 import { PlanDecisionCell, tagOf, type PlanReview } from "../shell/Review.js";
 import { usePlanRowState } from "../controller/react.js";
-import type { PlanDerived, VisibleRow } from "../model.js";
+import { usePlanGridRow } from "../root/grid.js";
+import { statusText } from "../a11y.js";
+import { rowItemKey, type PlanDerived, type VisibleRow } from "../model.js";
 import type { PlanEvent } from "../plan-state.js";
 
 type Styles = Record<string, Record<string, unknown>>;
@@ -160,7 +163,9 @@ export const PlanBodyRow = memo(function PlanBodyRow({
 }: PlanBodyRowProps) {
     bodyRowRenderProbe?.(v.row.key);
     // The row's own slice of the UI state — it re-renders when THIS moves.
-    const { selected, chartExpanded, activeControl } = usePlanRowState(v.row.key);
+    const { selected, chartExpanded, activeControl, active, focusSeq } = usePlanRowState(v.row.key);
+    // Its place in the treegrid and its share of the tab stop (#819).
+    const grid = usePlanGridRow(rowItemKey(v.row.key), active, focusSeq);
     const mountedAs = v.row.key;
     useEffect(() => {
         bodyRowMountProbe?.(mountedAs, "mount");
@@ -177,14 +182,19 @@ export const PlanBodyRow = memo(function PlanBodyRow({
     if (focusRole === "rail") {
         const railTone = v.row.status.type === "some" ? v.row.status.value.type : undefined;
         return (
-            <Box css={styles.rail} gridTemplateColumns={gridTemplate} data-plan-rail={v.row.key}
+            <Box ref={grid.ref} css={styles.rail} gridTemplateColumns={gridTemplate} data-plan-rail={v.row.key}
+                role="row" aria-level={v.depth + 1} aria-selected={selected}
+                tabIndex={grid.tabIndex} onFocus={grid.onFocus} data-plan-item={rowItemKey(v.row.key)}
                 // The recipe sizes the rail from the geometry variable; this
                 // is the height the model laid it out at (#817).
                 data-plan-h={h}
                 onClick={() => dispatch({ t: "focus.clear" })}>
-                <Box position="relative">
+                {/* 11px carries no name — a reader still hears which row it is. */}
+                <Box position="relative" role="rowheader">
+                    <VisuallyHidden>{v.row.gutter.label}</VisuallyHidden>
                     {railTone !== undefined && (
                         <Box as="span" css={styles.statusDot} data-tone={railTone}
+                            role="img" aria-label={statusText(railTone)}
                             position="absolute" right="12px" top="2px" />
                     )}
                 </Box>
@@ -199,7 +209,7 @@ export const PlanBodyRow = memo(function PlanBodyRow({
                 summaryCells={derived.groupSummary.get(v.row.key)}
                 summaryScale={derived.groupSummaryScale.get(v.row.key)}
                 memberCount={derived.groupMembers.get(v.row.key)}
-                partial={partial} diagnostic={diagnostic} />
+                partial={partial} diagnostic={diagnostic} grid={grid} />
         );
     }
 
@@ -228,19 +238,27 @@ export const PlanBodyRow = memo(function PlanBodyRow({
             ...(expandGutter !== undefined ? { expandGutter } : {}),
         } : {}),
         decision: review !== undefined && review.hasRowVerbs
-            ? <PlanDecisionCell rowKey={v.row.key} tag={tagOf(v.row)} review={review} />
+            ? <PlanDecisionCell rowKey={v.row.key} tag={tagOf(v.row)} review={review} grid />
             : undefined,
         // Only the kinds that hold droppable objects register a cell —
         // a chart / heat / table row is inert to a drag by construction,
         // not by predicate (see `DROPPABLE_KINDS`). A diagnostic row places
         // nothing, so nothing can land on it either.
         drop: DROPPABLE_KINDS.has(kind.type) && diagnostic === undefined ? rowDrop : undefined,
+        grid,
     } as const;
     // The per-kind SHELL differences — caret, toggle, emphasis, the chart's
     // gutter ticks. The plot content itself is one switch shared with the
-    // narrow layout's cards (`KindPlot`).
-    const subtreeCaret = hasChildren ? { collapsed: v.collapsed } : undefined;
-    const subtreeToggle = hasChildren ? () => dispatch({ t: "group.toggle", key: v.row.key }) : undefined;
+    // narrow layout's cards (`KindPlot`). What the caret toggles is the one
+    // answer the keyboard reads too (`rowToggle`, #819).
+    const toggle = rowToggle(v, hasChildren, chartExpanded);
+    const caret = toggle !== undefined ? { collapsed: !toggle.open } : undefined;
+    const onCaretClick = toggle !== undefined ? () => dispatch(toggle.event) : undefined;
+    // `aria-expanded`: its section or chart — or, for a row with neither, its
+    // expand render. A strip opens nothing: its one action is the way back.
+    const expandedState = isCtx ? undefined
+        : toggle !== undefined ? toggle.open
+            : showExpandControl ? isFocal : undefined;
     let shellExtras: {
         caret?: { collapsed: boolean } | undefined;
         onCaretClick?: (() => void) | undefined;
@@ -255,11 +273,10 @@ export const PlanBodyRow = memo(function PlanBodyRow({
         case "span":
         case "heat":
         case "buckets":
-            shellExtras = { caret: subtreeCaret, onCaretClick: subtreeToggle };
+            shellExtras = { caret, onCaretClick };
             break;
         case "chart": {
             const declaredExpanded = kind.value.height.type === "expanded";
-            const expandable = kind.value.expandable.type === "some" && kind.value.expandable.value;
             chartExpanded_ = declaredExpanded || chartExpanded;
             // The FOCAL row is tall (natural + render), but its marks live in
             // the band at the top — `RowShell` mounts `children` inside
@@ -272,8 +289,8 @@ export const PlanBodyRow = memo(function PlanBodyRow({
             plotH = isFocal ? (bandHeight ?? h) : h;
             shellExtras = {
                 noGrid: false,
-                caret: expandable ? { collapsed: !chartExpanded_ } : undefined,
-                onCaretClick: expandable ? () => dispatch({ t: "chart.toggle", key: v.row.key }) : undefined,
+                caret,
+                onCaretClick,
                 // A STRIP carries no value axis — its plot re-encodes as a
                 // tone strip (`ToneStrip`), so the gutter ticks would label a
                 // scale that is not there, stacked in 16px. A diagnostic row
@@ -286,7 +303,7 @@ export const PlanBodyRow = memo(function PlanBodyRow({
         }
         case "table":
             shellExtras = {
-                caret: subtreeCaret, onCaretClick: subtreeToggle,
+                caret, onCaretClick,
                 emphasis: kind.value.emphasis.type === "body" ? undefined : kind.value.emphasis.type,
             };
             break;
@@ -295,7 +312,7 @@ export const PlanBodyRow = memo(function PlanBodyRow({
             break;
     }
     return (
-        <RowShell {...shellBase} height={h} {...shellExtras}>
+        <RowShell {...shellBase} height={h} expandedState={expandedState} {...shellExtras}>
             {diagnostic !== undefined ? (
                 <RowDiagnostic diagnostic={diagnostic} styles={styles} ctx={isCtx} />
             ) : (

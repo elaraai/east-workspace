@@ -15,7 +15,9 @@
  * parents render their renderer-DERIVED cells as one plain series; row
  * emphasis (header / footer) rides the shell's `data-emphasis`. A bucket's
  * cell names its bucket instant (`data-cell`), so the canvas's one overlay
- * layer opens the root's popover and hover card for it (#816).
+ * layer opens the root's popover and hover card for it (#816). It is a button
+ * named by its bucket and the numerals it prints (#819) — the em-dash of a
+ * missing value said as words.
  */
 
 import { variant, type ValueTypeOf } from "@elaraai/east";
@@ -26,6 +28,7 @@ import { formatTick, type TickFormatOpt } from "../../../typography/numeric/form
 import { ToneStrip, type ToneDatum } from "./ToneStrip.js";
 import type { PlanBucket } from "../scale.js";
 import { instantKey } from "../instant.js";
+import { cellName, tablePartsText } from "../a11y.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 type TableCellValue = ValueTypeOf<typeof Plan.Types.TableCell>;
@@ -85,13 +88,30 @@ export function TableRowCells({ rowKey, series, split, format, styles, ctx }: Ta
         <>
             {[...buckets.entries()].map(([bi, parts]) => {
                 const b = bucketByIndex.get(bi)!;
+                const printed = parts.map(({ si, cell }) => {
+                    const s = series[si]!;
+                    const value = cell.value.type === "some" ? cell.value.value : undefined;
+                    const partFormat = s.format.type === "some" ? s.format.value : format;
+                    const text = cell.text.type === "some" ? cell.text.value
+                        : value !== undefined ? formatTick(value, partFormat)
+                        : "—";
+                    const tone = cell.tone.type === "some" ? cell.tone.value.type
+                        : value === undefined ? "muted"
+                        : value < 0 ? "neg"
+                        : s.tone.type === "some" ? s.tone.value.type
+                        : undefined;
+                    return { text, tone, strong: s.strong.type === "some" && s.strong.value };
+                });
                 return (
                     <Box key={bi} css={styles.tableCellText}
                         data-plan-bucket={bi}
                         // The BUCKET instant — the same subject its click
                         // reports — and focusable for the keyboard path (#816).
                         data-cell={instantKey(b.start)}
+                        data-plan-frac={b.x0.toFixed(4)}
                         tabIndex={-1}
+                        role="button"
+                        aria-label={cellName(scale, b, tablePartsText(printed.map((p) => p.text)))}
                         data-split={multi ? split : undefined}
                         left={`${b.x0 * 100}%`} width={`${(b.x1 - b.x0) * 100}%`}
                         onClick={(e) => {
@@ -103,26 +123,12 @@ export function TableRowCells({ rowKey, series, split, format, styles, ctx }: Ta
                             onElementClick?.(variant("cell", { row: rowKey, at: b.start }) as PlanElementRefValue);
                         }}
                     >
-                        {parts.map(({ si, cell }, i) => {
-                            const s = series[si]!;
-                            const value = cell.value.type === "some" ? cell.value.value : undefined;
-                            const partFormat = s.format.type === "some" ? s.format.value : format;
-                            const text = cell.text.type === "some" ? cell.text.value
-                                : value !== undefined ? formatTick(value, partFormat)
-                                : "—";
-                            const tone = cell.tone.type === "some" ? cell.tone.value.type
-                                : value === undefined ? "muted"
-                                : value < 0 ? "neg"
-                                : s.tone.type === "some" ? s.tone.value.type
-                                : undefined;
-                            const strong = s.strong.type === "some" && s.strong.value;
-                            return (
-                                <Box key={i} as="span" css={styles.tableCellPart}
-                                    data-tone={tone} data-strong={strong ? "" : undefined}>
-                                    {text}
-                                </Box>
-                            );
-                        })}
+                        {printed.map(({ text, tone, strong }, i) => (
+                            <Box key={i} as="span" css={styles.tableCellPart}
+                                data-tone={tone} data-strong={strong ? "" : undefined}>
+                                {text}
+                            </Box>
+                        ))}
                     </Box>
                 );
             })}

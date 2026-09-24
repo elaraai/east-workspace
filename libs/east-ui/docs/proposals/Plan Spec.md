@@ -903,6 +903,28 @@ Non-negotiable transition rules (unit-tested as a table):
   `a`/`r` → apply/reject the focused decision (delegates to review
   controller) · `⌘wheel` → zoom about cursor (emits `slice.setRange`).
 
+  > **REVISED 2026-09-24 — the shipped map is a treegrid's (#819).** The body
+  > is a `treegrid`: every row, group band, ⋯ gap band and paged-window band
+  > (loading or failed) is a `row` at its `aria-rowindex`, written onto the
+  > row from one positions store so a collapse or a landing window renumbers
+  > without rendering a row (`root/grid.ts`), with ONE tab stop roving
+  > between them. The map is a pure model (`root/keyboard.ts`): ↑ / ↓ step,
+  > Home / End go to the first / last, PgUp / PgDn move a viewport (stopping
+  > on a band), → / ← open / close a section or `expandable` chart and step
+  > to its first child / its parent, Enter does the row's click (selection is
+  > idempotent — drilling is the row's own expand control), Space toggles. A
+  > step onto an unloaded band demands its window and moves on to the row
+  > once it lands. Tab walks a row's widgets (controls, elements in time
+  > order, the expand render's tabbables, review buttons); ← / → step its
+  > elements; Enter / Space on an element does its click (popover, row
+  > selection, the element callback); Esc returns to the row, then runs the
+  > ladder. The canvas-wide keys are `esc` · `n` · `[` `]` · `g`; `/`, `f`,
+  > `a` / `r` and `⌘wheel` are not bound (search and filter are the slice
+  > chrome's own controls, and Tab reaches the decision column's buttons). A
+  > polite live region (`root/announce.tsx`) announces selection, collapse,
+  > row focus, grain, resolution and window landings, and every element and
+  > colour-only cell has words (`a11y.ts`).
+
 The component runs effects in one place (`runEffects`): slice writes through
 the bind handle, East callbacks via `queueMicrotask` (the mandatory
 interactive-state pattern), scrolls via the virtualizer handle.

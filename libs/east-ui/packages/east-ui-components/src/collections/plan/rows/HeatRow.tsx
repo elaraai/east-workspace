@@ -18,15 +18,20 @@
  * so the canvas's one overlay layer opens the root's popover and hover card
  * for it (#816, #743 item 5). A group strip's cells are the band's toggle
  * instead, and name nothing.
+ *
+ * Every cell says the value its colour or width encodes (#819): a data row's
+ * cell is a button named by its bucket and value, a strip's cell carries the
+ * same words as visually hidden text.
  */
 
 import { variant, type ValueTypeOf } from "@elaraai/east";
-import { Box } from "@chakra-ui/react";
+import { Box, VisuallyHidden } from "@chakra-ui/react";
 import { Plan } from "@elaraai/east-ui/internal";
 import { usePlanDispatch, usePlanResolvers, usePlanScale, type PlanElementRefValue } from "../context.js";
 import { instantKey, type PlanInstantValue } from "../instant.js";
 import type { PlanBucket } from "../scale.js";
 import { maxOf, minOf } from "../reductions.js";
+import { cellName, heatValueText, segmentsText, weightValueText } from "../a11y.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 type HeatCellsValue = ValueTypeOf<typeof Plan.Types.HeatCells>;
@@ -76,10 +81,21 @@ export function HeatCells({ rowKey, cells, styles, ctx, onCellClick }: HeatCells
         if (b === undefined) return undefined;
         return { left: `calc(${b.x0 * 100}% + 1.5px)`, width: `calc(${(b.x1 - b.x0) * 100}% - 3px)`, bucket: b };
     };
-    // A data row's cell is an element — it names its instant, and takes focus
-    // for the keyboard path to its popover. A strip's cell is part of its band.
+    // A data row's cell is an element — it names its instant, takes focus for
+    // the keyboard path to its popover, and is a button named by its bucket
+    // and value (#819). A strip's cell is part of its band: its words are
+    // visually hidden text (`cellWords`), and its printed label is then their
+    // echo.
     const element = onCellClick === undefined;
-    const cellAttrs = (at: PlanInstantValue) => (element ? { "data-cell": instantKey(at), tabIndex: -1 } : {});
+    const cellAttrs = (at: PlanInstantValue, bucket: PlanBucket, value: string) => (element
+        ? {
+            "data-cell": instantKey(at), "data-plan-frac": bucket.x0.toFixed(4), tabIndex: -1,
+            role: "button", "aria-label": cellName(scale, bucket, value),
+        }
+        : {});
+    const cellWords = (bucket: PlanBucket, value: string) => (element
+        ? null
+        : <VisuallyHidden>{cellName(scale, bucket, value)}</VisuallyHidden>);
     const clickCell = (at: PlanInstantValue) => (e: React.MouseEvent) => {
         e.stopPropagation();
         if (onCellClick !== undefined) {
@@ -107,20 +123,24 @@ export function HeatCells({ rowKey, cells, styles, ctx, onCellClick }: HeatCells
                     const v = values[i];
                     const depth = v === undefined || span <= 0 ? 0 : Math.max(0, Math.min(1, (v - lo) / span));
                     const label = c.label.type === "some" ? c.label.value : undefined;
+                    const warned = v !== undefined && warn !== undefined && v >= warn;
+                    const words = heatValueText(v, label, warned);
                     return (
                         <Box key={i} css={styles.heatCell} data-ctx={ctxAttr}
                             data-plan-bucket={box.bucket.index}
-                            {...cellAttrs(c.at)}
+                            {...cellAttrs(c.at, box.bucket, words)}
                             data-nodata={v === undefined ? "" : undefined}
-                            data-warn={v !== undefined && warn !== undefined && v >= warn ? "" : undefined}
+                            data-warn={warned ? "" : undefined}
                             left={box.left} width={box.width}
                             background={v === undefined ? undefined
                                 : `color-mix(in srgb, var(--chakra-colors-brand-700) ${Math.round(depth * 88)}%, var(--chakra-colors-bg-surface))`}
                             onClick={clickCell(c.at)}
                         >
-                            <Box as="span" css={styles.heatLabel} data-flip={depth > 0.5 ? "" : undefined} data-ctx={ctxAttr}>
+                            <Box as="span" css={styles.heatLabel} data-flip={depth > 0.5 ? "" : undefined} data-ctx={ctxAttr}
+                                aria-hidden={element ? undefined : "true"}>
                                 {v === undefined ? "–" : label}
                             </Box>
+                            {cellWords(box.bucket, words)}
                         </Box>
                     );
                 })}
@@ -137,14 +157,17 @@ export function HeatCells({ rowKey, cells, styles, ctx, onCellClick }: HeatCells
                     const b = scale.renderBucketOf(c.at);
                     if (b === undefined) return null;
                     const frac = Math.max(0, Math.min(1, c.fraction));
+                    const words = weightValueText(c.fraction, c.planned);
                     return (
                         <Box key={i} css={styles.weightBar}
                             data-plan-bucket={b.index}
-                            {...cellAttrs(c.at)}
+                            {...cellAttrs(c.at, b, words)}
                             data-planned={c.planned ? "" : undefined}
                             left={`calc(${b.x0 * 100}% + 4px)`}
                             width={`calc((${(b.x1 - b.x0) * 100}% - 8px) * ${frac})`}
-                            onClick={clickCell(c.at)} />
+                            onClick={clickCell(c.at)}>
+                            {cellWords(b, words)}
+                        </Box>
                     );
                 })}
             </>
@@ -157,10 +180,11 @@ export function HeatCells({ rowKey, cells, styles, ctx, onCellClick }: HeatCells
                 const b = scale.renderBucketOf(c.at);
                 if (b === undefined) return null;
                 const total = c.segments.reduce((acc, s) => acc + Math.max(0, s.weight), 0);
+                const words = segmentsText(c.segments);
                 return (
                     <Box key={i} css={styles.segmentTrack}
                         data-plan-bucket={b.index}
-                        {...cellAttrs(c.at)}
+                        {...cellAttrs(c.at, b, words)}
                         left={`calc(${b.x0 * 100}% + 4px)`}
                         width={`calc(${(b.x1 - b.x0) * 100}% - 8px)`}
                         onClick={clickCell(c.at)}>
@@ -173,11 +197,13 @@ export function HeatCells({ rowKey, cells, styles, ctx, onCellClick }: HeatCells
                                     width={`${share * 100}%`}
                                     background={SEGMENT_FILL[fillTag] ?? SEGMENT_FILL.neutral}
                                     color={SEGMENT_DARK.has(fillTag) ? undefined : "var(--chakra-colors-fg-muted)"}
+                                    aria-hidden={element ? undefined : "true"}
                                 >
                                     {share > 0.14 ? label : undefined}
                                 </Box>
                             );
                         })}
+                        {cellWords(b, words)}
                     </Box>
                 );
             })}

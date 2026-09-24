@@ -47,7 +47,7 @@ function spanRow(key: string, opts?: { parent?: string; sub?: boolean }): PlanRo
 const rowItem = (r: PlanRowValue, collapsed = false): PlanBodyItem =>
     ({ kind: "row", row: { row: r, depth: 0, collapsed } as VisibleRow });
 const gapItem = (key: string): PlanBodyItem =>
-    ({ kind: "gap", gap: { key, rows: 3, groups: 0, tone: undefined } });
+    ({ kind: "gap", gap: { key, first: key, rows: 3, groups: 0, tone: undefined } });
 const link = (from: string, fromRun: string, to: string, toRun: string, quantity = 10, label = "10 t"): PlanLinkValue =>
     ({ fromRow: from, fromRun, toRow: to, toRun, quantity, label }) as PlanLinkValue;
 

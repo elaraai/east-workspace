@@ -18,7 +18,7 @@ import {
 import { planGeometry } from "../geometry.js";
 import { appendAll } from "../reductions.js";
 import type { RowKey } from "../plan-state.js";
-import type { PlanController, PlanPagingSnapshot, PlanScrollTarget } from "../controller/index.js";
+import type { PlanController, PlanNavAlign, PlanPagingSnapshot, PlanScrollTarget } from "../controller/index.js";
 
 /** The body items, and what the frame measures and keys them by. */
 export interface PlanBody {
@@ -93,35 +93,48 @@ export function usePlanBody(
 /**
  * Where the frame is asked to scroll: a key search's target row — resolved
  * against the VISIBLE body (a match inside a collapsed group has no row to
- * scroll to), and only once it has loaded — or the first skipped row the
- * diagnostics chip seeks (#811). The latest request wins: a new search takes
- * the viewport back, and the chip's nonce lets it scroll there again after the
- * user has moved away.
+ * scroll to), and only once it has loaded — the first skipped row the
+ * diagnostics chip seeks (#811), or the item a keyboard move went to (#819).
+ * The latest request wins: a new search takes the viewport back, and each
+ * chip click or keyboard move carries a nonce, so it scrolls there again after
+ * the user has moved away.
  *
  * @param items - The body items
  * @param index - The row index
  * @param derived - The derivations (their diagnostic rows)
- * @param scroll - Who owns the request, and the search's target row
- * @returns The item to scroll to, the re-request nonce, and the first skipped item
+ * @param scroll - Who owns the request, and its target
+ * @returns The item to scroll to, how to align it, the re-request nonce, and the first skipped item
  */
 export function usePlanScrollTarget(
     items: readonly PlanBodyItem[],
     index: PlanRowIndex,
     derived: PlanDerived,
     scroll: PlanScrollTarget,
-): { toIndex: number | undefined; nonce: number | undefined; firstSkipped: number | undefined } {
+): { toIndex: number | undefined; align: PlanNavAlign | "center"; nonce: number | undefined; firstSkipped: number | undefined } {
     const { targetKey } = scroll;
     const searchIndex = useMemo(() => {
         if (targetKey === undefined) return undefined;
         const i = items.findIndex((it) => it.kind === "row" && it.row.row.key === targetKey);
         return i >= 0 ? i : undefined;
     }, [items, targetKey]);
+    const navKey = scroll.nav?.key;
+    const navIndex = useMemo(() => {
+        if (navKey === undefined) return undefined;
+        const i = items.findIndex((it) => bodyItemKey(it) === navKey);
+        return i >= 0 ? i : undefined;
+    }, [items, navKey]);
     const firstSkipped = useMemo(
         () => firstDiagnosticItem(items, index, derived.diagnostics),
         [items, index, derived.diagnostics]);
-    return scroll.owner === "skipped"
-        ? { toIndex: firstSkipped, nonce: scroll.skippedSeq, firstSkipped }
-        : { toIndex: searchIndex, nonce: undefined, firstSkipped };
+    switch (scroll.owner) {
+        case "skipped":
+            return { toIndex: firstSkipped, align: "center", nonce: scroll.skippedSeq, firstSkipped };
+        case "nav":
+            // A pinned row is not in the body: it never scrolls away.
+            return { toIndex: navIndex, align: scroll.nav?.align ?? "auto", nonce: scroll.nav?.seq, firstSkipped };
+        case "search":
+            return { toIndex: searchIndex, align: "center", nonce: undefined, firstSkipped };
+    }
 }
 
 /**

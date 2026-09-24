@@ -132,6 +132,7 @@ describe("actions run their own effects (#815)", () => {
     test("a resolution change is ONE slice write — the resolution and its window together", () => {
         const s = countingSlice("c815-res");
         const { c, notified } = show(root(ROWS, { slice: s.chrome }));
+        const store = c.getSnapshot().store;
         c.dispatch({ t: "resolution.set", resolution: "day" });
         // Two writes rendered once in between at DAY over the 12-week window.
         expect(s.calls).toEqual({ write: 1, setRange: 0, setResolution: 0 });
@@ -139,7 +140,10 @@ describe("actions run their own effects (#815)", () => {
         // Zoomed keeping the column count: twelve days from the window's start.
         expect(s.window()).toEqual([W27.getTime(), W27.getTime() + 12 * DAY]);
         // The machine's state did not move — the slice is the window's truth.
-        expect(notified()).toBe(0);
+        // The one notification is the live region's (#819).
+        expect(c.getSnapshot().store).toBe(store);
+        expect(c.getSnapshot().announce?.text).toBe("Resolution: day");
+        expect(notified()).toBe(1);
     });
 });
 
@@ -301,6 +305,71 @@ describe("the author's callbacks", () => {
     });
 });
 
+describe("keyboard navigation (#819)", () => {
+    test("a move takes the tab stop, asks for focus once, and asks the frame to scroll only when told how", () => {
+        const { c, notified } = show(root(ROWS));
+        c.focusItem("r:r2", "auto");
+        const moved = c.getSnapshot();
+        expect(moved.nav.active).toBe("r:r2");
+        expect(moved.nav.request).toEqual({ key: "r:r2", seq: 1 });
+        expect(moved.scroll).toMatchObject({ owner: "nav", nav: { key: "r:r2", align: "auto", seq: 1 } });
+        expect(notified()).toBe(1);
+        // The row took focus: the request is spent — a remount will not take it again.
+        c.focusDone(1);
+        expect(c.getSnapshot().nav).toEqual({ active: "r:r2", request: null });
+        // A move beside the focused row asks for no scroll: the scroll target stays.
+        c.focusItem("r:r3");
+        expect(c.getSnapshot().scroll.nav).toEqual({ key: "r:r2", align: "auto", seq: 1 });
+        expect(c.getSnapshot().nav.request).toEqual({ key: "r:r3", seq: 2 });
+        // A stale focusDone spends nothing.
+        c.focusDone(1);
+        expect(c.getSnapshot().nav.request).toEqual({ key: "r:r3", seq: 2 });
+    });
+
+    test("focus landing in an item (a click) moves the tab stop, and nothing else", () => {
+        const { c, notified } = show(root(ROWS));
+        c.itemFocused("r:r1");
+        expect(c.getSnapshot().nav).toEqual({ active: "r:r1", request: null });
+        expect(c.getSnapshot().scroll.owner).toBe("search");
+        const n = notified();
+        c.itemFocused("r:r1");
+        expect(notified()).toBe(n);
+    });
+});
+
+describe("the live region (#819)", () => {
+    test("says what an interaction changed — and nothing for one that changed nothing", () => {
+        const { c } = show(root(ROWS));
+        const said = () => c.getSnapshot().announce?.text;
+        c.dispatch({ t: "row.select", key: "r1" });
+        expect(said()).toBe("Selected r1");
+        const seq = c.getSnapshot().announce!.seq;
+        c.dispatch({ t: "row.select", key: "r1" });
+        expect(c.getSnapshot().announce!.seq).toBe(seq);
+        c.dispatch({ t: "group.toggle", key: "G" });
+        expect(said()).toBe("G collapsed");
+        c.dispatch({ t: "group.toggle", key: "G" });
+        expect(said()).toBe("G expanded");
+        c.dispatch({ t: "chart.toggle", key: "r3" });
+        expect(said()).toBe("r3 chart expanded");
+        c.dispatch({ t: "focus.links", key: "r2" });
+        expect(said()).toBe("Showing rows linked to r2");
+        // The esc ladder, a rung at a time.
+        c.dispatch({ t: "key", key: "esc" });
+        expect(said()).toBe("Showing all rows");
+        c.dispatch({ t: "key", key: "esc" });
+        expect(said()).toBe("Selection cleared");
+        c.dispatch({ t: "key", key: "g" });
+        expect(said()).toBe("Grain: group");
+    });
+
+    test("a resolution the write could not change says nothing — an unbound canvas has nowhere to write it", () => {
+        const { c } = show(root(ROWS));
+        c.dispatch({ t: "resolution.set", resolution: "day" });
+        expect(c.getSnapshot().announce).toBeNull();
+    });
+});
+
 describe("what survives a remount (#813)", () => {
     test("a toggle is written once, when it moves; a selection is never written", () => {
         const writes: PlanPersisted[] = [];
@@ -369,6 +438,10 @@ describe("the source's channels (#815)", () => {
         // its windows landed too — one settle, one notification.
         expect(c.getSnapshot().paging.rows.length).toBeGreaterThan(2);
         expect(notified()).toBe(n + 1);
+        // The live region says what landed, in that same notification (#819).
+        const resident = c.getSnapshot().paging.resident!;
+        expect(c.getSnapshot().announce?.text)
+            .toBe(`Loaded elements 1–${resident.to.toLocaleString()} of ${(10 * PLAN_PAGE_SIZE).toLocaleString()}`);
     });
 
     test("connect after a disconnect listens again — a rehearsed unmount does not deafen the canvas", () => {

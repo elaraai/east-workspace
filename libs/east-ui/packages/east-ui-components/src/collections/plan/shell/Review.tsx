@@ -134,23 +134,30 @@ export function planReviewModel(review: PlanReviewValue | undefined, verbs: Plan
  * Approve is solid at rest, not outline-until-approved: it is the row's
  * committing action whatever the row's current verdict is, exactly as
  * Approve all is the canvas's.
+ *
+ * On the canvas it is a `gridcell` of the row (#819), its buttons out of the
+ * tab order — the row's Tab walk reaches them, so the grid stays ONE tab
+ * stop. In a narrow card it is plain content with ordinary buttons.
  */
-export function PlanDecisionCell({ rowKey, tag, review }: {
+export function PlanDecisionCell({ rowKey, tag, review, grid }: {
     rowKey: string;
     tag: ApprovalTag;
     review: PlanReview;
+    /** The cell sits in the canvas's treegrid. */
+    grid?: boolean | undefined;
 }) {
     const recipe = useSlotRecipe({ key: "reviewChrome" });
     const styles = useMemo(() => recipe({}) as unknown as Styles, [recipe]);
     const btn = useRecipe({ key: "button" });
+    const inGrid = grid === true;
     return (
-        <Box css={styles.decisionCol} data-slot="decisionCell" data-verdict={tag}>
-            <Box as="button" css={btn({ variant: "solid", size: "xs" })}
+        <Box css={styles.decisionCol} data-slot="decisionCell" data-verdict={tag} role={inGrid ? "gridcell" : undefined}>
+            <Box as="button" css={btn({ variant: "solid", size: "xs" })} tabIndex={inGrid ? -1 : undefined}
                 aria-pressed={tag === "approved"} data-plan-approve={rowKey}
                 onClick={(e) => { e.stopPropagation(); review.approveRow(rowKey); }}>
                 Approve
             </Box>
-            <Box as="button" css={btn({ variant: tag === "rejected" ? "danger" : "ghost", size: "xs" })}
+            <Box as="button" css={btn({ variant: tag === "rejected" ? "danger" : "ghost", size: "xs" })} tabIndex={inGrid ? -1 : undefined}
                 aria-pressed={tag === "rejected"} data-plan-reject={rowKey}
                 onClick={(e) => { e.stopPropagation(); review.rejectRow(rowKey); }}>
                 Reject

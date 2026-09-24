@@ -30,6 +30,9 @@ export function linkedRowKeys(links: readonly PlanLinkValue[]): ReadonlySet<RowK
 export interface FocusGap {
     /** Stable key (the first elided row's key). */
     key: string;
+    /** The first elided row — where keyboard focus lands when the gap is
+     *  opened and its rows come back (#819). */
+    first: RowKey;
     /** Data rows hidden inside the run (collapsed subtrees counted through). */
     rows: number;
     /** Group bands hidden inside the run. */
@@ -104,11 +107,22 @@ export type PlanBodyItem =
  */
 export function bodyItemKey(item: PlanBodyItem): string {
     switch (item.kind) {
-        case "row": return `r:${item.row.row.key}`;
+        case "row": return rowItemKey(item.row.row.key);
         case "gap": return `g:${item.gap.key}`;
         case "band": return `b:${item.band.at}`;
         case "failed": return `f:${item.failure.w}`;
     }
+}
+
+/**
+ * A ROW's item key — what {@link bodyItemKey} gives its body item, and a
+ * pinned row (which the body does not hold) goes by too (#819).
+ *
+ * @param key - The row key
+ * @returns Its item key
+ */
+export function rowItemKey(key: RowKey): string {
+    return `r:${key}`;
 }
 
 /**
@@ -218,7 +232,7 @@ export function elideForFocus(
         if (run.length === 1 && run[0]!.row.kind.type !== "group") {
             out.push({ kind: "row", row: run[0]! });
         } else {
-            const gap: FocusGap = { key: `gap-${run[0]!.row.key}`, rows: 0, groups: 0, tone: undefined };
+            const gap: FocusGap = { key: `gap-${run[0]!.row.key}`, first: run[0]!.row.key, rows: 0, groups: 0, tone: undefined };
             for (const v of run) {
                 if (v.row.kind.type === "group") {
                     gap.groups += 1;

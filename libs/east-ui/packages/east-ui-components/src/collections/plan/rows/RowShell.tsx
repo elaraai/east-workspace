@@ -10,6 +10,10 @@
  * vocabulary (name / id / sub / value / meta / swatches / status dot / caret,
  * 30px-per-level indent), the plot's bucket grid lines, and the shared
  * now / cursor hairlines; the kind renderer supplies the plot content.
+ *
+ * It is also a treegrid ROW (#819): `role="row"` at its level, selected and
+ * expanded as it is, its gutter the `rowheader` and its plot a `gridcell`,
+ * with its share of the canvas's one tab stop (`root/grid.ts`).
  */
 
 import { useCallback, useMemo, useRef, type ReactNode } from "react";
@@ -21,7 +25,9 @@ import { canDropAllows, candidateEvent, type CanDropFn } from "../../../dnd/ir-c
 import { toPlanSlot } from "../../../dnd/slot-key";
 import { resolveColor } from "../../shared/helpers.js";
 import { usePlanCursor, usePlanDispatch, usePlanGeometry, usePlanScale } from "../context.js";
-import type { PlanRowValue } from "../model.js";
+import { rowItemKey, type PlanRowValue } from "../model.js";
+import { statusText } from "../a11y.js";
+import type { PlanGridRow } from "../root/grid.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
@@ -125,6 +131,12 @@ export interface RowShellProps {
     /** DnD drop registration for this row's plot. Absent ⇒ the row registers
      *  no cell, so it is never a destination and never lights up. */
     drop?: PlanRowDrop | undefined;
+    /** The row's grid plumbing (#819) — its written position, its share of
+     *  the tab stop, and its focus handler (`usePlanGridRow`). */
+    grid: PlanGridRow;
+    /** `aria-expanded` (#819): whether its section, chart or expand render is
+     *  open — absent for a row with nothing to open. */
+    expandedState?: boolean | undefined;
     children: ReactNode;
 }
 
@@ -133,7 +145,7 @@ export function RowShell({
     row, styles, gridTemplate, height, depth, selected,
     caret, onCaretClick, emphasis, gutterOverlay, noGrid,
     controls, focusTag, axisMode, ctx, decision, drop, children,
-    expandBody, expandGutter, bandHeight,
+    expandBody, expandGutter, bandHeight, grid, expandedState,
 }: RowShellProps) {
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
@@ -270,9 +282,17 @@ export function RowShell({
 
     return (
         <Box
+            ref={grid.ref}
             css={styles.row}
             gridTemplateColumns={gridTemplate}
             height={`${height}px`}
+            role="row"
+            aria-level={depth + 1}
+            aria-selected={selected}
+            aria-expanded={expandedState}
+            tabIndex={grid.tabIndex}
+            onFocus={grid.onFocus}
+            data-plan-item={rowItemKey(row.key)}
             data-plan-row={row.key}
             data-plan-kind={row.kind.type}
             // The height the model laid the row out at — a layout spec holds
@@ -291,6 +311,7 @@ export function RowShell({
         >
             <Box
                 css={styles.gutterCell}
+                role="rowheader"
                 data-expanded={expandedAttr}
                 paddingLeft={`${12 + depth * INDENT_PX}px`}
                 onClick={onCaretClick !== undefined && ctx !== true
@@ -316,11 +337,14 @@ export function RowShell({
                         <Box css={styles.gutterRight}>
                             {meta !== undefined && <Box as="span" css={styles.gutterMeta} data-ctx={ctxAttr}>{meta}</Box>}
                             {value !== undefined && <Box as="span" css={styles.gutterValue} data-ctx={ctxAttr}>{value}</Box>}
-                            {statusTone !== undefined && <Box as="span" css={styles.statusDot} data-tone={statusTone} data-ctx={ctxAttr} />}
+                            {/* The dot's colour IS the status — its name says it (#819). */}
+                            {statusTone !== undefined && <Box as="span" css={styles.statusDot} data-tone={statusTone}
+                                data-ctx={ctxAttr} role="img" aria-label={statusText(statusTone)} />}
                         </Box>
                     )}
                     {/* Row controls (R1/R2) — rightmost; a control click never
-                        selects or toggles the row. */}
+                        selects or toggles the row. Out of the tab order: the
+                        row's Tab walk reaches them (#819). */}
                     {controls !== undefined && controls.length > 0 && (
                         <Box css={styles.rowControls} data-ctx={ctxAttr} data-expanded={expandedAttr}>
                             {controls.map((c) => (
@@ -328,9 +352,11 @@ export function RowShell({
                                     key={c.kind}
                                     as="button"
                                     css={styles.rowControl}
+                                    tabIndex={-1}
                                     data-plan-control={c.kind}
                                     data-active={c.active ? "" : undefined}
                                     aria-label={c.kind === "links" ? "Focus linked rows" : "Expand row"}
+                                    aria-pressed={c.active}
                                     onClick={(e: React.MouseEvent) => { e.stopPropagation(); c.onClick(); }}
                                 >
                                     <FontAwesomeIcon icon={c.kind === "links" ? faLink : faUpRightAndDownLeftFromCenter} />
@@ -360,6 +386,7 @@ export function RowShell({
             <Box
                 ref={plotRef}
                 css={styles.plot}
+                role="gridcell"
                 data-axis={axisMode}
                 onPointerMove={(e) => {
                     // While a drag is in flight the landing band IS the readout,
