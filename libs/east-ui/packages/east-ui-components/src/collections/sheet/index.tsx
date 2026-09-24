@@ -70,7 +70,7 @@ import {
 import { runSuggest, SuggestMemo, LATENCY_MS, type FillColumn } from "./suggest.js";
 import { InFlight, trackWork } from "./suggest-async.js";
 import { SheetInsertLayer, SheetInsertPoint, SheetInsertStrip, type InsertionActions, type InsertSeam } from "./Insertion.js";
-import { insertionGesture, groupInsertionSide, type InsertRequest, type InsertionAnchor } from "./insertion.js";
+import { insertionGesture, groupInsertionSide, type InsertRequest, type InsertionAnchor } from "./insertion-gesture.js";
 import { membershipAt } from "./membership.js";
 import { SheetHeader } from "./Header.js";
 import { SheetRow, SheetBandRow, SheetGapRow, SheetProposalRow, SheetGroupRow, SheetSubRow } from "./Rows.js";
