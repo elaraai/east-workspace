@@ -101,11 +101,19 @@ describe('recordIndex — the declaration', () => {
       assert.throws(() => recordIndex('', plans(), { key: statusKey }), /non-empty name/);
     });
 
-    it('a name already declared on the record', () => {
+    it('a name declared twice on the record', () => {
       const rec = plans();
       const first = recordIndex('by_status', rec, { key: statusKey });
-      (rec.indexes as Record<string, unknown>)[first.name] = first;
-      assert.throws(() => recordIndex('by_status', rec, { key: statusKey }), /already declared/);
+      const second = recordIndex('by_status', rec, { key: statusKey, value: titleOf });
+      // A record keeps one index per name. With two it would keep whichever
+      // came last, and a page through `by_status` would read the other one.
+      assert.throws(() => package_('planning', '1.0.0', rec, first, second),
+        /record 'plans' declares two indexes named 'by_status'/);
+      // One declaration passed twice is one index.
+      assert.deepEqual(Object.keys(package_('planning', '1.0.0', rec, first, first).records.plans!.indexes), ['by_status']);
+      // An assembled record carries its indexes, so the name is refused at once.
+      const assembled = package_('planning', '1.0.0', rec, first).records.plans!;
+      assert.throws(() => recordIndex('by_status', assembled, { key: statusKey }), /already declared/);
     });
 
     it('both or neither of key and keys', () => {
@@ -151,6 +159,22 @@ describe('recordIndex — the declaration', () => {
           key: East.asyncFunction([StringType, RowType], StringType, ($, k, _v) => k) as never,
         }),
         /must be a synchronous East function/,
+      );
+      // A synchronous platform call is an ordinary function IR, so only the
+      // walk over the body finds it — in the key function and the projection
+      // alike.
+      assert.throws(
+        () => recordIndex('clock', plans(), {
+          key: East.function([StringType, RowType], IntegerType, ($, _k, v) => v.due.add(East.platform('time_now', [], IntegerType)())),
+        }),
+        /'key' function must not call platform functions \(found 'time_now'\)/,
+      );
+      assert.throws(
+        () => recordIndex('clock_value', plans(), {
+          key: statusKey,
+          value: East.function([StringType, RowType], IntegerType, ($, _k, _v) => East.platform('time_now', [], IntegerType)()),
+        }),
+        /'value' projection must not call platform functions \(found 'time_now'\)/,
       );
     });
   });

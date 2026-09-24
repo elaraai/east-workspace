@@ -33,6 +33,8 @@ import type {
  * @param version - Package version
  * @param items - Items to include (datasets, tasks)
  * @returns A PackageDef with typed access to contents
+ * @throws {Error} When a record is given two different mutations, or two
+ *   different indexes, of one name
  *
  * @example
  * ```ts
@@ -69,10 +71,10 @@ export function package_(
   // Mutations are collected by owning record name, like functions; they are
   // folded onto their record below. Records themselves are datasets, so they
   // ride `all_items` and only need a separate RecordObject channel.
-  const mutationsByRecord = new Map<string, Record<string, MutationDef>>();
+  const mutationsByRecord = new Map<string, MutationDef[]>();
   // Indexes are collected onto their record the same way, and for the same
   // reason: an index is declared beside the record and belongs to it.
-  const indexesByRecord = new Map<string, Record<string, RecordIndexDef>>();
+  const indexesByRecord = new Map<string, RecordIndexDef[]>();
   const importedRecords: Record<string, RecordDef> = {};
 
   function collect(item: PackageItem): void {
@@ -100,14 +102,10 @@ export function package_(
     } else if (item.kind === "mutation") {
       // Pull in the owning record's dataset and register the mutation onto it.
       collect(item.record);
-      const muts = mutationsByRecord.get(item.record.name) ?? {};
-      muts[item.name] = item;
-      mutationsByRecord.set(item.record.name, muts);
+      mutationsByRecord.set(item.record.name, [...(mutationsByRecord.get(item.record.name) ?? []), item]);
     } else if (item.kind === "recordIndex") {
       collect(item.record);
-      const idx = indexesByRecord.get(item.record.name) ?? {};
-      idx[item.name] = item;
-      indexesByRecord.set(item.record.name, idx);
+      indexesByRecord.set(item.record.name, [...(indexesByRecord.get(item.record.name) ?? []), item]);
     } else {
       collect(item);
     }
@@ -155,6 +153,21 @@ export function package_(
     }
   }
 
+  // One declaration per name on a record: given two different mutations, or
+  // two different indexes, under one name, the record would keep whichever
+  // came last.
+  const byName = <D extends { name: string }>(record: string, kind: string, defs: D[]): Record<string, D> => {
+    const named: Record<string, D> = {};
+    for (const def of defs) {
+      const taken = named[def.name];
+      if (taken !== undefined && taken !== def) {
+        throw new Error(`e3.package '${name}': record '${record}' declares two ${kind} named '${def.name}' — pass each declaration once`);
+      }
+      named[def.name] = def;
+    }
+    return named;
+  };
+
   // Assemble records: a record's dataset rides `all_items`; fold in any
   // mutations collected for it. A record imported via a package arrives twice —
   // its bare dataset (mutations `{}`) in `all_items` and its already-assembled
@@ -167,16 +180,16 @@ export function package_(
       const rec = item as RecordDef;
       records[rec.name] = {
         ...rec,
-        mutations: {
-          ...records[rec.name]?.mutations,
-          ...rec.mutations,
-          ...mutationsByRecord.get(rec.name),
-        },
-        indexes: {
-          ...records[rec.name]?.indexes,
-          ...rec.indexes,
-          ...indexesByRecord.get(rec.name),
-        },
+        mutations: byName(rec.name, 'mutations', [
+          ...Object.values(records[rec.name]?.mutations ?? {}),
+          ...Object.values(rec.mutations),
+          ...(mutationsByRecord.get(rec.name) ?? []),
+        ]),
+        indexes: byName(rec.name, 'indexes', [
+          ...Object.values(records[rec.name]?.indexes ?? {}),
+          ...Object.values(rec.indexes),
+          ...(indexesByRecord.get(rec.name) ?? []),
+        ]),
       };
     }
   }

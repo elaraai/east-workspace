@@ -152,7 +152,8 @@ function checkEntryParams(name: string, role: string, keyType: EastType, valueTy
  * @typeParam T - The owning record's state type (a Dict)
  * @typeParam S - The spec as written, from which the index key and covering
  *   projection types are read
- * @param name - Index name (unique on the record, and never `primary`)
+ * @param name - Index name: never `primary`, and one declaration per name on
+ *   the record, which `e3.package` enforces when it folds indexes onto it
  * @param rec - The record to index
  * @param spec - Exactly one of `key` / `keys`, and an optional `value`
  * @param config - Optional runner selection (known runtimes only)
@@ -201,6 +202,8 @@ export function recordIndex<Name extends string, T extends EastType, S extends R
       `selector in URLs and on the command line.`,
     );
   }
+  // An assembled record — a package's `records.plans` — carries its indexes
+  // already; a bare one is checked when `e3.package` folds indexes onto it.
   if (rec.indexes[name] !== undefined) {
     throw new Error(`e3.recordIndex '${name}' is already declared on record '${rec.name}'`);
   }

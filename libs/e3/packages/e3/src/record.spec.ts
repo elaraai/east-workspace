@@ -117,6 +117,19 @@ describe('e3.record / e3.mutation', () => {
     );
   });
 
+  it('refuses two mutations of one name on a record, wherever the second comes from', () => {
+    const counter = record('counter', IntegerType, 0n);
+    const reducer = East.function([IntegerType, IntegerType], IntegerType, ($, state, by) => state.add(by));
+    const increment = mutation('increment', counter, reducer);
+    const another = mutation('increment', counter, reducer);
+    // A record keeps one mutation per name. With two it would keep whichever
+    // came last, and a caller of `increment` would run the other one.
+    assert.throws(() => package_('c', '1.0.0', increment, another), /record 'counter' declares two mutations named 'increment'/);
+    assert.throws(() => package_('c', '1.0.0', package_('inner', '1.0.0', increment), another), /two mutations named 'increment'/);
+    // One declaration passed twice is one mutation.
+    assert.deepStrictEqual(Object.keys(package_('c', '1.0.0', increment, increment).records.counter.mutations), ['increment']);
+  });
+
   it('rejects an async reducer body at definition time', () => {
     const counter = record('counter', IntegerType, 0n);
     // Async bodies break CAS-retry safety; the typed overload rejects them at
