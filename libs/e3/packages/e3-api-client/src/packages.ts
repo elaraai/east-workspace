@@ -236,6 +236,14 @@ function createProgressStream(
 }
 
 /**
+ * The first and the longest wait between polls of a package job still
+ * `processing`: a job that finishes at once is seen at once, and a long one
+ * is polled about once a second.
+ */
+const JOB_POLL_MIN_MS = 100;
+const JOB_POLL_MAX_MS = 1000;
+
+/**
  * Poll a package import job until it completes or fails.
  */
 async function pollImport(
@@ -245,9 +253,8 @@ async function pollImport(
   options: RequestOptions,
   onProgress?: (progress: PackageImportProgress) => void,
   signal?: AbortSignal,
-  intervalMs = 1000,
 ): Promise<PackageImportStatus> {
-  while (true) {
+  for (let wait = JOB_POLL_MIN_MS; ; wait = Math.min(wait * 2, JOB_POLL_MAX_MS)) {
     signal?.throwIfAborted();
     const res = await fetchWithAuth(`${url}/api/repos/${repoEncoded}/import/${id}`, {
       method: 'GET',
@@ -264,7 +271,7 @@ async function pollImport(
 
     if (result.value.type === 'processing') {
       onProgress?.(result.value.value);
-      await new Promise(resolve => setTimeout(resolve, intervalMs));
+      await new Promise(resolve => setTimeout(resolve, wait));
       continue;
     }
 
@@ -274,6 +281,9 @@ async function pollImport(
 
 /**
  * Poll a package export job until it completes or fails.
+ *
+ * @remarks
+ * The polls start 100 ms apart and back off to one second.
  */
 export async function pollExport(
   url: string,
@@ -282,9 +292,8 @@ export async function pollExport(
   options: RequestOptions,
   onProgress?: (progress: PackageExportProgress) => void,
   signal?: AbortSignal,
-  intervalMs = 1000,
 ): Promise<PackageExportStatus> {
-  while (true) {
+  for (let wait = JOB_POLL_MIN_MS; ; wait = Math.min(wait * 2, JOB_POLL_MAX_MS)) {
     signal?.throwIfAborted();
     const res = await fetchWithAuth(`${url}/api/repos/${repoEncoded}/export/${id}`, {
       method: 'GET',
@@ -301,7 +310,7 @@ export async function pollExport(
 
     if (result.value.type === 'processing') {
       onProgress?.(result.value.value);
-      await new Promise(resolve => setTimeout(resolve, intervalMs));
+      await new Promise(resolve => setTimeout(resolve, wait));
       continue;
     }
 
