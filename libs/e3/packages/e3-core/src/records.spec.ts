@@ -480,6 +480,36 @@ describe('records', () => {
     assert.strictEqual((await recordMutate(storage, successRunner(encodeInt(5n)), repo, ws, 'counter', 'increment', [encodeInt(5n)], { actor: 'x' })).kind, 'committed');
   });
 
+  it('a sweep is refused while a record write is in flight', async () => {
+    // A write stores its state, commit and args before the ref swing names
+    // them, so until it commits they are objects no root reaches — the ones a
+    // sweep deletes. The write holds the tasks lock shared from start to end,
+    // and gc takes that lock exclusively.
+    let reducing!: () => void;
+    const reduced = new Promise<void>((resolve) => { reducing = resolve; });
+    let finish!: () => void;
+    const finished = new Promise<void>((resolve) => { finish = resolve; });
+    const runner = runnerReturning(async () => {
+      reducing();
+      await finished;
+      return { kind: 'success', value: encodeInt(5n), stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false };
+    });
+
+    const write = recordMutate(storage, runner, repo, ws, 'counter', 'increment', [encodeInt(5n)], { actor: 'cli:test' });
+    await reduced;
+    try {
+      await assert.rejects(repoGc(storage, repo, { minAge: 0 }), /a task is running/);
+    } finally {
+      finish();
+    }
+    assert.strictEqual((await write).kind, 'committed');
+
+    // The write released the lock when it committed, so the sweep runs now —
+    // proving it was the lock that refused it.
+    await repoGc(storage, repo, { minAge: 0 });
+    assert.strictEqual(await workspaceGetDataset(storage, repo, ws, counterPath), 5n);
+  });
+
   it('forwards reducer stderr on timed_out and too_large outcomes', async () => {
     const timedOut = await recordMutate(
       storage,
@@ -912,6 +942,44 @@ describe('record indexes', () => {
       { runner: realRunner, onRecordIndex: (plan) => moved.push(`${plan.index}:${plan.action}`) });
     assert.deepStrictEqual(moved.sort(), ['by_due:build', 'by_status:drop']);
     assert.deepStrictEqual([...(await state()).indexes.keys()], ['by_due']);
+  });
+
+  it('a reindex carries a reserved $ slot, whether run by hand or by a deploy', async () => {
+    // Both reindexes build their version vector fresh, as every commit path
+    // does, so a `$` slot either one fails to carry is erased — and the
+    // writer that set it reads the record afterwards as one that never had it.
+    const ref = await storage.datasets.read(repo, ws, 'records/plans');
+    assert.ok(ref && ref.type === 'value');
+    const versions = new Map(ref.value.versions);
+    versions.set('$schema', 'frontier-hash');
+    versions.set('$idem', 'k1');
+    await storage.datasets.write(repo, ws, 'records/plans',
+      variant('value', { hash: ref.value.hash, versions }));
+
+    const rebuilt = await recordReindex(storage, realRunner, repo, ws, 'plans', { actor: 'cli:test' });
+    assert.strictEqual(rebuilt.kind, 'committed', JSON.stringify(rebuilt));
+    const afterReindex = await storage.datasets.read(repo, ws, 'records/plans');
+    assert.ok(afterReindex && afterReindex.type === 'value');
+    assert.strictEqual(afterReindex.value.versions.get('$schema'), 'frontier-hash');
+    assert.strictEqual(afterReindex.value.versions.get('$idem'), undefined,
+      'a reindex is not an idempotency-keyed write, so it drops the key it does not own');
+
+    // A changed declaration: the deploy reindexes the record itself.
+    const plans = e3.record('plans', PlansType, new Map());
+    const byDue = e3.recordIndex('by_due', plans, {
+      key: East.function([StringType, PlanRowType], IntegerType, ($, _k, v) => v.due),
+    });
+    const zip = join(tempDir, 'planrecords-2.zip');
+    await e3.export(e3.package('planrecords', '2.0.0', plans, byDue), zip);
+    await packageImport(storage, repo, zip);
+    await workspaceDeploy(storage, repo, ws, 'planrecords', '2.0.0', { runner: realRunner });
+
+    const [head] = await recordHistory(storage, repo, ws, 'plans', { limit: 1 });
+    assert.strictEqual(head!.commit.mutation, '$reindex');
+    assert.strictEqual(head!.commit.actor, 'system:deploy', 'the deploy wrote the last commit');
+    const afterDeploy = await storage.datasets.read(repo, ws, 'records/plans');
+    assert.ok(afterDeploy && afterDeploy.type === 'value');
+    assert.strictEqual(afterDeploy.value.versions.get('$schema'), 'frontier-hash');
   });
 
   it('resolves the index for reading, with the window and collection types', async () => {

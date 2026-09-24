@@ -638,12 +638,11 @@ What #786 guarantees holds through every stage. Each guarantee is pinned by a te
 | A patch on a record with no index runs no process | `records.spec.ts` |
 | The runner is handed the record as a stream, never whole | `records.spec.ts` |
 | An indexed record reads as its rows through every ordinary door | `records.spec.ts`; `records-keyed` |
-| A reserved `$` slot survives a mutation and a compaction | `records.spec.ts` |
+| A reserved `$` slot survives a mutation, a compaction and a reindex, whether the reindex is run by hand or by a deploy | `records.spec.ts` |
 | gc keeps every object a commit, its delta and an index name | `records.spec.ts`; `gc.spec.ts` |
+| A record write holds the tasks lock shared, so a gc sweep is refused until it commits | `records.spec.ts` |
 | The generated programs: targets in canonical order; the reduce, edit and patch forms; index maintenance inside the delta; the index build | e3 `mutation-programs.spec.ts`, `record-index.spec.ts` |
 | Keyed records through the API at 10,000 rows (`E3_RECORD_ROWS` raises it) | e3-api-tests `records-keyed`, run by `api-compliance.spec.ts` |
-
-Two of #786's fixes are not pinned by a test yet. One stops a reindex dropping reserved `$` slots. The other makes a record write hold the tasks lock shared, so a gc sweep cannot run under it.
 
 Each of #786's deferrals has a place:
 - the large-write apply and migrations by template run on the engine (stage 4);
