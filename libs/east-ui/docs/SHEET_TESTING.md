@@ -6,9 +6,11 @@ Run from `libs/east-ui`:
 npm run test:sheet
 ```
 
-This builds the East UI authoring package, executes the compiled Sheet contracts,
-runs the live apply-adapter tests, and runs every Sheet unit and DOM test. It does
-not start the showcase, take screenshots, or require a browser installation.
+This builds the East UI authoring package, executes the compiled Sheet contracts
+and the shared editing contract they name (`Editing`, #879), runs the live
+apply-adapter tests, and runs every Sheet unit and DOM test with the shared
+editing session's (`east-ui-components/src/editing/`). It does not start the
+showcase, take screenshots, or require a browser installation.
 Dependencies must already be installed and the workspace dependencies built.
 
 The suites assert behavior at three boundaries:

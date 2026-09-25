@@ -17,7 +17,7 @@ import { SheetDraftEntryTypeFor, SheetDraftGroupTypeFor, SheetPatchEventTypeFor 
 import { SheetEditingType, SheetWireApplyType } from "./editing-types.js";
 import { buildSheetSeed } from "./seed-bridge.js";
 import { resolveSheetEdits, type SheetEditsInput } from "./edits.js";
-import { buildInlineApply } from "./apply-adapter.js";
+import { buildInlineApply } from "../../contracts/editing.js";
 
 /** Author editing behavior, erased only at the factory boundary. @internal */
 export interface SheetEditingInput {

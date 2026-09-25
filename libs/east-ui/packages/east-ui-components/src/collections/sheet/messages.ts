@@ -28,6 +28,7 @@
  */
 
 import { createContext, createElement, useContext, useMemo, type ReactNode } from "react";
+import { editingMessages, type EditHistoryWord, type EditingMessages } from "../../editing/messages.js";
 import { pluralKind } from "./link/grammar.js";
 
 /** A date column's level, as the words name it (#844). */
@@ -39,8 +40,8 @@ export type SheetHalfWord = "from" | "to";
 /** Where an actual instant stands against the wanted date (#844). */
 export type SheetToneWord = "on" | "late" | "early";
 
-/** The history bar's states that say something. */
-export type SheetHistoryWord = "stale" | "applying" | "unknown" | "reconciling" | "rejected" | "conflict";
+/** The history bar's states that say something — the shared editing session's (#879). */
+export type SheetHistoryWord = EditHistoryWord;
 
 /** What a view narrows by, as its hover title names it (B§8). */
 export type SheetScopeWord = "query" | "range" | "filter" | "none";
@@ -49,7 +50,9 @@ export type SheetScopeWord = "query" | "range" | "filter" | "none";
 export type SheetArityWord = "short" | "exact" | "over";
 
 /**
- * The Sheet's message table.
+ * The Sheet's message table — its own words, and the editing session's
+ * ({@link EditingMessages}, #879: the history bar and the draft issues), so a
+ * host translates the sheet's history bar where it translates the sheet.
  *
  * @remarks
  * Parameters named `count`, `from`, `to`, `total`, `loaded`, `rows`, `cols`,
@@ -58,7 +61,7 @@ export type SheetArityWord = "short" | "exact" | "over";
  * number, as written. `noun` / `nouns` are the host's words for a group
  * (#844), `header` a column's header, `name` a view's name — the author's.
  */
-export interface SheetMessages {
+export interface SheetMessages extends EditingMessages {
     // ── Counting ───────────────────────────────────────────────────────────
     /** A count of the host's groups — `3 plans`. */
     countNoun: (p: { n: number; count: string; noun: string; nouns: string }) => string;
@@ -109,33 +112,8 @@ export interface SheetMessages {
     /** `+ tab`'s title — with a query set, or without one. */
     tabAddTitle: (p: { query: boolean }) => string;
 
-    // ── The history bar ────────────────────────────────────────────────────
-    /** The bar's status line. */
-    historyStatus: (p: { status: SheetHistoryWord }) => string;
-    /** The issues button — `2 issues`. */
-    issues: (p: { n: number; count: string }) => string;
-    /** Its tooltip. */
-    issuesTip: (p: { n: number; count: string }) => string;
-    /** Undo. */
-    undo: () => string;
-    /** Undo's tooltip. */
-    undoTip: () => string;
-    /** Redo. */
-    redo: () => string;
-    /** Redo's tooltip. */
-    redoTip: () => string;
-    /** Discard. */
-    discard: () => string;
-    /** Discard's tooltip. */
-    discardTip: () => string;
-    /** Ask the source again for the confirmed revision. */
-    retryRefresh: () => string;
-    /** Send the same request again. */
-    retryRequest: () => string;
-    /** Apply. */
-    apply: () => string;
-    /** A source that applied a batch without its committed revision. */
-    applyNoRevision: () => string;
+    // ── The history bar and the draft issues: the editing session's
+    // (`EditingMessages`) ────────────────────────────────────────────────────
 
     // ── The header ─────────────────────────────────────────────────────────
     /** The row numbers' column head. */
@@ -184,10 +162,6 @@ export interface SheetMessages {
     proposalReject: () => string;
     /** The reject button's title. */
     proposalRejectTitle: () => string;
-    /** A cell whose text could not be read, and a draft's own issue. */
-    issueInvalid: (p: { value: string }) => string;
-    /** A draft field with no value. */
-    issueRequired: () => string;
     /** An author check that reported a state without saying why. */
     issueAuthor: (p: { state: string }) => string;
     /** A row check that threw. */
@@ -496,8 +470,9 @@ export interface SheetMessages {
 
 const plural = (n: number, one: string, many: string): string => (n === 1 ? one : many);
 
-/** The English table — the default. */
+/** The English table — the default: the editing session's words, then the sheet's own. */
 export const sheetMessages: SheetMessages = {
+    ...editingMessages,
     countNoun: ({ n, count, noun, nouns }) => `${count} ${plural(n, noun, nouns)}`,
     groupNoun: () => "group",
     groupNouns: () => "groups",
@@ -531,29 +506,6 @@ export const sheetMessages: SheetMessages = {
         ? "New tab from this search — query, context and expanded bands, evaluated live"
         : "New tab — no filter yet; search inside it and ⏎ to scope it"),
 
-    historyStatus: ({ status }) => {
-        switch (status) {
-            case "stale": return "Source changed — review or discard these drafts";
-            case "applying": return "Applying changes…";
-            case "unknown": return "Awaiting confirmation — retry the same request";
-            case "reconciling": return "Applied — loading the confirmed revision…";
-            case "rejected": return "Changes rejected — revise the draft before applying";
-            case "conflict": return "Source conflict — review or discard these drafts";
-        }
-    },
-    issues: ({ n, count }) => `${count} ${plural(n, "issue", "issues")}`,
-    issuesTip: ({ n, count }) => `${count} ${plural(n, "issue", "issues")} · Go to first issue`,
-    undo: () => "Undo",
-    undoTip: () => "Undo · Ctrl+Z / ⌘Z",
-    redo: () => "Redo",
-    redoTip: () => "Redo · Ctrl+Shift+Z / ⌘⇧Z",
-    discard: () => "Discard",
-    discardTip: () => "Discard changes",
-    retryRefresh: () => "Retry refresh",
-    retryRequest: () => "Retry request",
-    apply: () => "Apply changes",
-    applyNoRevision: () => "The source applied the batch without its committed revision; recover this request before continuing",
-
     headerNumber: () => "#",
     foldAll: ({ folded, groups }) => (folded ? `Open ${groups}` : `Fold ${groups}`),
     foldAllTitle: ({ folded, groups, noun }) => `${folded ? "Open" : "Fold"} ${groups} — ⌥ on a chevron, ⇧Space on a ${noun}`,
@@ -577,8 +529,6 @@ export const sheetMessages: SheetMessages = {
     proposalAcceptTitle: () => "Add this row to the plan — ⏎",
     proposalReject: () => "Reject this suggestion",
     proposalRejectTitle: () => "Reject — not offered after this activity again — ⌫",
-    issueInvalid: ({ value }) => `Invalid input: ${value}`,
-    issueRequired: () => "A value is required",
     issueAuthor: ({ state }) => `Author check reports ${state}`,
     issueRowCheck: ({ reason }) => `Row readiness failed: ${reason}`,
     issueGroupCheck: ({ reason }) => `Group readiness failed: ${reason}`,

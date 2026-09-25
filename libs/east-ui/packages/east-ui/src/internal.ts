@@ -46,6 +46,10 @@ export {
     deriveApproval,
 } from "./contracts/review.js";
 
+// Editing contract (#879) — the shared transaction session's types, `Editing`,
+// its closed wire and the inline adapter.
+export * from "./contracts/editing.js";
+
 // Format helpers
 export { Format } from "./format/index.js";
 export type {
@@ -166,8 +170,6 @@ export * from "./collections/sheet/types.js";
 export * from "./collections/sheet/transactions.js";
 export * from "./collections/sheet/drafts.js";
 export * from "./collections/sheet/editing-types.js";
-export { buildInlineApply } from "./collections/sheet/apply-adapter.js";
-export { SheetRequestStore } from "./collections/sheet/request-store.js";
 export * from "./collections/tree-view/types.js";
 export * from "./format/types.js";
 export * from "./charts/sparkline/types.js";

@@ -119,7 +119,6 @@ export const sheetSlotRecipe = defineSlotRecipe({
     slots: [
         "root", "frame", "card", "body",
         "insertPoint", "insertLayer", "insertChips", "insertButton", "insertStrip", "insertChoice",
-        "history", "historyActions", "historyStatus", "historyButton", "historyIssues", "historyError",
         "toolbar", "toolbarRailGroup", "toolbarCluster", "toolbarCount", "toolbarBadge",
         "tabs", "tabList", "tab", "tabLabel", "tabCount", "tabDot", "tabClose", "tabAdd", "tabMore", "tabRename",
         "contextSwitch", "contextLabel", "contextOption",
@@ -201,41 +200,8 @@ export const sheetSlotRecipe = defineSlotRecipe({
         // docked strip and the footer (`flexShrink: 0`).
         insertStrip: { display: "flex", alignItems: "center", gap: "2", paddingX: "5", paddingY: "2", flex: "none", background: "bg.panel", borderTopWidth: "1px", borderColor: "border.subtle", overflowX: "auto" },
         insertChoice: { display: "inline-flex", alignItems: "center", height: "22px", lineHeight: "1", borderWidth: "1px", borderColor: "border.strong", borderRadius: "sm", paddingX: "2", color: "fg.muted", background: "bg.surface", fontFamily: "mono", fontSize: "10.5px", letterSpacing: "0.04em", whiteSpace: "nowrap", cursor: "pointer", _hover: { borderColor: "brand.solid", color: "brand.solid" }, _coarse: { minWidth: "44px", minHeight: "44px" } },
-        // the history controls sit in the toolbar's rail group,
-        // right of the search (one bar), not in a row of their own.
-        history: {
-            flexShrink: "0",
-            padding: "0",
-            background: "transparent",
-        },
-        historyActions: {
-            display: "flex",
-            justifyContent: "flex-end",
-            alignItems: "center",
-            flexWrap: "nowrap",
-            gap: "{spacing.2}",
-        },
-        historyStatus: {
-            flex: "none",
-            whiteSpace: "nowrap",
-            fontFamily: "mono",
-            fontSize: "xs",
-            color: "fg.muted",
-        },
-        historyButton: {
-            flexShrink: "0",
-            _coarse: { minWidth: "11", minHeight: "11" },
-        },
-        historyIssues: {
-            display: "flex",
-            flexShrink: "0",
-            "&[data-empty]": { visibility: "hidden" },
-        },
-        historyError: {
-            marginTop: "{spacing.2}",
-            fontSize: "xs",
-            color: "fg.danger",
-        },
+        // The history controls in the toolbar's rail group are the shared
+        // editing session's bar — the `editHistory` recipe (#879).
         frame: {
             display: "flex",
             flexDirection: "column",

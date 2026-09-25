@@ -22,7 +22,7 @@ import {
     decodeBeast2For,
 } from "@elaraai/east";
 import { type PlatformFunction } from "@elaraai/east/internal";
-import { State, StateBindPrimitives, SheetRequestStore } from "@elaraai/east-ui/internal";
+import { State, StateBindPrimitives, EditingRequestStore } from "@elaraai/east-ui/internal";
 import { UIStore, type UIStoreInterface } from "./state-store.js";
 import { registerReactiveTracker } from "../reactive/tracker.js";
 import { registerPlatformImplementation, getRegisteredPlatformImplementations } from "./registry.js";
@@ -81,8 +81,9 @@ export function trackKey(key: string): void {
 // fixed by construction), and the methods resolve getStore() LIVE, so a cached
 // handle still re-binds across store swaps. Module-level (State has no runtime
 // instance — getStore() is a singleton).
-// Request results outlive render-key garbage collection, but not the UI store.
-const sheetRequests = new WeakMap<UIStoreInterface, Map<string, Uint8Array>>();
+// The editing contract's inline requests (#879): they outlive render-key
+// garbage collection, but not the UI store.
+const editingRequests = new WeakMap<UIStoreInterface, Map<string, Uint8Array>>();
 
 const stateHandleCache = new Map<string, Record<string, unknown>>();
 
@@ -99,14 +100,14 @@ const stateHandleCache = new Map<string, Record<string, unknown>>();
  * The primitives carry the host side-effects (store I/O + reactive tracking).
  */
 export const StateImpl: PlatformFunction[] = [
-    SheetRequestStore.read.implement((key) => {
-        const payload = sheetRequests.get(getStore())?.get(key);
+    EditingRequestStore.read.implement((key) => {
+        const payload = editingRequests.get(getStore())?.get(key);
         return payload === undefined ? none : some(payload.slice());
     }),
-    SheetRequestStore.write.implement((key, payload) => {
+    EditingRequestStore.write.implement((key, payload) => {
         const store = getStore();
-        let records = sheetRequests.get(store);
-        if (!records) { records = new Map(); sheetRequests.set(store, records); }
+        let records = editingRequests.get(store);
+        if (!records) { records = new Map(); editingRequests.set(store, records); }
         records.set(key, payload.slice());
         return null;
     }),

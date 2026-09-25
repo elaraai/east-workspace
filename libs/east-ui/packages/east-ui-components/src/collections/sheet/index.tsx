@@ -10,7 +10,9 @@
  * the copilot runner (§6.2) and the shell — toolbar · sticky two-line header
  * · virtualised rows · the docked strip · the footer.
  *
- * A source-bound transaction session retains draft gestures and history.
+ * A source-bound transaction session retains draft gestures and history —
+ * the editing session every editable collection shares (`src/editing/`,
+ * #879), with its history bar in the toolbar, in the sheet's words.
  * onPatch observes each completed gesture; onApply submits a checked batch.
  * Overlays retire only after the source acknowledges the committed result.
  * Function values come from the latest render; submitted callbacks remain
@@ -93,7 +95,7 @@ import { SheetEditor, type EditorFocusRequest, type EditorOption, type LinkEdito
 import { SheetStrip, buildStrip, type StripAction, type StripLinkInput, type StripSuggestInput } from "./Strip.js";
 import { SheetFooter, type SheetTransport } from "./Footer.js";
 import { useSheetEditing, type LocalLayer } from "./use-editing.js";
-import { SheetHistory, type HistoryAction } from "./History.js";
+import { HistoryBar, type HistoryAction } from "../../editing/HistoryBar.js";
 import { draftPresentation, discardDraft, type DraftPresentation } from "./draft-state.js";
 import { SheetToolbar } from "./Toolbar.js";
 import type { SheetCellValue, SheetContextValue, SheetEditValue, SheetLinkValue, SheetMemberValue, SheetNounValue, SheetProposerValue, SheetRootValue, SheetRowValue, SheetSelectionValue, SheetViewValue } from "./values.js";
@@ -2816,7 +2818,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
                     context={lensOn ? { value: ui.lens.context, onChange: onContext } : undefined}
                     search={seek.search}
                     onSearchKey={onSearchKey}
-                    trailing={!readOnly ? <SheetHistory session={session} styles={styles} editing={ui.edit !== null} onAction={onHistoryAction} onIssue={onIssue} /> : undefined}
+                    trailing={!readOnly ? <HistoryBar session={session} words={words} editing={ui.edit !== null} onAction={onHistoryAction} onIssue={onIssue} /> : undefined}
                 />
             )}
             <Box

@@ -138,7 +138,8 @@ The established IR → renderer split with the repo's load-bearing rules
   (a row patch — the `Plan.event` kind of value builder), `Sheet.group` /
   `Sheet.group.cell.*` (grouped rows, #740 — with loose rows between the groups
   over `Sheet.Types.Entry` entries, #846), `Sheet.subRows` / `Sheet.subRow` (sub
-  rows, #844), `Sheet.apply` (a checked batch applied to a collection),
+  rows, #844), `Sheet.apply` (a checked batch applied to a collection — the
+  shared editing contract's `Editing.apply`, #879),
   `Sheet.Types.*` (the IR types and the `(R, D)` constructors), `Sheet.Root`.
 
 **Behaviour as data.** What crosses the IR is *declaration* (kinds, registers,
@@ -1673,6 +1674,21 @@ the drafts:
   cross the wire once and the bridge builds them once; each check carries only its
   place and its driver. Every check of the batch reads the same rows, so a check
   that sorts or edits them in place changes what the checks after it see.
+
+**One editing session (#879).** The transaction session is every editable
+collection's, not the Sheet's alone: drafts, one undoable transaction per
+gesture, the checked batch and its serial apply, the gate and the history bar.
+- Its contract is `Editing` in `@elaraai/east-ui` (`contracts/editing.ts`), and
+  the Sheet names its values: `Sheet.apply` is `Editing.apply`,
+  `Sheet.Types.ChangeSet` is `Editing.Types.ChangeSet`.
+- Its renderer is `src/editing/`: `EditSession`, which `SheetTransactions`
+  names over the Sheet's wire rows; `useEditSession`, under `useSheetEditing`;
+  and `HistoryBar`, on the shared `editHistory` recipe, in the sheet's words.
+- A patch event's `origin` also names the Plan's gestures (`resize`, `drop` and
+  `verdict`), so the event's wire type changes with it. A sheet never reports
+  them.
+- The inline adapter's request ledger is the platform pair
+  `editing_requests_read` / `editing_requests_write`.
 
 **The grid, to assistive tech and the keyboard (#860).** The card is a WAI-ARIA grid
 and the one tab stop: the focus stays on it, and it names the ring's cell as its

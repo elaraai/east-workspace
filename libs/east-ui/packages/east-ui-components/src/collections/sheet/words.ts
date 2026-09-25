@@ -27,8 +27,13 @@
 
 import { useMemo } from "react";
 import { formatters, useFormatters, type Formatters } from "../../format/index.js";
+import { DRAFT_ISSUE_TEXT, SESSION_TEXT, sessionErrorText } from "../../editing/messages.js";
 import { sheetMessages, useSheetMessages, type SheetMessages } from "./messages.js";
 import type { SheetNotice, SheetRowRef } from "./sheet-types.js";
+
+// The editing session's own error text and how it shows — shared by every
+// editable collection (#879); the sheet's history bar words it in its words.
+export { SESSION_TEXT, sessionErrorText };
 
 /** The Sheet's words: its message table, and its locale's formatters. */
 export interface SheetWords extends Formatters {
@@ -130,36 +135,17 @@ export function noticeText(notice: SheetNotice, w: SheetWords): string {
 
 /**
  * The renderer's own readiness issues, in their canonical English — the text
- * the patch events carry to the host. Built here and read back here
- * ({@link issueText}), so the two never drift.
+ * the patch events carry to the host: a draft's (the editing session's,
+ * #879) and the sheet's author checks'. Read back here ({@link issueText}),
+ * so the two never drift.
  */
 export const ISSUE_TEXT = {
-    required: sheetMessages.issueRequired(),
-    invalid: (value: string): string => sheetMessages.issueInvalid({ value }),
+    required: DRAFT_ISSUE_TEXT.required,
+    invalid: DRAFT_ISSUE_TEXT.invalid,
     author: (state: string): string => sheetMessages.issueAuthor({ state }),
     rowCheck: (reason: string): string => sheetMessages.issueRowCheck({ reason }),
     groupCheck: (reason: string): string => sheetMessages.issueGroupCheck({ reason }),
 } as const;
-
-/**
- * The editing session's own error text, in its canonical English — what the
- * session holds; the history bar shows it in the sheet's words.
- */
-export const SESSION_TEXT = {
-    noRevision: sheetMessages.applyNoRevision(),
-} as const;
-
-/**
- * The session's error as the history bar shows it: its own, in the sheet's
- * words; a host's or a source's, as written.
- *
- * @param error - The session's error
- * @param w - The words
- * @returns The text to show
- */
-export function sessionErrorText(error: string, w: SheetWords): string {
-    return error === SESSION_TEXT.noRevision ? w.m.applyNoRevision() : error;
-}
 
 /** The canonical forms' fixed heads, to read an issue back by. */
 const INVALID_HEAD = ISSUE_TEXT.invalid("");

@@ -58,6 +58,13 @@ flags are Booleans. The wire and every removal are in
 [Values, folds, one element callback and a bound ui (#824)](#values-folds-one-element-callback-and-a-bound-ui-824)
 below. Stored `UIComponentType` values re-emit.
 
+**#879 moves the Sheet's transactions into a shared editing contract** that
+the Plan's editing session (#880) speaks too. The gesture origin gains the
+Plan's gestures, so a patch event's wire type changes, and a Sheet's editing
+declaration reorders its fields around the shared ones. See
+[One editing session (#879)](#one-editing-session-879) below. Stored
+`UIComponentType` values re-emit; no Sheet author changes a line.
+
 The public API break alongside it: the `Gantt` / `Planner` / `AlignedStack`
 exports (tags, factories, `*.Types`) are gone from `@elaraai/east-ui` and
 `@elaraai/east-ui/internal`, as are `EastChakraGantt` / `EastChakraPlanner`
@@ -296,6 +303,40 @@ scale on the wire, not its empty cells'.
 
 - The message table gains `quantity({ value, unit })` (a value and its unit)
   and `quantities({ parts })` (a band's per-unit sums, joined ` · `).
+
+## One editing session (#879)
+
+The Sheet's transaction session (drafts, one undoable transaction per
+gesture, and Apply as one checked, idempotent batch) is now every editable
+collection's. The contract moved to `@elaraai/east-ui` as the `Editing`
+namespace (`src/contracts/editing.ts`). The Sheet keeps its names for it,
+and each is the same value: `Sheet.apply === Editing.apply`, and
+`Sheet.Types.ChangeSet === Editing.Types.ChangeSet`.
+
+### The wire
+
+| Type | Before | After |
+|---|---|---|
+| `Sheet.Types.Origin` = `Editing.Types.Origin` (a patch event's `origin`) | `typed \| pasted \| fill \| row \| pattern \| insert \| move \| remove \| undo \| redo \| discard` | adds `resize`, `drop` and `verdict` — the Plan's gestures |
+| `SheetEditingType` (a Sheet root's `editing`) | its fields in the Sheet's order | the shared session's fields first (`EditingSessionFields`), then the Sheet's own; the same set of fields |
+| the inline adapter's request ledger | platform `sheet_requests_read` / `sheet_requests_write` | `editing_requests_read` / `editing_requests_write` (`EditingRequestStore`) |
+
+### What is new
+
+- **`Editing.apply` over a keyed `Dict`.** `Editing.apply(DictType(K, E))`
+  applies a batch to a keyed source. Each change names its entry by key: a
+  `String` key as it is, any other key by its `.east` text. A new entry's
+  placement is `keyOrder`, and an ordered placement is refused.
+  `Editing.Types.Base` / `ChangeSet` / `Applied` take the key type as a
+  second argument (`ChangeSet(E, K)`).
+- **Renderer (`@elaraai/east-ui-components`, `src/editing/`).** The session
+  (`EditSession`, was `SheetTransactions`) carries its collection's own
+  projection of an entry (`W`: the Sheet's wire row, the Plan's row).
+  `useEditSession` holds the per-source registry, the gate, and the base and
+  reconcile reads. `HistoryBar` (was `SheetHistory`) speaks its collection's
+  words, with its slots in a shared `editHistory` slot recipe. The Sheet's
+  message table carries the editing session's words (`EditingMessages`), so
+  a `SheetMessagesProvider` still translates the Sheet's history bar.
 
 ## Extracted contracts (do this first when migrating imports)
 

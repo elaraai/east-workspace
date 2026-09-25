@@ -59,6 +59,12 @@ export {
     deriveApproval,
 } from "./contracts/review.js";
 
+// Editing contract (#879) — the one transaction session every editable
+// collection speaks: drafts, a patch event per gesture, and Apply as one
+// checked, idempotent batch (`Editing.apply`). The Sheet keeps its names for
+// it (`Sheet.Types.ChangeSet` is `Editing.Types.ChangeSet`).
+export { Editing, type EditingNamespace } from "./contracts/editing.js";
+
 // Event lifecycle contract — the estimated → proposed → confirmed →
 // in-progress → actual audit vocabulary scheduled-event surfaces speak
 export {

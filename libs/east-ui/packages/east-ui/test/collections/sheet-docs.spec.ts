@@ -4,11 +4,12 @@
  */
 
 // The Sheet's TypeDoc examples are tested examples (#862). Each `@example`
-// under `src/collections/sheet/` and on the `<Sheet>` tag is the verbatim
-// `fn` of an `example()` in `test/collections/sheet*.examples.ts(x)` that a
-// spec runs, behind imports from the public packages and any module-scope
-// declaration of that file. An example edited without its docs, or a doc
-// example no test runs, fails here.
+// under `src/collections/sheet/`, on the `<Sheet>` tag and in the editing
+// contract its transactions moved to (`src/contracts/editing.ts`, #879) is the
+// verbatim `fn` of an `example()` in `test/collections/sheet*.examples.ts(x)`
+// or `test/contracts/editing.examples.ts` that a spec runs, behind imports
+// from the public packages and any module-scope declaration of that file. An
+// example edited without its docs, or a doc example no test runs, fails here.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -20,9 +21,9 @@ const read = (path: string): string => readFileSync(new URL(path, ROOT), "utf-8"
 const list = (dir: string, name: RegExp): string[] =>
     readdirSync(new URL(dir, ROOT)).filter((f) => name.test(f)).sort().map((f) => dir + f);
 
-const SOURCES = [...list("src/collections/sheet/", /\.ts$/), "src/runtime/collections/sheet.ts"];
-const EXAMPLES = list("test/collections/", /^sheet[\w-]*\.examples\.tsx?$/);
-const SPECS = list("test/collections/", /^sheet[\w-]*\.spec\.ts$/).map(read).join("\n");
+const SOURCES = [...list("src/collections/sheet/", /\.ts$/), "src/runtime/collections/sheet.ts", "src/contracts/editing.ts"];
+const EXAMPLES = [...list("test/collections/", /^sheet[\w-]*\.examples\.tsx?$/), "test/contracts/editing.examples.ts"];
+const SPECS = [...list("test/collections/", /^sheet[\w-]*\.spec\.ts$/), "test/contracts/editing.spec.ts"].map(read).join("\n");
 const PRAGMA = "// .tsx file with the `@jsxImportSource @elaraai/east-ui` pragma";
 const PUBLIC_IMPORT = /^import \{ [^}]+ \} from "@elaraai\/east(-ui)?";$/;
 
@@ -107,7 +108,7 @@ test("every Sheet @example is the verbatim fn of a tested example, imported from
     assert.ok(docs.some((d) => d.at.startsWith("src/runtime/collections/sheet.ts:")), "the <Sheet> tag carries an @example");
     const failures = docs.flatMap((doc) => {
         const m = mirrorOf(doc, mirrors);
-        if (m === undefined) return [`${doc.at}: its code does not end in \`const <name> = <the fn of an example() in test/collections/sheet*.examples.ts(x)>\`, verbatim`];
+        if (m === undefined) return [`${doc.at}: its code does not end in \`const <name> = <the fn of an example() in test/collections/sheet*.examples.ts(x) or test/contracts/editing.examples.ts>\`, verbatim`];
         const why = flaw(doc, m);
         return why === undefined ? [] : [`${doc.at}: ${m.name} — ${why}`];
     });

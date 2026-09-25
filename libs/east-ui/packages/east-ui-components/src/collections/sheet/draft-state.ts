@@ -3,20 +3,19 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-/** Presentation and local discard of schema-checked drafts. @packageDocumentation */
-import { OptionType, equalFor, none, some, variant, type EastType } from "@elaraai/east";
-import { normalizeDraft, type BatchReadiness } from "./draft-values.js";
+/**
+ * Presentation and local discard of a sheet's schema-checked drafts — an
+ * entry's, or one line of a group's — over the shared draft presentation
+ * (`src/editing/draft.ts`, #879).
+ *
+ * @packageDocumentation
+ */
+import { none, variant, type EastType } from "@elaraai/east";
+import { CLEAN_DRAFT, presentDraft, type BatchReadiness, type DraftPresentation } from "../../editing/draft.js";
 import type { EntryVersion, SheetTransactions } from "./transactions.js";
 import { SHEET_WORDS, issueText, type SheetWords } from "./words.js";
 
-export interface DraftPresentation {
-    pending: boolean;
-    invalid: boolean;
-    incomplete: boolean;
-    issues: ReadonlyMap<string, string>;
-    discardable: boolean;
-}
-const CLEAN: DraftPresentation = { pending: false, invalid: false, incomplete: false, issues: new Map(), discardable: false };
+export type { DraftPresentation } from "../../editing/draft.js";
 
 /**
  * A group's own draft: the entry's — or, on a sheet with loose rows between
@@ -51,35 +50,24 @@ function childOf(type: EastType, entry: EntryVersion | undefined, field: string,
  */
 export function draftPresentation(session: SheetTransactions, type: EastType, field: string | undefined, id: string, child?: string, readiness?: BatchReadiness, words: SheetWords = SHEET_WORDS): DraftPresentation {
     const entry = session.entries.get(id);
-    if (entry?.draft === undefined) return CLEAN;
+    if (entry?.draft === undefined) return CLEAN_DRAFT;
     const original = session.originals.get(id);
     let current: unknown = entry.draft;
     let before = original?.draft;
+    let row: number | undefined;
     if (child !== undefined) {
         const groupType = type.type === "Variant" ? type.cases["group"] : type;
-        if (field === undefined || groupType?.type !== "Struct" || groupType.fields[field]?.type !== "Array") return CLEAN;
+        if (field === undefined || groupType?.type !== "Struct" || groupType.fields[field]?.type !== "Array") return CLEAN_DRAFT;
         current = childOf(type, entry, field, child);
         before = childOf(type, original, field, child);
         type = groupType.fields[field].value;
-        if (current === undefined) return CLEAN;
+        if (current === undefined) return CLEAN_DRAFT;
+        row = entry.wire?.lines.findIndex(line => line.key === child) ?? -1;
     }
-    const checked = normalizeDraft(type, current, id).readiness;
-    const issues = new Map<string, string>();
-    if (checked.type !== "ready") for (const issue of checked.value) {
-        if (issue.field.type === "some" && issue.row.type === "none") issues.set(issue.field.value, issueText(issue.message, words));
-    }
-    const childIndex = child === undefined ? undefined : entry.wire?.lines.findIndex(line => line.key === child);
-    const related = readiness !== undefined && readiness.type !== "ready"
-        ? readiness.value.filter(issue => issue.entry === id && (child === undefined || issue.row.type === "some" && issue.row.value === BigInt(childIndex ?? -1))) : [];
-    for (const issue of related) {
-        if (issue.field.type === "some" && (child !== undefined || issue.row.type === "none") && !issues.has(issue.field.value)) issues.set(issue.field.value, issueText(issue.message, words));
-    }
-    const invalid = checked.type === "invalid" || related.length > 0 && readiness?.type === "invalid";
-    return {
-        pending: !equalFor(OptionType(type))(before === undefined ? none : some(before), some(current)),
-        invalid, incomplete: !invalid && (checked.type === "incomplete" || related.length > 0), issues,
-        discardable: before === undefined && session.writable,
-    };
+    return presentDraft({
+        type, current, before, entry: id, row, readiness, writable: session.writable,
+        text: (message) => issueText(message, words),
+    });
 }
 
 /**

@@ -16,14 +16,15 @@
  * `columns.ts` (`Sheet.column.*`) · `registers.ts` (`Sheet.register.*`,
  * `Sheet.driver`) · `link.ts` (`Sheet.link.*`) · `group.ts` (`Sheet.group`,
  * `Sheet.group.cell.*`) · `sub-rows.ts` (`Sheet.subRows` / `Sheet.subRow`) ·
- * `transactions.ts` (`Sheet.apply` and the checked batch types) · `drafts.ts`
- * (the draft entry types and the `onPatch` event) · `edits.ts` (the `edits`
- * capabilities) · `bridge.ts` (the typed bridge) · `context-bridge.ts`,
- * `draft-bridge.ts` and `seed-bridge.ts` (draft-aware contexts, draft
- * decoding and the `newRow` / `newGroup` defaults) · `editing-bridge.ts` and
- * `editing-types.ts` (the editing session's callbacks and their closed
- * transport) · `apply-adapter.ts` and `request-store.ts` (the inline
- * `onUpdate` adapter and its request ledger) · `root.ts` (`Sheet.Root`).
+ * `transactions.ts` and `drafts.ts` (the Sheet's names for the shared editing
+ * contract, `contracts/editing.ts` #879 — `Sheet.apply`, the checked batch
+ * types, the draft entry types and the `onPatch` event — plus the new-row
+ * contexts only a sheet has) · `edits.ts` (the `edits` capabilities) ·
+ * `bridge.ts` (the typed bridge) · `context-bridge.ts`, `draft-bridge.ts` and
+ * `seed-bridge.ts` (draft-aware contexts, draft decoding and the `newRow` /
+ * `newGroup` defaults) · `editing-bridge.ts` and `editing-types.ts` (the
+ * editing session's callbacks and their closed transport, the inline
+ * `onUpdate` adapter among them) · `root.ts` (`Sheet.Root`).
  *
  * One namespace object per category, the `Plan.series` / `Plan.at` /
  * `Plan.Types` split, so categories never mix as they grow.
@@ -114,8 +115,6 @@ export * from "./transactions.js";
 import { SheetEntryTypeFor, SheetDraftGroupTypeFor, SheetDraftEntryTypeFor, SheetDraftChangeTypeFor, SheetPatchEventTypeFor } from "./drafts.js";
 export * from "./drafts.js";
 export * from "./editing-types.js";
-export { SheetRequestStore } from "./request-store.js";
-export { buildInlineApply } from "./apply-adapter.js";
 
 // Re-export the UIComp-free types so consumers reach everything via this barrel.
 export {
@@ -386,7 +385,7 @@ export interface SheetNamespace {
     subRows: typeof createSubRows;
     /** One sub row — `Sheet.subRow({ code?, name, chips?, facets?, id? })`. */
     subRow: typeof createSubRow;
-    /** Applies a checked entry batch atomically to a collection. */
+    /** Applies a checked entry batch atomically to a collection — the shared `Editing.apply` (#879). */
     apply: typeof applySheet;
     /**
      * Grouped rows (#740) — `Sheet.group(P, "lines", { title, sub?, cells?, folded?, noun? })`
@@ -414,7 +413,14 @@ export interface SheetNamespace {
             stamped: typeof groupStamped;
         };
     };
-    /** The Sheet East types — the closed wire types and the typed constructors. */
+    /**
+     * The Sheet East types — the closed wire types and the typed constructors.
+     * The transaction and draft types (`Entry`, `DraftGroup`, `DraftEntry`,
+     * `DraftChange`, `PatchEvent`, `Position`, `EntryPlacement`, `FieldIssue`,
+     * `Readiness`, `Issue`, `BatchReadiness`, `Origin`, `ApplyResult`, `Draft`,
+     * `Base`, `Change`, `ChangeSet`, `Applied`) are the shared editing
+     * contract's — each the same value as its `Editing.Types` name (#879).
+     */
     Types: {
         /** `Entry(G, "rows")` — the group-or-row union of a source holding groups beside ungrouped rows: as a sheet's `data`, loose rows between the groups (#846) ({@link SheetEntryTypeFor}). */
         Entry: typeof SheetEntryTypeFor;

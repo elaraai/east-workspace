@@ -1,14 +1,14 @@
 {
   "version": 2,
   "stats": {
-    "totalEntries": 1190,
-    "totalFiles": 197,
+    "totalEntries": 1192,
+    "totalFiles": 198,
     "packages": {
       "east": 551,
       "east-node-std": 55,
       "east-node-io": 63,
       "east-py-datascience": 94,
-      "east-ui": 365,
+      "east-ui": 367,
       "e3-ui": 39,
       "e3": 11,
       "e3-ui-cli": 7,
@@ -34273,6 +34273,63 @@
         "tsx"
       ],
       "source": "// Header forms — none, eyebrow, full and compound-meta cards side by side\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <VStack gap=\"4\" align=\"stretch\">\n            <Card>\n                <Text>No header — body only.</Text>\n            </Card>\n            <Card header={{ eyebrow: \"Run summary\" }}>\n                <Text>Eyebrow-only header.</Text>\n            </Card>\n            <Card header={{ eyebrow: \"Featured\", title: \"Featured Article\", description: \"A brief summary of what this card contains\" }}>\n                <Text>Full header.</Text>\n            </Card>\n            <Card\n                header={{ eyebrow: \"Forecast · SE region\", title: \"Per plan week\", meta: \"14s ago\" }}\n                footer={{ content: [<Text>Last synced 14:32</Text>], actions: [<Button variant=\"subtle\">Export</Button>] }}\n            >\n                <Text>Compound meta header with a content + actions footer.</Text>\n            </Card>\n        </VStack>\n    ))"
+    },
+    {
+      "id": "east-ui:editing.examples.ts:editingApplyBatch",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/contracts/editing.examples.ts",
+      "suite": "",
+      "test": "Apply a checked batch to an Array source with the shared editing contract — the entry addressed by its identity field",
+      "keywords": [
+        "Editing",
+        "apply",
+        "ChangeSet",
+        "patch",
+        "atomic",
+        "snapshot",
+        "batch",
+        "Array",
+        "identity field"
+      ],
+      "imports": [
+        "import { ArrayType, DictType, East, IntegerType, OptionType, StringType, StructType, example, none, some, variant } from \"@elaraai/east\";",
+        "import { Editing } from \"@elaraai/east-ui\";"
+      ],
+      "languages": [
+        "typescript"
+      ],
+      "source": "// Apply a checked batch to an Array source with the shared editing contract — the entry addressed by its identity field\n// inputs: []  returns: [{ id: \"a\", task: \"Cut\", qty: 3n }]\nEast.function([], ArrayType(Job), ($) => {\n        const before = $.const({ id: \"a\", task: \"Cut\", qty: 2n }, Job);\n        const after = $.const({ id: \"a\", task: \"Cut\", qty: 3n }, Job);\n        const rows = $.const([before], ArrayType(Job));\n        const oldEntry = $.const(some(before), OptionType(Job));\n        const newEntry = $.const(some(after), OptionType(Job));\n        const batch = $.const({\n            requestId: \"example-request\", base: variant(\"snapshot\", rows), label: \"Set quantity\",\n            changes: [{ id: \"a\", patch: East.diff(oldEntry, newEntry), place: none }],\n        }, Editing.Types.ChangeSet(Job));\n        const apply = $.const(Editing.apply(Job, \"id\"));\n        return apply(rows, batch, none).unwrap(\"applied\");\n    })"
+    },
+    {
+      "id": "east-ui:editing.examples.ts:editingApplyKeyed",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/contracts/editing.examples.ts",
+      "suite": "",
+      "test": "Apply a checked batch to a keyed Dict source — entries addressed by key: one updated, one inserted in key order, one removed, as one result",
+      "keywords": [
+        "Editing",
+        "apply",
+        "ChangeSet",
+        "Dict",
+        "keyed",
+        "key",
+        "keyOrder",
+        "insert",
+        "update",
+        "remove",
+        "atomic",
+        "batch"
+      ],
+      "imports": [
+        "import { ArrayType, DictType, East, IntegerType, OptionType, StringType, StructType, example, none, some, variant } from \"@elaraai/east\";",
+        "import { Editing } from \"@elaraai/east-ui\";"
+      ],
+      "languages": [
+        "typescript"
+      ],
+      "source": "// Apply a checked batch to a keyed Dict source — entries addressed by key: one updated, one inserted in key order, one removed, as one result\n// inputs: []  returns: new Map([\n        [\"a\", { task: \"Cut\", qty: 3n }],\n        [\"b\", { task: \"Paint\", qty: 4n }],\n    ])\nEast.function([], DictType(StringType, KeyedJob), ($) => {\n        const jobs = $.const(new Map([\n            [\"a\", { task: \"Cut\", qty: 2n }],\n            [\"c\", { task: \"Weld\", qty: 1n }],\n        ]), DictType(StringType, KeyedJob));\n        const cut = $.const(some({ task: \"Cut\", qty: 2n }), OptionType(KeyedJob));\n        const cutMore = $.const(some({ task: \"Cut\", qty: 3n }), OptionType(KeyedJob));\n        const weld = $.const(some({ task: \"Weld\", qty: 1n }), OptionType(KeyedJob));\n        const paint = $.const(some({ task: \"Paint\", qty: 4n }), OptionType(KeyedJob));\n        const absent = $.const(none, OptionType(KeyedJob));\n        const batch = $.const({\n            requestId: \"keyed-request\", base: variant(\"snapshot\", jobs), label: \"Edit jobs\",\n            changes: [\n                { id: \"a\", patch: East.diff(cut, cutMore), place: none },\n                { id: \"b\", patch: East.diff(absent, paint), place: some(variant(\"keyOrder\", null)) },\n                { id: \"c\", patch: East.diff(weld, absent), place: none },\n            ],\n        }, Editing.Types.ChangeSet(KeyedJob, StringType));\n        const apply = $.const(Editing.apply(DictType(StringType, KeyedJob)));\n        return apply(jobs, batch, none).unwrap(\"applied\");\n    })"
     },
     {
       "id": "east-ui:pick.examples.tsx:pickState",

@@ -69,6 +69,20 @@ export {
 } from "./review.js";
 
 export {
+    EditingPositionType, EditingPlacementType, EditingFieldIssueType, EditingReadinessType,
+    EditingIssueType, EditingBatchReadinessType, EditingOriginType, EditingApplyResultType,
+    EditingDraftFieldType, type EditingDraftOf, EditingDraftTypeFor,
+    type EditingChildrenField, type EditingChildOf, type EditingDraftGroupOf, EditingDraftGroupTypeFor,
+    EditingEntryTypeFor, type EditingDraftEntryOf, EditingDraftEntryTypeFor,
+    type EditingCollectionOf, EditingBaseTypeFor, EditingChangeTypeFor, EditingChangeSetTypeFor,
+    EditingAppliedTypeFor, EditingPatchEventTypeFor, EditingDraftChangeTypeFor,
+    applyEditing,
+    EditingWireApplyType, EditingApplyModeType, EditingSessionFields, EditingType,
+    EditingRequestStore, buildInlineApply,
+    Editing, type EditingNamespace,
+} from "./editing.js";
+
+export {
     PickStateType, PickItemType, PickStateHandleType,
     PickBindType, PickPanelType, PickHandleType, type PickHandle,
     type PickOptions,
