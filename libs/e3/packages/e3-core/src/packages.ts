@@ -407,17 +407,16 @@ export async function walkPackageObjects(
   };
 
   // An index declaration, and every IR bundle it names: the key function, the
-  // covering projection, the build program and the merge function. A record
-  // object names one per declared index and a record STATE names the one each
-  // index was actually built under — the same object only until a
-  // declaration changes, and both have to travel.
+  // covering projection and the build program. A record object names one per
+  // declared index and a record STATE names the one each index was actually
+  // built under — the same object only until a declaration changes, and both
+  // have to travel.
   const decodeIndexObject = decodeBeast2For(RecordIndexObjectType);
   const addRecordIndex = async (indexHash: string): Promise<void> => {
     await add(indexHash);
     const index = decodeIndexObject(await storage.objects.read(repo, indexHash));
     await add(index.keyIr);
     await add(index.buildIr);
-    await add(index.mergeIr);
     if (index.valueIr.type === 'some') await add(index.valueIr.value);
   };
 

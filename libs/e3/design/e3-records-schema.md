@@ -3,7 +3,8 @@
 > Status: **proposal** · 2026-09-04 · revised 2026-09-22 (§9–§11: secondary
 > indexes, the mutation delta, steps for records; §7.3 corrected; §12–§17
 > renumbered from §9–§14) · 2026-09-23 (§8.7 rule 3: the byte bound decided,
-> then shipped as the size-aware rule `/2`)
+> then shipped as the size-aware rule `/2`) · 2026-09-25 (§10, §11, §13 and
+> §16: records run on the task engine)
 > Audience: e3 maintainers. Companion to [`e3-records.md`](./e3-records.md)
 > (the records spec) and [`e3-records-storage.md`](./e3-records-storage.md)
 > (the storage decision record). Resolves the §13 open question *"Redeploy
@@ -76,11 +77,11 @@ exactly the same terms:
   the primary and index changes as one sorted collection, which e3-core
   applies segment by segment. A mutation's write cost is the touched segments
   of every target whatever its form, and e3-core never evaluates user East.
-- **Records reuse the step interpreter** (§11): index builds and reindexes,
-  migrations including key-changing ones, and writes above a segment threshold
-  run as plan, map, reduce and splice templates with a commit step, on every
-  backend. Runners open a segment manifest lazily, so a record is staged by
-  linking and a slice is a sub-manifest.
+- **Records run on the task engine** (§11, as amended): an index build is a
+  task split over the record's primary, and a mutation is one unit. Runners
+  open a segment manifest lazily, so a record is staged by linking and a piece
+  is a sub-manifest. The first draft ran them as plan, map, reduce and splice
+  templates with a commit step.
 
 The wire cost is four new object types (`MigrationObjectType`,
 `RecordMigrationArgsType`, `RecordIndexObjectType`, `RecordStateType`) and
@@ -1606,6 +1607,14 @@ one the mutation declares. e3-core never evaluates user East — it applies
 (§10.4) — which keeps the step interpreter's rule and the cross-runtime parity
 §7.3 wanted for migrations.
 
+> **Amended (2026-09-25).** The program runs as one unit on the task engine
+> (`e3-data-architecture.md` §3.7), through the runner's `exec` with a `dict`
+> output. It emits the delta's entries as it computes them, in any order, and
+> the runner's RunSorter sorts them, so the last loop above is gone. A write
+> the state moved under is emitted as a `$conflict` entry naming what went
+> stale, which sorts before every target, rather than failing the program; the
+> apply refuses such a delta before it reads a segment.
+
 Two costs to name. The `reduce` form's diff is O(n) in the runner, as its
 encode already was; its *write* is now O(touched) like the others. And a record
 with indexes turns the `patch` form from "no process" (§7.2) into one runner
@@ -1631,6 +1640,10 @@ bisects them against the primary manifest, and hands the program a
 sub-manifest of only the touched segments. The `edit` and `reduce` forms read
 data-dependently, so they take the whole manifest. On e3-cloud the difference
 matters (§10.6).
+
+> **As built (2026-09-25).** Every form's program is handed the whole
+> manifest, which the runner opens lazily; the `patch` form's sub-manifest was
+> not built.
 
 ### 10.4 The apply, in e3-core
 
@@ -1707,6 +1720,10 @@ implementation:
   segments are whole small objects — but a bulk build's final splice (§11.2)
   is a streamed write and needs the multipart path.
 
+> **Amended (2026-09-25).** The program runs as a unit through e3-cloud's
+> `TaskRunner`, as a task's unit does, rather than on the detached-runner
+> Lambda, and the delta is the unit's output object.
+
 ## 11. Steps for records
 
 Partitioned execution has a step interpreter — `plan`, `map`, `reduce`,
@@ -1715,6 +1732,14 @@ the carve and splice hooks and the unit executor injectable so e3-cloud runs
 the units on its own compute (`execution/steps.ts`, #770). Records get their
 bulk operations from it rather than from anything new, and the mutation forms
 of §10 are its units when a write is large.
+
+> **Superseded (2026-09-25).** Records run on the task engine instead
+> (`e3-data-architecture.md` §3.7). An index build is a task split over the
+> record's primary: its pieces are sub-manifests, its program emits each row's
+> entries in any order, and outputs whose key ranges overlap merge by range.
+> A mutation is one unit, and its delta is applied one target segment at a
+> time. The template of §11.1 and §11.2 was built and then deleted in the
+> engine's favour; §11.3 and §11.4 were not built.
 
 ### 11.1 The record template
 
@@ -1954,17 +1979,15 @@ Stated plainly, because the temptation is to claim more:
   advances the record's single version-vector entry, so every task reading it
   re-runs. Per-key invalidation remains out of scope (#413 non-goal). §8.7's canonical
   manifests make per-segment change detection a manifest diff, which is the
-  enabler if this is ever pursued. A `partitionTask` over the record already
-  re-runs only the partitions whose slices changed, which content-defined
-  segments make exact — coarse, but automatic.
+  enabler if this is ever pursued. A `streamTask` partitioned over the record
+  re-runs only the pieces whose segments changed, which content-defined pieces
+  make exact — coarse, but automatic.
 - **The `reduce` form's runner cost stays O(n).** Its body and its diff see the
   whole state (§10.2); only its *write* is O(touched). Nor does a `replace`-arm
-  patch avoid that diff. The `edit` form's body and apply are O(touched), but
-  every form that runs a program is handed the state as a file, which the
-  engine writes by streaming the record's segments — O(n) bytes moved, one
-  segment held — until runners open a record's segments directly. Only a
-  `patch` on a record with no index runs no process, and is O(touched) end to
-  end.
+  patch avoid that diff. The `edit` form's body and apply are O(touched), and
+  every program is handed the record as its manifest with the segments
+  linked, which the runner opens lazily, so staging moves no bytes. Only a
+  `patch` on a record with no index runs no process at all.
 - **Down-migrations are not supported.** Rolling a package back over a migrated
   record is refused, not reversed. `invertFor` from the patch system could in
   principle synthesize one, but only for value diffs, not type changes.
@@ -2154,7 +2177,9 @@ apply, which is the user-visible capability of this revision.
   keys; the TypeScript `EmitFileWriter` refuses them, as `streamTask`'s
   contract says every runtime does. §10.2 and §11.2 emit in order so nothing
   here depends on it, but the two runtimes disagree today and should be
-  reconciled one way or the other.
+  reconciled one way or the other. *Resolved 2026-09-25:* every runtime writes
+  a `dict` output through its RunSorter, which sorts what it is given, and the
+  programs of §10.2 and §11.2 emit in any order.
 - **Cold materialisation on cloud** (§10.6). Whether the runner Lambda's
   segment cache is enough for the `edit` and `reduce` forms on multi-GB
   records, or a fault-on-read opener — libcurl in east-c, a worker-backed

@@ -34,7 +34,7 @@ import {
   type EastType,
 } from '@elaraai/east';
 import {
-  STALE_WRITE_PREFIX, editTypeOf, indexCollectionType, mutationDeltaType, patchOpsType, type DeltaTarget,
+  DELTA_CONFLICT, editTypeOf, indexCollectionType, mutationDeltaType, patchOpsType, type DeltaTarget,
 } from '@elaraai/e3-types';
 import type { MutationDef, RecordDef, RecordIndexDef } from './types.js';
 
@@ -56,15 +56,14 @@ export function indexEntryKeyType(keyType: EastType, indexKeyType: EastType): Ea
 }
 
 /**
- * The build program of an index: `(slice, emit) => Null`.
+ * The build program of an index: `(piece, emit) => Null`.
  *
  * @remarks
- * Called with a slice of the primary — a whole small record, or one partition
- * of a large one — it emits that slice's index entries. Index order is not
- * primary order, so the program collects its slice into a local Dict and emits
- * that in order: the TypeScript emit sink refuses out-of-order keys (only the
- * C sink spills and merges), so every generated program emits in canonical
- * order itself rather than relying on the sink to sort.
+ * Called with a piece of the primary — a whole small record, or one piece of a
+ * large one — it emits each row's index entries as it reads the row. Index
+ * order is not primary order, and need not be: the runner writes a `dict`
+ * output through its RunSorter, which sorts what it is given, so the program
+ * holds no more than the row in hand.
  *
  * The author's key and value functions are bound as function values and
  * CALLED, never spliced into the loop: a spliced expression tree would be
@@ -76,54 +75,24 @@ export function indexEntryKeyType(keyType: EastType, indexKeyType: EastType): Ea
  */
 export function indexBuildProgram(recordType: EastType, def: RecordIndexDef): EastIR<any, any> {
   const dict = recordType as unknown as { type: string; key: EastType; value: EastType };
-  const keyType = dict.key;
-  const entryKey = indexEntryKeyType(keyType, def.keyType);
+  const entryKey = indexEntryKeyType(dict.key, def.keyType);
   const emitType = FunctionType([entryKey as never, def.valueType], NullType);
-  const accType = DictType(entryKey as never, def.valueType);
 
-  return East.function([recordType as never, emitType], NullType, ($: any, slice: any, emit: any) => {
+  return East.function([recordType as never, emitType], NullType, ($: any, piece: any, emit: any) => {
     const indexKey = $.const(def.keyFn);
     const project = def.valueFn === undefined ? undefined : $.const(def.valueFn);
-    const entries = $.let(new Map(), accType);
-    $.for(slice, ($: any, row: any, key: any) => {
-      const value = project === undefined ? null : project(key, row);
+    $.for(piece, ($: any, row: any, key: any) => {
+      const value = project === undefined ? null : $.const(project(key, row));
       if (def.multi) {
         $.for(indexKey(key, row), ($: any, ik: any) => {
-          $(entries.insert({ ik, k: key }, value));
+          $(emit({ ik, k: key }, value));
         });
       } else {
-        $(entries.insert({ ik: indexKey(key, row), k: key }, value));
+        $(emit({ ik: indexKey(key, row), k: key }, value));
       }
-    });
-    $.for(entries, ($: any, projection: any, entry: any) => {
-      $(emit(entry, projection));
     });
     return null;
   }).toIR() as EastIR<any, any>;
-}
-
-/**
- * The merge function an index's fan-in folds equal keys with: the first
- * standing.
- *
- * @remarks
- * It is never called. An index entry is `{ik, k}` and `k` belongs to exactly
- * one slice of the primary, so two partials cannot hold the same entry — but
- * the runner's `merge` command takes a fold function whatever the data, and a
- * fold that cannot run is better than one that could pick wrongly if the
- * premise ever changed.
- *
- * @param recordType - the record's state type, `Dict<K, V>`
- * @param def - the index declaration
- * @returns the program's IR bundle
- */
-export function indexMergeProgram(recordType: EastType, def: RecordIndexDef): EastIR<any, any> {
-  const dict = recordType as unknown as { key: EastType };
-  const entryKey = indexEntryKeyType(dict.key, def.keyType);
-  return East.function(
-    [entryKey as never, def.valueType, def.valueType], def.valueType,
-    ($: any, _entry: any, first: any, _second: any) => first,
-  ).toIR() as EastIR<any, any>;
 }
 
 /**
@@ -132,8 +101,7 @@ export function indexMergeProgram(recordType: EastType, def: RecordIndexDef): Ea
  * @remarks
  * The names become the delta's variant cases, which is why `primary` is a
  * reserved index name. Returned in the order the cases compare in — variant
- * values order by case NAME — so a caller emitting arm by arm emits ascending
- * keys.
+ * values order by case NAME — which is the order the delta holds their ops in.
  *
  * @param recordType - the record's state type, a Dict or a Set
  * @param indexes - the record's index declarations
@@ -178,10 +146,12 @@ export function hasKeyedDelta(recordType: EastType): boolean {
  * `replace` is the interesting one: `diff` produces it whenever every key
  * changed, and a client may send it outright — so it is turned into per-key
  * ops against the state rather than carried through, which is what keeps the
- * apply's cost proportional to what actually differs.
+ * apply's cost proportional to what actually differs. A client's `replace`
+ * whose `before` the record no longer holds is a stale write, emitted as the
+ * delta's conflict.
  */
 function collectOps(
-  $: any, state: any, patchExpr: any, ops: any, keyed: 'Dict' | 'Set', verifyBefore: boolean,
+  $: any, state: any, patchExpr: any, ops: any, keyed: 'Dict' | 'Set', verifyBefore: boolean, emit: any,
 ): void {
   const patch = $.let(patchExpr);
   $.match(patch, {
@@ -193,7 +163,9 @@ function collectOps(
     replace: ($: any, whole: any) => {
       if (verifyBefore) {
         $.if(East.notEqual(whole.before, state), ($: any) => {
-          $.error(`${STALE_WRITE_PREFIX}the patch replaces a state the record no longer holds`);
+          $(emit(
+            variant(DELTA_CONFLICT, 'the patch replaces a state the record no longer holds'),
+            variant(DELTA_CONFLICT, null)));
         });
       }
       if (keyed === 'Set') {
@@ -234,19 +206,24 @@ function collectOps(
  * The program every write form runs: `(State, …Args | Patch, Emit) => Null`.
  *
  * @remarks
- * One program, three forms, one output — the mutation delta, emitted key by
- * key in the delta's own canonical order so the engine never sorts it. The
- * engine reads the output whole — one over the mutation's result limit is
- * refused unread — and applies it one target at a time, segment by segment; it
- * never evaluates the author's East itself, which is what keeps one rule for
- * where user code runs and gives the three runtimes something to agree on byte
- * for byte.
+ * One program, three forms, one output — the mutation delta, emitted entry by
+ * entry as it is computed, in any order: the runner writes a `dict` output
+ * through its RunSorter, which sorts it. e3 stores the delta as segments and
+ * applies it one target segment at a time; it never evaluates the author's
+ * East itself, which is what keeps one rule for where user code runs and gives
+ * the three runtimes something to agree on byte for byte.
  *
  * The three forms differ only in how the per-key ops are reached — a diff of
  * the reducer's result, the folded writes of an `edit` body, or the client's
- * own patch — after which the tail is shared: for each touched key, resolve
- * the old and new row, then ask each index what its entry was and what it
- * becomes.
+ * own patch — after which the tail is shared: for each touched key, emit its
+ * op, then resolve the old and new row and ask each index what its entry was
+ * and what it becomes.
+ *
+ * A write the state moved under — a patch whose `before` the record no longer
+ * holds, an update of a row that no longer matches, a delete or update of a
+ * key the record does not hold — is emitted as a {@link DELTA_CONFLICT} entry
+ * naming it, which sorts first, rather than failing the program: a caller
+ * resubmits a conflict and gives up on a failure.
  *
  * The author's functions are bound as function values and CALLED, never
  * spliced: a spliced tree would be re-evaluated per reference and could
@@ -268,8 +245,7 @@ export function buildMutationProgram(rec: RecordDef, mut: MutationDef): EastIR<a
   const keyed = collection.type as 'Dict' | 'Set';
   const indexes = Object.values(rec.indexes)
     .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
-  const targets = deltaTargets(rec.type, indexes);
-  const delta = mutationDeltaType(targets) as unknown as { key: EastType; value: EastType };
+  const delta = mutationDeltaType(deltaTargets(rec.type, indexes)) as unknown as { key: EastType; value: EastType };
   const emitType = FunctionType([delta.key as never, delta.value as never], NullType);
   const primaryOps = patchOpsType(rec.type);
   const opsType = DictType(collection.key as never, primaryOps as never);
@@ -287,29 +263,21 @@ export function buildMutationProgram(rec: RecordDef, mut: MutationDef): EastIR<a
       const ops = $.let(new Map(), opsType);
 
       if (mut.form === 'patch') {
-        collectOps($, state, args[0], ops, keyed, true);
+        collectOps($, state, args[0], ops, keyed, true, emit);
       } else if (mut.form === 'reduce') {
         const reduce = $.const(mut.fn);
         const next = $.let(reduce(state, ...args));
-        collectOps($, state, East.diff(state, next), ops, keyed, false);
+        collectOps($, state, East.diff(state, next), ops, keyed, false, emit);
       } else {
-        foldEdits($, state, mut, args, ops, rec.type);
+        foldEdits($, state, mut, args, ops, rec.type, emit);
       }
 
-      if (indexes.length === 0) {
-        $.for(ops, ($: any, op: any, key: any) => {
-          $(emit(variant('primary', key), variant('primary', op)));
-        });
-        return null;
-      }
-
-      const arms = indexes.map((index) => $.let(new Map(), DictType(
-        indexEntryKeyType(collection.key, index.keyType) as never,
-        patchOpsType(indexCollectionType(collection.key, index.keyType, index.valueType)) as never)));
       const keyFns = indexes.map((index) => $.const(index.keyFn));
       const valueFns = indexes.map((index) => (index.valueFn === undefined ? undefined : $.const(index.valueFn)));
 
       $.for(ops, ($: any, op: any, key: any) => {
+        $(emit(variant('primary', key), variant('primary', op)));
+        if (indexes.length === 0) return;
         const held = $.let(state.tryGet(key));
         const next = $.let(none, OptionType(collection.value));
         $.match(op, {
@@ -321,33 +289,22 @@ export function buildMutationProgram(rec: RecordDef, mut: MutationDef): EastIR<a
               // Applying a patch verifies the row it was made against, and a
               // row that no longer matches is a stale write — the conflict the
               // engine reports when it applies an unindexed record's patch.
-              // Refused in words every runtime shares: each one's own apply
+              // Named in words every runtime shares: each one's own apply
               // message is different.
               $.try(($: any) => {
                 $.assign(next, some(East.applyPatch(value, patch)));
               }).catch(($: any) => {
-                $.error(East.str`${STALE_WRITE_PREFIX}update of ${East.print(key)}, whose row no longer matches the patch`);
+                $(emit(
+                  variant(DELTA_CONFLICT, East.str`update of ${East.print(key)}, whose row no longer matches the patch`),
+                  variant(DELTA_CONFLICT, null)));
               });
             });
           },
         });
         indexes.forEach((index, i) => {
-          maintainIndex($, index, key, held, next, keyFns[i], valueFns[i], arms[i]);
+          maintainIndex($, index, key, held, next, keyFns[i], valueFns[i], emit);
         });
       });
-
-      for (const target of targets) {
-        if (target.name === 'primary') {
-          $.for(ops, ($: any, op: any, key: any) => {
-            $(emit(variant('primary', key), variant('primary', op)));
-          });
-          continue;
-        }
-        const arm = arms[indexes.findIndex((index) => index.name === target.name)];
-        $.for(arm, ($: any, op: any, entry: any) => {
-          $(emit(variant(target.name, entry), variant(target.name, op)));
-        });
-      }
       return null;
     }).toIR() as EastIR<any, any>;
 }
@@ -360,12 +317,12 @@ export function buildMutationProgram(rec: RecordDef, mut: MutationDef): EastIR<a
  * `set` is the reason the fold has its own op type: whether it becomes an
  * insert or an update is a fact about the record, not about the body, and the
  * body is not asked to know. Resolving it here is also where a `delete` or an
- * `update` of a key the record does not hold fails — naming the key, as an
- * apply would, rather than reaching the apply as an op that cannot be
- * represented.
+ * `update` of a key the record does not hold is found — emitted as the
+ * delta's conflict naming the key, as an apply would name it, rather than
+ * reaching the apply as an op that cannot be represented.
  */
 function foldEdits(
-  $: any, state: any, mut: MutationDef, args: any[], ops: any, recordType: EastType,
+  $: any, state: any, mut: MutationDef, args: any[], ops: any, recordType: EastType, emit: any,
 ): void {
   const { key: keyType, value: valueType } = recordType as unknown as { key: EastType; value: EastType };
   const edits = $.let(new Map(), DictType(keyType as never, editOpsType(valueType) as never));
@@ -450,7 +407,9 @@ function foldEdits(
             $(ops.insertOrUpdate(key, variant('delete', prior)));
           },
           none: ($: any) => {
-            $.error(East.str`${STALE_WRITE_PREFIX}delete of ${East.print(key)}, which the record does not hold`);
+            $(emit(
+              variant(DELTA_CONFLICT, East.str`delete of ${East.print(key)}, which the record does not hold`),
+              variant(DELTA_CONFLICT, null)));
           },
         });
       },
@@ -460,7 +419,9 @@ function foldEdits(
             $(ops.insertOrUpdate(key, variant('update', patch)));
           },
           none: ($: any) => {
-            $.error(East.str`${STALE_WRITE_PREFIX}update of ${East.print(key)}, which the record does not hold`);
+            $(emit(
+              variant(DELTA_CONFLICT, East.str`update of ${East.print(key)}, which the record does not hold`),
+              variant(DELTA_CONFLICT, null)));
           },
         });
       },
@@ -469,17 +430,18 @@ function foldEdits(
 }
 
 /**
- * Writes one index's entry changes for one touched row into that index's arm.
+ * Emits one index's entry changes for one touched row.
  *
  * @remarks
  * An index entry is `{ik, k}`, so a row moving from one index key to another is
  * a delete at the old entry and an insert at the new one — not an update. Only
  * an entry that keeps its index key and whose covering projection changed is an
- * update, and an index carrying no projection has none of those at all.
+ * update, and an index carrying no projection has none of those at all. The
+ * three sets are disjoint and `k` is this row's, so no entry is emitted twice.
  */
 function maintainIndex(
   $: any, index: RecordIndexDef, key: any, held: any, next: any,
-  indexKey: any, project: any, arm: any,
+  indexKey: any, project: any, emit: any,
 ): void {
   const heldKeys = $.let(new Set(), SetType(index.keyType as never));
   const nextKeys = $.let(new Set(), SetType(index.keyType as never));
@@ -499,17 +461,17 @@ function maintainIndex(
   $.matchTag(next, 'some', gather(nextKeys, nextValue));
 
   $.for(heldKeys.difference(nextKeys), ($: any, ik: any) => {
-    $(arm.insertOrUpdate({ ik, k: key }, variant('delete', heldValue.unwrap())));
+    $(emit(variant(index.name, { ik, k: key }), variant(index.name, variant('delete', heldValue.unwrap()))));
   });
   $.for(nextKeys.difference(heldKeys), ($: any, ik: any) => {
-    $(arm.insertOrUpdate({ ik, k: key }, variant('insert', nextValue.unwrap())));
+    $(emit(variant(index.name, { ik, k: key }), variant(index.name, variant('insert', nextValue.unwrap()))));
   });
   if (project === undefined) return;
   $.for(heldKeys.intersection(nextKeys), ($: any, ik: any) => {
     const before = $.let(heldValue.unwrap());
     const after = $.let(nextValue.unwrap());
     $.if(East.notEqual(before, after), ($: any) => {
-      $(arm.insertOrUpdate({ ik, k: key }, variant('update', East.diff(before, after))));
+      $(emit(variant(index.name, { ik, k: key }), variant(index.name, variant('update', East.diff(before, after)))));
     });
   });
 }

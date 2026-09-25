@@ -1187,7 +1187,6 @@ describe('gc', () => {
     const KEY_IR = '1'.repeat(64);
     const VALUE_IR = '2'.repeat(64);
     const BUILD_IR = '3'.repeat(64);
-    const MERGE_IR = '4'.repeat(64);
     const index = {
       keyIr: KEY_IR,
       multi: false,
@@ -1196,7 +1195,6 @@ describe('gc', () => {
       valueType: toEastTypeValue(StringType),
       buildIr: BUILD_IR,
       runner: variant('east_node', { platforms: ['@elaraai/east-node-std'] }),
-      mergeIr: MERGE_IR,
     };
 
     it('keeps every IR bundle an index object names reachable', async () => {
@@ -1205,8 +1203,7 @@ describe('gc', () => {
 
       const reachable = await markReachable(trace(objects), new Set([root]));
       for (const [label, hash] of [
-        ['the key function', KEY_IR], ['the covering projection', VALUE_IR],
-        ['the build program', BUILD_IR], ['the merge function', MERGE_IR],
+        ['the key function', KEY_IR], ['the covering projection', VALUE_IR], ['the build program', BUILD_IR],
       ] as const) {
         assert.ok(reachable.has(hash), `${label} must survive`);
       }
@@ -1215,8 +1212,8 @@ describe('gc', () => {
     it('keeps them reachable once the index type has grown a field', async () => {
       // gc classifies an index object by matching a PREFIX of
       // RecordIndexObjectType's fields, so appending one — how this type is
-      // designed to grow, and how it grew `mergeIr` — must keep the bundles
-      // marked. Counting the fields instead does not survive the append.
+      // designed to grow — must keep the bundles marked. Counting the fields
+      // instead does not survive the append.
       const fields = toEastTypeValue(RecordIndexObjectType).value as { name: string; type: unknown }[];
       const grown = fromEastTypeValue(variant('Struct', [
         ...fields,
@@ -1228,20 +1225,19 @@ describe('gc', () => {
       } as never)]]);
 
       const reachable = await markReachable(trace(objects), new Set([root]));
-      for (const hash of [KEY_IR, VALUE_IR, BUILD_IR, MERGE_IR]) assert.ok(reachable.has(hash));
+      for (const hash of [KEY_IR, VALUE_IR, BUILD_IR]) assert.ok(reachable.has(hash));
     });
 
     it('treats a struct that stops short of the index fields as a leaf', async () => {
-      // The pre-`mergeIr` field set, which no repository holds: a shorter
-      // struct is not an index object, and its hash-shaped strings must not
-      // be probed as children.
+      // A struct with all but the last of the index's fields is not an index
+      // object, and its hash-shaped strings must not be probed as children.
       const NearIndex = StructType({
         keyIr: StringType, multi: StringType, valueIr: StringType, keyType: StringType,
-        valueType: StringType, buildIr: StringType, runner: StringType,
+        valueType: StringType, buildIr: StringType,
       });
       const root = 'near-index'.padEnd(64, '0');
       const objects = new Map([[root, encodeBeast2For(NearIndex)({
-        keyIr: KEY_IR, multi: 'x', valueIr: 'x', keyType: 'x', valueType: 'x', buildIr: BUILD_IR, runner: 'x',
+        keyIr: KEY_IR, multi: 'x', valueIr: 'x', keyType: 'x', valueType: 'x', buildIr: BUILD_IR,
       })]]);
 
       const reachable = await markReachable(trace(objects), new Set([root]));
@@ -1486,7 +1482,6 @@ describe('gc', () => {
           valueType: toEastTypeValue(StringType),
           buildIr: '5'.repeat(64),
           runner: variant('east_node', { platforms: ['@elaraai/east-node-std'] }),
-          mergeIr: '6'.repeat(64),
         })],
       ]);
 

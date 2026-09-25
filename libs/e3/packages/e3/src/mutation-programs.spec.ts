@@ -7,22 +7,23 @@
  * The three write forms and the one program each generates.
  *
  * What is asserted here is the DELTA — the program is only interesting for
- * what it emits — so every test runs the compiled program and reads the
- * `(key, op)` pairs off its emit sink. Two properties are load-bearing and
- * neither is visible from the type: entries come out in the delta's own
- * canonical order (variant cases compare by NAME, so every target's ops are one
- * contiguous ascending run), and an index entry whose key MOVED is a delete
- * plus an insert rather than an update, because `{ik, k}` is the entry's
- * identity.
+ * what it emits — so every test runs the compiled program, reads the
+ * `(key, op)` pairs off its emit, and sorts them by the delta's key as the
+ * runner's RunSorter does. Three properties are load-bearing and none is
+ * visible from the type: no key is emitted twice, since the delta is a dict
+ * with no merge; in the delta's canonical order every target's ops are one
+ * contiguous ascending run, since variant cases compare by NAME; and an index
+ * entry whose key MOVED is a delete plus an insert rather than an update,
+ * because `{ik, k}` is the entry's identity.
  */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   DateTimeType, DictType, East, IntegerType, NullType, SetType, SortedMap, SortedSet, StringType, StructType,
-  compareFor, variant,
+  compareFor, variant, type EastType,
 } from '@elaraai/east';
-import { STALE_WRITE_PREFIX, editTypeOf } from '@elaraai/e3-types';
+import { DELTA_CONFLICT, editTypeOf, mutationDeltaType } from '@elaraai/e3-types';
 import e3 from './index.js';
 import { record } from './record.js';
 import { mutation } from './mutation.js';
@@ -54,7 +55,9 @@ function indexedPlans(): RecordDef<typeof PlansType> {
   return rec;
 }
 
-/** The `(key, op)` pairs a mutation's program emits for `state` and `args`. */
+/** The delta a mutation's program writes for `state` and `args`: the
+ *  `(key, op)` pairs it emits, sorted by the delta's key as the runner sorts
+ *  them, none emitted twice. */
 function emitted(rec: RecordDef, mut: MutationDef, state: unknown, args: unknown[]): [unknown, unknown][] {
   const out: [unknown, unknown][] = [];
   const run = buildMutationProgram(rec, mut).compile([]) as (...a: unknown[]) => unknown;
@@ -62,7 +65,20 @@ function emitted(rec: RecordDef, mut: MutationDef, state: unknown, args: unknown
     out.push([key, op]);
     return null;
   });
+  const delta = mutationDeltaType(deltaTargets(rec.type, Object.values(rec.indexes))) as unknown as { key: EastType };
+  const compare = compareFor(delta.key) as (a: unknown, b: unknown) => number;
+  out.sort(([a], [b]) => compare(a, b));
+  for (let i = 1; i < out.length; i++) {
+    assert.notEqual(compare(out[i - 1]![0], out[i]![0]), 0, 'the delta is a dict with no merge: no key is emitted twice');
+  }
   return out;
+}
+
+/** The detail of the conflict a delta opens with, or `undefined` when it opens
+ *  with none. */
+function conflictOf(out: [unknown, unknown][]): string | undefined {
+  const key = out[0]?.[0] as { type: string; value: unknown } | undefined;
+  return key?.type === DELTA_CONFLICT ? key.value as string : undefined;
 }
 
 /** The delta's `(target, key)` / `(target, op-tag)` pairs, which is what the
@@ -82,7 +98,7 @@ describe('the mutation delta — targets and canonical order', () => {
       ['by_status', 'primary']);
   });
 
-  it('emits every target\'s ops in one contiguous ascending run', () => {
+  it('writes every target\'s ops in one contiguous ascending run', () => {
     const rec = indexedPlans();
     const retitle = mutation.reduce('retitle', rec,
       East.function([PlansType, StringType, StringType], PlansType, ($, state, id, title) => {
@@ -201,18 +217,13 @@ describe('the edit form', () => {
       { before: 2n, after: 7n });
   });
 
-  it('refuses, naming the key, a delete or update of one the record does not hold', () => {
-    for (const write of [
-      mutation.edit('delete', rec, East.function([CountsType, EditCounts], NullType, ($, _s, edit) => {
-        $(edit.delete('zz'));
-      })),
-      mutation.edit('update', rec, East.function([CountsType, EditCounts], NullType, ($, _s, edit) => {
-        $(edit.update('zz', variant('replace', { before: 1n, after: 2n })));
-      })),
-    ]) {
-      assert.throws(() => emitted(rec, write, counts, []),
-        /'zz'|"zz"/, `${write.name} of an absent key must name it`);
-    }
+  it('writes a conflict naming the key for a delete or update of one the record does not hold', () => {
+    assert.equal(conflictOf(emitted(rec, mutation.edit('delete', rec, East.function([CountsType, EditCounts], NullType, ($, _s, edit) => {
+      $(edit.delete('zz'));
+    })), counts, [])), 'delete of "zz", which the record does not hold');
+    assert.equal(conflictOf(emitted(rec, mutation.edit('update', rec, East.function([CountsType, EditCounts], NullType, ($, _s, edit) => {
+      $(edit.update('zz', variant('replace', { before: 1n, after: 2n })));
+    })), counts, [])), 'update of "zz", which the record does not hold');
   });
 
   it('writes nothing for a key the body created and deleted again', () => {
@@ -270,12 +281,10 @@ describe('the patch form', () => {
     const after = new SortedMap<string, bigint>([['a', 1n], ['c', 3n]], compareFor(StringType));
     assert.deepEqual(shape(emitted(rec, patch, counts, [variant('replace', { before: counts, after })])),
       ['primary:"b"=delete', 'primary:"c"=insert']);
-    assert.throws(
-      () => emitted(rec, patch, counts, [variant('replace', {
-        before: new SortedMap<string, bigint>([['a', 99n]], compareFor(StringType)),
-        after,
-      })]),
-      /no longer holds/);
+    assert.equal(conflictOf(emitted(rec, patch, counts, [variant('replace', {
+      before: new SortedMap<string, bigint>([['a', 99n]], compareFor(StringType)),
+      after,
+    })])), 'the patch replaces a state the record no longer holds');
   });
 });
 
@@ -306,7 +315,7 @@ describe('index maintenance inside the delta', () => {
     ]);
   });
 
-  it('refuses a stale update as a stale write naming the key', () => {
+  it('writes a stale update as a conflict naming the key', () => {
     // An indexed record applies the patch itself, to learn where the row's
     // entries move. A row that no longer matches the patch is a stale write
     // here exactly as it is where the engine applies an unindexed record's
@@ -317,8 +326,8 @@ describe('index maintenance inside the delta', () => {
       due: variant('unchanged', null),
       title: variant('replace', { before: 'Not the title', after: 'Renamed' }),
     }))]], compareFor(StringType));
-    assert.throws(() => emitted(rec, mutation.patch(rec), plans, [variant('patch', stale)]),
-      (err: Error) => err.message.includes(`${STALE_WRITE_PREFIX}update of "p1", whose row no longer matches the patch`));
+    assert.equal(conflictOf(emitted(rec, mutation.patch(rec), plans, [variant('patch', stale)])),
+      'update of "p1", whose row no longer matches the patch');
   });
 
   it('leaves the index alone when neither its key nor its projection moved', () => {

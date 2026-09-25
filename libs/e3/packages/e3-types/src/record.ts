@@ -127,24 +127,6 @@ export type MutationObjectType = typeof MutationObjectType;
 export type MutationObject = ValueTypeOf<typeof MutationObjectType>;
 
 /**
- * The prefix a generated mutation program puts on an error meaning the state
- * moved under the write.
- *
- * @remarks
- * A write reaches the record two ways — the program emits a delta and the
- * engine applies it, or the engine applies the client's patch directly — and
- * both meet the same situation: an op that disagrees with the state it lands
- * on. The apply reports it as a conflict, which a caller retries; a program
- * can only report it by failing, which a caller does not. The prefix is how
- * the engine tells that refusal apart from a body that is simply wrong, so
- * the two doors agree on what a stale write is.
- *
- * Part of the wire: it is baked into the program's IR at export time and read
- * back out of the run's stderr.
- */
-export const STALE_WRITE_PREFIX = 'stale write: ';
-
-/**
  * How a mutation says what it changed.
  *
  * - `reduce` — `(State, …Args) => State`, the original surface. Its body and
@@ -153,9 +135,8 @@ export const STALE_WRITE_PREFIX = 'stale write: ';
  * - `edit` — `(State, …Args, Edit) => Null`, the lazy write: the body reads the
  *   state it is given, lazily, and writes through an `edit` capability, so the
  *   body reads only the entries it touches and the commit rewrites only the
- *   segments they live in. The state still reaches the runner whole, staged as
- *   a file of the record's segments on every attempt — every byte read and
- *   written.
+ *   segments they live in. The state reaches the runner as its manifest, the
+ *   segments linked, so nothing on the way reads it whole either.
  * - `patch` — no body; the argument is `PatchType(State)`. What an interactive
  *   edit from a view sends. On a record with no index a patch of per-key
  *   changes runs nothing at all, the only write whose cost is independent of
@@ -228,16 +209,12 @@ export const RecordIndexObjectType = StructType({
   keyType: EastTypeType,
   /** `P` — the covering projection's type; Null when there is none. */
   valueType: EastTypeType,
-  /** Hash of the generated build program's IR bundle: `(slice, emit) => Null`,
-   *  which emits the index entries of one slice of the primary. */
+  /** Hash of the generated build program's IR bundle: `(piece, emit) =>
+   *  Null`, which emits the index entries of a piece of the primary, in any
+   *  order. */
   buildIr: StringType,
   /** Author-chosen runtime the index's functions run on. */
   runner: RunnerType,
-  /** Hash of the generated merge function's IR bundle, `({ik, k}, P, P) -> P`,
-   *  which the fan-in of a partitioned build folds equal keys with. Two
-   *  partials cannot hold the same entry, so it never runs — but the runner's
-   *  merge command takes one whatever the data. */
-  mergeIr: StringType,
 });
 export type RecordIndexObjectType = typeof RecordIndexObjectType;
 export type RecordIndexObject = ValueTypeOf<typeof RecordIndexObjectType>;
@@ -416,15 +393,33 @@ export interface DeltaTarget {
 }
 
 /**
+ * The case of a mutation delta that says the write went stale: its key says
+ * what went stale, in words, and its op is Null.
+ *
+ * @remarks
+ * A write reaches the record two ways — the program emits a delta and the
+ * engine applies it, or the engine applies the client's patch directly — and
+ * both meet the same situation: an op that disagrees with the state it lands
+ * on. The apply reports it as a conflict, which a caller retries. A program
+ * that meets it — a patch whose `before` the record no longer holds, an
+ * update of a row that no longer matches, a delete of a key the record does
+ * not hold — emits one of these rather than failing, which a caller would not
+ * retry. The name sorts before every target's, since index names are
+ * identifiers, so a stale delta says so in its first entry.
+ */
+export const DELTA_CONFLICT = '$conflict';
+
+/**
  * The type of a mutation delta: every target's changes in ONE sorted
  * collection.
  *
  * @remarks
  * One variant case per target — `primary` plus one per declared index, which
- * is why `primary` is a reserved index name. Canonical order puts every
- * target's ops in one contiguous run, in that target's own key order, so the
- * apply takes the delta one target at a time — holding that target's ops and
- * one of its segments — and a delta is a pageable collection like any other.
+ * is why `primary` is a reserved index name — and {@link DELTA_CONFLICT}, which
+ * sorts first. Canonical order puts every target's ops in one contiguous run,
+ * in that target's own key order, so the apply takes the delta one target at
+ * a time, a segment at a time, and a delta is a pageable collection like any
+ * other.
  *
  * Derived on demand and never stored as a type: a delta blob is
  * self-describing, and deriving it means it cannot drift from the record's
@@ -434,8 +429,8 @@ export interface DeltaTarget {
  * @returns `Dict<DeltaKey, DeltaOp>`
  */
 export function mutationDeltaType(targets: readonly DeltaTarget[]): EastType {
-  const keys: Record<string, EastType> = {};
-  const ops: Record<string, EastType> = {};
+  const keys: Record<string, EastType> = { [DELTA_CONFLICT]: StringType };
+  const ops: Record<string, EastType> = { [DELTA_CONFLICT]: NullType };
   for (const target of targets) {
     keys[target.name] = target.keyType;
     ops[target.name] = patchOpsType(target.collectionType);

@@ -779,7 +779,7 @@ async function seedIndexedRecord(storage: InMemoryStorage, n: number): Promise<{
   const declaration = await storage.objects.write(REPO, encodeBeast2For(RecordIndexObjectType)({
     keyIr: '0'.repeat(64), multi: false, valueIr: some('0'.repeat(64)),
     keyType: toEastTypeValue(IntegerType), valueType: toEastTypeValue(StringType),
-    buildIr: '0'.repeat(64), runner: variant('east_node', { platforms: [] }), mergeIr: '0'.repeat(64),
+    buildIr: '0'.repeat(64), runner: variant('east_node', { platforms: [] }),
   }));
   const state = await writeRecordState(storage, REPO, {
     primary, indexes: new Map([['by_due', { manifest: index, index: declaration }]]),

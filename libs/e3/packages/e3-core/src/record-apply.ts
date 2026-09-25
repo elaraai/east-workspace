@@ -8,11 +8,11 @@
  *
  * A delta is one sorted collection of every target's changes addressed by key:
  * the record's own collection under `primary`, and one arm per secondary index.
- * Applying it never rebuilds a target, and never holds one whole. For each arm
- * the touched keys bisect against that target's segment fences, group by
- * segment, and only the segments they fall in are decoded and edited — the
- * rest of the manifest names the objects it already named, which a
- * content-addressed store stores once.
+ * Applying it never rebuilds a target, and holds neither a target nor all of
+ * its changes: the delta is read in order, a segment at a time, and the
+ * changes that fall in one segment of a target are applied to that segment
+ * alone, which is then re-cut and let go. The rest of the manifest names the
+ * objects it already named, which a content-addressed store stores once.
  *
  * The segments that come out are the segments a rebuild would write, byte for
  * byte. That is a property of the boundary rule rather than of this code:
@@ -35,24 +35,51 @@ import {
   variant,
   type EastTypeValue,
 } from '@elaraai/east';
+import { DELTA_CONFLICT } from '@elaraai/e3-types';
 import { DatasetSegments } from './dataset-open.js';
 import { storeCollection, type CollectionSource } from './store-collection.js';
 import type { StorageBackend } from './storage/interfaces.js';
 
-/** One arm of a delta: the target it addresses and its ops in key order. */
-interface DeltaArm {
-  /** `primary`, or an index name. */
+/** One entry of a delta: the target it changes, the key, and the op. */
+interface DeltaEntry {
+  /** `primary`, an index name, or {@link DELTA_CONFLICT}. */
   target: string;
-  /** `[key, op]` pairs in the target's own key order. */
-  ops: Array<[unknown, unknown]>;
+  /** The key in the target's own key type. */
+  key: unknown;
+  /** The op, in the target's patch op type. */
+  op: unknown;
 }
 
-/** A delta could not be applied to the state it was handed: the key it
- *  disagreed on is in the message. */
+/** A delta could not be applied to the state it was handed: the message says
+ *  which key, and why. */
 export class DeltaConflictError extends Error {
-  constructor(target: string, message: string) {
-    super(`${target}: ${message}`);
+  constructor(message: string) {
+    super(message);
     this.name = 'DeltaConflictError';
+  }
+}
+
+/** A delta's entries, read in order a segment at a time, with the next one in
+ *  view. */
+class DeltaCursor {
+  private next: DeltaEntry | undefined;
+  private ended = false;
+
+  constructor(private readonly entries: AsyncIterator<DeltaEntry>) {}
+
+  /** The next entry, not yet taken, or `undefined` at the end. */
+  async peek(): Promise<DeltaEntry | undefined> {
+    if (this.next === undefined && !this.ended) {
+      const read = await this.entries.next();
+      if (read.done === true) this.ended = true;
+      else this.next = read.value;
+    }
+    return this.next;
+  }
+
+  /** Takes the entry in view. */
+  take(): void {
+    this.next = undefined;
   }
 }
 
@@ -60,18 +87,23 @@ export class DeltaConflictError extends Error {
  * Apply a mutation delta to a record's targets.
  *
  * @remarks
- * Streams the delta arm by arm — its canonical order puts each target's ops in
- * one contiguous run — so nothing bigger than one target's ops and one of its
- * segments is ever held. A target the delta does not name keeps the manifest
- * hash it had.
+ * Reads the delta in order. Its canonical order puts each target's ops in one
+ * contiguous run, in that target's key order, so the ops of one target
+ * segment arrive together: the apply holds one segment of the delta, one
+ * segment of a target, and the changes that fall in it. A target the delta
+ * does not name keeps the manifest hash it had.
+ *
+ * A delta whose program found the write stale opens with a
+ * {@link DELTA_CONFLICT} entry, which sorts before every target, so it is
+ * refused before anything is written.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
  * @param targets - target name -> the manifest hash it currently holds
  * @param deltaHash - the delta object's content hash
  * @returns target name -> its new manifest hash, for the targets that changed
- * @throws {DeltaConflictError} When an op disagrees with the state it lands on
- *   — the stale-write signal, never a silent clobber.
+ * @throws {DeltaConflictError} When the delta says the write is stale, or an op
+ *   disagrees with the state it lands on — never a silent clobber.
  * @throws {Error} When the delta names a target the record does not have.
  */
 export async function applyDelta(
@@ -81,47 +113,41 @@ export async function applyDelta(
   deltaHash: string,
 ): Promise<Map<string, string>> {
   const written = new Map<string, string>();
-  for await (const arm of readDeltaArms(storage, repo, deltaHash)) {
-    const hash = targets.get(arm.target);
+  const cursor = new DeltaCursor(deltaEntries(storage, repo, deltaHash)[Symbol.asyncIterator]());
+  for (let entry = await cursor.peek(); entry !== undefined; entry = await cursor.peek()) {
+    if (entry.target === DELTA_CONFLICT) throw new DeltaConflictError(entry.key as string);
+    const hash = targets.get(entry.target);
     if (hash === undefined) {
       throw new Error(
-        `the mutation delta names target '${arm.target}', which this record does not hold` +
+        `the mutation delta names target '${entry.target}', which this record does not hold` +
         ` — it has ${[...targets.keys()].join(', ')}`);
     }
-    written.set(arm.target, await applyArm(storage, repo, hash, arm));
+    written.set(entry.target, await applyTarget(storage, repo, entry.target, hash, cursor));
   }
   return written;
 }
 
 /**
- * Reads a delta arm by arm.
+ * Reads a delta's entries in order, a segment at a time.
  *
  * @remarks
  * A delta's key is `variant(target, key)` and variant values order by case
- * NAME, so every target's ops are one contiguous ascending run — which is why
- * an arm can be yielded as soon as the target changes, and why the ops inside
- * one arrive in the order the target's own segments are laid out.
+ * NAME, so every target's ops are one contiguous ascending run, in the order
+ * the target's own segments are laid out.
  */
-async function* readDeltaArms(
+async function* deltaEntries(
   storage: StorageBackend,
   repo: string,
   deltaHash: string,
-): AsyncIterable<DeltaArm> {
+): AsyncGenerator<DeltaEntry> {
   const delta = await DatasetSegments.open(storage, repo, deltaHash);
   const decode = decodeBeast2For(delta.typeValue) as (bytes: Uint8Array) => SortedMap<unknown, unknown>;
-  let open: DeltaArm | null = null;
   for (let i = 0; i < delta.segmentCount; i++) {
     for (const [key, op] of decode(await delta.segment(i))) {
-      const { type: target, value: targetKey } = key as { type: string; value: unknown };
-      if (open !== null && open.target !== target) {
-        yield open;
-        open = null;
-      }
-      open ??= { target, ops: [] };
-      open.ops.push([targetKey, (op as { value: unknown }).value]);
+      const { type: target, value } = key as { type: string; value: unknown };
+      yield { target, key: value, op: (op as { value: unknown }).value };
     }
   }
-  if (open !== null) yield open;
 }
 
 /** What one target's arm of a delta did, by op. */
@@ -151,24 +177,25 @@ export async function summarizeDelta(
   deltaHash: string,
 ): Promise<DeltaArmSummary[]> {
   const summaries: DeltaArmSummary[] = [];
-  for await (const arm of readDeltaArms(storage, repo, deltaHash)) {
-    const summary: DeltaArmSummary = { target: arm.target, insert: 0, update: 0, delete: 0 };
-    for (const [, op] of arm.ops) {
-      const tag = (op as { type: string }).type;
-      if (tag === 'insert' || tag === 'update' || tag === 'delete') summary[tag]++;
+  for await (const entry of deltaEntries(storage, repo, deltaHash)) {
+    let summary = summaries.at(-1);
+    if (summary === undefined || summary.target !== entry.target) {
+      summary = { target: entry.target, insert: 0, update: 0, delete: 0 };
+      summaries.push(summary);
     }
-    summaries.push(summary);
+    const tag = (entry.op as { type: string }).type;
+    if (tag === 'insert' || tag === 'update' || tag === 'delete') summary[tag]++;
   }
   return summaries;
 }
 
 /**
- * Edit one target's touched segments, re-cut them into the segments around
- * them, and write its new manifest.
+ * Apply one target's ops, taken from the cursor as far as they run, to the
+ * segments they fall in, and write the target's new manifest.
  *
  * @remarks
  * The target goes through the store's door as the runs of segments no op
- * touches, as they are stored, and each touched segment's elements with the
+ * touches, as they are stored, and each touched segment's elements with its
  * ops applied. A run cut by the current rule is carried over wherever the
  * edited value still starts a segment at it; one cut under another rule — an
  * earlier version of this one, or a legacy blob's own geometry — is read and
@@ -177,51 +204,58 @@ export async function summarizeDelta(
  *
  * @returns the new manifest object's hash
  */
-async function applyArm(
+async function applyTarget(
   storage: StorageBackend,
   repo: string,
+  target: string,
   hash: string,
-  arm: DeltaArm,
+  cursor: DeltaCursor,
 ): Promise<string> {
   const segments = await DatasetSegments.open(storage, repo, hash);
   const typeValue = segments.typeValue;
   const keyType = segmentKeyTypeOf(typeValue);
   if (keyType === null) {
-    throw new Error(`a mutation delta addresses Set and Dict targets by key; '${arm.target}' holds Array`);
+    throw new Error(`a mutation delta addresses Set and Dict targets by key; '${target}' holds Array`);
   }
   const keyCompare = compareFor(keyType as never) as (a: unknown, b: unknown) => number;
   const apply = applyFor(typeValue);
   const decodeSegment = decodeBeast2For(typeValue) as (bytes: Uint8Array) => unknown;
 
-  // Which segment each touched key falls in. A key before every fence lands in
-  // segment 0 and one past them all in the last, so an insert always has a
-  // segment to join — that is what makes a growing collection re-cut rather
-  // than accumulate a segment per write.
-  const bySegment = new Map<number, Array<[unknown, unknown]>>();
-  for (const [key, op] of arm.ops) {
-    const i = segments.segmentCount === 0 ? 0 : await segments.segmentFor(key);
-    const held = bySegment.get(i);
-    if (held === undefined) bySegment.set(i, [[key, op]]);
-    else held.push([key, op]);
-  }
-  const edited = [...bySegment.keys()].sort((a, b) => a - b);
+  // Which segment a key falls in. A key before every fence lands in segment 0
+  // and one past them all in the last, so an insert always has a segment to
+  // join — that is what makes a growing collection re-cut rather than
+  // accumulate a segment per write.
+  const segmentOf = async (key: unknown): Promise<number> =>
+    segments.segmentCount === 0 ? 0 : segments.segmentFor(key);
 
-  /** Segment `i` with its ops applied, as elements. */
-  async function* editedElements(i: number): AsyncGenerator<unknown> {
+  /** Segment `i` with `ops` applied, as elements. */
+  async function* editedElements(i: number, ops: Array<[unknown, unknown]>): AsyncGenerator<unknown> {
     const before = i < segments.segmentCount
       ? decodeSegment(await segments.segment(i))
       : emptyOf(typeValue, keyCompare);
-    const after = applyOps(apply, arm.target, before, new SortedMap<unknown, unknown>(bySegment.get(i)!, keyCompare));
+    const after = applyOps(apply, target, before, new SortedMap<unknown, unknown>(ops, keyCompare));
     yield* typeValue.type === 'Set'
       ? after as SortedSet<unknown>
       : (after as SortedMap<unknown, unknown>).entries();
   }
 
-  function* sources(): Generator<CollectionSource> {
+  async function* sources(): AsyncGenerator<CollectionSource> {
     let at = 0;
-    for (const i of edited) {
+    let entry = await cursor.peek();
+    let seg = entry !== undefined && entry.target === target ? await segmentOf(entry.key) : 0;
+    while (entry !== undefined && entry.target === target) {
+      // The ops of one segment, which arrive together: the ops ascend, and so
+      // do the segments they fall in.
+      const i = seg;
+      const ops: Array<[unknown, unknown]> = [];
+      while (entry !== undefined && entry.target === target && seg === i) {
+        ops.push([entry.key, entry.op]);
+        cursor.take();
+        entry = await cursor.peek();
+        if (entry !== undefined && entry.target === target) seg = await segmentOf(entry.key);
+      }
       if (at < i) yield { stored: hash, from: at, to: i };
-      yield { elements: editedElements(i) };
+      yield { elements: editedElements(i, ops) };
       at = i + 1;
     }
     if (at < segments.segmentCount) yield { stored: hash, from: at, to: segments.segmentCount };
@@ -230,7 +264,7 @@ async function applyArm(
   return storeCollection(storage, repo, typeValue, sources());
 }
 
-/** A value with the arm's ops applied; an op that disagrees with it is the
+/** A value with the target's ops applied; an op that disagrees with it is the
  *  stale-write conflict, reported against the target. */
 function applyOps(
   apply: (value: unknown, patch: unknown) => unknown,
@@ -241,7 +275,7 @@ function applyOps(
   try {
     return apply(before, variant('patch', ops));
   } catch (err) {
-    if (err instanceof ConflictError) throw new DeltaConflictError(target, err.message);
+    if (err instanceof ConflictError) throw new DeltaConflictError(`${target}: ${err.message}`);
     throw err;
   }
 }

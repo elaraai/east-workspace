@@ -1,11 +1,11 @@
 # Record storage — decisions and the current model
 
-Status: decision record (2026-06-14), revised 2026-09-23 to describe the model
+Status: decision record (2026-06-14), revised 2026-09-25 to describe the model
 as built. The storage format is specified in
 [`e3-records-schema.md`](./e3-records-schema.md) and the records API in
 [`e3-records.md`](./e3-records.md). This document keeps the storage decisions
-and their reasons. [`e3-data-architecture.md`](./e3-data-architecture.md)
-plans the next step: record operations run on the one execution engine.
+and their reasons. Record operations run on the one execution engine, as
+[`e3-data-architecture.md`](./e3-data-architecture.md) §3.7 describes.
 
 ## Why records retain history at all
 
@@ -53,20 +53,28 @@ the value-add over a plain input.
   idempotency key in a reserved `$idem` version-vector slot, and a deadline.
   - A keyed record (a Dict or a Set) is written by delta.
     - Every form — a reducer, an `edit` body, a client's patch — runs as a
-      generated program that emits the delta.
-    - e3-core applies the delta to the segments it touches and re-cuts them
-      with beast2's Recut: every segment the edit leaves standing is carried
-      over unread, and re-cutting runs outward only until the new cuts agree
-      with the old.
+      generated program that emits the delta, in any order; the runner sorts
+      it.
+    - e3-core reads the delta in order and applies it a target segment at a
+      time: the ops that fall in one segment are applied to that segment
+      alone, which is re-cut with beast2's Recut. Every segment the edit
+      leaves standing is carried over unread, and re-cutting runs outward only
+      until the new cuts agree with the old.
     - A `patch` on a record with no index applies the patch without running a
       program at all.
   - Any other record is written whole: the reducer's output becomes the new
     state.
-  - A program runs through the graph-free `runDetached` kernel. It receives the
-    record as a file holding the whole value, streamed from its segments.
+  - A program runs as one unit through the task executor, with an execution
+    record, logs, cancellation and a timeout. It receives the record as its
+    manifest with the segments linked, which the runner opens lazily past its
+    lazy-open threshold, so an `edit` body reads the segments of the keys it
+    touches. A reducer's result is diffed against the whole state, so a
+    reducer reads every segment.
   - A mutation whose view of the record is stale — an edit of a key the record
-    no longer holds, or a patch whose `before` no longer matches — fails as a
-    conflict and writes nothing.
+    no longer holds, or a patch whose `before` no longer matches — is a
+    conflict naming the key, and writes nothing. The program says so with a
+    `$conflict` entry, which sorts first in the delta, and the apply says so
+    of an op that disagrees with the segment it lands on.
 - **Indexes.** An index is a second canonical collection keyed `{ik, k}`,
   maintained by the same delta, in the same commit. Deploy builds, drops or
   keeps each index to match the package, and records the change as a
@@ -187,13 +195,7 @@ segments) and `e3 history --delta` can report it.
   idle-triggered GC, or eventually a scoped/incremental GC? Decide together.
 - **Reactive granularity.** A record is one reactive input (one version-vector
   entry per record), so a one-row mutation invalidates every task reading it.
-  - A `partitionTask` over the record re-runs only the partitions whose slices
-    changed. Its partition boundaries pack segments greedily by bytes, though,
-    so an insertion re-runs every partition after it: append-friendly, not
-    exact.
-  - Content-defined partition boundaries (the plan) make it exact.
+  - A `streamTask` partitioned over the record re-runs only the pieces whose
+    segments changed, and the merges they reach. Pieces are content-defined,
+    so an insertion re-runs only the pieces around it.
   - Per-key invalidation is a separate, larger change.
-- **A write's I/O.** Storage cost is O(touched segments), but a program still
-  receives the whole record as a file, and a reducer reads the whole state. The
-  plan moves programs onto lazily opened manifests, so a write reads what it
-  touches.

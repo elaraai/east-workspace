@@ -6,21 +6,24 @@
 /**
  * Record mutation execution — the write half of the function machinery.
  *
- * A mutation is a pure East reducer `(State, ...Args) => State` run via the
- * graph-free {@link runDetached} kernel in a compare-and-swap retry loop:
- * read state → reduce → write new state + commit objects → conditional ref
- * write; retry on conflict. A crash at any point leaves only unreferenced
- * objects (GC reclaims them) — never a torn record. The reducer's purity is
- * what makes re-running against fresher state safe.
+ * A mutation runs its program — the delta program its declaration generates,
+ * or an unkeyed record's reducer — as one unit through the task executor, in a
+ * compare-and-swap retry loop: read state → run → write new state + commit
+ * objects → conditional ref write; retry on conflict. A crash at any point
+ * leaves only unreferenced objects (GC reclaims them) — never a torn record.
+ * The program's purity is what makes re-running against fresher state safe,
+ * and what lets a run over a state and arguments seen before be served from
+ * the execution cache.
  */
 
 import { variant, some, none, ArrayType, BlobType, PatchType, SortedMap, compareFor, encodeBeast2For, decodeBeast2For, fromEastTypeValue, readBeast2Type, toEastTypeValue, type EastType, type EastTypeValue } from '@elaraai/east';
 import {
   RECORD_STATE_KIND,
-  STALE_WRITE_PREFIX,
   RecordCommitType,
   RecordIndexObjectType,
   RecordStateType,
+  TASK_OBJECT_KIND,
+  TaskObjectType,
   decodeMutationObject,
   decodePackageObject,
   decodeRecordCommit,
@@ -36,34 +39,32 @@ import {
   type RecordIndexObject,
 } from '@elaraai/e3-types';
 import { DeltaConflictError, applyDelta } from './record-apply.js';
-import { executeRecordOperation } from './execution/recordSteps.js';
-import { DatasetSegments, openDatasetObject, readManifest } from './dataset-open.js';
-import { storeDatasetBytes } from './store-collection.js';
+import { readManifest } from './dataset-open.js';
+import { inputsHash } from './executions.js';
 import { workspaceGetPackage } from './workspaces.js';
 import { refPathToKeypath } from './dataset-refs.js';
 import { DatasetRefConflictError, WorkspaceLockError } from './errors.js';
 import { withRunningWork } from './storage/local/gc.js';
 import type { StorageBackend, LockHandle } from './storage/interfaces.js';
-import type { TaskRunner } from './execution/interfaces.js';
-import type { DetachedArg, DetachedResult } from './execution/runDetached.js';
+import type { TaskResult, TaskRunner } from './execution/interfaces.js';
 
 const encodeCommit = encodeBeast2For(RecordCommitType);
 const decodeIndexObject = decodeBeast2For(RecordIndexObjectType);
 const encodeRecordState = encodeBeast2For(RecordStateType);
 const decodeRecordState = decodeBeast2For(RecordStateType);
 const encodeArgsTuple = encodeBeast2For(ArrayType(BlobType));
+const encodeTaskObject = encodeBeast2For(TaskObjectType);
 
-/** Mutations persist their (potentially large) new state, so the result cap is
- *  far higher than the 1 MB inline-result default for function calls. */
+/** How long a mutation's program may run, and how much of its stderr a
+ *  failure returns. Its output is stored as segments and never read whole, so
+ *  it has no size cap. */
 export interface RecordMutateLimits {
   timeoutMs: number;
-  maxResultBytes: number;
   maxLogBytes: number;
 }
 
 const DEFAULT_LIMITS: RecordMutateLimits = {
   timeoutMs: 60_000,
-  maxResultBytes: 64 * 1024 * 1024,
   maxLogBytes: 64 * 1024,
 };
 
@@ -95,12 +96,10 @@ export type MutationOutcome =
   | { kind: 'committed'; commitHash: string; stateHash: string }
   /** Lookup/arity error — nothing ran. */
   | { kind: 'invalid'; message: string }
-  /** The reducer process exited non-zero (incl. a reducer `$.error`). */
+  /** The program failed (incl. a body's `$.error`), or the call was aborted. */
   | { kind: 'failed'; exitCode: number; stderr: string }
-  /** The reducer exceeded its time budget. */
+  /** The program exceeded its time budget. */
   | { kind: 'timed_out'; ms: number; stderr: string }
-  /** The new state exceeded the result-size cap. */
-  | { kind: 'too_large'; bytes: number; limit: number; stderr: string }
   /** The compare-and-swap lost the race `attempts` times, or a delta op
    *  disagreed with the state it landed on — `detail` names the key. */
   | { kind: 'conflict'; attempts: number; detail?: string };
@@ -108,7 +107,8 @@ export type MutationOutcome =
 export interface RecordMutateOptions {
   /** Caller identity recorded on the commit (auth principal / `cli:<user>`). */
   actor: string;
-  /** Execution limits; sensible record defaults applied when omitted. */
+  /** How long each run of the program may take, and how much of its stderr
+   *  a failure returns; record defaults apply when omitted. */
   limits?: RecordMutateLimits;
   /** Wall-clock budget for CAS retries (default 30s); on expiry returns conflict. */
   maxRetryMs?: number;
@@ -125,20 +125,15 @@ export interface RecordMutateOptions {
   idempotencyKey?: string;
   /** Optional hard cap on CAS attempts (mainly for tests forcing a conflict). */
   maxAttempts?: number;
-  /** Cancellation — aborts the in-flight reducer execution (how is the runner's
+  /** Cancellation — aborts the program's run in flight (how is the runner's
    *  concern: a local runner kills the process group, a remote one cancels the
    *  invocation). */
   signal?: AbortSignal;
   /** Externally-held shared workspace lock; acquired internally when omitted. */
   lock?: LockHandle;
-  /** Pass `-v` to the reducer's runner (known runtimes only) so it prints
+  /** Pass `-v` to the program's runner (known runtimes only) so it prints
    *  timing/perf to stderr. Runtime-only; never affects hashing or caching. */
   verbose?: boolean;
-  /** Target slice size for a bulk operation's fan-out, in wire bytes.
-   *  Runtime-only — the units' outputs merge to the same value at any width —
-   *  and mainly a test's way of forcing more than one unit without a record
-   *  big enough to need them. */
-  sliceBytes?: number;
 }
 
 /**
@@ -270,39 +265,58 @@ async function resolveRecord(
   };
 }
 
-/** Map a non-success reducer run to its mutation outcome (nothing written).
- *  The reducer's captured stderr is forwarded on every failure so a human
- *  debugging a hand-written reducer sees its diagnostics. */
-function failureOutcome(result: Exclude<DetachedResult, { kind: 'success' }>): MutationOutcome {
-  switch (result.kind) {
-    case 'failed':
-      return { kind: 'failed', exitCode: result.exitCode, stderr: result.stderr };
-    case 'timed_out':
-      return { kind: 'timed_out', ms: result.ms, stderr: result.stderr };
-    case 'too_large':
-      return { kind: 'too_large', bytes: result.bytes, limit: result.limit, stderr: result.stderr };
-  }
-}
-
 /**
- * A record's state as a detached run's first argument.
+ * Runs a record's program as one unit through the task executor, stopped at
+ * the run's time limit.
  *
  * @remarks
- * A state stored as a segment manifest is passed as its splice, streamed from
- * the segment objects: the local runner writes its argument file one segment
- * at a time, reading every one, and a runner that sends its arguments in one
- * payload holds the record whole. A state that is one object — a scalar
- * record, or a collection written before the layout — is that object.
+ * The unit is an execution like a task's: recorded, logged, cancellable, and
+ * served from the execution cache when it ran before over the same inputs. The
+ * time limit is this call's own: the unit is aborted once it passes, which the
+ * executor records `cancelled` and the mutation reports as `timed_out`. A run
+ * that did not succeed returns the tail of its stderr log, so a human debugging
+ * a hand-written body sees its diagnostics.
  *
  * @param storage - Storage backend
+ * @param runner - Task runner the unit runs on
  * @param repo - Repository identifier
- * @param primary - the state's primary (a manifest, or the object itself)
- * @returns the argument to pass
+ * @param taskHash - The program's task object
+ * @param inputs - The unit's input hashes, in the program's parameter order
+ * @param run - The time limit, cancellation and verbosity
+ * @returns The unit's output hash, or the mutation's outcome when it did not
+ *   succeed
  */
-async function stateArg(storage: StorageBackend, repo: string, primary: string): Promise<DetachedArg> {
-  const opened = await openDatasetObject(storage, repo, primary);
-  if (opened.manifest === null) return storage.objects.read(repo, opened.hash);
-  return (await DatasetSegments.open(storage, repo, opened.hash)).splice();
+async function runUnit(
+  storage: StorageBackend,
+  runner: TaskRunner,
+  repo: string,
+  taskHash: string,
+  inputs: string[],
+  run: RunContext,
+): Promise<{ output: string } | { failure: MutationOutcome }> {
+  const deadline = new AbortController();
+  const timer = setTimeout(() => deadline.abort(), run.limits.timeoutMs);
+  let result: TaskResult;
+  try {
+    result = await runner.execute(storage, taskHash, inputs, {
+      signal: run.signal === undefined ? deadline.signal : AbortSignal.any([run.signal, deadline.signal]),
+      ...(run.verbose !== undefined && { verbose: run.verbose }),
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+  if (result.state === 'success' && result.outputHash !== undefined) return { output: result.outputHash };
+  if (result.cancelled && run.signal?.aborted) return { failure: { kind: 'failed', exitCode: -1, stderr: 'aborted' } };
+  let stderr = '';
+  if (result.executionId !== undefined) {
+    const inHash = inputsHash(inputs);
+    const { totalSize } = await storage.logs.read(repo, taskHash, inHash, result.executionId, 'stderr', { offset: 0, limit: 0 });
+    const offset = Math.max(0, totalSize - run.limits.maxLogBytes);
+    stderr = (await storage.logs.read(repo, taskHash, inHash, result.executionId, 'stderr', { offset, limit: totalSize - offset })).data;
+  }
+  if (stderr === '') stderr = result.error ?? '';
+  if (result.cancelled) return { failure: { kind: 'timed_out', ms: run.limits.timeoutMs, stderr } };
+  return { failure: { kind: 'failed', exitCode: result.exitCode ?? -1, stderr } };
 }
 
 /**
@@ -336,7 +350,12 @@ export async function recordMutate(
       return { kind: 'invalid', message: `mutation '${mutationName}' expects ${mutObj.argTypes.length} argument(s), got ${args.length}` };
     }
 
-    const bodyIr = await storage.objects.read(repo, mutObj.bodyIr);
+    // A whole-state write rewrites the primary and no index. Only a Dict record
+    // declares one, and every Dict record's mutation writes a delta, so one
+    // that does not came from a package that mixes the two.
+    if (mutObj.programIr === '' && resolved.indexes.size > 0) {
+      return { kind: 'invalid', message: `mutation '${mutationName}' writes record '${recordName}' whole, and the record has indexes: re-export its package` };
+    }
     const limits = opts.limits ?? DEFAULT_LIMITS;
     const deadline = Date.now() + (opts.maxRetryMs ?? DEFAULT_MAX_RETRY_MS);
     // Hard wall-clock cap for the whole call (OPS-1): when set, no reducer run
@@ -366,8 +385,8 @@ export async function recordMutate(
         }
       }
 
-      // Clamp the reducer's time budget to what remains of the hard deadline, so
-      // a single run cannot overrun it.
+      // Clamp the program's time budget to what remains of the hard deadline,
+      // so a single run cannot overrun it.
       const runLimits = hardDeadline !== undefined
         ? { ...limits, timeoutMs: Math.max(1, Math.min(limits.timeoutMs, hardDeadline - Date.now())) }
         : limits;
@@ -378,10 +397,9 @@ export async function recordMutate(
         limits: runLimits,
         ...(opts.signal !== undefined && { signal: opts.signal }),
         ...(opts.verbose !== undefined && { verbose: opts.verbose }),
-        ...(opts.sliceBytes !== undefined && { sliceBytes: opts.sliceBytes }),
       };
       const write = mutObj.programIr === ''
-        ? await writeWholeState(storage, runner, repo, bodyIr, mutObj, state, resolved.indexes, args, run)
+        ? await writeWholeState(storage, runner, repo, mutObj, state, args, run)
         : await writeDelta(storage, runner, repo, mutObj, state, args, run);
       if ('failure' in write) return write.failure;
       if ('conflictDetail' in write) return { kind: 'conflict', attempts: attempt, detail: write.conflictDetail };
@@ -476,50 +494,50 @@ type MutationWrite =
   /** A delta op disagreed with the state it landed on — the key is in the text. */
   | { conflictDetail: string };
 
-/** How a detached run is bounded: the limits, and the caller's cancellation
- *  and verbosity, in the shape every call here passes on. */
+/** How a program's run is bounded: the limits, and the caller's cancellation
+ *  and verbosity. */
 interface RunContext {
   limits: RecordMutateLimits;
   signal?: AbortSignal;
   verbose?: boolean;
-  /** Target slice size for a record operation's fan-out, in wire bytes; for
-   *  tests that need more than one unit without a large record. */
-  sliceBytes?: number;
 }
 
 /**
- * The original protocol: run the reducer, take its whole result as the new
- * state, rebuild every index over it.
+ * The whole-state protocol: run the reducer, take its result as the new
+ * state.
  *
  * @remarks
- * What a record whose collection has no delta addressed by key still does — a
- * struct or scalar state, where "what changed" is the whole value — and what a
- * mutation deployed before deltas existed does, since its object names no
- * program. Both are O(state) per write, which is the cost the delta exists to
- * remove.
+ * What a record whose collection has no delta addressed by key does — a
+ * struct, a scalar or an Array, where "what changed" is the whole value — and
+ * what a mutation deployed before deltas existed does, since its object names
+ * no program. The reducer runs as a unit whose output is the new state, taken
+ * into the store through its door. No such record has an index: only a Dict
+ * record declares one, and every Dict record's mutation writes a delta. It is
+ * O(state) per write, which is the cost the delta exists to remove.
  */
 async function writeWholeState(
   storage: StorageBackend,
   runner: TaskRunner,
   repo: string,
-  bodyIr: Uint8Array,
   mutObj: MutationObject,
   state: RecordStateRefs,
-  indexes: Map<string, string>,
   args: Uint8Array[],
   run: RunContext,
 ): Promise<MutationWrite> {
-  // The reducer takes a value, not a layout: a primary held as a segment
-  // manifest is spliced back into one blob for it, as stateArg passes it.
-  const result = await runner.runDetached(
-    { bodyIr, args: [await stateArg(storage, repo, state.primary), ...args], runner: mutObj.runner, limits: run.limits },
-    { signal: run.signal, verbose: run.verbose },
-  );
-  if (result.kind !== 'success') return { failure: failureOutcome(result) };
-  const primary = await storeDatasetBytes(storage, repo, result.value);
-  const rebuilt = await buildRecordIndexes(storage, runner, repo, indexes, primary, run);
-  if ('failure' in rebuilt) return rebuilt;
-  return { primary, indexes: rebuilt.built };
+  const taskHash = await storage.objects.write(repo, encodeTaskObject({
+    kind: TASK_OBJECT_KIND,
+    body: variant('east', { program: mutObj.bodyIr }),
+    runner: mutObj.runner,
+    inputs: [state.primary, ...args].map(() => ({ path: [], partition: none })),
+    output: { path: [], kind: variant('value', null) },
+    role: variant('data', null),
+    environment: none,
+  }));
+  const inputs = [state.primary];
+  for (const arg of args) inputs.push(await storage.objects.write(repo, arg));
+  const ran = await runUnit(storage, runner, repo, taskHash, inputs, run);
+  if ('failure' in ran) return ran;
+  return { primary: ran.output, indexes: state.indexes };
 }
 
 /**
@@ -530,9 +548,10 @@ async function writeWholeState(
  * of the primary and of every index: applying a one-row edit to a
  * two-million-row record reads and writes a segment per target rather than
  * the record. A target the delta does not name keeps the manifest it had, so
- * an index no write touched is never rewritten. The run is not that cheap:
- * staging the state for it reads every segment of the record and writes it to
- * the runner's argument file, on every attempt.
+ * an index no write touched is never rewritten. The run reads what it touches
+ * too: the state is staged as its manifest with the segments linked, which
+ * the program opens lazily, so an edit decodes the segments its keys live in
+ * and nothing is copied through this process.
  *
  * The `patch` form on a record with no index skips the run outright: the
  * client already computed the change, and with no index function to evaluate
@@ -555,36 +574,26 @@ async function writeDelta(
     ? await patchAsDelta(storage, repo, state.primary, args[0])
     : null;
   if (deltaHash === null) {
-    // The program opens the state lazily from its own file, so a body that
-    // touches a few entries decodes the segments they live in and no others.
-    // Staging that file still reads every segment and writes it out — one at
-    // a time on the local runner — on every attempt.
-    const result = await runner.runDetached(
-      {
-        bodyIr: await storage.objects.read(repo, mutObj.programIr),
-        args: [await stateArg(storage, repo, state.primary), ...args],
-        runner: mutObj.runner,
-        limits: run.limits,
-        streaming: { emit: 'dict', stream: [0] },
-      },
-      { signal: run.signal, verbose: run.verbose },
-    );
-    if (result.kind !== 'success') {
-      // A program that refused because the state moved under it is reporting
-      // what the apply reports as a ConflictError. A caller retries one and
-      // gives up on the other, so the two doors must not disagree about which
-      // a stale write is.
-      const refusal = result.kind === 'failed'
-        ? result.stderr.split(/\r?\n/).find((line) => line.includes(STALE_WRITE_PREFIX))
-        : undefined;
-      if (refusal !== undefined) {
-        return { conflictDetail: refusal.slice(refusal.indexOf(STALE_WRITE_PREFIX) + STALE_WRITE_PREFIX.length).trim() };
-      }
-      return { failure: failureOutcome(result) };
-    }
-    deltaHash = await storeDatasetBytes(storage, repo, result.value);
+    const taskHash = await storage.objects.write(repo, encodeTaskObject({
+      kind: TASK_OBJECT_KIND,
+      body: variant('east', { program: mutObj.programIr }),
+      runner: mutObj.runner,
+      inputs: [state.primary, ...args].map(() => ({ path: [], partition: none })),
+      output: { path: [], kind: variant('dict', { merge: none }) },
+      role: variant('data', null),
+      environment: none,
+    }));
+    const inputs = [state.primary];
+    for (const arg of args) inputs.push(await storage.objects.write(repo, arg));
+    const ran = await runUnit(storage, runner, repo, taskHash, inputs, run);
+    if ('failure' in ran) return ran;
+    deltaHash = ran.output;
   }
 
+  // A program that found the write stale says so in the delta's first entry,
+  // as the apply says so of an op that disagrees with the state: a caller
+  // retries a conflict and gives up on a failure, so the two doors agree on
+  // which a stale write is.
   let written: Map<string, string>;
   try {
     written = await applyDelta(storage, repo, targets, deltaHash);
@@ -654,21 +663,23 @@ async function patchAsDelta(
  * Build every index of a record over one primary state.
  *
  * @remarks
- * Each index's build program runs on the runner its author chose, with the
- * primary as its only input and the runner's emit sink as its output — `run`
- * with `--stream 0 --emit dict`, no new runner command. e3-core never
+ * Each index builds as a task split over the primary. Its task object is
+ * written from the index object: the build program as the body, on the runner
+ * its author chose, over the primary, partitioned with no `by`, into a `dict`
+ * output with no merge. It runs as any task does, so a build over a primary it
+ * has built before is served from the execution cache, and a larger one runs
+ * as the engine's pieces and the merges where their outputs overlap. No entry
+ * is emitted by two pieces, since an entry's `k` is one piece's. e3-core never
  * evaluates the index functions: it runs a program and takes what it emits
- * into the store. The emitted collection is canonical by construction (the
- * program emits in order), so it goes through the encoder door like any other
- * collection and lands as a manifest.
+ * into the store.
  *
  * @param storage - Storage backend
- * @param runner - Task runner for the detached runs
+ * @param runner - Task runner the builds run on
  * @param repo - Repository identifier
  * @param indexes - Index name -> RecordIndexObject hash, from the record object
  * @param primary - CollectionManifest hash of the primary to build over
- * @param opts - Execution limits, cancellation and verbosity
- * @returns The built indexes, or the first program's failure
+ * @param opts - Cancellation and verbosity
+ * @returns The built indexes, or the first build's failure
  */
 async function buildRecordIndexes(
   storage: StorageBackend,
@@ -676,33 +687,32 @@ async function buildRecordIndexes(
   repo: string,
   indexes: Map<string, string>,
   primary: string,
-  opts: RunContext,
+  opts: { signal?: AbortSignal; verbose?: boolean },
 ): Promise<{ built: Map<string, { manifest: string; index: string }> } | { failure: MutationOutcome }> {
   const built = new Map<string, { manifest: string; index: string }>();
-  if (indexes.size === 0) return { built };
-
   for (const [name, indexHash] of indexes) {
     const indexObj: RecordIndexObject = decodeIndexObject(await storage.objects.read(repo, indexHash));
-    const outcome = await executeRecordOperation(storage, repo, runner, {
-      over: primary,
-      bodyIr: indexObj.buildIr,
-      mergeIr: indexObj.mergeIr,
+    const taskHash = await storage.objects.write(repo, encodeTaskObject({
+      kind: TASK_OBJECT_KIND,
+      body: variant('east', { program: indexObj.buildIr }),
       runner: indexObj.runner,
-      options: {
-        ...(opts.signal !== undefined && { signal: opts.signal }),
-        ...(opts.verbose !== undefined && { verbose: opts.verbose }),
-      },
-      ...(opts.sliceBytes !== undefined && { targetBytes: opts.sliceBytes }),
+      inputs: [{ path: [], partition: some({ by: [] }) }],
+      output: { path: [], kind: variant('dict', { merge: none }) },
+      role: variant('data', null),
+      environment: none,
+    }));
+    const result = await runner.execute(storage, taskHash, [primary], {
+      ...(opts.signal !== undefined && { signal: opts.signal }),
+      ...(opts.verbose !== undefined && { verbose: opts.verbose }),
     });
-    if (outcome.kind === 'cancelled') return { failure: { kind: 'failed', exitCode: -1, stderr: 'aborted' } };
-    if (outcome.kind === 'failed') {
-      return {
-        failure: outcome.exitCode === null
-          ? { kind: 'invalid', message: `building index '${name}': ${outcome.message}` }
-          : { kind: 'failed', exitCode: outcome.exitCode, stderr: outcome.message },
-      };
+    if (result.cancelled) return { failure: { kind: 'failed', exitCode: -1, stderr: 'aborted' } };
+    if (result.state === 'failed') {
+      return { failure: { kind: 'failed', exitCode: result.exitCode ?? -1, stderr: `building index '${name}': ${result.error ?? `exit code ${result.exitCode}`}` } };
     }
-    built.set(name, { manifest: outcome.hash, index: indexHash });
+    if (result.state !== 'success' || result.outputHash === undefined) {
+      return { failure: { kind: 'invalid', message: `building index '${name}': ${result.error ?? 'the build wrote no output'}` } };
+    }
+    built.set(name, { manifest: result.outputHash, index: indexHash });
   }
   return { built };
 }
@@ -753,7 +763,6 @@ export async function recordReindex(
       ? resolved.indexes
       : new Map([[opts.index, resolved.indexes.get(opts.index)!]]);
 
-    const limits = opts.limits ?? DEFAULT_LIMITS;
     const deadline = Date.now() + (opts.maxRetryMs ?? DEFAULT_MAX_RETRY_MS);
     for (let attempt = 1; ; attempt++) {
       const existing = await storage.datasets.readVersioned(repo, ws, resolved.refPath);
@@ -762,10 +771,8 @@ export async function recordReindex(
       }
       const state = await readRecordState(storage, repo, existing.ref.value.hash);
       const outcome = await buildRecordIndexes(storage, runner, repo, wanted, state.primary, {
-        limits,
         ...(opts.signal !== undefined && { signal: opts.signal }),
         ...(opts.verbose !== undefined && { verbose: opts.verbose }),
-        ...(opts.sliceBytes !== undefined && { sliceBytes: opts.sliceBytes }),
       });
       if ('failure' in outcome) return outcome.failure;
 
@@ -903,9 +910,10 @@ export async function buildDeployIndexes(
     }
     const outcome = build.size === 0
       ? { built: new Map<string, { manifest: string; index: string }>() }
-      : await buildRecordIndexes(storage, runner!, repo, build, state.primary, { limits: DEFAULT_LIMITS });
+      : await buildRecordIndexes(storage, runner!, repo, build, state.primary, {});
     if ('failure' in outcome) {
-      const detail = outcome.failure.kind === 'failed' ? outcome.failure.stderr : outcome.failure.kind;
+      const failure = outcome.failure;
+      const detail = failure.kind === 'failed' ? failure.stderr : failure.kind === 'invalid' ? failure.message : failure.kind;
       throw new Error(`building the indexes of record '${recObj.path}' failed: ${detail}`);
     }
 

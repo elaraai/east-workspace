@@ -194,9 +194,8 @@ function reduce(
  * decodes the segments those ten live in and nothing else — and writes through
  * `edit.set(key, value)`, `edit.delete(key)` and `edit.update(key, patch)`. It
  * never returns a state, so its commit rewrites only the segments the entries
- * it touched live in. What it does not escape is the staging: the whole state
- * is read and written to the runner's argument file before the body runs, on
- * every attempt.
+ * it touched live in. The state reaches its runner as the record's manifest,
+ * the segments linked, so nothing on the way reads the record whole either.
  *
  * Repeated edits of one key fold: `set` after anything is that `set`; `update`
  * after `set` applies to the set value; `update` after `update` composes;
@@ -292,8 +291,8 @@ function edit(
  * runs. Any other patch, such as one replacing the whole state, runs a program
  * that checks it against the state, and on a record with indexes one run
  * computes the index entries the change moves, since that is user East and
- * only a runner evaluates it. A run stages the whole state for its runner
- * first.
+ * only a runner evaluates it. That run reads the rows the patch touches, and a
+ * replace reads them all.
  *
  * @typeParam Name - Mutation name (literal type)
  * @typeParam T - The owning record's state type (a Dict or a Set)

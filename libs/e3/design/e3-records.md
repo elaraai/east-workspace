@@ -498,6 +498,16 @@ the *new state* size and should default much higher than the 1 MB function
 default (deployment-configurable; the state is persisted, not returned
 inline — the HTTP response carries only the outcome + commit hash).
 
+> **Amended (2026-09-25).** A mutation runs on the task engine, as one unit
+> through the caller's `TaskRunner` (`e3-data-architecture.md` §3.7): its
+> program, or an unkeyed record's reducer, over the record's manifest with the
+> segments linked, which the runner opens lazily. The unit's output is stored
+> as segments and never returned inline, so a mutation has no result-size cap:
+> the `too_large` outcome is gone, and the set is
+> `committed | failed | invalid | conflict | timed_out`. A mutation's
+> `timeoutMs` aborts its unit, and a stale write is a conflict whether the
+> program finds it or the apply does.
+
 **Reactive integration: none needed.** A committed mutation changes a root
 ref; `e3 start` / `e3 watch` / an in-flight dataflow run picks it up through
 the existing `detectInputChanges` fixpoint loop. A per-record debounce

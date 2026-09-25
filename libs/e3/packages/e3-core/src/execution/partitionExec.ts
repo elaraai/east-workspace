@@ -7,8 +7,8 @@
  * The byte-level steps of a fan-out — bounded-memory fan-out and fan-in over
  * canonical beast2 segments (issue #770).
  *
- * A record's index build (`recordSteps.ts`) runs as plan → map → merge →
- * splice over these: {@link planPartitions} reads the input's segment index
+ * A record's index build ran as plan → map → merge → splice over these,
+ * before it ran on the engine: {@link planPartitions} reads the input's segment index
  * and chooses partition boundaries (deterministically, from the index and the
  * byte target); {@link carvePartitionSlices} carves a partition's slice by byte
  * copy; {@link planMergeRanges} chooses the key ranges a merged component's

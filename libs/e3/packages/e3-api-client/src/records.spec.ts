@@ -93,13 +93,23 @@ describe('record responses from a server that predates a field', () => {
       variant('committed', { commitHash: HASH, stateHash: HASH }),
       variant('invalid', { message: 'no such mutation' }),
       variant('failed', { exitCode: 1n, stderr: 'the reducer threw' }),
-      variant('too_large', { bytes: 9n, limit: 8n, stderr: 'a large state' }),
       variant('timed_out', { ms: 5n, stderr: 'a slow reducer' }),
     ]) {
       serve(encodeBeast2For(ResponseType(PreDetailResult))(variant('success', { outcome })));
       const result = await workspaceRecordMutate(BASE, 'r', 'ws', 'plans', 'patch', call, { token: null });
       assert.deepEqual(result.outcome, outcome, `a ${outcome.type} outcome reads as sent`);
     }
+  });
+
+  it('reads a too_large outcome, which a current server never sends, as a failure saying so', async () => {
+    serve(encodeBeast2For(ResponseType(PreDetailResult))(variant('success', {
+      outcome: variant('too_large', { bytes: 9n, limit: 8n, stderr: 'a large state\n' }),
+    })));
+    const result = await workspaceRecordMutate(BASE, 'r', 'ws', 'plans', 'patch', call, { token: null });
+    assert.deepEqual(result.outcome, variant('failed', {
+      exitCode: -1n,
+      stderr: "a large state\nthe new state is 9 bytes, over the server's 8-byte limit\n",
+    }));
   });
 });
 

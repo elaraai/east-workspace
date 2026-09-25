@@ -30,7 +30,6 @@ export {
 // Graph-free execution (functions / one-shot)
 export {
   runDetached,
-  type DetachedArg,
   type DetachedSpec,
   type DetachedResult,
   type DetachedRunOptions,

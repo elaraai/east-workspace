@@ -177,12 +177,6 @@ function errorOfMutationResult(result: MutationResult): RecordError {
                 message: `reducer exited with code ${outcome.value.exitCode}`,
                 stderr: outcome.value.stderr,
             };
-        case "too_large":
-            return {
-                kind: variant("too_large", { bytes: outcome.value.bytes, limit: outcome.value.limit }),
-                message: `new state too large (${outcome.value.bytes} bytes, limit ${outcome.value.limit})`,
-                stderr: outcome.value.stderr,
-            };
         case "timed_out":
             return {
                 kind: variant("timed_out", { ms: outcome.value.ms }),

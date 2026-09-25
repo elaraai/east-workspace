@@ -842,6 +842,10 @@ export const OneShotRequestType = StructType({
 /**
  * A record mutation call. Positional args (after the implicit current state),
  * one beast2-encoded value per declared parameter.
+ *
+ * Of the limits, `timeoutMs` bounds each run of the mutation's program and
+ * `maxLogBytes` the stderr a failure returns. `maxResultBytes` does not apply:
+ * a mutation's output is stored as segments and never read whole.
  */
 export const MutationCallRequestType = StructType({
   args:   ArrayType(BlobType),
@@ -854,9 +858,8 @@ export const MutationCallRequestType = StructType({
  *
  * - `committed`: the new commit + state hashes
  * - `invalid`: record/mutation lookup or arity error; nothing ran
- * - `failed`: the reducer process exited non-zero (incl. a reducer `$.error`; see stderr)
- * - `too_large`: the new state exceeded the result cap
- * - `timed_out`: the reducer exceeded its time budget
+ * - `failed`: the mutation's program failed (incl. a body's `$.error`; see stderr)
+ * - `timed_out`: the program exceeded its time budget
  * - `conflict`: the compare-and-swap lost the race `attempts` times, or the
  *   write disagreed with the state it landed on — then `detail` names the key,
  *   and resubmitting the same write cannot help
@@ -866,7 +869,6 @@ export const MutationResultType = StructType({
     committed: StructType({ commitHash: StringType, stateHash: StringType }),
     invalid:   StructType({ message: StringType }),
     failed:    StructType({ exitCode: IntegerType, stderr: StringType }),
-    too_large: StructType({ bytes: IntegerType, limit: IntegerType, stderr: StringType }),
     timed_out: StructType({ ms: IntegerType, stderr: StringType }),
     // `detail` is appended LAST, per the positional struct rule.
     conflict:  StructType({ attempts: IntegerType, detail: OptionType(StringType) }),

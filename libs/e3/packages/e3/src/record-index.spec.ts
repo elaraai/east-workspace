@@ -11,10 +11,10 @@
  * missing, so the refusals happen at the developer's desk.
  *
  * The build program is what actually runs, and its two load-bearing properties
- * are asserted by running it: entries come out in the index collection's own
- * canonical order (`{ik, k}` — index key first), and a multi-valued index
- * emits one entry per element of the returned set, so an empty set is a row
- * the index does not carry.
+ * are asserted by running it: each row's entries come out as the row is read,
+ * keyed `{ik, k}` — index key first — for the runner's RunSorter to sort, and a
+ * multi-valued index emits one entry per element of the returned set, so an
+ * empty set is a row the index does not carry.
  */
 
 import { describe, it } from 'node:test';
@@ -181,12 +181,12 @@ describe('recordIndex — the declaration', () => {
 });
 
 describe('recordIndex — the build program', () => {
-  it('emits in the index collection\'s own order, index key first', () => {
+  it('emits each row\'s entry as it reads the row, index key first', () => {
     const out = emitted(PlansType, recordIndex('by_status', plans(), { key: statusKey, value: titleOf }), rows);
     assert.deepEqual(out, [
-      [{ ik: { status: 'late', due: 2n }, k: 'p3' }, 'Three'],
       [{ ik: { status: 'late', due: 3n }, k: 'p1' }, 'One'],
       [{ ik: { status: 'ok', due: 1n }, k: 'p2' }, 'Two'],
+      [{ ik: { status: 'late', due: 2n }, k: 'p3' }, 'Three'],
     ]);
   });
 

@@ -5,12 +5,14 @@
 
 /**
  * Tests for record mutation execution: deploy genesis, the compare-and-swap
- * commit loop, history, and failure outcomes. The reducer process is faked so
- * the loop is exercised deterministically without spawning a runtime.
+ * commit loop, history, and failure outcomes. The runner is faked where the
+ * loop is the subject — a unit's result is what the test says, and no process
+ * starts — and real where a program's behaviour is.
  */
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import { execFileSync } from 'node:child_process';
+import { statSync, writeFileSync } from 'node:fs';
 import assert from 'node:assert';
 import { join, dirname } from 'node:path';
 import { East, IntegerType, NullType, PatchType, SortedMap, StringType, compareFor, encodeBeast2For, decodeBeast2For, toEastTypeValue, ArrayType, BlobType, DictType, StructType, variant, type PatchTypeOf, type ValueTypeOf } from '@elaraai/east';
@@ -28,9 +30,11 @@ import { packageExport, packageImport } from './packages.js';
 import { workspaceCreate, workspaceDeploy, workspaceExport, workspaceGetPackage } from './workspaces.js';
 import { createTestRepo, removeTestRepo, createTempDir, removeTempDir } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
+import { objectPath } from './storage/local/localHelpers.js';
 import { LocalTaskRunner } from './execution/LocalTaskRunner.js';
 import { MockTaskRunner } from './execution/MockTaskRunner.js';
-import type { MutationOutcome, StorageBackend, TaskRunner, DetachedResult } from './index.js';
+import { inputsHash } from './executions.js';
+import type { MutationOutcome, StorageBackend, TaskExecuteOptions, TaskResult, TaskRunner } from './index.js';
 
 /** Whether a runtime's CLI answers on PATH — the multi-runtime suites skip
  *  rather than fail on a developer machine without it. */
@@ -54,18 +58,32 @@ const counterStructure: Structure = variant('struct', new Map([
   ]))],
 ]));
 
-/** Constant success outcome carrying the given new-state bytes. */
-function successRunner(value: Uint8Array): TaskRunner {
-  return runnerReturning(async () => ({ kind: 'success', value, stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false }));
+/** A runner whose units answer as `impl` says, with no process. A mutation's
+ *  program runs as a unit: `impl` is given its task, its inputs — the state,
+ *  then each argument — and the run's options, its abort signal among them. */
+function runnerReturning(
+  impl: (taskHash: string, inputs: string[], options?: TaskExecuteOptions) => Promise<TaskResult>,
+): TaskRunner {
+  return {
+    execute: (_storage: StorageBackend, taskHash: string, inputs: string[], options?: TaskExecuteOptions) => impl(taskHash, inputs, options),
+  } as unknown as TaskRunner;
 }
 
-/** A runner whose detached run returns a fixed outcome (no subprocess). The
- *  impl may inspect the run spec and options (e.g. the abort signal) — existing
- *  zero-arg impls remain valid. */
-function runnerReturning(
-  impl: (spec: { args: Uint8Array[]; limits?: { timeoutMs: number } }, options?: { signal?: AbortSignal }) => Promise<DetachedResult>,
-): TaskRunner {
-  return { runDetached: impl } as unknown as TaskRunner;
+/** Runs `fn` with the given env vars set (undefined = unset), restoring after. */
+async function withEnv<T>(vars: Record<string, string | undefined>, fn: () => Promise<T>): Promise<T> {
+  const prev = Object.keys(vars).map((k) => [k, process.env[k]] as const);
+  for (const [k, v] of Object.entries(vars)) {
+    if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
+  }
+  try {
+    return await fn();
+  } finally {
+    for (const [k, v] of prev) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
 }
 
 describe('records', () => {
@@ -73,6 +91,12 @@ describe('records', () => {
   let tempDir: string;
   let storage: StorageBackend;
   const ws = 'main';
+
+  /** A unit's success: the new state `value`, stored as its output. */
+  const succeeded = async (value: Uint8Array): Promise<TaskResult> =>
+    ({ state: 'success', cached: false, outputHash: await storage.objects.write(repo, value) });
+  /** A runner whose every unit succeeds with the new state `value`. */
+  const successRunner = (value: Uint8Array): TaskRunner => runnerReturning(() => succeeded(value));
 
   beforeEach(async () => {
     repo = createTestRepo();
@@ -109,10 +133,7 @@ describe('records', () => {
   });
 
   it('commits a mutation: new state, commit chain, readable result', async () => {
-    const runner = runnerReturning(async () => ({
-      kind: 'success', value: encodeInt(5n),
-      stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false,
-    }));
+    const runner = runnerReturning(async () => succeeded(encodeInt(5n)));
 
     const outcome = await recordMutate(storage, runner, repo, ws, 'counter', 'increment', [encodeInt(5n)], { actor: 'cli:test' });
     assert.strictEqual(outcome.kind, 'committed');
@@ -141,28 +162,23 @@ describe('records', () => {
     assert.ok(head.at instanceof Date && !Number.isNaN(head.at.getTime()), 'commit.at is a valid timestamp');
   });
 
-  it('a failed reducer writes nothing and leaves history intact', async () => {
-    const runner = runnerReturning(async () => ({
-      kind: 'failed', exitCode: 1,
-      stdout: '', stderr: 'reducer threw', stdoutTruncated: false, stderrTruncated: false,
-    }));
+  it('a failed program commits nothing and leaves history intact', async () => {
+    const runner = runnerReturning(async () => ({ state: 'failed', cached: false, exitCode: 1, error: 'reducer threw' }));
 
     const objectsBefore = (await storage.objects.list(repo)).length;
     const outcome = await recordMutate(storage, runner, repo, ws, 'counter', 'increment', [encodeInt(5n)], { actor: 'cli:test' });
-    assert.strictEqual(outcome.kind, 'failed');
+    assert.deepStrictEqual(outcome, { kind: 'failed', exitCode: 1, stderr: 'reducer threw' });
 
     assert.strictEqual(await workspaceGetDataset(storage, repo, ws, counterPath), 0n);
     assert.strictEqual((await recordHistory(storage, repo, ws, 'counter')).length, 1);
-    // §12.5: an aborted reducer writes NOTHING — recordMutate returns before any
-    // objects.write — so not even an orphan state/args/commit object is left.
-    assert.strictEqual((await storage.objects.list(repo)).length, objectsBefore, 'no object written on abort');
+    // The run's task object and its argument are written before it runs, and
+    // nothing names them; no state, args tuple or commit is written after it
+    // fails.
+    assert.strictEqual((await storage.objects.list(repo)).length, objectsBefore + 2, 'only the run\'s task object and its argument');
   });
 
   it('rejects unknown records, unknown mutations, and wrong arity', async () => {
-    const runner = runnerReturning(async () => ({
-      kind: 'success', value: encodeInt(1n),
-      stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false,
-    }));
+    const runner = runnerReturning(async () => succeeded(encodeInt(1n)));
 
     const unknownRecord = await recordMutate(storage, runner, repo, ws, 'nope', 'increment', [encodeInt(1n)], { actor: 'x' });
     assert.strictEqual(unknownRecord.kind, 'invalid');
@@ -179,14 +195,14 @@ describe('records', () => {
   });
 
   it('keeps the whole commit chain reachable through gc', async () => {
-    const runner = runnerReturning(async () => ({
-      kind: 'success', value: encodeInt(5n),
-      stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false,
-    }));
+    const runner = runnerReturning(async () => succeeded(encodeInt(5n)));
     await recordMutate(storage, runner, repo, ws, 'counter', 'increment', [encodeInt(5n)], { actor: 'cli:test' });
 
     // gc would collect every commit if the head-commit hash in the ref's
-    // version vector and the chain it roots were not walked.
+    // version vector and the chain it roots were not walked. The first sweep
+    // takes the run's task object and argument, which nothing names, so the
+    // second must take nothing.
+    await repoGc(storage, repo, { minAge: 0 });
     const result = await repoGc(storage, repo, { minAge: 0 });
     assert.strictEqual(result.deletedObjects, 0, 'no reachable object collected');
 
@@ -211,7 +227,7 @@ describe('records', () => {
           versions: new Map([['.records.counter', 'deadbeef'.padEnd(64, '0')]]),
         }));
       }
-      return { kind: 'success', value: encodeInt(7n), stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false };
+      return succeeded(encodeInt(7n));
     });
 
     const outcome = await recordMutate(storage, runner, repo, ws, 'counter', 'increment', [encodeInt(7n)], { actor: 'cli:test' });
@@ -232,11 +248,9 @@ describe('records', () => {
   });
 
   it('N concurrent increments all commit and converge with no lost updates', async () => {
-    // The reducer reads the current state (arg 0) and adds `by` (arg 1).
-    const adder = { runDetached: async (spec: { args: Uint8Array[] }) => ({
-      kind: 'success' as const, value: encodeInt(decodeInt(spec.args[0]!) + decodeInt(spec.args[1]!)),
-      stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false,
-    }) } as unknown as TaskRunner;
+    // The reducer reads the current state (input 0) and adds `by` (input 1).
+    const adder = runnerReturning(async (_taskHash, inputs) => succeeded(encodeInt(
+      decodeInt(await storage.objects.read(repo, inputs[0]!)) + decodeInt(await storage.objects.read(repo, inputs[1]!)))));
 
     const K = 8;
     const results = await Promise.all(
@@ -261,7 +275,7 @@ describe('records', () => {
     let calls = 0;
     const runner = runnerReturning(async () => {
       calls++;
-      return { kind: 'success', value: encodeInt(5n), stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false };
+      return succeeded(encodeInt(5n));
     });
 
     const first = await recordMutate(storage, runner, repo, ws, 'counter', 'increment', [encodeInt(5n)], { actor: 'cli:test', idempotencyKey: 'k1' });
@@ -290,7 +304,7 @@ describe('records', () => {
     await recordMutate(storage, successRunner(encodeInt(6n)), repo, ws, 'counter', 'increment', [encodeInt(1n)], { actor: 'cli:test', idempotencyKey: 'k2' });
     // k1 is no longer the last commit, so the retry re-applies — documented limit.
     let calls = 0;
-    const runner = runnerReturning(async () => { calls++; return { kind: 'success', value: encodeInt(11n), stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false }; });
+    const runner = runnerReturning(async () => { calls++; return succeeded(encodeInt(11n)); });
     const retry = await recordMutate(storage, runner, repo, ws, 'counter', 'increment', [encodeInt(5n)], { actor: 'cli:test', idempotencyKey: 'k1' });
     assert.strictEqual(retry.kind, 'committed');
     assert.strictEqual(calls, 1, 'last-commit dedup cannot catch a superseded key, so the reducer re-runs');
@@ -300,7 +314,7 @@ describe('records', () => {
 
   it('a spent budget returns conflict before running the reducer', async () => {
     let calls = 0;
-    const runner = runnerReturning(async () => { calls++; return { kind: 'success', value: encodeInt(5n), stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false }; });
+    const runner = runnerReturning(async () => { calls++; return succeeded(encodeInt(5n)); });
     // budgetMs:0 -> the deadline is already past at the top of the first iteration.
     const outcome = await recordMutate(storage, runner, repo, ws, 'counter', 'increment', [encodeInt(5n)], { actor: 'cli:test', budgetMs: 0 });
     assert.strictEqual(outcome.kind, 'conflict');
@@ -321,7 +335,7 @@ describe('records', () => {
       await storage.datasets.write(repo, ws, 'records/counter', variant('value', {
         hash: stateHash, versions: new Map([['.records.counter', calls.toString(16).padEnd(64, '0')]]),
       }));
-      return { kind: 'success', value: encodeInt(7n), stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false };
+      return succeeded(encodeInt(7n));
     });
 
     const start = Date.now();
@@ -332,28 +346,29 @@ describe('records', () => {
     assert.ok(elapsed < 5000, `returned within the budget (~200ms), not the 30s default: ${elapsed}ms`);
   });
 
-  it('clamps a single reducer run timeout to the remaining budget', async () => {
-    let seenTimeout: number | undefined;
-    const runner = runnerReturning(async (spec) => {
-      seenTimeout = spec.limits?.timeoutMs;
-      return { kind: 'success', value: encodeInt(5n), stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false };
-    });
-    // The reducer's requested timeout (50s) far exceeds the budget, so the run
-    // the runner sees must be clamped under the remaining budget — otherwise a
-    // single run could overrun a caller's gateway.
-    await recordMutate(storage, runner, repo, ws, 'counter', 'increment', [encodeInt(5n)], {
+  it('stops a run at what remains of the budget, not at its own longer timeout', async () => {
+    // The run's own timeout (50s) far exceeds the budget, so it must be
+    // stopped at what remains of the budget — otherwise a single run could
+    // overrun a caller's gateway. The runner holds the unit until it is
+    // aborted, as a running program is.
+    const runner = runnerReturning((_taskHash, _inputs, options) => new Promise((resolve) => {
+      options!.signal!.addEventListener('abort', () => resolve({ state: 'error', cached: false, cancelled: true }), { once: true });
+    }));
+    const start = Date.now();
+    const outcome = await recordMutate(storage, runner, repo, ws, 'counter', 'increment', [encodeInt(5n)], {
       actor: 'cli:test', budgetMs: 200,
-      limits: { timeoutMs: 50_000, maxResultBytes: 64 * 1024 * 1024, maxLogBytes: 64 * 1024 },
+      limits: { timeoutMs: 50_000, maxLogBytes: 64 * 1024 },
     });
-    assert.ok(seenTimeout !== undefined && seenTimeout <= 200, `run timeout clamped to the budget, got ${seenTimeout}ms`);
-    assert.ok(seenTimeout! >= 1, 'the clamp floors at 1ms, never <= 0');
+    assert.strictEqual(outcome.kind, 'timed_out', JSON.stringify(outcome));
+    if (outcome.kind === 'timed_out') assert.ok(outcome.ms >= 1 && outcome.ms <= 200, `the run's limit was the budget's rest, ${outcome.ms}ms`);
+    assert.ok(Date.now() - start < 5000, 'stopped within the budget, not the run\'s 50s');
   });
 
   // ---- OPS-2: abort signal (issue #69) ----
 
   it('a pre-aborted signal returns failed/aborted without running the reducer', async () => {
     let calls = 0;
-    const runner = runnerReturning(async () => { calls++; return { kind: 'success', value: encodeInt(5n), stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false }; });
+    const runner = runnerReturning(async () => { calls++; return succeeded(encodeInt(5n)); });
     const ac = new AbortController();
     ac.abort();
     const outcome = await recordMutate(storage, runner, repo, ws, 'counter', 'increment', [encodeInt(5n)], { actor: 'cli:test', signal: ac.signal });
@@ -363,14 +378,15 @@ describe('records', () => {
   });
 
   it('forwards the abort signal to the runner', async () => {
-    let received: AbortSignal | undefined;
-    const runner = runnerReturning(async (_spec, options) => {
-      received = options?.signal;
-      return { kind: 'success', value: encodeInt(5n), stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false };
-    });
+    // The caller aborts while the unit runs: the unit's signal fires, and the
+    // mutation reports the abort rather than a timeout.
     const ac = new AbortController();
-    await recordMutate(storage, runner, repo, ws, 'counter', 'increment', [encodeInt(5n)], { actor: 'cli:test', signal: ac.signal });
-    assert.strictEqual(received, ac.signal, 'the runner received the mutation signal');
+    const runner = runnerReturning((_taskHash, _inputs, options) => new Promise((resolve) => {
+      options!.signal!.addEventListener('abort', () => resolve({ state: 'error', cached: false, cancelled: true }), { once: true });
+      ac.abort();
+    }));
+    const outcome = await recordMutate(storage, runner, repo, ws, 'counter', 'increment', [encodeInt(5n)], { actor: 'cli:test', signal: ac.signal });
+    assert.deepStrictEqual(outcome, { kind: 'failed', exitCode: -1, stderr: 'aborted' });
   });
 
   it('recordCompact resets history to a $compact root and gc reclaims the prior chain', async () => {
@@ -493,7 +509,7 @@ describe('records', () => {
     const runner = runnerReturning(async () => {
       reducing();
       await finished;
-      return { kind: 'success', value: encodeInt(5n), stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false };
+      return succeeded(encodeInt(5n));
     });
 
     const write = recordMutate(storage, runner, repo, ws, 'counter', 'increment', [encodeInt(5n)], { actor: 'cli:test' });
@@ -511,22 +527,26 @@ describe('records', () => {
     assert.strictEqual(await workspaceGetDataset(storage, repo, ws, counterPath), 5n);
   });
 
-  it('forwards reducer stderr on timed_out and too_large outcomes', async () => {
-    const timedOut = await recordMutate(
-      storage,
-      runnerReturning(async () => ({ kind: 'timed_out', ms: 1234, stderr: 'slow reducer', stdout: '', stdoutTruncated: false, stderrTruncated: false })),
-      repo, ws, 'counter', 'increment', [encodeInt(1n)], { actor: 'x' },
-    );
-    assert.strictEqual(timedOut.kind, 'timed_out');
-    assert.strictEqual((timedOut as { stderr: string }).stderr, 'slow reducer');
+  it('returns the tail of the program\'s stderr log when it fails or runs out of time', async () => {
+    // A unit's stderr goes to its execution's log, and a failure returns the
+    // last `maxLogBytes` of it, as a human debugging a body needs.
+    const failing = runnerReturning(async (taskHash, inputs) => {
+      await storage.logs.append(repo, taskHash, inputsHash(inputs), 'a-failed-run', 'stderr', `${'x'.repeat(100)}the tail`);
+      return { state: 'failed', cached: false, exitCode: 3, executionId: 'a-failed-run' };
+    });
+    const failed = await recordMutate(storage, failing, repo, ws, 'counter', 'increment', [encodeInt(1n)],
+      { actor: 'x', limits: { timeoutMs: 60_000, maxLogBytes: 8 } });
+    assert.deepStrictEqual(failed, { kind: 'failed', exitCode: 3, stderr: 'the tail' });
 
-    const tooLarge = await recordMutate(
-      storage,
-      runnerReturning(async () => ({ kind: 'too_large', bytes: 999, limit: 100, stderr: 'huge state', stdout: '', stdoutTruncated: false, stderrTruncated: false })),
-      repo, ws, 'counter', 'increment', [encodeInt(1n)], { actor: 'x' },
-    );
-    assert.strictEqual(tooLarge.kind, 'too_large');
-    assert.strictEqual((tooLarge as { stderr: string }).stderr, 'huge state');
+    const slow = runnerReturning((taskHash, inputs, options) => new Promise((resolve) => {
+      options!.signal!.addEventListener('abort', () => {
+        void storage.logs.append(repo, taskHash, inputsHash(inputs), 'a-slow-run', 'stderr', 'slow reducer')
+          .then(() => resolve({ state: 'error', cached: false, cancelled: true, executionId: 'a-slow-run' }));
+      }, { once: true });
+    }));
+    const timedOut = await recordMutate(storage, slow, repo, ws, 'counter', 'increment', [encodeInt(1n)],
+      { actor: 'x', limits: { timeoutMs: 50, maxLogBytes: 1024 } });
+    assert.deepStrictEqual(timedOut, { kind: 'timed_out', ms: 50, stderr: 'slow reducer' });
   });
 
   it('carries a reserved $ slot through a mutation and a compaction', async () => {
@@ -582,7 +602,7 @@ describe('records', () => {
 });
 
 // Reducer state is a task-input-like decode (issue #539): recordMutate hands
-// it to the runner as input-0 of a detached run, and every runner decodes
+// it to the runner as input 0 of the mutation's unit, and every runner decodes
 // its inputs frozen — so a reducer cannot mutate its state in place (copy
 // first) and the state can be served lazily for any nested element shape.
 // These tests pin that composition end-to-end against the real east-node
@@ -601,27 +621,9 @@ describe('frozen reducer state (#539)', () => {
   const FROZEN = /cannot mutate a frozen value \(task inputs are immutable\) — copy first/;
 
   // The real runner, spawning the workspace's actual east-node CLI (resolved
-  // by the node_modules/.bin walk up from this package). A record operation's
-  // units are ordinary task executions, so what runs them has to be a real
-  // TaskRunner rather than a `runDetached` stub.
+  // by the node_modules/.bin walk up from this package): a mutation's program
+  // runs as a unit, an ordinary task execution.
   let realRunner: TaskRunner;
-
-  /** Runs `fn` with the given env vars set (undefined = unset), restoring after. */
-  async function withEnv<T>(vars: Record<string, string | undefined>, fn: () => Promise<T>): Promise<T> {
-    const prev = Object.keys(vars).map((k) => [k, process.env[k]] as const);
-    for (const [k, v] of Object.entries(vars)) {
-      if (v === undefined) delete process.env[k];
-      else process.env[k] = v;
-    }
-    try {
-      return await fn();
-    } finally {
-      for (const [k, v] of prev) {
-        if (v === undefined) delete process.env[k];
-        else process.env[k] = v;
-      }
-    }
-  }
 
   beforeEach(async () => {
     repo = createTestRepo();
@@ -652,7 +654,12 @@ describe('frozen reducer state (#539)', () => {
       $(next.insert('zzz', { n: 0n, xs: [] }));
       return next;
     }));
-    const pkg = e3.package('kvrecords', '1.0.0', kv, seed, touch, bump, bumpCopy);
+    const poke = e3.mutation.edit('poke', kv,
+      East.function([StateT, StringType, e3.mutation.editType(StateT)], NullType, ($, state, k, edit) => {
+        const row = $.let(state.get(k));
+        $(edit.set(k, { n: row.n.add(1n), xs: [] }));
+      }));
+    const pkg = e3.package('kvrecords', '1.0.0', kv, seed, touch, bump, bumpCopy, poke);
     const zip = join(tempDir, 'kvrecords.zip');
     await e3.export(pkg, zip);
     await packageImport(storage, repo, zip);
@@ -692,33 +699,44 @@ describe('frozen reducer state (#539)', () => {
     assert.strictEqual(segments.elementCount, 2500);
 
     // The nested-container element shape is exactly what the frozen gate
-    // admits (unfrozen it would force a whole decode) — so with a 1-byte
-    // threshold the reducer's state is pager-served, and its keyed touch
-    // pays O(touched), not a whole decode. The eager frozen fallback would
-    // commit the same row, so the runner's own account, under -v, is what
-    // says the state was paged.
-    let stderr = '';
-    const watching = new Proxy(realRunner, {
-      get(target, property, receiver) {
-        if (property === 'runDetached') {
-          return async (spec: unknown, options: unknown): Promise<DetachedResult> => {
-            const result = await (target.runDetached as (s: unknown, o: unknown) => Promise<DetachedResult>).call(target, spec, options);
-            stderr += result.stderr;
-            return result;
-          };
-        }
-        const value = Reflect.get(target, property, receiver) as unknown;
-        return typeof value === 'function' ? (value as (...a: unknown[]) => unknown).bind(target) : value;
-      },
-    }) as TaskRunner;
+    // admits (unfrozen it would force a whole decode), so with a 1-byte
+    // threshold the runner opens the reducer's state lazily, from the manifest
+    // it is staged as. What this pins is that a reducer over the lazily opened
+    // state commits the row it touched; the next test pins the lazy open.
     const outcome = await withEnv({ EAST_LAZY_INPUT_BYTES: '1' }, () =>
-      recordMutate(storage, watching, repo, ws, 'kv', 'touch', [encodeStr('k-0')], { actor: 'cli:test', verbose: true }));
+      recordMutate(storage, realRunner, repo, ws, 'kv', 'touch', [encodeStr('k-0')], { actor: 'cli:test' }));
     assert.strictEqual(outcome.kind, 'committed', `touch committed: ${JSON.stringify(outcome)}`);
-    assert.match(stderr, /input 0: opened lazily/, `the state was paged from its file:\n${stderr}`);
 
     const after = await workspaceGetDataset(storage, repo, ws, kvPath) as ValueTypeOf<typeof StateT>;
     assert.strictEqual(after.size, 1, 'the touched row is the whole new state');
     assert.strictEqual(after.get('k-0')!.n, 0n);
+  });
+
+  it('an edit reads only the segment its key is in: the runner opens the state lazily', async () => {
+    // The last segment of a 2500-row state is overwritten with bytes no
+    // decoder reads, as a damaged object would be. An edit of `k-0`, which
+    // lives in the first segment, reads that segment alone when the runner
+    // opens the state lazily, and so does the apply after it; a runner that
+    // decoded the state whole would fail on the damaged one.
+    const seeded = await recordMutate(storage, realRunner, repo, ws, 'kv', 'seed', [], { actor: 'cli:test' });
+    assert.strictEqual(seeded.kind, 'committed', `seed committed: ${JSON.stringify(seeded)}`);
+    const ref = await storage.datasets.read(repo, ws, 'records/kv');
+    assert.ok(ref && ref.type === 'value');
+    const segments = await DatasetSegments.open(storage, repo, ref.value.hash);
+    assert.ok(segments.segmentCount >= 2, `state is multi-segment (${segments.segmentCount})`);
+    const damaged = objectPath(repo, segments.manifest!.entries.at(-1)!.hash);
+    writeFileSync(damaged, new Uint8Array(statSync(damaged).size).fill(0xff));
+
+    const lazily = await withEnv({ EAST_LAZY_INPUT_BYTES: '1' }, () =>
+      recordMutate(storage, realRunner, repo, ws, 'kv', 'poke', [encodeStr('k-0')], { actor: 'cli:test' }));
+    assert.strictEqual(lazily.kind, 'committed', `the edit read only its key's segment: ${JSON.stringify(lazily)}`);
+
+    // The same edit with lazy opening off: the runner decodes the state whole,
+    // reads the damaged segment and fails, so the commit above is not one a
+    // whole decode could have made.
+    const whole = await withEnv({ EAST_LAZY_INPUT_BYTES: '0' }, () =>
+      recordMutate(storage, realRunner, repo, ws, 'kv', 'poke', [encodeStr('k-0')], { actor: 'cli:test' }));
+    assert.strictEqual(whole.kind, 'failed', `a whole decode reads the damaged segment: ${JSON.stringify(whole)}`);
   });
 });
 
@@ -744,8 +762,8 @@ describe('record indexes', () => {
   let storage: StorageBackend;
   const ws = 'main';
 
-  // A real TaskRunner: a record operation's units are ordinary task
-  // executions, not `runDetached` calls.
+  // A real TaskRunner: an index build and a mutation run as ordinary task
+  // executions.
   let realRunner: TaskRunner;
 
   beforeEach(async () => {
@@ -780,7 +798,7 @@ describe('record indexes', () => {
     const retitle = e3.mutation.reduce('retitle', plans, East.function([PlansType, StringType], PlansType, ($, state, k) => {
       const next = $.let(state.copy());
       const row = $.let(state.get(k));
-      $(next.insert(k, { status: row.status, due: row.due, title: 'RETITLED' }));
+      $(next.insertOrUpdate(k, { status: row.status, due: row.due, title: 'RETITLED' }));
       return next;
     }));
     const byStatus = e3.recordIndex('by_status', plans, {
@@ -851,8 +869,9 @@ describe('record indexes', () => {
   });
 
   it('a maintained index equals the one a reindex rebuilds, hash for hash', async () => {
-    await recordMutate(storage, realRunner, repo, ws, 'plans', 'seed', [], { actor: 'cli:test' });
-    await recordMutate(storage, realRunner, repo, ws, 'plans', 'retitle', [encodeBeast2For(StringType)('p-7')], { actor: 'cli:test' });
+    assert.strictEqual((await recordMutate(storage, realRunner, repo, ws, 'plans', 'seed', [], { actor: 'cli:test' })).kind, 'committed');
+    const retitled = await recordMutate(storage, realRunner, repo, ws, 'plans', 'retitle', [encodeBeast2For(StringType)('p-7')], { actor: 'cli:test' });
+    assert.strictEqual(retitled.kind, 'committed', JSON.stringify(retitled));
     const maintained = await state();
 
     const rebuilt = await recordReindex(storage, realRunner, repo, ws, 'plans', { actor: 'cli:test' });
@@ -875,14 +894,14 @@ describe('record indexes', () => {
     assert.ok(primary.segmentCount > 1, `a 5,000-row record should span segments, not ${primary.segmentCount}`);
     const built = (await state()).indexes.get('by_status')!.manifest;
 
-    // A byte target small enough to cut the record into several slices: each
-    // emits its own partial in INDEX order, and the merge tree sorts them
-    // back together. The value is the same value, so its segments are the
-    // same objects — segmentation is a function of the value, not of how many
-    // processes produced it.
+    // Pieces small enough to cut the record into several: each piece's unit
+    // emits its entries in any order and its RunSorter sorts them, and merge
+    // units join the pieces whose key ranges overlap. The value is the same
+    // value, so its segments are the same objects — segmentation is a
+    // function of the value, not of how many processes produced it.
     const before = await countExecutions();
-    const rebuilt = await recordReindex(storage, realRunner, repo, ws, 'plans',
-      { actor: 'cli:test', sliceBytes: 32 * 1024 });
+    const rebuilt = await withEnv({ E3_TEST_PIECE_BYTES: String(32 * 1024) }, () =>
+      recordReindex(storage, realRunner, repo, ws, 'plans', { actor: 'cli:test' }));
     assert.strictEqual(rebuilt.kind, 'committed', JSON.stringify(rebuilt));
     assert.ok(await countExecutions() >= before + 2, 'the build really did fan out');
     assert.strictEqual((await state()).indexes.get('by_status')!.manifest, built,
@@ -890,12 +909,10 @@ describe('record indexes', () => {
   });
 
   it('a fanned-out build never reads the record whole', async () => {
-    // The orchestrator's own reads, which a unit's are no part of. The
-    // partition machinery addresses the ONE blob a record's segments splice
-    // to; it used to build that blob in memory for every open — once to plan,
-    // again for every slice, several at a time. It addresses it by ranged
-    // reads of the segment objects now, so no segment of the record is ever
-    // read whole, however far the build fans out.
+    // The orchestrator's own reads, which a unit's are no part of. The pieces
+    // are sub-manifests naming the record's own segment objects, and the
+    // units are staged with those linked, so no segment of the record is
+    // ever read whole, however far the build fans out.
     await recordMutate(storage, realRunner, repo, ws, 'plans', 'seed_many',
       [encodeBeast2For(IntegerType)(12_000n)], { actor: 'cli:test' });
     const primary = await DatasetSegments.open(storage, repo, (await state()).primary);
@@ -912,8 +929,8 @@ describe('record indexes', () => {
     };
     let rebuilt: MutationOutcome;
     try {
-      rebuilt = await recordReindex(storage, realRunner, repo, ws, 'plans',
-        { actor: 'cli:test', sliceBytes: 4 * 1024 });
+      rebuilt = await withEnv({ E3_TEST_PIECE_BYTES: String(4 * 1024) }, () =>
+        recordReindex(storage, realRunner, repo, ws, 'plans', { actor: 'cli:test' }));
     } finally {
       objects.read = read;
     }
@@ -926,18 +943,46 @@ describe('record indexes', () => {
     await recordMutate(storage, realRunner, repo, ws, 'plans', 'seed_many',
       [encodeBeast2For(IntegerType)(5_000n)], { actor: 'cli:test' });
     const before = await countExecutions();
-    const first = await recordReindex(storage, realRunner, repo, ws, 'plans',
-      { actor: 'cli:test', sliceBytes: 32 * 1024 });
+    const pieces = { E3_TEST_PIECE_BYTES: String(32 * 1024) };
+    const first = await withEnv(pieces, () => recordReindex(storage, realRunner, repo, ws, 'plans', { actor: 'cli:test' }));
     assert.strictEqual(first.kind, 'committed', JSON.stringify(first));
     const after = await countExecutions();
     assert.ok(after >= before + 2, 'the first build fanned out into units of its own');
 
-    // Every unit is an ordinary content-addressed execution, so the second
-    // build finds all of them in the cache and records no new one.
-    const second = await recordReindex(storage, realRunner, repo, ws, 'plans',
-      { actor: 'cli:test', sliceBytes: 32 * 1024 });
+    // The build is an ordinary content-addressed execution, so the second
+    // finds it in the cache and records no new one.
+    const second = await withEnv(pieces, () => recordReindex(storage, realRunner, repo, ws, 'plans', { actor: 'cli:test' }));
     assert.strictEqual(second.kind, 'committed', JSON.stringify(second));
     assert.strictEqual(await countExecutions(), after, 'the rebuild re-ran nothing');
+  });
+
+  it('reads only the segments a write touches: the runner gets the record as its manifest, linked', async () => {
+    // The program opens the state from the manifest it is staged as, whose
+    // segments are links to the record's own objects, so handing the record
+    // over reads none of it. What this process reads is the apply's: the
+    // segment the rewritten row lives in.
+    await recordMutate(storage, realRunner, repo, ws, 'plans', 'seed_many',
+      [encodeBeast2For(IntegerType)(12_000n)], { actor: 'cli:test' });
+    const primary = await DatasetSegments.open(storage, repo, (await state()).primary);
+    assert.ok(primary.segmentCount > 4, `the record spans segments, got ${primary.segmentCount}`);
+    const segmentObjects = new Set(primary.manifest!.entries.map((entry) => entry.hash));
+
+    const objects = storage.objects;
+    const read = objects.read.bind(objects);
+    const reads: string[] = [];
+    objects.read = (r: string, h: string) => {
+      if (segmentObjects.has(h)) reads.push(h);
+      return read(r, h);
+    };
+    let outcome: MutationOutcome;
+    try {
+      outcome = await recordMutate(storage, realRunner, repo, ws, 'plans', 'retitle',
+        [encodeBeast2For(StringType)('p-7')], { actor: 'cli:test' });
+    } finally {
+      objects.read = read;
+    }
+    assert.strictEqual(outcome.kind, 'committed', JSON.stringify(outcome));
+    assert.ok(reads.length <= 1, `a one-row write read ${reads.length} of the record's ${primary.segmentCount} segments`);
   });
 
   it('a deploy says what it is about to do to each index — build, drop or keep', async () => {
@@ -1016,7 +1061,7 @@ describe('record indexes', () => {
     const commits = (await recordHistory(storage, repo, ws, 'plans')).length;
 
     const noRunner = {
-      runDetached: () => { throw new Error('the retry ran the mutation again'); },
+      execute: () => { throw new Error('the retry ran the mutation again'); },
     } as unknown as TaskRunner;
     const retry = await recordMutate(storage, noRunner, repo, ws, 'plans', 'seed', [], { actor: 'cli:test', idempotencyKey: 'k1' });
     assert.deepStrictEqual(retry, first, 'the retry answers with the first attempt\'s commit and state');
@@ -1070,10 +1115,10 @@ describe('record indexes', () => {
     const after = await state();
     const entry = after.indexes.get('by_status')!;
 
-    // The first sweep takes the operation's scratch — the synthesized unit
-    // tasks and their command IRs, unrooted like an ad-hoc run's carved
-    // slices. The SECOND must take nothing: what is left is the record's own
-    // closure, and a sweep that keeps shrinking it is one eating the record.
+    // The first sweep takes the runs' scratch — the task objects a build and
+    // a mutation run as, and a mutation's arguments, which nothing names. The
+    // SECOND must take nothing: what is left is the record's own closure, and
+    // a sweep that keeps shrinking it is one eating the record.
     await repoGc(storage, repo, { minAge: 0 });
     const result = await repoGc(storage, repo, { minAge: 0 });
     assert.strictEqual(result.deletedObjects, 0, 'nothing the record names is collected');
@@ -1087,7 +1132,7 @@ describe('record indexes', () => {
     // store reaches. A rebuild runs those programs, so an index whose bundles
     // are gone is one that can never be rebuilt again.
     const declared = decodeBeast2For(RecordIndexObjectType)(await storage.objects.read(repo, entry.index));
-    for (const ir of [declared.keyIr, declared.buildIr, declared.mergeIr]) await storage.objects.read(repo, ir);
+    for (const ir of [declared.keyIr, declared.buildIr]) await storage.objects.read(repo, ir);
     if (declared.valueIr.type === 'some') await storage.objects.read(repo, declared.valueIr.value);
   });
 
@@ -1115,7 +1160,7 @@ describe('record indexes', () => {
       // against its own to decide whether the index needs rebuilding.
       for (const entry of exported.indexes.values()) {
         const declared = decodeBeast2For(RecordIndexObjectType)(await freshStorage.objects.read(freshRepo, entry.index));
-        for (const ir of [declared.keyIr, declared.buildIr, declared.mergeIr]) await freshStorage.objects.read(freshRepo, ir);
+        for (const ir of [declared.keyIr, declared.buildIr]) await freshStorage.objects.read(freshRepo, ir);
       }
     } finally {
       removeTestRepo(freshRepo);
@@ -1238,12 +1283,12 @@ describe('the mutation delta', () => {
   const plain = 'plain';
   const ROWS = 600;
 
-  // A real TaskRunner: a record operation's units are ordinary task
-  // executions, not `runDetached` calls.
+  // A real TaskRunner: an index build and a mutation run as ordinary task
+  // executions.
   let realRunner: TaskRunner;
   /** A runner that must never be reached — the fast path runs no process. */
   const noRunner = {
-    runDetached: () => { throw new Error('a process was started'); },
+    execute: () => { throw new Error('a process was started'); },
   } as unknown as TaskRunner;
 
   const encodePlansPatch = encodeBeast2For(PatchType(PlansType));
@@ -1425,35 +1470,6 @@ describe('the mutation delta', () => {
     assert.deepStrictEqual(await storage.datasets.read(repo, ws, 'records/plans'), before, 'nothing was written');
   });
 
-  it('streams the record to the runner, never holding it whole', async () => {
-    // The program opens the state lazily from its argument file; what the
-    // engine owes it is that file. Materialising the record to write it is
-    // the O(state) cost the edit form exists to avoid, so the state goes over
-    // as a stream of its segments — and only a scalar state, which is one
-    // object, goes over as bytes.
-    await recordMutate(storage, realRunner, repo, ws, 'plans', 'seed', [], { actor: 'cli:test' });
-    const passed: string[] = [];
-    const watching = new Proxy(realRunner, {
-      get(target, property, receiver) {
-        if (property === 'runDetached') {
-          return (spec: { args: unknown[] }, options: unknown) => {
-            passed.push(spec.args[0] instanceof Uint8Array ? 'bytes' : 'stream');
-            return (target.runDetached as (s: unknown, o: unknown) => Promise<DetachedResult>).call(target, spec, options);
-          };
-        }
-        const value = Reflect.get(target, property, receiver) as unknown;
-        return typeof value === 'function' ? (value as (...a: unknown[]) => unknown).bind(target) : value;
-      },
-    }) as TaskRunner;
-
-    const outcome = await recordMutate(storage, watching, repo, ws, 'plans', 'retitle',
-      [encodeBeast2For(StringType)('p-7')], { actor: 'cli:test' });
-    assert.strictEqual(outcome.kind, 'committed', JSON.stringify(outcome));
-    assert.deepStrictEqual(passed, ['stream'], 'the state went to the runner as a stream');
-    const rows = decodeBeast2For(PlansType)(await readDatasetWhole(storage, repo, (await state(ws)).primary)) as Map<string, { title: string }>;
-    assert.strictEqual(rows.get('p-7')!.title, 'RETITLED', 'and the runner read it whole and right');
-  });
-
   it('an edit that writes back what the record holds moves nothing', async () => {
     // A delta says what CHANGED. An `edit` body that sets a row to the value
     // already there changed nothing, so the record must land on the state it
@@ -1585,8 +1601,8 @@ describe('the mutation delta — cross-runtime parity', () => {
   let storage: StorageBackend;
   const ROWS = 400n;
 
-  // A real TaskRunner: a record operation's units are ordinary task
-  // executions, not `runDetached` calls.
+  // A real TaskRunner: an index build and a mutation run as ordinary task
+  // executions.
   let realRunner: TaskRunner;
 
   /** The runtimes to compare, minus any that is not installed. */
@@ -1673,8 +1689,8 @@ describe('the mutation delta — cross-runtime parity', () => {
   it('every runtime skips a no-op write and refuses a stale one, in the same words', { skip: missing }, async () => {
     // Both happen INSIDE the generated program, so each runtime evaluates them
     // for itself: a `set` of the value already held must emit nothing, and a
-    // stale write must come back as a conflict naming what disagreed — read
-    // off whatever that runtime prints when a program fails.
+    // stale write must come back as a conflict naming what disagreed — the
+    // delta's conflict entry, in the words that runtime's program wrote.
     const words: Array<{ ws: string; stale: string; missing: string; update: string }> = [];
     for (const { ws } of runtimes) {
       const mutate = (mutation: string, args: Uint8Array[]): Promise<MutationOutcome> =>

@@ -72,9 +72,6 @@ export async function reindexCommand(
       case 'timed_out':
         exitError(`An index build exceeded ${outcome.ms} ms\n${outcome.stderr}`);
         return;
-      case 'too_large':
-        exitError(`An index build produced ${outcome.bytes} bytes, over the ${outcome.limit}-byte cap`);
-        return;
     }
   } catch (err) {
     exitError(formatError(err));

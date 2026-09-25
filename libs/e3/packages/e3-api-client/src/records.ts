@@ -5,7 +5,7 @@
 
 /**
  * Record mutation and history client methods. Records are workspace-scoped —
- * a mutation runs the reducer server-side under optimistic concurrency and
+ * a mutation runs its program server-side under optimistic concurrency and
  * returns the terminal MutationResult; history reads the commit chain.
  */
 
@@ -22,7 +22,10 @@ const enc = encodeURIComponent;
 // frozen snapshot of the wire — never derived from the current type, which is
 // exactly what moved — and its reader defaults the field as the stored-object
 // decoders do: a mutation with no form is a `reduce`, a commit with no delta
-// wrote none, and a conflict with no detail names no key.
+// wrote none, and a conflict with no detail names no key. Such a server can
+// also send `too_large`, which a current one never does, since a mutation's
+// output is stored as segments and never read whole: it reads as a failure
+// that says so.
 
 /** The describe response before each mutation carried its `form`. */
 const PreFormSignatureType = StructType({
@@ -72,7 +75,14 @@ const PRE_DELTA_HISTORY: LegacyResponse<typeof RecordHistoryResultType, typeof P
 const PRE_DETAIL_RESULT: LegacyResponse<typeof MutationResultType, typeof PreDetailResultType> = {
   type: PreDetailResultType,
   upgrade: ({ outcome }) => ({
-    outcome: outcome.type === 'conflict' ? variant('conflict', { ...outcome.value, detail: none }) : outcome,
+    outcome: outcome.type === 'conflict'
+      ? variant('conflict', { ...outcome.value, detail: none })
+      : outcome.type === 'too_large'
+        ? variant('failed', {
+          exitCode: -1n,
+          stderr: `${outcome.value.stderr}the new state is ${outcome.value.bytes} bytes, over the server's ${outcome.value.limit}-byte limit\n`,
+        })
+        : outcome,
   }),
 };
 

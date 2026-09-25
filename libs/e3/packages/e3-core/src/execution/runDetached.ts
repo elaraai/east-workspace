@@ -22,25 +22,9 @@ import { withRunnerLifeline, withRunnerVerbose, type RunnerValue } from '@elaraa
 import {
   marshalBytesToDir,
   buildRunnerArgv,
-  type RunnerStreamingFlags,
   spawnAndCapture,
   readOutputFile,
 } from './processExec.js';
-
-/**
- * One positional argument of a detached run: a value's beast2 bytes, or those
- * bytes as a stream.
- *
- * @remarks
- * A stream is what a record's state is passed as. {@link runDetached} writes it
- * to the runner's argument file as it is read, so the process staging it holds
- * one segment at a time and the runner opens the file lazily — but every
- * segment is still read and written, so each run's staging costs the record's
- * size in I/O. A `TaskRunner` that runs the body elsewhere moves the stream its
- * own way, and one that sends its arguments in a single payload holds the
- * state whole to do it.
- */
-export type DetachedArg = Uint8Array | AsyncIterable<Uint8Array>;
 
 /**
  * Specification of a detached run.
@@ -49,7 +33,7 @@ export interface DetachedSpec {
   /** function: from FunctionObject; one-shot: from request */
   bodyIr: Uint8Array;
   /** positional arg values (beast2), already validated for arity */
-  args: DetachedArg[];
+  args: Uint8Array[];
   /** wire runner variant — resolved to argv via buildRunnerArgv */
   runner: RunnerValue;
   /** execution limits (all required — the caller applies defaults/clamps) */
@@ -57,11 +41,6 @@ export interface DetachedSpec {
   /** environment spec object hash (FunctionObject.environment); the runner
    *  materializes it and prepends its bin dir to the child PATH */
   environment?: string;
-  /** Streaming flags for a generated program: the collection kind it emits,
-   *  and which of its inputs it opens lazily. A program that emits writes its
-   *  output through the runner's sink, so the result is a canonical collection
-   *  blob rather than a returned value. */
-  streaming?: RunnerStreamingFlags;
 }
 
 /**
@@ -131,7 +110,7 @@ export async function runDetached(
     const stdinLifeline = spec.runner.type !== 'custom';
     let args = withRunnerVerbose(
       spec.runner,
-      buildRunnerArgv(spec.runner, argPaths, outputPath, bodyIrPath, spec.streaming),
+      buildRunnerArgv(spec.runner, argPaths, outputPath, bodyIrPath),
       options.verbose,
     );
     if (stdinLifeline) args = withRunnerLifeline(spec.runner, args);

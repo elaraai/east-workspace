@@ -2414,9 +2414,10 @@ describe('dataflow orchestration with MockTaskRunner', () => {
     // the commit-granular change detection that records-as-task-input relies on.
     const encodeInt = encodeBeast2For(IntegerType);
     const decodeInt = decodeBeast2For(IntegerType);
-    // A reducer runner: returns the new state bytes without spawning a process.
+    // A reducer runner: its unit succeeds with the new state as its output, and
+    // no process starts.
     const fixedState = (value: bigint): TaskRunner => ({
-      runDetached: async () => ({ kind: 'success', value: encodeInt(value), stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false }),
+      execute: async () => ({ state: 'success', cached: false, outputHash: await storage.objects.write(testRepo, encodeInt(value)) }),
     }) as unknown as TaskRunner;
 
     it('feeds the dependent task the record state, and the mutated value on the next run', async () => {

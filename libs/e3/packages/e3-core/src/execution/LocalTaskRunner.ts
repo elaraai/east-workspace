@@ -174,6 +174,7 @@ function toTaskResult(result: ExecutionResult): TaskResult {
     taskResult.outputHash = result.outputHash;
   } else if (result.state === 'failed') {
     taskResult.exitCode = result.exitCode ?? undefined;
+    taskResult.error = result.error ?? undefined;
   } else if (result.state === 'error') {
     taskResult.error = result.error ?? undefined;
   }

@@ -9,8 +9,9 @@
  * Usage:
  *   e3 mutate <repo> -w <ws> <record>.<mutation> [args...]
  *
- * A mutation is the only write door into a record: it runs a pure East reducer
- * server-side under optimistic concurrency and appends an audited commit. Each
+ * A mutation is the only write door into a record: it runs the mutation's pure
+ * East program server-side under optimistic concurrency and appends an audited
+ * commit. Each
  * positional argument is an .east literal or a .beast2/.json/.east file path,
  * parsed against the mutation's declared parameter type. Records are
  * workspace-scoped, so --workspace is required.
@@ -56,16 +57,15 @@ function renderOutcome(outcome: { kind: string; [field: string]: unknown }): voi
     console.log(`Committed ${String(outcome.commitHash)}`);
     return;
   }
-  // Forward any captured reducer stderr (present on failed/timed_out/too_large)
-  // so its diagnostics reach the operator before we exit non-zero.
+  // Forward the program's stderr (present on failed and timed_out) so its
+  // diagnostics reach the operator before we exit non-zero.
   const stderr = String(outcome.stderr ?? '');
   if (stderr.trim()) {
     process.stderr.write(stderr);
     if (!stderr.endsWith('\n')) process.stderr.write('\n');
   }
-  if (kind === 'failed') exitError(`Mutation reducer failed (exit code ${String(outcome.exitCode)})`);
+  if (kind === 'failed') exitError(`Mutation failed (exit code ${String(outcome.exitCode)})`);
   if (kind === 'invalid') exitError(String(outcome.message));
-  if (kind === 'too_large') exitError(`New state too large (${String(outcome.bytes)} bytes > ${String(outcome.limit)} limit)`);
   if (kind === 'timed_out') exitError(`Mutation timed out after ${String(outcome.ms)}ms`);
   if (kind === 'conflict') {
     // A lost compare-and-swap race is worth another try: another writer got

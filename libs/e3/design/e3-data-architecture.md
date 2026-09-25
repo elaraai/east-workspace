@@ -553,18 +553,20 @@ In three parts:
      - The other acceptance items of 4a are tested already: a yield resumes at the unit (the orchestration spec), an insertion re-runs only the pieces around it (the engine's spec), and GC keeps what a unit graph names (the GC spec).
 - **4b — records.** It deletes the code it replaces, as 4a's parts do.
   - Index builds on the engine (§3.7). The index object's `mergeIr` goes, with the merge program, and `executeRecordOperation` with `recordSteps.ts`.
-  - Mutations as units (§3.7). The detached run's state stream and `streaming` flags go, with the whole-state write's index rebuild, which no unkeyed record needs. `TaskExecuteOptions` gains `timeout`, which a mutation's `timeoutMs` sets. `sliceBytes` goes: tests size the pieces with `E3_TEST_PIECE_BYTES`.
+  - Mutations as units (§3.7). The detached run's state stream and `streaming` flags go, with the whole-state write's index rebuild, which no unkeyed record needs. A mutation's `timeoutMs` aborts its unit through the signal a cancellation uses, and the mutation reports `timed_out`. `sliceBytes` goes: tests size the pieces with `E3_TEST_PIECE_BYTES`.
   - `$conflict` in the delta. `STALE_WRITE_PREFIX` goes.
   - The apply streams the delta, one target segment at a time.
-  - The mutation API's `too_large` outcome goes, and a mutation ignores `maxResultBytes`, which function calls keep.
+  - The mutation API's `too_large` outcome goes, with the CLI's messages for it and e3-ui's `RecordError` arm, and a mutation ignores `maxResultBytes`, which function calls keep. The client reads an older server's `too_large` as a failure that says so.
+  - `TaskResult.error` carries a failed unit's stderr tail, as it does an errored one's, so an index build's failure says why.
 - **4c — deletions:** what records used until 4b.
   - e3-types:
     - `stream.ts`;
     - `runnerOpensManifests` and `withRunnerVerbose`;
     - the partition plan's legacy decoder.
   - e3-core:
-    - `partitionIo.ts`'s virtual layout and `spliceChunks`;
-    - `spliceBlobs`, `findSpliceViolation` and `SpliceOrderError`;
+    - `partitionIo.ts`, which nothing uses since 4b;
+    - in `partitionExec.ts`, all but `planMergeRanges`: `planPartitions`, `carvePartitionSlices`, `spliceBlobs`, `findSpliceViolation` and `SpliceOrderError`;
+    - the stock-runner branch of a `command` body's argv in `LocalTaskRunner`, which only record steps took;
     - `buildRunnerArgv` and the splice branch of staging;
     - the test hooks in production modules (F19).
   - Runners: the `run` mode flags and the `merge` command, with `generate_fixtures.mjs` and the fixtures their tests use.
@@ -722,7 +724,7 @@ One reviewer took each kind, and a skeptic tried to refute every finding. 31 of 
 **e3-cloud** (stage 8, which migrates it directly; e3-cloud#187). The first release with this PR changes five things the cloud relies on:
 - the storage interfaces, where nine members are now required;
 - the task-input layout, where a collection input is its manifest plus a segments directory;
-- the mutation run, which passes the state as a stream and adds emit flags;
+- record operations, which run through `TaskRunner.execute`: an index build as a split task, and a mutation as one unit that its deadline aborts;
 - the download path, which streams a manifest;
 - the upload check, which reads only the header because the door re-cuts every delivery.
 

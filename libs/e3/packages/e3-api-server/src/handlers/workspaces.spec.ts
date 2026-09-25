@@ -41,7 +41,6 @@ async function seedIndexedPackage(storage: InMemoryStorage): Promise<string> {
     valueType: toEastTypeValue(NullType),
     buildIr: ir,
     runner: variant('east_node', { platforms: [] }),
-    mergeIr: ir,
   }));
   const record = await storage.objects.write(REPO, encodeBeast2For(RecordObjectType)({
     path: 'records/plans', mutations: new Map(), indexes: new Map([['by_value', index]]),

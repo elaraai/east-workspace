@@ -178,14 +178,13 @@ export async function marshalInputsToDir(
  * Marshal raw value bytes to staged `.beast2` files in a scratch directory.
  *
  * The graph-free path writes args to scratch directly from request bytes —
- * no object-store round trip. An argument given as a stream is written as it
- * is read, so a value too large to hold is never held.
+ * no object-store round trip.
  *
  * @returns The staged file paths, in arg order
  */
 export async function marshalBytesToDir(
   scratchDir: string,
-  blobs: ReadonlyArray<Uint8Array | AsyncIterable<Uint8Array>>
+  blobs: ReadonlyArray<Uint8Array>
 ): Promise<string[]> {
   const argPaths: string[] = [];
   for (let i = 0; i < blobs.length; i++) {
@@ -219,33 +218,13 @@ export function buildRunnerArgv(
   argPaths: string[],
   outputPath: string,
   bodyIrPath: string,
-  streaming?: RunnerStreamingFlags,
 ): string[] {
   return [
     ...runnerToArgv(runner),
-    ...(streaming?.emit !== undefined ? ['--emit', streaming.emit] : []),
-    ...(streaming?.stream ?? []).flatMap((i) => ['--stream', String(i)]),
     ...argPaths.flatMap((p) => ['-i', p]),
     '-o', outputPath,
     bodyIrPath,
   ];
-}
-
-/**
- * The streaming flags a generated program's argv carries.
- *
- * @remarks
- * A program whose output is a collection built entry by entry writes through
- * the runner's emit sink rather than returning a value, and a program over a
- * huge input takes it lazily rather than decoding it. Both are flags the stock
- * runners already have — there is no new runner command here, which is what
- * keeps a generated program runnable on whichever runtime its author chose.
- */
-export interface RunnerStreamingFlags {
-  /** The collection kind the program emits, `--emit`. */
-  emit?: 'array' | 'set' | 'dict';
-  /** Input indices to open lazily, `--stream`. */
-  stream?: number[];
 }
 
 /** How long a child e3 stopped is read after it has exited, before its pipes

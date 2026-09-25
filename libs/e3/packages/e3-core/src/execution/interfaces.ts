@@ -60,7 +60,8 @@ export interface TaskResult {
   outputHash?: string;
   /** Exit code (if state is 'failed') */
   exitCode?: number;
-  /** Error message (if state is 'error') */
+  /** What went wrong, when state is 'failed' or 'error': a failed runner's
+   *  exit and the tail of its stderr, or why e3 could not run it */
   error?: string;
   /** True when e3 stopped the task because the run was aborted (state
    *  'error', message `cancelled: …`) — not the task's own failure */
@@ -136,12 +137,6 @@ export interface TaskRunner {
    * call): marshal the args, run on the spec's runner, return the result
    * inline. Writes nothing durable — no output object, no execution record,
    * no logs.
-   *
-   * @remarks
-   * An arg is a value's beast2 bytes or a stream of them: a record's state is
-   * passed as a stream of its segments. An implementation marshals a stream
-   * however it moves its arguments — writing it out as it is read holds one
-   * segment at a time, and sending it in one payload holds it whole.
    *
    * @param spec - Body IR, args, runner, and limits
    * @param options - Cancellation + runner search anchor

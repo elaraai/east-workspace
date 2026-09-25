@@ -72,9 +72,9 @@ export type RecordMutateStatusType = typeof RecordMutateStatusType;
  * errors — the record-side analogue of `FuncError`.
  *
  * @property kind - Which way the mutation failed:
- *   `invalid` (lookup/arity/signature), `failed` (reducer exited non-zero),
- *   `too_large` (new state exceeded the server limit), `timed_out` (reducer
- *   deadline hit), `conflict` (the compare-and-swap lost the race), `transport`
+ *   `invalid` (lookup/arity/signature), `failed` (the mutation's program
+ *   failed), `timed_out` (its deadline hit), `conflict` (the compare-and-swap
+ *   lost the race, or the write no longer matched the record), `transport`
  *   (HTTP/decode failure — never reached the server).
  * @property message - One-line human-readable summary, always present
  * @property stderr - Captured reducer stderr (empty unless the reducer ran)
@@ -83,7 +83,6 @@ export const RecordErrorType = StructType({
     kind: VariantType({
         invalid:   StructType({ message: StringType }),
         failed:    StructType({ exitCode: IntegerType }),
-        too_large: StructType({ bytes: IntegerType, limit: IntegerType }),
         timed_out: StructType({ ms: IntegerType }),
         conflict:  StructType({ attempts: IntegerType }),
         transport: StructType({ message: StringType }),

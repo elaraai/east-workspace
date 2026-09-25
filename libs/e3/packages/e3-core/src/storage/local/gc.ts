@@ -475,9 +475,9 @@ const RECORD_INDEX_OBJECT_FIELDS: readonly string[] =
  * beginning with {@link RECORD_INDEX_OBJECT_FIELDS}, so one a NEWER e3 wrote
  * with a field appended is still recognised in a repository this build sweeps.
  *
- * An index object this does not recognise is a leaf: the key, projection,
- * build and merge IR it names go unmarked, the next sweep deletes them, and
- * the index is left one no rebuild can ever run again.
+ * An index object this does not recognise is a leaf: the key, projection and
+ * build IR it names go unmarked, the next sweep deletes them, and the index is
+ * left one no rebuild can ever run again.
  */
 function isRecordIndexObjectShape(type: any): boolean {
   if (type.type !== 'Struct') return false;
@@ -683,11 +683,10 @@ function extractChildren(
   }
 
   if (isRecordIndexObjectShape(t)) {
-    const index = value as { keyIr: string; valueIr: { type: string; value: string }; buildIr: string; mergeIr: string };
+    const index = value as { keyIr: string; valueIr: { type: string; value: string }; buildIr: string };
     children.push(
       { hash: index.keyIr, kind: 'leaf' },
       { hash: index.buildIr, kind: 'leaf' },
-      { hash: index.mergeIr, kind: 'leaf' },
     );
     if (index.valueIr.type === 'some') children.push({ hash: index.valueIr.value, kind: 'leaf' });
     return children;
