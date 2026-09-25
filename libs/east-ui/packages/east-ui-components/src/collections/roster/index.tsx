@@ -12,8 +12,8 @@ import { Roster, type CellRefType } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { parseCssSize } from "../../style/parse-size.js";
 import { VirtualRows } from "../virtual-rows.js";
-import { useDragTarget, useDropCell, useDragEventChip, type DragEventValue, type DragMeta, type DragPayload } from "../../dnd/drag-layer";
-import { useIRCanDrop, canDropAllows, type CanDropFn } from "../../dnd/ir-can-drop";
+import { useDragMessages, useDragTarget, useDropCell, useDragEventChip, type DragEventValue, type DragMeta, type DropCellOptions, type DropVeto } from "../../dnd/drag-layer";
+import { useIRCanDrop, type CanDropFn } from "../../dnd/ir-can-drop";
 import { useReviewController, DecisionButtons, ReviewFoot, DECISION_WIDTH } from "../shared/review";
 import { useValueSync } from "../../hooks/useValueSync";
 import { useDataStable } from "../../hooks/useDataStable";
@@ -114,7 +114,9 @@ function RosterChip({ surface, person, day, shift, edit, styles, onSelect, onAcc
     const dragGhost = useMemo(() => (
         <Box css={styles.dragGhost}>{shift.label}</Box>
     ), [styles.dragGhost, shift.label]);
-    const onPointerDown = useDragEventChip(from, dragGhost, !draggable);
+    // The chip is its own drag handle — by pointer, or focused and picked up
+    // with Space / Enter.
+    const drag = useDragEventChip(from, dragGhost, !draggable, shift.label);
 
     const handleClick = useCallback((e: React.MouseEvent) => {
         e.stopPropagation();
@@ -128,11 +130,11 @@ function RosterChip({ surface, person, day, shift, edit, styles, onSelect, onAcc
         <Box
             css={styles.chip}
             data-state={state}
-            onPointerDown={onPointerDown}
+            {...drag}
             onClick={handleClick}
-            {...(draggable && onPointerDown ? { "data-draggable": "" } : {})}
+            {...(draggable && drag ? { "data-draggable": "" } : {})}
         >
-            {draggable && onPointerDown && (
+            {draggable && drag && (
                 <Box as="span" css={styles.chipGrip}>
                     <FontAwesomeIcon icon={faGripVertical} />
                 </Box>
@@ -183,18 +185,20 @@ interface RosterCellProps {
     shifts: RosterShiftValue[];
     edit: boolean;
     styles: SlotStyles;
-    /** Per-cell veto builder from the root's IR `canDrop` (#261). */
-    vetoFor?: ((coord: { surface: string; row: string; slot: string }) => (payload: DragPayload) => boolean) | undefined;
+    /** The drop veto over the candidate event, from the root's IR `canDrop` (#261). */
+    veto?: DropVeto | undefined;
+    /** The cell's name, as a drag announces it — its person and day. */
+    name: string;
     onSelect?: ((ref: CellRefValue) => void) | undefined;
     onAccept?: ((ref: CellRefValue) => void) | undefined;
     onRemove?: ((ref: CellRefValue) => void) | undefined;
     onAddAt?: ((ref: CellRefValue) => void) | undefined;
 }
 
-function RosterCell({ surface, person, day, shifts, edit, styles, vetoFor, onSelect, onAccept, onRemove, onAddAt }: RosterCellProps) {
+function RosterCell({ surface, person, day, shifts, edit, styles, veto, name, onSelect, onAccept, onRemove, onAddAt }: RosterCellProps) {
     const coord = useMemo(() => ({ surface, row: person, slot: day }), [surface, person, day]);
-    const veto = useMemo(() => vetoFor?.(coord), [vetoFor, coord]);
-    const dropRef = useDropCell(edit ? coord : null, false, veto);
+    const dropOptions = useMemo<DropCellOptions>(() => ({ name: () => name }), [name]);
+    const dropRef = useDropCell(edit ? coord : null, false, veto, undefined, dropOptions);
 
     const handleClick = useCallback(() => {
         if (edit && shifts.length === 0 && onAddAt) onAddAt(cellRef(surface, person, day));
@@ -238,6 +242,8 @@ function RosterCell({ surface, person, day, shifts, edit, styles, vetoFor, onSel
 export const EastChakraRoster = memo(function EastChakraRoster({ value, storageKey }: EastChakraRosterProps) {
     const styles = useSlotRecipe({ key: "roster" })() as SlotStyles;
     const edit = value.mode.type === "edit";
+    // A drag names a cell by its person and day, in the layer's words.
+    const dragWords = useDragMessages();
 
     // Interactive-state pattern: drops and acceptances apply to local shift
     // state immediately (the widget works without callbacks); the callbacks
@@ -246,8 +252,10 @@ export const EastChakraRoster = memo(function EastChakraRoster({ value, storageK
     useValueSync(value, rosterDataEqual, () => setShifts([...value.shifts]));
 
     const onDragFn = useMemo(() => getSomeorUndefined(value.onDrag), [value.onDrag]);
+    // The layer asks the veto at every point a drag rests, and once more of
+    // the event it delivers — with the candidate event, duplicate flag included.
     const canDropFn = useMemo(() => getSomeorUndefined(value.canDrop) as CanDropFn | undefined, [value.canDrop]);
-    const vetoFor = useIRCanDrop(canDropFn);
+    const veto = useIRCanDrop(canDropFn);
 
     // ── Review chrome (optional, #265) ────────────────────────────────────
     // Row-level review (rows = people): the shared Decision column at the
@@ -272,9 +280,6 @@ export const EastChakraRoster = memo(function EastChakraRoster({ value, storageK
     const onAddAtFn = useMemo(() => getSomeorUndefined(value.onAddAt), [value.onAddAt]);
 
     const handleDrag = useCallback((event: DragEventValue, meta?: DragMeta) => {
-        // Re-check the IR veto with the real event before mutating (the hover
-        // veto already gated the ⊘ stage; sink removes are always valid).
-        if ((event.type === "add" || event.type === "move") && !canDropAllows(canDropFn, event)) return;
         let next = shifts;
         if (event.type === "add") {
             const { from, into } = event.value;
@@ -297,7 +302,7 @@ export const EastChakraRoster = memo(function EastChakraRoster({ value, storageK
         }
         setShifts(next);
         if (onDragFn) queueMicrotask(() => onDragFn(event));
-    }, [shifts, onDragFn, canDropFn]);
+    }, [shifts, onDragFn]);
     const handleSelect = useMemo(() => onSelectFn
         ? (ref: CellRefValue) => queueMicrotask(() => onSelectFn(ref))
         : undefined, [onSelectFn]);
@@ -401,7 +406,8 @@ export const EastChakraRoster = memo(function EastChakraRoster({ value, storageK
                         shifts={cells.get(cellKey(person.key, day)) ?? []}
                         edit={edit}
                         styles={styles}
-                        vetoFor={vetoFor}
+                        veto={veto}
+                        name={dragWords.cell({ row: person.label, slot: day })}
                         onSelect={handleSelect}
                         onAccept={edit ? handleAccept : undefined}
                         onRemove={edit ? handleRemove : undefined}

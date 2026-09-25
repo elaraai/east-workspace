@@ -498,7 +498,7 @@ Task → Which tag?
 │   │   │   ├─ slice + affordances (optional) — bound slice chrome (default ["cohort","filter","search","range","resolution","brush","summary"]): the slice's range (`datetime` on a time axis, the field's `float` / `integer` on a number axis) / resolution IS the window + resolution source of truth (axis seeds the unbound case; an ordinal axis has no range arm); `brush` mounts the 32px horizon band on time and number axes (drag its body to slide the window, an edge to resize it, empty track to draw one — every snapped step APPLIES live, so the canvas re-renders honestly mid-gesture and the release commits), `resolution` the WEEK/DAY segment (time axis, slice-bound only), `summary` the count line. On a PAGED canvas, narrowing affordances are scope-badged ("loaded rows only") and `search` becomes a KEY SEARCH over the source's `seek` — the jump REBASES residency at the match (windows in between are never fetched)
 │   │   │   ├─ grain (optional) — initial grain "resource" (default) | "group" (root groups collapse to summary strips); the `g` key cycles it, and a canvas with a root group mounts the toolbar's GROUP · RESOURCE segment for it — slice or no slice (#632; the narrow layout's tabs own the grain there); onGrainChange observes
 │   │   │   ├─ ui (optional) — the interaction state, held by the HOST (#824): State.bind([Plan.Types.UiState], key, Plan.uiState({ selected?, collapsed?, expanded?, charts?, focus? })) — the canvas draws it from its first frame, takes every outside write (a selection, rows folded or opened, charts expanded) and writes the user's own actions back, once per action; `collapsed` / `expanded` list the rows folded / opened AGAINST their declaration (a row in neither follows it; in both, folded); `focus` is a REQUEST — the canvas opens the rows it nests under, scrolls it to the top of the view, makes it the tab stop (DOM focus stays put) and writes `focus: none` back; a paged row it has not loaded is opened by its window, or sought by its entry's key where the source can seek. Bound, the canvas persists no toggles of its own under its `storageKey`
-│   │   │   ├─ id + sources + canDrop (optional) — DnD TARGET (the shared grammar): Library cards `add` onto rows whose series declares `edit` — span / buckets / events / cards only (chart / heat / table render DERIVED values, and section headers and group strips are wayfinding — they register no cell) — and only with `editing`: a drop is a DRAFT of the session (#880), its item built by the series' `create` from the `Plan.Types.Drop` ({ from: { library, key }, row, at, duplicate } — `at` the start of the bucket it landed in, on the axis arm). `canDrop` sees the drag grammar's `add`: its `into.row` is the row id's canonical TEXT — key host tables by `East.print(Plan.ref(series, …path))`, or read it back with `row.parse(Plan.Types.RowId)`; slot = the bucket start instant per the axis arm — time: Z-less ISO (`slot.parse(DateTimeType)`), number: a decimal (`slot.parse(FloatType)`), ordinal: the value; drop verdicts resolve LIVE at the pointer, `canDrop` renders the ⊘ stage and refuses a drop before it becomes a draft, and the landing band previews WHERE the card lands. `onDrag` is removed (#880) and throws at build
+│   │   │   ├─ id + sources + canDrop (optional) — DnD TARGET (the shared grammar): Library cards `add` onto rows whose series declares `edit` — span / buckets / events / cards only (chart / heat / table render DERIVED values, and section headers and group strips are wayfinding — they register no cell) — and only with `editing`: a drop is a DRAFT of the session (#880), its item built by the series' `create` from the `Plan.Types.Drop` ({ from: { library, key }, row, at, duplicate } — `at` the start of the bucket it landed in, on the axis arm). `canDrop` sees the drag grammar's `add`: its `into.row` is the row id's canonical TEXT — key host tables by `East.print(Plan.ref(series, …path))`, or read it back with `row.parse(Plan.Types.RowId)`; slot = the bucket start instant per the axis arm — time: Z-less ISO (`slot.parse(DateTimeType)`), number: a decimal (`slot.parse(FloatType)`), ordinal: the value; drop verdicts resolve LIVE where the drag rests — `canDrop` is asked of the event a drop there would deliver (an `add`'s `duplicate` is whether Alt is held), renders the ⊘ stage, and is asked again before the drop becomes a draft — and the landing band previews WHERE the card lands. A card held at a bounded canvas's edge scrolls it to the rows beyond; by keyboard (#608) → / ← step onto a row and along its buckets and ↑ / ↓ between rows, each bucket announced ("Weld cell is over L1-M03, Week of Jul 6, 2026."). `onDrag` is removed (#880) and throws at build
 │   │   │   ├─ onSelect / onElementClick / onGroupToggle (optional) — row selection, ONE element callback and section toggles; payloads are row ids + element keys + instants, never indices: onSelect the `Plan.Types.RowId`; onElementClick a `Plan.Types.ElementRef` — the SAME ref the popover resolver receives, its arm the element kind (run { row, run } · event { row, event } · mark { row, mark } · chip { row, chip } · cell { row, at } — `at` a Plan.Types.Instant on the axis arm, a folded bucket's start · link { key, from, to }), so `ref.match({ run: …, link: … }, …)` handles the kinds it cares about; onGroupToggle { row, expanded } for any row with children
 │   │   │   ├─ footer (optional) — [{ text, tone?, end? }] status-footer items; a paged canvas adds the transport line ("N loaded of M · Loading…", counted in source ELEMENTS); until the source is exhausted a TOP-LEVEL section's member count prints `~`-marked (its members are entries the windows share out) — every other parent's numbers are exact, its subtree riding whole in one entry
 │   │   │   └─ style (optional) — { height ("fill" fills the parent — the wrapper takes the bound, the body virtualizes + scrolls), maxHeight, density ("compact" ⇒ dense 24px rows), gutterWidth ("168px", CSS px) }; a bounded canvas pins the PARENT of the rows in view under its header — with its ancestors' path on a deep tree — once the parent's own row scrolls off, inline and paged (a click goes to it, #823)
@@ -652,7 +652,7 @@ Task → Which tag?
 │   │       ├─ Map.marker(…) / Map.area(…) / Map.line(…) / Map.label(…) — overlay values
 │   │       ├─ Map.solid() / Map.dashed() — line styles
 │   │       └─ Map.overlay(child, { align }) — a positioned East child
-│   ├─ <Library id="people" data={rows} item={r => ({…})} /> — draggable palette (DnD source; targets list its id in their `sources`)
+│   ├─ <Library id="people" data={rows} item={r => ({…})} /> — draggable palette (DnD source; targets list its id in their `sources`); a card drags by pointer or by KEYBOARD, announced — see the Drag and drop pattern
 │   │   ├─ Props:
 │   │   │   ├─ id (required) — DnD source identity
 │   │   │   ├─ data (required) — item rows
@@ -1617,7 +1617,7 @@ const onPatch = $.const(East.function([Plan.Types.PatchEvent(Line)], NullType, (
 | `onPatch: fn(Plan.Types.PatchEvent(R)) => Null` | One call per gesture, and per undo, redo and discard. | `planEditing`, `planRowDrop` |
 | `ready: fn(R, K) => Editing.Types.Readiness` | The author's check over a drafted entry: a refusal marks the rows the draft changed and holds Apply; a check that throws refuses its own entry only. | `planEditing` |
 | `mode: "batch" \| "auto"` | Apply sends the batch (default), or each ready gesture goes at once. | — |
-| `canDrop: fn(DragEventType) => Boolean` | Vets a drop at the pointer (the ⊘ stage), and again before it becomes a draft. | `planRowDrop` |
+| `canDrop: fn(DragEventType) => Boolean` | Vets the event a drop where the drag rests would deliver — its `duplicate` whether Alt is held — showing the ⊘ stage, and again before it becomes a draft. | `planRowDrop` |
 
 - **Drawn where made.** A drafted entry's rows are derived again, exactly as
   Apply will leave them. A row the draft changed carries the Sheet's mark:
@@ -1710,6 +1710,33 @@ the row projection, so they follow the host's rows, not an open edit.
 | `date(R, { level: r => DateLevel, actual: r => Option<DateTime> })` | Read the date at the row's level; print the actual once it happened. | `sheetRules` |
 | `detail: r => String \| Option<String>` | Text the hover and the strip show beyond the cell's value. | `sheetRules` |
 | `members: [{ kind, identified: true, ranged: true }]` | Offer and print runs of consecutive codes as one range. | `sheetRules` |
+
+### Drag and drop — one grammar, every target (#608)
+
+A `<Library>` is a source; a `<Roster>`, `<Board>`, `<Blend>` or `<Plan>`
+that lists its `id` in `sources` is a target. Every drag between them reduces
+to one `DragEventType` — `add` (a card onto a cell), `move`, `remove` (to the
+trash or back to the palette) or `resize` (a span's edge) — and the renderer
+wires the flow, so nothing is wired by hand. A target's `canDrop` is asked of
+the REAL event, so a policy on copies holds while the drag is still moving:
+
+```tsx
+// A person may be moved onto a shift, never copied there (Alt held).
+const canDrop = $.const(East.function([DragEventType], BooleanType, (_$, event) =>
+    event.match({ add: (_$, add) => add.duplicate.not() }, (_$) => East.value(true))));
+```
+
+| Signature | Description | Example |
+| --- | --- | --- |
+| **The gesture** | | |
+| pointer | A mouse or pen drag starts after 4px of travel, so a click stays a click; a touch after a 300ms hold — a drift first scrolls the page; a touch on a grip at once. Only the pointer that pressed moves, drops or cancels the drag — a second finger never does. | `rosterLibraryDnd` |
+| keyboard | Every draggable is a focusable control: Space / Enter picks it up, the arrow keys carry it between the cells that take it (and along a Plan row's buckets), Space / Enter drops it, Escape / Tab cancels. A key pressed in a control inside it is the control's. | `boardLibraryDnd`, `planRowDrop` |
+| reach | A drag resting near a scroll container's edge scrolls it — the container under the pointer: a bounded Plan's body, the page — and whatever scrolls under a still drag is read again. | `planRowDrop` |
+| **The verdict** | | |
+| `canDrop: fn(DragEventType) => Boolean` | Asked of the event a drop where the drag rests would deliver — an `add`'s `duplicate` is whether Alt is held now — so the ⊘ stage shows before the drop, and asked again of the event delivered. A predicate that throws allows. | `rosterLibraryDnd`, `blendLibraryDnd`, `planRowDrop` |
+| the drop | Resolves where it happens: a cell that scrolled away is never dropped on, and a drop with nothing under it says so rather than vanishing. | — |
+| **Screen readers** | | |
+| announcements | The pick-up, each new cell or bucket the drag rests over (or one that refuses it), the drop and a cancel are said in a live region. Host React code re-words them with `<DragLayerProvider messages={{ pickedUp: ({ item }) => … }}>` (@elaraai/east-ui-components; `dragMessages` is the English table, and any subset overrides it). | — |
 
 ### Overlays — trigger prop + body children
 

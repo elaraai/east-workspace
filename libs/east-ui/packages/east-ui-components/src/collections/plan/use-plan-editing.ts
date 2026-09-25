@@ -40,7 +40,7 @@ import type { EditIssue, EditSession, EditSessionBinding, EntryUpdate, EntryVers
 import { kindOfIssue, raiseIssue, type BatchReadiness } from "../../editing/draft.js";
 import type { HistoryAction } from "../../editing/HistoryBar.js";
 import type { DragEventValue } from "../../dnd/drag-layer";
-import { fromPlanSlot } from "../../dnd/slot-key.js";
+import { fromPlanSlot } from "./slot.js";
 import { PLAN_PAGE_SIZE, type PlanPagedSourceValue } from "./use-plan-paging.js";
 import { rowIdOfKey, rowKeyOf, type PlanRootValue, type PlanRowId, type PlanRowValue, type PlanWireBlock } from "./model.js";
 import type { RowKey } from "./plan-state.js";

@@ -21,7 +21,7 @@
 import { useMemo } from "react";
 import { getSomeorUndefined } from "../../../utils.js";
 import { useDragTarget, type DragEventValue } from "../../../dnd/drag-layer";
-import { type CanDropFn } from "../../../dnd/ir-can-drop";
+import { useIRCanDrop, type CanDropFn } from "../../../dnd/ir-can-drop";
 import type { PlanRootValue } from "../model.js";
 import type { PlanRowDrop } from "../rows/RowShell.js";
 
@@ -46,6 +46,9 @@ export function usePlanDropTarget(
         () => getSomeorUndefined(value.canDrop) as CanDropFn | undefined,
         [value.canDrop],
     );
+    // The canvas's veto — the verdict-caching bridge every target shares, so
+    // a drag resting over a bucket asks the predicate once, not per move.
+    const veto = useIRCanDrop(canDropFn);
     const targetConfig = useMemo(() => (id !== undefined ? {
         id,
         sources: [...sources],
@@ -59,7 +62,7 @@ export function usePlanDropTarget(
     // One registration shared by every droppable row — the per-row part of
     // the coordinate is the row itself, which `RowShell` already knows.
     return useMemo<PlanRowDrop | undefined>(
-        () => (id !== undefined ? { surface: id, canDrop: canDropFn } : undefined),
-        [id, canDropFn],
+        () => (id !== undefined ? { surface: id, canDrop: veto } : undefined),
+        [id, veto],
     );
 }

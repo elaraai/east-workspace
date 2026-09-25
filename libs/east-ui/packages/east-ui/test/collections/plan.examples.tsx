@@ -2444,6 +2444,12 @@ export const planLibraryDnd = example({
  *     again — drawn at once with the pending mark, undone with ⌘Z — and Apply
  *     writes every draft as ONE checked batch, here through the live handle's
  *     inline adapter (`editing.onUpdate`).
+ *
+ * The canvas is bounded shorter than its rows, so the Line 3 machine starts
+ * below the fold: a card held at the canvas's bottom edge scrolls it there
+ * (#608). A card is also a keyboard control — Space picks it up, the arrows
+ * carry it from row to row and along a row's buckets, Space drops it and
+ * Escape cancels — and every step is said to a screen reader.
  */
 export const planRowDrop = example({
     keywords: [
@@ -2452,6 +2458,7 @@ export const planRowDrop = example({
         "invalid", "span", "buckets", "events", "cards", "chart", "heat", "table", "section", "row id", "row text",
         "droppable", "inert", "bucket instant", "editing", "onUpdate", "onPatch", "draft", "Apply", "undo",
         "Plan.Types.PatchEvent", "Reactive", "State", "live handle", "re-derive", "#880",
+        "auto-scroll", "keyboard", "screen reader", "announcements", "#608",
     ],
     description: "Library + Plan DnD — a card lands only on a series that declares `edit`, `canDrop` admits only the matching family, and every drop is a draft applied as one checked batch",
     fn: East.function([], UIComponentType, (_$) => (
@@ -2728,7 +2735,9 @@ export const planRowDrop = example({
                                 }),
                             ]),
                         ]}
-                        style={{ height: "420px" }}
+                        // Shorter than its rows: the last ones start below the
+                        // fold, and a card held at the bottom edge scrolls there.
+                        style={{ height: "300px" }}
                     />
                     <Text.MonoLabel>{East.str`LAST GESTURE · ${last}`}</Text.MonoLabel>
                 </VStack>

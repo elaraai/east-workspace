@@ -35,6 +35,7 @@ import { getStore } from "../../platform/state-runtime.js";
 import { getRegisteredPlatformImplementations } from "../../platform/registry.js";
 import { registerReactiveTracker, type ReactiveTracker } from "../../reactive/tracker.js";
 import { DragLayerProvider, useDragSourceItem } from "../../dnd/drag-layer";
+import { pointAt } from "../../dnd/dnd.test-utils.js";
 import { EastChakraPlan, type PlanRootValue } from "./index.js";
 import { rowKey, rowSel } from "./plan.test-utils.js";
 
@@ -420,10 +421,10 @@ function probed(root: PlanRootValue, probe: Probe): PlanRootValue {
     } as unknown as PlanRootValue;
 }
 
-/** A job card in the jobs library — a drag source. */
+/** A job card in the jobs library — a drag source, by pointer or keyboard. */
 function JobCard({ job }: { job: string }) {
-    const onPointerDown = useDragSourceItem({ library: JOBS, key: job, label: job }, <div />);
-    return <div data-testid={`job-${job}`} onPointerDown={onPointerDown} />;
+    const drag = useDragSourceItem({ library: JOBS, key: job, label: job }, <div />);
+    return <div data-testid={`job-${job}`} {...drag} />;
 }
 
 /** A mounted canvas, and what the test reads and drives it through. */
@@ -608,11 +609,6 @@ export async function key(c: HTMLElement, init: { key: string; ctrlKey?: boolean
 export const statusLine = (canvas: RenderResult): string | null =>
     canvas.container.querySelector('[data-slot="history"] [role="status"]')?.textContent ?? null;
 
-/** Point the layer at an element — jsdom has no layout, so the drag reads it here. */
-function pointAt(el: Element | null): void {
-    (document as unknown as { elementFromPoint: (x: number, y: number) => Element | null }).elementFromPoint = () => el;
-}
-
 /** A press's drop cell — its plot, when the canvas takes a job there. */
 export const dropCellOf = (c: HTMLElement, press: string): HTMLElement | null =>
     pressRow(c, press).querySelector<HTMLElement>("[data-drag-cell]");
@@ -620,9 +616,9 @@ export const dropCellOf = (c: HTMLElement, press: string): HTMLElement | null =>
 /**
  * Drag a job card over a press's plot and hold it there — the drop not yet
  * made. One event at a time, the canvas rendering between them as a
- * browser's does: the drag starting re-registers every cell, and a move
- * batched with it would be answered before that. jsdom's zero-width rect puts
- * the pointer in the FIRST bucket.
+ * browser's does; the move travels past the layer's 4px threshold, so the
+ * drag engages on it. jsdom's zero-width rect puts the pointer in the FIRST
+ * bucket.
  *
  * @param canvas - The mounted canvas
  * @param job - The card

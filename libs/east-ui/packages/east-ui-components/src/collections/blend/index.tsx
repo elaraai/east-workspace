@@ -10,8 +10,8 @@ import { faGripVertical, faThumbtack, faTrashCan } from "@fortawesome/free-solid
 import { equalFor, equivalentFor, variant, some, none, type ValueTypeOf } from "@elaraai/east";
 import { Blend } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
-import { useDragTarget, useDropCell, useDragEventChip, type DragEventValue, type DragMeta, type DragPayload } from "../../dnd/drag-layer";
-import { useIRCanDrop, canDropAllows, type CanDropFn } from "../../dnd/ir-can-drop";
+import { useDragTarget, useDropCell, useDragEventChip, type DragEventValue, type DragMeta, type DropCellOptions, type DropVeto } from "../../dnd/drag-layer";
+import { useIRCanDrop, type CanDropFn } from "../../dnd/ir-can-drop";
 import { DropHint } from "../../dnd/drop-hint";
 import { useContainerBelow } from "../../contracts/adaptive.js";
 import { useValueSync } from "../../hooks/useValueSync";
@@ -74,7 +74,9 @@ function AllocationRow({ surface, targetKey, alloc, unit, capacity, styles, onAm
         [surface, targetKey, alloc.source],
     );
     const ghost = useMemo(() => <Box css={styles.dragGhost}>{alloc.label}</Box>, [styles.dragGhost, alloc.label]);
-    const onPointerDown = useDragEventChip(from, ghost, !draggable);
+    // The row is its own drag handle — by pointer, or focused and picked up
+    // with Space / Enter (a key pressed in its amount input never is).
+    const drag = useDragEventChip(from, ghost, !draggable, alloc.label);
 
     const commitDraft = useCallback(() => {
         const next = Number(draft);
@@ -92,10 +94,10 @@ function AllocationRow({ surface, targetKey, alloc, unit, capacity, styles, onAm
         <Box
             css={styles.allocRow}
             data-state={state}
-            onPointerDown={onPointerDown}
-            {...(draggable && onPointerDown ? { "data-draggable": "" } : {})}
+            {...drag}
+            {...(draggable && drag ? { "data-draggable": "" } : {})}
         >
-            {draggable && onPointerDown && (
+            {draggable && drag && (
                 <Box as="span" css={styles.allocGrip} data-drag-grip=""><FontAwesomeIcon icon={faGripVertical} /></Box>
             )}
             <Box css={styles.allocBody}>
@@ -150,8 +152,8 @@ interface TargetPanelProps {
     mode: "single" | "compare" | "portfolio";
     badge?: string | undefined;
     styles: SlotStyles;
-    /** Per-cell veto builder from the root's IR `canDrop` (#261). */
-    vetoFor?: ((coord: { surface: string; row: string; slot: string }) => (payload: DragPayload) => boolean) | undefined;
+    /** The drop veto over the candidate event, from the root's IR `canDrop` (#261). */
+    veto?: DropVeto | undefined;
     onAmount?: ((source: string, amount: number) => void) | undefined;
     onRemove?: ((source: string) => void) | undefined;
     onAction?: ((action: ActionKind) => void) | undefined;
@@ -160,7 +162,7 @@ interface TargetPanelProps {
     compactActive?: boolean | undefined;
 }
 
-function TargetPanel({ surface, target, mode, badge, styles, vetoFor, onAmount, onRemove, onAction, compactActive }: TargetPanelProps) {
+function TargetPanel({ surface, target, mode, badge, styles, veto, onAmount, onRemove, onAction, compactActive }: TargetPanelProps) {
     // The action foot rides the shared `commitBar` LAYOUT slots (#266) so
     // apply/discard reads as the same chrome family as the shared review
     // foot + DecisionQueue staged footer. The BUTTONS come from the shared
@@ -173,8 +175,9 @@ function TargetPanel({ surface, target, mode, badge, styles, vetoFor, onAmount, 
     // Capacity, headroom and ticks, in the app's locale (#850).
     const words = useFormatters();
     const coord = useMemo(() => ({ surface, row: target.key, slot: "alloc" }), [surface, target.key]);
-    const veto = useMemo(() => vetoFor?.(coord), [vetoFor, coord]);
-    const dropRef = useDropCell(coord, false, veto);
+    // A drag names the panel by its target.
+    const dropOptions = useMemo<DropCellOptions>(() => ({ name: () => target.label }), [target.label]);
+    const dropRef = useDropCell(coord, false, veto, undefined, dropOptions);
 
     const allocated = target.allocations.reduce((sum, a) => sum + a.amount, 0);
     const headroom = Math.max(0, target.capacity - allocated);
@@ -278,8 +281,10 @@ export const EastChakraBlend = memo(function EastChakraBlend({ value }: EastChak
         value.targets.length <= 1 ? "single" : value.targets.length === 2 ? "compare" : "portfolio";
 
     const onDragFn = useMemo(() => getSomeorUndefined(value.onDrag), [value.onDrag]);
+    // The layer asks the veto at every point a drag rests, and once more of
+    // the event it delivers — with the candidate event, duplicate flag included.
     const canDropFn = useMemo(() => getSomeorUndefined(value.canDrop) as CanDropFn | undefined, [value.canDrop]);
-    const vetoFor = useIRCanDrop(canDropFn);
+    const veto = useIRCanDrop(canDropFn);
     const onAmountFn = useMemo(() => getSomeorUndefined(value.onAmountChange), [value.onAmountChange]);
     const onActionFn = useMemo(() => getSomeorUndefined(value.onAction), [value.onAction]);
     const verdict = getSomeorUndefined(value.verdict);
@@ -290,9 +295,6 @@ export const EastChakraBlend = memo(function EastChakraBlend({ value }: EastChak
     useValueSync(value, blendDataEqual, () => setTargets([...value.targets]));
 
     const handleDrag = useCallback((event: DragEventValue, meta?: DragMeta) => {
-        // Re-check the IR veto with the real event before mutating (the hover
-        // veto already gated the ⊘ stage; sink removes are always valid).
-        if (event.type === "add" && !canDropAllows(canDropFn, event)) return;
         let next = targets;
         if (event.type === "add") {
             const { from, into } = event.value;
@@ -317,7 +319,7 @@ export const EastChakraBlend = memo(function EastChakraBlend({ value }: EastChak
         }
         setTargets(next);
         if (onDragFn) queueMicrotask(() => onDragFn(event));
-    }, [targets, onDragFn, canDropFn]);
+    }, [targets, onDragFn]);
 
     const targetConfig = useMemo(() => ({
         id: value.id,
@@ -412,7 +414,7 @@ export const EastChakraBlend = memo(function EastChakraBlend({ value }: EastChak
                             mode={mode}
                             badge={badge}
                             styles={styles}
-                            vetoFor={vetoFor}
+                            veto={veto}
                             onAmount={handleAmount(target.key)}
                             onRemove={handleRemove(target.key)}
                             onAction={onActionFn ? handleAction(target.key) : undefined}

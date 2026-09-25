@@ -24,15 +24,8 @@
  */
 
 import { test, expect, type Locator, type Page } from "playwright/test";
-import { printFor, variant } from "@elaraai/east";
-import { Plan } from "@elaraai/east-ui/internal";
 import { settled } from "./settle";
-
-/** A row's element. `data-plan-row` holds the row's id as its canonical text
- *  (#822) — printed by East, so the selector is the id the example builds. */
-const printId = printFor(Plan.Types.RowId);
-const rowSel = (series: string, ...path: string[]) =>
-    `[data-plan-row=${JSON.stringify(printId(variant("entry", { series, path }) as Parameters<typeof printId>[0]))}]`;
+import { openExample, rowId, rowSel } from "./plan-page";
 
 /** The Plan examples, between them every row kind, group strips, pinned
  *  rows, number and ordinal axes, rows folded to a coarser resolution and a
@@ -42,21 +35,6 @@ const EXAMPLES = [
     "planCardRows", "planEventRows", "planGroupedRows", "planSeriesData", "planLiteralRows", "planReview",
     "planExpand", "planNumberAxis", "planOrdinalAxis", "planFold", "planUiState",
 ];
-
-/** Open one example's page and return its entry (the virtualized doc row
- *  holding its anchor and its live canvas) — a Plan example unless another
- *  examples file is named. */
-async function openExample(page: Page, name: string, file = "collections/plan"): Promise<Locator> {
-    await page.goto(`/#${file}/${name}`);
-    await page.waitForSelector("header", { timeout: 20_000 });
-    await page.evaluate(() => document.fonts.ready.then(() => undefined));
-    const entry = page.locator("[data-index]", { has: page.locator(`a[href="#${file}/${name}"]`) });
-    await entry.scrollIntoViewIfNeeded();
-    await expect(entry.locator("[data-plan-body]").first()).toBeVisible({ timeout: 20_000 });
-    // Charts and collections measure their containers before they settle.
-    await settled(page);
-    return entry;
-}
 
 /** Every body item whose rendered height is not the model's. */
 async function mismatches(entry: Locator): Promise<string[]> {
@@ -305,7 +283,7 @@ test.describe("Plan bound ui state (#824)", () => {
 
     /** A line's group band. */
     const band = (entry: Locator, line: string) =>
-        entry.locator(`[data-plan-group=${JSON.stringify(printId(variant("entry", { series: "lines", path: [line] }) as Parameters<typeof printId>[0]))}]`);
+        entry.locator(`[data-plan-group=${JSON.stringify(rowId("lines", line))}]`);
 
     test("outside writes fold, open and expand; the picker brings a folded machine into view; the user's own actions come back", async ({ page }) => {
         const entry = await openExample(page, "planUiState");

@@ -12,8 +12,8 @@ import { Board, type CellRefType } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { parseCssSize } from "../../style/parse-size.js";
 import { VirtualRows } from "../virtual-rows.js";
-import { useDragTarget, useDropCell, useDragEventChip, type DragEventValue, type DragMeta, type DragPayload } from "../../dnd/drag-layer";
-import { useIRCanDrop, canDropAllows, type CanDropFn } from "../../dnd/ir-can-drop";
+import { useDragMessages, useDragTarget, useDropCell, useDragEventChip, type DragEventValue, type DragMeta, type DropCellOptions, type DropVeto } from "../../dnd/drag-layer";
+import { useIRCanDrop, type CanDropFn } from "../../dnd/ir-can-drop";
 import { useReviewController, ReviewFoot } from "../shared/review";
 import { useValueSync } from "../../hooks/useValueSync";
 
@@ -116,7 +116,9 @@ function BoardChip({ surface, area, shift, assignment, label, edit, dragDisabled
     const dragGhost = useMemo(() => (
         <Box css={styles.dragGhost}>{label}</Box>
     ), [styles.dragGhost, label]);
-    const onPointerDown = useDragEventChip(from, dragGhost, !draggable);
+    // The chip is its own drag handle — by pointer, or focused and picked up
+    // with Space / Enter.
+    const drag = useDragEventChip(from, dragGhost, !draggable, label);
 
     const handleClick = useCallback((e: React.MouseEvent) => {
         e.stopPropagation();
@@ -130,11 +132,11 @@ function BoardChip({ surface, area, shift, assignment, label, edit, dragDisabled
         <Box
             css={styles.chip}
             data-state={state}
-            onPointerDown={onPointerDown}
+            {...drag}
             onClick={handleClick}
-            {...(draggable && onPointerDown ? { "data-draggable": "" } : {})}
+            {...(draggable && drag ? { "data-draggable": "" } : {})}
         >
-            {draggable && onPointerDown && (
+            {draggable && drag && (
                 <Box as="span" css={styles.chipGrip} data-drag-grip="">
                     <FontAwesomeIcon icon={faGripVertical} />
                 </Box>
@@ -182,8 +184,10 @@ interface BoardCellProps {
     /** Per-cell chip cap before the `+N` overflow. */
     maxVisible: number | undefined;
     edit: boolean;
-    /** Per-payload drop veto (duplicate person AND the host's IR `canDrop`). */
-    canDrop: (payload: DragPayload) => boolean;
+    /** The drop veto over the candidate event (duplicate person AND the host's IR `canDrop`). */
+    canDrop: DropVeto;
+    /** The cell's name, as a drag announces it — its area and shift. */
+    name: string;
     styles: SlotStyles;
     onSelect?: ((ref: CellRefValue) => void) | undefined;
     onAccept?: ((ref: CellRefValue) => void) | undefined;
@@ -191,9 +195,10 @@ interface BoardCellProps {
     onAddAt?: ((ref: CellRefValue) => void) | undefined;
 }
 
-function BoardCell({ surface, area, shift, chips, required, maxVisible, edit, canDrop, styles, onSelect, onAccept, onRemove, onAddAt }: BoardCellProps) {
+function BoardCell({ surface, area, shift, chips, required, maxVisible, edit, canDrop, name, styles, onSelect, onAccept, onRemove, onAddAt }: BoardCellProps) {
     const coord = useMemo(() => ({ surface, row: area, slot: shift }), [surface, area, shift]);
-    const dropRef = useDropCell(edit ? coord : null, false, canDrop);
+    const dropOptions = useMemo<DropCellOptions>(() => ({ name: () => name }), [name]);
+    const dropRef = useDropCell(edit ? coord : null, false, canDrop, undefined, dropOptions);
     const [overflowOpen, setOverflowOpen] = useState(false);
 
     const filled = chips.filter(c => fills(c.assignment)).length;
@@ -302,6 +307,8 @@ function BoardCell({ surface, area, shift, chips, required, maxVisible, edit, ca
 export const EastChakraBoard = memo(function EastChakraBoard({ value, storageKey }: EastChakraBoardProps) {
     const styles = useSlotRecipe({ key: "board" })() as SlotStyles;
     const edit = value.mode.type === "edit";
+    // A drag names a cell by its area and shift, in the layer's words.
+    const dragWords = useDragMessages();
 
     // Interactive-state pattern: drops and acceptances apply to local
     // assignment state immediately (the widget works without callbacks); the
@@ -315,10 +322,10 @@ export const EastChakraBoard = memo(function EastChakraBoard({ value, storageKey
     const onDragFn = useMemo(() => getSomeorUndefined(value.onDrag), [value.onDrag]);
     // IR-level drop veto (#261) — the shared `canDrop` contract (the factory
     // compiles the deprecated `canAssign` sugar into it). Verdict-cached per
-    // (payload, cell); a THROWING predicate logs and ALLOWS (fail-open) so a
+    // candidate event; a THROWING predicate logs and ALLOWS (fail-open) so a
     // broken validator cannot brick the board.
     const canDropFn = useMemo(() => getSomeorUndefined(value.canDrop) as CanDropFn | undefined, [value.canDrop]);
-    const vetoFor = useIRCanDrop(canDropFn);
+    const irVeto = useIRCanDrop(canDropFn);
 
     // ── Review foot (optional, #265) ──────────────────────────────────────
     // Board v1 renders the shared commitBar BATCH foot only (Approve all /
@@ -344,28 +351,28 @@ export const EastChakraBoard = memo(function EastChakraBoard({ value, storageKey
         assignments.some(a => a.area === area && a.shift === shift && a.person === person && a.key !== excludeKey),
     [assignments]);
 
-    /** The person a drag payload carries — a Library card's key IS the person
-     * key; a moving chip resolves through its assignment. */
-    const payloadPerson = useCallback((payload: DragPayload): { person: string; excludeKey?: string } | undefined => {
-        if (payload.kind === "item") return { person: payload.from.key };
-        const moving = assignments.find(a => a.key === payload.from.event);
-        return moving !== undefined ? { person: moving.person, excludeKey: moving.key } : undefined;
+    /** Who a candidate event would place, and where — a Library card's key IS
+     * the person key; a moving chip resolves through its assignment. */
+    const candidatePlacement = useCallback((event: DragEventValue): { person: string; area: string; shift: string; excludeKey?: string } | undefined => {
+        if (event.type === "add") return { person: event.value.from.key, area: event.value.into.row, shift: event.value.into.slot };
+        if (event.type !== "move") return undefined;
+        const key = event.value.from.event.type === "some" ? event.value.from.event.value : undefined;
+        const moving = assignments.find(a => a.key === key);
+        return moving !== undefined
+            ? { person: moving.person, area: event.value.to.row, shift: event.value.to.slot, excludeKey: moving.key }
+            : undefined;
     }, [assignments]);
-    /** Per-cell drop veto: the built-in duplicate-person guard AND the host's
-     * IR `canDrop` verdict. Unresolvable payloads allow (fail-open). */
-    const cellCanDrop = useCallback((area: string, shift: string) => {
-        const veto = vetoFor?.({ surface: value.id, row: area, slot: shift });
-        return (payload: DragPayload): boolean => {
-            const who = payloadPerson(payload);
-            if (who !== undefined && occupied(area, shift, who.person, who.excludeKey)) return false;
-            return veto?.(payload) ?? true;
-        };
-    }, [payloadPerson, occupied, vetoFor, value.id]);
+    /** The board's drop veto over the candidate event: the built-in
+     * duplicate-person guard AND the host's IR `canDrop` verdict.
+     * Unresolvable candidates allow (fail-open). The layer asks it at every
+     * point a drag rests, and once more of the event it delivers. */
+    const veto = useCallback<DropVeto>((event) => {
+        const placed = candidatePlacement(event);
+        if (placed !== undefined && occupied(placed.area, placed.shift, placed.person, placed.excludeKey)) return false;
+        return irVeto?.(event) ?? true;
+    }, [candidatePlacement, occupied, irVeto]);
 
     const handleDrag = useCallback((event: DragEventValue, meta?: DragMeta) => {
-        // Re-check the IR veto with the real event before mutating (the hover
-        // veto already gated the ⊘ stage; sink removes are always valid).
-        if ((event.type === "add" || event.type === "move") && !canDropAllows(canDropFn, event)) return;
         if (event.type === "add") {
             const { from, into } = event.value;
             // Duplicate-person guard: the dragged card's key IS the person key.
@@ -393,7 +400,7 @@ export const EastChakraBoard = memo(function EastChakraBoard({ value, storageKey
             setAssignments(assignments.filter(a => a.key !== key));
         }
         if (onDragFn) queueMicrotask(() => onDragFn(event));
-    }, [assignments, faces, occupied, canDropFn, onDragFn]);
+    }, [assignments, faces, occupied, onDragFn]);
     const handleSelect = useMemo(() => onSelectFn
         ? (ref: CellRefValue) => queueMicrotask(() => onSelectFn(ref))
         : undefined, [onSelectFn]);
@@ -501,7 +508,8 @@ export const EastChakraBoard = memo(function EastChakraBoard({ value, storageKey
                         required={requirements.get(`${area.key} ${shift.key}`)}
                         maxVisible={maxVisible}
                         edit={edit}
-                        canDrop={cellCanDrop(area.key, shift.key)}
+                        canDrop={veto}
+                        name={dragWords.cell({ row: area.label, slot: shift.label })}
                         styles={styles}
                         onSelect={handleSelect}
                         onAccept={edit ? handleAccept : undefined}

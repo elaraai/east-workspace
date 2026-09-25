@@ -38,9 +38,10 @@ import {
 // ISO-8601 instant (`slot.parse(DateTimeType)`); an ordinal slot IS the value.
 // Hosts map keys straight back to their source data.
 //
-// The Plan prints every slot through one shared encoding
-// (`east-ui-components/src/dnd/slot-key.ts`), which any future axis-bearing
-// target must reuse so a host parses every slot the same way. A Plan `row` is
+// The Plan prints every slot through the shared codecs
+// (`east-ui-components/src/dnd/slot-key.ts`, composed per axis arm in
+// `collections/plan/slot.ts`), which any future axis-bearing target must reuse
+// so a host parses every slot the same way. A Plan `row` is
 // the canonical `.east` text of the row's typed id (`PlanRowIdType` — its series
 // and the path of entry keys to it), so the grammar stays string-based: a host
 // keys its tables by `East.print(Plan.ref(series, …path))`, or reads the id back
@@ -228,15 +229,16 @@ export type DragEventType = typeof DragEventType;
  *
  * @remarks
  * **Candidate-event semantics.** During a drag, the renderer consults the
- * predicate once per hovered destination with a **synthesized candidate
- * event** — the {@link DragEventType} value that *would* be delivered if the
- * payload dropped there: an `add` for a Library card over a cell (with
- * `duplicate: false` — the alt-key state is unknowable before the drop), a
- * `move` for an event chip over a cell, a `resize` for an edge drag over a
- * slot. Returning `false` puts the cell in the invalid stage
+ * predicate with the **candidate event** — the {@link DragEventType} value a
+ * drop where the drag rests would deliver: an `add` for a Library card over a
+ * cell (its `duplicate` whether Alt is held now), a `move` for an event chip
+ * over a cell, a `resize` for an edge drag over a slot. A continuous target
+ * (the Plan) names the slot under the drag, so the predicate answers bucket by
+ * bucket. Returning `false` puts the cell in the invalid stage
  * (`data-drop-invalid`: ⊘ badge, red outline, `cursor: not-allowed`) and the
- * drop is a no-op; the verdict is also re-checked with the real event before
- * delivery. Absent ⇒ every structurally-connected cell accepts (the default).
+ * drop is a no-op; the event actually delivered — its `duplicate` the Alt
+ * state at the drop — is asked once more before delivery. Absent ⇒ every
+ * structurally-connected cell accepts (the default).
  *
  * Sink drops are not consulted: a `remove` into the trash / return-to-palette
  * sink is always structurally valid for a removable payload — removal policy
@@ -244,7 +246,8 @@ export type DragEventType = typeof DragEventType;
  *
  * A **throwing** predicate logs and allows (fail-open, the Board / Schematic
  * validator convention) so a broken validator cannot brick the surface.
- * Verdicts are cached per (payload, destination) for the duration of a drag.
+ * Verdicts are cached per candidate event for as long as the predicate is the
+ * same function.
  */
 export const CanDropFnType = FunctionType([DragEventType], BooleanType);
 

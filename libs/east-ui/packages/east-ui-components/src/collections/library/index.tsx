@@ -125,17 +125,19 @@ function LibraryCard({ libraryId, item, dimOrder, activeDims, filtered, styles }
     const ghost = useMemo(() => (
         <Box css={styles.ghost}>{item.label}</Box>
     ), [styles.ghost, item.label]);
-    const onPointerDown = useDragSourceItem(from, ghost, !draggable);
+    // The card is its own drag handle — by pointer, or focused and picked up
+    // with Space / Enter.
+    const drag = useDragSourceItem(from, ghost, !draggable);
 
     return (
         <Box
             css={styles.card}
-            onPointerDown={onPointerDown}
+            {...drag}
             {...(filtered ? { "data-filtered": "" } : {})}
-            {...(draggable && onPointerDown ? { "data-draggable": "" } : {})}
+            {...(draggable && drag ? { "data-draggable": "" } : {})}
             {...(compact ? { "data-compact": "" } : {})}
         >
-            {draggable && onPointerDown && (
+            {draggable && drag && (
                 <Box as="span" css={styles.grip} data-drag-grip="">
                     <FontAwesomeIcon icon={faGripVertical} />
                 </Box>

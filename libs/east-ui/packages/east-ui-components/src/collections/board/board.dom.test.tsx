@@ -21,6 +21,7 @@ import { variant, some, none, type ValueTypeOf } from "@elaraai/east";
 import { Board } from "@elaraai/east-ui/internal";
 import { system } from "../../theme";
 import { DragLayerProvider, useDragSourceItem, type DragEventValue } from "../../dnd/drag-layer";
+import { announced, layOut, press, stubScrollIntoView, tick } from "../../dnd/dnd.test-utils";
 import { EastChakraBoard, type BoardValue } from "./index";
 
 afterEach(cleanup);
@@ -65,8 +66,8 @@ function boardValue(overrides: Partial<BoardValue>): BoardValue {
 
 /** A raw Library card harness (the board only needs a registered source). */
 function Card({ library, itemKey, label }: { library: string; itemKey: string; label: string }) {
-    const onPointerDown = useDragSourceItem({ library, key: itemKey, label }, <div />);
-    return <div data-testid={`card-${itemKey}`} onPointerDown={onPointerDown} />;
+    const drag = useDragSourceItem({ library, key: itemKey, label }, <div />);
+    return <div data-testid={`card-${itemKey}`} {...drag} />;
 }
 
 /** Point `document.elementFromPoint` at the element until restored. */
@@ -74,11 +75,16 @@ function pointAt(el: Element | null) {
     (document as unknown as { elementFromPoint: (x: number, y: number) => Element | null }).elementFromPoint = () => el;
 }
 
-function drag(fromEl: Element, overEl: Element | null) {
-    fireEvent.pointerDown(fromEl, { clientX: 0, clientY: 0 });
+/** Press and travel past the layer's 4px threshold over `overEl` — the drag is in flight. */
+function engage(fromEl: Element, overEl: Element | null) {
+    fireEvent.pointerDown(fromEl, { pointerId: 1, clientX: 0, clientY: 0 });
     pointAt(overEl);
-    fireEvent.pointerMove(document, { clientX: 10, clientY: 10 });
-    fireEvent.pointerUp(document, { clientX: 10, clientY: 10 });
+    fireEvent.pointerMove(document, { pointerId: 1, clientX: 10, clientY: 10 });
+}
+
+function drag(fromEl: Element, overEl: Element | null) {
+    engage(fromEl, overEl);
+    fireEvent.pointerUp(document, { pointerId: 1, clientX: 10, clientY: 10 });
 }
 
 const microtasks = () => new Promise<void>(resolve => { setTimeout(resolve, 0); });
@@ -129,20 +135,19 @@ describe("EastChakraBoard", () => {
         });
         const { container, getByTestId, queryByText } = renderBoard(value,
             <Card library="people" itemKey="patel" label="Patel, R." />);
-        const cell = cells(container)[0]!;
+        const [cell, pm] = cells(container);
 
-        fireEvent.pointerDown(getByTestId("card-patel"), { clientX: 0, clientY: 0 });
-        // The occupied cell is never marked valid; hovering it shows ⊘.
-        expect(cell.hasAttribute("data-drop-valid")).toBe(false);
-        pointAt(cell);
-        fireEvent.pointerMove(document, { clientX: 10, clientY: 10 });
-        expect(cell.hasAttribute("data-drop-invalid")).toBe(true);
-        fireEvent.pointerUp(document, { clientX: 10, clientY: 10 });
+        // The occupied cell is never marked valid (the free one is); hovering it shows ⊘.
+        engage(getByTestId("card-patel"), cell!);
+        expect(cell!.hasAttribute("data-drop-valid")).toBe(false);
+        expect(pm!.hasAttribute("data-drop-valid")).toBe(true);
+        expect(cell!.hasAttribute("data-drop-invalid")).toBe(true);
+        fireEvent.pointerUp(document, { pointerId: 1, clientX: 10, clientY: 10 });
         await microtasks();
 
         expect(events).toHaveLength(0);
         expect(queryByText("+Patel, R.")).toBeNull();
-        expect(cell.hasAttribute("data-drop-invalid")).toBe(false);
+        expect(cell!.hasAttribute("data-drop-invalid")).toBe(false);
     });
 
     test("canDrop veto: a vetoed candidate event shows the invalid treatment and drops nothing", async () => {
@@ -159,13 +164,11 @@ describe("EastChakraBoard", () => {
         const [amCell, pmCell] = cells(container);
 
         // Forbidden cell: not valid, invalid on hover, drop is a no-op.
-        fireEvent.pointerDown(getByTestId("card-hasan"), { clientX: 0, clientY: 0 });
+        engage(getByTestId("card-hasan"), pmCell!);
         expect(pmCell!.hasAttribute("data-drop-valid")).toBe(false);
         expect(amCell!.hasAttribute("data-drop-valid")).toBe(true);
-        pointAt(pmCell!);
-        fireEvent.pointerMove(document, { clientX: 10, clientY: 10 });
         expect(pmCell!.hasAttribute("data-drop-invalid")).toBe(true);
-        fireEvent.pointerUp(document, { clientX: 10, clientY: 10 });
+        fireEvent.pointerUp(document, { pointerId: 1, clientX: 10, clientY: 10 });
         await microtasks();
         expect(events).toHaveLength(0);
         expect(queryByText("+Hasan, M.")).toBeNull();
@@ -175,6 +178,59 @@ describe("EastChakraBoard", () => {
         await microtasks();
         expect(events).toHaveLength(1);
         expect(getByText("+Hasan, M.")).toBeTruthy();
+    });
+
+    test("keyboard (#608): a focused proposed chip picks up with Space, the arrows carry it between cells, Escape puts it back, Space drops it", async () => {
+        stubScrollIntoView();
+        const events: DragEventValue[] = [];
+        const value = boardValue({
+            assignments: [assignment("x1", "cho", "icu", "am", variant("proposed", variant("added", null)))],
+            onDrag: some(((event: DragEventValue) => { events.push(event); }) as never),
+        });
+        const { container, getByText } = renderBoard(value);
+        const [am, pm] = cells(container);
+        const chip = am!.querySelector<HTMLElement>("[data-draggable]")!;
+        expect(chip.getAttribute("tabindex")).toBe("0");
+        layOut(new Map([
+            [chip, { left: 10, top: 10, width: 60, height: 20 }],
+            [am!, { left: 0, top: 0, width: 180, height: 40 }],
+            [pm!, { left: 180, top: 0, width: 180, height: 40 }],
+        ]));
+
+        // Picked up, carried to PM, and put back.
+        chip.focus();
+        press("Space");
+        await tick();
+        press("ArrowRight");
+        expect(pm!.hasAttribute("data-drop-active")).toBe(true);
+        press("Escape");
+        await microtasks();
+        expect(announced()).toBe("Dragging Cho, J. was cancelled.");
+        expect(chip.hasAttribute("data-dragging")).toBe(false);
+        expect(pm!.hasAttribute("data-drop-active")).toBe(false);
+        expect(events).toHaveLength(0);
+
+        chip.focus();
+        press("Space");
+        await tick();
+        // Picked up where it sits — over its own cell, named by its area and shift.
+        expect(chip.hasAttribute("data-dragging")).toBe(true);
+        expect(announced()).toBe("Cho, J. is over ICU · AM.");
+        press("ArrowRight");
+        expect(pm!.hasAttribute("data-drop-active")).toBe(true);
+        expect(announced()).toBe("Cho, J. is over ICU · PM.");
+        press("Space");
+        await microtasks();
+        expect(announced()).toBe("Cho, J. was dropped on ICU · PM.");
+
+        expect(events).toHaveLength(1);
+        expect(events[0]!.type).toBe("move");
+        if (events[0]!.type === "move") {
+            expect(events[0]!.value.from.slot).toBe("am");
+            expect(events[0]!.value.to.slot).toBe("pm");
+        }
+        // The chip now sits in the PM cell.
+        expect(pm!.contains(getByText("+Cho, J."))).toBe(true);
     });
 
     test("coverage: requirements render n/required numerals and open-slot placeholders", () => {

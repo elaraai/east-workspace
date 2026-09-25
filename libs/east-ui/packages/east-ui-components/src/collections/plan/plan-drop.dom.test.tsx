@@ -18,10 +18,11 @@
  * remains, before anything is drafted.
  *
  * Pointer geometry is stubbed via `document.elementFromPoint` (jsdom has no
- * layout), as in `dnd/drag-layer.dom.test.tsx`.
+ * layout), as in `dnd/drag-layer.dom.test.tsx`; a keyboard drag steps between
+ * stubbed rects (#608).
  */
 
-import { describe, test, expect, beforeEach, afterEach } from "vitest";
+import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { DictType, East, StringType, equalFor, variant, type ExprType } from "@elaraai/east";
@@ -31,11 +32,12 @@ import { initializeStore } from "../../platform/state-runtime.js";
 import { UIStore } from "../../platform/state-store.js";
 import { getRegisteredPlatformImplementations } from "../../platform/registry.js";
 import { DragLayerProvider, useDragSourceItem } from "../../dnd/drag-layer";
+import { announced, layOut, pointAt, press, stubScrollIntoView, tick } from "../../dnd/dnd.test-utils.js";
 import { EastChakraPlan, type PlanRootValue } from "./index.js";
 import { testKeyOf } from "./plan.test-utils.js";
 import {
     JOBS, PHASES, Press, SEED, SURFACE,
-    dropCellOf, dropJob, history, marks, mountCanvas, releaseCanvases,
+    dropCellOf, dropJob, history, jobsDrawn, marks, mountCanvas, releaseCanvases,
 } from "./plan-editing.test-utils.js";
 
 class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
@@ -46,12 +48,15 @@ afterEach(() => {
     cleanup();
     releaseCanvases();
     localStorage.clear();
+    vi.restoreAllMocks();
 });
 
 // ── One press drawn as every kind of row ─────────────────────────────────────
 
 const W27 = new Date("2026-06-29T00:00:00Z");
+const W28 = new Date("2026-07-06T00:00:00Z");
 const W39 = new Date("2026-09-21T00:00:00Z");
+const sameInstant = equalFor(Plan.Types.Instant);
 /** Where a job card lands on a kind that takes one — a job of the press, at the bucket it was dropped in. */
 const LANDS = { items: "jobs", create: (drop: ExprType<typeof Plan.Types.Drop>) => ({ key: drop.from.key, at: drop.at }) } as const;
 /** Press 1 alone. */
@@ -93,8 +98,8 @@ function everyKind(everyRowDroppable = false): PlanRootValue {
 }
 
 function JobCard() {
-    const onPointerDown = useDragSourceItem({ library: JOBS, key: "job-1", label: "job-1" }, <div />);
-    return <div data-testid="job-job-1" onPointerDown={onPointerDown} />;
+    const drag = useDragSourceItem({ library: JOBS, key: "job-1", label: "job-1" }, <div />);
+    return <div data-testid="job-job-1" {...drag} />;
 }
 
 function renderEveryKind(root: PlanRootValue) {
@@ -142,16 +147,22 @@ describe("Plan drop target (#880)", () => {
     test("a library the canvas does not declare is not a source for it — its card never lights a row, and drafts nothing", async () => {
         const canvas = await mountCanvas({ arm: "inline", sources: ["other-library"] });
         const cell = dropCellOf(canvas.container, "p1")!;
-        // The cell exists — the KIND takes a card — but this payload does not connect to it.
-        fireEvent.pointerDown(canvas.getByTestId("job-job-1"), { clientX: 0, clientY: 0 });
+        // The cell exists — the KIND takes a card — but this payload does not
+        // connect to it: with the card in flight over it, the cell is neither
+        // a candidate nor a hovered destination.
+        const card = canvas.getByTestId("job-job-1");
+        fireEvent.pointerDown(card, { clientX: 0, clientY: 0 });
+        pointAt(cell);
+        fireEvent.pointerMove(document, { clientX: 10, clientY: 10 });
+        expect(card.hasAttribute("data-dragging")).toBe(true);
         expect(cell.hasAttribute("data-drop-valid")).toBe(false);
-        fireEvent.pointerUp(document, { clientX: 0, clientY: 0 });
+        expect(cell.hasAttribute("data-drop-active")).toBe(false);
+        fireEvent.pointerUp(document, { clientX: 10, clientY: 10 });
         await dropJob(canvas, "job-1", "p1");
         expect(canvas.patches).toEqual([]);
         expect(marks(canvas.container)).toEqual({});
     }, 30_000);
 
-    const sameInstant = equalFor(Plan.Types.Instant);
     for (const [axis, at] of [
         ["time", variant("time", W27)],
         ["number", variant("number", 1)],
@@ -165,6 +176,67 @@ describe("Plan drop target (#880)", () => {
             expect(jobs.map((j) => j.key)).toEqual(["job-1"]);
             // jsdom's zero-width rect puts the pointer in the FIRST bucket.
             expect(sameInstant(jobs[0]!.at, at)).toBe(true);
+        }, 30_000);
+    }
+});
+
+describe("Plan drop target by keyboard (#608)", () => {
+    for (const arm of ["inline", "paged"] as const) {
+        test(`${arm}: Space picks a job up, the arrows carry it onto a press and along its weeks, Escape puts it back, and Space drops it where it rests`, async () => {
+            stubScrollIntoView();
+            const canvas = await mountCanvas({ arm });
+            const c = canvas.container;
+            const card = canvas.getByTestId("job-job-1");
+            const [p1, p2, p3] = ["p1", "p2", "p3"].map((p) => dropCellOf(c, p)!);
+            // The card at the left; the presses' plots stacked to its right,
+            // their twelve weeks 100px each.
+            layOut(new Map([
+                [card, { left: 0, top: 0, width: 80, height: 30 }],
+                [p1!, { left: 200, top: 0, width: 1200, height: 40 }],
+                [p2!, { left: 200, top: 40, width: 1200, height: 40 }],
+                [p3!, { left: 200, top: 80, width: 1200, height: 40 }],
+            ]));
+
+            // Picked up, carried onto Press 1 — at its first week — and put back.
+            card.focus();
+            press("Space");
+            await tick();
+            expect(card.hasAttribute("data-dragging")).toBe(true);
+            press("ArrowRight");
+            expect(p1!.hasAttribute("data-drop-active")).toBe(true);
+            expect(announced()).toBe("job-1 is over Press 1, Week of Jun 29, 2026.");
+            press("Escape");
+            await canvas.settle();
+            expect(announced()).toBe("Dragging job-1 was cancelled.");
+            expect(card.hasAttribute("data-dragging")).toBe(false);
+            expect(p1!.hasAttribute("data-drop-active")).toBe(false);
+            expect(canvas.patches).toHaveLength(0);
+            expect(marks(c)).toEqual({});
+
+            // Picked up again: Right onto Press 1, Right along to its second
+            // week, Down onto Press 2 at the same week — and dropped there.
+            card.focus();
+            press("Space");
+            await tick();
+            press("ArrowRight");
+            press("ArrowRight");
+            expect(announced()).toBe("job-1 is over Press 1, Week of Jul 6, 2026.");
+            press("ArrowDown");
+            expect(p2!.hasAttribute("data-drop-active")).toBe(true);
+            expect(p1!.hasAttribute("data-drop-active")).toBe(false);
+            expect(announced()).toBe("job-1 is over Press 2, Week of Jul 6, 2026.");
+            press("Space");
+            await canvas.settle();
+            expect(announced()).toBe("job-1 was dropped on Press 2, Week of Jul 6, 2026.");
+
+            // A draft of Press 2, the job where it was dropped.
+            expect(jobsDrawn(c, "p2")).toEqual(["job-1"]);
+            expect(marks(c)).toEqual({ p2: "pending" });
+            expect(canvas.patches.map((p) => p.label)).toEqual(["Drop job-1 on Press 2"]);
+            await history(canvas, "Apply changes");
+            const jobs = canvas.stored().get("p2")!.jobs;
+            expect(jobs.map((j) => j.key)).toEqual(["job-1"]);
+            expect(sameInstant(jobs[0]!.at, variant("time", W28))).toBe(true);
         }, 30_000);
     }
 });

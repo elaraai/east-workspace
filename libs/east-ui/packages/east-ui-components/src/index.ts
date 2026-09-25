@@ -399,10 +399,12 @@ export {
     OverlayImpl,
 } from "./overlays/index.js";
 
-// Drag & drop layer (the renderer half of the drag grammar contract)
+// Drag & drop layer (the renderer half of the drag grammar contract), on
+// dnd-kit (#608): pointer, touch and keyboard drags, announced.
 export {
     DragLayerProvider,
     type DragLayerProviderProps,
+    type DragLayerState,
     useDragLayer,
     useDragLayerOptional,
     useDragTarget,
@@ -410,11 +412,21 @@ export {
     useDropSink,
     useDragSourceItem,
     useDragEventChip,
+    useDragEventEdge,
+    useDragMessages,
+    dropEvent,
     type DragEventValue,
+    type DragHandle,
+    type DragPayload,
+    type DropVeto,
+    type DropCellOptions,
     type CellCoord,
     type DragKinds,
+    type DragMeta,
     type DragTargetConfig,
 } from "./dnd/drag-layer.js";
+// The drag layer's words (#608) — `<DragLayerProvider messages={…}>` overrides any subset.
+export { dragMessages, type DragMessages } from "./dnd/messages.js";
 
 // Hooks
 export { usePersistedState, type PersistedStateResult } from "./hooks/usePersistedState.js";

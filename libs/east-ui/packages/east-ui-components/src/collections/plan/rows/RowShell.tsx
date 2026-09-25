@@ -20,9 +20,8 @@ import { useCallback, useMemo, useRef, type ReactNode } from "react";
 import { Box, useChakraContext } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCaretDown, faLink, faUpRightAndDownLeftFromCenter } from "@fortawesome/free-solid-svg-icons";
-import { useDropCell, useDragLayerOptional, type CellCoord, type DragPayload } from "../../../dnd/drag-layer";
-import { canDropAllows, candidateEvent, type CanDropFn } from "../../../dnd/ir-can-drop";
-import { toPlanSlot } from "../../../dnd/slot-key";
+import { useDropCell, useDragLayerOptional, type CellCoord, type DragEventValue, type DropCellOptions, type DropVeto } from "../../../dnd/drag-layer";
+import { toPlanSlot } from "../slot.js";
 import { resolveColor } from "../../shared/helpers.js";
 import { usePlanCursor, usePlanDispatch, usePlanGeometry, usePlanScale } from "../context.js";
 import { rowItemKey, type PlanRowValue } from "../model.js";
@@ -80,9 +79,10 @@ export function GridSeparators({ styles }: { styles: Styles }) {
 export interface PlanRowDrop {
     /** The canvas's declared DnD id — the cell ref's `surface`. */
     surface: string;
-    /** The root's decoded IR `canDrop`, consulted with the candidate event the
-     *  pointer's CURRENT bucket would produce. */
-    canDrop?: CanDropFn | undefined;
+    /** The canvas's veto over its IR `canDrop` (`useIRCanDrop`), asked of the
+     *  candidate event the drag's CURRENT bucket would produce — its duplicate
+     *  flag included. */
+    canDrop?: DropVeto | undefined;
 }
 
 export interface RowShellProps {
@@ -192,9 +192,9 @@ export function RowShell({
     //    ⊘ treatment has to land on the row the pointer is over rather than
     //    washing the entire canvas.
     //
-    // The SLOT is the bucket under the pointer, named by its start instant —
-    // the canvas's own vocabulary for "where on the axis" (a `cell` element
-    // ref reports the same bucket instant, not an index), spelled per the axis
+    // The SLOT is the bucket under the drag, named by its start instant — the
+    // canvas's own vocabulary for "where on the axis" (a `cell` element ref
+    // reports the same bucket instant, not an index), spelled per the axis
     // arm by the shared encoding (`toPlanSlot`, #631): a Z-less ISO instant,
     // a decimal, or the ordinal value.
     const plotElRef = useRef<HTMLElement | null>(null);
@@ -215,62 +215,39 @@ export function RowShell({
             slot: bucket !== undefined ? toPlanSlot(bucket.start) : "",
         };
     }, [scale, drop?.surface, row.key]);
-    // The registered coord is a placeholder: every real coordinate comes back
-    // through `resolveCoord`, which the layer calls at hover and at drop.
+    // The registered coord is the row at its FIRST bucket: it is what the
+    // drag-start sweep asks about, before the drag rests anywhere. A row the
+    // predicate can only ever refuse never lights up as a candidate, instead of
+    // promising a drop and taking it back on hover. It is only the opening
+    // AFFORDANCE — the layer asks again at every point the drag rests, and once
+    // more of the event it delivers, so a predicate that discriminates on the
+    // slot resolves per bucket.
+    const firstSlot = scale.buckets[0] !== undefined ? toPlanSlot(scale.buckets[0].start) : "";
     const dropCoord = useMemo<CellCoord | null>(
-        () => (drop !== undefined ? { surface: drop.surface, row: row.key, slot: "" } : null),
-        [drop, row.key],
+        () => (drop !== undefined ? { surface: drop.surface, row: row.key, slot: firstSlot } : null),
+        [drop, row.key, firstSlot],
     );
-    const dropVeto = useCallback((payload: DragPayload, x?: number, y?: number): boolean => {
+    const dropVeto = useCallback((candidate: DragEventValue): boolean => {
         if (drop === undefined) return true;
-        if (x !== undefined && y !== undefined) {
-            const coord = resolveCoord(x, y);
-            // No bucket under the pointer (past a truncated axis's coverage) —
-            // structurally not a destination, before any predicate is asked.
-            if (coord.slot === "") return false;
-            if (drop.canDrop === undefined) return true;
-            return canDropAllows(drop.canDrop, candidateEvent(payload, coord));
-        }
-        if (drop.canDrop === undefined) return true;
-        const fn = drop.canDrop;
-        // The drag-START sweep has no pointer yet — but a Plan cell's identity
-        // is its ROW, and that is known right here. So the sweep answers for
-        // this row at its FIRST bucket rather than blanket-allowing: a row the
-        // predicate can only ever refuse never lights up as a candidate,
-        // instead of promising a drop and taking it back on hover.
-        //
-        // This verdict is only the opening AFFORDANCE. It is never what decides
-        // a drop: `onMove` re-asks at the live pointer position and `endDrag`
-        // re-asks again before delivering, so a predicate that discriminates on
-        // the SLOT still resolves per bucket — this row simply starts out
-        // showing the answer for its first one.
-        const first = scale.buckets[0];
-        return canDropAllows(fn, candidateEvent(payload, {
-            surface: drop.surface,
-            row: row.key,
-            slot: first !== undefined ? toPlanSlot(first.start) : "",
-        }));
-    }, [drop, resolveCoord, scale, row.key]);
-    const dropRef = useDropCell(dropCoord, false, dropVeto, resolveCoord);
-    // One ref doing two jobs: the layer's registration, and the rect
-    // `resolveCoord` measures the pointer against.
-    const plotRef = useCallback((el: HTMLDivElement | null) => {
-        plotElRef.current = el;
-        dropRef(el);
-    }, [dropRef]);
+        // No bucket under the drag (past a truncated axis's coverage) —
+        // structurally not a destination, before any predicate is asked.
+        if (candidate.type === "add" && candidate.value.into.slot === "") return false;
+        return drop.canDrop?.(candidate) ?? true;
+    }, [drop]);
 
     // ── The landing band ──────────────────────────────────────────────────
     // While a card is over this row, show WHERE it would come to rest. The
     // band spans the bucket `resolveCoord` names, so the preview and the drop
     // cannot disagree — they read the same geometry from the same rect.
     //
-    // Positioned by writing the style DIRECTLY, never through React state: a
-    // pointermove is a per-frame event, and routing it through state would
-    // re-render this row (and, through the shared reducer, the whole canvas)
-    // on every one. Whether the band is VISIBLE is not decided here at all —
-    // the recipe shows it only inside `[data-drop-active]`, which the drag
-    // layer sets on exactly the destination cell and never sets on a refused
-    // one, so a vetoed row shows no landing band for free.
+    // Positioned by writing the style DIRECTLY, never through React state: the
+    // layer tells the row each time the drag rests over it (a pointer move, a
+    // keyboard step), and routing that through state would re-render this row
+    // (and, through the shared reducer, the whole canvas) on every one.
+    // Whether the band is VISIBLE is not decided here at all — the recipe
+    // shows it only inside `[data-drop-active]`, which the drag layer sets on
+    // exactly the destination cell and never sets on a refused one, so a
+    // vetoed row shows no landing band for free.
     const dragActive = useDragLayerOptional()?.active === true;
     const previewRef = useRef<HTMLDivElement | null>(null);
     const positionPreview = useCallback((clientX: number) => {
@@ -287,6 +264,31 @@ export function RowShell({
         el.style.left = `${bucket.x0 * 100}%`;
         el.style.width = `${(bucket.x1 - bucket.x0) * 100}%`;
     }, [scale]);
+
+    // A keyboard drag rests at bucket centres, the announcements name the row
+    // and its bucket in the canvas's words, and wherever the drag rests over
+    // the row, its landing band follows.
+    const dropOptions = useMemo<DropCellOptions>(() => ({
+        stops: () => {
+            const rect = plotElRef.current?.getBoundingClientRect();
+            if (rect === undefined || rect.width <= 0) return [];
+            return scale.buckets.map((b) => rect.left + ((b.x0 + b.x1) / 2) * rect.width);
+        },
+        name: (coord) => {
+            const bucket = scale.buckets.find((b) => toPlanSlot(b.start) === coord.slot);
+            return bucket !== undefined
+                ? words.m.list({ parts: [gutter.label, scale.bucketText(bucket)] })
+                : gutter.label;
+        },
+        onHover: positionPreview,
+    }), [scale, words, gutter.label, positionPreview]);
+    const dropRef = useDropCell(dropCoord, false, dropVeto, resolveCoord, dropOptions);
+    // One ref doing two jobs: the layer's registration, and the rect
+    // `resolveCoord` measures the pointer against.
+    const plotRef = useCallback((el: HTMLDivElement | null) => {
+        plotElRef.current = el;
+        dropRef(el);
+    }, [dropRef]);
 
     return (
         <Box
@@ -401,9 +403,10 @@ export function RowShell({
                 role="gridcell"
                 data-axis={axisMode}
                 onPointerMove={(e) => {
-                    // While a drag is in flight the landing band IS the readout,
-                    // so the hairline would only add a second, competing mark.
-                    if (dragActive) { positionPreview(e.clientX); return; }
+                    // While a drag is in flight the landing band IS the readout
+                    // (the layer positions it), so the hairline would only add a
+                    // second, competing mark.
+                    if (dragActive) return;
                     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
                     if (rect.width <= 0) return;
                     // Display-only chrome — a direct DOM write through the
