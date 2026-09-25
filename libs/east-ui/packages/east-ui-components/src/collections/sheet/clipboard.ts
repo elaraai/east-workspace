@@ -73,7 +73,7 @@ export function exportMatrix(
         for (let c = rect.c0; c <= rect.c1; c++) {
             const meta = columns[c];
             if (meta === undefined) continue;
-            cells.push(...exportCell(cellAt(r, c), meta, words));
+            for (const text of exportCell(cellAt(r, c), meta, words)) cells.push(text);
         }
         lines.push(cells.join("\t"));
     }

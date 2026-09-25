@@ -62,6 +62,7 @@ import {
     type LineGroup, type SheetBodyItem, type SheetColumnMeta, type SheetGeometry,
 } from "./model.js";
 import { useSheetPaging, type SheetViewport } from "./paging.js";
+import { placeInOrder } from "./placement.js";
 import { NOT_PERSISTED, persistedOf, sameAnchor, sameFolds, type SheetAnchor, type SheetPersisted } from "./persisted.js";
 import { useSheetSeek } from "./use-seek.js";
 import { lensCount, lensGaps, lensHits, lensLineHits, lensSubRowHits, lensTitleHit, lensVisible, narrowingActive, nextReach, type LensGap } from "./lens.js";
@@ -133,7 +134,7 @@ function viewTitle(view: SheetViewValue): string {
     return `${what} · live · double-click renames · middle-click closes`;
 }
 
-/** The decoded rows with the local layer applied. */
+/** The decoded rows with the local layer applied — its placements in one linear pass (#859). */
 function applyLayer(source: readonly SheetRowValue[], layer: LocalLayer, keyed = false): SheetRowValue[] {
     if (layer.edits.size === 0 && layer.appended.length === 0 && layer.removed.size === 0 && layer.placements.size === 0) return source as SheetRowValue[];
     const out: SheetRowValue[] = [];
@@ -142,19 +143,9 @@ function applyLayer(source: readonly SheetRowValue[], layer: LocalLayer, keyed =
         out.push(layer.edits.get(r.id) ?? r);
     }
     for (const r of layer.appended) if (!layer.removed.has(r.id)) out.push(layer.edits.get(r.id) ?? r);
-    for (const [id, placement] of layer.placements) {
-        if (placement.type !== "some" || placement.value.type !== "ordered") continue;
-        const at = out.findIndex(row => stringEqual(row.id, id));
-        if (at < 0) continue;
-        const position = placement.value.value;
-        const anchor = position.type === "before" || position.type === "after" ? out.findIndex(row => stringEqual(row.id, position.value)) : -1;
-        if ((position.type === "before" || position.type === "after") && anchor < 0) continue;
-        const [row] = out.splice(at, 1);
-        const target = position.type === "start" ? 0 : position.type === "end" ? out.length : out.findIndex(row => stringEqual(row.id, position.value)) + (position.type === "after" ? 1 : 0);
-        out.splice(target, 0, row!);
-    }
-    if (keyed) out.sort((a, b) => stringCompare(a.id, b.id));
-    return out;
+    const placed = placeInOrder(out, (row) => row.id, layer.placements);
+    if (keyed) placed.sort((a, b) => stringCompare(a.id, b.id));
+    return placed;
 }
 
 /** A row with one cell replaced. */
@@ -903,7 +894,12 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
         let firstInserted: number | undefined;
         let inserted = 0;
         const src = variant(source, null);
-        const taken = (id: string) => rowsNow.some((x) => x.id === id) || appended.some((x) => x.id === id);
+        // The ids a minted one must avoid — one set per write, grown as rows
+        // append, never a scan of the rows per new row (#859).
+        const takenIds = new Set<string>();
+        for (const x of rowsNow) takenIds.add(x.id);
+        for (const x of appended) takenIds.add(x.id);
+        const taken = (id: string) => takenIds.has(id);
         // A group's latest row through the layer (#740), and how a rewritten group lands back in it.
         const currentGroup = (g: SheetRowValue): SheetRowValue => edits.get(g.id) ?? appended.find((x) => x.id === g.id) ?? g;
         const setGroup = (g: SheetRowValue) => {
@@ -1000,6 +996,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
             }
             if (columns.list.every((c) => cellIsBlank(row.cells.get(c.key)))) continue;
             appended.push(row);
+            takenIds.add(row.id);
             events.push(variant("insert", { afterRowId: lastId !== undefined ? some(lastId) : none, row, source: src }));
             lastId = row.id;
             ids.push(row.id);

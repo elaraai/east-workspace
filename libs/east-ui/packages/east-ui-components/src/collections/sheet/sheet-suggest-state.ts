@@ -116,7 +116,7 @@ export function takeProposals(s: SheetUiState, ctx: SheetMachineCtx, upTo: numbe
     if (sugg.fill.size > 0) {
         const filled = fillRow(s, ctx);
         next = filled.state;
-        effects.push(...filled.effects);
+        for (const effect of filled.effects) effects.push(effect);
     }
     const rows: readonly PendingRow[] = sugg.rows.slice(0, Math.max(0, upTo + 1));
     const rest: readonly PendingRow[] = sugg.rows.slice(rows.length);

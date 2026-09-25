@@ -5,7 +5,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ArrayType, East, IntegerType, OptionType, StringType, StructType, encodeBeast2For, none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { ArrayType, East, IntegerType, OptionType, StringType, StructType, decodeBeast2For, encodeBeast2For, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Sheet, UIComponentType } from "@elaraai/east-ui/internal";
 
 const Row = StructType({ id: StringType, qty: IntegerType, note: OptionType(StringType), hidden: StringType });
@@ -43,6 +43,54 @@ test("current draft hidden fields take precedence over the source snapshot", () 
     });
     const result = flatFill.value({ ...context, drafts: new Map([["a", bytes]]) });
     assert.deepEqual(result, some({ value: variant("String", '.value 1|.value "draft"|.none|.none'), meta: '.value 1' }));
+});
+
+// A source row is read where it sits, then nearest outward (#859). Rows that
+// repeat an id tell WHICH row answers — a scan of the collection would always
+// answer with the first.
+const Noted = StructType({ id: StringType, note: StringType });
+const reads = East.function([], UIComponentType, () => Sheet.Root(East.value([
+    { id: "x", note: "first" }, { id: "a", note: "" }, { id: "b", note: "" }, { id: "x", note: "second" }, { id: "c", note: "c" },
+], ArrayType(Noted)), { note: Sheet.column.text(Noted) }, { id: "id" })).toIR().compile([])();
+if (reads.type !== "Sheet") throw new Error("Expected Sheet");
+const readEntry = reads.value.editing.readEntry;
+const decodeNoted = decodeBeast2For(Noted);
+const noteOf = (id: string, offset: bigint) => {
+    const read = readEntry(id, offset);
+    return read.type === "some" ? decodeNoted(read.value).note : undefined;
+};
+
+test("a source row is read where it sits, then nearest outward — never the first match of a scan", () => {
+    assert.equal(noteOf("x", 3n), "second");
+    assert.equal(noteOf("x", 0n), "first");
+    // One step above the offset is nearer than two below it; one below, than two above.
+    assert.equal(noteOf("x", 2n), "second");
+    assert.equal(noteOf("x", 1n), "first");
+    // However far a row moved, it is found; an offset outside the rows starts at their edge.
+    assert.equal(noteOf("c", 0n), "c");
+    assert.equal(noteOf("c", 99n), "c");
+    assert.equal(noteOf("a", -4n), "");
+    assert.equal(noteOf("gone", 2n), undefined);
+});
+
+const hiddens = East.function([Sheet.Types.DraftContext(Row)], Fill, ($, ctx) => $.const(some({
+    value: East.str`${ctx.rows.map((_$, r) => r.hidden)}`,
+    meta: "",
+}), Fill));
+const three = East.function([], UIComponentType, () => Sheet.Root(East.value([
+    { id: "a", qty: 1n, note: none, hidden: "ha" }, { id: "b", qty: 2n, note: none, hidden: "hb" }, { id: "c", qty: 3n, note: none, hidden: "hc" },
+], ArrayType(Row)), { qty: Sheet.column.integer(Row), note: Sheet.column.text(Row, { fill: [hiddens] }) }, { id: "id" })).toIR().compile([])();
+if (three.type !== "Sheet") throw new Error("Expected Sheet");
+const threeFill = three.value.columns[1]!.fill[0]!;
+if (threeFill.type !== "sync") throw new Error("Expected synchronous fill");
+
+const wireB: ValueTypeOf<typeof Sheet.Types.Row> = { id: "b", owned: false, cells: new Map([["qty", variant("Integer", 2n)]]), lines: [], band: none, subRows: [] };
+const wireC: ValueTypeOf<typeof Sheet.Types.Row> = { id: "c", owned: false, cells: new Map([["qty", variant("Integer", 3n)]]), lines: [], band: none, subRows: [] };
+
+test("resident rows that a local removal shifted off their offsets keep their source fields", () => {
+    // Row a is removed locally: b and c sit one place above where the source holds them.
+    const result = threeFill.value({ ...context, rowId: "b", rows: [wireB, wireC] });
+    assert.deepEqual(result, some({ value: variant("String", '[.value "hb", .value "hc"]'), meta: "" }));
 });
 
 const Child = StructType({ task: StringType, hidden: StringType });

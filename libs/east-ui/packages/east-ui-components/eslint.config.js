@@ -50,6 +50,18 @@ const PLAN_NO_SPREAD = [
   }
 ];
 
+// The Sheet derives over production row counts too (#859): the same guard.
+const SHEET_NO_SPREAD = [
+  {
+    selector: 'CallExpression > SpreadElement',
+    message: 'No spread into a call under collections/sheet/ — it throws RangeError past ~125,000 elements (#859). Push in a loop.'
+  },
+  {
+    selector: 'NewExpression > SpreadElement',
+    message: 'No spread into a constructor call under collections/sheet/ — it throws RangeError past ~125,000 elements (#859). Build the arguments with a loop.'
+  }
+];
+
 export default [
   {
     ignores: ['dist/**', 'node_modules/**', 'coverage/**', '**/*.test.tsx', '**/*.test.ts', '**/*.test-utils.ts']
@@ -99,6 +111,13 @@ export default [
     files: ['src/collections/plan/**/*.ts', 'src/collections/plan/**/*.tsx'],
     rules: {
       'no-restricted-syntax': ['error', ...ONE_FORMATTER, ...PLAN_NO_SPREAD]
+    }
+  },
+  {
+    // The Sheet's own block, carrying the formatter guard as the Plan's does (#859).
+    files: ['src/collections/sheet/**/*.ts', 'src/collections/sheet/**/*.tsx'],
+    rules: {
+      'no-restricted-syntax': ['error', ...ONE_FORMATTER, ...SHEET_NO_SPREAD]
     }
   },
   {

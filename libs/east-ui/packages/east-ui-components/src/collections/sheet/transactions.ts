@@ -111,6 +111,14 @@ export class SheetTransactions {
     stale = false;
     /** Why the confirmation read last failed, while it is the error shown (#853). */
     private confirmReason: string | undefined;
+    /**
+     * The readiness last derived, and by which author checks (#859). It is
+     * read on every render and every gesture, and derived only when something
+     * it depends on moves: every mutation of `current` drops it, new checks (a
+     * new binding's — new resident rows) miss it, and a key the checks read
+     * moving replaces it through {@link SheetTransactions.recheck}.
+     */
+    private readinessCache: { ready: SheetTransactionBinding["ready"]; value: BatchReadiness } | undefined;
 
     constructor(binding: SheetTransactionBinding) {
         this.binding = binding;
@@ -147,7 +155,30 @@ export class SheetTransactions {
     get canUndo(): boolean { return this.writable && this.cursor > 0; }
     get canRedo(): boolean { return this.writable && this.cursor < this.history.length; }
     get pending(): number { return this.changes(this.baseline, this.current, true).length; }
+    /** The batch's readiness — derived once per change of what it depends on (#859), however often it is read. */
     get readiness(): BatchReadiness {
+        const ready = this.binding.ready;
+        const cached = this.readinessCache;
+        if (cached !== undefined && cached.ready === ready) return cached.value;
+        const value = this.composeReadiness(ready?.(this.current));
+        this.readinessCache = { ready, value };
+        return value;
+    }
+    /**
+     * The author's checks ran where their reads are tracked — the editing
+     * hook's tracked read (#859) — over the current drafts: their result
+     * becomes the readiness. A key they read moving re-runs that read, so an
+     * author check over outside state (a `State`, a dataset) is followed
+     * without a new Sheet value.
+     *
+     * @param ready - The checks that ran
+     * @param author - What they returned for the current drafts
+     */
+    recheck(ready: SheetTransactionBinding["ready"], author: BatchReadiness | undefined): void {
+        this.readinessCache = { ready, value: this.composeReadiness(author) };
+    }
+    /** Every draft's schema check, then the author's — issues gathered in a loop: a spread of a large batch's issues into a call throws RangeError (#859). */
+    private composeReadiness(author: BatchReadiness | undefined): BatchReadiness {
         const issues: Issue[] = [];
         let invalid = false;
         for (const [id, entry] of this.current) {
@@ -155,15 +186,16 @@ export class SheetTransactions {
             const checked = normalizeDraft(this.binding.draftType, entry.draft, id).readiness;
             if (checked.type === "ready") continue;
             invalid ||= checked.type === "invalid";
-            issues.push(...checked.value);
+            for (const issue of checked.value) issues.push(issue);
         }
-        const author = this.binding.ready?.(this.current);
         if (author !== undefined && author.type !== "ready") {
             invalid ||= author.type === "invalid";
-            issues.push(...author.value);
+            for (const issue of author.value) issues.push(issue);
         }
         return issues.length ? variant(invalid ? "invalid" : "incomplete", issues) : variant("ready", null);
     }
+    /** The drafts changed: the next read derives the readiness afresh. */
+    private draftsChanged(): void { this.readinessCache = undefined; }
     get canApply(): boolean { return this.writable && this.readiness.type === "ready" && this.status === "idle" && this.changes(this.baseline, this.current, false).length > 0; }
     get entries(): ReadonlyMap<string, EntryVersion> { return this.current; }
     get originals(): ReadonlyMap<string, EntryVersion> { return this.baseline; }
@@ -177,6 +209,7 @@ export class SheetTransactions {
         if (this.pending === 0) {
             this.base = this.cloneBase(base);
             this.baseline.clear(); this.current.clear(); this.history = []; this.cursor = 0;
+            this.draftsChanged();
         } else {
             if (this.stale) return;
             this.stale = true;
@@ -236,6 +269,7 @@ export class SheetTransactions {
         if (this.changes(before, after, true).length === 0) return false;
         for (const [id, entry] of before) if (!this.baseline.has(id)) this.baseline.set(id, entry);
         for (const [id, entry] of after) this.current.set(id, entry);
+        this.draftsChanged();
         this.history.splice(this.cursor); this.history.push({ label, before, after }); this.cursor++;
         this.status = "idle"; this.issues = []; this.error = undefined;
         this.emit(before, after, origin, label);
@@ -246,6 +280,7 @@ export class SheetTransactions {
         if (!this.canUndo) return;
         const step = this.history[--this.cursor]!;
         for (const [id, entry] of step.before) this.current.set(id, entry);
+        this.draftsChanged();
         this.status = "idle"; this.issues = []; this.error = undefined;
         this.emit(step.after, step.before, "undo", `Undo ${step.label}`);
         this.changed(); this.maybeAutoApply();
@@ -254,6 +289,7 @@ export class SheetTransactions {
         if (!this.canRedo) return;
         const step = this.history[this.cursor++]!;
         for (const [id, entry] of step.after) this.current.set(id, entry);
+        this.draftsChanged();
         this.status = "idle"; this.issues = []; this.error = undefined;
         this.emit(step.before, step.after, "redo", `Redo ${step.label}`);
         this.changed(); this.maybeAutoApply();
@@ -262,6 +298,7 @@ export class SheetTransactions {
         if (!this.canDiscard) return;
         const before = this.current;
         this.current = new Map(this.baseline);
+        this.draftsChanged();
         this.emit(before, this.current, "discard", "Discard changes");
         this.history = []; this.cursor = 0; this.stale = false;
         this.status = "idle"; this.issues = []; this.error = undefined;

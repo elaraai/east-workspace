@@ -593,14 +593,33 @@ export function buildBridge(input: SheetBridgeInput): SheetBridge {
     }) as unknown as SheetBridge["projectRow"];
     const projectSubRows = buildSubRowProjection(lineType, subRows);
 
-    // (id, offset) → the real source row.
+    // (id, offset) → the real source row. Inline, the row at its offset
+    // answers first — the renderer reads a resident row where it sits — and
+    // otherwise the nearest match outward from there, so a row that a local
+    // edit shifted is found in the steps it moved: a read is never a scan of
+    // the collection, which made every context and every readiness check
+    // quadratic in the rows (#859). The search starts inside the rows, so a
+    // stale offset still finds the row.
     const rowById = source.kind === "inline"
-        ? East.function([StringType, IntegerType], OptionType(rowType), ($, id, _offset) => {
+        ? East.function([StringType, IntegerType], OptionType(rowType), ($, id, offset) => {
             const rows = $.const(source.rows, ArrayType(rowType));
-            return rows.firstMap((_$, r) => idOf(r, idField).equal(id).ifElse(
-                (_$2) => East.value(some(r), OptionType(rowType)),
-                (_$2) => East.value(none, OptionType(rowType)),
-            ));
+            const size = $.let(rows.size());
+            const start = $.let(offset.less(0n).ifElse(() => 0n, () => offset.greaterEqual(size).ifElse(() => size.subtract(1n), () => offset)));
+            const step = $.let(0n);
+            $.while(start.subtract(step).greaterEqual(0n).or(() => start.add(step).less(size)), ($2) => {
+                const below = $2.let(start.subtract(step));
+                $2.if(below.greaterEqual(0n), ($3) => {
+                    const r = $3.let(rows.get(below));
+                    $3.if(idOf(r, idField).equal(id), ($4) => { $4.return(East.value(some(r), OptionType(rowType))); });
+                });
+                const above = $2.let(start.add(step));
+                $2.if(step.greater(0n).and(() => above.less(size)), ($3) => {
+                    const r = $3.let(rows.get(above));
+                    $3.if(idOf(r, idField).equal(id), ($4) => { $4.return(East.value(some(r), OptionType(rowType))); });
+                });
+                $2.assign(step, step.add(1n));
+            });
+            return East.value(none, OptionType(rowType));
         })
         : East.function([StringType, IntegerType], OptionType(rowType), ($, id, offset) => {
             const src = $.const(source.source as unknown as ExprType<StructType<{ page: FunctionType<[IntegerType, IntegerType], OptionType<EastType>> }>>);

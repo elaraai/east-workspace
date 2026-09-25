@@ -3,10 +3,18 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-/** Evaluate business requirements against the current draft collection. @packageDocumentation */
+/**
+ * Evaluate business requirements against the current draft collection —
+ * linear in the rows and the drafts (#859): the source rows' drafts are read
+ * once per source generation, placement is one ordered pass, and each draft's
+ * position comes from one index.
+ *
+ * @packageDocumentation
+ */
 import { compareFor, fromEastTypeValue, decodeBeast2For, encodeBeast2For, StringType, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Sheet, SheetEditingType } from "@elaraai/east-ui/internal";
 import { liftDraft, type BatchReadiness } from "./draft-values.js";
+import { placeInOrder } from "./placement.js";
 import type { EntryVersion } from "./transactions.js";
 import type { SheetContextValue, SheetRowValue } from "./values.js";
 
@@ -34,6 +42,26 @@ export function authorReadiness(editing: Editing, resident: readonly SheetRowVal
     const decodeEntry = decodeBeast2For(editing.entryType);
     const childField = editing.children.type === "some" ? editing.children.value : undefined;
     const driverColumn = editing.driverColumn.type === "some" ? editing.driverColumn.value : undefined;
+    // The source rows' drafts, read at their source offsets — once for this
+    // generation of the source, however many evaluations follow (#859). No
+    // callback can accidentally decode a neighbour's payload.
+    let residentDrafts: Map<string, Uint8Array> | undefined;
+    const sourceDrafts = (): ReadonlyMap<string, Uint8Array> => {
+        if (residentDrafts !== undefined) return residentDrafts;
+        const read = new Map<string, Uint8Array>();
+        for (const [index, wire] of resident.entries()) {
+            // A base read that throws leaves the row to the bridge: a check
+            // that needs it reports why, and the sheet stays up (#853).
+            let payload: ReturnType<Editing["readEntry"]>;
+            try { payload = editing.readEntry(wire.id, BigInt(positions[index]!)); }
+            catch { continue; }
+            if (payload.type === "some") read.set(wire.id, encodeDraft(liftDraft(draftType, decodeEntry(payload.value))));
+        }
+        residentDrafts = read;
+        return read;
+    };
+    // Each source row's position: a failed window before it does not move it (#853).
+    const sourceAt = new Map(resident.map((wire, i) => [wire.id, positions[i]!] as const));
     return (entries: ReadonlyMap<string, EntryVersion>): BatchReadiness => {
         if (entries.size === 0) return variant("ready", null);
         const issues: Issue[] = [];
@@ -41,49 +69,34 @@ export function authorReadiness(editing: Editing, resident: readonly SheetRowVal
         const report = (result: Readiness, entry: string, row?: number) => {
             if (result.type === "ready") return;
             invalid ||= result.type === "invalid";
-            const addressed = result.value.map(issue => ({ entry, row: row === undefined ? none : some(BigInt(row)), field: some(issue.field), message: issue.message }));
-            issues.push(...(addressed.length ? addressed : [{ entry, row: row === undefined ? none : some(BigInt(row)), field: none, message: `Author check reports ${result.type}` }]));
+            const at = row === undefined ? none : some(BigInt(row));
+            if (result.value.length === 0) issues.push({ entry, row: at, field: none, message: `Author check reports ${result.type}` });
+            for (const issue of result.value) issues.push({ entry, row: at, field: some(issue.field), message: issue.message });
         };
-        const drafts = new Map<string, Uint8Array>();
-        // Capture source drafts at their source offsets before local placement
-        // changes. No callback can accidentally decode a neighbour's payload.
-        for (const [index, wire] of resident.entries()) {
-            if (entries.has(wire.id)) continue;
-            // A base read that throws leaves the row to the bridge: a check
-            // that needs it reports why, and the sheet stays up (#853).
-            let payload: ReturnType<Editing["readEntry"]>;
-            try { payload = editing.readEntry(wire.id, BigInt(positions[index]!)); }
-            catch { continue; }
-            if (payload.type === "some") drafts.set(wire.id, encodeDraft(liftDraft(draftType, decodeEntry(payload.value))));
-        }
+        // The source rows' drafts, with the session's over them.
+        const drafts = new Map(sourceDrafts());
         const byId = new Map(resident.map(row => [row.id, row]));
         for (const [id, entry] of entries) {
-            if (entry.draft === undefined || entry.wire === undefined) { byId.delete(id); continue; }
+            if (entry.draft === undefined || entry.wire === undefined) { byId.delete(id); drafts.delete(id); continue; }
             drafts.set(id, encodeDraft(entry.draft));
             byId.set(id, entry.wire);
         }
-        const rows = [...byId.values()];
+        let rows = [...byId.values()];
         if (editing.keyed) rows.sort((a, b) => compareId(a.id, b.id));
-        else for (const [id, entry] of entries) {
-            if (entry.place.type !== "some" || entry.place.value.type !== "ordered") continue;
-            const at = rows.findIndex(row => row.id === id);
-            if (at < 0) continue;
-            const place = entry.place.value.value;
-            if ((place.type === "before" || place.type === "after") && !byId.has(place.value)) continue;
-            const [row] = rows.splice(at, 1);
-            const target = place.type === "start" ? 0 : place.type === "end" ? rows.length : rows.findIndex(row => row.id === place.value) + (place.type === "after" ? 1 : 0);
-            rows.splice(target, 0, row!);
-        }
+        else rows = placeInOrder(rows, row => row.id, Array.from(entries, ([id, entry]) => [id, entry.place] as const));
         const today = new Date();
         today.setUTCHours(0, 0, 0, 0);
-        // Each row's position: a source row's own (a failed window before it
-        // does not move it, #853); a new row, the row before it's plus one.
-        const sourceAt = new Map(resident.map((wire, i) => [wire.id, positions[i]!] as const));
+        // Each row's position: a source row's own; a new row, the row before
+        // it's plus one. And each draft's place among the rows, by one index.
         const placedAt: number[] = [];
-        rows.forEach((row, i) => placedAt.push(sourceAt.get(row.id) ?? (i > 0 ? placedAt[i - 1]! + 1 : positions[0] ?? 0)));
+        const indexOf = new Map<string, number>();
+        rows.forEach((row, i) => {
+            placedAt.push(sourceAt.get(row.id) ?? (i > 0 ? placedAt[i - 1]! + 1 : positions[0] ?? 0));
+            if (!indexOf.has(row.id)) indexOf.set(row.id, i);
+        });
         for (const [id, entry] of entries) {
             if (entry.draft === undefined || entry.wire === undefined) continue;
-            const position = rows.findIndex(row => row.id === id);
+            const position = indexOf.get(id) ?? -1;
             const checkRow = (cells: SheetRowValue["cells"], index: number, key?: string) => {
                 if (rowCheck === undefined) return;
                 const driver = driverColumn === undefined ? undefined : cells.get(driverColumn);

@@ -1216,7 +1216,7 @@ capture only data, bind handles and the author's functions:
 
 | Piece | Shape | Built from |
 |---|---|---|
-| `rowById` | `Fn([String, Integer], Option<R>)` | the source row by id: on the inline arm the captured bind handle's `read()` (or the captured collection, when `data` is a plain value) searched by the `id` accessor; on the paged arm the source's `page` at the wire context's `offset`. Built ONCE per sheet and shared by every wrapper, so the collection is captured once |
+| `rowById` | `Fn([String, Integer], Option<R>)` | the source row by id: on the inline arm the captured bind handle's `read()` (or the captured collection, when `data` is a plain value) — the row at the given offset first, else the nearest match outward from it, so a read is never a scan of the collection (#859); on the paged arm the source's `page` at the wire context's `offset`. Built ONCE per sheet and shared by every wrapper, so the collection is captured once |
 | `decode` | `Fn([String, Dict<String, Cell>, Option<R>], R)` | the id field from the wire id; the source row as the base (the row type's default when absent — an insert, a proposal), then each column's field from its cell by the static tag (`Null` → `none` on an `Option` field); a `Link` cell to a `Link` field, or split into the `from` / `to` arrays, or printed to a `String` field. A field with no column keeps the base row's value |
 | `encode` | `Fn([R], Dict<String, Cell>)` | the columns' reified accessors — the same projection §4.1 uses to make wire rows |
 | `lookupDriver` | `Fn([String], Option<D>)` | the driver's data and `key` accessor, folded once into a `Dict<String, D>` |
@@ -1287,6 +1287,7 @@ sheet/
   use-links.ts           ~150   the link columns' wiring: vocabularies, halves and locks, checks per row value, the editor's context
   values.ts               ~40   the decoded value types, named once (`SheetRootValue`, `SheetRowValue`, `SheetCellValue`, …)
   persisted.ts            ~90   what the sheet keeps under its `storageKey` (#857): the folds with their tab, the scroll anchor as an item; read back defensively
+  placement.ts            ~90   a batch's placements in one linear pass over a list linked through the ids (#859)
   model.ts               ~200   decoded value → sheet model: real rows + blank padding (exhaustion-aware), column index, driver lookup, cell display, the drawn heights (`itemPx` / `drawnPx`, #855)
   paging.ts              ~250   the paged arm over the Plan stack: window ledger / residency, a positional read-once reader, the run nearest the viewport (#876), windows measured by the caller's `heightOf` (#855), `total()`-driven exhaustion, `jumpToElement` for the key search
   paging.dom.test.tsx           the driver harness: first paint, the tail band, exhaustion, a held window, a jump, an unreadable source, a failed window (#853), a pending jump (#854), a window loading beside the run (#876), a window measured by what its rows draw (#855)
@@ -1315,6 +1316,7 @@ sheet/
   Footer.tsx             ~100   counts · key hint · live message · transport line
   sheet.dom.test.tsx            per-behaviour DOM tests (§5)
   sheet-render.dom.test.tsx     the rows each gesture renders (#858)
+  sheet-scale.dom.test.tsx      a paste at scale reads each source row's id a bounded number of times (#859)
   frame.test-utils.ts           the DOM tests' stand-ins for layout jsdom lacks: rows measured as they draw, a page that scrolls (#856)
 theme/slot-recipes/sheet.ts ~300 the B§11 vocabulary as recipe slots, light + dark via semantic tokens
 ```
@@ -1638,6 +1640,22 @@ is a primitive or a reference that holds still:
 
 A test-only render probe (`setSheetRowRenderProbe`, the Plan's #815) lets the DOM
 tests assert which rows rendered.
+
+**Derivations at scale (#859).** The editing session stays linear in the rows and
+the drafts:
+- the inline `rowById` reads a row at its offset, then nearest outward (§4.8), so
+  every context — a fill's, a proposer's, a check's — builds in O(rows), and a
+  readiness evaluation reads each source row once;
+- readiness is derived once per change of the drafts or of the checks, however often
+  it is read (`SheetTransactions.readiness`). A gesture, an undo or redo, a discard
+  or a rebase drops it, and so does a new binding. The source rows' drafts are read
+  once per generation of the source;
+- a batch's placements apply in one pass over a list linked through the ids
+  (`placement.ts`), in the local layer and in readiness alike;
+- the session looks its rows up through one id index, and a paste mints its ids
+  against one set;
+- no spread into a call under `collections/sheet/` (lint, the Plan's #810 guard): a
+  batch of 250,000 failing rows returns its 250,000 issues.
 
 **The fields (review, 2026-09-12).** The ring is the field chrome; what sits
 inside it is the COMMON control for the column's kind, never a bespoke input:

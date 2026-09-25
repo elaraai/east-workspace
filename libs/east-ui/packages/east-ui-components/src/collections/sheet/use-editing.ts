@@ -91,6 +91,14 @@ export function useSheetEditing(editing: Editing, source: SheetPagedSourceValue 
             },
         } });
     }, [session, binding, sourceSessions]);
+    // Each resident row's place by its id, once per rows: a gesture's entries,
+    // a reconcile's reads and the layer look rows up here, never by a scan of
+    // the rows per entry (#859).
+    const rowIndex = useMemo(() => {
+        const at = new Map<string, number>();
+        rows.forEach((row, i) => { if (!at.has(row.id)) at.set(row.id, i); });
+        return at;
+    }, [rows]);
     const codecs = useMemo(() => ({
         encodeDraft: encodeBeast2For(toEastTypeValue(draftType)),
         decodeDraft: decodeBeast2For(toEastTypeValue(draftType)),
@@ -100,15 +108,19 @@ export function useSheetEditing(editing: Editing, source: SheetPagedSourceValue 
         entryEqual: equalFor(editing.entryType),
     }), [entryType, draftType, editing.entryType]);
     const read = useCallback(() => {
-        binding.ready?.(session.entries);
+        // The author's checks run here, tracked: what they read (a State, a
+        // dataset) re-runs this read when it moves, and the session takes
+        // their fresh result as its readiness — derived here, not on every
+        // read of it (#859).
+        session.recheck(binding.ready, binding.ready?.(session.entries));
         const matches = new Map<string, unknown>();
         if (editing.snapshot.type === "some") return { base: variant("snapshot", codecs.decodeRows(editing.snapshot.value)), matches };
         const revision = source?.revision();
         if (revision?.type !== "some") return undefined;
         if (session.status === "reconciling" && source !== undefined) {
             for (const [id, entry] of session.entries) {
-                const resident = rows.findIndex(row => stringEqual(row.id, id));
-                let at = resident >= 0 ? positions[resident] : entryOffsets.get(session)?.get(id);
+                const resident = rowIndex.get(id);
+                let at = resident !== undefined ? positions[resident] : entryOffsets.get(session)?.get(id);
                 if (editing.keyed && source.seek.type === "some") {
                     const found = source.seek.value(variant("key", id));
                     if (found.type === "none") continue;
@@ -131,7 +143,7 @@ export function useSheetEditing(editing: Editing, source: SheetPagedSourceValue 
         return { base: variant("revision", revision.value), matches };
         // Session status and entries change under the external-store version.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [editing, source, rows, positions, codecs, session, version, binding]);
+    }, [editing, source, rows, rowIndex, positions, codecs, session, version, binding]);
     const { result } = useTrackedEvaluation(read);
     const observed = result.ok ? result.value : undefined;
     useLayoutEffect(() => {
@@ -153,25 +165,25 @@ export function useSheetEditing(editing: Editing, source: SheetPagedSourceValue 
 
     const placeOf = useCallback((id: string): Placement => {
         if (editing.keyed) return some(variant("keyOrder", null));
-        const index = rows.findIndex(row => stringEqual(row.id, id));
-        if (index < 0) return none;
+        const index = rowIndex.get(id);
+        if (index === undefined) return none;
         const next = rows[index + 1];
         const previous = rows[index - 1];
         if (next) return some(variant("ordered", variant("before", next.id)));
         if (previous) return some(variant("ordered", variant("after", previous.id)));
         return some(variant("ordered", variant("start", null)));
-    }, [editing.keyed, rows]);
+    }, [editing.keyed, rows, rowIndex]);
     const original = useCallback((id: string): EntryVersion => {
         const existing = session.entries.get(id);
         if (existing) return existing;
-        const index = rows.findIndex(row => stringEqual(row.id, id));
-        if (index < 0) return absent;
+        const index = rowIndex.get(id);
+        if (index === undefined) return absent;
         const at = positions[index]!;
         const raw = editing.readEntry(id, BigInt(at));
         entryOffsets.get(session)?.set(id, at);
         if (raw.type !== "some") throw new Error("The source entry is not available at this revision; wait for its page before editing");
         return { draft: liftDraft(draftType, codecs.decodeEntry(raw.value)), wire: rows[index], place: placeOf(id) };
-    }, [session, rows, editing, positions, draftType, codecs, placeOf]);
+    }, [session, rows, rowIndex, editing, positions, draftType, codecs, placeOf]);
 
     /** Aggregate the renderer's writes into one transaction at the effect boundary. */
     const record = useCallback((events: readonly SheetEditValue[], placements?: ReadonlyMap<string, Placement>, originOverride?: Origin) => {
@@ -219,7 +231,8 @@ export function useSheetEditing(editing: Editing, source: SheetPagedSourceValue 
                 // The acknowledged source uses fresh positional child keys.
                 // Preserve the session's internal keys by position at this
                 // checked base, so the next edit still finds its hidden fields.
-                const authoritative = rows.find(row => stringEqual(row.id, id));
+                const at = rowIndex.get(id);
+                const authoritative = at !== undefined ? rows[at] : undefined;
                 if (authoritative && entry.wire && authoritative.lines.some((line, i) => !stringEqual(line.key, entry.wire!.lines[i]?.key ?? line.key))) {
                     edits.set(id, { ...authoritative, lines: authoritative.lines.map((line, i) => ({ ...line, key: entry.wire!.lines[i]?.key ?? line.key })) });
                 }
@@ -232,7 +245,7 @@ export function useSheetEditing(editing: Editing, source: SheetPagedSourceValue 
         return { edits, appended, removed, placements };
         // The version tracks mutations to the session's maps.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [session, codecs, version, rows]);
+    }, [session, codecs, version, rows, rowIndex]);
     const drafts = useMemo(() => new Map([...session.entries].filter(([, entry]) => entry.draft !== undefined)
         .map(([id, entry]) => [id, codecs.encodeDraft(entry.draft)])),
     // Session entries are mutable; the external-store version records each gesture.
