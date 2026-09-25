@@ -394,8 +394,8 @@ export interface ExecutionIds {
  *  argv, spawn, and the output through the store's door. The engine runs each
  *  unit of a split task through it.
  *
- *  What the argv is depends on the body. A command body — a custom task's, or
- *  a record step's — is its command IR, evaluated over the staged paths. An
+ *  What the argv is depends on the body. A command body — a custom task's —
+ *  is its command IR, evaluated over the staged paths. An
  *  East body on a stock runner is a unit its `exec` runs, with the `merge`
  *  unit a set or dict output needs when it closed several runs. An East body
  *  on the `custom` runtime is its command given `run`'s arguments: `-i` for
@@ -442,11 +442,11 @@ export async function taskExecuteBody(
   };
 
   // Step 4: Create scratch directory inside the repository (or under
-  // E3_SCRATCH_DIR), named after the execution and this process — its pid and
-  // start time — so concurrent e3 processes never collide and a directory this
-  // process leaves behind if it dies is swept once it is gone
-  // (execution/scratch.ts).
-  const scratchDir = await executionScratchDir(repo, taskHash, inHash);
+  // E3_SCRATCH_DIR), named after the execution attempt and this process — its
+  // pid and start time — so no two attempts share one, in this process or
+  // across processes, and a directory this process leaves behind if it dies is
+  // swept once it is gone (execution/scratch.ts).
+  const scratchDir = await executionScratchDir(repo, taskHash, inHash, executionId);
   await fs.mkdir(scratchDir, { recursive: true });
 
   try {

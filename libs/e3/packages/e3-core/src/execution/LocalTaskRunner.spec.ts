@@ -308,7 +308,7 @@ describe('stopped executions', () => {
     });
   });
 
-  it('runs in a scratch directory under E3_SCRATCH_DIR named after the execution and this process, removed after', async () => {
+  it('runs in a scratch directory under E3_SCRATCH_DIR named after the execution attempt and this process, removed after', async () => {
     const root = mkdtempSync(path.join(tmpdir(), 'e3-scratch-root-'));
     const previous = process.env.E3_SCRATCH_DIR;
     process.env.E3_SCRATCH_DIR = root;
@@ -325,9 +325,9 @@ describe('stopped executions', () => {
       // /private/var), and Windows's may be named in its short 8.3 form.
       assert.equal(realpathSync(path.dirname(cwd)), realpathSync(root));
       const pidStartTime = await getPidStartTime(process.pid);
-      assert.match(
+      assert.equal(
         path.basename(cwd),
-        new RegExp(`^e3-exec-${taskHash.slice(0, 8)}-${result.inputsHash.slice(0, 8)}-${process.pid}-${pidStartTime}-\\d+$`),
+        `e3-exec-${taskHash.slice(0, 8)}-${result.inputsHash.slice(0, 8)}-${process.pid}-${pidStartTime}-${result.executionId.replaceAll('-', '')}`,
       );
       assert.deepEqual(readdirSync(root), [], 'the execution removed its scratch directory');
     } finally {

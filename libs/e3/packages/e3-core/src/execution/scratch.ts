@@ -8,9 +8,9 @@
  *
  * An execution stages its inputs in a scratch directory, and its runner writes
  * the output there, once, in order (no runner spills anywhere). The directory
- * is named after the execution and the orchestrator process that owns it —
- * `e3-exec-<task8>-<in8>-<pid>-<pidStartTime>-<ms>` — and the execution
- * removes it when it finishes. An orchestrator that dies leaves its
+ * is named after the execution attempt and the orchestrator process that owns
+ * it — `e3-exec-<task8>-<in8>-<pid>-<pidStartTime>-<executionId>` — and the
+ * execution removes it when it finishes. An orchestrator that dies leaves its
  * directories behind; {@link sweepScratchDirs} removes them once that process
  * is gone.
  *
@@ -42,20 +42,27 @@ export function scratchRoot(repo: string): string {
 }
 
 /**
- * The scratch directory for one execution, owned by this process: its name
- * carries the execution's task and inputs hashes, this process's pid and start
- * time, and the creation time.
+ * The scratch directory for one execution attempt, owned by this process: its
+ * name carries the execution's task and inputs hashes, this process's pid and
+ * start time, and the attempt's id.
+ *
+ * @remarks
+ * The attempt's id is what keeps two attempts at one execution apart when they
+ * run at once in one process — two mutations of a record over the same state
+ * with the same arguments, say. Its dashes are dropped, so the name keeps the
+ * five fields {@link sweepScratchDirs} reads.
  *
  * @param repo - Path to the e3 repository
  * @param taskHash - Hash of the task object
  * @param inHash - Combined inputs hash
+ * @param executionId - The attempt's execution id
  * @returns The directory's path (not yet created)
  */
-export async function executionScratchDir(repo: string, taskHash: string, inHash: string): Promise<string> {
+export async function executionScratchDir(repo: string, taskHash: string, inHash: string, executionId: string): Promise<string> {
   const pidStartTime = await getPidStartTime(process.pid);
   return path.join(
     scratchRoot(repo),
-    `${SCRATCH_PREFIX}${taskHash.slice(0, 8)}-${inHash.slice(0, 8)}-${process.pid}-${pidStartTime}-${Date.now()}`
+    `${SCRATCH_PREFIX}${taskHash.slice(0, 8)}-${inHash.slice(0, 8)}-${process.pid}-${pidStartTime}-${executionId.replaceAll('-', '')}`
   );
 }
 
@@ -118,7 +125,8 @@ export async function sweepScratchDirs(repo: string, options: SweepScratchOption
     const pid = Number(fields[2]);
     const startTime = await getPidStartTime(pid);
     if (fields.length === 5) {
-      // <task8>-<in8>-<pid>-<pidStartTime>-<ms>. Both start times must be
+      // <task8>-<in8>-<pid>-<pidStartTime>-<executionId>, or the creation
+      // time in its place from an older e3. Both start times must be
       // known for the comparison to mean anything: the writer records 0 where
       // its own platform could not answer, and comparing that against a start
       // time this sweeper CAN resolve says "gone" about a live owner. With

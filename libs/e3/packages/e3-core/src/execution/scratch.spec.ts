@@ -39,26 +39,36 @@ describe('scratch directories', () => {
   it('are inside the repository, on the object store\'s filesystem, unless E3_SCRATCH_DIR is set', async () => {
     delete process.env.E3_SCRATCH_DIR;
     assert.equal(scratchRoot(repo), path.join(repo, 'tmp', 'scratch'));
-    const dir = await executionScratchDir(repo, 'a'.repeat(64), 'b'.repeat(64));
+    const dir = await executionScratchDir(repo, 'a'.repeat(64), 'b'.repeat(64), '01900000-0000-7000-8000-000000000001');
     assert.equal(path.dirname(dir), path.join(repo, 'tmp', 'scratch'));
   });
 
-  it('names an execution\'s directory under E3_SCRATCH_DIR after the execution and this process', async () => {
+  it('names an execution\'s directory under E3_SCRATCH_DIR after the execution attempt and this process', async () => {
     assert.equal(scratchRoot(repo), root);
-    const dir = await executionScratchDir(repo, 'a'.repeat(64), 'b'.repeat(64));
+    const dir = await executionScratchDir(repo, 'a'.repeat(64), 'b'.repeat(64), '01900000-0000-7000-8000-000000000001');
     assert.equal(path.dirname(dir), root);
     const pidStartTime = await getPidStartTime(process.pid);
-    assert.match(path.basename(dir), new RegExp(`^e3-exec-aaaaaaaa-bbbbbbbb-${process.pid}-${pidStartTime}-\\d+$`));
+    assert.equal(path.basename(dir), `e3-exec-aaaaaaaa-bbbbbbbb-${process.pid}-${pidStartTime}-01900000000070008000000000000001`);
+  });
+
+  it('gives two attempts at one execution a directory each', async () => {
+    // Two mutations of a record over the same state with the same arguments
+    // are one execution, and they run at once: in one directory, each would
+    // stage its inputs over the other's and remove the directory under it.
+    const first = await executionScratchDir(repo, 'a'.repeat(64), 'b'.repeat(64), '01900000-0000-7000-8000-000000000001');
+    const second = await executionScratchDir(repo, 'a'.repeat(64), 'b'.repeat(64), '01900000-0000-7000-8000-000000000002');
+    assert.notEqual(first, second);
   });
 
   it('removes the directories of exited owners and keeps the rest', async () => {
     const hour = 60 * 60 * 1000;
     const now = Date.now();
     const dead = deadPid();
-    const live = path.basename(await executionScratchDir(repo, 'a'.repeat(64), 'b'.repeat(64)));
+    const live = path.basename(await executionScratchDir(repo, 'a'.repeat(64), 'b'.repeat(64), '01900000-0000-7000-8000-000000000001'));
     const names = {
       live,
-      exitedOwner: `e3-exec-aaaaaaaa-bbbbbbbb-${dead}-12345-${now}`,
+      exitedOwner: `e3-exec-aaaaaaaa-bbbbbbbb-${dead}-12345-01900000000070008000000000000002`,
+      exitedOwnerTimeForm: `e3-exec-aaaaaaaa-bbbbbbbb-${dead}-12345-${now}`,
       reusedPid: `e3-exec-aaaaaaaa-bbbbbbbb-${process.pid}-12345-${now}`,
       oldFormExitedOld: `e3-exec-cccccccc-dddddddd-${dead}-${now - hour}`,
       oldFormExitedYoung: `e3-exec-eeeeeeee-ffffffff-${dead}-${now}`,
@@ -74,7 +84,7 @@ describe('scratch directories', () => {
     // process, now running — still counts as the owner.
     const startTimes = process.platform !== 'win32';
     assert.equal((await getPidStartTime(process.pid)) !== 0, startTimes, 'this platform reports start times');
-    assert.equal(removed, startTimes ? 3 : 2);
+    assert.equal(removed, startTimes ? 4 : 3);
     assert.deepEqual(
       readdirSync(root).sort(),
       [names.live, names.oldFormExitedYoung, names.oldFormLive, names.unrelated, ...(startTimes ? [] : [names.reusedPid])].sort(),
