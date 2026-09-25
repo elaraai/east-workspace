@@ -223,16 +223,17 @@ Scratch defaults to a directory inside the repository, on the object store's fil
 Every task execution is a **unit graph**, built by one engine and persisted in the dataflow's execution state.
 
 1. **Plan.** With no partitioned input, the graph is one `run` unit. Otherwise it is cut into pieces:
-   - Boundaries fall at segment fences chosen by a content-defined rule over the primary input (platform constants, §3.10).
-   - A boundary moves forward to the end of a `by` group.
-   - Co-partitioned inputs are split at the same keys, as `partitionExec.ts` does today.
+   - Boundaries fall at segment fences chosen by a content-defined rule over the primary input's manifest. Its segments are walked in order, with `b` the stored bytes of the open piece. A segment closes the piece after it when `b` reaches 256 MiB, or when `b` is at least 16 MiB and the first 32 bits of the segment's SHA-256, the hash the store names it by, fall under `2^32 × s / D`. Here `s` is the segment's stored bytes, and `D` is 256 MiB until the piece holds 64 MiB and 16 MiB after, so most pieces hold 64 to 100 MiB. A piece is whole segments, but where a `by` group ends inside one (below), and where it ends depends only on the segments near that point, so an insertion moves only the pieces around it (F42). The sizes are platform constants (§3.10).
+   - Tests alone set `E3_TEST_PIECE_BYTES=n`, which makes the three sizes `n/4`, `n` and `4n` bytes and the merge range size (below) `n`, so a small input has many pieces and its merges many ranges. It is never a machine setting.
+   - A boundary moves forward to the end of the `by` group it falls in. A group usually ends inside a segment, and the boundary lands there: that segment is split and re-encoded, as a co-partitioned input's are, so a piece keeps its size however large the groups are.
+   - Co-partitioned inputs are split at the same keys: each at its first row whose key, or `by` fields, reach those of the piece's first row.
    - Each piece is a **sub-manifest** naming existing segment objects, so no bytes are copied (F17). A split point inside a segment re-encodes that one segment.
-2. **Run.** One `run` unit per piece, each a content-addressed execution.
+2. **Run.** One `run` unit per piece, each a content-addressed execution. A piece whose set or dict output fills several runs merges them into one, as a one-unit task does, so every piece's output is one manifest.
 3. **Assemble,** by output kind:
    - `value`: the one unit's output.
    - `fold`: `merge` units fold the partials, a fixed fan-in at a time, in input order.
    - `array`: e3 concatenates the pieces' manifests and re-cuts the seams; no unit is needed.
-   - `set`/`dict`: e3 groups the runs whose key ranges overlap, reading fences plus one segment decode for a run's last key. Each overlapping group becomes ranged `merge` units, with range boundaries taken from fences as `planMergeRanges` chooses them today. The disjoint results are concatenated and re-cut at the seams.
+   - `set`/`dict`: e3 groups the pieces' outputs whose key ranges overlap, reading fences plus one segment decode for an output's last key. Each overlapping group becomes ranged `merge` units, with range boundaries taken from fences as `planMergeRanges` chooses them today, each range covering about 64 MiB of the group's parts, the pieces' middle size. The disjoint results are concatenated and re-cut at the seams.
 
    The result goes through the door as one manifest.
 
@@ -240,7 +241,7 @@ Every task execution is a **unit graph**, built by one engine and persisted in t
 - The dataflow's ready set is units, from every task (P8).
 - A yield or a crash resumes per unit (F2).
 - Progress is a typed event wire that can grow (F35).
-- Every unit is cached on its own identity: kind, program or merge function, input hashes and output kind. A re-run after an append re-runs only the pieces it touched and the merges they reach. Because pieces are content-defined, the same holds for an insertion in the middle (F42).
+- Every unit, a piece with the merge of its own runs or a merge or fold over pieces, is cached on its own identity: kind, program or merge function, input hashes and output kind. A re-run after an append re-runs only the pieces it touched and the merges they reach. Because pieces are content-defined, the same holds for an insertion in the middle (F42).
 
 **Records run on the engine** (F1, F26):
 - **Index builds** are a partitioned unit graph over the record's primary, with a `dict` output and no merge. The generated build program emits in any order, with no per-slice sort (F38), and the never-called index merge function goes (F14).
@@ -304,16 +305,16 @@ The recognizer lives in the e3 SDK (`libs/e3/packages/e3/src/parallel.ts`) as on
 | Platform constants (in rule ids and code; not configurable) | Machine settings (never in a package) |
 |---|---|
 | the segment cut rule parameters (Set/Dict and Array) | `-j` cores |
-| the partition boundary rule parameters | `--memory` |
+| the piece rule's sizes: 16, 64 and 256 MiB of stored bytes (§3.7) | `--memory` |
 | the RunSorter's buffer cap, which is also the door's cap on a foreign segment | the scratch directory |
-| merge and fold fan-in; merge range size | the lazy-open threshold |
+| merge and fold fan-in, 32; merge range size, 64 MiB | the lazy-open threshold |
 | | cgroup use; verbosity |
 
 The left column decides how work, and so floating-point folds, are grouped, which decides output bytes. The right column decides only when work runs (D15).
 
 ### 3.11 Object kinds and GC
 
-Every object this plan introduces or rewrites that names other objects carries a `kind` tag: task objects, unit graphs (`$plan`) and a unit's runs (`$runs`), alongside the existing `$segments` and `$record`. GC's `markReachable` dispatches on the tag. Pre-cutover shapes keep their shape recognition, each pinned by a test (F36). Every new kind lands with its GC test in the same PR.
+Every object this plan introduces or rewrites that names other objects carries a `kind` tag: task objects and unit graphs (`$plan`), alongside the existing `$segments` and `$record`. A piece merges its own runs (§3.7), so no object names a unit's runs. GC's `markReachable` dispatches on the tag. Pre-cutover shapes keep their shape recognition, each pinned by a test (F36). Every new kind lands with its GC test in the same PR.
 
 ### 3.12 Migration
 
@@ -525,6 +526,13 @@ In three parts:
      - Deleted: `partitionTask` and its types, which the typed task object cannot express; the old `streamTask` shape and its metadata; the old mutation names; the command IR of every task but a `customTask`; `kind` and `metadata` in the config; and the `function_ir` and `merge_ir` datasets, since the program is named by the task object.
      - Deleted with them: `templateFor`, `executeTemplate` and the partition metadata. The interpreter dispatches on the task object's `kind` and reads its `metadata`, which the typed task object no longer has, and `partitionTask` was its only caller. `TASK_KIND_*` goes too, since no field holds it; the record steps' units become `command` bodies until 4b.
   2. **The engine, in process:** content-defined pieces as sub-manifests, a unit per piece, assembly by output kind, and a cache entry per unit.
+     - The piece rule (§3.7): whole segments of the primary input, closed by a segment's SHA-256 weighed against its stored bytes, at 16, 64 and 256 MiB; `E3_TEST_PIECE_BYTES` for tests.
+     - A boundary moves to where its `by` group ends, splitting the segment the group ends in, so pieces keep their size whatever the groups' size. Whole segments alone would let a piece over large groups grow to the whole input.
+     - A piece merges its own runs, so every unit's output is one manifest.
+     - Merge ranges aim for 64 MiB of parts, the pieces' middle size; `targetPartitionBytes`, which set it, went with `partitionTask`.
+     - What the template interpreter did around its units carries over: the task's log names each unit's execution, units report progress and take a slot of the jobs budget each, an aborted run stops them, and a failure is the lowest-index unit's.
+     - `by` is data: the planner projects keys by field path.
+     - Deleted: the IR `by` projection (`partitionProjectionShape`, `projectKey` and `projectedKeyType`), which no task object has carried since part 1, and `partitionExec.ts`'s `by` alignment and co-partition carve, which only split tasks used: the planner does both.
   3. **Units in the dataflow:** unit graphs persisted in the execution state, units in the ready set, a yield or crash resumed per unit, and a new version of the execution event wire (F35).
   4. **Kind tags, GC and 4a's acceptance tests.**
 - **4b — records.**
@@ -535,8 +543,7 @@ In three parts:
   - e3-types:
     - `stream.ts`;
     - `runnerOpensManifests` and `withRunnerVerbose`;
-    - the partition plan's legacy decoder;
-    - `partitionProjectionShape` and `projectKey`, since `by` is now data.
+    - the partition plan's legacy decoder.
   - e3-core:
     - `recordSteps.ts`;
     - `partitionIo.ts`'s virtual layout and `spliceChunks`;
@@ -583,7 +590,7 @@ Read first: `east`'s `builtins.ts`, `ir.ts`, `analyze.ts` and `walker.ts`; e3 `e
 
 Changes:
 - **`parallel.ts`** (§3.9): the recognizer, the associativity proof, the compile to the explicit form, and the plan report from export.
-- **An equivalence suite:** every recognised shape run as one unit and as many small pieces (through a test-only override of the piece size). Exact types must be byte-equal; floats must agree within rounding.
+- **An equivalence suite:** every recognised shape run as one unit and as many small pieces (through `E3_TEST_PIECE_BYTES`). Exact types must be byte-equal; floats must agree within rounding.
 - **Follow-ups**, once single operations and chains are in: `Sort`, then reduction loops.
 
 Acceptance:
