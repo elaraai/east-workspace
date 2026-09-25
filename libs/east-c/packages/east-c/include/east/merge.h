@@ -2,16 +2,16 @@
 #define EAST_MERGE_H
 
 /*
- * The blob merge behind `merge` (issue #770).
+ * The blob merge behind an `exec` merge unit (issue #770).
  *
  * Canonical Set or Dict blobs of one type in — sorted, indexed beast2 v5
  * collections, as every runner writes them — and one canonical blob out, in
  * a single pass: every input is read segment by segment through a mapping,
  * a heap over the inputs' current entries yields keys in East order, and the
- * merged entries are written as VALUES through the very writer `run --emit`
- * writes through (src/emit_writer.h), so the file is byte-identical to what
- * that sink writes for the same entries emitted ascending — aliasing scoped
- * per entry, as every writer scopes it. An entry of an older blob, whose
+ * merged entries are written as VALUES through the library's canonical
+ * element writer (src/emit_writer.h), so the file is byte-identical to the
+ * paged encode of the merged value — aliasing scoped per entry, as every
+ * writer scopes it. An entry of an older blob, whose
  * writer scoped aliasing per segment and so could REF a container an earlier
  * entry defined, is decoded whole and so comes out in the same canonical
  * form. Memory is one decoded segment per input plus one open output
@@ -19,9 +19,9 @@
  *
  * Equal keys across inputs fold in input order: with a merge function (Dict
  * inputs) `acc = merge(key, acc, value)`; in union mode (Set inputs) the
- * first element stands. Without a fold, an equal key is the duplicate error
- * the emit sink raises. An input whose keys do not ascend, an input whose
- * type is not input 0's, and an Array input are refused.
+ * first element stands. Without a fold, an equal key is the library's
+ * duplicate error. An input whose keys do not ascend, an input whose type is
+ * not input 0's, and an Array input are refused.
  *
  * With a key range (`range_path`, a blob of `Struct{from: Option<K>, to:
  * Option<K>}` over the inputs' key type) only the keys in `[from, to)`
@@ -34,10 +34,10 @@
  * manifest's, read through the manifest pager, whose fences seek without
  * opening a segment — and the output may be one too (`output_manifest`).
  *
- * This is the fan-in of a partitioned task's keyed partials: e3 runs it as an
- * ordinary execution on the task's runner, one unit per key range of a group
- * of partials, and never decodes a partial itself. The sink lives in the core
- * library so the east-c CLI and east-py merge through the same code.
+ * This is the fan-in of a split task's set and dict parts: e3 runs it as a
+ * merge unit on the task's runner, one per key range of a group of parts, and
+ * never decodes a part itself. It lives in the core library so the east-c CLI
+ * and east-py merge through the same code.
  *
  * Errors are posted through east_builtin_error; a failed merge leaves the
  * output unfinalised (no terminator or index, or no manifest).

@@ -183,9 +183,9 @@ Result = { outcome: ok | failed { message, locations: [Location] },
 - The exit status is 0 when the outcome is `ok` and 1 when the result records a failure. Anything else, or a missing result, is a crash; e3 reports it with the signal and the stderr tail.
 - `--exit-with-parent` stays a process flag, taken before anything else is parsed.
 
-For people, `run <program> -i … -o …` stays and builds the same unit in memory, except that a collection result is written as one paged blob: a single file that any decoder reads. `-v` prints from the result.
+For people, and for the `custom` runtime, `run <program> -i … -o …` stays, on a path of its own beside `exec`'s. It reads the IR and the values in any of the formats, prints the result when there is no `-o`, and writes a collection result as one paged blob, a single file that any decoder reads. Its `-v` names the program, its platforms, its inputs and its output before the Timing and Memory sections `exec -v` prints. (Decided 2026-09-25: the plan had `run` build the same unit in memory.)
 
-Removed: `run`'s `--emit`, `--merge`, `--union`, `--stream`, `--lazy-inputs`, `--snapshot` and `--from-snapshot`, and the `merge` command. The lazy-open threshold stays a setting (`EAST_LAZY_INPUT_BYTES`). Nothing in the platform wrote or read a snapshot, and a unit file already is one.
+Removed: `run`'s `--emit`, `--merge`, `--union`, `--stream`, `--lazy-inputs`, `--snapshot` and `--from-snapshot`, and the `merge` command, with the library emit sink behind `--emit` (east-c's `emit_sink.c` and east-py's binding to it). The lazy-open threshold stays a setting (`EAST_LAZY_INPUT_BYTES`). Nothing in the platform wrote or read a snapshot, and a unit file already is one.
 
 Parity between the runners is the conformance corpus — unit files with their expected output bytes and results, run by all three in CI — rather than pinned flag messages (F10). Results compare by outcome: `peakBytes` and `timings` are measurements.
 
@@ -566,6 +566,8 @@ In three parts:
      - Staging keeps its splice for the `custom` runtime. The plan had it deleted, but since stage 1 every stock runner reads a manifest, and what is left serves custom commands, which read one ordinary file (decided 2026-09-25).
      - A one-shot call's dataset argument is read whole (`readDatasetWhole`), so a collection reaches the runner as its value. It had passed the object the dataset's ref names, which for a collection is its manifest, and the runner found no segments beside it (found while implementing, 2026-09-25).
   2. **The runners' old commands:** `run`'s mode flags (`--emit`, `--merge`, `--union`, `--stream` and `--lazy-inputs`) and the `merge` command, in east-node, east-c and east-py, with the tests only they have and the fixtures only those tests read. `generate_fixtures.mjs` keeps the fixtures other tests read.
+     - East-c's library emit sink (`emit_sink.c`), which only `run --emit` used, and east-py's binding to it, with their tests. The east-py regression tests that borrowed the sink as a runner's `emit` move to the unit sink `exec` uses. `emit_writer` stays: the blob merge writes through it. (Decided 2026-09-25: the plan listed the commands only.)
+     - `run` keeps its own path (§3.5). (Decided 2026-09-25: the plan had it build the same unit in memory as `exec`.)
   3. **The stored forms an older e3 wrote** (D1, decided 2026-09-25):
      - the dual decoders: package objects, function objects, record objects, mutation objects and commits of every earlier shape, execution statuses from before typed outcomes, and the execution state's version 1;
      - GC's recognition of every earlier shape, and of task objects from before the cutover;

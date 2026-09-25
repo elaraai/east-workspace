@@ -1,5 +1,6 @@
 /*
- * The blob merge behind `merge` — see include/east/merge.h for the contract.
+ * The blob merge behind an `exec` merge unit — see include/east/merge.h for the
+ * contract.
  */
 
 #include <east/compat.h>
@@ -146,7 +147,7 @@ typedef struct {
     EastCompiledFn *merge_fn;
     bool union_mode;
     EastValue *from, *to; /* owned; the key range's bounds, NULL when open */
-    EmitWriter out;       /* the sink's writer; it holds the last entry merged */
+    EmitWriter out;       /* the output's writer; it holds the last entry merged */
     EastMergeStats stats;
 } Merge;
 
@@ -235,9 +236,9 @@ static bool cursor_load_segment(Merge *m, MergeCursor *c, size_t index)
 }
 
 /* Advances a cursor to its next entry within the merge's key range, holding
- * the decoded key and value — the merge writes VALUES through the emit
- * sink's own writer, so the output is what the sink writes for the same
- * entries, whatever aliasing scope the input's writer used. Returns false
+ * the decoded key and value — the merge writes VALUES through the canonical
+ * element writer, so the output is the paged encode of the merged entries,
+ * whatever aliasing scope the input's writer used. Returns false
  * with the message posted. The reader holds each input to the canonical
  * order: a key that does not ascend is its error, prefixed with the input,
  * in the same words on every runtime. */
@@ -401,14 +402,14 @@ static bool cursor_open(Merge *m, MergeCursor *c, size_t index, const char *path
 
 /* Reads the merge's key range: `Struct{from: Option<K>, to: Option<K>}`
  * over the inputs' key type — the shape east-node checks (merge.ts) and
- * e3-core writes (partitionExec.ts) — self-describing, checked against that
+ * e3-core writes (execution/steps.ts) — self-describing, checked against that
  * type. Returns false with the message posted. */
 static bool merge_read_range(Merge *m, const char *path)
 {
     size_t len = 0;
     void *ctx = NULL;
     char who[4200];
-    snprintf(who, sizeof(who), "--range (%s)", path);
+    snprintf(who, sizeof(who), "range (%s)", path);
     uint8_t *data = map_input_file(path, &len, &ctx);
     if (!data) {
         merge_map_error(who, path);
@@ -428,9 +429,8 @@ static bool merge_read_range(Merge *m, const char *path)
     } else if (!east_type_equal(type, expected)) {
         char *got = east_print_type(type);
         char *want = east_print_type(expected);
-        merge_error(
-            "merge: --range (%s) has type %s, expected %s (bounds over the inputs' key type)", path,
-            got ? got : "?", want ? want : "?");
+        merge_error("merge: range (%s) has type %s, expected %s (bounds over the inputs' key type)",
+                    path, got ? got : "?", want ? want : "?");
         free(got);
         free(want);
     } else if (!(bounds = east_beast2_decode_full(data, len, expected))) {
@@ -497,14 +497,13 @@ static EastValue *merge_fold(Merge *m, EastValue *key, EastValue *acc, EastValue
 
 /* Merges the open cursors: a binary min-heap ordered by (key, input index),
  * so equal keys leave in input order. Entries are decoded values, encoded by
- * the emit sink's own writer — one aliasing scope per entry, so a container
- * two entries share is written out in each, exactly as `run --emit` writes
- * it.
+ * the canonical element writer — one aliasing scope per entry, so a container
+ * two entries share is written out in each, as every writer writes it.
  *
  * Equal keys fold in place: the writer holds the previous entry until the
  * next one arrives, so `acc = merge(key, acc, value)` replaces its value
- * there, as the sink's fold does. Union keeps the first; without a fold an
- * equal key is the duplicate error. */
+ * there. Union keeps the first; without a fold an equal key is the duplicate
+ * error. */
 static bool merge_sources(Merge *m, MergeCursor *cur, size_t n)
 {
     size_t *heap = malloc((n > 0 ? n : 1) * sizeof(size_t));
@@ -574,7 +573,7 @@ bool east_merge_blobs(const EastMergeConfig *cfg, EastMergeStats *stats_out)
         return false;
     }
     if (cfg->merge_fn && cfg->union_mode) {
-        east_builtin_error("merge: --merge and --union are two folds — give one");
+        east_builtin_error("merge: a merge function and union are two folds — give one");
         return false;
     }
 
@@ -600,12 +599,12 @@ bool east_merge_blobs(const EastMergeConfig *cfg, EastMergeStats *stats_out)
         return false;
     }
     if (cfg->merge_fn && type->kind != EAST_TYPE_DICT) {
-        east_builtin_error("--merge applies to Dict inputs only");
+        east_builtin_error("merge: a merge function applies to Dict inputs only");
         east_type_release(type);
         return false;
     }
     if (cfg->union_mode && type->kind != EAST_TYPE_SET) {
-        east_builtin_error("--union applies to Set inputs only");
+        east_builtin_error("merge: union applies to Set inputs only");
         east_type_release(type);
         return false;
     }
@@ -622,8 +621,8 @@ bool east_merge_blobs(const EastMergeConfig *cfg, EastMergeStats *stats_out)
         char *ks = east_print_type(m.key_type);
         char *vs = east_print_type(m.value_type);
         char *ts = m.merge_fn->fn_type ? east_print_type(m.merge_fn->fn_type) : NULL;
-        merge_error("--merge: expected a function (K, V, V) -> V matching the inputs (K = %s, "
-                    "V = %s), got %s",
+        merge_error("merge function: expected a function (K, V, V) -> V matching the inputs "
+                    "(K = %s, V = %s), got %s",
                     ks ? ks : "?", vs ? vs : "?", ts ? ts : "?");
         free(ks);
         free(vs);

@@ -37,19 +37,12 @@ east-py run program.beast2 \
 east-py run program.beast2 -p east-py-std -v
 ```
 
-### Streaming Outputs
+### Large Inputs
 
-A function whose trailing parameter is an emit capability writes its output
-incrementally instead of returning it; a large collection input can be fed
-lazily, one decoded segment at a time (`--stream` is repeatable):
-
-```bash
-# Emit a Dict (or array / set) through the trailing parameter, feeding
-# inputs 0 and 1 lazily from indexed beast2 blobs
-east-py run task.beast2 -p east-py-std \
-  -i rows.beast2 -i more.beast2 --stream 0 --stream 1 \
-  --emit dict -o out.beast2 -v
-```
+An indexed beast2 collection input of `EAST_LAZY_INPUT_BYTES` bytes or more
+(64 MiB unless set; `0` turns it off) opens lazily: the file is mapped, and a
+read decodes only the segments it reaches. With `-v` the runner says which
+inputs opened lazily and how many of their segments it decoded.
 
 A collection input may also be a manifest directory, the form e3 stages a
 stored collection in: the input file holds a manifest, and each segment it
@@ -58,69 +51,9 @@ over those files — lazily, a read opening only the segments it reaches, or
 whole — and counts as the size of its segments when the runner decides
 whether to open it lazily.
 
-The sink is east-c's, so it writes the same bytes as `east-c run`. Dict and Set emissions must ascend in East order. The sink writes one pass,
-segment by segment, with one open batch in memory whatever the size of the
-output, and a key below the previous one is an error naming both:
-
-```text
-beast2 v5: Dict key emitted out of order: 1 after 2 — Set/Dict emissions must ascend in East order
-```
-
-Equal keys are an error too unless the sink folds them:
-
-```bash
-# Dict: fold the values of adjacent equal keys with an East function (K, V, V) -> V
-east-py run task.beast2 -p east-py-std --emit dict --merge merge.beast2 -o out.beast2
-
-# Set: keep the first of adjacent equal elements
-east-py run task.beast2 -p east-py-std --emit set --union -o out.beast2
-```
-
-`--merge` takes an IR file in any format the program itself may use, compiled
-with the run's `-p` platforms; its signature must match the emit parameter's
-key and value types. Adjacent equal keys fold left in emission order,
-`acc = merge(key, acc, value)`, and the output is byte-identical to what the
-sink writes without the flag for the already-folded sequence.
-
-### Merging blobs
-
-`merge` combines sorted Set or Dict blobs of one type — the files `run --emit`
-writes, or manifest directories — into one, in a single pass over the inputs:
-every input is read segment by segment, equal keys across inputs fold in input
-order (`--merge` on Dict inputs, `--union` on Set inputs; without a fold an
-equal key is an error), and the output is byte-identical to what `run --emit`
-writes for the same entries emitted ascending. This is how e3 assembles a
-partitioned task's keyed partials; all three runners write the same bytes.
-
-```bash
-# Dict partials: fold the values of equal keys, in input order
-east-py merge --merge merge.beast2 -i part-0.beast2 -i part-1.beast2 -i part-2.beast2 -o out.beast2 -v
-
-# Set partials: the first of equal elements stands
-east-py merge --union -i part-0.beast2 -i part-1.beast2 -o out.beast2
-
-# Only the keys in [from, to): range.beast2 holds a Struct{from: Option<K>,
-# to: Option<K>} over the inputs' key type, an absent bound open
-east-py merge --merge merge.beast2 --range range.beast2 -i part-0.beast2 -i part-1.beast2 -o out.beast2
-```
-
-With `--range` every input is sought to the segment owning `from` through its
-fences and read up to the first key at or past `to`, so a merge over one key
-range of large partials reads that range's share of each, plus at most one
-segment — how e3 merges a large output in parallel, one range per unit.
-
-An input of another type than the first, an Array input, an input whose keys
-do not ascend, a fold whose signature does not match the inputs, and bounds of
-another type than the inputs' key are refused, naming the input. With `-v` the
-merge prints its account:
-
-```text
-merge: 3 input(s), 31 entries, 13 fold(s)
-```
-
 ### Exiting with the Parent
 
-With `--exit-with-parent` on its command line (`run` and `merge`) the runner
+With `--exit-with-parent` on its command line (`run` and `exec`) the runner
 watches its stdin on a native thread — one that runs while the body holds the
 GIL — and exits with status 1 as soon as a read returns end of file or fails.
 A parent that spawns the runner with a stdin pipe it never writes to — as e3
@@ -128,7 +61,7 @@ does — takes the runner down with it when it dies, even while the body is
 computing. Without the flag, stdin is left alone.
 
 ```bash
-east-py run task.beast2 --exit-with-parent -p east-py-std --emit dict -o out.beast2
+east-py run task.beast2 --exit-with-parent -p east-py-std -o out.beast2
 ```
 
 On Windows the watcher (east-c's) reads a synchronous pipe or an overlapped

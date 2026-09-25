@@ -31,7 +31,6 @@
 #include "hashmap.h"
 #include "env.h"
 #include "serialization.h"
-#include "emit_sink.h"
 #include "file_map.h"
 #include "merge.h"
 #include "sha256.h"

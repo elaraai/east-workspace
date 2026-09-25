@@ -139,7 +139,7 @@ async function runWork(work: RunWork, platformFns: PlatformFunction[], at: Resol
     // Inputs are frozen. One at or above the lazy threshold opens as a paged
     // value, weighed by the value it holds: a manifest is a small file naming
     // large ones.
-    const threshold = lazyThreshold({});
+    const threshold = lazyThreshold();
     const inputs = work.inputs.map((input, i) => {
         const path = at(input);
         const lazy = threshold > 0 && inputBytes(path) >= threshold ? loadInputLazy(path) : undefined;

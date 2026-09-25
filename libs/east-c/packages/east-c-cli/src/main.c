@@ -8,7 +8,6 @@
  */
 
 #include <east/east.h>
-#include <east/emit_sink.h>
 #include <east/eval_result.h>
 #include <east/file_map.h>
 #include <east/type_of_type.h>
@@ -356,8 +355,8 @@ static EastValue *load_manifest_input(const char *path, EastValue *manifest, Eas
 /* Loads input value `path`, always FROZEN — task inputs are immutable
  * (mutating builtins raise the uniform copy-first error, and frozen
  * collections compare by value). A beast2 collection input opens lazily when
- * `force_lazy` (--stream), or when it weighs `threshold` bytes or more (0
- * disables): an indexed blob as a paged value over a mapping of the file
+ * it weighs `threshold` bytes or more (0 disables): an indexed blob as a paged
+ * value over a mapping of the file
  * (map_input_file: the input's residency is the page cache and the heap holds
  * one decoded segment at a time — issue #505; the value releases the mapping
  * through input_release_mapping; *mapped_out reports it), and a manifest over
@@ -366,8 +365,8 @@ static EastValue *load_manifest_input(const char *path, EastValue *manifest, Eas
  * silently decodes whole, exactly like east-node's runner. Non-beast2 formats
  * have no frozen decoder, so the decoded value round-trips through a canonical
  * beast2 encode + frozen decode, like east-py's runner. */
-static EastValue *load_input_value(const char *path, EastType *type, bool force_lazy,
-                                   size_t threshold, bool *mapped_out)
+static EastValue *load_input_value(const char *path, EastType *type, size_t threshold,
+                                   bool *mapped_out)
 {
     if (mapped_out) *mapped_out = false;
     if (detect_format(path) != FMT_BEAST2) {
@@ -410,12 +409,12 @@ static EastValue *load_input_value(const char *path, EastType *type, bool force_
             free(err);
             return NULL;
         }
-        bool lazy = force_lazy || (threshold > 0 && weight >= threshold);
+        bool lazy = threshold > 0 && weight >= threshold;
         EastValue *val = load_manifest_input(path, manifest, type, lazy, mapped_out);
         east_value_release(manifest);
         return val;
     }
-    if (collection && (force_lazy || (threshold > 0 && len >= threshold))) {
+    if (collection && threshold > 0 && len >= threshold) {
         EastValue *paged =
             east_beast2_open_paged_external(data, len, type, true, input_release_mapping, map_ctx);
         if (paged) {
@@ -518,196 +517,24 @@ static bool register_platform_packages(PlatformRegistry *platform, const char **
 }
 
 /* ------------------------------------------------------------------ */
-/*  Streaming emit sink (--emit)                                       */
+/*  The function a unit's output folds with                           */
 /* ------------------------------------------------------------------ */
-
-/* The sink itself lives in the core library (east/emit_sink.h), shared with
- * east-py; the CLI parses the flags, builds the configuration from the emit
- * parameter's type, and prints the -v epilogue. */
-typedef enum {
-    EMIT_NONE = -1,
-    EMIT_ARRAY = EAST_EMIT_ARRAY,
-    EMIT_SET = EAST_EMIT_SET,
-    EMIT_DICT = EAST_EMIT_DICT,
-} EmitKind;
-
-/* The kind as the flag spells it — the sibling runners name it in their
- * arity message, so this one does too. */
-static const char *emit_kind_name(EmitKind kind)
-{
-    return kind == EMIT_DICT ? "dict" : kind == EMIT_SET ? "set" : "array";
-}
 
 static EastValue *load_ir_with_map(const char *path, EastSourceMap **map_out);
 
-/* The compiled --merge function and the IR it was compiled from, freed after
- * the sink that borrows it. */
+/* A dict's merge or a fold's combine, compiled, and the IR it was compiled
+ * from: freed after the sink that borrows it. */
 typedef struct {
     IRNode *ir;
     EastCompiledFn *fn;
-} EmitMerge;
+} UnitFunction;
 
-static void emit_merge_free(EmitMerge *merge)
+static void unit_function_free(UnitFunction *function)
 {
-    if (merge->fn) east_compiled_fn_free(merge->fn);
-    if (merge->ir) ir_node_release(merge->ir);
-    merge->fn = NULL;
-    merge->ir = NULL;
-}
-
-/* Compiles a loaded --merge function with the run's platforms. Takes over
- * `ir` and `map` on success (the map resolves the function's own loc_ids:
- * current while it compiles, owned by the compiled function after) and
- * releases them on failure, with a message on stderr. */
-static bool merge_fn_compile(IRNode *ir, EastSourceMap *map, PlatformRegistry *platform,
-                             BuiltinRegistry *builtins, EmitMerge *out)
-{
-    const EastSourceMap *saved_map = east_get_source_map();
-    if (map) east_set_source_map(map);
-    char *err = NULL;
-    EastCompiledFn *fn = east_compile_fn(ir, platform, builtins, &err);
-    east_set_source_map(saved_map);
-    if (!fn) {
-        fprintf(stderr, "Error: --merge: %s\n", err ? err : "failed to compile the function");
-        free(err);
-        ir_node_release(ir);
-        east_source_map_release(map);
-        return false;
-    }
-    if (map) fn->source_map = map;
-    out->ir = ir;
-    out->fn = fn;
-    return true;
-}
-
-/* Loads a --merge IR file (any format the IR positional accepts) as a
- * function node. NULL with a message on stderr; *map_out is the file's
- * source map (or NULL), the caller's to release or hand on. */
-static IRNode *merge_fn_load(const char *path, EastSourceMap **map_out)
-{
-    *map_out = NULL;
-    EastValue *ir_val = load_ir_with_map(path, map_out);
-    if (!ir_val) {
-        east_source_map_release(*map_out);
-        *map_out = NULL;
-        return NULL;
-    }
-    IRNode *ir = east_ir_from_value(ir_val);
-    east_value_release(ir_val);
-    if (!ir || ir->kind != IR_FUNCTION) {
-        fprintf(stderr, "Error: --merge: %s does not hold a function\n", path);
-        if (ir) ir_node_release(ir);
-        east_source_map_release(*map_out);
-        *map_out = NULL;
-        return NULL;
-    }
-    return ir;
-}
-
-/* Loads the --merge IR for `run --emit dict`, checks it is a function
- * (K, V, V) -> V over the emit parameter's key and value types, and compiles
- * it with the run's platforms. Returns false with a message on stderr. */
-static bool emit_merge_load(const char *path, EastType *key_type, EastType *value_type,
-                            PlatformRegistry *platform, BuiltinRegistry *builtins, EmitMerge *out)
-{
-    out->ir = NULL;
-    out->fn = NULL;
-    EastSourceMap *map = NULL;
-    IRNode *ir = merge_fn_load(path, &map);
-    if (!ir) return false;
-    EastType *t = ir->type;
-    bool shape = t && t->kind == EAST_TYPE_FUNCTION && t->data.function.num_inputs == 3 &&
-                 east_type_equal(t->data.function.inputs[0], key_type) &&
-                 east_type_equal(t->data.function.inputs[1], value_type) &&
-                 east_type_equal(t->data.function.inputs[2], value_type) &&
-                 east_type_equal(t->data.function.output, value_type);
-    if (!shape) {
-        char *ks = format_type(key_type);
-        char *vs = format_type(value_type);
-        char *ts = t ? format_type(t) : NULL;
-        fprintf(stderr,
-                "Error: --merge: expected a function (K, V, V) -> V matching the emit parameter "
-                "(K = %s, V = %s), got %s\n",
-                ks ? ks : "?", vs ? vs : "?", ts ? ts : "?");
-        free(ks);
-        free(vs);
-        free(ts);
-        ir_node_release(ir);
-        east_source_map_release(map);
-        return false;
-    }
-    return merge_fn_compile(ir, map, platform, builtins, out);
-}
-
-/* Builds the sink + its output collection type from the emit parameter's
- * function type. Returns NULL with a message on stderr when the shape or
- * output destination is unusable; *out_type_out receives the output type and
- * *merge_out the --merge function, both of which the caller frees after the
- * sink. */
-static EastEmitSink *emit_sink_open(EmitKind kind, EastType *emit_param_type,
-                                    const char *output_file, const char *merge_path,
-                                    bool union_mode, PlatformRegistry *platform,
-                                    BuiltinRegistry *builtins, EastType **out_type_out,
-                                    EmitMerge *merge_out)
-{
-    *out_type_out = NULL;
-    merge_out->ir = NULL;
-    merge_out->fn = NULL;
-    if (!output_file || detect_format(output_file) != FMT_BEAST2) {
-        fprintf(stderr, "Error: --emit requires a .beast2 output file (-o)\n");
-        return NULL;
-    }
-    if (!emit_param_type || emit_param_type->kind != EAST_TYPE_FUNCTION) {
-        fprintf(stderr, "Error: --emit requires the function's trailing parameter to be the emit "
-                        "capability (a function type)\n");
-        return NULL;
-    }
-    size_t arity = emit_param_type->data.function.num_inputs;
-    size_t expected = kind == EMIT_DICT ? 2 : 1;
-    if (arity != expected) {
-        fprintf(stderr,
-                "Error: --emit %s expects an emit parameter taking %zu argument(s), got %zu\n",
-                emit_kind_name(kind), expected, arity);
-        return NULL;
-    }
-    EastType **ins = emit_param_type->data.function.inputs;
-    EastType *out_type = kind == EMIT_DICT  ? east_dict_type(ins[0], ins[1])
-                         : kind == EMIT_SET ? east_set_type(ins[0])
-                                            : east_array_type(ins[0]);
-    if (!out_type) return NULL;
-
-    if (merge_path && !emit_merge_load(merge_path, ins[0], ins[1], platform, builtins, merge_out)) {
-        east_type_release(out_type);
-        return NULL;
-    }
-
-    EastEmitSinkConfig cfg = {
-        .kind = (EastEmitKind)kind,
-        .out_type = out_type,
-        .output_path = output_file,
-        .merge_fn = merge_out->fn,
-        .union_mode = union_mode,
-    };
-    EastEmitSink *sink = east_emit_sink_new(&cfg);
-    if (!sink) {
-        char *err = east_builtin_get_error();
-        if (err) fprintf(stderr, "Error: %s\n", err);
-        free(err);
-        emit_merge_free(merge_out);
-        east_type_release(out_type);
-        return NULL;
-    }
-    *out_type_out = out_type;
-    return sink;
-}
-
-/* Frees the sink (NULL-safe), then the --merge function and the output type
- * emit_sink_open built for it. */
-static void emit_sink_close(EastEmitSink *sink, EastType *out_type, EmitMerge *merge)
-{
-    east_emit_sink_free(sink);
-    emit_merge_free(merge);
-    if (out_type) east_type_release(out_type);
+    if (function->fn) east_compiled_fn_free(function->fn);
+    if (function->ir) ir_node_release(function->ir);
+    function->fn = NULL;
+    function->ir = NULL;
 }
 
 /* ------------------------------------------------------------------ */
@@ -838,8 +665,7 @@ static char *format_signature(EastType *fn_type)
 
 static int cmd_run(const char *ir_path, const char **packages, int num_packages,
                    const char **input_files, int num_inputs, const char *output_file, bool verbose,
-                   EmitKind emit_kind, const char *merge_path, bool union_mode,
-                   const int *stream_inputs, int num_streams, bool profile)
+                   bool profile)
 {
     /* Init type system */
     east_type_of_type_init();
@@ -891,22 +717,6 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
     EastType **param_types = fn_type->data.function.inputs;
     EastType *return_type = fn_type->data.function.output;
 
-    /* With --emit the body takes one trailing runner-provided parameter (the
-     * emit capability) beyond the input files; the output file is written
-     * incrementally by the sink instead of from the return value. */
-    size_t file_params = emit_kind != EMIT_NONE && num_params > 0 ? num_params - 1 : num_params;
-    for (int s = 0; s < num_streams; s++) {
-        if ((size_t)stream_inputs[s] >= file_params) {
-            fprintf(stderr, "Error: --stream index %d out of range (%zu inputs)\n",
-                    stream_inputs[s], file_params);
-            ir_node_release(ir);
-            east_source_map_release(decoded_source_map);
-            platform_registry_free(platform);
-            builtin_registry_free(builtins);
-            return 1;
-        }
-    }
-
     if (verbose) {
         fprintf(stderr, "Function: %zu inputs, %s\n", num_params,
                 ir->kind == IR_ASYNC_FUNCTION ? "async" : "sync");
@@ -928,9 +738,9 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
     }
 
     /* Validate input count */
-    if ((size_t)num_inputs != file_params) {
+    if ((size_t)num_inputs != num_params) {
         char *signature = format_signature(fn_type);
-        fprintf(stderr, "Error: Function expects %zu inputs, got %d\nSignature: %s\n", file_params,
+        fprintf(stderr, "Error: Function expects %zu inputs, got %d\nSignature: %s\n", num_params,
                 num_inputs, signature ? signature : "?");
         free(signature);
         ir_node_release(ir);
@@ -940,42 +750,18 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
         return 1;
     }
 
-    /* The emit sink writes the output; built before the inputs so a bad
-     * emit shape fails fast. */
-    EastEmitSink *emit_sink = NULL;
-    EastType *emit_out_type = NULL;
-    EmitMerge emit_merge = {NULL, NULL};
-    if (emit_kind != EMIT_NONE) {
-        emit_sink = emit_sink_open(emit_kind, num_params > 0 ? param_types[num_params - 1] : NULL,
-                                   output_file, merge_path, union_mode, platform, builtins,
-                                   &emit_out_type, &emit_merge);
-        if (!emit_sink) {
-            ir_node_release(ir);
-            east_source_map_release(decoded_source_map);
-            platform_registry_free(platform);
-            builtin_registry_free(builtins);
-            return 1;
-        }
-    }
-
     /* Load inputs with type-directed parsing (paths already listed in the
-     * Function section above). The emit capability, when present, is the
-     * trailing argument. */
-    size_t num_args = (size_t)num_inputs + (emit_sink ? 1u : 0u);
+     * Function section above). Collection inputs open lazily at or above the
+     * size threshold. */
+    size_t num_args = (size_t)num_inputs;
     size_t threshold = lazy_input_threshold();
     EastValue **args = NULL;
     bool *lazy_inputs = num_inputs > 0 ? calloc((size_t)num_inputs, sizeof(bool)) : NULL;
     if (num_args > 0) {
         args = calloc(num_args, sizeof(EastValue *));
         for (int i = 0; i < num_inputs; i++) {
-            /* Streamed inputs always open lazily; other collection inputs
-             * open lazily at or above the size threshold. */
-            bool force_lazy = false;
-            for (int s = 0; s < num_streams; s++)
-                force_lazy = force_lazy || stream_inputs[s] == i;
             bool mapped = false;
-            args[i] =
-                load_input_value(input_files[i], param_types[i], force_lazy, threshold, &mapped);
+            args[i] = load_input_value(input_files[i], param_types[i], threshold, &mapped);
             if (lazy_inputs) lazy_inputs[i] = mapped;
             if (verbose && mapped) {
                 fprintf(stderr, "  input %d: opened lazily — mapped from the file\n", i);
@@ -989,23 +775,6 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
                     east_value_release(args[j]);
                 free(args);
                 free(lazy_inputs);
-                emit_sink_close(emit_sink, emit_out_type, &emit_merge);
-                ir_node_release(ir);
-                east_source_map_release(decoded_source_map);
-                platform_registry_free(platform);
-                builtin_registry_free(builtins);
-                return 1;
-            }
-        }
-        if (emit_sink) {
-            args[num_inputs] = east_emit_sink_function(emit_sink, param_types[num_params - 1]);
-            if (!args[num_inputs]) {
-                fprintf(stderr, "Error: failed to construct the emit capability\n");
-                for (int j = 0; j < num_inputs; j++)
-                    east_value_release(args[j]);
-                free(args);
-                free(lazy_inputs);
-                emit_sink_close(emit_sink, emit_out_type, &emit_merge);
                 ir_node_release(ir);
                 east_source_map_release(decoded_source_map);
                 platform_registry_free(platform);
@@ -1032,7 +801,6 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
             east_value_release(args[i]);
         free(args);
         free(lazy_inputs);
-        emit_sink_close(emit_sink, emit_out_type, &emit_merge);
         /* The map never reached a compiled function: stop it being the
          * current one, then drop it. */
         east_set_source_map(NULL);
@@ -1068,22 +836,6 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
                     (long)result.locations[i].line, (long)result.locations[i].column);
         }
         exit_code = 1;
-    } else if (emit_sink) {
-        /* The sink wrote the output incrementally; the (Null) return value
-         * is unused. Finish appends the terminator + index. */
-        if (!east_emit_sink_finish(emit_sink)) {
-            char *err = east_builtin_get_error();
-            if (err) fprintf(stderr, "Error: %s\n", err);
-            free(err);
-            fprintf(stderr, "Error: failed to finalize the emitted output\n");
-            exit_code = 1;
-        } else if (verbose) {
-            char *ts = format_type(emit_out_type);
-            char sz[32];
-            format_file_size(output_file, sz, sizeof(sz));
-            fprintf(stderr, "Output: %s  (%s)\n  %s\n", output_file, sz, ts ? ts : "?");
-            free(ts);
-        }
     } else {
         /* Save or print result. A paged input returned as the output
          * hydrates here — the encoders and printer walk eager values. */
@@ -1150,7 +902,6 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
         east_value_release(args[i]);
     free(args);
     free(lazy_inputs);
-    emit_sink_close(emit_sink, emit_out_type, &emit_merge);
     ir_node_release(ir);
     platform_registry_free(platform);
     builtin_registry_free(builtins);
@@ -1174,69 +925,6 @@ static int cmd_run(const char *ir_path, const char **packages, int num_packages,
     }
 
     return exit_code;
-}
-
-/* ------------------------------------------------------------------ */
-/*  Merge: k sorted Set/Dict blobs of one type into one (issue #770)   */
-/* ------------------------------------------------------------------ */
-
-static int cmd_merge(const char **packages, int num_packages, const char **input_files,
-                     int num_inputs, const char *output_file, bool verbose, const char *merge_path,
-                     bool union_mode, const char *range_path)
-{
-    east_type_of_type_init();
-    BuiltinRegistry *builtins = builtin_registry_new();
-    east_register_all_builtins(builtins);
-    PlatformRegistry *platform = platform_registry_new();
-    if (!register_platform_packages(platform, packages, num_packages)) {
-        platform_registry_free(platform);
-        builtin_registry_free(builtins);
-        return 1;
-    }
-
-    /* The fold compiles with the run's platforms, exactly like a program;
-     * the library checks its signature against the inputs' key and value
-     * types once it has read them. */
-    EmitMerge merge = {NULL, NULL};
-    if (merge_path) {
-        EastSourceMap *map = NULL;
-        IRNode *ir = merge_fn_load(merge_path, &map);
-        if (!ir || !merge_fn_compile(ir, map, platform, builtins, &merge)) {
-            platform_registry_free(platform);
-            builtin_registry_free(builtins);
-            return 1;
-        }
-    }
-
-    struct timespec t0, t1;
-    clock_gettime(CLOCK_MONOTONIC, &t0);
-    EastMergeConfig cfg = {
-        .input_paths = input_files,
-        .num_inputs = (size_t)num_inputs,
-        .output_path = output_file,
-        .merge_fn = merge.fn,
-        .union_mode = union_mode,
-        .range_path = range_path,
-    };
-    EastMergeStats stats;
-    bool ok = east_merge_blobs(&cfg, &stats);
-    clock_gettime(CLOCK_MONOTONIC, &t1);
-    if (!ok) {
-        char *err = east_builtin_get_error();
-        fprintf(stderr, "Error: %s\n", err ? err : "merge failed");
-        free(err);
-    } else if (verbose) {
-        fprintf(stderr, "merge: %zu input(s), %zu entries, %zu fold(s)\n", stats.inputs,
-                stats.entries, stats.folds);
-        char sz[32];
-        format_file_size(output_file, sz, sizeof(sz));
-        fprintf(stderr, "Output: %s  (%s)\n", output_file, sz);
-        fprintf(stderr, "\nTiming:\n  Total:    %8.1f ms\n", elapsed_ms(&t0, &t1));
-    }
-    emit_merge_free(&merge);
-    platform_registry_free(platform);
-    builtin_registry_free(builtins);
-    return ok ? 0 : 1;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1294,7 +982,7 @@ static bool exec_registries(const EastUnit *unit, BuiltinRegistry **builtins_out
  * compiled function, which own the file's source map. False with the message
  * posted. */
 static bool exec_function(const char *path, PlatformRegistry *platform, BuiltinRegistry *builtins,
-                          EmitMerge *out)
+                          UnitFunction *out)
 {
     out->ir = NULL;
     out->fn = NULL;
@@ -1354,7 +1042,7 @@ static EvalResult exec_run(const EastUnit *unit, ExecClock *clock)
     bool emitted = unit->output.kind != EAST_UNIT_VALUE;
     static const char *kinds[5] = {"value", "array", "set", "dict", "fold"};
     EvalResult r = eval_ok(east_null());
-    EmitMerge fold = {NULL, NULL};
+    UnitFunction fold = {NULL, NULL};
     EastValue *zero = NULL;
     EastValue **args = calloc(num_params ? num_params : 1, sizeof(EastValue *));
     EastCompiledFn *fn = NULL;
@@ -1383,8 +1071,7 @@ static EvalResult exec_run(const EastUnit *unit, ExecClock *clock)
         r = exec_error("exec: the output's function cannot be loaded");
     if (r.status != EVAL_ERROR && unit->output.kind == EAST_UNIT_FOLD && emit_type &&
         emit_type->kind == EAST_TYPE_FUNCTION && emit_type->data.function.num_inputs == 1) {
-        zero =
-            load_input_value(unit->output.zero, emit_type->data.function.inputs[0], false, 0, NULL);
+        zero = load_input_value(unit->output.zero, emit_type->data.function.inputs[0], 0, NULL);
         if (!zero) {
             snprintf(msg, sizeof(msg), "exec: fold: the zero %s cannot be read", unit->output.zero);
             r = eval_error(msg);
@@ -1395,7 +1082,7 @@ static EvalResult exec_run(const EastUnit *unit, ExecClock *clock)
      * value, weighed by the value it holds. */
     size_t threshold = lazy_input_threshold();
     for (size_t i = 0; r.status != EVAL_ERROR && i < file_params; i++) {
-        args[i] = load_input_value(unit->inputs[i], param_types[i], false, threshold, NULL);
+        args[i] = load_input_value(unit->inputs[i], param_types[i], threshold, NULL);
         if (!args[i]) {
             char *ts = format_type(param_types[i]);
             snprintf(msg, sizeof(msg), "exec: input %zu (%s) cannot be read as %s", i,
@@ -1452,7 +1139,7 @@ static EvalResult exec_run(const EastUnit *unit, ExecClock *clock)
     free(args);
     east_unit_sink_free(sink);
     if (zero) east_value_release(zero);
-    emit_merge_free(&fold);
+    unit_function_free(&fold);
     if (fn) east_compiled_fn_free(fn);
     east_set_source_map(NULL);
     east_source_map_release(map);
@@ -1477,7 +1164,7 @@ static EvalResult exec_merge(const EastUnit *unit, ExecClock *clock)
         return exec_error("exec: the platforms cannot be loaded");
     char msg[1024];
     EvalResult r = eval_ok(east_null());
-    EmitMerge fold = {NULL, NULL};
+    UnitFunction fold = {NULL, NULL};
     const char *fold_path = unit->output.kind == EAST_UNIT_DICT   ? unit->output.merge
                             : unit->output.kind == EAST_UNIT_FOLD ? unit->output.combine
                                                                   : NULL;
@@ -1502,7 +1189,7 @@ static EvalResult exec_merge(const EastUnit *unit, ExecClock *clock)
             r = eval_error(msg);
         }
         EastValue *acc = r.status != EVAL_ERROR
-                             ? load_input_value(unit->output.zero, value_type, false, 0, NULL)
+                             ? load_input_value(unit->output.zero, value_type, 0, NULL)
                              : NULL;
         if (r.status != EVAL_ERROR && !acc) {
             snprintf(msg, sizeof(msg), "exec: fold: the zero %s cannot be read", unit->output.zero);
@@ -1510,7 +1197,7 @@ static EvalResult exec_merge(const EastUnit *unit, ExecClock *clock)
         }
         exec_lap(clock, &clock->compile);
         for (size_t i = 0; r.status != EVAL_ERROR && i < unit->num_inputs; i++) {
-            EastValue *part = load_input_value(unit->inputs[i], value_type, false, 0, NULL);
+            EastValue *part = load_input_value(unit->inputs[i], value_type, 0, NULL);
             if (!part) {
                 snprintf(msg, sizeof(msg), "exec: part %zu (%s) cannot be read", i,
                          unit->inputs[i]);
@@ -1545,7 +1232,7 @@ static EvalResult exec_merge(const EastUnit *unit, ExecClock *clock)
         }
         exec_lap(clock, &clock->execute);
     }
-    emit_merge_free(&fold);
+    unit_function_free(&fold);
     platform_registry_free(platform);
     builtin_registry_free(builtins);
     return r;
@@ -1943,8 +1630,6 @@ static void print_usage(const char *prog)
             "Usage:\n"
             "  %s run <ir_file> [-p PACKAGE...] [-i FILE...] [-o FILE] [-v] [--profile]\n"
             "  %s exec <unit> [-v]\n"
-            "  %s merge [-p PACKAGE...] [--merge FILE | --union] [--range FILE] -i FILE...\n"
-            "         -o FILE [-v]\n"
             "  %s convert <in_file> [-o FILE] [--type TYPE] [-v]\n"
             "  %s ir normalize <ir_file> [-o FILE]\n"
             "  %s ir diff <ir_file_a> <ir_file_b> [--raw]\n"
@@ -1957,14 +1642,6 @@ static void print_usage(const char *prog)
             "           parts of an output, as the unit file says, write the output by its\n"
             "           kind and record the result; exit 0 when it is ok and 1 when it\n"
             "           failed. Relative paths in the unit are relative to its directory.\n"
-            "  merge    Merge sorted Set or Dict blobs of one type into one, in a single\n"
-            "           pass: equal keys fold with the East function (K, V, V) -> V in\n"
-            "           --merge FILE (Dict), or collapse under --union (Set); without a\n"
-            "           fold an equal key is an error. With --range FILE — a beast2 blob\n"
-            "           of Struct{from: Option<K>, to: Option<K>} over the inputs' key\n"
-            "           type, an absent bound open — only the keys in [from, to) merge.\n"
-            "           The output is what `run --emit` writes for the same entries\n"
-            "           emitted ascending.\n"
             "  convert  Decode a value file and re-encode in another format.\n"
             "           Output format is determined by -o's extension; omit -o to\n"
             "           print east-text to stdout. Auto-extracts the type from\n"
@@ -1986,19 +1663,11 @@ static void print_usage(const char *prog)
             "      --exit-with-parent  Exit with status 1 once stdin reaches end of file —\n"
             "                          for a parent that holds a stdin pipe it never writes\n"
             "                          to, and takes the runner down with it (any command)\n"
-            "      --emit KIND         Write the output incrementally from the function's\n"
-            "                          trailing emit parameter (array|set|dict)\n"
-            "      --merge FILE        With --emit dict: fold equal keys with the East\n"
-            "                          function (K, V, V) -> V in FILE, in emission order\n"
-            "      --union             With --emit set: collapse equal elements\n"
-            "      --stream N          Feed the given -i input lazily (0-based index,\n"
-            "                          repeatable; segment-fed iteration, O(segment)\n"
-            "                          decoded memory)\n"
             "      --profile           Print every East function called, by self time,\n"
             "                          with its call count and source location\n"
             "\n"
             "Supported formats: .json, .beast2, .beast, .east\n",
-            prog, prog, prog, prog, prog, prog, prog, prog);
+            prog, prog, prog, prog, prog, prog, prog);
 }
 
 /* ------------------------------------------------------------------ */
@@ -2032,12 +1701,6 @@ static int cli_main(void *arg)
     const char *output_file = NULL;
     bool verbose = false;
     const char *ir_path = NULL;
-    EmitKind emit_kind = EMIT_NONE;
-    const char *merge_path = NULL;
-    bool union_mode = false;
-    const char *range_path = NULL;
-    int stream_inputs[MAX_INPUTS];
-    int num_streams = 0;
     bool profile = false;
 
     if (strcmp(command, "run") == 0) {
@@ -2067,41 +1730,6 @@ static int cli_main(void *arg)
             } else if (strcmp(a, "--profile") == 0) {
                 profile = true;
                 i++;
-            } else if (strcmp(a, "--emit") == 0 && i + 1 < argc) {
-                const char *k = argv[i + 1];
-                if (strcmp(k, "array") == 0)
-                    emit_kind = EMIT_ARRAY;
-                else if (strcmp(k, "set") == 0)
-                    emit_kind = EMIT_SET;
-                else if (strcmp(k, "dict") == 0)
-                    emit_kind = EMIT_DICT;
-                else {
-                    fprintf(stderr, "Error: --emit must be one of array, set or dict, got '%s'\n",
-                            k);
-                    return 1;
-                }
-                i += 2;
-            } else if (strcmp(a, "--merge") == 0 && i + 1 < argc) {
-                merge_path = argv[i + 1];
-                i += 2;
-            } else if (strcmp(a, "--union") == 0) {
-                union_mode = true;
-                i++;
-            } else if (strcmp(a, "--stream") == 0 && i + 1 < argc) {
-                char *end = NULL;
-                long v = strtol(argv[i + 1], &end, 10);
-                if (!end || *end != '\0' || v < 0 || v > 1000000) {
-                    fprintf(stderr,
-                            "Error: --stream must be a non-negative input index, got '%s'\n",
-                            argv[i + 1]);
-                    return 1;
-                }
-                if (num_streams >= MAX_INPUTS) {
-                    fprintf(stderr, "Error: Too many --stream flags (max %d)\n", MAX_INPUTS);
-                    return 1;
-                }
-                stream_inputs[num_streams++] = (int)v;
-                i += 2;
             } else if (a[0] != '-' && !ir_path) {
                 ir_path = a;
                 i++;
@@ -2112,15 +1740,6 @@ static int cli_main(void *arg)
             }
         }
 
-        if (merge_path && emit_kind != EMIT_DICT) {
-            fprintf(stderr, "Error: --merge applies to --emit dict only\n");
-            return 1;
-        }
-        if (union_mode && emit_kind != EMIT_SET) {
-            fprintf(stderr, "Error: --union applies to --emit set only\n");
-            return 1;
-        }
-
         if (!ir_path) {
             fprintf(stderr, "Error: Missing IR file argument\n");
             print_usage(argv[0]);
@@ -2128,8 +1747,7 @@ static int cli_main(void *arg)
         }
 
         return cmd_run(ir_path, packages, num_packages, input_files, num_inputs, output_file,
-                       verbose, emit_kind, merge_path, union_mode, stream_inputs, num_streams,
-                       profile);
+                       verbose, profile);
 
     } else if (strcmp(command, "exec") == 0) {
         const char *unit_path = NULL;
@@ -2150,66 +1768,6 @@ static int cli_main(void *arg)
             return 2;
         }
         return cmd_exec(unit_path, verbose);
-
-    } else if (strcmp(command, "merge") == 0) {
-        int i = 2;
-        while (i < argc) {
-            const char *a = argv[i];
-            if ((strcmp(a, "-p") == 0 || strcmp(a, "--package") == 0) && i + 1 < argc) {
-                if (num_packages >= MAX_PACKAGES) {
-                    fprintf(stderr, "Error: Too many packages (max %d)\n", MAX_PACKAGES);
-                    return 1;
-                }
-                packages[num_packages++] = argv[i + 1];
-                i += 2;
-            } else if ((strcmp(a, "-i") == 0 || strcmp(a, "--input") == 0) && i + 1 < argc) {
-                if (num_inputs >= MAX_INPUTS) {
-                    fprintf(stderr, "Error: Too many inputs (max %d)\n", MAX_INPUTS);
-                    return 1;
-                }
-                input_files[num_inputs++] = argv[i + 1];
-                i += 2;
-            } else if ((strcmp(a, "-o") == 0 || strcmp(a, "--output") == 0) && i + 1 < argc) {
-                output_file = argv[i + 1];
-                i += 2;
-            } else if (strcmp(a, "-v") == 0 || strcmp(a, "--verbose") == 0) {
-                verbose = true;
-                i++;
-            } else if (strcmp(a, "--merge") == 0 && i + 1 < argc) {
-                merge_path = argv[i + 1];
-                i += 2;
-            } else if (strcmp(a, "--union") == 0) {
-                union_mode = true;
-                i++;
-            } else if (strcmp(a, "--range") == 0 && i + 1 < argc) {
-                range_path = argv[i + 1];
-                i += 2;
-            } else {
-                fprintf(stderr, "Error: Unknown option: %s\n", a);
-                print_usage(argv[0]);
-                return 1;
-            }
-        }
-        if (num_inputs == 0) {
-            fprintf(stderr, "Error: merge requires at least one -i input\n");
-            return 1;
-        }
-        if (!output_file) {
-            fprintf(stderr, "Error: merge requires -o FILE\n");
-            return 1;
-        }
-        /* The merged blob is a beast2 stream, exactly as `run --emit` writes
-         * one — so the same rule, in the same words, on every runner. */
-        if (detect_format(output_file) != FMT_BEAST2) {
-            fprintf(stderr, "Error: merge requires a .beast2 output file (-o)\n");
-            return 1;
-        }
-        if (merge_path && union_mode) {
-            fprintf(stderr, "Error: --merge and --union are two folds — give one\n");
-            return 1;
-        }
-        return cmd_merge(packages, num_packages, input_files, num_inputs, output_file, verbose,
-                         merge_path, union_mode, range_path);
 
     } else if (strcmp(command, "convert") == 0) {
         const char *in_path = NULL;

@@ -47,83 +47,9 @@ east-node run ./process.beast2 \
 east-node run ./program.beast2 -p @elaraai/east-node-std -v
 ```
 
-### Streaming Outputs
-
-A function whose trailing parameter is an emit capability writes its output
-incrementally instead of returning it; `--stream` feeds the named inputs
-lazily, one decoded segment at a time:
-
-```bash
-# Emit a Dict (or array / set) through the trailing parameter, feeding
-# inputs 0 and 1 lazily from indexed beast2 blobs
-east-node run ./task.beast2 -p @elaraai/east-node-std \
-    -i rows.beast2 -i more.beast2 --stream 0 --stream 1 \
-    --emit dict -o out.beast2 -v
-```
-
-Dict and Set emissions must ascend in East order. The sink writes one pass,
-segment by segment, with one open batch in memory whatever the size of the
-output, and a key below the previous one is an error naming both:
-
-```text
-beast2 v5: Dict key emitted out of order: 1 after 2 — Set/Dict emissions must ascend in East order
-```
-
-Equal keys are an error too unless the sink folds them:
-
-```bash
-# Dict: fold the values of adjacent equal keys with an East function (K, V, V) -> V
-east-node run ./task.beast2 -p @elaraai/east-node-std --emit dict --merge merge.beast2 -o out.beast2
-
-# Set: keep the first of adjacent equal elements
-east-node run ./task.beast2 -p @elaraai/east-node-std --emit set --union -o out.beast2
-```
-
-`--merge` takes an IR file in any format the program itself may use, compiled
-with the run's `-p` platforms; its signature must match the emit parameter's
-key and value types. Adjacent equal keys fold left in emission order,
-`acc = merge(key, acc, value)`, and the output is byte-identical to what the
-sink writes without the flag for the already-folded sequence.
-
-### Merging blobs
-
-`merge` combines sorted Set or Dict blobs of one type — the files `run --emit`
-writes, or manifest directories — into one, in a single pass over the inputs:
-every input is read segment by segment, equal keys across inputs fold in input
-order (`--merge` on Dict inputs, `--union` on Set inputs; without a fold an
-equal key is an error), and the output is byte-identical to what `run --emit`
-writes for the same entries emitted ascending. This is how e3 assembles a
-partitioned task's keyed partials; all three runners write the same bytes.
-
-```bash
-# Dict partials: fold the values of equal keys, in input order
-east-node merge --merge merge.beast2 -i part-0.beast2 -i part-1.beast2 -i part-2.beast2 -o out.beast2 -v
-
-# Set partials: the first of equal elements stands
-east-node merge --union -i part-0.beast2 -i part-1.beast2 -o out.beast2
-
-# Only the keys in [from, to): range.beast2 holds a Struct{from: Option<K>,
-# to: Option<K>} over the inputs' key type, an absent bound open
-east-node merge --merge merge.beast2 --range range.beast2 -i part-0.beast2 -i part-1.beast2 -o out.beast2
-```
-
-With `--range` every input is sought to the segment owning `from` through its
-fences and read up to the first key at or past `to`, so a merge over one key
-range of large partials reads that range's share of each, plus at most one
-segment — how e3 merges a large output in parallel, one range per unit.
-
-An input of another type than the first, an Array input, an input whose keys
-do not ascend, a fold whose signature does not match the inputs, and bounds of
-another type than the inputs' key are refused, naming the input. With `-v` the
-merge prints its account:
-
-```text
-merge: 3 input(s), 31 entries, 13 fold(s)
-```
-
 ### Exiting with the Parent
 
-With `--exit-with-parent` on its command line (`run` and `merge`) the runner
+With `--exit-with-parent` on its command line (`run` and `exec`) the runner
 watches its stdin from a worker thread, reading it through a socket on the
 worker's own event loop, and kills its own process as soon as stdin ends,
 closes or cannot be read. A parent that spawns the runner with a stdin pipe
@@ -137,7 +63,7 @@ would otherwise wait until the parent is gone. Without the flag, stdin is left
 alone.
 
 ```bash
-east-node run ./task.beast2 --exit-with-parent -p @elaraai/east-node-std --emit dict -o out.beast2
+east-node run ./task.beast2 --exit-with-parent -p @elaraai/east-node-std -o out.beast2
 ```
 
 ### Version Information
@@ -196,37 +122,8 @@ Options:
   -i, --input <file>         Input data file (can be repeated)
   -o, --output <file>        Output file path for result
   -v, --verbose              Enable verbose output
-  --emit <kind>              Write the output incrementally from the function's
-                             trailing emit parameter (array|set|dict)
-  --merge <file>             With --emit dict: fold equal keys with the East function
-                             (K, V, V) -> V in <file>, in emission order
-  --union                    With --emit set: collapse equal elements
-  --stream <index>           Feed the given -i input (0-based) lazily, segment by
-                             segment (can be repeated)
   --exit-with-parent         Exit as soon as stdin reaches end of file — for a parent
                              that holds a stdin pipe it never writes to
-  -h, --help                 Display help
-```
-
-### `east-node merge`
-
-Merge sorted Set or Dict blobs of one type into one, in a single pass.
-
-```
-east-node merge -i <file>... -o <file> [options]
-
-Options:
-  -i, --input <file...>      The input blobs or manifests (equal keys fold in this order)
-  -o, --output <file>        The merged blob
-  -p, --package <package...> Platform packages the --merge function's platform calls need
-  -v, --verbose              Enable verbose output
-  --merge <file>             Dict inputs: fold equal keys with the East function
-                             (K, V, V) -> V in <file>, in input order
-  --union                    Set inputs: the first of equal elements stands
-  --range <file>             Merge only the keys in [from, to): a beast2 blob of
-                             Struct{from: Option<K>, to: Option<K>} over the inputs'
-                             key type; an absent bound is open
-  --exit-with-parent         Exit as soon as stdin reaches end of file
   -h, --help                 Display help
 ```
 
@@ -295,8 +192,7 @@ operation transparently decodes the whole value once. Semantics are identical
 to an eager decode, so the threshold is a memory knob, not a behavior toggle.
 
 Control it with the `EAST_LAZY_INPUT_BYTES` environment variable: a byte
-threshold, or `0` to disable lazy opening entirely. Every `--stream` input of
-a streaming task opens lazily regardless of size.
+threshold, or `0` to disable lazy opening entirely.
 
 A collection input may also be a manifest directory, the form e3 stages a
 stored collection in: the input file holds a manifest, and each segment it

@@ -2,22 +2,21 @@
 #define EAST_EMIT_WRITER_H
 
 /*
- * The output side shared by the emit sink (emit_sink.c) and the blob merge
- * (merge.c): the library's canonical element writer on a file, deflating
- * frames on the writer's pool (#763). Entries go out one at a time and
- * segments fall wherever the content-defined cut rule places them, so the
- * file is byte-identical to the paged encode of the same value, on every
- * runtime (#770). Memory is one open segment whatever the output's size.
+ * The output side of the blob merge (merge.c): the library's canonical
+ * element writer on a file, deflating frames on the writer's pool (#763).
+ * Entries go out one at a time and segments fall wherever the content-defined
+ * cut rule places them, so the file is byte-identical to the paged encode of
+ * the same value, on every runtime (#770). Memory is one open segment
+ * whatever the output's size.
  *
  * The latest entry is held back until the next one arrives or the output
- * finishes, so an equal key's fold lands in it in place: the sink and the
- * merge replace `value`, which the writer owns, with the folded one.
+ * finishes, so an equal key's fold lands in it in place: the merge replaces
+ * `value`, which the writer owns, with the folded one.
  *
  * The output may instead be a manifest directory — the same segments, each a
  * file of its own named by its SHA-256, and a manifest naming them.
  *
- * Internal to the library; the public surfaces are east/emit_sink.h and
- * east/merge.h.
+ * Internal to the library; the public surface is east/merge.h.
  */
 
 #include <east/serialization.h>

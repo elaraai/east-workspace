@@ -7,7 +7,6 @@ import { readFileSync, statSync, writeFileSync } from 'fs';
 import { extname } from 'path';
 import {
     EastIR,
-    compareFor,
     encodeBeast2For,
     encodeBeast2PagedFor,
     encodeEastFor,
@@ -19,7 +18,6 @@ import {
 } from '@elaraai/east';
 import type { PlatformFunction, EastTypeValue } from '@elaraai/east/internal';
 import { printTypeValue } from '@elaraai/east/internal';
-import { EmitFileWriter, type EmitKind } from './emit-writer.js';
 import { inputBytes, lazyInputBytesRead, loadEastIR, loadInput, loadInputLazy } from './loader.js';
 
 function now(): bigint { return process.hrtime.bigint(); }
@@ -36,10 +34,9 @@ export function formatFileSize(path: string): string {
     try { return formatSize(statSync(path).size); } catch { return '?'; }
 }
 
-/** Streaming-execution options accepted by {@link runProgram}. */
 /**
- * A refusal of the command line itself — a flag combination, an output
- * destination, a function shape the flags do not fit.
+ * A refusal of the command line itself — a function the inputs given do not
+ * fit.
  *
  * These are the user's errors, not the program's, and east-c and east-py
  * answer them with one sentence on stderr. Marking them lets the CLI do the
@@ -53,45 +50,15 @@ export class UsageError extends Error {
     }
 }
 
-export interface RunProgramOptions {
-    /** Enable verbose timing/memory output on stderr. */
-    verbose?: boolean;
-    /** Write the output incrementally from the function's trailing `emit`
-     *  parameter instead of its return value. The value names the output
-     *  collection kind; element/key/value types come from the emit
-     *  parameter's function type. */
-    emit?: 'array' | 'set' | 'dict';
-    /** Feed these `-i` inputs (0-based) lazily — segment-by-segment
-     *  iteration with O(segment) decoded memory — regardless of size.
-     *  Element shapes the lazy contract excludes (nested mutable
-     *  containers, vectors/matrices, functions) decode whole instead. */
-    streamInputs?: number[];
-    /** With `emit: 'dict'`: an IR file (any format the IR positional
-     *  accepts) holding a `(K, V, V) -> V` East function over the emit
-     *  parameter's key and value types, compiled with the run's platforms.
-     *  Adjacent emissions with an equal key fold left with it, in emission
-     *  order. */
-    merge?: string;
-    /** With `emit: 'set'`: adjacent equal elements collapse to the first. */
-    union?: boolean;
-    /** Open indexed beast2 collection inputs at or above this many bytes as
-     *  lazy pager-backed values (0 disables). Defaults to 64 MiB, or the
-     *  `EAST_LAZY_INPUT_BYTES` environment variable. Applies only to
-     *  shape-gate-safe element types (see `loadInputLazy`) — others always
-     *  decode whole. */
-    lazyInputBytes?: number;
-}
-
 /** Default size threshold above which collection inputs open lazily. */
 const LAZY_INPUT_BYTES_DEFAULT = 64 * 1024 * 1024;
 
-/** Resolves the lazy-open threshold: explicit option, else environment, else
- *  the default. An unset or empty `EAST_LAZY_INPUT_BYTES` falls through to
- *  the 64 MiB default (`Number('')` is `0`, which would silently DISABLE
- *  lazy opening); invalid or negative values fall through too, matching
- *  east-c and east-py. Exported for the spec only. @internal */
-export function lazyThreshold(options: RunProgramOptions): number {
-    if (options.lazyInputBytes !== undefined) return options.lazyInputBytes;
+/** Resolves the lazy-open threshold: the environment, else the default. An
+ *  unset or empty `EAST_LAZY_INPUT_BYTES` falls through to the 64 MiB default
+ *  (`Number('')` is `0`, which would silently DISABLE lazy opening); invalid
+ *  or negative values fall through too, matching east-c and east-py. Exported
+ *  for `exec` and the spec. @internal */
+export function lazyThreshold(): number {
     const raw = process.env.EAST_LAZY_INPUT_BYTES;
     if (raw !== undefined && raw !== '') {
         const env = Number(raw);
@@ -109,19 +76,9 @@ export async function runProgram(
     packages: string[],
     inputPaths: string[],
     outputPath?: string,
-    options: RunProgramOptions | boolean = {},
+    verbose = false,
 ): Promise<unknown> {
-    // Callers predating streaming execution pass `verbose` as a boolean.
-    const opts: RunProgramOptions = typeof options === 'boolean' ? { verbose: options } : options;
-    const verbose = opts.verbose ?? false;
     const t0 = now();
-
-    if (opts.merge !== undefined && opts.emit !== 'dict') {
-        throw new UsageError('--merge applies to --emit dict only');
-    }
-    if (opts.union && opts.emit !== 'set') {
-        throw new UsageError('--union applies to --emit set only');
-    }
 
     // Load as an EastIR bundle so source_map travels with the IR and error
     // frames resolve end-to-end.
@@ -133,42 +90,15 @@ export async function runProgram(
     const inputTypes = (ir as any)?.value?.type?.value?.inputs ?? [];
     const outputType = ((ir as any)?.value?.type?.value?.output ?? null) as EastTypeValue | null;
 
-    // With emit, the function takes one trailing runner-provided parameter
-    // beyond the input files: the emit capability. A zero-parameter function
-    // has no trailing parameter to be it — the shaped emit error, not a
-    // negative arity count.
-    if (opts.emit !== undefined && inputTypes.length === 0) {
-        throw new UsageError(`--emit requires the function's trailing parameter to be the emit capability (a function type)`);
-    }
-    const fileParamCount = opts.emit !== undefined ? inputTypes.length - 1 : inputTypes.length;
-    if (inputPaths.length !== fileParamCount) {
+    if (inputPaths.length !== inputTypes.length) {
         // east-c / east-py parity, down to the signature line: one sentence
         // for one condition, whichever runner the task declares.
         const signature = `(${(inputTypes as EastTypeValue[]).map((t) => printTypeValue(t)).join(', ')}) -> ` +
             `${outputType !== null ? printTypeValue(outputType) : '?'}`;
         throw new UsageError(
-            `Function expects ${fileParamCount} inputs, got ${inputPaths.length}\nSignature: ${signature}`,
+            `Function expects ${inputTypes.length} inputs, got ${inputPaths.length}\nSignature: ${signature}`,
         );
     }
-    if (opts.emit !== undefined && (outputPath === undefined || extname(outputPath).toLowerCase() !== '.beast2')) {
-        // east-c / east-py parity: the emitted blob is a beast2 stream, so
-        // any other output extension is refused up front.
-        throw new UsageError(`--emit requires a .beast2 output file (-o)`);
-    }
-    const streamInputs = opts.streamInputs ?? [];
-    for (const index of streamInputs) {
-        if (index < 0 || index >= inputPaths.length) {
-            throw new UsageError(`--stream index ${index} out of range (${inputPaths.length} inputs)`);
-        }
-    }
-
-    const emitSink = opts.emit !== undefined
-        ? createEmitSink(opts.emit, inputTypes[inputTypes.length - 1] as EastTypeValue, outputPath!, {
-            ...(opts.merge !== undefined && { mergePath: opts.merge }),
-            union: opts.union ?? false,
-            platformFns,
-        })
-        : null;
 
     // Verbose header
     if (verbose) {
@@ -180,12 +110,11 @@ export async function runProgram(
         }
 
         console.error(`Function: ${inputTypes.length} inputs, ${isAsync ? 'async' : 'sync'}`);
-        for (let i = 0; i < fileParamCount; i++) {
+        for (let i = 0; i < inputPaths.length; i++) {
             const t = printTypeValue(inputTypes[i]!);
             console.error(`  input ${i}: ${inputPaths[i]}  (${formatFileSize(inputPaths[i]!)})`);
             console.error(`    ${t}`);
         }
-        if (emitSink) console.error(`  emit: ${opts.emit} sink -> ${outputPath}`);
         if (outputType) {
             console.error(`  return:`);
             console.error(`    ${printTypeValue(outputType)}`);
@@ -193,20 +122,17 @@ export async function runProgram(
     }
 
     // Load inputs — always frozen (task inputs are immutable; mutating one
-    // throws the uniform copy-first error). Streamed inputs always open
-    // lazily; other beast2 collection inputs open lazily at or above the
-    // size threshold, so a sparse read into a huge indexed input stops
-    // paying a whole decode — and because frozen collapses the shape gate,
-    // nested-container element shapes open lazily too. The size is the
-    // value's: an input staged as a manifest is a small file naming large
-    // ones.
-    const threshold = lazyThreshold(opts);
+    // throws the uniform copy-first error). Beast2 collection inputs open
+    // lazily at or above the size threshold, so a sparse read into a huge
+    // indexed input stops paying a whole decode — and because frozen collapses
+    // the shape gate, nested-container element shapes open lazily too. The
+    // size is the value's: an input staged as a manifest is a small file
+    // naming large ones.
+    const threshold = lazyThreshold();
     const inputs: unknown[] = [];
     const lazyInputs: number[] = [];
     for (let i = 0; i < inputPaths.length; i++) {
-        const wantLazy = streamInputs.includes(i) ||
-            (threshold > 0 && inputBytes(inputPaths[i]!) >= threshold);
-        const lazy = wantLazy ? loadInputLazy(inputPaths[i]!) : undefined;
+        const lazy = threshold > 0 && inputBytes(inputPaths[i]!) >= threshold ? loadInputLazy(inputPaths[i]!) : undefined;
         if (lazy !== undefined) {
             lazyInputs.push(i);
             if (verbose) console.error(`  input ${i}: opened lazily — paged from the file`);
@@ -221,7 +147,6 @@ export async function runProgram(
             if (read !== undefined) console.error(`  input ${i}: ${formatSize(read)} read of ${formatSize(inputBytes(inputPaths[i]!))}`);
         }
     };
-    if (emitSink) inputs.push(emitSink.emit);
 
     const t1 = now();
 
@@ -233,9 +158,7 @@ export async function runProgram(
         result = compiled(...inputs);
         const t3 = now();
 
-        const t4 = emitSink
-            ? finishEmit(emitSink, outputPath!, verbose)
-            : maybeWriteOutput(outputPath, result, outputType, verbose);
+        const t4 = maybeWriteOutput(outputPath, result, outputType, verbose);
 
         if (verbose) {
             printResult({
@@ -252,9 +175,7 @@ export async function runProgram(
         result = await compiled(...inputs);
         const t3 = now();
 
-        const t4 = emitSink
-            ? finishEmit(emitSink, outputPath!, verbose)
-            : maybeWriteOutput(outputPath, result, outputType, verbose);
+        const t4 = maybeWriteOutput(outputPath, result, outputType, verbose);
 
         if (verbose) {
             printResult({
@@ -269,36 +190,18 @@ export async function runProgram(
     return outputPath ? undefined : result;
 }
 
-/** An emit capability wired to a streaming beast2 writer on the output file. */
-interface EmitSink {
-    /** The function value passed as the body's trailing parameter. */
-    emit: (...args: unknown[]) => null;
-    /** Flushes pending elements and finalizes the blob (terminator + index). */
-    finish: () => void;
-}
-
-/** How the emit sink treats equal keys, and what it needs to fold them. */
-interface EmitFoldOptions {
-    /** The `--merge` IR file (dict sinks). */
-    mergePath?: string;
-    /** Equal set elements collapse to the first. */
-    union: boolean;
-    /** The run's platforms, which the merge function compiles with. */
-    platformFns: PlatformFunction[];
-}
-
 /** A compiled `(K, V, V) -> V` fold of equal keys. */
 export type MergeFunction = (key: unknown, acc: unknown, value: unknown) => unknown;
 
 /**
- * Loads a `--merge` function: an IR file holding a `(K, V, V) -> V` East
- * function over the given key and value types, compiled with the run's
- * platforms. Shared by the emit sink and the blob merge.
+ * Loads a merge function: an IR file holding a `(K, V, V) -> V` East function
+ * over the given key and value types, compiled with the unit's platforms.
+ * Shared by `exec`'s dict output and the blob merge.
  *
  * @param path - the IR file (any format the IR positional accepts)
  * @param keyType - the key type
  * @param valueType - the value type
- * @param platformFns - the run's platforms
+ * @param platformFns - the unit's platforms
  * @param subject - what the function must match, for the message: `the emit
  *   parameter` or `the inputs`
  * @returns the compiled merge function
@@ -315,135 +218,11 @@ export function loadMergeFunction(path: string, keyType: EastTypeValue, valueTyp
         !isTypeValueEqual(shape.inputs[2]!, valueType) ||
         !isTypeValueEqual(shape.output, valueType)) {
         throw new Error(
-            `--merge: expected a function (K, V, V) -> V matching ${subject} ` +
+            `merge function: expected a function (K, V, V) -> V matching ${subject} ` +
             `(K = ${printTypeValue(keyType)}, V = ${printTypeValue(valueType)}), got ${printTypeValue(fnType)}`,
         );
     }
     return (bundle as EastIR<any, any>).compile(platformFns) as MergeFunction;
-}
-
-/**
- * The emit sink's duplicate-key error, in the words every runner uses and the
- * library's merge gives for a key shared without a fold.
- *
- * @param kind - the collection kind
- * @param printKey - the key type's printer
- * @param key - the repeated key
- * @returns the message
- */
-export function duplicateMessage(kind: 'set' | 'dict', printKey: (v: unknown) => string, key: unknown): string {
-    const noun = kind === 'dict' ? 'Dict' : 'Set';
-    const part = kind === 'dict' ? 'key' : 'element';
-    return `beast2 v5: duplicate ${noun} ${part} emitted: ${printKey(key)} — ${noun} ${part}s must be unique`;
-}
-
-/**
- * The canonical out-of-order error, identical across runners: a Set/Dict
- * emission below the previous one.
- *
- * @param kind - the collection kind
- * @param printKey - the key type's printer
- * @param key - the offending key
- * @param previous - the key emitted before it
- * @returns the message
- */
-function disorderMessage(kind: 'set' | 'dict', printKey: (v: unknown) => string, key: unknown, previous: unknown): string {
-    const noun = kind === 'dict' ? 'Dict' : 'Set';
-    const part = kind === 'dict' ? 'key' : 'element';
-    return `beast2 v5: ${noun} ${part} emitted out of order: ${printKey(key)} after ${printKey(previous)} — Set/Dict emissions must ascend in East order`;
-}
-
-/**
- * Builds the emit capability: a host function value that appends elements to
- * the output file through the canonical writer ({@link EmitFileWriter}) in one
- * pass, holding what that writer holds.
- *
- * Set/Dict emissions must ascend in East (key) order (issue #770): a key
- * below the previous one is an error naming both, in the same words on every
- * runner, and so is an equal key unless the sink folds it. With a merge
- * function an adjacent equal dict key folds into the batch's last entry,
- * `acc = merge(key, acc, value)`; with union an adjacent equal set element
- * collapses into the previous one. The output is then byte-identical to what
- * the non-folding sink writes for the already-folded sequence.
- */
-function createEmitSink(kind: EmitKind, emitParamType: EastTypeValue, outputPath: string, fold: EmitFoldOptions): EmitSink {
-    if (emitParamType.type !== 'Function') {
-        throw new UsageError(`--emit requires the function's trailing parameter to be the emit capability (a function type)`);
-    }
-    const emitInputs = (emitParamType as any).value.inputs as EastTypeValue[];
-    const expectedArity = kind === 'dict' ? 2 : 1;
-    if (emitInputs.length !== expectedArity) {
-        throw new UsageError(`--emit ${kind} expects an emit parameter taking ${expectedArity} argument(s), got ${emitInputs.length}`);
-    }
-    if (fold.mergePath !== undefined && kind !== 'dict') {
-        throw new UsageError('--merge applies to --emit dict only');
-    }
-    if (fold.union && kind !== 'set') {
-        throw new UsageError('--union applies to --emit set only');
-    }
-    const merge = fold.mergePath !== undefined
-        ? loadMergeFunction(fold.mergePath, emitInputs[0]!, emitInputs[1]!, fold.platformFns, 'the emit parameter')
-        : null;
-
-    // The output collection's wire type is reconstructed from the emit
-    // parameter's argument types.
-    const outTypeValue: EastTypeValue =
-        kind === 'dict' ? variant('Dict', { key: emitInputs[0]!, value: emitInputs[1]! }) as EastTypeValue :
-        kind === 'set' ? variant('Set', emitInputs[0]!) as EastTypeValue :
-        variant('Array', emitInputs[0]!) as EastTypeValue;
-
-    // Canonical-order tracking per element, ahead of the writer's own check,
-    // so an adjacent duplicate or an out-of-order key names the offending emit
-    // call in the words every runner uses.
-    const orderCmp = kind === 'array' ? null : compareFor(emitInputs[0] as any) as (a: unknown, b: unknown) => number;
-    const printKey = kind === 'array' ? null : printFor(emitInputs[0] as any) as (v: unknown) => string;
-
-    const out = new EmitFileWriter(outTypeValue, outputPath);
-    let hasLast = false;
-    let lastKey: unknown;
-
-    const emit = (...args: unknown[]): null => {
-        const key = args[0];
-        if (orderCmp !== null && hasLast) {
-            const order = orderCmp(lastKey, key);
-            if (order === 0 && fold.union) {
-                // The first element stands.
-                return null;
-            }
-            if (order === 0 && merge !== null) {
-                // The writer holds the last entry back until the next one
-                // arrives, so the fold lands in place.
-                out.foldLast((last) => {
-                    const [k, acc] = last as [unknown, unknown];
-                    return [k, merge(key, acc, args[1])];
-                });
-                return null;
-            }
-            if (order === 0) throw new Error(duplicateMessage(kind as 'set' | 'dict', printKey!, key));
-            if (order > 0) throw new Error(disorderMessage(kind as 'set' | 'dict', printKey!, key, lastKey));
-        }
-        out.push(kind === 'dict' ? [key, args[1]] : key);
-        if (orderCmp !== null) {
-            lastKey = key;
-            hasLast = true;
-        }
-        return null;
-    };
-
-    return {
-        emit,
-        finish: () => out.finishClose(),
-    };
-}
-
-/** Finalizes the emit sink and reports the output like the return-value path. */
-function finishEmit(sink: EmitSink, outputPath: string, verbose: boolean): bigint {
-    sink.finish();
-    const t = now();
-    if (verbose) {
-        console.error(`Output: ${outputPath}  (${formatFileSize(outputPath)})`);
-    }
-    return t;
 }
 
 function maybeWriteOutput(outputPath: string | undefined, result: unknown, outputType: EastTypeValue | null, verbose: boolean): bigint {

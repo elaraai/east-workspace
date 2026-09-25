@@ -221,7 +221,7 @@ A record's index builds and its mutations run as tasks e3-core writes from the r
 - **An index build** is a split task over the record's primary: the index's build program as its `east` body, on the index's runner, the primary as its one input, partitioned with no `by`, into a `dict` output with no merge. The program emits each row's entries as it reads them, and no two pieces emit one entry, since an entry's primary key is in one piece.
 - **A mutation** is one unit: its program, or an unkeyed record's reducer, as the body; the record's state and each argument as its inputs; and a `dict` output, the delta, or a `value`, the reducer's new state. The state is staged as its manifest with the segments linked, which the runner opens lazily once it is past the lazy-open threshold. A mutation's `timeoutMs` aborts the unit through the signal a cancellation uses: the execution is recorded `cancelled`, and the mutation reports `timed_out` with the tail of the unit's `stderr.txt`.
 
-Both are ordinary executions, so a rebuild over an unchanged primary, or a mutation over a state and arguments it has run on before, runs no unit. How a mutation's delta is applied is in `e3-records-storage.md`. Nothing in e3 runs the runners' `merge` command any more; it goes with `run`'s mode flags.
+Both are ordinary executions, so a rebuild over an unchanged primary, or a mutation over a state and arguments it has run on before, runs no unit. How a mutation's delta is applied is in `e3-records-storage.md`.
 
 ## The Jobs Budget
 

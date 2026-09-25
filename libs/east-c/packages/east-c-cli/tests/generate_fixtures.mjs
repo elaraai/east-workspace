@@ -4,13 +4,12 @@
  */
 
 /*
- * Regenerates the checked-in `--emit` and `merge` test fixtures: tiny East
- * IR programs (beast2-encoded, source map included) plus TS-written input
- * blobs, shared verbatim by the east-c ctest gates (tests/test_cli_emit.c,
- * tests/test_cli_merge.c) and the east-py-cli pytest suite
- * (libs/east-py/packages/east-py-cli/tests/fixtures). Keeping the TS writer
- * as the fixture source makes every native-runner test that READS these
- * blobs a cross-runtime decode of TS-written bytes.
+ * Regenerates the checked-in runner test fixtures: tiny East IR programs
+ * (beast2-encoded, source map included), a TS-written input blob and a unit,
+ * shared verbatim by the east-c ctest gates (tests/test_cli_*.c) and the
+ * east-py-cli pytest suite (libs/east-py/packages/east-py-cli/tests/fixtures).
+ * Keeping the TS writer as the fixture source makes every native-runner test
+ * that READS these blobs a cross-runtime decode of TS-written bytes.
  *
  * Run after building the east package:
  *
@@ -18,8 +17,6 @@
  *   node libs/east-c/packages/east-c-cli/tests/generate_fixtures.mjs
  *
  * Requires `pnpm install` (this package devDepends on @elaraai/east).
- * The programs mirror east-node-cli/src/runner.spec.ts so all three runners
- * are pinned against the same shapes.
  */
 
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -31,21 +28,18 @@ import {
   BooleanType,
   DictType,
   East,
-  FloatType,
   FunctionType,
   IntegerType,
   NullType,
-  SetType,
   SortedMap,
-  SortedSet,
   StringType,
   StructType,
+  UnitType,
   compareFor,
-  encodeBeast2PagedFor,
+  encodeBeast2For,
   encodeBeast2SegmentsFor,
   encodeEastIR,
-  openBeast2PagesFor,
-  spliceBeast2,
+  variant,
 } from '@elaraai/east';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -55,143 +49,23 @@ const targets = [
 ];
 
 const emitInt = FunctionType([IntegerType], NullType);
-const emitPair = FunctionType([IntegerType, StringType], NullType);
 
-const PairT = StructType({ key: IntegerType, value: StringType });
 const IntStringDict = DictType(IntegerType, StringType);
-const IntSet = SetType(IntegerType);
 const intCmp = compareFor(IntegerType);
-
-/** A dict producer emitting the given (key, value) pairs in order. */
-function pairEmitter(pairs) {
-  return East.function([emitPair], NullType, ($, emit) => {
-    $.for($.const(pairs, ArrayType(PairT)), ($, pair) => {
-      $(emit(pair.key, pair.value));
-    });
-  }).toIR();
-}
-
-/** A set producer emitting the given keys in order. */
-function keyEmitter(keys) {
-  return East.function([emitInt], NullType, ($, emit) => {
-    $.for($.const(keys, ArrayType(IntegerType)), ($, key) => {
-      $(emit(key));
-    });
-  }).toIR();
-}
-
-/** The element indices at which a blob's segments start, excluding 0. */
-function segmentStarts(type, blob) {
-  const starts = new Set();
-  let at = 0;
-  for (const count of openBeast2PagesFor(type)(blob).counts.slice(0, -1)) starts.add((at += count));
-  return starts;
-}
 
 /** A collection written in `size`-element segments — the fixture's own
  *  geometry, not the cut rule's, so a small input still spans several
- *  segments for the ranged and lazy reads to cross. `chunk` builds one
- *  segment's value from its slice of `items`. */
+ *  segments for the lazy reads to cross. `chunk` builds one segment's value
+ *  from its slice of `items`. */
 function segmented(type, size, items, chunk) {
   const batches = [];
   for (let i = 0; i < items.length; i += size) batches.push(chunk(items.slice(i, i + size)));
   return encodeBeast2SegmentsFor(type)(batches);
 }
 
-/** The keys of the fold contract's output, and the ones its segments start
- *  at. Its entries are narrow, so the cut falls by key and count alone and a
- *  Set of the keys starts its segments where the folded Dict does. */
-const FOLD_KEYS = 5000;
-const foldStarts = segmentStarts(
-  IntSet,
-  encodeBeast2PagedFor(IntSet)(new SortedSet(Array.from({ length: FOLD_KEYS }, (_, k) => BigInt(k)), intCmp)),
-);
-
-/** The fold contract's emission sequence (#770), as keys: 0..4999 in order
- *  with adjacent duplicates — every third key twice, and every key the
- *  output starts a segment at four times, so folds land on those entries. */
-function foldSequence() {
-  const ascending = [];
-  for (let k = 0; k < FOLD_KEYS; k++) {
-    const copies = 1 + (k % 3 === 0 ? 1 : 0) + (foldStarts.has(k) ? 2 : 0);
-    for (let c = 0; c < copies; c++) ascending.push(BigInt(k));
-  }
-  return ascending;
-}
-
-/** A key sequence as dict emissions — each value names its emission — and
- *  its fold under the concatenating merge, ascending by key. */
-function foldPairs(keys) {
-  const pairs = keys.map((key, i) => ({ key, value: `${i};` }));
-  const folded = new Map();
-  for (const { key, value } of pairs) folded.set(key, (folded.get(key) ?? '') + value);
-  const ascending = [...folded].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
-  return { pairs, folded: ascending.map(([key, value]) => ({ key, value })) };
-}
-
-/** A key sequence's union: its distinct keys, ascending. */
-function unionKeys(keys) {
-  return [...new Set(keys)].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-}
-
-const foldKeys = foldSequence();
-const ascendingPairs = foldPairs(foldKeys);
-
-// The claim foldStarts rests on, checked against the folded output itself.
-{
-  const folded = encodeBeast2PagedFor(IntStringDict)(
-    new SortedMap(ascendingPairs.folded.map(({ key, value }) => [key, value]), intCmp),
-  );
-  const starts = segmentStarts(IntStringDict, folded);
-  if (starts.size === 0 || starts.size !== foldStarts.size || [...starts].some((k) => !foldStarts.has(k))) {
-    throw new Error(`the folded output starts segments at ${[...starts]}, not ${[...foldStarts]}`);
-  }
-}
-
-/** The blob merge's inputs (#770): three sorted Dicts whose keys overlap —
- *  a = 0..19, b = 10..29, c = {5, 15, 25, 40} — each value naming its input,
- *  and their fold under the concatenating merge in input order. */
-const mergeKeys = {
-  a: Array.from({ length: 20 }, (_, k) => k),
-  b: Array.from({ length: 20 }, (_, k) => k + 10),
-  c: [5, 15, 25, 40],
-};
-function mergeInput(name) {
-  return segmented(IntStringDict, 4, mergeKeys[name].map((k) => [BigInt(k), `${name}${k}`]),
-    (chunk) => new SortedMap(chunk, intCmp));
-}
-function mergeSetInput(name) {
-  return segmented(IntSet, 4, mergeKeys[name].map((k) => BigInt(k)), (chunk) => new SortedSet(chunk, intCmp));
-}
-const mergeFolded = new Map();
-for (const name of ['a', 'b', 'c']) {
-  for (const k of mergeKeys[name]) mergeFolded.set(k, (mergeFolded.get(k) ?? '') + `${name}${k}`);
-}
-const mergeFoldedPairs = [...mergeFolded]
-  .sort(([x], [y]) => x - y)
-  .map(([k, v]) => ({ key: BigInt(k), value: v }));
-const mergeDistinct = unionKeys([...mergeKeys.a, ...mergeKeys.b, ...mergeKeys.c].map((k) => BigInt(k)));
-
-/** Two Dict entries whose values share one container. */
-const TagsDict = DictType(IntegerType, StructType({ tags: ArrayType(StringType) }));
-const sharedTags = (() => {
-  const shared = ['x', 'y', 'zzzzzzzzzzzzzzzzzzzz'];
-  return new SortedMap([[1n, { tags: shared }], [2n, { tags: shared }]], intCmp);
-})();
-
-/** The bytes an older writer left for `value`: aliasing scoped per segment —
- *  what a writer without self-containment writes for one segment — and the
- *  index flagged self-contained, as that writer flagged every blob. */
-function segmentScoped(type, value) {
-  const blob = encodeBeast2SegmentsFor(type, { selfContained: false })([value]);
-  const view = new DataView(blob.buffer, blob.byteOffset, blob.byteLength);
-  blob[Number(view.getBigUint64(blob.length - 16, true))] = 0x01;
-  return blob;
-}
-
 const fixtures = {
-  // Producer: no file inputs, 2500 emissions of i*2 through the trailing
-  // emit capability.
+  // A program emitting 2500 values through its trailing emit parameter: an
+  // IR the `ir` toolbox normalizes, diffs and converts.
   'emit_producer.beast2': encodeEastIR(
     East.function([emitInt], NullType, ($, emit) => {
       $.for(East.Array.range(0n, 2500n), ($, i) => {
@@ -200,59 +74,7 @@ const fixtures = {
     }).toIR(),
   ),
 
-  // Stream fold: one Array<Integer> input folded to running sums, each
-  // emitted.
-  'emit_fold.beast2': encodeEastIR(
-    East.function([ArrayType(IntegerType), emitInt], NullType, ($, events, emit) => {
-      const acc = $.let(0n);
-      $.for(events, ($, v) => {
-        $.assign(acc, acc.add(v));
-        $(emit(acc));
-      });
-    }).toIR(),
-  ),
-
-  // Dict producer emitting 1000 pairs in ascending key order.
-  'emit_dict.beast2': encodeEastIR(
-    East.function([emitPair], NullType, ($, emit) => {
-      $.for(East.Array.range(0n, 1000n), ($, i) => {
-        $(emit(i, East.str`row-${i}`));
-      });
-    }).toIR(),
-  ),
-
-  // Dict producer emitting out of key order on the second emit — Set/Dict
-  // emissions must ascend in East order (#770): the sink writes one pass,
-  // and this is the out-of-order error naming both keys.
-  'emit_dict_disorder.beast2': encodeEastIR(
-    East.function([emitPair], NullType, ($, emit) => {
-      $(emit(2n, 'b'));
-      $(emit(1n, 'a'));
-    }).toIR(),
-  ),
-
-  // Duplicate key emitted adjacently — a hard error.
-  'emit_dict_duplicate.beast2': encodeEastIR(
-    East.function([emitPair], NullType, ($, emit) => {
-      $(emit(1n, 'a'));
-      $(emit(1n, 'b'));
-    }).toIR(),
-  ),
-
-  // Wide-row producer: 1500 emissions of ~4 KiB strings. The cut rule's
-  // byte-aware threshold closes segments near the byte target — a runner
-  // that cut by row count alone would hold a thousand rows, 4 MiB, in one.
-  'emit_wide.beast2': encodeEastIR(
-    East.function([FunctionType([StringType], NullType)], NullType, ($, emit) => {
-      $.for(East.Array.range(0n, 1500n), ($, i) => {
-        $(emit(East.str`${'x'.repeat(4096)}-${i}`));
-      });
-    }).toIR(),
-  ),
-
-  // A zero-parameter program: `--emit` on it must fail with the shaped
-  // emit-capability error (there is no trailing parameter), never a
-  // traceback or a negative arity count.
+  // A zero-parameter program.
   'zero_param.beast2': encodeEastIR(East.function([], IntegerType, (_$) => 1n).toIR()),
 
   // A helper called 100 times from a loop: `--profile` must list it with
@@ -270,27 +92,14 @@ const fixtures = {
     );
   })(),
 
-  // The fold's input: [0..2500), written segmented + indexed by the TS
-  // writer, 500 elements per segment.
-  'events.beast2': segmented(ArrayType(IntegerType), 500, Array.from({ length: 2500 }, (_, i) => BigInt(i)),
-    (chunk) => chunk),
-
   // ---- Lazy paged-input pins (#516) ----------------------------------
 
-  // A keyed `has`, which the residency tests run over their inputs, and a
-  // corrupt paged blob (a high key range spliced BEFORE a low one, so the
-  // fences are not disjoint ascending), which `merge` must refuse. The keyed
-  // read of the corrupt blob, and the writes to a frozen input, are runner
-  // protocol corpus cases (east/test/runner_corpus.spec.ts).
+  // A keyed `has`, which the residency tests run over their inputs. The
+  // keyed read of a corrupt blob, and the writes to a frozen input, are
+  // runner protocol corpus cases (east/test/runner_corpus.spec.ts).
   'paged_has.beast2': encodeEastIR(
     East.function([IntStringDict], BooleanType, (_$, d) => d.has(5n)).toIR(),
   ),
-  'paged_corrupt.beast2': spliceBeast2([
-    segmented(IntStringDict, 2, Array.from({ length: 6 }, (_, i) => [BigInt(i + 1000), `row-${i + 1000}`]),
-      (chunk) => new SortedMap(chunk, intCmp)),
-    segmented(IntStringDict, 2, Array.from({ length: 6 }, (_, i) => [BigInt(i), `row-${i}`]),
-      (chunk) => new SortedMap(chunk, intCmp)),
-  ]),
 
   // The collapsed shape gate: a nested-container element type opens lazily
   // AND frozen under the threshold, so the write through a read-out element
@@ -314,53 +123,10 @@ const fixtures = {
     (chunk) => new SortedMap(chunk, intCmp),
   ),
 
-  // ---- Folding sinks and the lifeline (#770) ---------------------------
+  // ---- The lifeline (#770) ----------------------------------------------
 
-  // The fold contract: the ascending sequence emitted with --merge (dict) or
-  // --union (set), and the fold of that sequence emitted for the flag-less
-  // sink — the two outputs must be byte-identical.
-  'emit_merge_concat.beast2': encodeEastIR(
-    East.function([IntegerType, StringType, StringType], StringType, (_$, _key, acc, value) =>
-      acc.concat(value),
-    ).toIR(),
-  ),
-  'emit_merge_ascending.beast2': encodeEastIR(pairEmitter(ascendingPairs.pairs)),
-  'emit_merge_ascending_folded.beast2': encodeEastIR(pairEmitter(ascendingPairs.folded)),
-  'emit_union_ascending.beast2': encodeEastIR(keyEmitter(foldKeys)),
-  'emit_union_ascending_folded.beast2': encodeEastIR(keyEmitter(unionKeys(foldKeys))),
-
-  // ---- The blob merge (#770) --------------------------------------------
-
-  // Sorted inputs written by the TS writer in four-entry segments;
-  // `merge --merge` over the three Dicts and `merge --union` over the three
-  // Sets must write exactly the bytes `run --emit` writes for the folded
-  // (respectively distinct) sequence emitted ascending. An empty input, and a
-  // Dict of another type for the mismatch refusal.
-  'merge_in_a.beast2': mergeInput('a'),
-  'merge_in_b.beast2': mergeInput('b'),
-  'merge_in_c.beast2': mergeInput('c'),
-  'merge_expected_dict.beast2': encodeEastIR(pairEmitter(mergeFoldedPairs)),
-  'merge_set_a.beast2': mergeSetInput('a'),
-  'merge_set_b.beast2': mergeSetInput('b'),
-  'merge_set_c.beast2': mergeSetInput('c'),
-  'merge_expected_set.beast2': encodeEastIR(keyEmitter(mergeDistinct)),
-  // Two entries whose values share a container. Writers scope beast2
-  // aliasing per root ELEMENT, so the container is written out in each entry
-  // and the bytes depend on the entries' content alone — a merge of this
-  // input alone writes exactly these bytes back, on every runner. The
-  // segment-scoped twin is what an older writer left for the same value (the
-  // second entry a REF): it still reads, and merges to the canonical bytes.
-  'merge_aliased.beast2': encodeBeast2PagedFor(TagsDict)(sharedTags),
-  'merge_aliased_segment_scoped.beast2': segmentScoped(TagsDict, sharedTags),
-  'merge_empty.beast2': encodeBeast2PagedFor(IntStringDict)(new SortedMap([], intCmp)),
-  'merge_mismatch.beast2': encodeBeast2PagedFor(DictType(StringType, FloatType))(
-    new SortedMap([['x', 1.5]], compareFor(StringType)),
-  ),
-
-  // The lifeline: one emission, then a loop that never ends, which only the
-  // exit-with-parent watcher stops. The sink opens the output file before the
-  // body runs, so the file's existence is the gate's sign that the runner is
-  // up and computing.
+  // One emission, then a loop that never ends, which only the
+  // exit-with-parent watcher stops.
   'emit_spin.beast2': encodeEastIR(
     East.function([emitInt], NullType, ($, emit) => {
       $(emit(1n));
@@ -370,6 +136,17 @@ const fixtures = {
       });
     }).toIR(),
   ),
+
+  // The unit that runs it, its one element going to a set output. Its paths
+  // are relative, so the unit runs wherever it is copied beside the program.
+  // The sink creates the output directory before the program runs, so the
+  // directory's appearance is the sign the runner is up.
+  'lifeline_unit.beast2': encodeBeast2For(UnitType)({
+    work: variant('run', { program: 'emit_spin.beast2', inputs: [], output: variant('set', 'lifeline_output') }),
+    platforms: [],
+    threads: 1n,
+    result: 'lifeline_result.beast2',
+  }),
 };
 
 for (const dir of targets) {

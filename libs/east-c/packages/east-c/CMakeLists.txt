@@ -13,7 +13,6 @@ set(EAST_C_SOURCES
     src/compiler.c
     src/platform.c
     src/emit_writer.c
-    src/emit_sink.c
     src/merge.c
     src/unit.c
     src/file_map.c
@@ -401,18 +400,6 @@ add_test(NAME projection_nested COMMAND test_projection_nested)
 add_executable(test_paged_value tests/test_paged_value.c)
 target_link_libraries(test_paged_value east-c)
 add_test(NAME paged_value COMMAND test_paged_value)
-
-# Emit sink gate (issues #507, #770): the library sink behind `run --emit`
-# writes the bytes the paged encoder writes for the same value — on rows wide
-# enough that the cut rule's byte-aware threshold binds — folds adjacent equal
-# keys under --merge / --union to the bytes the flag-less sink writes for the
-# folded sequence, and refuses a duplicate or out-of-order key with the
-# canonical message, leaving the output unfinalised. Run under ASan/LSan for
-# the sink's lifetimes, the error paths included.
-add_executable(test_emit_sink tests/test_emit_sink.c)
-target_link_libraries(test_emit_sink east-c)
-add_test(NAME emit_sink COMMAND test_emit_sink)
-set_tests_properties(emit_sink PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 
 # IR normalization gate (#627): east_ir_normalize is the round-trip equality
 # contract — loc_ids stripped, variables/labels renamed in the TypeScript

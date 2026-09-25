@@ -759,8 +759,8 @@ def open_paged_value(uintptr_t type_ptr, bytes data, bint frozen=False):
 
     The returned hold carries the ``EAST_VAL_PAGED`` value's pointer (released
     on garbage collection) and is recognised by ``_eastc_call``'s argument
-    conversion, so a runner can pass a huge ``--stream`` input straight into a
-    compiled body with O(segment) decoded memory. Returns ``None`` when the
+    conversion, so a runner can pass a huge input straight into a compiled
+    body with O(segment) decoded memory. Returns ``None`` when the
     blob is not pageable (no index, aliased segments, or not a v5 container) —
     the caller falls back to the eager load, exactly like east-node's runner.
 

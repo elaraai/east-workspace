@@ -1,6 +1,5 @@
 /*
- * The segment writer shared by the emit sink and the blob merge — see
- * emit_writer.h.
+ * The blob merge's segment writer — see emit_writer.h.
  */
 
 #include <east/compat.h>

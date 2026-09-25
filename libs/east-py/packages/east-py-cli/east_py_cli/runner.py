@@ -40,7 +40,7 @@ def _format_file_size(path: Path) -> str:
 
 # east-node parity: indexed beast2 collection inputs at or above this many
 # bytes open as lazy paged values (EAST_LAZY_INPUT_BYTES overrides; 0
-# disables). A --stream input always opens lazily.
+# disables).
 _LAZY_INPUT_BYTES_DEFAULT = 64 * 1024 * 1024
 
 
@@ -67,80 +67,6 @@ def _load_frozen_input(type_ptr: object, file_path: Path, param_type: Any) -> ob
     if Path(file_path).suffix.lower() in (".beast2", ".beast"):
         return load_frozen_value(type_ptr, Path(file_path).read_bytes())
     return freeze_value(type_ptr, load_value(file_path, param_type))
-
-
-class _EmitSink:
-    """The ``--emit`` capability over east-c's streaming emit sink (issues
-    #507, #518, #770) — the library sink the east-c CLI runs, so both runners
-    write the same bytes for the same emissions.
-
-    The compiled body calls the sink's function value once per row with no
-    python in the loop: the cut, the ascending check and the folds all run
-    in C, in one pass — segments stream straight to the output file, and
-    memory is one open segment whatever the output's size. Set and Dict
-    emissions must ascend in East order: an out-of-order key is an error,
-    and so is an equal key unless the sink folds it — ``merge`` (a compiled
-    ``(K, V, V) -> V``) folds an adjacent equal dict key in emission order,
-    ``union`` keeps the first of adjacent equal set elements."""
-
-    def __init__(self, kind: str, emit_param_type: object, output_file: Path,
-                 merge: Callable | None = None, union: bool = False):
-        from east import ArrayType, DictType, SetType
-        from east.serialization._beast2_eastc import _EmitSinkCore
-
-        # `.beast2` only, as east-c and east-node require: the sink writes a
-        # beast2 stream, and the message has always said so.
-        if Path(output_file).suffix.lower() != ".beast2":
-            raise ValueError("--emit requires a .beast2 output file (-o)")
-        if getattr(emit_param_type, "type", None) not in ("Function", "AsyncFunction"):
-            raise ValueError(
-                "--emit requires the function's trailing parameter to be the emit "
-                "capability (a function type)"
-            )
-        ins = emit_param_type.value["inputs"]  # type: ignore[attr-defined]
-        expected = 2 if kind == "dict" else 1
-        if len(ins) != expected:
-            raise ValueError(
-                f"--emit {kind} expects an emit parameter taking {expected} "
-                f"argument(s), got {len(ins)}"
-            )
-        self.kind = kind
-        self.emit_types = list(ins)
-        self.output_file = Path(output_file)
-        self.out_type: Any = (
-            DictType(ins[0], ins[1]) if kind == "dict"
-            else SetType(ins[0]) if kind == "set"
-            else ArrayType(ins[0])
-        )
-        self._core = _EmitSinkCore(
-            {"array": 0, "set": 1, "dict": 2}[kind], self.emit_types, self.output_file, merge,
-            union)
-
-    def function_value(self) -> Callable:
-        """The emit capability as a native East function value: every row runs
-        the sink's C entry.
-
-        Passed to a compiled body it rides the FunctionType parameter as the
-        value itself (the runner's path — no python in the loop). It is also
-        callable, so a harness driving a ``@platform_function`` straight from
-        python can hand it over as the emit capability and a pure callback
-        still pushes down (issue #592)."""
-        return self._core.function_value()
-
-    def emit(self, *args: object) -> None:
-        """Python-boundary emission — the same C entry the compiled body
-        calls, one marshalled row at a time."""
-        self._core.emit(*args)
-
-    def finish(self) -> None:
-        """Finalize the output: the held entry, the terminator and the
-        index. Raises EastError with the sink's message and leaves the output
-        unfinalized."""
-        self._core.finish()
-
-    def stats(self) -> dict[str, Any]:
-        """The sink's counter (see ``_EmitSinkCore.stats``)."""
-        return self._core.stats()
 
 
 def _compile_ir_file(ir_file: Path, platform_fns: list[PlatformFunction]) -> tuple[Callable, bool]:
@@ -407,19 +333,9 @@ def run_program(
     input_files: list[Path],
     output_file: Path | None = None,
     verbose: bool = False,
-    emit: str | None = None,
-    stream_inputs: Sequence[int] = (),
-    merge: Path | None = None,
-    union: bool = False,
 ) -> object:
-    """Run an East IR program.
-
-    With ``emit`` the function's trailing parameter is the emit capability
-    and the streaming sink writes ``output_file``; ``merge`` names an IR file
-    holding a ``(K, V, V) -> V`` function, compiled with the run's platforms,
-    that folds equal dict keys, and ``union`` collapses equal set elements.
-    Every input index in ``stream_inputs`` opens lazily.
-    """
+    """Run an East IR program: its result written to ``output_file`` in the
+    format its extension names, or printed as East text."""
     t0 = perf_counter()
 
     # Compile directly from raw data — no Python IR round-trip, single file read
@@ -431,35 +347,13 @@ def run_program(
     input_types = handle.get_input_types()
     output_type = handle.get_output_type()
 
-    # With --emit the body takes one trailing runner-provided parameter (the
-    # emit capability) beyond the input files; the output file is written
-    # incrementally by the sink instead of from the return value.
-    file_params = len(input_types) - 1 if emit is not None and input_types else len(input_types)
-
     # Validate input count
-    if len(input_files) != file_params:
+    if len(input_files) != len(input_types):
         sig_params = ", ".join(print_type(t) for t in input_types)
         raise ValueError(
-            f"Function expects {file_params} inputs, got {len(input_files)}\n"
+            f"Function expects {len(input_types)} inputs, got {len(input_files)}\n"
             f"Signature: ({sig_params}) -> {print_type(output_type)}"
         )
-    for index in stream_inputs:
-        if not 0 <= index < file_params:
-            # east-node / east-c parity: `--stream 0` on a zero-input program
-            # is an error, not a silent no-op.
-            raise ValueError(f"--stream index {index} out of range ({file_params} inputs)")
-
-    sink = None
-    if emit is not None:
-        if output_file is None:
-            raise ValueError("--emit requires a .beast2 output file (-o)")
-        # The --merge function compiles with the run's platforms, exactly like
-        # the main IR; the sink borrows its native function.
-        merge_fn = _compile_ir_file(Path(merge), platform_fns)[0] if merge is not None else None
-        # A zero-parameter function has no trailing parameter to be the emit
-        # capability — the shaped error, not an IndexError.
-        sink = _EmitSink(emit, input_types[-1] if input_types else None, output_file,
-                         merge=merge_fn, union=union)
 
     # Verbose header
     if verbose:
@@ -483,18 +377,11 @@ def run_program(
         print("  return:", file=sys.stderr)
         print(f"    {print_type(output_type)}", file=sys.stderr)
 
-    # A streamed input always opens lazily; other indexed beast2 collection
-    # inputs open lazily at or above the size threshold.
+    # Indexed beast2 collection inputs open lazily at or above the size
+    # threshold.
     threshold = _lazy_input_threshold()
     inputs, lazy_inputs = _open_inputs(
-        handle, input_files,
-        lambda i, size: i in stream_inputs or (threshold > 0 and size >= threshold), verbose)
-
-    # The emit capability rides the trailing FunctionType parameter as a
-    # native East function value: the compiled body's per-row calls run the
-    # east-c sink directly, with no python in the loop.
-    if sink is not None:
-        inputs.append(sink.function_value())
+        handle, input_files, lambda _i, size: threshold > 0 and size >= threshold, verbose)
 
     t2 = perf_counter()
 
@@ -506,18 +393,7 @@ def run_program(
     t3 = perf_counter()
 
     # Output
-    if sink is not None:
-        # The sink wrote the output incrementally; the (Null) return value is
-        # unused. Finishing writes the held entry, the terminator, index and
-        # footer.
-        sink.finish()
-        if verbose:
-            print(
-                f"Output: {sink.output_file}  ({_format_file_size(sink.output_file)})",
-                file=sys.stderr,
-            )
-            print(f"  {print_type(sink.out_type)}", file=sys.stderr)
-    elif output_file is not None:
+    if output_file is not None:
         save_value(output_file, result, output_type)
         if verbose:
             print(f"Output: {output_file}  ({_format_file_size(output_file)})", file=sys.stderr)
@@ -555,56 +431,3 @@ def run_program(
                       file=sys.stderr)
 
     return result
-
-
-def merge_blobs(
-    input_files: Sequence[Path],
-    platform_fns: list[PlatformFunction],
-    output_file: Path,
-    verbose: bool = False,
-    merge: Path | None = None,
-    union: bool = False,
-    range: Path | None = None,  # noqa: A002 - the CLI flag's name
-) -> dict[str, int]:
-    """Merge sorted Set or Dict blobs of one type into one — ``east-py merge``
-    (issue #770), east-c's blob merge behind ``east-c merge`` too, so the two
-    runners write the same bytes.
-
-    One pass over the inputs, read segment by segment through a mapping — an
-    input may be a manifest directory, read through its segment files; the
-    output is what ``run --emit`` writes for the same entries emitted
-    ascending. Equal keys fold in input order: ``merge`` names an IR file
-    holding a ``(K, V, V) -> V`` function, compiled with the run's platforms,
-    that folds equal Dict keys; ``union`` keeps the first of equal Set
-    elements; without a fold an equal key is an error. ``range`` names a
-    beast2 blob of ``Struct{from: Option<K>, to: Option<K>}`` over the inputs'
-    key type: only the keys in ``[from, to)`` merge, an absent bound open.
-    The output is written wherever ``output_file`` points, whatever its name,
-    exactly as east-c and east-node write it.
-    Returns the account ``{"inputs", "entries", "folds"}``; raises ValueError
-    with the merge's message and leaves the output unfinalised.
-    """
-    from east.serialization._beast2_eastc import _merge_blobs
-
-    t0 = perf_counter()
-    # No precondition on the output path's name: the merge IS east-c's, and
-    # east-c and east-node write the blob wherever `-o` points. A python-side
-    # rule here would refuse a command the other two runners accept.
-    # The fold compiles with the run's platforms, exactly like a program; the
-    # merge checks its signature against the inputs' key and value types.
-    merge_fn = _compile_ir_file(Path(merge), platform_fns)[0] if merge is not None else None
-    stats = _merge_blobs(
-        [Path(p) for p in input_files], Path(output_file), merge_fn, union,
-        Path(range) if range is not None else None,
-    )
-    t1 = perf_counter()
-    if verbose:
-        print(
-            f"merge: {stats['inputs']} input(s), {stats['entries']} entries, "
-            f"{stats['folds']} fold(s)",
-            file=sys.stderr,
-        )
-        print(f"Output: {output_file}  ({_format_file_size(output_file)})", file=sys.stderr)
-        print("\nTiming:", file=sys.stderr)
-        print(f"  Total:    {(t1 - t0) * 1000:8.1f} ms", file=sys.stderr)
-    return stats

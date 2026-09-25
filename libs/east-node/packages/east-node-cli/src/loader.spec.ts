@@ -370,11 +370,15 @@ describe('loadInputLazy — an input staged as a manifest over segment files', (
 
       const lines: string[] = [];
       const original = console.error;
+      const saved = process.env.EAST_LAZY_INPUT_BYTES;
       console.error = (...args: unknown[]) => { lines.push(args.map(String).join(' ')); };
+      process.env.EAST_LAZY_INPUT_BYTES = String(threshold);
       try {
-        await runProgram(irPath, [], [], [path], outputPath, { lazyInputBytes: threshold, verbose: true });
+        await runProgram(irPath, [], [], [path], outputPath, true);
       } finally {
         console.error = original;
+        if (saved === undefined) delete process.env.EAST_LAZY_INPUT_BYTES;
+        else process.env.EAST_LAZY_INPUT_BYTES = saved;
       }
       assert.ok(lines.some((line) => line.includes('input 0: opened lazily')), lines.join('\n'));
       assert.equal(decodeBeast2For(StringType)(new Uint8Array(readFileSync(outputPath))), 'row-9999');

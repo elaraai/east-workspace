@@ -4,39 +4,38 @@
  */
 
 /**
- * The blob merge behind `east-node merge` (issue #770).
+ * The blob merge behind an `exec` merge unit (issue #770).
  *
  * Canonical Set or Dict collections of one type in — sorted, indexed beast2 v5
- * blobs, as every runner writes them, or manifest directories, as e3 stages a
- * stored collection — and one canonical blob out, merged by the library's
- * `mergeBeast2For`: every input is read segment by segment through positioned
- * reads, and the output is written through the canonical element writer, so
- * the file is byte-identical to what `run --emit` writes for the same entries
- * emitted ascending. Memory is one decoded segment per input plus one open
- * output segment; no temporary file is ever written. This module is the
- * command around the merge: it opens and checks the inputs, reads the key
- * range and loads the fold, refusing each in the words east-c and east-py use.
+ * blobs, or manifest directories, as a unit's parts are staged — and one
+ * canonical collection out, merged by the library's `mergeBeast2For`: every
+ * input is read segment by segment through positioned reads, and the output is
+ * written through the canonical element writer, so it is byte-identical to
+ * what that writer writes for the merged value. Memory is one decoded segment
+ * per input plus one open output segment; no temporary file is ever written.
+ * This module opens and checks the inputs, reads the key range and loads the
+ * fold, refusing each in the words east-c and east-py use.
  *
  * Equal keys across inputs fold in input order: with a merge function (Dict
  * inputs) `acc = merge(key, acc, value)`; in union mode (Set inputs) the
- * first element stands. Without a fold, an equal key is the duplicate error
- * the emit sink raises. An input whose keys do not ascend, an input whose
- * type is not input 0's, and an Array input are refused.
+ * first element stands. Without a fold, an equal key is the library's
+ * duplicate error. An input whose keys do not ascend, an input whose type is
+ * not input 0's, and an Array input are refused.
  *
- * With a key range (`--range`, a blob of `Struct{from: Option<K>, to:
- * Option<K>}` over the inputs' key type) only the keys in `[from, to)`
- * merge: every input is sought to the segment owning `from` through its
- * fences and read up to the first key at or past `to`, so a unit over a
- * range of a large output reads that range's share of each input, plus at
- * most one segment. An absent bound is open; both absent is the whole merge.
+ * With a key range (a blob of `Struct{from: Option<K>, to: Option<K>}` over
+ * the inputs' key type) only the keys in `[from, to)` merge: every input is
+ * sought to the segment owning `from` through its fences and read up to the
+ * first key at or past `to`, so a unit over a range of a large output reads
+ * that range's share of each input, plus at most one segment. An absent bound
+ * is open; both absent is the whole merge.
  *
- * This is the fan-in of a partitioned task's keyed partials: e3 runs it as an
- * ordinary execution on the task's runner, one unit per key range of a group
- * of partials, and never decodes a partial itself. east-c and east-py merge
- * through the same contract, so the three runners write the same bytes.
+ * This is the fan-in of a split task's set and dict parts: e3 runs it as a
+ * merge unit on the task's runner, one per key range of a group of parts, and
+ * never decodes a part itself. east-c and east-py merge through the same
+ * contract, so the three runners write the same bytes.
  */
 
-import { closeSync, fstatSync, openSync, readFileSync, readSync, statSync } from 'fs';
+import { closeSync, fstatSync, openSync, readFileSync, readSync, statSync, writeSync } from 'fs';
 import {
     OptionType,
     StructType,
@@ -56,9 +55,8 @@ import {
 } from '@elaraai/east';
 import type { EastTypeValue, PlatformFunction } from '@elaraai/east/internal';
 import { printTypeValue } from '@elaraai/east/internal';
-import { writeAll } from './emit-writer.js';
 import { segmentDirFor } from './loader.js';
-import { formatFileSize, loadMergeFunction } from './runner.js';
+import { loadMergeFunction } from './runner.js';
 
 /** Options accepted by {@link mergeBlobs}. */
 export interface MergeBlobsOptions {
@@ -74,8 +72,6 @@ export interface MergeBlobsOptions {
     rangePath?: string;
     /** The platforms the merge function compiles with. */
     platformFns?: PlatformFunction[];
-    /** Print the account and timing on stderr. */
-    verbose?: boolean;
 }
 
 /** What a merge came to. */
@@ -102,6 +98,15 @@ interface OpenedInput {
     type: EastTypeValue;
     source: Beast2SyncRangeReader | Beast2ManifestSource;
     close: () => void;
+}
+
+/** Writes all of `bytes` to `fd` — `writeSync` may write fewer bytes than
+ *  asked, and a silently short write would corrupt the file. */
+function writeAll(fd: number, bytes: Uint8Array): void {
+    let written = 0;
+    while (written < bytes.length) {
+        written += writeSync(fd, bytes, written, bytes.length - written);
+    }
 }
 
 /** Exactly `length` bytes of the file open as `fd`, from `offset`. */
@@ -226,7 +231,7 @@ function openInput(path: string, index: number, expected: EastTypeValue | null):
 }
 
 /**
- * Reads a `--range` blob: `Struct{from: Option<K>, to: Option<K>}` over the
+ * Reads a range blob: `Struct{from: Option<K>, to: Option<K>}` over the
  * inputs' key type, self-describing, checked against that type.
  *
  * @param path - the blob
@@ -240,7 +245,7 @@ function readRange(path: string, keyType: EastTypeValue): KeyRange {
     try {
         bytes = new Uint8Array(readFileSync(path));
     } catch {
-        throw new Error(`merge: --range (${path}): cannot open the file`);
+        throw new Error(`merge: range (${path}): cannot open the file`);
     }
     // The same shape east-c builds (merge.c) and e3-core writes
     // (execution/steps.ts): the bounds struct over the key type.
@@ -250,16 +255,16 @@ function readRange(path: string, keyType: EastTypeValue): KeyRange {
     try {
         type = readBeast2Type(bytes);
     } catch (err) {
-        throw new Error(`merge: --range (${path}): ${(err as Error).message ?? String(err)}`);
+        throw new Error(`merge: range (${path}): ${(err as Error).message ?? String(err)}`);
     }
     if (!isTypeValueEqual(type, rangeType)) {
-        throw new Error(`merge: --range (${path}) has type ${printTypeValue(type)}, expected ${printTypeValue(rangeType)} (bounds over the inputs' key type)`);
+        throw new Error(`merge: range (${path}) has type ${printTypeValue(type)}, expected ${printTypeValue(rangeType)} (bounds over the inputs' key type)`);
     }
     let bounds: { from: { type: string; value: unknown }; to: { type: string; value: unknown } };
     try {
         bounds = decodeBeast2For(rangeType)(bytes) as typeof bounds;
     } catch (err) {
-        throw new Error(`merge: --range (${path}): ${(err as Error).message ?? String(err)}`);
+        throw new Error(`merge: range (${path}): ${(err as Error).message ?? String(err)}`);
     }
     return {
         from: bounds.from.type === 'some' ? bounds.from.value : undefined,
@@ -269,12 +274,12 @@ function readRange(path: string, keyType: EastTypeValue): KeyRange {
 
 /**
  * Merges sorted Set or Dict blobs of one type into one canonical collection —
- * the `merge` command, and an `exec` merge unit's set or dict parts.
+ * an `exec` merge unit's set or dict parts.
  *
  * @param inputPaths - the inputs, in the order equal keys fold; at least one
  * @param output - the output blob's path, or the sink a manifest directory is
  *   written through
- * @param options - the fold, its platforms, the key range, verbosity
+ * @param options - the fold, its platforms, the key range
  * @returns the account: inputs merged, entries written, keys folded
  * @throws {Error} With the merge's message — an input of another type than
  *   input 0's, an Array input, keys that do not ascend, a fold whose
@@ -284,10 +289,9 @@ function readRange(path: string, keyType: EastTypeValue): KeyRange {
  *   terminator or index, or no manifest).
  */
 export function mergeBlobs(inputPaths: readonly string[], output: string | Beast2ManifestSink, options: MergeBlobsOptions = {}): MergeBlobsStats {
-    const started = performance.now();
     if (inputPaths.length === 0) throw new Error('merge: at least one input is needed');
     if (options.mergePath !== undefined && options.union) {
-        throw new Error('merge: --merge and --union are two folds — give one');
+        throw new Error('merge: a merge function and union are two folds — give one');
     }
     const opened: OpenedInput[] = [];
     let fd = -1;
@@ -297,8 +301,8 @@ export function mergeBlobs(inputPaths: readonly string[], output: string | Beast
         opened.push(first);
         const type = first.type;
         const dict = type.type === 'Dict';
-        if (options.mergePath !== undefined && !dict) throw new Error('--merge applies to Dict inputs only');
-        if (options.union && dict) throw new Error('--union applies to Set inputs only');
+        if (options.mergePath !== undefined && !dict) throw new Error('merge: a merge function applies to Dict inputs only');
+        if (options.union && dict) throw new Error('merge: union applies to Set inputs only');
         const keyType = (dict ? (type as any).value.key : (type as any).value) as EastTypeValue;
         const merge = options.mergePath !== undefined
             ? loadMergeFunction(options.mergePath, keyType, (type as any).value.value as EastTypeValue, options.platformFns ?? [], 'the inputs')
@@ -324,12 +328,6 @@ export function mergeBlobs(inputPaths: readonly string[], output: string | Beast
     } finally {
         for (const input of opened) input.close();
         if (fd >= 0) closeSync(fd);
-    }
-    if (options.verbose) {
-        console.error(`merge: ${stats.inputs} input(s), ${stats.entries} entries, ${stats.folds} fold(s)`);
-        if (typeof output === 'string') console.error(`Output: ${output}  (${formatFileSize(output)})`);
-        console.error('\nTiming:');
-        console.error(`  Total:    ${(performance.now() - started).toFixed(1).padStart(8)} ms`);
     }
     return stats;
 }

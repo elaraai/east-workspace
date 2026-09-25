@@ -27,10 +27,10 @@ import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, sep } from 'node:path';
 import crossSpawn from 'cross-spawn';
-import { DictType, East, FunctionType, IntegerType, NullType, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, encodeEastIR, variant } from '@elaraai/east';
+import { DictType, East, FunctionType, IntegerType, NullType, SortedMap, StringType, UnitType, compareFor, decodeBeast2For, encodeBeast2For, encodeEastIR, variant } from '@elaraai/east';
 import { decodeCollectionManifest } from '@elaraai/e3-types';
-import { withRunnerLifeline } from '@elaraai/e3-types';
 import { jobLauncher, marshalInputsToDir, quoteWindowsArgument, spawnAndCapture } from './processExec.js';
+import { unitArgv } from './units.js';
 import { storeDatasetFile } from '../store-collection.js';
 import { datasetWrite } from '../trees.js';
 import { writeRecordState } from '../records.js';
@@ -650,8 +650,8 @@ describe('the stdin lifeline (#770)', () => {
     // the job launcher, with e3, and the launcher's job ends the runner
     // beneath the pnpm shim; the lifeline would end it too, as it does where
     // the launcher is not installed (east-node-cli's own tests pin that on
-    // Windows). The sink opens the output file before the body runs, so the
-    // file's existence is the sign the runner is up and computing; the body
+    // Windows). A unit's set output directory is made before the body runs,
+    // so its existence is the sign the runner is up and computing; the body
     // loops forever after one emission.
     const spin = East.function([FunctionType([IntegerType], NullType)], NullType, ($, emit) => {
       $(emit(1n));
@@ -660,16 +660,21 @@ describe('the stdin lifeline (#770)', () => {
         $.assign(turns, turns.add(1n));
       });
     });
-    const irPath = join(dir, 'spin.beast2');
-    writeFileSync(irPath, encodeEastIR(spin.toIR()));
     const scratch = join(dir, 'scratch');
     mkdirSync(scratch);
-    const outputPath = join(dir, 'output.beast2');
+    writeFileSync(join(scratch, 'spin.beast2'), encodeEastIR(spin.toIR()));
+    const unitPath = join(scratch, 'unit.beast2');
+    writeFileSync(unitPath, encodeBeast2For(UnitType)({
+      work: variant('run', { program: 'spin.beast2', inputs: [], output: variant('set', 'output') }),
+      platforms: [],
+      threads: 1n,
+      result: 'result.beast2',
+    }));
+    const outputPath = join(scratch, 'output');
 
-    // The e3 process: this build's spawnAndCapture, reporting the runner's pid
-    // and passing its stderr through.
-    const argv = withRunnerLifeline(variant('east_node', { platforms: [] }),
-      ['east-node', 'run', '-p', '@elaraai/east-node-std', '--emit', 'set', '-o', outputPath, irPath]);
+    // The e3 process: this build's spawnAndCapture of a unit's command line,
+    // reporting the runner's pid and passing its stderr through.
+    const argv = unitArgv(variant('east_node', { platforms: [] }), { file: unitPath, result: join(scratch, 'result.beast2') });
     const e3Script = join(dir, 'e3.mjs');
     writeFileSync(e3Script, [
       `import { spawnAndCapture } from ${JSON.stringify(new URL('./processExec.js', import.meta.url).href)};`,

@@ -3,9 +3,9 @@
  * again here and held to TypeScript's bytes: every value's whole-value blob,
  * paged blob and manifest directory; every emission sequence's runs and their
  * merge; every merge of sorted inputs, as a blob and as a manifest directory.
- * A fold is compiled from the IR the corpus carries, as `east-c merge --merge`
- * compiles one. Run under ASan/LSan for the sorter's, the merge's and the
- * manifest writer's lifetimes.
+ * A fold is compiled from the IR the corpus carries, as `exec` compiles a
+ * unit's merge function. Run under ASan/LSan for the sorter's, the merge's
+ * and the manifest writer's lifetimes.
  *
  * Usage: test_beast2_corpus [corpus-dir] [scratch-dir]
  *   (defaults: /tmp/east-test-ir/beast2_corpus, and the working directory)
@@ -107,8 +107,9 @@ typedef struct {
 } Fold;
 
 /* Compiles a case's `merge` — an Option of the IR of a (K, V, V) -> V
- * function — as east-c-cli compiles `--merge`: with the IR's own source map
- * current, then handed to the function. A `none` compiles nothing. */
+ * function — as `exec` compiles a unit's merge function: with the IR's own
+ * source map current, then handed to the function. A `none` compiles
+ * nothing. */
 static bool fold_compile(const char *name, EastValue *option, Fold *out)
 {
     out->ir = NULL;

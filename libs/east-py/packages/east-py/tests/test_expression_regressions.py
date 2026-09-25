@@ -22,7 +22,7 @@ import itertools
 import pytest
 from east._eastc_bridge import c_function_value_type
 from east.runtime._compiler_eastc import diff_ir
-from east.serialization._beast2_eastc import _EmitSinkCore
+from east.serialization._beast2_eastc import _UnitSinkCore
 
 from east import (
     ArrayType,
@@ -49,8 +49,8 @@ from east import (
 from east.expression import ExpressionError
 from east.ir.builders import ir_function, ir_platform, ir_variable
 from east.runtime.compiler import compile_from_value
-from east.runtime.errors import EastError, NonRetraceableCallError
-from east.serialization.beast2 import decode_beast2_with_header_for
+from east.runtime.errors import NonRetraceableCallError
+from east.serialization.beast2 import load_beast2_manifest
 
 ROW = StructType([("k", StringType), ("v", FloatType)])
 KEY_ROW = StructType([("k", StringType)])
@@ -87,22 +87,25 @@ _sink_files = itertools.count()
 
 
 def _sink(tmp_path, kind: str = "dict", emit_types=(StringType, FloatType)):
-    """A live emit sink — the streamTask runner's, east-c's library sink —
-    writing to a fresh file under ``tmp_path``. Returns ``(sink, path)``."""
-    path = tmp_path / f"emit-{next(_sink_files)}.beast2"
-    return _EmitSinkCore({"array": 0, "set": 1, "dict": 2}[kind], list(emit_types), path), path
+    """A live emit sink — the runner's, east-c's unit sink — writing a fresh
+    output directory under ``tmp_path``. Returns ``(sink, directory)``."""
+    directory = tmp_path / f"emit-{next(_sink_files)}"
+    return _UnitSinkCore(kind, list(emit_types), directory), directory
 
 
-def _written(sink, path, kind: str = "dict", emit_types=(StringType, FloatType)):
-    """Finish the sink and decode what it wrote: ``(elements,)`` for an
-    array or set sink, ``(keys, values)`` for a dict sink."""
+def _written(sink, directory, kind: str = "dict", emit_types=(StringType, FloatType)):
+    """Finish the sink and decode what it wrote — an array's manifest
+    directory, or a set's or dict's one run, each ``<directory>/0.beast2``:
+    ``(elements,)`` for an array or set sink, ``(keys, values)`` for a dict
+    sink."""
     sink.finish()
-    blob = path.read_bytes()
+    out_t = (DictType(*emit_types) if kind == "dict"
+             else SetType(emit_types[0]) if kind == "set" else ArrayType(emit_types[0]))
+    written = load_beast2_manifest(directory / "0.beast2", out_t)
     if kind == "dict":
-        pairs = list(decode_beast2_with_header_for(DictType(*emit_types))(blob).items())
+        pairs = list(written.items())
         return [k for k, _ in pairs], [v for _, v in pairs]
-    out_t = SetType(emit_types[0]) if kind == "set" else ArrayType(emit_types[0])
-    return (list(decode_beast2_with_header_for(out_t)(blob)),)
+    return (list(written),)
 
 
 def _drive(tmp_path, name, kind, emit_types, body):
@@ -943,18 +946,8 @@ class TestSinkPythonBoundaryCall:
         emit("a", 1.0)
         emit("b", 2.0)
 
-        assert sink.stats()["emitted"] == 2
         keys, values = _written(sink, path)
         assert list(keys) == ["a", "b"] and list(values) == [1.0, 2.0]
-
-    def test_it_is_the_same_acceptance_path_as_the_core_entry(self, tmp_path):
-        # Same rows, same C entry — so the duplicate-key refusal (and its
-        # message) reaches a python caller through either door.
-        sink, _path = _sink(tmp_path)
-        emit = sink.function_value()
-        emit("a", 1.0)
-        with pytest.raises(EastError, match='duplicate Dict key emitted: "a"'):
-            emit("a", 2.0)
 
     def test_it_keeps_the_sink_alive_on_its_own(self, tmp_path):
         # The wrapper is the only python reference left, and the sink

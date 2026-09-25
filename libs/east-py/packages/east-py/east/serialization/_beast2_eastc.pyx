@@ -1161,233 +1161,6 @@ cdef class _Beast2PagesCore:
             _eastc.east_type_release(self._type)
 
 
-# ─── The streaming emit sink (issues #507, #518, #770) ────────────────────
-#
-# The streamTask emit capability over east-c's library sink
-# (east/emit_sink.h) — the very code the east-c CLI runs, so the two runners
-# write the same bytes for the same emissions. Everything per row happens in
-# C: the cut, the ascending check, the --merge / --union folds of adjacent
-# equal keys, and the duplicate and out-of-order messages. _EmitSinkCore
-# owns the EastEmitSink*; _EmitSink (east-py-cli) validates the emit
-# parameter. _merge_blobs below is the fan-in's twin: east-c's blob merge
-# (east/merge.h) behind `east-py merge`.
-
-
-cdef struct _EmitSinkEntry:
-    # The sink's own function value (retained): its invoke is the per-row
-    # entry, reading the EastEmitSink* from its userdata.
-    _eastc.EastValue* sink_fn
-    # The _EmitSinkCore (one reference): the sink the entry reaches into
-    # lives exactly as long as the core, so every function value handed out
-    # holds the core.
-    PyObject* owner
-
-
-cdef _eastc.EvalResult _emit_sink_invoke(_eastc.EastCompiledFn* self,
-                                         _eastc.EastValue** args, size_t n) noexcept:
-    """Forward one emitted row to the sink's per-row entry — pure C, no
-    python per row."""
-    cdef _EmitSinkEntry* entry = <_EmitSinkEntry*>self.invoke_userdata
-    return _eastc.east_call(entry.sink_fn.data.function.compiled, args, n)
-
-
-cdef void _emit_sink_release(void* ud) noexcept with gil:
-    cdef _EmitSinkEntry* entry = <_EmitSinkEntry*>ud
-    if entry == NULL:
-        return
-    if entry.sink_fn != NULL:
-        _eastc.east_value_release(entry.sink_fn)
-    Py_XDECREF(entry.owner)
-    free(entry)
-
-
-cdef class _EmitSinkCore:
-    """Owner of one east-c emit sink behind a streamTask ``emit``.
-
-    ``kind``: 0 = array, 1 = set, 2 = dict; ``emit_types`` the emit
-    parameter's argument types (the element, or the key and the value). The
-    sink opens ``output_path`` at construction. Set and Dict emissions must
-    ascend in East order: an out-of-order key is an error, and so is an
-    equal key unless the sink folds it — ``merge`` (a compiled
-    ``(K, V, V) -> V`` East function; a dict sink folds an adjacent equal
-    key with it, in emission order) or ``union_mode`` (an adjacent equal set
-    element collapses into the previous one).
-
-    Raises ValueError when ``merge`` does not match the emit parameter, or
-    when the sink cannot open (the output is not writable, a merge function
-    on a non-dict sink, union mode on a non-set sink).
-    """
-
-    cdef readonly int kind
-    cdef _eastc.EastEmitSink* _sink
-    cdef _eastc.EastValue* _sink_fn  # retained: the sink's function value
-    cdef _eastc.EastType* _fn_t      # the emit parameter's function type
-    cdef _eastc.EastType* _out_type  # the output collection type
-    cdef bytes _path                 # borrowed by the sink for its lifetime
-    cdef object _merge               # borrowed by the sink for its lifetime
-
-    def __cinit__(self, int kind, object emit_types, object output_path, object merge=None,
-                  bint union_mode=False):
-        import os
-
-        from east.types.types import FunctionType, NullType
-
-        _ensure_eastc_runtime()
-        self.kind = kind
-        self._fn_t = py_type_to_c(FunctionType(list(emit_types), NullType))
-        cdef _eastc.EastType** ins = self._fn_t.data.function.inputs
-        if kind == 2:
-            self._out_type = _eastc.east_dict_type(ins[0], ins[1])
-        elif kind == 1:
-            self._out_type = _eastc.east_set_type(ins[0])
-        else:
-            self._out_type = _eastc.east_array_type(ins[0])
-        # east-c opens the output with fopen, which reads the bytes in the
-        # ANSI code page on Windows.
-        self._path = _c_path(output_path)
-
-        cdef _eastc.EastCompiledFn* merge_fn = NULL
-        if merge is not None:
-            merge_fn = <_eastc.EastCompiledFn*><uintptr_t>merge._eastc_handle._compiled
-            if kind == 2:
-                self._check_merge(merge_fn)
-            self._merge = merge
-
-        cdef _eastc.EastEmitSinkConfig cfg
-        cfg.kind = <_eastc.EastEmitKind>kind
-        cfg.out_type = self._out_type
-        cfg.output_path = <const char*>self._path
-        cfg.merge_fn = merge_fn
-        cfg.union_mode = union_mode
-        self._sink = _eastc.east_emit_sink_new(&cfg)
-        if self._sink == NULL:
-            _consume_eastc_error("emit: failed to open the sink", ValueError)
-        self._sink_fn = _eastc.east_emit_sink_function(self._sink, self._fn_t)
-        if self._sink_fn == NULL:
-            raise MemoryError()
-
-    cdef void _check_merge(self, _eastc.EastCompiledFn* merge_fn) except *:
-        """The --merge function must be (K, V, V) -> V over the emit
-        parameter's key and value types — the east-c CLI's check and
-        message."""
-        cdef _eastc.EastType* key_t = self._fn_t.data.function.inputs[0]
-        cdef _eastc.EastType* val_t = self._fn_t.data.function.inputs[1]
-        cdef _eastc.EastType* t = merge_fn.fn_type if merge_fn != NULL else NULL
-        if (t != NULL and t.kind == _eastc.EAST_TYPE_FUNCTION
-                and t.data.function.num_inputs == 3
-                and _eastc.east_type_equal(t.data.function.inputs[0], key_t)
-                and _eastc.east_type_equal(t.data.function.inputs[1], val_t)
-                and _eastc.east_type_equal(t.data.function.inputs[2], val_t)
-                and _eastc.east_type_equal(t.data.function.output, val_t)):
-            return
-        from east.serialization.east_printer import print_type
-
-        got = print_type(_c_type_tag_to_py_type(t)) if t != NULL else "?"
-        raise ValueError(
-            "--merge: expected a function (K, V, V) -> V matching the emit parameter "
-            f"(K = {print_type(_c_type_tag_to_py_type(key_t))}, "
-            f"V = {print_type(_c_type_tag_to_py_type(val_t))}), got {got}")
-
-    def __dealloc__(self):
-        if self._sink_fn != NULL:
-            _eastc.east_value_release(self._sink_fn)
-        if self._sink != NULL:
-            _eastc.east_emit_sink_free(self._sink)
-        if self._out_type != NULL:
-            _eastc.east_type_release(self._out_type)
-        if self._fn_t != NULL:
-            _eastc.east_type_release(self._fn_t)
-
-    def function_value(self):
-        """The emit capability as the bridge's standard CALL WRAPPER around
-        the sink's function value: passed to a compiled body's FunctionType
-        parameter it hands east-c the value itself (``_east_c_handle``), so
-        the per-row loop runs with no python; its declared type is the emit
-        parameter's, so signature introspection answers.
-
-        It is also CALLABLE (issue #592): a harness that invokes a
-        ``@platform_function`` directly from python gets the same shape a
-        compiled body's decode gives it. Called on plain values it marshals
-        one row through the sink's per-row entry, as :meth:`emit` does;
-        called from inside a trace it lowers to an IR ``Call`` on the sink
-        (#561), so a pure ``for_each(lambda k, v: emit(k, v))`` still runs
-        with zero python per row. The value holds this core, so the sink
-        stays open while any copy of it lives.
-        """
-        cdef _EmitSinkEntry* entry = <_EmitSinkEntry*>malloc(sizeof(_EmitSinkEntry))
-        if entry == NULL:
-            raise MemoryError()
-        entry.sink_fn = self._sink_fn
-        _eastc.east_value_retain(entry.sink_fn)
-        entry.owner = <PyObject*>self
-        Py_INCREF(self)
-        cdef _eastc.EastValue* fv = _eastc.east_foreign_function(
-            <_eastc.EastInvokeFn>_emit_sink_invoke, <void*>entry, _emit_sink_release, self._fn_t)
-        if fv == NULL:
-            # east_foreign_function released the entry (and its references).
-            raise MemoryError()
-        try:
-            # The bridge's own function wrapper — it retains the value and
-            # its parameter types, tags itself with _east_c_handle, and routes
-            # a proxy-argument call through _lower_compiled_call, like every
-            # other compiled East function value.
-            return c_value_to_py(fv, self._fn_t)
-        finally:
-            _eastc.east_value_release(fv)  # the wrapper owns it from here
-
-    def emit(self, *args):
-        """The python-boundary entry: marshal one row and invoke the sink's
-        per-row entry — the path a compiled body's call takes."""
-        cdef _eastc.EastValue* c_args[2]
-        cdef size_t need = 2 if self.kind == 2 else 1
-        cdef _eastc.EvalResult r
-        if <size_t>len(args) < need:
-            raise TypeError("emit: missing argument")
-        c_args[0] = py_value_to_c(args[0], self._fn_t.data.function.inputs[0])
-        if need == 2:
-            try:
-                c_args[1] = py_value_to_c(args[1], self._fn_t.data.function.inputs[1])
-            except BaseException:
-                _eastc.east_value_release(c_args[0])
-                raise
-        r = _eastc.east_call(self._sink_fn.data.function.compiled, c_args, need)
-        _eastc.east_value_release(c_args[0])
-        if need == 2:
-            _eastc.east_value_release(c_args[1])
-        if r.value != NULL:
-            _eastc.east_value_release(r.value)
-            r.value = NULL
-        if r.status != _eastc.EVAL_OK and r.status != _eastc.EVAL_RETURN:
-            from east.runtime.errors import EastError
-            msg = r.error_message.decode("utf-8") if r.error_message != NULL \
-                else "emit failed"
-            _eastc.eval_result_free(&r)
-            raise EastError(msg, [])
-        _eastc.eval_result_free(&r)
-
-    def finish(self):
-        """Write the held entry, then the terminator and index. On failure
-        the output is left unfinalized and EastError carries the sink's
-        message."""
-        cdef char* err
-        if _eastc.east_emit_sink_finish(self._sink):
-            return
-        err = _eastc.east_builtin_get_error()
-        msg = "emit: failed to finalize the emitted output"
-        if err != NULL:
-            msg = (<bytes>err).decode("utf-8", errors="replace")
-            free(err)
-        from east.runtime.errors import EastError
-        raise EastError(msg, [])
-
-    def stats(self):
-        """The sink's counter: ``emitted``, every emission including the
-        ones that folded."""
-        cdef _eastc.EastEmitSinkStats st
-        _eastc.east_emit_sink_stats(self._sink, &st)
-        return {"emitted": st.emitted}
-
-
 cdef bytes _c_path(object path):
     """A path as the bytes east-c's fopen reads: the ANSI code page on
     Windows, the filesystem encoding elsewhere."""
@@ -1401,12 +1174,12 @@ cdef bytes _c_path(object path):
 def _merge_blobs(object input_paths, object output_path, object merge=None,
                  bint union_mode=False, object range_path=None, bint output_manifest=False):
     """Merge sorted Set or Dict blobs of one type into one — east-c's
-    ``east_merge_blobs`` (east/merge.h), the very code ``east-c merge`` runs,
-    so the two runners write the same bytes (#770). One pass: every input is
-    read segment by segment through a mapping, a heap over the inputs yields
-    keys in East order, and the output goes through the emit sink's writer,
-    byte-identical to what ``run --emit`` writes for the same entries emitted
-    ascending. Equal keys fold in input order — ``merge`` (a compiled
+    ``east_merge_blobs`` (east/merge.h), the very code a merge unit runs, so
+    every runner writes the same bytes (#770). One pass: every input is read
+    segment by segment through a mapping, a heap over the inputs yields keys
+    in East order, and the output goes through the canonical element writer,
+    byte-identical to the paged encode of the merged value. Equal keys fold
+    in input order — ``merge`` (a compiled
     ``(K, V, V) -> V`` East function) on Dict inputs, ``union_mode`` (the
     first element stands) on Set inputs — and are the duplicate error
     without a fold. With ``range_path`` — a beast2 blob of ``Struct{from:
@@ -1584,6 +1357,34 @@ def _write_unit_value(object py_type, object path, object value):
         _eastc.east_type_release(c_type)
 
 
+cdef struct _SinkEntry:
+    # The sink's own function value (retained): its invoke is the entry each
+    # emission takes, reading the EastUnitSink* from its userdata.
+    _eastc.EastValue* sink_fn
+    # The _UnitSinkCore (one reference): the sink the entry reaches into lives
+    # exactly as long as the core, so every function value handed out holds
+    # the core.
+    PyObject* owner
+
+
+cdef _eastc.EvalResult _sink_invoke(_eastc.EastCompiledFn* self,
+                                    _eastc.EastValue** args, size_t n) noexcept:
+    """Forward one emission to the sink's entry — pure C, no python per
+    emission."""
+    cdef _SinkEntry* entry = <_SinkEntry*>self.invoke_userdata
+    return _eastc.east_call(entry.sink_fn.data.function.compiled, args, n)
+
+
+cdef void _sink_release(void* ud) noexcept with gil:
+    cdef _SinkEntry* entry = <_SinkEntry*>ud
+    if entry == NULL:
+        return
+    if entry.sink_fn != NULL:
+        _eastc.east_value_release(entry.sink_fn)
+    Py_XDECREF(entry.owner)
+    free(entry)
+
+
 cdef class _UnitSinkCore:
     """Owner of one east-c unit sink (east/unit.h): where a running program's
     emitted output goes.
@@ -1655,10 +1456,15 @@ cdef class _UnitSinkCore:
     def function_value(self):
         """The emit capability, as the bridge's call wrapper around the
         sink's function value: passed to a compiled body's trailing parameter
-        it hands east-c the value itself, so every emission runs in C. The
+        it hands east-c the value itself, so every emission runs in C.
+
+        It is also callable (issue #592), so a harness that invokes a
+        ``@platform_function`` directly from python can hand it over: called
+        on plain values it marshals one emission through the sink, and called
+        from inside a trace it lowers to an IR ``Call`` on the sink (#561). The
         value holds this core, so the sink stays open while any copy of it
         lives."""
-        cdef _EmitSinkEntry* entry = <_EmitSinkEntry*>malloc(sizeof(_EmitSinkEntry))
+        cdef _SinkEntry* entry = <_SinkEntry*>malloc(sizeof(_SinkEntry))
         if entry == NULL:
             raise MemoryError()
         entry.sink_fn = self._sink_fn
@@ -1666,7 +1472,7 @@ cdef class _UnitSinkCore:
         entry.owner = <PyObject*>self
         Py_INCREF(self)
         cdef _eastc.EastValue* fv = _eastc.east_foreign_function(
-            <_eastc.EastInvokeFn>_emit_sink_invoke, <void*>entry, _emit_sink_release, self._fn_t)
+            <_eastc.EastInvokeFn>_sink_invoke, <void*>entry, _sink_release, self._fn_t)
         if fv == NULL:
             # east_foreign_function released the entry (and its references).
             raise MemoryError()
