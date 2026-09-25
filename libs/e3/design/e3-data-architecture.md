@@ -273,6 +273,7 @@ One budget replaces the dataflow's `concurrency`, the partition pool's width and
   - Past the budget, it kills the most recently started engine unit (a piece, merge or fold) and requeues it with its observed peak. Units are pure and content-addressed, so a killed unit leaves nothing behind and reruns to the same bytes.
   - A user task, which may touch outside systems, is killed only when the machine would otherwise run out.
 - **cgroups.** Where delegation is available, each unit runs in its own cgroup with `memory.max` a margin above its reservation, so a runaway unit dies alone and `memory.peak` is exact.
+- **Visibility.** The API serves what the budget is doing with a run's state: the cores and memory in use against its capacity, a unit waiting for room and how much it needs, and a unit the guard killed and requeued, with the peak it reached. A task's runs carry each execution's `peakBytes`. e3-ui's TUI shows them: the budget, the waits and the requeues in the execution panel, the peaks in the tasks table and the Runs tab, and the budget a run gets in `/run`'s confirmation.
 
 ### 3.9 Automatic parallelism
 
@@ -596,9 +597,9 @@ Acceptance:
 - GC keeps every object a unit graph names.
 - Every guarantee in §7 still holds, now that records run on the engine.
 
-### Stage 5 — Scheduling on cores and memory (e3-core, e3-cli, e3-api-server)
+### Stage 5 — Scheduling on cores and memory (e3-core, e3-cli, e3-api-server, e3-ui-cli)
 
-Read first: `jobs.ts`, `LocalOrchestrator.ts`, `dataflow/steps.ts`, `processExec.ts`, e3-cli `start.ts` and `watch.ts`, and e3-api-server `handlers/dataflow.ts`.
+Read first: `jobs.ts`, `LocalOrchestrator.ts`, `dataflow/steps.ts`, `processExec.ts`, e3-cli `start.ts` and `watch.ts`, e3-api-server `handlers/dataflow.ts`, and e3-ui-cli's `docs/tui/DESIGN_TUI.md`, `tui/data/dataflow.ts` and `tui/input/commands.ts`.
 
 Changes:
 - `jobs.ts` becomes the budget (§3.8), with `--memory` / `E3_MEMORY` and a walk of the cgroup's `memory.max` beside `cgroupCpuQuota`.
@@ -609,18 +610,21 @@ Changes:
   - then the store door frames on it again;
   - a worker that fails, loading or later, abandons the pool instead of crashing its process, and workers start without the parent's node options, which one could refuse: `--input-type` did (decided 2026-09-26: found while implementing);
   - e3's own pool, the one the door frames on, is sized by the budget (§3.8) (decided 2026-09-26).
+- **The scheduler in e3-ui's TUI** (§3.8, Visibility): the API serves the budget in use, units waiting for room and the guard's requeues with a run's state, and each execution's peak with a task's runs, and the TUI shows them. `/run` loses `--jobs`, which the API no longer takes: a local TUI's embedded server takes its budget from `e3-ui`'s own `-j` and `--memory` (decided 2026-09-26).
 
-Built in four parts, in this order (decided 2026-09-26):
+Built in five parts, in this order (decided 2026-09-26):
 1. **The frame pool** (#841): its memory bounded by workers × segment, the store door framing on it again, and a worker's failure no longer crashing its process.
-2. **The budget:** cores and memory (`--memory` / `E3_MEMORY`, the cgroup's `memory.max`), admission, e3's own frame pool sized from it, and the removal of `state.concurrency` and the API request's `concurrency`.
+2. **The budget:** cores and memory (`--memory` / `E3_MEMORY`, the cgroup's `memory.max`), admission, e3's own frame pool sized from it, and the removal of `state.concurrency` and the API request's `concurrency`, with the TUI's `/run --jobs`.
 3. **Reservations from measured peaks:** execution records store each unit's `peakBytes`, a unit reserves its kind's recent peak, and a task with no history runs one unit before it fans out.
 4. **The guard,** and per-unit cgroups where delegation exists.
+5. **The scheduler in e3-ui's TUI:** the budget in use, units waiting for room, each execution's peak and the guard's requeues, served by the API and shown by the TUI, once parts 2–4 have made them.
 
 Acceptance:
 - With `--memory` set below the sum of the units' peaks, a run completes without the kernel's OOM killer firing, and stays under the budget plus one unit's margin.
 - The frame pool's peak is the same at two output sizes, in a runner's emit sink and in the door.
 - A unit killed by the guard reruns to identical bytes.
 - With no memory pressure, throughput at the default `-j` is no worse than before.
+- The TUI shows a run's budget in use, a unit waiting for room and how much it needs, each execution's peak, and a unit the guard requeued.
 
 ### Stage 6 — Automatic parallelism (e3 SDK)
 
