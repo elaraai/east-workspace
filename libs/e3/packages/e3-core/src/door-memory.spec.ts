@@ -160,6 +160,12 @@ describe('the memory each door holds', { skip: process.platform === 'linux' ? fa
       // whatever the input's size. What the door holds is measured without
       // that decision.
       '--no-allocation-site-pretenuring',
+      // V8 grows the young generation as a process allocates, so the smaller
+      // input's run can end before it has grown as far as the larger's, and
+      // its peak comes out low. Both runs hold it at its smallest, where it
+      // never grows; held at its largest, the upload door's larger run peaks
+      // higher instead.
+      '--min-semi-space-size=1', '--max-semi-space-size=1',
       '--input-type=module', '-e', CHILD,
       coreUrl, e3Url, door, repo, JSON.stringify(inputs[size]),
     ], { encoding: 'utf8' });
