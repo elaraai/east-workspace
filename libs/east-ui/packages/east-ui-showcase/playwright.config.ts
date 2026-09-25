@@ -6,8 +6,8 @@
 /**
  * The responsive suite (#357, #833): DOM specs over the BUILT showcase.
  * They cover every east-ui and e3-ui catalog page, the shell, the code
- * reference, the Plan's geometry and the load, at desktop and mobile
- * viewports. It is one suite, run the same way everywhere:
+ * reference, the Plan's geometry, the Sheet's ring under the keyboard and
+ * the load, at desktop and mobile viewports. It is one suite, run the same way everywhere:
  * `make test-responsive` (libs/east-ui) locally, and in CI sharded with
  * `SHARD=n/4`. Nothing here compares pixels.
  *

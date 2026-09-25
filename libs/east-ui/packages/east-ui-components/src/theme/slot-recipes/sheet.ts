@@ -44,8 +44,11 @@
  *     right-aligned; transport mono 10.
  *   - Tabs: 30 px mono 10.5/600/.12em uppercase; active `inset 0 -2px 0`
  *     ink; counts `fg.subtle`; dirty dot 5 px brand; × 14 px → neg;
- *     `+ TAB` 22 px r-sm 1 px `border.strong` mono 9.5/600.
- *   - Context switch: r-md, options mono 10, active brandTint.
+ *     `+ TAB` 22 px r-sm 1 px `border.strong` mono 9.5/600. A tab, `+n` and
+ *     `+ TAB` reached by the keyboard take a 2 px brand ring inside
+ *     themselves — the strip clips its overflow (#860).
+ *   - Context switch: r-md, options mono 10, active brandTint; a focused
+ *     option a 2 px brand ring (#860).
  *   - Bands: 22 px; 1 px dashed `border.strong` at 50 %; pill mono 9
  *     `fg.subtle` on `bg.surface` 1 px `border.subtle` r-sm; the lens band's
  *     pill opens on hover (`shadow.xs`) with brand controls. A failed
@@ -118,7 +121,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
         "insertPoint", "insertLayer", "insertChips", "insertButton", "insertStrip", "insertChoice",
         "history", "historyActions", "historyStatus", "historyButton", "historyIssues", "historyError",
         "toolbar", "toolbarRailGroup", "toolbarCluster", "toolbarCount", "toolbarBadge",
-        "tabs", "tab", "tabLabel", "tabCount", "tabDot", "tabClose", "tabAdd", "tabMore", "tabRename",
+        "tabs", "tabList", "tab", "tabLabel", "tabCount", "tabDot", "tabClose", "tabAdd", "tabMore", "tabRename",
         "contextSwitch", "contextLabel", "contextOption",
         "header", "headerGutter", "headerNumber", "headerCell", "headerLabel", "headerSub",
         "row", "rowBlank", "gutter", "rail", "connector", "checkbox", "gutterNumber", "gutterButton", "gutterBar",
@@ -328,6 +331,15 @@ export const sheetSlotRecipe = defineSlotRecipe({
             // The toolbar's last rung: the strip closes up and its counts go.
             "[data-tight='5'] &": { gap: "10px" },
         },
+        // The tabs themselves — the tablist (#860), apart from `+n` and `+ TAB`,
+        // which are buttons beside it — spaced as the strip spaces them.
+        tabList: {
+            display: "flex",
+            alignItems: "stretch",
+            gap: "16px",
+            flex: "none",
+            "[data-tight='5'] &": { gap: "10px" },
+        },
         tab: {
             display: "inline-flex",
             alignItems: "center",
@@ -348,6 +360,9 @@ export const sheetSlotRecipe = defineSlotRecipe({
             userSelect: "none",
             _hover: { color: "fg.muted" },
             "&[data-active]": { boxShadow: "inset 0 -2px 0 var(--chakra-colors-fg)", color: "fg", cursor: "default" },
+            // A tab of the tablist (#860), reached by the keyboard. The strip clips
+            // its overflow, so the ring is drawn inside the tab.
+            _focusVisible: { outline: "2px solid", outlineColor: "brand.solid", outlineOffset: "-2px" },
         },
         // The name ellipsises past 200px, and past 72px once the toolbar's
         // ladder caps it — the count, the dot and the × always show whole.
@@ -392,9 +407,12 @@ export const sheetSlotRecipe = defineSlotRecipe({
             alignSelf: "center",
             height: "22px",
             paddingX: "7px",
+            paddingY: "0",
             borderWidth: "1px",
+            borderStyle: "solid",
             borderColor: "border.strong",
             borderRadius: "{radii.sm}",
+            background: "transparent",
             color: "fg.subtle",
             fontFamily: "mono",
             fontSize: "9.5px",
@@ -405,6 +423,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             whiteSpace: "nowrap",
             userSelect: "none",
             _hover: { borderColor: "brand.solid", color: "brand.solid" },
+            _focusVisible: { outline: "2px solid", outlineColor: "brand.solid", outlineOffset: "-2px" },
             _coarse: { height: "32px", paddingX: "10px" },
             // Icon-only from the toolbar's third rung; the title still says what it does.
             "[data-tight='3'] &, [data-tight='4'] &, [data-tight='5'] &": { gap: "0", paddingX: "5px", "& > [data-slot=tabAddLabel]": { display: "none" } },
@@ -417,7 +436,10 @@ export const sheetSlotRecipe = defineSlotRecipe({
             height: "30px",
             _coarse: { height: "40px" },
             paddingX: "2px",
+            paddingY: "0",
             flex: "none",
+            border: "none",
+            background: "transparent",
             color: "fg.subtle",
             fontFamily: "mono",
             fontSize: "10.5px",
@@ -427,6 +449,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             cursor: "pointer",
             userSelect: "none",
             _hover: { color: "fg.muted" },
+            _focusVisible: { outline: "2px solid", outlineColor: "brand.solid", outlineOffset: "-2px" },
         },
         tabRename: {
             width: "120px",
@@ -499,6 +522,8 @@ export const sheetSlotRecipe = defineSlotRecipe({
             cursor: "pointer",
             _hover: { background: "bg.muted", color: "fg.muted" },
             "&[data-on]": { background: "brandTint", color: "brand.fg", fontWeight: "600" },
+            // A radio of the switch (#860), reached by the keyboard.
+            _focusVisible: { outline: "2px solid", outlineColor: "brand.solid", outlineOffset: "1px" },
         },
         // the header band: 48 px `bg.panel`, `border.strong` below.
         header: {

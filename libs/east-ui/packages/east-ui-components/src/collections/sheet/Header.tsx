@@ -11,6 +11,9 @@
  * turning like it: right while every group is folded, down otherwise) —
  * then one cell per column: the label line (mono 10/600/.16em uppercase)
  * over the grey `sub` line that tells the planner what the cell accepts.
+ * To assistive tech it is the grid's first row, the gutter its first column
+ * (#860); the fold-all is out of the tab order like every control in the
+ * grid — ⇧Space on a band does what it does.
  */
 
 import { memo } from "react";
@@ -50,8 +53,8 @@ export const SheetHeader = memo(function SheetHeader({ styles, columns, gridTemp
     const groups = foldAll !== undefined ? countNoun(foldAll.count, foldAll.noun, words) : "";
     const hint = foldAll !== undefined ? `⌥ on a chevron, ⇧Space on a ${foldAll.noun.singular}` : "";
     return (
-        <Box css={styles.header} style={{ gridTemplateColumns: gridTemplate }} data-slot="header" role="row">
-            <Box css={styles.headerGutter} data-slot="headerGutter" role="columnheader">
+        <Box css={styles.header} style={{ gridTemplateColumns: gridTemplate }} data-slot="header" role="row" aria-rowindex={1}>
+            <Box css={styles.headerGutter} data-slot="headerGutter" role="columnheader" aria-colindex={1}>
                 <Box css={styles.rail} data-slot="rail">
                     <Box as="span" css={styles.checkbox} data-slot="checkbox" data-mixed={picked ? "" : undefined} aria-hidden="true">
                         {picked && <FontAwesomeIcon icon={faMinus} />}
@@ -61,7 +64,7 @@ export const SheetHeader = memo(function SheetHeader({ styles, columns, gridTemp
                 <Box css={styles.gutterAction} data-slot="foldAllSlot">
                     {foldAll !== undefined && foldAll.count > 0 && (
                         <chakra.button
-                            type="button" css={styles.gutterButton} data-slot="foldAll" data-kind="fold" data-folded={foldAll.folded ? "" : undefined}
+                            type="button" css={styles.gutterButton} data-slot="foldAll" data-kind="fold" data-folded={foldAll.folded ? "" : undefined} tabIndex={-1}
                             aria-expanded={!foldAll.folded}
                             aria-label={foldAll.folded ? `Open ${groups}` : `Fold ${groups}`}
                             title={`${foldAll.folded ? "Open" : "Fold"} ${groups} — ${hint}`}
@@ -72,8 +75,8 @@ export const SheetHeader = memo(function SheetHeader({ styles, columns, gridTemp
                     )}
                 </Box>
             </Box>
-            {columns.map((col) => (
-                <Box key={col.key} css={styles.headerCell} data-slot="headerCell" data-key={col.key} role="columnheader" title={col.sub}>
+            {columns.map((col, i) => (
+                <Box key={col.key} css={styles.headerCell} data-slot="headerCell" data-key={col.key} role="columnheader" aria-colindex={i + 2} title={col.sub}>
                     <Box as="span" css={styles.headerLabel}>{col.header}</Box>
                     {col.sub !== undefined && <Box as="span" css={styles.headerSub}>{col.sub}</Box>}
                 </Box>

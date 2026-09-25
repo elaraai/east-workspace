@@ -8,8 +8,9 @@
  * §9): the body and its blanks, the ring and the range, editing and the
  * commit directions, the typed parse through the editor, an insert from a
  * blank row, clearing and deleting, the controlled selection, the clipboard,
- * and the paged arm's bands, transport line and exhaustion, and a failure
- * kept to where it happened (#853) — every value built by the east-ui
+ * and the paged arm's bands, transport line and exhaustion, a failure kept
+ * to where it happened (#853), and the grid as assistive tech reads it and
+ * the keyboard walks it (#860) — every value built by the east-ui
  * factory and COMPILED, so the closures the renderer calls are the ones East
  * emits.
  */
@@ -683,6 +684,8 @@ function heldSheet(n: number) {
     const state = {
         revision: 1,
         down: undefined as string | undefined,
+        /** The source has not counted itself yet: `total()` answers none (#860). */
+        uncounted: false,
         totalError: undefined as string | undefined,
         entryError: undefined as string | undefined,
         failing: new Map<number, string>(),
@@ -716,7 +719,7 @@ function heldSheet(n: number) {
         total: () => {
             read();
             if (state.totalError !== undefined) throw new Error(state.totalError);
-            return some(BigInt(jobs.length));
+            return state.uncounted ? none : some(BigInt(jobs.length));
         },
         // A key search over the ids (#854): the first match of a whole key or a prefix, and how many there are.
         seek: some((query: ValueTypeOf<typeof Paged.Types.SeekQuery>) => {
@@ -1213,6 +1216,306 @@ describe("failure is local (#853)", () => {
             logged.mockRestore();
         }
     }, HELD_TEST_MS);
+});
+
+// ── The accessible grid (#860) ──────────────────────────────────────────────
+
+describe("the accessible grid (#860)", () => {
+    /** The element the grid names as its active cell. */
+    const active = (card: HTMLElement) => document.getElementById(card.getAttribute("aria-activedescendant") ?? "");
+
+    test("a paged sheet is described whole — the source's count, each row's place and name, the columns — and the ring is the active cell, following the keys", async () => {
+        const restore = emulateWindowScroll();
+        try {
+            const held = heldSheet(410);
+            // Window 1 stays on the wire: the run is window 0, and the rest one band.
+            held.state.inFlight.add(1);
+            const { container, card, cell, key } = mount(held.value);
+            await waitFor(() => expect(container.querySelector('[data-row-id="r199"]')).toBeTruthy(), { timeout: 15_000 });
+            expect(card.getAttribute("role")).toBe("grid");
+            // The source's 410 rows and the header; the gutter and three columns.
+            expect(card.getAttribute("aria-rowcount")).toBe("411");
+            expect(card.getAttribute("aria-colcount")).toBe("4");
+            expect(card.getAttribute("aria-multiselectable")).toBe("true");
+            const header = container.querySelector('[data-slot="header"]')!;
+            expect(header.getAttribute("aria-rowindex")).toBe("1");
+            expect([...header.querySelectorAll('[role="columnheader"]')].map((h) => h.getAttribute("aria-colindex"))).toEqual(["1", "2", "3", "4"]);
+            // A row is its place in the source, the header first: its rowheader names it, its cells sit under their columns.
+            const r5 = container.querySelector('[data-row-id="r005"]')!;
+            expect(r5.getAttribute("aria-rowindex")).toBe("7");
+            expect(r5.querySelector('[role="rowheader"]')!.getAttribute("aria-label")).toBe("Row 6");
+            expect([...r5.querySelectorAll('[role="gridcell"]')].map((c) => c.getAttribute("aria-colindex"))).toEqual(["2", "3", "4"]);
+            // The rows not loaded are one row, where the first of them would be, its one cell across the grid.
+            const tail = container.querySelector('[data-band="tail"]')!;
+            expect(tail.getAttribute("role")).toBe("row");
+            expect(tail.getAttribute("aria-rowindex")).toBe("202");
+            expect(tail.querySelector('[role="gridcell"]')!.getAttribute("aria-colspan")).toBe("4");
+            // The ring is the active cell and a selected one; the keys move it.
+            fireEvent.mouseDown(cell(5, "task"), { button: 0 });
+            expect(active(card)).toBe(cell(5, "task"));
+            expect(cell(5, "task").getAttribute("aria-selected")).toBe("true");
+            key("ArrowRight");
+            expect(active(card)).toBe(cell(5, "qty"));
+            expect(cell(5, "task").getAttribute("aria-selected")).toBe("false");
+            // A range: every cell in it is selected, and the ring stays the active one.
+            key("ArrowDown", { shiftKey: true });
+            expect(cell(6, "qty").getAttribute("aria-selected")).toBe("true");
+            expect(active(card)).toBe(cell(5, "qty"));
+        } finally {
+            restore();
+        }
+    }, HELD_TEST_MS);
+
+    test("↓ past the resident rows asks for the next window, and the ring lands on its first row once it arrives", async () => {
+        const restore = emulateWindowScroll();
+        try {
+            const held = heldSheet(410);
+            held.state.inFlight.add(1);
+            const { container, card, key, flush } = mount(held.value);
+            await waitFor(() => expect(container.querySelector('[data-row-id="r199"]')).toBeTruthy(), { timeout: 15_000 });
+            const task = (id: string) => container.querySelector(`[data-row-id="${id}"] [data-key="task"]`) as HTMLElement | null;
+            fireEvent.mouseDown(task("r199")!, { button: 0 });
+            key("ArrowDown");
+            await flush();
+            // The window is on the wire: the ring waits on the last resident row.
+            expect(task("r199")!.hasAttribute("data-selected")).toBe(true);
+            expect(container.querySelector('[data-row-id="r200"]')).toBeNull();
+            held.state.inFlight.delete(1);
+            held.touch();
+            await waitFor(() => expect(task("r200")?.hasAttribute("data-selected")).toBe(true), { timeout: 10_000 });
+            expect(active(card)).toBe(task("r200"));
+            // Every row is in now: the count takes the blank padding too.
+            expect(card.getAttribute("aria-rowcount")).toBe("413");
+        } finally {
+            restore();
+        }
+    }, HELD_TEST_MS);
+
+    test("a press elsewhere while that window is on its way keeps the ring where the viewer put it", async () => {
+        const restore = emulateWindowScroll();
+        try {
+            const held = heldSheet(410);
+            held.state.inFlight.add(1);
+            const { container, card, key, flush } = mount(held.value);
+            await waitFor(() => expect(container.querySelector('[data-row-id="r199"]')).toBeTruthy(), { timeout: 15_000 });
+            const task = (id: string) => container.querySelector(`[data-row-id="${id}"] [data-key="task"]`) as HTMLElement | null;
+            fireEvent.mouseDown(task("r199")!, { button: 0 });
+            key("ArrowDown");
+            await flush();
+            fireEvent.mouseDown(task("r010")!, { button: 0 });
+            held.state.inFlight.delete(1);
+            held.touch();
+            await waitFor(() => expect(container.querySelector('[data-slot="footerTransport"]')!.textContent).toBe("410 loaded of 410"), { timeout: 10_000 });
+            await flush();
+            expect(task("r010")!.hasAttribute("data-selected")).toBe(true);
+            expect(active(card)).toBe(task("r010"));
+        } finally {
+            restore();
+        }
+    }, HELD_TEST_MS);
+
+    test("another planner's edit while ↓'s window is on its way keeps the move: the ring lands once the window arrives", async () => {
+        const restore = emulateWindowScroll();
+        try {
+            const held = heldSheet(410);
+            held.state.inFlight.add(1);
+            const { container, card, key, flush } = mount(held.value);
+            await waitFor(() => expect(container.querySelector('[data-row-id="r199"]')).toBeTruthy(), { timeout: 15_000 });
+            const task = (id: string) => container.querySelector(`[data-row-id="${id}"] [data-key="task"]`) as HTMLElement | null;
+            fireEvent.mouseDown(task("r199")!, { button: 0 });
+            key("ArrowDown");
+            await flush();
+            // The source moves to a new revision — the key search starts over on it — while the window is on the wire.
+            held.rewrite((jobs) => jobs.map((job, i) => (i === 5 ? { ...job, task: "Changed" } : job)));
+            await waitFor(() => expect(task("r005")?.textContent).toBe("Changed"));
+            expect(task("r199")!.hasAttribute("data-selected")).toBe(true);
+            held.state.inFlight.delete(1);
+            held.touch();
+            await waitFor(() => expect(task("r200")?.hasAttribute("data-selected")).toBe(true), { timeout: 10_000 });
+            expect(active(card)).toBe(task("r200"));
+        } finally {
+            restore();
+        }
+    }, HELD_TEST_MS);
+
+    test("a key search into the window ↓ is waiting on takes the ring to the row it found, not the one ↓ was headed for", async () => {
+        const restore = emulateWindowScroll();
+        try {
+            const held = heldSheet(410);
+            held.state.inFlight.add(1);
+            const { container, card, key, flush } = mount(held.value);
+            await waitFor(() => expect(container.querySelector('[data-row-id="r199"]')).toBeTruthy(), { timeout: 15_000 });
+            const task = (id: string) => container.querySelector(`[data-row-id="${id}"] [data-key="task"]`) as HTMLElement | null;
+            fireEvent.mouseDown(task("r199")!, { button: 0 });
+            key("ArrowDown");
+            await flush();
+            // The same window, sought by key while ↓ still waits on it.
+            await seekKey(container, "r250");
+            held.state.inFlight.delete(1);
+            held.touch();
+            await waitFor(() => expect(task("r250")?.hasAttribute("data-selected")).toBe(true), { timeout: 10_000 });
+            await flush();
+            expect(active(card)).toBe(task("r250"));
+            expect(task("r200")?.hasAttribute("data-selected") ?? false).toBe(false);
+        } finally {
+            restore();
+        }
+    }, HELD_TEST_MS);
+
+    test("↓ into a window that cannot be read shows its band, and the ring stays on the last row it could reach", async () => {
+        const restore = emulateWindowScroll();
+        const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+        try {
+            // Two windows; the second stays on the wire until ↓ asks for it, and then its read throws.
+            const held = heldSheet(400);
+            held.state.inFlight.add(1);
+            const { container, card, key, flush } = mount(held.value);
+            await waitFor(() => expect(container.querySelector('[data-row-id="r199"]')).toBeTruthy(), { timeout: 15_000 });
+            const task = (id: string) => container.querySelector(`[data-row-id="${id}"] [data-key="task"]`) as HTMLElement | null;
+            fireEvent.mouseDown(task("r199")!, { button: 0 });
+            expect(window.scrollY).toBe(0);
+            held.state.inFlight.delete(1);
+            held.state.failing.set(1, "gateway timeout");
+            key("ArrowDown");
+            await waitFor(() => expect(container.querySelector('[data-band="failed"][data-failed="1"]')).toBeTruthy(), { timeout: 10_000 });
+            // The view went to the band, and the ring stayed on the last row there is.
+            await waitFor(() => expect(window.scrollY).toBeGreaterThan(0));
+            await flush();
+            expect(task("r199")!.hasAttribute("data-selected")).toBe(true);
+            expect(active(card)).toBe(task("r199"));
+        } finally {
+            logged.mockRestore();
+            restore();
+        }
+    }, HELD_TEST_MS);
+
+    test("⌘End jumps to the source's last cell and ⌘Home back to its first, the ring landing once each window arrives", async () => {
+        const restore = emulateWindowScroll();
+        try {
+            const held = heldSheet(8_000);
+            const { container, card, key } = mount(held.value);
+            await waitFor(() => expect(container.querySelector('[data-row-id="r000"]')).toBeTruthy(), { timeout: 15_000 });
+            const at = (id: string, k: string) => container.querySelector(`[data-row-id="${id}"] [data-key="${k}"]`) as HTMLElement | null;
+            fireEvent.mouseDown(at("r000", "qty")!, { button: 0 });
+            key("End", { ctrlKey: true });
+            await waitFor(() => expect(at("r7999", "status")?.hasAttribute("data-selected")).toBe(true), { timeout: 10_000 });
+            expect(active(card)).toBe(at("r7999", "status"));
+            // The source's last row is the grid's last.
+            expect(container.querySelector('[data-row-id="r7999"]')!.getAttribute("aria-rowindex")).toBe("8001");
+            expect(card.getAttribute("aria-rowcount")).toBe("8001");
+            key("Home", { ctrlKey: true });
+            await waitFor(() => expect(at("r000", "task")?.hasAttribute("data-selected")).toBe(true), { timeout: 10_000 });
+            expect(active(card)).toBe(at("r000", "task"));
+        } finally {
+            restore();
+        }
+    }, HELD_TEST_MS);
+
+    test("a source that has not counted itself leaves the grid's row count unknown, and its rows still say where they are", async () => {
+        const held = heldSheet(20);
+        held.state.uncounted = true;
+        const { container, card } = mount(held.value);
+        await waitFor(() => expect(container.querySelector('[data-row-id="r019"]')).toBeTruthy());
+        expect(card.getAttribute("aria-rowcount")).toBe("-1");
+        expect(container.querySelector('[data-row-id="r019"]')!.getAttribute("aria-rowindex")).toBe("21");
+        // Counted, the count is the source's.
+        held.state.uncounted = false;
+        held.touch();
+        await waitFor(() => expect(card.getAttribute("aria-rowcount")).toBe("23"));
+    });
+
+    test("the grid is one tab stop — no control in it is in the tab order — and a Tab it has no use for leaves it", async () => {
+        const { value } = withSpies(buildSheet());
+        const { container, card, cell, key, type, editorKey, flush } = mount(value);
+        // A new row in the first padding row: a draft the gutter can discard, so its button is drawn.
+        fireEvent.mouseDown(cell(2, "task"), { button: 0 });
+        key("N");
+        type("New job");
+        editorKey("Enter");
+        await flush();
+        expect(container.querySelector('[data-slot="discardDraft"]')).toBeTruthy();
+        const tabbable = [...card.querySelectorAll<HTMLElement>("button, input, select, textarea, a[href], [tabindex]")].filter((el) => el.tabIndex >= 0);
+        expect(tabbable).toEqual([]);
+        // ⇥ walks the columns (a handled key is prevented)…
+        fireEvent.mouseDown(cell(0, "qty"), { button: 0 });
+        expect(fireEvent.keyDown(card, { key: "Tab" })).toBe(false);
+        expect(cell(0, "code").hasAttribute("data-selected")).toBe(true);
+        // …and on the row's last column, nothing pending, it is the browser's: the focus leaves the grid. ⇧⇥ on the first too.
+        fireEvent.mouseDown(cell(0, "status"), { button: 0 });
+        expect(fireEvent.keyDown(card, { key: "Tab" })).toBe(true);
+        expect(cell(0, "status").hasAttribute("data-selected")).toBe(true);
+        fireEvent.mouseDown(cell(0, "start"), { button: 0 });
+        expect(fireEvent.keyDown(card, { key: "Tab", shiftKey: true })).toBe(true);
+    });
+
+    test("a keyboard move brings the ring's column into view sideways, right of the sticky gutter; a column already in view scrolls nothing", () => {
+        const { container, card, cell, key } = mount(buildSheet());
+        // jsdom lays nothing out: the columns scroll sideways inside a frame 600 px wide, each 150 px wide
+        // after the 128 px gutter — where its header cell is, less the frame's scroll.
+        const frame = card.firstElementChild as HTMLElement;
+        Object.defineProperty(frame, "clientWidth", { configurable: true, value: 600 });
+        const headers = [...container.querySelectorAll<HTMLElement>('[data-slot="headerCell"]')];
+        const realRect = Element.prototype.getBoundingClientRect;
+        Element.prototype.getBoundingClientRect = function (this: Element) {
+            const box = (left: number, width: number) => ({ x: left, y: 0, top: 0, left, right: left + width, bottom: 36, width, height: 36, toJSON: () => ({}) }) as DOMRect;
+            const i = headers.indexOf(this as HTMLElement);
+            if (i >= 0) return box(128 + i * 150 - frame.scrollLeft, 150);
+            if (this === frame) return box(0, 600);
+            return realRect.call(this);
+        };
+        try {
+            fireEvent.mouseDown(cell(0, "start"), { button: 0 });
+            expect(frame.scrollLeft).toBe(0);
+            // The last column, the fifth, ends at 878 px: the frame scrolls 278 px and it shows whole.
+            key("End");
+            expect(frame.scrollLeft).toBe(278);
+            key("ArrowLeft");
+            expect(frame.scrollLeft).toBe(278);
+            // The first, back right of the gutter.
+            key("Home");
+            expect(frame.scrollLeft).toBe(0);
+            // A frame narrower than a column — a phone's, beside its wide gutter: a column shows from its start.
+            Object.defineProperty(frame, "clientWidth", { configurable: true, value: 200 });
+            key("End");
+            expect(frame.scrollLeft).toBe(600);
+        } finally {
+            Element.prototype.getBoundingClientRect = realRect;
+        }
+    });
+
+    test("on a sheet whose rows render in flow, a keyboard move brings the ring's cell into view; a frame that virtualizes brings the row in itself", async () => {
+        const proto = Element.prototype as unknown as { scrollIntoView?: (options?: ScrollIntoViewOptions) => void };
+        const real = proto.scrollIntoView;
+        const into = vi.fn();
+        proto.scrollIntoView = into;
+        try {
+            const inFlow = mount(buildSheet());
+            fireEvent.mouseDown(inFlow.cell(0, "task"), { button: 0 });
+            // A press never scrolls: the cell is under the pointer.
+            expect(into).not.toHaveBeenCalled();
+            inFlow.key("ArrowDown");
+            expect(into).toHaveBeenCalledTimes(1);
+            expect(into.mock.contexts[0]).toBe(inFlow.cell(1, "task"));
+            expect(into.mock.calls[0]![0]).toEqual({ block: "nearest", inline: "nearest" });
+            inFlow.unmount();
+            // A paged sheet's frame watches the page, and scrolls it to the row itself.
+            into.mockClear();
+            const restore = emulateWindowScroll();
+            try {
+                const paged = mount(heldSheet(20).value);
+                await waitFor(() => expect(paged.container.querySelector('[data-row-id="r001"]')).toBeTruthy());
+                fireEvent.mouseDown(paged.cell(0, "task"), { button: 0 });
+                paged.key("ArrowDown");
+                expect(paged.cell(1, "task").hasAttribute("data-selected")).toBe(true);
+                expect(into).not.toHaveBeenCalled();
+            } finally {
+                restore();
+            }
+        } finally {
+            if (real === undefined) delete proto.scrollIntoView;
+            else proto.scrollIntoView = real;
+        }
+    });
 });
 
 // ── The link cell and its editor (P3 — Sheet Spec §5 rows 4–9) ─────────────

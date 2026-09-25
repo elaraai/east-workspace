@@ -33,9 +33,10 @@
  */
 
 import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
-import { Box } from "@chakra-ui/react";
+import { Box, chakra } from "@chakra-ui/react";
 import type { ValueTypeOf } from "@elaraai/east";
 import type { Slice } from "@elaraai/east-ui/internal";
+import { radioGroupKey } from "../../primitives/radio-group.js";
 import { SliceRailCluster } from "../../slice/rail/index.js";
 import { DatasetKeySearch } from "../key-search/index.js";
 import { SheetTabsFoldContext, type SheetTabsFold } from "./fold-context.js";
@@ -132,22 +133,30 @@ export const SheetToolbar = memo(function SheetToolbar({ styles, slice, affordan
         <Box ref={rootRef} css={styles.toolbar} data-slot="toolbar" data-tight={tight > 0 ? tight : undefined}>
             <SheetTabsFoldContext.Provider value={fold}>{tabs}</SheetTabsFoldContext.Provider>
             {context !== undefined && (
-                <Box css={styles.contextSwitch} data-slot="contextSwitch" role="radiogroup" aria-label="Context rows either side of a hit">
-                    {tight < 2 && <Box as="span" css={styles.contextLabel}>context</Box>}
+                // A radio group (#860, the Plan's #632 segment): one tab stop on the
+                // checked option; ←/→ and Home/End move and pick; a press picks.
+                <Box css={styles.contextSwitch} data-slot="contextSwitch" role="radiogroup" aria-label="Context rows either side of a hit"
+                    onKeyDown={(e: KeyboardEvent<HTMLDivElement>) => {
+                        radioGroupKey(e, (j) => { const n = CONTEXTS[j]; if (n !== undefined && n !== context.value) context.onChange(n); });
+                    }}>
+                    {tight < 2 && <Box as="span" css={styles.contextLabel} aria-hidden="true">context</Box>}
                     {CONTEXTS.map((n) => (
-                        <Box
+                        <chakra.button
                             key={n}
-                            as="button"
+                            type="button"
                             css={styles.contextOption}
                             data-slot="contextOption"
                             data-context={n}
                             data-on={context.value === n ? "" : undefined}
                             role="radio"
                             aria-checked={context.value === n}
+                            tabIndex={context.value === n ? 0 : -1}
                             onMouseDown={(e: MouseEvent) => { e.preventDefault(); context.onChange(n); }}
+                            // Enter or Space on the focused option: a click with no pointer behind it.
+                            onClick={(e: MouseEvent) => { if (e.detail === 0) context.onChange(n); }}
                         >
                             {n === 0 ? "none" : `±${n}`}
-                        </Box>
+                        </chakra.button>
                     ))}
                 </Box>
             )}

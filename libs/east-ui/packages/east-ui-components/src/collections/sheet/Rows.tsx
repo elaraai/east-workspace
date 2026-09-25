@@ -88,7 +88,13 @@ function useArrival(ref: RefObject<HTMLElement | null>, order: number | undefine
     }, []);
 }
 
-/** The rail: the connector behind, the checkbox on top (none on a blank row). A group's checkbox goes indeterminate while some of its lines are picked. */
+/**
+ * The rail: the connector behind, the checkbox on top (none on a blank row).
+ * A group's checkbox goes indeterminate while some of its lines are picked.
+ * Like every control inside the grid it is out of the tab order (#860): the
+ * grid is one tab stop, and its keys reach what the controls do (⇧ with the
+ * arrows, Home and End stretches a range over whole rows).
+ */
 function Rail({ styles, membership, picked, mixed, label, selectable, onPick }: {
     styles: Styles;
     membership?: SheetMembership | undefined;
@@ -101,7 +107,7 @@ function Rail({ styles, membership, picked, mixed, label, selectable, onPick }: 
     return <Box css={styles.rail} data-slot="rail">
         {membership !== undefined && <Box css={styles.connector} data-slot="connector"
             data-above={membership.above ? "" : undefined} data-below={membership.below ? "" : undefined} aria-hidden="true" />}
-        {selectable && <chakra.button type="button" css={styles.checkbox} data-slot="checkbox"
+        {selectable && <chakra.button type="button" css={styles.checkbox} data-slot="checkbox" tabIndex={-1}
             aria-label={label} title={label} aria-pressed={picked} data-mixed={mixed && !picked ? "" : undefined}
             onMouseDown={(event) => { event.stopPropagation(); event.preventDefault(); }}
             onClick={(event) => { event.stopPropagation(); onPick(event); }}>
@@ -134,6 +140,10 @@ export interface SheetRowProps {
     r: number;
     /** The 1-based row number. */
     number: number;
+    /** The grid's id (#860): each cell's id is `{idPrefix}-{r}-{c}`, what the grid names as its active cell. None on a copy that sticks under the header. */
+    idPrefix?: string | undefined;
+    /** The row's place among the grid's rows, the header first (#860). */
+    ariaRowIndex?: number | undefined;
     /** The first body item — the row under the sticky header (its ring stays inside the cell). */
     first?: boolean | undefined;
     /** The real row, or `undefined` for a blank padding row. */
@@ -222,10 +232,14 @@ export const SheetRow = memo(function SheetRow(props: SheetRowProps) {
             data-picked={picked ? "" : undefined}
             data-sub-rows-open={subRowsOpen ? "" : undefined}
             role="row"
+            aria-rowindex={props.ariaRowIndex}
         >
             <Box
                 css={styles.gutter}
                 data-slot="gutter"
+                role="rowheader"
+                aria-colindex={1}
+                aria-label={group !== undefined ? `Line ${number} of ${groupName}` : `Row ${number}`}
                 onMouseDown={(e) => props.onRowPick(r, e)}
                 title={hasFills ? "Click the number to select the row · the button fills it" : "Select whole row — delete removes it"}
             >
@@ -238,7 +252,7 @@ export const SheetRow = memo(function SheetRow(props: SheetRowProps) {
                 <Box as="span" css={styles.gutterNumber} data-slot="gutterNumber" data-hit={hit ? "" : undefined} data-blank={rowBlank ? "" : undefined}>
                     {/* A line with sub rows: the chevron before its number shows or hides them (⌥ every line of the group); open, the tree's stem starts just under it. */}
                     {subRowCount !== undefined && (
-                        <chakra.button type="button" css={styles.subRowChevron} data-slot="subRowChevron" data-open={subRowsOpen ? "" : undefined}
+                        <chakra.button type="button" css={styles.subRowChevron} data-slot="subRowChevron" data-open={subRowsOpen ? "" : undefined} tabIndex={-1}
                             aria-expanded={subRowsOpen}
                             aria-label={`${subRowsOpen ? "Hide" : "Show"} the ${words.number(subRowCount)} row${subRowCount === 1 ? "" : "s"} under line ${number}`}
                             title={`${subRowsOpen ? "Hide" : "Show"} the ${words.number(subRowCount)} row${subRowCount === 1 ? "" : "s"} under this line — Space · ⌥ every line in the ${props.noun?.singular ?? "group"}`}
@@ -266,7 +280,7 @@ export const SheetRow = memo(function SheetRow(props: SheetRowProps) {
                         </Box>
                     )}
                     {props.draft?.discardable && <chakra.button
-                        type="button" css={styles.gutterButton}
+                        type="button" css={styles.gutterButton} tabIndex={-1}
                         data-slot="discardDraft" data-kind="discard" aria-label="Discard new row" title="Discard new row"
                         onMouseDown={(event) => { event.preventDefault(); event.stopPropagation(); }}
                         onClick={(event) => {
@@ -312,6 +326,9 @@ export const SheetRow = memo(function SheetRow(props: SheetRowProps) {
                         data-proposed={fill !== undefined ? "" : undefined}
                         data-next-target={isTarget ? "" : undefined}
                         role="gridcell"
+                        id={props.idPrefix !== undefined ? `${props.idPrefix}-${r}-${c}` : undefined}
+                        aria-colindex={c + 2}
+                        aria-selected={selC === c || inRange}
                         onMouseDown={(e) => props.onCellDown(r, c, e)}
                         onDoubleClick={() => props.onCellDouble(r, c)}
                         onMouseEnter={() => props.onCellEnter(r, c)}
@@ -374,6 +391,10 @@ export interface SheetSubRowProps {
     membership?: SheetMembership | undefined;
     /** Its line was just opened: it drops in, this far into the cascade. */
     entering?: number | undefined;
+    /** The row's place among the grid's rows, the header first (#860). */
+    ariaRowIndex?: number | undefined;
+    /** How many columns the well spans (#860). */
+    colCount: number;
 }
 
 /**
@@ -388,7 +409,7 @@ export interface SheetSubRowProps {
  * at the view's left edge as the columns scroll sideways. Read-only, and
  * outside the row space: the ring never lands on it.
  */
-export const SheetSubRow = memo(function SheetSubRow({ styles, subRowPx, subRow, parent, index, count, hit, gutterPx, viewPx, membership, entering }: SheetSubRowProps) {
+export const SheetSubRow = memo(function SheetSubRow({ styles, subRowPx, subRow, parent, index, count, hit, gutterPx, viewPx, membership, entering, ariaRowIndex, colCount }: SheetSubRowProps) {
     const last = index === count - 1;
     const detail = subRow.chips.length > 0 || subRow.facets.length > 0;
     const self = useRef<HTMLDivElement | null>(null);
@@ -404,12 +425,13 @@ export const SheetSubRow = memo(function SheetSubRow({ styles, subRowPx, subRow,
             data-last={last ? "" : undefined}
             data-hit={hit ? "" : undefined}
             role="row"
+            aria-rowindex={ariaRowIndex}
         >
-            <Box css={styles.subRowGutter} data-slot="gutter" style={{ width: `${gutterPx}px` }}>
+            <Box css={styles.subRowGutter} data-slot="gutter" role="rowheader" aria-colindex={1} style={{ width: `${gutterPx}px` }}>
                 <Rail styles={styles} membership={membership} picked={false} mixed={false} selectable={false} label="" onPick={() => {}} />
                 <Box as="span" css={styles.subRowIndex} data-slot="subRowIndex">{`${parent}.${index + 1}`}</Box>
             </Box>
-            <Box css={styles.subRowWell} data-slot="subRowWell" role="gridcell">
+            <Box css={styles.subRowWell} data-slot="subRowWell" role="gridcell" aria-colindex={2} aria-colspan={Math.max(1, colCount)}>
                 <Box css={styles.subRowContent} data-slot="subRowContent"
                     style={{ left: `${gutterPx}px`, ...(viewPx !== undefined ? { maxWidth: `${Math.max(0, viewPx - gutterPx)}px` } : {}) }}>
                     <Box css={styles.subRowLead} data-slot="subRowLead">
@@ -455,6 +477,8 @@ export interface SheetProposalRowProps {
     onPick: (i: number) => void;
     onAccept: (i: number) => void;
     onReject: (i: number) => void;
+    /** The row's place among the grid's rows on a grouped sheet (#860); a flat sheet's proposal has no source position, so none. */
+    ariaRowIndex?: number | undefined;
 }
 
 /** A proposed row (B§5.2): dashed-topped, hatched, real numbers; ✓ adds it, × rejects it. */
@@ -472,9 +496,10 @@ export const SheetProposalRow = memo(function SheetProposalRow(props: SheetPropo
             data-proposal={index}
             data-picked={picked ? "" : undefined}
             role="row"
+            aria-rowindex={props.ariaRowIndex}
             title={meta}
         >
-            <Box css={styles.gutter} data-slot="gutter" onMouseDown={pick} title="Suggested row — ✓ adds it, × rejects it">
+            <Box css={styles.gutter} data-slot="gutter" role="rowheader" aria-colindex={1} aria-label={`Suggested row ${number}`} onMouseDown={pick} title="Suggested row — ✓ adds it, × rejects it">
                 <Rail styles={styles} membership={props.grouped ? { id: "", color: 0, above: true, below: true } : undefined} picked={picked} mixed={false} selectable
                     label="Select this suggested row" onPick={pick} />
                 <Box as="span" css={styles.gutterNumber} data-slot="gutterNumber">{number}</Box>
@@ -505,7 +530,7 @@ export const SheetProposalRow = memo(function SheetProposalRow(props: SheetPropo
                     </Box>
                 </Box>
             </Box>
-            {columns.list.map((colMeta) => {
+            {columns.list.map((colMeta, c) => {
                 const cell = cells.get(colMeta.key);
                 const unit = colMeta.kind === "quantity" && driverKey !== undefined ? colMeta.uom?.get(driverKey) : undefined;
                 const member = colMeta.kind === "enum" && cell?.type === "String" ? resolveMember(registers, colMeta.register, cell.value) : undefined;
@@ -519,6 +544,7 @@ export const SheetProposalRow = memo(function SheetProposalRow(props: SheetPropo
                         data-kind={colMeta.kind}
                         data-proposed=""
                         role="gridcell"
+                        aria-colindex={c + 2}
                         onMouseDown={pick}
                     >
                         {picked && <Box css={styles.rangeWash} data-slot="rangeWash" />}
@@ -541,14 +567,26 @@ export const SheetProposalRow = memo(function SheetProposalRow(props: SheetPropo
     );
 });
 
-export interface SheetBandRowProps {
+/**
+ * What a band row tells the grid (#860): its place among the rows — where its
+ * first element would be on a flat sheet — and the column count its one cell
+ * spans, the gutter's included.
+ */
+export interface SheetBandAria {
+    /** The row's place among the grid's rows, the header first. */
+    ariaRowIndex?: number | undefined;
+    /** The sheet's columns. */
+    colCount: number;
+}
+
+export interface SheetBandRowProps extends SheetBandAria {
     styles: Styles;
     band: SheetBand;
     loading: boolean;
 }
 
 /** A paged source's unloaded run — one band sized by the ledger. */
-export const SheetBandRow = memo(function SheetBandRow({ styles, band, loading }: SheetBandRowProps) {
+export const SheetBandRow = memo(function SheetBandRow({ styles, band, loading, ariaRowIndex, colCount }: SheetBandRowProps) {
     const n = Math.max(0, band.to - band.from + 1);
     // The element count, in the app's locale (#850).
     const words = useFormatters();
@@ -559,9 +597,12 @@ export const SheetBandRow = memo(function SheetBandRow({ styles, band, loading }
             data-slot="band"
             data-band={band.at}
             data-elements={n}
+            role="row"
+            aria-rowindex={ariaRowIndex}
         >
             <Box css={styles.bandRule} aria-hidden="true" />
-            <Box as="span" css={styles.bandPill} style={{ position: "sticky", top: "60px", alignSelf: "flex-start", marginTop: "0" }}>
+            <Box as="span" css={styles.bandPill} role="gridcell" aria-colindex={1} aria-colspan={colCount + 1}
+                style={{ position: "sticky", top: "60px", alignSelf: "flex-start", marginTop: "0" }}>
                 {`${words.number(n)} ${loading ? "loading" : "not loaded"}`}
             </Box>
         </Box>
@@ -585,7 +626,7 @@ export function SheetRetry({ styles, onRetry }: SheetRetryProps) {
     );
 }
 
-export interface SheetFailedBandRowProps {
+export interface SheetFailedBandRowProps extends SheetBandAria {
     styles: Styles;
     failure: SheetWindowFailure;
     /** Ask the window again. */
@@ -597,9 +638,10 @@ export interface SheetFailedBandRowProps {
  * be, sized by the ledger like an unloaded band, saying which source elements
  * could not be read (1-based, like the transport line) and why, with a Retry.
  * Every other window keeps landing around it: a failure belongs to its
- * window, never to the sheet.
+ * window, never to the sheet. Its Retry is the one control inside the grid in
+ * the tab order (#860): nothing else asks that window again.
  */
-export const SheetFailedBandRow = memo(function SheetFailedBandRow({ styles, failure, onRetry }: SheetFailedBandRowProps) {
+export const SheetFailedBandRow = memo(function SheetFailedBandRow({ styles, failure, onRetry, ariaRowIndex, colCount }: SheetFailedBandRowProps) {
     // The element numbers, in the app's locale (#850).
     const words = useFormatters();
     return (
@@ -610,9 +652,11 @@ export const SheetFailedBandRow = memo(function SheetFailedBandRow({ styles, fai
             data-band="failed"
             data-failed={failure.w}
             data-elements={failure.to - failure.from + 1}
+            role="row"
+            aria-rowindex={ariaRowIndex}
         >
             <Box css={styles.bandRule} aria-hidden="true" />
-            <Box as="span" css={styles.bandPill} data-failed="">
+            <Box as="span" css={styles.bandPill} data-failed="" role="gridcell" aria-colindex={1} aria-colspan={colCount + 1}>
                 <Box as="span" role="alert">{`Elements ${words.number(failure.from + 1)}–${words.number(failure.to + 1)} could not be read — ${failure.error}`}</Box>
                 <SheetRetry styles={styles} onRetry={() => onRetry(failure.w)} />
             </Box>
@@ -653,7 +697,7 @@ export function SheetRowBoundary({ styles, rowPx, number, resetKey, children }: 
     );
 }
 
-export interface SheetGapRowProps {
+export interface SheetGapRowProps extends SheetBandAria {
     styles: Styles;
     gap: LensGap;
     /** How far each control reaches on its next press (1 · 3 · 10 · all). */
@@ -666,7 +710,7 @@ export interface SheetGapRowProps {
  * hover opens `⌃ +1 · n hidden · +1 ⌄ · all`, each press reaching further
  * from the top, the bottom, or both.
  */
-export const SheetGapRow = memo(function SheetGapRow({ styles, gap, reach, onReveal }: SheetGapRowProps) {
+export const SheetGapRow = memo(function SheetGapRow({ styles, gap, reach, onReveal, ariaRowIndex, colCount }: SheetGapRowProps) {
     const press = (where: "top" | "bottom" | "both" | "all") => (e: MouseEvent) => {
         if (e.button !== 0) return;
         e.preventDefault();
@@ -680,9 +724,9 @@ export const SheetGapRow = memo(function SheetGapRow({ styles, gap, reach, onRev
     // The hidden count, in the app's locale (#850).
     const words = useFormatters();
     return (
-        <Box css={styles.band} data-slot="band" data-band="lens" data-gap={gap.key} data-hidden={gap.hidden}>
+        <Box css={styles.band} data-slot="band" data-band="lens" data-gap={gap.key} data-hidden={gap.hidden} role="row" aria-rowindex={ariaRowIndex}>
             <Box css={styles.bandRule} aria-hidden="true" />
-            <Box as="span" css={styles.bandPill} data-slot="bandPill" data-lens="">
+            <Box as="span" css={styles.bandPill} data-slot="bandPill" data-lens="" role="gridcell" aria-colindex={1} aria-colspan={colCount + 1}>
                 {!gap.first && (
                     <Box as="span" css={styles.bandControl} data-slot="bandControl" data-where="top" role="button"
                         aria-label={`Show ${words.number(reach.top)} more after row ${above}`} title={`Show the rows just after row ${above}`} onMouseDown={press("top")}>
@@ -726,6 +770,10 @@ export interface SheetGroupRowProps {
     /** The row-space index. */
     r: number;
     number: number;
+    /** The grid's id (#860): the title's id is `{idPrefix}-{r}-0`, a band cell's `{idPrefix}-{r}-{c}`. None on the copy that sticks under the header. */
+    idPrefix?: string | undefined;
+    /** The band's place among the grid's rows, the header first (#860). */
+    ariaRowIndex?: number | undefined;
     membership?: SheetMembership | undefined;
     /** The group's wire row — its band cells under {@link TITLE_KEY} and the line columns. */
     row: SheetRowValue;
@@ -774,6 +822,10 @@ export const SheetGroupRow = memo(function SheetGroupRow(props: SheetGroupRowPro
     const word = group.noun.singular;
     // The line count and the band cells' titles, in the app's locale (#850, #852).
     const words = useFormatters();
+    // To assistive tech (#860) the band is a row: its rowheader names the
+    // group and its lines, the title is its first cell — the sub line that
+    // cell's description — and each band cell a cell under its column.
+    const subId = useId();
     return (
         <Box
             css={styles.groupRow}
@@ -792,9 +844,12 @@ export const SheetGroupRow = memo(function SheetGroupRow(props: SheetGroupRowPro
             data-first={first ? "" : undefined}
             data-picked={picked ? "" : undefined}
             role="row"
+            aria-rowindex={props.ariaRowIndex}
             aria-expanded={!folded}
         >
-            <Box css={styles.gutter} data-slot="gutter" onMouseDown={(e) => props.onRowPick(r, e)} title={`Select the ${word}'s lines — delete removes them`}>
+            <Box css={styles.gutter} data-slot="gutter" role="rowheader" aria-colindex={1}
+                aria-label={`${word} ${props.number}, ${words.number(count)} line${count === 1 ? "" : "s"}`}
+                onMouseDown={(e) => props.onRowPick(r, e)} title={`Select the ${word}'s lines — delete removes them`}>
                 {seam !== undefined && props.onSeamEnter !== undefined && props.onSeamLeave !== undefined && (
                     <SheetInsertPoint styles={styles} side={seam} onEnter={(hit) => props.onSeamEnter?.(r, seam, hit)} onLeave={props.onSeamLeave} />
                 )}
@@ -803,16 +858,17 @@ export const SheetGroupRow = memo(function SheetGroupRow(props: SheetGroupRowPro
                 <Box as="span" css={styles.gutterNumber} data-slot="gutterNumber">{props.number}</Box>
                 <Box css={styles.gutterAction} data-slot="fillSlot">
                     {props.draft?.discardable && <chakra.button
-                        type="button" css={styles.gutterButton}
+                        type="button" css={styles.gutterButton} tabIndex={-1}
                         data-slot="discardDraft" data-kind="discard" aria-label={`Discard new ${word}`} title={`Discard new ${word}`}
                         onMouseDown={(event) => { event.preventDefault(); event.stopPropagation(); }}
                         onClick={(event) => { event.stopPropagation(); props.onDiscard?.(row.id); }}
                     ><FontAwesomeIcon icon={faXmark} /></chakra.button>}
                 </Box>
             </Box>
-            <Box css={styles.groupSummary} data-slot="groupSummary" role="gridcell" aria-colspan={columns.list.length}
+            <Box css={styles.groupSummary} data-slot="groupSummary" role="none"
                 style={{ gridColumn: `span ${Math.max(1, columns.list.length)}` }}>
-                <chakra.button type="button" css={styles.groupChevron} data-slot="fold"
+                {/* The row's `aria-expanded` says whether it is open, and Space folds it: the chevron is the pointer's. */}
+                <chakra.button type="button" css={styles.groupChevron} data-slot="fold" tabIndex={-1} aria-hidden="true"
                     aria-label={folded ? `Open the ${word}` : `Fold the ${word}`} aria-expanded={!folded}
                     title={folded ? "Open — Space · ⌥ opens all" : "Fold — Space · ⌥ folds all"}
                     onMouseDown={(event) => { event.preventDefault(); event.stopPropagation(); props.onFold(r, event.altKey); }}
@@ -825,7 +881,12 @@ export const SheetGroupRow = memo(function SheetGroupRow(props: SheetGroupRowPro
                     data-key={TITLE_KEY}
                     data-kind="text"
                     data-selected={titleSelected ? "" : undefined}
-                    role="group"
+                    role="gridcell"
+                    id={props.idPrefix !== undefined ? `${props.idPrefix}-${r}-0` : undefined}
+                    aria-colindex={2}
+                    aria-colspan={span}
+                    aria-selected={(selC !== undefined && selC < span) || (range !== undefined && range.c0 < span)}
+                    aria-describedby={sub !== "" ? subId : undefined}
                     onMouseDown={(e) => props.onCellDown(r, 0, e)}
                     onDoubleClick={() => props.onCellDouble(r, 0)}
                     onMouseEnter={() => props.onCellEnter(r, 0)}
@@ -835,8 +896,8 @@ export const SheetGroupRow = memo(function SheetGroupRow(props: SheetGroupRowPro
                     {titleSelected && <Box css={styles.ring} data-slot="ring" />}
                     {titleEditing && editor.node}
                 </Box>
-                {sub !== "" && <Box as="span" css={styles.groupSub} data-slot="groupSub">{sub}</Box>}
-                <Box as="span" css={styles.groupCount} data-slot="groupCount">{words.number(count)}</Box>
+                {sub !== "" && <Box as="span" css={styles.groupSub} data-slot="groupSub" id={subId} aria-hidden="true">{sub}</Box>}
+                <Box as="span" css={styles.groupCount} data-slot="groupCount" aria-hidden="true">{words.number(count)}</Box>
                 {columns.list.map((colMeta, c) => {
                     if (c < span) return null;
                     const meta = group.cells.get(colMeta.key);
@@ -856,7 +917,10 @@ export const SheetGroupRow = memo(function SheetGroupRow(props: SheetGroupRowPro
                             data-selected={selected ? "" : undefined}
                             data-blank={cellIsBlank(cell) ? "" : undefined}
                             data-editable={meta !== undefined && meta.editable ? "" : undefined}
-                            role="group"
+                            role="gridcell"
+                            id={props.idPrefix !== undefined ? `${props.idPrefix}-${r}-${c}` : undefined}
+                            aria-colindex={c + 2}
+                            aria-selected={selC === c || inRange}
                             onMouseDown={(e) => props.onCellDown(r, c, e)}
                             onDoubleClick={() => props.onCellDouble(r, c)}
                             onMouseEnter={() => props.onCellEnter(r, c)}

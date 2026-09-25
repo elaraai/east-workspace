@@ -39,7 +39,7 @@
  * switch, and nothing at all under reduced motion.
  */
 
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type MouseEvent, type KeyboardEvent, type ClipboardEvent, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useReducer, useRef, useState, type MouseEvent, type KeyboardEvent, type ClipboardEvent, type ReactNode } from "react";
 import { Box, useSlotRecipe } from "@chakra-ui/react";
 import { ArrayType, StringType, compareFor, equalFor, equivalentFor, fromEastTypeValue, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Sheet, SheetBatchReadinessType, Slice } from "@elaraai/east-ui/internal";
@@ -61,7 +61,7 @@ import {
     latencyOf, layoutRun, lineAddress, lineId, linePosition, lineRowsOf, parseWidth, resolveMember as resolveRegisterMember, rowIsBlank, segmentOf, stickyRows, withLine, withProposals, withoutLines,
     type LineGroup, type SheetBodyItem, type SheetColumnMeta, type SheetGeometry,
 } from "./model.js";
-import { useSheetPaging, type SheetViewport } from "./paging.js";
+import { SHEET_PAGE_SIZE, useSheetPaging, type SheetViewport } from "./paging.js";
 import { placeInOrder } from "./placement.js";
 import { NOT_PERSISTED, persistedOf, sameAnchor, sameFolds, type SheetAnchor, type SheetPersisted } from "./persisted.js";
 import { useSheetSeek } from "./use-seek.js";
@@ -77,7 +77,7 @@ import { useSheetLinks } from "./use-links.js";
 import { todayUtc } from "./parse/date.js";
 import { exportMatrix, layoutPaste, parseMatrix } from "./clipboard.js";
 import {
-    initialSheetStore, sheetStoreReducer, selectionRect, wholeRows, provisionalCell, nextTargetOf, fillOrder, isBlankRowId,
+    initialSheetStore, sheetReducer, sheetStoreReducer, selectionRect, wholeRows, provisionalCell, nextTargetOf, fillOrder, isBlankRowId,
     type EditSource, type LensContext, type SheetEffect, type SheetEvent, type SheetMachineCtx, type SliceStateValue, type Suggestions,
 } from "./sheet-state.js";
 import { runSuggest, SuggestMemo, LATENCY_MS, type FillColumn } from "./suggest.js";
@@ -282,6 +282,30 @@ const NOTHING: ReadonlySet<string> = new Set();
 /** How long rows slide after a gesture that folds or opens (ms) — a little past the slide itself. */
 const MOVE_MS = 320;
 
+/** The source position a row-space item stands at — a row's, a group's band, a blank's the place it would take; `undefined` off the row space. */
+function rowPositionOf(it: SheetBodyItem): number | undefined {
+    return it.kind === "real" || it.kind === "group" || it.kind === "blank" ? it.position : undefined;
+}
+
+/**
+ * A body item's place among the grid's rows (#860), counting the header as
+ * the first: on a flat sheet a row's source position (a band, a gap or a
+ * failed window where its first element would be; a proposal has no place of
+ * its own), so the count and every index describe the whole source; on a
+ * grouped sheet, the body's order — an unloaded run is one row, the Plan's
+ * rule (#819).
+ */
+function ariaRowIndexOf(it: SheetBodyItem, i: number, grouped: boolean): number | undefined {
+    if (grouped) return i + 2;
+    switch (it.kind) {
+        case "real": case "blank": return it.position + 2;
+        case "band": return it.band.from + 2;
+        case "gap": return it.gap.from + 2;
+        case "failed": return it.failure.from + 2;
+        default: return undefined;
+    }
+}
+
 /** The body index of an anchor — a real row (or a group's band) by id, a blank row or blank line by its synthetic id. */
 function anchorBodyIndex(body: readonly SheetBodyItem[], anchorId: string): number {
     if (!isBlankRowId(anchorId)) return bodyIndexOfId(body, anchorId);
@@ -319,6 +343,8 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
     // The counts the chrome prints — the summary, the hints, the messages,
     // the lens line — in the app's locale (#850).
     const words = useFormatters();
+    // The grid's id: its cells' ids hang off it, and the view tabs name it as what they switch (#860).
+    const gridId = useId();
     // ── Decode ────────────────────────────────────────────────────────────
     const columns = useMemo(() => indexColumns(value.columns), [value.columns]);
     const registers = useMemo(() => indexRegisters(value.registers), [value.registers]);
@@ -467,9 +493,8 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
     const exhausted = decodedRows !== undefined || paging.exhausted;
     const editingState = useSheetEditing(value.editing, pagedSource, sourceRows, sourcePositions, storageKey);
     const session = editingState.session;
-    // The session derives its readiness afresh on every read; held by value,
-    // what keys on it — the rows' draft presentations — moves only when it
-    // does (#858).
+    // The session's readiness, held by value: what keys on it — the rows'
+    // draft presentations — moves only when it does (#858).
     const readiness = useDataStable(session.readiness, readinessEqual);
     const draftType = useMemo(() => fromEastTypeValue(value.editing.draftType), [value.editing.draftType]);
     const childField = getSomeorUndefined(value.editing.children);
@@ -697,6 +722,19 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
     const activeViewValue = useMemo(() => (ui.tabs.active === null ? undefined : views.find((v) => v.id === ui.tabs.active)), [views, ui.tabs.active]);
     const dirty = activeViewValue !== undefined && sliceState !== undefined && !sliceStateEqual(activeViewValue.narrowing, sliceState);
 
+    // What moves a page (#860): the rows a bounded frame shows, or the page's
+    // under an unbounded sheet — less one, so a page keeps a row of context.
+    // Unmeasured (a frame not laid out), the machine's default. The frame is
+    // the one the rows report (`viewport`, below), read when the key comes.
+    const viewportRef = useRef<RowsViewport | null>(null);
+    const pageRows = useCallback((): number => {
+        const frame = viewportRef.current;
+        const px = frame === null ? 0 : frame.scroller === frame.frame ? frame.frame.clientHeight : window.innerHeight;
+        return px > 0 ? Math.max(1, Math.floor(px / rowPx) - 1) : 10;
+    }, [rowPx]);
+    const pagedHead = paging.head;
+    const pagedTail = paging.tail;
+    const jumpToElement = paging.jumpToElement;
     const ctx = useMemo<SheetMachineCtx>(() => ({
         rowCount,
         colCount,
@@ -704,6 +742,9 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
         grouped: group !== undefined,
         // Group insertion uses explicit controls; keyboard padding is flat-only.
         canAppend: exhausted && canInsertRows && editingState.available && group === undefined,
+        // A paged sheet's ends (#860): an unloaded run past the row space is a band.
+        edges: pagedSource === undefined ? undefined : { atStart: pagedHead === undefined, atEnd: pagedTail === undefined },
+        pageRows,
         editableAt: (r, c) => {
             if (readOnly || !editingState.available) return false;
             const it = rowAt(r);
@@ -802,7 +843,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
                 group: g.lines.filter((l) => l.subRows.length > 0).map((l) => lineId(g.id, l.key)),
             };
         },
-    }), [rowCount, colCount, lensOn, exhausted, readOnly, canInsertRows, editingState.available, group, noun, columns, rows, rowAt, metaAt, parseCtxFor, candidateCtxFor, cellAt, levelAt, words, linkCtxFor, rowOf, idAt, driverColumn, views, sliceState, emptyNarrowing, dirty, rowSpace, body]);
+    }), [rowCount, colCount, lensOn, exhausted, readOnly, canInsertRows, editingState.available, group, noun, columns, rows, rowAt, metaAt, parseCtxFor, candidateCtxFor, cellAt, levelAt, words, linkCtxFor, rowOf, idAt, driverColumn, views, sliceState, emptyNarrowing, dirty, rowSpace, body, pagedSource, pagedHead, pagedTail, pageRows]);
     const ctxRef = useRef(ctx);
     ctxRef.current = ctx;
     const uiRef = useRef(ui);
@@ -1185,6 +1226,25 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
     // ── Effects ───────────────────────────────────────────────────────────
     const cardRef = useRef<HTMLDivElement | null>(null);
     const rootRef = useRef<HTMLDivElement | null>(null);
+    /**
+     * A key's move across an unloaded run (#860), waiting for its window: the
+     * source element it is headed for, the window its jump pins, where the
+     * ring lands — the first row at or past the element, the last at or
+     * before it, or the last there that is not blank padding — the column,
+     * and the viewer's gestures counted when the key came.
+     */
+    const seekIntent = useRef<{ element: number; window: number; land: "first" | "last" | "end"; c: number; moves: number } | undefined>(undefined);
+    /** The viewer's gestures on the ring — keys, presses — counted: a key's move across an unloaded run lands only if none came after it (#860). */
+    const ringMoves = useRef(0);
+    /**
+     * Who asked for the driver's pending jump (#860): a key's move across an
+     * unloaded run, the key search, or a remount's restore of its scroll. The
+     * driver holds one jump — a key's move gives way to one it did not ask
+     * for, and the search drops only its own.
+     */
+    const jumpBy = useRef<"key" | "search" | "anchor" | undefined>(undefined);
+    // A keyboard move's reveal (#860): bumped with every `scroll.to`, and read once the frame has asked for its row.
+    const [revealSeq, setRevealSeq] = useState(0);
     const [editorFocus, setEditorFocus] = useState<EditorFocusRequest>({ seq: 0, selectAll: true });
     const [scrollTarget, setScrollTarget] = useState<number | undefined>(undefined);
     const runEffects = useCallback((effects: readonly SheetEffect[]) => {
@@ -1326,6 +1386,22 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
                 case "scroll.to": {
                     const bi = rowSpace.bodyIndexOf[eff.r];
                     if (bi !== undefined) setScrollTarget(bi);
+                    setRevealSeq((n) => n + 1);
+                    break;
+                }
+                case "seek.step":
+                case "seek.edge": {
+                    // Across an unloaded run (#860): the window beyond is fetched the
+                    // way a key search jumps, and the ring lands once it is in (below).
+                    const step = eff.t === "seek.step";
+                    const element = step
+                        ? (eff.dir > 0 ? paging.tail?.from : paging.head?.to)
+                        : eff.edge === "first" ? 0 : paging.total !== undefined && paging.total > 0 ? paging.total - 1 : undefined;
+                    if (element === undefined) break;
+                    const land = step ? (eff.dir > 0 ? "first" : "last") : eff.edge === "first" ? "first" : "end";
+                    seekIntent.current = { element, window: Math.floor(element / SHEET_PAGE_SIZE), land, c: eff.c, moves: ringMoves.current };
+                    jumpBy.current = "key";
+                    jumpToElement(element);
                     break;
                 }
                 case "select.id": {
@@ -1371,7 +1447,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
         try { recordGesture(gestureEvents.current); }
         catch (error) { console.error("Sheet transaction failure", error); dispatchStore({ t: "patch", patch: { msg: error instanceof Error ? error.message : String(error) } }); }
         finally { gestureEvents.current = []; }
-    }, [recordGesture, writeCells, deleteRows, insertProposal, columns, group, noun, words, metaAt, blankLineRowOf, readOnly, cellAt, colCount, parseCtxFor, onSelectFn, rowAt, rowOf, rowSpace, store.ui.sel, store.ui.edit, idAt, copilotOn, triggers, requestRun, requestReady, dispatch, value.views, onViewsChangeFn, slice]);
+    }, [recordGesture, writeCells, deleteRows, insertProposal, columns, group, noun, words, metaAt, blankLineRowOf, readOnly, cellAt, colCount, parseCtxFor, onSelectFn, rowAt, rowOf, rowSpace, store.ui.sel, store.ui.edit, idAt, copilotOn, triggers, requestRun, requestReady, dispatch, value.views, onViewsChangeFn, slice, paging.head, paging.tail, paging.total, jumpToElement]);
     const drainedFx = useRef(0);
     useLayoutEffect(() => {
         if (store.fxSeq === drainedFx.current) return;
@@ -1527,13 +1603,15 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
         e.preventDefault();
         pressed.current = !e.shiftKey;
         dragging.current = false;
+        ringMoves.current += 1;
         dispatch({ t: "cell.down", r, c, shift: e.shiftKey });
     }, [dispatch]);
-    const onCellDouble = useCallback((r: number, c: number) => dispatch({ t: "cell.dbl", r, c }), [dispatch]);
+    const onCellDouble = useCallback((r: number, c: number) => { ringMoves.current += 1; dispatch({ t: "cell.dbl", r, c }); }, [dispatch]);
     const onCellEnter = useCallback((r: number, c: number) => dispatch({ t: "cell.enter", r, c, dragging: dragging.current }), [dispatch]);
     const onRowPick = useCallback((r: number, e: MouseEvent) => {
         if (e.button !== 0) return;
         e.preventDefault();
+        ringMoves.current += 1;
         dispatch({ t: "row.pick", r, shift: e.shiftKey });
     }, [dispatch]);
     const onTake = useCallback((key: string) => dispatch({ t: "fill.take", key }), [dispatch]);
@@ -1544,21 +1622,31 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
     const onKeyDown = useCallback((e: KeyboardEvent<HTMLDivElement>) => {
         if (store.ui.edit !== null) return;
         if (e.altKey && e.key === "Insert") {
-            e.preventDefault(); onInsert("row", store.ui.sel.r, e.shiftKey ? "before" : "after"); return;
+            e.preventDefault(); ringMoves.current += 1; onInsert("row", store.ui.sel.r, e.shiftKey ? "before" : "after"); return;
         }
         const meta = e.metaKey || e.ctrlKey;
         if (meta && (e.key.toLowerCase() === "z" || e.key.toLowerCase() === "y")) {
             e.preventDefault();
+            ringMoves.current += 1;
             onHistoryAction(e.shiftKey || e.key.toLowerCase() === "y" ? "redo" : "undo");
             return;
         }
         // The browser's own clipboard keys become copy / paste events.
         if (meta && (e.key === "c" || e.key === "v" || e.key === "x" || e.key === "a")) return;
-        const handled = ["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Tab", "Enter", "F2", "Escape", "Backspace", "Delete"];
+        const handled = ["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown", "Tab", "Enter", "F2", "Escape", "Backspace", "Delete"];
         const printable = e.key.length === 1 && !meta && !e.altKey;
         const toSearch = meta && (e.key === "/" || e.key === "f");
         if (!handled.includes(e.key) && !printable && !toSearch) return;
+        // A Tab the sheet has no use for — the ring on the row's last column
+        // (⇧: its first), nothing pending — is the browser's (#860): focus
+        // leaves the grid, which is never a keyboard trap. The reducer is
+        // pure, so asking it is free.
+        if (e.key === "Tab") {
+            const probe = sheetReducer(uiRef.current, { t: "key", key: "Tab", shift: e.shiftKey, meta, alt: e.altKey }, ctxRef.current);
+            if (probe.state === uiRef.current && probe.effects.length === 0) return;
+        }
         e.preventDefault();
+        ringMoves.current += 1;
         dispatch({ t: "key", key: e.key, shift: e.shiftKey, meta, alt: e.altKey });
     }, [dispatch, store.ui.edit, store.ui.sel.r, onHistoryAction, onInsert]);
     // A band never copies (G9): a whole-group selection copies its lines.
@@ -1692,7 +1780,12 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
     }), [pagedSource, paging.rows.length, paging.total, paging.loading, paging.sourceError]);
 
     // ── The key search over a keyed paged source (§3.13) ──────────────────
-    const seek = useSheetSeek(pagedSource, paging.rows, paging.positions, paging.jumpToElement, paging.clearJump);
+    // Its jumps are its own (#860): cleared — by the viewer, or by a new
+    // snapshot — it drops only a jump it asked for, never a key's move.
+    const pagingClearJump = paging.clearJump;
+    const searchJump = useCallback((element: number) => { jumpBy.current = "search"; jumpToElement(element); }, [jumpToElement]);
+    const searchClearJump = useCallback(() => { if (jumpBy.current === "search") pagingClearJump(); }, [pagingClearJump]);
+    const seek = useSheetSeek(pagedSource, paging.rows, paging.positions, searchJump, searchClearJump);
     // A jump's target is shown once its window settles (#854): the ring goes
     // to the sought row (no echo — the host hears the move through onSelect),
     // or the view to the band of the window that could not be read (#853).
@@ -1726,6 +1819,41 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
         handBack.current = false;
         clearJump();
     }, [scrollNonce, clearJump]);
+    // A key's move across an unloaded run (#860) lands once its window is in
+    // the run: the ring goes to the first row at or past the element it was
+    // headed for (↓, ⌘Home), the last at or before it (↑), or the last there
+    // that is not blank padding (⌘End) — and where the window could not be
+    // read, the view goes to its band. A gesture since the key, or an open
+    // editor, abandons it; a jump the move did not ask for — the key
+    // search's — takes its place. Either way the viewport is handed back once
+    // the scroll is asked for, as a search's is.
+    const keyJump = paging.jump;
+    useEffect(() => {
+        const intent = seekIntent.current;
+        if (intent === undefined) return;
+        if (jumpBy.current !== "key") { seekIntent.current = undefined; return; }
+        // The render that pins its window is still to come.
+        if (keyJump === undefined || keyJump.window !== intent.window) return;
+        if (ringMoves.current !== intent.moves || uiRef.current.edit !== null) {
+            seekIntent.current = undefined;
+            clearJump();
+            return;
+        }
+        if (!keyJump.settled) return;
+        seekIntent.current = undefined;
+        const positionOf = (it: SheetBodyItem): number | undefined => (intent.land === "end" ? elementOf(it) ?? undefined : rowPositionOf(it));
+        let bi = -1;
+        if (intent.land === "first") bi = body.findIndex((it) => { const p = positionOf(it); return p !== undefined && p >= intent.element; });
+        else for (let i = body.length - 1; i >= 0 && bi < 0; i--) { const p = positionOf(body[i]!); if (p !== undefined && p <= intent.element && isRowSpace(body[i]!)) bi = i; }
+        const r = bi >= 0 ? rowSpace.rowOf[bi] : undefined;
+        if (r !== undefined && r >= 0) dispatch({ t: "select.move", r, c: intent.c });
+        const shown = r !== undefined && r >= 0 ? bi : body.findIndex((it) => it.kind === "failed" && it.failure.from <= intent.element && intent.element <= it.failure.to);
+        // Nothing to show (a lens hides every row there): the viewport is the viewer's again.
+        if (shown < 0) { clearJump(); return; }
+        setScrollTarget(shown);
+        setScrollNonce((n) => n + 1);
+        handBack.current = true;
+    }, [keyJump, body, rowSpace, dispatch, clearJump]);
 
     // ── Where the scroll rests (#857) ─────────────────────────────────────
     // The anchor the last session left is restored once its item is in the
@@ -1742,7 +1870,6 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
     const [anchorPhase, setAnchorPhase] = useState<"pending" | "seeking" | "settled">(() => (restored.anchor === null ? "settled" : "pending"));
     const [restoreAnchor, setRestoreAnchor] = useState<{ index: number; offset: number } | undefined>(undefined);
     const anchorHandBack = useRef(false);
-    const jumpToElement = paging.jumpToElement;
     const anchorJump = paging.jump;
     const pagedTotal = paging.total;
     useEffect(() => {
@@ -1758,6 +1885,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
         if (at < 0 && element !== undefined) {
             if (anchorPhase === "pending") {
                 setAnchorPhase("seeking");
+                jumpBy.current = "anchor";
                 jumpToElement(element);
                 return;
             }
@@ -1876,6 +2004,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
                 onRenameCommit={onTabRenameCommit}
                 onRenameCancel={onTabRenameCancel}
                 onReorder={onTabReorder}
+                panelId={gridId}
             />
         )
         : undefined;
@@ -1983,6 +2112,22 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
     }, [edit, editMeta, words, today, parseCtxFor, rowAt, driverColumn, linkEdit, linkEditCtx, linkArmed, linkColumns, wireContextFor, suggested, ui.sugg, idAt, editWhenLevel, allowedFor, detail]);
 
     const wr = wholeRows(ui, colCount);
+    // What the grid tells assistive tech (#860): its rows, counted the way
+    // their indices run — on a flat sheet by source position, so the whole
+    // source's (-1 until a paged source has counted itself) and the blank
+    // padding; on a grouped sheet in body order — the header first; and the
+    // ring's cell, which a band's title stands for across its span and under
+    // the columns it has no cell in.
+    const blankRows = useMemo(() => body.reduce((n, it) => (it.kind === "blank" && it.group === undefined ? n + 1 : n), 0), [body]);
+    const ariaRowCount = group !== undefined ? body.length + 1
+        : pagedSource !== undefined && paging.total === undefined ? -1
+            : Math.max(paging.total ?? 0, endPosition) + blankRows + 1;
+    const ringItem = rowAt(ui.sel.r);
+    const ringCol = ringItem?.kind === "group" && group !== undefined && (ui.sel.c < group.titleSpan || !group.cells.has(columns.list[ui.sel.c]?.key ?? "")) ? 0 : ui.sel.c;
+    const activeCell = ringItem !== undefined && colCount > 0 ? `${gridId}-${ui.sel.r}-${ringCol}` : undefined;
+    // What a keyboard move's reveal reads (below): the ring's cell, and the column it sits under.
+    const ringCellRef = useRef<{ id: string | undefined; col: number }>({ id: undefined, col: 0 });
+    ringCellRef.current = { id: activeCell, col: ringCol };
     const hasFills = ui.sugg !== null && ui.sugg.fill.size > 0;
     const hasRows = ui.sugg !== null && ui.sugg.rows.length > 0;
     const ringKind = ctx.rowKindAt?.(ui.sel.r);
@@ -2068,6 +2213,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
     // scroll sideways in, and what scrolls them vertically — live in every
     // mode, and through a switch between bounded and unbounded.
     const [viewport, setViewport] = useState<RowsViewport | null>(null);
+    viewportRef.current = viewport;
     // The header pins only in a frame that scrolls its own rows — a bounded
     // one. An unbounded sheet's header scrolls with the page, as every
     // unbounded collection's does (#856), so the band and the line that stick
@@ -2129,6 +2275,31 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
     useLayoutEffect(() => {
         if (stickyLineRef.current !== null) stickyLineRef.current.style.top = `${stickyLineTop.current}px`;
     }, [stickyLineAt]);
+    // The ring's cell in view after a keyboard move (#860). The frame brings
+    // the ring's ROW in wherever it virtualizes; what it cannot is the column —
+    // the rows scroll sideways inside the card — nor the row of an unbounded
+    // sheet small enough to render its rows in flow, which scroll with the page.
+    // The column's header cell says where the column is: it is always mounted,
+    // and it shares the column's box. The gutter is sticky, so the columns show
+    // right of it.
+    useEffect(() => {
+        if (revealSeq === 0) return;
+        const view = viewportRef.current;
+        if (view === null) return;
+        const { id, col } = ringCellRef.current;
+        const frame = view.frame;
+        const head = headerRef.current?.querySelectorAll<HTMLElement>('[data-slot="headerCell"]')[col];
+        if (head !== undefined) {
+            const box = frame.getBoundingClientRect();
+            const left = box.left + frame.clientLeft + gutterPx;
+            const right = box.left + frame.clientLeft + frame.clientWidth;
+            const cell = head.getBoundingClientRect();
+            if (cell.left < left) frame.scrollLeft -= left - cell.left;
+            else if (cell.right > right) frame.scrollLeft += Math.min(cell.right - right, cell.left - left);
+        }
+        if (view.scroller === null && id !== undefined) document.getElementById(id)?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- a keyboard move is the trigger; the ring and the frame are read as they are then
+    }, [revealSeq]);
     /**
      * Bring a sticking line out from under its copy: the rows
      * scroll until the line's own row sits just under the band, where the
@@ -2279,8 +2450,10 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
     const renderRow = useCallback((i: number): ReactNode => {
         const item = body[i];
         if (item === undefined) return null;
-        if (item.kind === "band") return <SheetBandRow styles={styles} band={item.band} loading={paging.loading} />;
-        if (item.kind === "failed") return <SheetFailedBandRow styles={styles} failure={item.failure} onRetry={paging.retry} />;
+        // Its place among the grid's rows (#860).
+        const ariaRowIndex = ariaRowIndexOf(item, i, group !== undefined);
+        if (item.kind === "band") return <SheetBandRow styles={styles} band={item.band} loading={paging.loading} ariaRowIndex={ariaRowIndex} colCount={colCount} />;
+        if (item.kind === "failed") return <SheetFailedBandRow styles={styles} failure={item.failure} onRetry={paging.retry} ariaRowIndex={ariaRowIndex} colCount={colCount} />;
         if (item.kind === "subRow") {
             return (
                 <SheetSubRow
@@ -2295,6 +2468,8 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
                     viewPx={viewPx}
                     membership={memberships[i]}
                     entering={arriving.has(`line:${item.lineId}`) ? Math.min(item.index, 8) : undefined}
+                    ariaRowIndex={ariaRowIndex}
+                    colCount={colCount}
                 />
             );
         }
@@ -2307,6 +2482,8 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
                     gap={g}
                     reach={{ top: nextReach(steps, g.key, "top", g.hidden), bottom: nextReach(steps, g.key, "bottom", g.hidden), both: nextReach(steps, g.key, "both", g.hidden) }}
                     onReveal={onReveal}
+                    ariaRowIndex={ariaRowIndex}
+                    colCount={colCount}
                 />
             );
         }
@@ -2329,6 +2506,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
                     onPick={onProposalPick}
                     onAccept={onProposalAccept}
                     onReject={onProposalReject}
+                    ariaRowIndex={ariaRowIndex}
                 />
             );
         }
@@ -2352,6 +2530,8 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
                     r={r}
                     row={item.row}
                     number={item.position + 1}
+                    idPrefix={gridId}
+                    ariaRowIndex={ariaRowIndex}
                     membership={memberships[i]}
                     draft={draftOf(item.row.id)}
                     onDiscard={onRowDiscard}
@@ -2394,6 +2574,8 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
                 insertSide={insertPreview?.r === r ? insertPreview.side : undefined}
                 r={r}
                 number={lg !== undefined ? lg.number : item.position + 1}
+                idPrefix={gridId}
+                ariaRowIndex={ariaRowIndex}
                 first={i === 0}
                 row={item.kind === "real" ? item.row : undefined}
                 group={lg}
@@ -2423,7 +2605,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
             />
             </SheetRowBoundary>
         );
-    }, [draftOf, memberships, canInsert, seamSide, onRowSeamEnter, onSeamLeave, insertPreview, onRowDiscard, body, styles, paging.loading, paging.retry, rowSpace, ui.selEnd, ui.sel, ui.sugg, ui.gsel, ui.hover, ui.lens.steps, rect, rangeCols, columns, registers, driverColumn, gridTemplate, rowPx, bandPx, subRowPx, gutterPx, viewPx, group, noun, wr, bandMixed, edit, editorAt, anchorR, nextTarget, onCellDown, onCellDouble, onCellEnter, onRowPick, onTake, onFillRow, onProposalPick, onProposalAccept, onProposalReject, onReveal, onFold, onSubRows, linkCellCtx, arriving]);
+    }, [draftOf, memberships, canInsert, seamSide, onRowSeamEnter, onSeamLeave, insertPreview, onRowDiscard, body, styles, paging.loading, paging.retry, rowSpace, ui.selEnd, ui.sel, ui.sugg, ui.gsel, ui.hover, ui.lens.steps, rect, rangeCols, columns, registers, driverColumn, gridTemplate, rowPx, bandPx, subRowPx, gutterPx, viewPx, group, noun, wr, bandMixed, edit, editorAt, anchorR, nextTarget, onCellDown, onCellDouble, onCellEnter, onRowPick, onTake, onFillRow, onProposalPick, onProposalAccept, onProposalReject, onReveal, onFold, onSubRows, linkCellCtx, arriving, gridId, colCount]);
 
     // A source that failed before anything landed: nothing else to show (#853).
     if (paging.error !== undefined) {
@@ -2446,7 +2628,8 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
             <SheetHeader styles={styles} columns={columns.list} gridTemplate={gridTemplate} picked={wr !== null} foldAll={foldAll} />
             {stickyItem !== undefined && stickyItem.kind === "group" && group !== undefined && stickyAt !== undefined && (
                 // The band of the group whose lines scroll under the header (G1) — laid over the rows, so the list never moves.
-                <Box position="absolute" top="100%" left="0" right="0">
+                // A copy: the band itself is the grid's row (#860).
+                <Box position="absolute" top="100%" left="0" right="0" aria-hidden="true">
                     <SheetGroupRow
                         styles={styles}
                         columns={columns}
@@ -2479,8 +2662,9 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
             {stuckLine !== undefined && (
                 // The line whose sub rows scroll under the band: laid over the rows just under the band, and
                 // BENEATH the band and the header (z −1 inside the pinned header), so it slides away under them as its last
-                // sub row leaves. A press on it first brings the line itself back under the band (`revealLine`).
-                <Box ref={stickyLineRef} position="absolute" left="0" right="0" zIndex="-1">
+                // sub row leaves. A press on it first brings the line itself back under the band (`revealLine`). A copy,
+                // like the band's (#860).
+                <Box ref={stickyLineRef} position="absolute" left="0" right="0" zIndex="-1" aria-hidden="true">
                     <SheetRow
                         styles={styles}
                         columns={columns}
@@ -2541,12 +2725,15 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
             )}
             <Box
                 ref={cardRef}
+                id={gridId}
                 css={styles.card}
                 tabIndex={0}
                 data-sheet-card
                 role="grid"
-                aria-rowcount={rowCount}
-                aria-colcount={colCount}
+                aria-rowcount={ariaRowCount}
+                aria-colcount={colCount + 1}
+                aria-multiselectable
+                aria-activedescendant={activeCell}
                 onKeyDown={onKeyDown}
                 onCopy={onCopy}
                 onPaste={onPaste}

@@ -168,9 +168,9 @@ describe("the Sheet's counts (#850)", () => {
         const { container } = german(
             <>
                 <SheetFooter styles={styles} items={[]} hint="" message="" transport={{ loaded: 600, total: 5000, loading: false }} />
-                <SheetBandRow styles={styles} band={{ at: "tail", from: 600, to: 4999, px: 100 }} loading={false} />
+                <SheetBandRow styles={styles} band={{ at: "tail", from: 600, to: 4999, px: 100 }} loading={false} colCount={2} />
                 <SheetGapRow styles={styles} gap={{ key: "g", from: 10, to: 1509, hidden: 1500, first: false, last: false }}
-                    reach={{ top: 1, bottom: 3, both: 10 }} onReveal={() => {}} />
+                    reach={{ top: 1, bottom: 3, both: 10 }} onReveal={() => {}} colCount={2} />
             </>,
         );
         const words = texts(container);

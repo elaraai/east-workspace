@@ -34,6 +34,13 @@
  *   row appends unless a lens is active or the source is unexhausted), ↑ /
  *   blur stay; an unparseable value becomes an invalid draft carrying the
  *   original input, so it remains visible and undoable after leaving the cell.
+ * - **The key map (#860)** — Home / End go to the row's first or last column
+ *   and ⌘Home / ⌘End to the sheet's first or last cell (the last row that is
+ *   not blank padding); PageUp / PageDown move a page of rows; ⇧ stretches a
+ *   range instead. On a paged sheet ↓ past the last resident row, ↑ above the
+ *   first and ⌘Home / ⌘End toward an end not yet resident ask the component
+ *   for the window there (`seek.step`, `seek.edge`) — the ring lands once it
+ *   arrives.
  * - **An unchanged buffer writes nothing** (#852): an editor closed on the
  *   text it opened with commits no write — nor takes a ghost when it was
  *   never touched — so opening a cell and pressing ⏎ never changes it.
@@ -210,7 +217,11 @@ function moveAfterCommit(s: SheetUiState, dir: CommitDir, ctx: SheetMachineCtx, 
     }
 }
 
-/** ↓ — the last row appends when the sheet allows it (never under a lens). */
+/**
+ * ↓ — the last row appends when the sheet allows it (never under a lens); on
+ * a paged sheet whose source goes on past it, the ring steps onto the next
+ * window's first row once it lands (#860).
+ */
 function moveDown(s: SheetUiState, ctx: SheetMachineCtx, effects: SheetEffect[]): SheetUiState {
     if (s.sel.r + 1 >= ctx.rowCount) {
         if (ctx.canAppend && !ctx.lensActive) {
@@ -218,9 +229,17 @@ function moveDown(s: SheetUiState, ctx: SheetMachineCtx, effects: SheetEffect[])
             effects.push({ t: "emit.select", r: sel.r, c: sel.c }, { t: "scroll.to", r: sel.r });
             return { ...s, sel, selEnd: null, appended: s.appended + 1 };
         }
+        if (ctx.edges?.atEnd === false) effects.push({ t: "seek.step", dir: 1, c: s.sel.c });
         return s.selEnd === null ? s : { ...s, selEnd: null };
     }
     return moveTo(s, { r: s.sel.r + 1, c: s.sel.c }, ctx, effects);
+}
+
+/** The last row that is not blank padding — where ⌘End lands (#860); the first row on a sheet of blanks. */
+function lastFilledRow(ctx: SheetMachineCtx): number {
+    let r = ctx.rowCount - 1;
+    while (r > 0 && ctx.rowKindAt?.(r) === "blank") r--;
+    return Math.max(0, r);
 }
 
 /** Fold or open the group whose band sits at `r` (#740); the ring lands on the band. */
@@ -318,13 +337,43 @@ function sheetKey(s: SheetUiState, e: Extract<SheetEvent, { t: "key" }>, ctx: Sh
             return dropPick({ state: { ...s, selEnd }, effects });
         }
         if (dr === 1) return dropPick({ state: moveDown(s, ctx, effects), effects });
+        // ↑ above the first resident row, the source going on above it (#860).
+        if (dr === -1 && base.r === 0 && ctx.edges?.atStart === false) {
+            effects.push({ t: "seek.step", dir: -1, c: base.c });
+            return dropPick({ state: s.selEnd === null ? s : { ...s, selEnd: null }, effects });
+        }
         return dropPick({ state: moveTo(s, { r: base.r + dr, c }, ctx, effects), effects });
+    };
+    /** Move — or, with ⇧, stretch the range — to a cell (#860). */
+    const moveOrExtend = (to: CellRef): Transition => {
+        if (e.shift) return dropPick({ state: { ...s, selEnd: clamp(to, ctx) }, effects });
+        return dropPick({ state: moveTo(s, to, ctx, effects), effects });
     };
     switch (e.key) {
         case "ArrowDown": return move(1, 0);
         case "ArrowUp": return move(-1, 0);
         case "ArrowLeft": return move(0, -1);
         case "ArrowRight": return move(0, 1);
+        case "Home":
+        case "End": {
+            const first = e.key === "Home";
+            const c = first ? 0 : ctx.colCount - 1;
+            if (!e.meta) return moveOrExtend({ r: (e.shift && s.selEnd !== null ? s.selEnd : s.sel).r, c });
+            // ⌘Home / ⌘End: the sheet's first or last cell — on a paged sheet not
+            // at that end, a jump there, the ring landing once it arrives.
+            if (!e.shift && (first ? ctx.edges?.atStart : ctx.edges?.atEnd) === false) {
+                effects.push({ t: "seek.edge", edge: first ? "first" : "last", c });
+                return dropPick({ state: s.selEnd === null ? s : { ...s, selEnd: null }, effects });
+            }
+            return moveOrExtend({ r: first ? 0 : lastFilledRow(ctx), c });
+        }
+        case "PageDown":
+        case "PageUp": {
+            // A page of rows — the rows the frame shows — however they draw.
+            const n = Math.max(1, Math.floor(ctx.pageRows?.() ?? 10));
+            const base = e.shift && s.selEnd !== null ? s.selEnd : s.sel;
+            return moveOrExtend({ r: base.r + (e.key === "PageDown" ? n : -n), c: base.c });
+        }
         case "Tab": {
             const taken = suggestKey(s, e, ctx);
             if (taken !== null) return taken;
@@ -498,6 +547,13 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
             if (s.edit === null || s.edit.link === undefined) return { state: s, effects: [] };
             if (s.edit.link.side === e.side) return { state: s, effects: [{ t: "focus.editor", selectAll: false }] };
             return switchSide(s, e.side, ctx);
+        }
+        case "select.move": {
+            // A key's move landing once its window has (#860) — a key moves nothing while an editor is open.
+            if (s.edit !== null) return { state: s, effects: [] };
+            const effects: SheetEffect[] = [];
+            const moved = moveTo(s, { r: e.r, c: e.c }, ctx, effects);
+            return { state: moved.gsel === null ? moved : { ...moved, gsel: null }, effects };
         }
         case "select.set": {
             // The host moved the ring: commit an open editor in place, follow, scroll — no echo.

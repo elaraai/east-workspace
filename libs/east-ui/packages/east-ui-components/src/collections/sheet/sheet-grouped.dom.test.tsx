@@ -163,12 +163,14 @@ describe("the body (G1–G3, G6, G12)", () => {
         expect(band("p1")!.querySelector('[data-slot="groupSub"]')!.textContent).toBe("planner · PLANNED");
         expect(band("p1")!.querySelector('[data-slot="groupCount"]')!.textContent).toBe("2");
         expect(band("p1")!.getAttribute("aria-expanded")).toBe("true");
-        // Summary fields share one spanning cell, independently of the line grid.
+        // Summary fields share one spanning box, independently of the line grid.
         expect(band("p1")!.querySelector('[data-key="qty"]')!.textContent).toBe("300");
         expect(band("p1")!.querySelector('[data-key="status"] [data-tone="neutral"]')).toBeTruthy();
         expect(band("p1")!.querySelector('[data-key="status"]')!.textContent).toBe("PLANNED");
         expect(band("p1")!.querySelector('[data-slot="groupSummary"]')!.getAttribute("style")).toMatch(/span 4/);
-        expect(band("p1")!.querySelectorAll('[role="gridcell"]')).toHaveLength(1);
+        // To assistive tech the band is a row of cells under the columns (#860): the title over its span, each band cell under its own.
+        const cells = [...band("p1")!.querySelectorAll('[role="gridcell"]')].map((c) => [c.getAttribute("data-key"), c.getAttribute("aria-colindex"), c.getAttribute("aria-colspan")]);
+        expect(cells).toEqual([["$title", "2", "2"], ["qty", "4", null], ["status", "5", null]]);
         expect(band("p1")!.querySelector('[data-slot="groupSummary"] [data-slot="fold"]')).toBeTruthy();
         expect(band("p1")!.querySelector('[data-slot="gutter"] [data-slot="fold"]')).toBeNull();
         expect(band("p1")!.querySelector('[data-slot="gutterNumber"]')!.textContent).toBe("1");
@@ -187,6 +189,17 @@ describe("the body (G1–G3, G6, G12)", () => {
         // The host's noun names the groups.
         expect(container.querySelector('[data-slot="footerSummary"]')!.textContent).toBe("2 plans · 3 lines");
         expect(container.querySelector('[data-slot="foldAll"]')!.getAttribute("aria-label")).toBe("Fold 2 plans");
+        // To assistive tech (#860) a grouped sheet's rows are counted in the body's order, the header first; a
+        // band's rowheader names the plan and its lines, its sub line describes its title; nothing in the grid
+        // but the grid is a tab stop.
+        const card = container.querySelector("[data-sheet-card]")!;
+        expect(card.getAttribute("aria-rowcount")).toBe("5");
+        expect(rows().map((r) => r.getAttribute("aria-rowindex"))).toEqual(["2", "3", "4", "5"]);
+        expect(band("p1")!.querySelector('[role="rowheader"]')!.getAttribute("aria-label")).toBe("plan 1, 2 lines");
+        expect(lines("p1")[1]!.querySelector('[role="rowheader"]')!.getAttribute("aria-label")).toBe("Line 2 of Line 2 week 8");
+        const title = band("p1")!.querySelector('[data-key="$title"]')!;
+        expect(document.getElementById(title.getAttribute("aria-describedby")!)!.textContent).toBe("planner · PLANNED");
+        expect([...card.querySelectorAll<HTMLElement>("button, input, [tabindex]")].filter((el) => el.tabIndex >= 0)).toEqual([]);
     });
 
     test("writable gutters expose group insertion without a ghost band; read-only sheets hide insertion", () => {
@@ -411,6 +424,22 @@ describe("the paged arm (G13)", () => {
             expect(extent).toBe(250 * (42 + 36 + 36));
             act(() => { window.scrollTo({ top: extent - window.innerHeight }); });
             expect(lines("P1249").map((r) => r.querySelector('[data-key="task"]')!.textContent)).toEqual(["Task 249", ""]);
+        } finally {
+            restore();
+        }
+    }, 30_000);
+
+    test("⌘End jumps to the source's last plan and lands on its last line — never the blank line under it (#860)", async () => {
+        const restore = emulateWindowScroll();
+        try {
+            const { container, lines, key } = mount(withSpy(buildPagedPlans(1_000)).value);
+            await waitFor(() => expect(container.querySelector('[data-slot="footerTransport"]')!.textContent).toBe("600 loaded of 1,000"), { timeout: 15_000 });
+            fireEvent.mouseDown(lines("P1000")[0]!.querySelector('[data-key="task"]')!, { button: 0 });
+            key("End", { ctrlKey: true });
+            const task = (id: string, k: number) => lines(id)[k]?.querySelector('[data-key="task"]');
+            await waitFor(() => expect(task("P1999", 0)?.hasAttribute("data-selected")).toBe(true), { timeout: 15_000 });
+            expect(lines("P1999")[1]!.getAttribute("data-line")).toBe("");
+            expect(task("P1999", 1)!.hasAttribute("data-selected")).toBe(false);
         } finally {
             restore();
         }
@@ -957,6 +986,62 @@ describe("the paged arm in a bounded frame: unloaded bands are as tall as their 
             // P11468's second line started 30 px into the view when window 7 landed, and still does.
             expect(top - f.frame.scrollTop).toBe(30);
         }, 30_000);
+    });
+});
+
+describe("the copies that stick under the header are not rows (#860)", () => {
+    /** The pinned header's height in the stand-in layout. */
+    const HEADER_PX = 60;
+    // jsdom lays nothing out: the frame is 600 px tall, the header sits at its
+    // top, and a mounted row is where its offset puts it under the header, less
+    // the frame's scroll — enough for the sheet to find what sticks.
+    const realOffsetHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight")!;
+    let realRect: typeof Element.prototype.getBoundingClientRect;
+    beforeEach(() => {
+        Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
+            configurable: true,
+            get(this: HTMLElement) { return this.getAttribute("data-virtual-rows") === "bounded" ? 600 : 0; },
+        });
+        realRect = Element.prototype.getBoundingClientRect;
+        const measured = realRect;
+        Element.prototype.getBoundingClientRect = function (this: Element) {
+            const box = (top: number, height: number) => ({ x: 0, y: top, top, left: 0, right: 1024, bottom: top + height, width: 1024, height, toJSON: () => ({}) }) as DOMRect;
+            if (this instanceof HTMLElement && this.dataset["slot"] === "virtualRow") {
+                const frame = this.closest<HTMLElement>('[data-virtual-rows="bounded"]');
+                const offset = Number(/translateY\((-?[\d.]+)px\)/.exec(this.style.transform)?.[1] ?? 0);
+                return box(HEADER_PX + offset - (frame?.scrollTop ?? 0), measured.call(this).height);
+            }
+            if (this.querySelector(':scope > [data-slot="header"]') !== null) return box(0, HEADER_PX);
+            return measured.call(this);
+        };
+    });
+    afterEach(() => {
+        Element.prototype.getBoundingClientRect = realRect;
+        Object.defineProperty(HTMLElement.prototype, "offsetHeight", realOffsetHeight);
+    });
+
+    test("the band and the open line sticking under the header are hidden from assistive tech and carry no cell ids — the rows they copy stay the grid's", async () => {
+        const ui = mount(buildFramedInline(300));
+        const frame = ui.container.querySelector('[data-virtual-rows="bounded"]') as HTMLElement;
+        // Plan 0's first line opens its two operations; the frame scrolls until that line is under plan 0's band.
+        const cut0 = () => ui.container.querySelector('[data-slot="row"][data-group-id="P10000"][data-line="0"]') as HTMLElement;
+        fireEvent.mouseDown(cut0().querySelector('[data-slot="subRowChevron"]')!, { button: 0 });
+        await waitFor(() => expect(ui.container.querySelectorAll('[data-slot="subRow"]')).toHaveLength(2));
+        act(() => { frame.scrollTop = 52; fireEvent.scroll(frame); });
+        await waitFor(() => expect(ui.container.querySelector('[data-slot="stickyLine"]')).not.toBeNull());
+        const card = ui.container.querySelector("[data-sheet-card]")!;
+        for (const slot of ["stickyBand", "stickyLine"]) {
+            const copy = ui.container.querySelector(`[data-slot="${slot}"]`)!;
+            expect(copy.closest('[aria-hidden="true"]')).not.toBeNull();
+            expect(copy.querySelector("[id]")).toBeNull();
+        }
+        // The band and the line themselves: still rows of the grid, their cells the ones it names.
+        expect(ui.band("P10000")!.closest('[aria-hidden="true"]')).toBeNull();
+        expect(cut0().querySelector('[data-key="task"]')!.id.startsWith(`${card.id}-`)).toBe(true);
+        const ids = [...ui.container.querySelectorAll("[id]")].map((el) => el.id);
+        expect(new Set(ids).size).toBe(ids.length);
+        // No control inside the grid is a tab stop: the lines' chevrons, and the copies' controls.
+        expect([...card.querySelectorAll<HTMLElement>("button, input, [tabindex]")].filter((el) => el.tabIndex >= 0)).toEqual([]);
     });
 });
 

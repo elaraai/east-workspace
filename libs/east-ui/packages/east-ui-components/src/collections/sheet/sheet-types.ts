@@ -176,6 +176,8 @@ export type SheetEvent =
     | { t: "half.down"; side: 0 | 1 }
     /** The controlled `selection` prop moved the ring — no `emit.select` echo. */
     | { t: "select.set"; r: number; c: number }
+    /** A key's move the component finishes (#860): the ring lands where a `seek.step` or `seek.edge` was headed once its window arrives — reported and scrolled to, as a key's move is. */
+    | { t: "select.move"; r: number; c: number }
     /**
      * The rows changed underneath (a new value, a landed window): clamp.
      * `moved` says where each row-space index from before now sits — a row
@@ -269,6 +271,14 @@ export type SheetEffect =
     | { t: "emit.select"; r: number; c: number }
     /** Bring a row into view. */
     | { t: "scroll.to"; r: number }
+    /**
+     * ↓ past the last resident row, or ↑ above the first, on a paged sheet
+     * whose source goes on (#860): the component asks for the window beyond,
+     * and the ring moves `dir` onto its row, at column `c`, once it lands.
+     */
+    | { t: "seek.step"; dir: 1 | -1; c: number }
+    /** ⌘Home / ⌘End on a paged sheet not at that end (#860): the component jumps the source there, and the ring lands on its first or last row, at column `c`. */
+    | { t: "seek.edge"; edge: "first" | "last"; c: number }
     /** Move the ring to a row by ID once the body has re-formed (a fold-all keeps the ring on its group's band). */
     | { t: "select.id"; id: string; c: number }
     /** Re-ask the copilot for the edited row after the kind's latency (`instant` = 150 ms). */
@@ -292,6 +302,15 @@ export interface SheetMachineCtx {
     lensActive: boolean;
     /** The inline arm, or an exhausted paged source — ↓ on the last row may append. */
     canAppend: boolean;
+    /**
+     * Whether the row space holds the source's first and last rows (#860): on
+     * a paged sheet an unloaded run lies past an end that is not, and a move
+     * across it asks the component for its window (`seek.step`, `seek.edge`).
+     * Absent ⇒ both ends are here (the inline arm).
+     */
+    edges?: { atStart: boolean; atEnd: boolean } | undefined;
+    /** How many rows a page moves — the rows the frame shows (#860); absent ⇒ ten. */
+    pageRows?: (() => number) | undefined;
     /** Whether the cell may be edited (column editable, not stamped, sheet not read-only, row not owned where that matters). */
     editableAt: (r: number, c: number) => boolean;
     /** The kind of the cell at a row and column — a band's cell under the column, else the column's. */

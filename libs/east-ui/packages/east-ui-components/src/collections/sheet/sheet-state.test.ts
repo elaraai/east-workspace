@@ -67,6 +67,58 @@ describe("movement", () => {
     });
 });
 
+describe("the key map (#860)", () => {
+    type Mods = Partial<{ shift: boolean; meta: boolean }>;
+    /** Rows 0–3 of 3 columns, the last blank padding; a page is two rows. */
+    const inline = ctxOf({ rowKindAt: (r) => (r === 3 ? "blank" : "row"), pageRows: () => 2 });
+    /** A paged sheet's resident run, the source going on above and below it. */
+    const midRun = ctxOf({ canAppend: false, edges: { atStart: false, atEnd: false }, rowKindAt: () => "row", pageRows: () => 2 });
+    /** A paged sheet with both of its ends resident. */
+    const wholeRun = ctxOf({ canAppend: false, edges: { atStart: true, atEnd: true }, rowKindAt: () => "row", pageRows: () => 2 });
+    const moved = (r: number, c: number): SheetEffect[] => [{ t: "emit.select", r, c }, { t: "scroll.to", r }];
+    const cases: [string, { r: number; c: number }, string, Mods, SheetMachineCtx, { r: number; c: number }, { r: number; c: number } | null, SheetEffect[]][] = [
+        ["Home goes to the row's first column", { r: 2, c: 2 }, "Home", {}, inline, { r: 2, c: 0 }, null, moved(2, 0)],
+        ["End goes to the row's last column", { r: 2, c: 0 }, "End", {}, inline, { r: 2, c: 2 }, null, moved(2, 2)],
+        ["⇧End stretches a range to the row's last column", { r: 2, c: 0 }, "End", { shift: true }, inline, { r: 2, c: 0 }, { r: 2, c: 2 }, []],
+        ["⌘Home goes to the sheet's first cell", { r: 2, c: 2 }, "Home", { meta: true }, inline, { r: 0, c: 0 }, null, moved(0, 0)],
+        ["⌘End goes to the last cell of the last row that is not blank padding", { r: 0, c: 0 }, "End", { meta: true }, inline, { r: 2, c: 2 }, null, moved(2, 2)],
+        ["⇧⌘End stretches a range to that cell", { r: 0, c: 0 }, "End", { meta: true, shift: true }, inline, { r: 0, c: 0 }, { r: 2, c: 2 }, []],
+        ["PageDown moves a page of rows", { r: 0, c: 1 }, "PageDown", {}, inline, { r: 2, c: 1 }, null, moved(2, 1)],
+        ["PageDown stops at the last row", { r: 2, c: 1 }, "PageDown", {}, inline, { r: 3, c: 1 }, null, moved(3, 1)],
+        ["PageUp moves a page back", { r: 3, c: 1 }, "PageUp", {}, inline, { r: 1, c: 1 }, null, moved(1, 1)],
+        ["⇧PageDown stretches a range a page down", { r: 0, c: 1 }, "PageDown", { shift: true }, inline, { r: 0, c: 1 }, { r: 2, c: 1 }, []],
+        ["a frame not yet measured pages by ten rows", { r: 0, c: 1 }, "PageDown", {}, ctxOf(), { r: 3, c: 1 }, null, moved(3, 1)],
+        ["↓ on the last resident row asks for the window below", { r: 3, c: 1 }, "ArrowDown", {}, midRun, { r: 3, c: 1 }, null, [{ t: "seek.step", dir: 1, c: 1 }]],
+        ["↑ on the first resident row asks for the window above", { r: 0, c: 1 }, "ArrowUp", {}, midRun, { r: 0, c: 1 }, null, [{ t: "seek.step", dir: -1, c: 1 }]],
+        ["⌘End toward an end not resident jumps there, landing on its last column", { r: 1, c: 0 }, "End", { meta: true }, midRun, { r: 1, c: 0 }, null, [{ t: "seek.edge", edge: "last", c: 2 }]],
+        ["⌘Home toward an end not resident jumps there, landing on its first column", { r: 1, c: 2 }, "Home", { meta: true }, midRun, { r: 1, c: 2 }, null, [{ t: "seek.edge", edge: "first", c: 0 }]],
+        ["⇧⌘End stretches over the resident rows only", { r: 1, c: 0 }, "End", { meta: true, shift: true }, midRun, { r: 1, c: 0 }, { r: 3, c: 2 }, []],
+        ["⇧↓ on the last resident row stretches, and asks for nothing", { r: 3, c: 1 }, "ArrowDown", { shift: true }, midRun, { r: 3, c: 1 }, { r: 3, c: 1 }, []],
+        ["↓ on the last row of a source wholly resident stays", { r: 3, c: 1 }, "ArrowDown", {}, wholeRun, { r: 3, c: 1 }, null, []],
+        ["↑ on its first row stays", { r: 0, c: 1 }, "ArrowUp", {}, wholeRun, { r: 0, c: 1 }, null, []],
+        ["⌘End on it lands on its last row", { r: 0, c: 0 }, "End", { meta: true }, wholeRun, { r: 3, c: 2 }, null, moved(3, 2)],
+    ];
+    test.each(cases)("%s", (_what, from, k, mods, ctx, sel, selEnd, effects) => {
+        const t = run(initialSheetState(from), [key(k, mods)], ctx);
+        expect(t.state.sel).toEqual(sel);
+        expect(t.state.selEnd).toEqual(selEnd);
+        expect(t.effects).toEqual(effects);
+    });
+
+    test("a key's move asking for a window drops the range; the move landing once it arrives reports, scrolls and drops a picked proposal — never while an editor is open", () => {
+        const ranged = { ...initialSheetState({ r: 3, c: 1 }), selEnd: { r: 2, c: 1 } };
+        const asked = run(ranged, [key("ArrowDown")], midRun);
+        expect(asked.state.selEnd).toBeNull();
+        expect(asked.effects).toEqual([{ t: "seek.step", dir: 1, c: 1 }]);
+        const landed = run({ ...initialSheetState({ r: 3, c: 1 }), gsel: 0 }, [{ t: "select.move", r: 1, c: 2 }], midRun);
+        expect(landed.state.sel).toEqual({ r: 1, c: 2 });
+        expect(landed.state.gsel).toBeNull();
+        expect(landed.effects).toEqual(moved(1, 2));
+        const editing = run(initialSheetState({ r: 3, c: 1 }), [key("x")], midRun).state;
+        expect(run(editing, [{ t: "select.move", r: 1, c: 2 }], midRun).state).toBe(editing);
+    });
+});
+
 describe("editing", () => {
     test("a printable key seeds a fresh edit; ⏎ and F2 open with the value selected", () => {
         const seeded = run(initialSheetState(), [key("x")]);

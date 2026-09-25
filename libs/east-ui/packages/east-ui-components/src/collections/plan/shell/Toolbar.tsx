@@ -21,6 +21,7 @@ import { type ValueTypeOf } from "@elaraai/east";
 import { Pick, Slice } from "@elaraai/east-ui/internal";
 import { SliceRailCluster } from "../../../slice/rail/index.js";
 import { railAffordanceKinds } from "../../../slice/rail-kinds.js";
+import { radioGroupKey } from "../../../primitives/radio-group.js";
 import { useSliceReactivity } from "../../../slice/use-slice-reactivity.js";
 import { usePlanDispatch } from "../context.js";
 import { PLAN_GRAINS, type PlanGrain } from "../plan-state.js";
@@ -66,24 +67,12 @@ export function Seg<K extends string>({ label, name, items, active, onPick }: {
     const seg = useSlotRecipe({ key: "seg" });
     const ss = useMemo(() => seg({}) as unknown as Styles, [seg]);
     const stop = items.some((it) => it.key === active) ? active : items[0]?.key;
+    // The radio group's keys (shared with the Sheet's context switch): handled, so the canvas's own keys skip them.
     const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-        const radios = Array.from(e.currentTarget.querySelectorAll<HTMLElement>("[role='radio']"));
-        const i = radios.indexOf(e.target as HTMLElement);
-        if (i < 0) return;
-        const last = radios.length - 1;
-        let j: number;
-        switch (e.key) {
-            case "ArrowRight": case "ArrowDown": j = i === last ? 0 : i + 1; break;
-            case "ArrowLeft": case "ArrowUp": j = i === 0 ? last : i - 1; break;
-            case "Home": j = 0; break;
-            case "End": j = last; break;
-            default: return;
-        }
-        // Handled: the page does not scroll, and the canvas's own keys skip it.
-        e.preventDefault();
-        radios[j]!.focus();
-        const it = items[j];
-        if (it !== undefined && it.key !== active) onPick(it.key);
+        radioGroupKey(e, (j) => {
+            const it = items[j];
+            if (it !== undefined && it.key !== active) onPick(it.key);
+        });
     };
     return (
         <Box css={ss.root} data-slot="seg" data-plan-seg={name} role="radiogroup" aria-label={label} onKeyDown={onKeyDown}>
