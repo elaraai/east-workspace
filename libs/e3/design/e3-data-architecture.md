@@ -238,9 +238,11 @@ Every task execution is a **unit graph**, built by one engine and persisted in t
    The result goes through the door as one manifest.
 
 **Persistence and scheduling.**
-- The dataflow's ready set is units, from every task (P8).
-- A yield or a crash resumes per unit (F2).
-- Progress is a typed event wire that can grow (F35).
+- The dataflow's ready set is units, from every task (P8). A task that splits is planned when it becomes ready, and its units join the ready set a stage at a time: its pieces, then each merge level.
+- Each stage's units are a `$plan` object, written once and named by the task's entry in the execution state, which records the stage rather than each unit. So a state write grows with the tasks, not the units: a 10 TB input is some 160,000 pieces.
+- A yield or a crash resumes per unit (F2). The stage's `$plan` is read back and each of its units probed in the execution cache, so the units that finished are found without being recorded one by one, and only the rest run.
+- The run's timeline records a split task's stages: its pieces planned, and each merge level started and finished. Each unit's progress stays a callback, which the CLI prints, and the API's events stay a task's until stage 8.
+- The execution state and its events carry a version (F35). A reader keeps a decoder for every older version and refuses a newer one, naming it.
 - Every unit, a piece with the merge of its own runs or a merge or fold over pieces, is cached on its own identity: kind, program or merge function, input hashes and output kind. A re-run after an append re-runs only the pieces it touched and the merges they reach. Because pieces are content-defined, the same holds for an insertion in the middle (F42).
 
 **Records run on the engine** (F1, F26):
@@ -321,7 +323,7 @@ Every object this plan introduces or rewrites that names other objects carries a
 `docs/conventions/WIRE_MIGRATION.md` (Stage 0) states one rule:
 - **Package-borne wires** (task objects, package objects, IR bundles): hard cutover. Packages are re-exported, with no dual decoders.
 - **Stored state** (datasets, manifests, record states and commits, execution history): readers accept every released form, through one read-compat decoder per type and a test per form. Writers write the current form only.
-- **Frozen wires** are listed with the reason each is frozen: the beast2 container, whose index readers refuse unknown flags (F30), and the execution event wire (F35).
+- **Frozen wires** are listed with the reason each is frozen: the beast2 container, whose index readers refuse unknown flags (F30). The execution event wire was frozen too until stage 4 gave the execution state a version (F35, §3.7).
 
 For this cutover, stored datasets written under the `/1` rules or as blobs stay readable. The first write to a manifest cut under an older rule re-cuts it whole, once (#788).
 
@@ -534,6 +536,11 @@ In three parts:
      - `by` is data: the planner projects keys by field path.
      - Deleted: the IR `by` projection (`partitionProjectionShape`, `projectKey` and `projectedKeyType`), which no task object has carried since part 1, and `partitionExec.ts`'s `by` alignment and co-partition carve, which only split tasks used: the planner does both.
   3. **Units in the dataflow:** unit graphs persisted in the execution state, units in the ready set, a yield or crash resumed per unit, and a new version of the execution event wire (F35).
+     - A task that splits is planned when it becomes ready, and its pieces, then each merge level, join the ready set beside every other task's units. The engine's stages are one module: the dataflow drives it, and so does `taskExecute` for a task run on its own (`e3 run`), with a pool of its own.
+     - Each stage's units are a `$plan` object, written once and named by the task's state, which records the stage and not each unit. Resume reads the plan back and probes its units in the execution cache. The plan is rooted for GC while its execution can resume, and GC walks it to the objects its units name, with a test.
+     - The execution state and its events carry a version; a reader keeps a decoder for every older version and refuses a newer one, naming it. The timeline gains a split task's stages: its pieces planned, and each merge level started and finished. Each unit's progress stays a callback, and the API's events stay a task's until stage 8.
+     - `TaskRunner` runs a unit as well as a task; e3-cloud's runners implement it in stage 8 (e3-cloud#187).
+     - `docs/conventions/WIRE_MIGRATION.md` moves the execution event wire from the frozen wires to the stored state that changes by version.
   4. **Kind tags, GC and 4a's acceptance tests.**
 - **4b — records.**
   - Index builds and mutations on the engine (§3.7).
