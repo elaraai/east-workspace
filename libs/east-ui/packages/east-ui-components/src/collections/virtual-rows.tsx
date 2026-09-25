@@ -69,8 +69,10 @@
  * moved, with nothing scrolled since, moves the virtualizer's offset by the
  * same amount (the rows drawn are the ones that will show) and the scroll
  * position follows before paint. A scroll not yet reported — a programmatic
- * one — wins. Rows in flow (the unbounded frame below scale) are the
- * browser's to anchor.
+ * one — wins. The anchor is kept in the rows' own coordinates, net of the
+ * scroll margin: the pinned header being measured, or growing, is no row
+ * moving, and moves nothing (#944). Rows in flow (the unbounded frame below
+ * scale) are the browser's to anchor.
  *
  * A keyed frame's scroll request (`scrollToIndex`) brings in its ROW, never
  * whichever row holds its index a frame later (#885). TanStack reconciles a
@@ -485,10 +487,12 @@ const measureRect = (el: Element): number => devicePixels(el.getBoundingClientRe
 type ItemKey = VirtualItem["key"];
 
 /** A frame's scroll anchor (#878): the item it keeps in place, where the item
- *  started, the scroll offset then, and the item's index — where to look for
- *  it first. */
+ *  started among the rows, the scroll offset then, and the item's index —
+ *  where to look for it first. */
 interface ScrollAnchor {
     key: ItemKey;
+    /** The item's start in the rows' own coordinates — net of the scroll
+     *  margin, the pinned header's height, which is no row moving (#944). */
     start: number;
     offset: number;
     index: number;
@@ -503,18 +507,21 @@ interface ScrollAnchor {
  * @param top - The view's top, in the items' coordinates
  * @param height - The view's height
  * @param anchorable - Which items may anchor
+ * @param margin - The scroll margin the item starts carry — the pinned header's height
  * @returns The anchor, or null when no item in view may anchor
  */
-function anchorOf(virtualizer: Rows, offset: number, top: number, height: number, anchorable: (index: number) => boolean): ScrollAnchor | null {
+function anchorOf(
+    virtualizer: Rows, offset: number, top: number, height: number, anchorable: (index: number) => boolean, margin: number,
+): ScrollAnchor | null {
     const at = virtualizer.getVirtualItemForOffset(top);
     if (at === undefined) return null;
     const count = virtualizer.options.count;
     for (let i = at.start < top ? at.index + 1 : at.index; i < count; i++) {
         const item = virtualizer.measurementsCache[i];
         if (item === undefined || item.start >= top + height) break;
-        if (anchorable(i)) return { key: item.key, start: item.start, offset, index: i };
+        if (anchorable(i)) return { key: item.key, start: item.start - margin, offset, index: i };
     }
-    return at.start < top && anchorable(at.index) ? { key: at.key, start: at.start, offset, index: at.index } : null;
+    return at.start < top && anchorable(at.index) ? { key: at.key, start: at.start - margin, offset, index: at.index } : null;
 }
 
 /**
@@ -709,6 +716,10 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
     // The scroll offset now, in the virtualizer's terms — ahead of a scroll
     // event still to come.
     const liveOffset = (): number | undefined => (bounded ? scrollRef.current?.scrollTop : offsetNow(ancestor, itemsRef));
+    // The scroll margin the item starts carry: bounded, the pinned header's
+    // height, which the rows sit below; at scale they are measured from the
+    // rows' own top.
+    const margin = bounded ? itemsOffset : 0;
 
     // Scroll anchoring (#878): when the anchor taken at the last commit has
     // moved — rows above it changed height or count — and the frame has not
@@ -724,10 +735,13 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
         if (anchor !== null && offset !== null && offset === anchor.offset) {
             virtualizer.getTotalSize();  // this render's measurements
             const start = startOfKey(virtualizer, count, getItemKey, anchor.key, anchor.index);
-            if (start !== undefined && start !== anchor.start) {
+            // Where the anchor starts among the rows now, as it was taken: a
+            // header measured or grown since moves every start, and no row.
+            const moved = start === undefined ? 0 : start - margin - anchor.start;
+            if (moved !== 0) {
                 const live = liveOffset();
                 if (live !== undefined && Math.abs(live - offset) < 1) {
-                    const target = Math.max(0, offset + start - anchor.start);
+                    const target = Math.max(0, offset + moved);
                     virtualizer.scrollOffset = target;
                     anchorTarget.current = target;
                 }
@@ -754,7 +768,7 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
         }
         const offset = virtualizer.scrollOffset ?? 0;
         anchorRef.current = anchorable === undefined ? null
-            : anchorOf(virtualizer, offset, offset + (bounded ? itemsOffset : 0), virtualizer.scrollRect?.height ?? 0, anchorable);
+            : anchorOf(virtualizer, offset, offset + margin, virtualizer.scrollRect?.height ?? 0, anchorable, margin);
     });
 
     // Bring a requested row into view. Keyed on the index (and the explicit
@@ -912,9 +926,8 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
     }
 
     const items = virtualized ? virtualizer.getVirtualItems() : [];
-    // Rows are translated inside the items container: bounded, item starts
-    // include the scroll margin; at scale they are measured from the rows' top.
-    const margin = bounded ? itemsOffset : 0;
+    // Rows are translated inside the items container, less the scroll margin
+    // their starts carry.
     const total = virtualized ? virtualizer.getTotalSize() : 0;
     const virtualWindow = () => (
         <Box ref={setRows} position="relative" height={`${total}px`} minWidth={minWidth}

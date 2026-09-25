@@ -67,9 +67,8 @@ async function open(page: Page): Promise<Locator> {
         if (scroller !== null) scroller.scrollTop -= 70;
     });
     await settled(page);
+    // The canvas opens at its first row (#944).
     const frame = frameOf(entry);
-    // A bounded frame loads scrolled under its pinned header until #944.
-    await frame.evaluate((el) => { el.scrollTop = 0; });
     await expect.poll(() => frame.evaluate((el) => el.scrollTop)).toBe(0);
     // The layout the drags rely on: the press below the scroller's top band,
     // the canvas above its bottom one.

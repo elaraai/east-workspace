@@ -491,6 +491,56 @@ describe("VirtualRows — scroll anchoring (#878)", () => {
         expect(el2.scrollTop).toBe(20 * ROW_H);
     });
 
+    describe("the pinned header is no row moving (#944)", () => {
+        // The rows' offset below the header, as the frame measures it, and a
+        // ResizeObserver the test fires.
+        let headerPx = 72;
+        const observers: (() => void)[] = [];
+        const realOffsetTop = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetTop");
+        const realRO = (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
+        beforeEach(() => {
+            headerPx = 72;
+            observers.length = 0;
+            Object.defineProperty(HTMLElement.prototype, "offsetTop", {
+                configurable: true,
+                get(this: HTMLElement) { return this.hasAttribute("data-virtual-extent") ? headerPx : 0; },
+            });
+            (globalThis as { ResizeObserver?: unknown }).ResizeObserver = class {
+                private readonly cb: ResizeObserverCallback;
+                constructor(cb: ResizeObserverCallback) { this.cb = cb; }
+                observe() { observers.push(() => this.cb([], this as unknown as ResizeObserver)); }
+                unobserve() {}
+                disconnect() {}
+            };
+        });
+        afterEach(() => {
+            (globalThis as { ResizeObserver?: unknown }).ResizeObserver = realRO;
+            if (realOffsetTop !== undefined) Object.defineProperty(HTMLElement.prototype, "offsetTop", realOffsetTop);
+        });
+        const headed = (
+            <ChakraProvider value={system}>
+                <VirtualRows height="200px" maxHeight={undefined} count={ROWS.length} estimateSize={() => ROW_H} overscan={2}
+                    getItemKey={(i) => ROWS[i]!} anchorable={() => true} header={<div>header</div>}
+                    renderRow={(i) => <div data-key={ROWS[i]}>{ROWS[i]}</div>} />
+            </ChakraProvider>
+        );
+
+        test("a header the frame measures after its first commit leaves it at its first row", () => {
+            const { container } = render(headed);
+            expect((container.firstElementChild as HTMLElement).scrollTop).toBe(0);
+            expect(inView(container, "r0")).toBe(0);
+        });
+
+        test("a header that grows while the frame is scrolled scrolls nothing — the rows move down with its edge", () => {
+            const { container } = render(headed);
+            const scrollEl = scrollTo(container, 50 * ROW_H);
+            headerPx = 172;
+            act(() => { for (const fire of observers) fire(); });
+            expect(scrollEl.scrollTop).toBe(50 * ROW_H);
+            expect(inView(container, "r50")).toBe(0);
+        });
+    });
+
     test("a row that may not anchor never does, and a frame that names none does not anchor at all", () => {
         // Only the r-rows may anchor: with the view's top on an n-row, the
         // anchor is the first r-row starting in view — two rows down.
