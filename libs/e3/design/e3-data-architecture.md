@@ -513,23 +513,29 @@ In three parts:
     - units spawned with `exec` through one unit builder (`execution/units.ts`).
   - Typed execution outcomes replace the `cancelled:` and `interrupted:` message prefixes (F8).
   - Kind tags and GC tests for the new objects (§3.11).
+
+  Built in four parts, in this order. Each part deletes the code it replaces, rather than leaving it for 4c:
+  1. **The typed task object, run through `exec`:** every task that runs as one unit.
+     - The task object (§3.3), a hard cutover.
+     - The SDK (§3.2): `e3.task`, `e3.streamTask` with `e3.output.*`, `e3.partition`, and `e3.mutation.*`. A partitioned task runs as one unit until part 2, which gives the same bytes.
+     - The unit builder (`execution/units.ts`) and `exec`, with the store's door taking a runner's manifest directories.
+     - Typed execution outcomes (F8).
+     - `role` in place of `kind` and `metadata`: the API's task details, the e3-ui previews and the TUI read it.
+     - Deleted: `partitionTask` and its types, which the typed task object cannot express; the old `streamTask` shape and its metadata; the old mutation names; the command IR for stock runners; `kind` and `metadata` in the config; and the `function_ir` and `merge_ir` datasets, since the program is named by the task object.
+  2. **The engine, in process:** content-defined pieces as sub-manifests, a unit per piece, assembly by output kind, and a cache entry per unit. Deleted: `templateFor`, `executeTemplate` and the partition metadata.
+  3. **Units in the dataflow:** unit graphs persisted in the execution state, units in the ready set, a yield or crash resumed per unit, and a new version of the execution event wire (F35).
+  4. **Kind tags, GC and 4a's acceptance tests.**
 - **4b — records.**
   - Index builds and mutations on the engine (§3.7).
   - `$conflict` in the delta.
   - The Merger for applies. Recut already applies them, from stage 1.
-- **4c — deletions.**
-  - SDK:
-    - `partitionTask` and its types;
-    - the command IR for stock runners (`task.ts:217-242`);
-    - `kind` and `metadata` in the config.
+- **4c — deletions:** what records use until 4b.
   - e3-types:
-    - the partition and stream metadata and their decoders;
     - `TASK_KIND_*` and `stream.ts`;
     - `runnerOpensManifests` and `withRunnerVerbose`;
     - the partition plan's legacy decoder;
     - `partitionProjectionShape` and `projectKey`, since `by` is now data.
   - e3-core:
-    - `templateFor` and `executeTemplate`;
     - `recordSteps.ts`;
     - `partitionIo.ts`'s virtual layout and `spliceChunks`;
     - `spliceBlobs`, `findSpliceViolation` and `SpliceOrderError`;
@@ -537,7 +543,6 @@ In three parts:
     - the test hooks in production modules (F19);
     - `STALE_WRITE_PREFIX`.
   - Runners: the `run` mode flags and the `merge` command, with `generate_fixtures.mjs` and the fixtures their tests use.
-  - Package trees: the `function_ir` and `merge_ir` datasets. If 4a finds a consumer that needs them, it reads them through the task object instead.
 
 Acceptance:
 - A re-key of a long, wide collection through `streamTask`, `e3.partition` and a `dict` with `merge`, with keys emitted in random order:
