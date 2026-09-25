@@ -261,6 +261,7 @@ One budget replaces the dataflow's `concurrency`, the partition pool's width and
   - Cores: `-j`, defaulting to the CPUs available (affinity and the cgroup's `cpu.max`, as today).
   - Memory: `--memory` or `E3_MEMORY`, defaulting to the cgroup's `memory.max` found the same way, else physical memory, less a reserve for e3 and the OS.
   - e3's own framing: the door frames on a worker pool in e3's process (§3.6), whose workers take cores too. The CLI and the API server cap the pool from the budget, at two workers by default: the door's writing thread is the bottleneck, and two give it all the speed-up measured on narrow rows.
+  - One budget per e3 process. A server's is shared by every run and every unit it spawns — dataflow units, function calls, mutations and index builds — since the memory is the machine's; each CLI command that runs units holds its own (decided 2026-09-26).
 - **Admission.** A unit takes one core plus a memory reservation, and starts when both fit.
   - Its `threads` grant is up to four, on that one core: a runner frames a large output on that many workers, in bursts, and every runner's writers frame a manifest output on their pool. Measured on a lone unit, one thread wrote a large output up to 2.6× slower than four, and past four nothing gained; each thread costs about 25 MiB, which the unit's measured peak includes (decided 2026-09-26).
   - A unit larger than the whole budget runs alone.
@@ -604,7 +605,8 @@ Read first: `jobs.ts`, `LocalOrchestrator.ts`, `dataflow/steps.ts`, `processExec
 
 Changes:
 - `jobs.ts` becomes the budget (§3.8), with `--memory` / `E3_MEMORY` and a walk of the cgroup's `memory.max` beside `cgroupCpuQuota`.
-- Reservations come from `peakBytes` history, with probe-then-fan-out, the guard, and per-unit cgroups where delegation exists.
+- **One budget per e3 process** (§3.8): the API server makes one when it starts, from `-j` / `--memory` or `E3_JOBS` / `E3_MEMORY`, and every run and every unit it spawns takes from it — dataflow units, function calls, mutations and index builds, where today each run has a jobs budget of its own and the rest none. Each CLI command that runs units makes its own (decided 2026-09-26).
+- Reservations come from `peakBytes` history, with probe-then-fan-out, the guard, and per-unit cgroups where delegation exists. Until part 3 measures them, a unit reserves no memory: part 2 admits by cores at run time, and builds and tests its memory admission with given reservations, so no guessed number reaches a run (decided 2026-09-26).
 - Remove `state.concurrency` and the API request's `concurrency`, which the budget replaces (F33). `partitionConcurrency` and the deprecated `--concurrency` and `--partition-concurrency` aliases went in stage 4a.
 - **A unit's `threads` grant is up to four** (§3.8), on the one core it takes; `units.ts` granted every CPU. Measured on a lone unit writing a large output: 3M narrow rows took 6.6 s on one thread and 5.4 s on four, and 200K rows of 1 KiB 11.6 s and 4.5 s; past four nothing gained, and the 32 threads of every CPU cost 385–590 MiB (decided 2026-09-26).
 - **east-c's segment writer frames on its pool**, as its one-blob writer and east-node's writers do. It framed every manifest output, and so every unit's output, on one thread whatever the grant: the 1 KiB rows took 14 s on east-c at every grant. east-py gets it through the binding (decided 2026-09-26: found while measuring the grant).
@@ -617,7 +619,7 @@ Changes:
 
 Built in five parts, in this order (decided 2026-09-26):
 1. **The frame pool** (#841): its memory bounded by workers × segment, the store door framing on it again, and a worker's failure no longer crashing its process.
-2. **The budget:** cores and memory (`--memory` / `E3_MEMORY`, the cgroup's `memory.max`), admission, a unit's grant of up to four threads, east-c's segment writer on its pool, e3's own frame pool sized from the budget, and the removal of `state.concurrency` and the API request's `concurrency`, with the TUI's `/run --jobs`.
+2. **The budget:** cores and memory (`--memory` / `E3_MEMORY`, the cgroup's `memory.max`), one per e3 process, admission with no reservation until part 3, a unit's grant of up to four threads, east-c's segment writer on its pool, e3's own frame pool sized from the budget, and the removal of `state.concurrency` and the API request's `concurrency`, with the TUI's `/run --jobs`.
 3. **Reservations from measured peaks:** execution records store each unit's `peakBytes`, a unit reserves its kind's recent peak, and a task with no history runs one unit before it fans out.
 4. **The guard,** and per-unit cgroups where delegation exists.
 5. **The scheduler in e3-ui's TUI:** the budget in use, units waiting for room, each execution's peak and the guard's requeues, served by the API and shown by the TUI, once parts 2–4 have made them.
