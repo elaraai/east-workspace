@@ -70,10 +70,10 @@ export function compile_constructors(ir: AnalyzedIR<StructIR | VariantIR | NewRe
     });
     const keyComparer = compareFor(ir.value.type.value);
     if (ir.value.isAsync) {
-      return (ctx: RuntimeContext) => {
+      return async (ctx: RuntimeContext) => {
         const keys: any[] = [];
         for (const a of values) {
-          keys.push(a(ctx));
+          keys.push(await a(ctx));
         }
         return new SortedSet(keys, keyComparer);
       }
