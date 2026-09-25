@@ -17,8 +17,10 @@ import { render, screen, cleanup, fireEvent, act, waitFor } from "@testing-libra
 import { ChakraProvider } from "@chakra-ui/react";
 import { variant, some, none } from "@elaraai/east";
 import { system } from "../../theme/index.js";
-import { EastChakraPlan, type PlanRootValue, type PlanRowValue } from "./index.js";
+import { EastChakraPlan, type PlanRootValue } from "./index.js";
+import type { PlanRowId, PlanWireRow } from "./model.js";
 import type { PlanInstantValue } from "./instant.js";
+import { rowId, rowSel, testKeyOf } from "./plan.test-utils.js";
 import { PLAN_GEOMETRY } from "./geometry.js";
 import { setBodyRowMountProbe } from "./rows/BodyRow.js";
 
@@ -64,15 +66,17 @@ function gutter(label: string, opts?: { sub?: string; value?: string; meta?: str
     };
 }
 
-function planRow(key: string, kind: unknown, opts?: { parent?: string; gutter?: unknown; expand?: unknown }): PlanRowValue {
+/** One WIRE row, as the source serves it — named by its test key (#822). */
+function planRow(key: string, kind: unknown, opts?: { parent?: string; gutter?: unknown; expand?: unknown; collapsed?: boolean }): PlanWireRow {
     return {
-        key,
-        parent: opts?.parent !== undefined ? some(opts.parent) : none,
+        id: rowId(key),
+        parent: opts?.parent !== undefined ? some(rowId(opts.parent)) : none,
         gutter: opts?.gutter ?? gutter(key),
         kind,
+        collapsed: opts?.collapsed !== undefined ? some(opts.collapsed) : none,
         pinned: none, height: none, status: none, approval: none,
         expand: opts?.expand !== undefined ? some(opts.expand) : none,
-    } as unknown as PlanRowValue;
+    } as unknown as PlanWireRow;
 }
 
 function spanKind(runs: unknown[], opts?: { rollup?: string; unit?: string }) {
@@ -83,17 +87,9 @@ function spanKind(runs: unknown[], opts?: { rollup?: string; unit?: string }) {
     });
 }
 
-/** The decoded row COLLECTION — the IR's `Dict<String, PlanRow>` (#568). A
- *  plain `Map` stands in for the decoder's `SortedMap`: the renderer only
- *  iterates it, and INSERTION order keeps these fixtures readable in the order
- *  they are written. Key ORDER itself is covered in `derive.test.ts`. */
-function rowCollection(rows: PlanRowValue[]): Map<string, PlanRowValue> {
-    return new Map(rows.map((r) => [r.key, r]));
-}
-
-function planRoot(rows: PlanRowValue[], opts?: { footer?: unknown[]; now?: Date | undefined; slice?: unknown; resolutions?: unknown[]; links?: unknown[]; popover?: unknown; hover?: unknown; expandRender?: unknown; source?: unknown; pick?: unknown; axis?: unknown; style?: { height?: string; maxHeight?: string }; clicks?: { onRunClick?: unknown; onEventClick?: unknown; onMarkClick?: unknown; onChipClick?: unknown; onCellClick?: unknown } }): PlanRootValue {
+function planRoot(rows: PlanWireRow[], opts?: { footer?: unknown[]; now?: Date | undefined; slice?: unknown; resolutions?: unknown[]; links?: unknown[]; popover?: unknown; hover?: unknown; expandRender?: unknown; source?: unknown; pick?: unknown; axis?: unknown; style?: { height?: string; maxHeight?: string }; clicks?: { onRunClick?: unknown; onEventClick?: unknown; onMarkClick?: unknown; onChipClick?: unknown; onCellClick?: unknown } }): PlanRootValue {
     return {
-        rows: opts?.source !== undefined ? variant("paged", opts.source) : variant("inline", rowCollection(rows)),
+        rows: opts?.source !== undefined ? variant("paged", opts.source) : variant("inline", rows),
         links: opts?.links ?? [],
         // The TIME arm by default (#631); the typed-axis tests pass their own.
         axis: opts?.axis ?? variant("time", {
@@ -141,7 +137,7 @@ function renderPlan(value: PlanRootValue, key = "plan") {
 
 describe("Plan links focus (R1)", () => {
     const link = (from: string, fromRun: string, to: string, toRun: string) => ({
-        fromRow: from, fromRun, toRow: to, toRun, quantity: 34, label: "34 t",
+        fromRow: rowId(from), fromRun, toRow: rowId(to), toRun, quantity: 34, label: "34 t",
     });
 
     test("the control gathers the TRANSITIVE family; unrelated rows rail; ← ALL ROWS returns", () => {
@@ -156,22 +152,22 @@ describe("Plan links focus (R1)", () => {
             links: [link("a", "ra", "b", "rb"), link("b", "rb", "c", "rc")],
         }));
         // Rows an edge touches grow the links control; x has none.
-        expect(container.querySelector('[data-plan-row="b"] [data-plan-control="links"]')).toBeTruthy();
-        expect(container.querySelector('[data-plan-row="x"] [data-plan-control="links"]')).toBeNull();
+        expect(container.querySelector(`${rowSel("b")} [data-plan-control="links"]`)).toBeTruthy();
+        expect(container.querySelector(`${rowSel("x")} [data-plan-control="links"]`)).toBeNull();
 
-        fireEvent.click(container.querySelector('[data-plan-row="b"] [data-plan-control="links"]')!);
+        fireEvent.click(container.querySelector(`${rowSel("b")} [data-plan-control="links"]`)!);
         // Family keeps full rows with direction tags; x collapses to a rail.
         expect(container.querySelector('[data-plan-focusbar="links"]')).toBeTruthy();
         expect(screen.getByText("LINKS · b · 1 UPSTREAM · 1 DOWNSTREAM")).toBeTruthy();
-        expect(container.querySelector('[data-plan-row="a"] [data-plan-focustag="UPSTREAM"]')).toBeTruthy();
-        expect(container.querySelector('[data-plan-row="c"] [data-plan-focustag="DOWNSTREAM"]')).toBeTruthy();
-        expect(container.querySelector('[data-plan-rail="x"]')).toBeTruthy();
-        expect(container.querySelector('[data-plan-row="x"]')).toBeNull();
+        expect(container.querySelector(`${rowSel("a")} [data-plan-focustag="UPSTREAM"]`)).toBeTruthy();
+        expect(container.querySelector(`${rowSel("c")} [data-plan-focustag="DOWNSTREAM"]`)).toBeTruthy();
+        expect(container.querySelector(rowSel("x", "data-plan-rail"))).toBeTruthy();
+        expect(container.querySelector(rowSel("x"))).toBeNull();
 
         // ← ALL ROWS restores everything.
         fireEvent.click(container.querySelector("[data-plan-focusback]")!);
-        expect(container.querySelector('[data-plan-rail="x"]')).toBeNull();
-        expect(container.querySelector('[data-plan-row="x"]')).toBeTruthy();
+        expect(container.querySelector(rowSel("x", "data-plan-rail"))).toBeNull();
+        expect(container.querySelector(rowSel("x"))).toBeTruthy();
     });
 
     test("a RUN of unrelated rows elides to one ⋯ gap band; a lone one keeps its rail; the gap click returns", () => {
@@ -184,16 +180,16 @@ describe("Plan links focus (R1)", () => {
             planRow("y2", spanKind([])),
             planRow("y3", spanKind([])),
         ], { links: [link("a", "ra", "b", "rb")] }));
-        fireEvent.click(container.querySelector('[data-plan-row="a"] [data-plan-control="links"]')!);
+        fireEvent.click(container.querySelector(`${rowSel("a")} [data-plan-control="links"]`)!);
         // The lone x stays an 11px rail; the y1–y3 run is ONE gap band.
-        expect(container.querySelector('[data-plan-rail="x"]')).toBeTruthy();
+        expect(container.querySelector(rowSel("x", "data-plan-rail"))).toBeTruthy();
         expect(container.querySelector('[data-plan-gap="3"]')).toBeTruthy();
         expect(container.querySelectorAll("[data-plan-gap]")).toHaveLength(1);
-        expect(container.querySelector('[data-plan-row="y2"]')).toBeNull();
+        expect(container.querySelector(rowSel("y2"))).toBeNull();
 
         fireEvent.click(container.querySelector("[data-plan-gap]")!);
         expect(container.querySelector("[data-plan-gap]")).toBeNull();
-        expect(container.querySelector('[data-plan-row="y2"]')).toBeTruthy();
+        expect(container.querySelector(rowSel("y2"))).toBeTruthy();
     });
 
     test("a rail click returns; esc walks the focus rung", () => {
@@ -202,19 +198,19 @@ describe("Plan links focus (R1)", () => {
             planRow("x", spanKind([])),
         ], { links: [link("a", "ra", "a", "ra")] }));
         fireEvent.click(container.querySelector('[data-plan-control="links"]')!);
-        expect(container.querySelector('[data-plan-rail="x"]')).toBeTruthy();
-        fireEvent.click(container.querySelector('[data-plan-rail="x"]')!);
-        expect(container.querySelector('[data-plan-rail="x"]')).toBeNull();
+        expect(container.querySelector(rowSel("x", "data-plan-rail"))).toBeTruthy();
+        fireEvent.click(container.querySelector(rowSel("x", "data-plan-rail"))!);
+        expect(container.querySelector(rowSel("x", "data-plan-rail"))).toBeNull();
 
         fireEvent.click(container.querySelector('[data-plan-control="links"]')!);
         fireEvent.keyDown(container.querySelector('[tabindex="0"]')!, { key: "Escape" });
-        expect(container.querySelector('[data-plan-rail="x"]')).toBeNull();
+        expect(container.querySelector(rowSel("x", "data-plan-rail"))).toBeNull();
     });
 });
 
 describe("Plan link ribbons (#818)", () => {
     const link = (from: string, fromRun: string, to: string, toRun: string) => ({
-        fromRow: from, fromRun, toRow: to, toRun, quantity: 34, label: "34 t",
+        fromRow: rowId(from), fromRun, toRow: rowId(to), toRun, quantity: 34, label: "34 t",
     });
     const confirmed = variant("confirmed", null);
     const JUL13 = new Date("2026-07-13Z");
@@ -261,7 +257,7 @@ describe("Plan link ribbons (#818)", () => {
     }
 
     const focusLinks = (container: HTMLElement, key: string) =>
-        fireEvent.click(container.querySelector(`[data-plan-row="${key}"] [data-plan-control="links"]`)!);
+        fireEvent.click(container.querySelector(`${rowSel(key)} [data-plan-control="links"]`)!);
 
     test("ribbons are laid out from the model the moment the focus opens — no timer, no rect read", async () => {
         const restore = stubLayout();
@@ -348,7 +344,7 @@ describe("Plan link ribbons (#818)", () => {
             expect(endOf(toC().getAttribute("d")!)[1]).toBe(101.5);
             expect(toC().getAttribute("stroke-width")).toBe(String(PLAN_GEOMETRY.default.bar / 2));
             // Collapse p: its children go, and the band with them.
-            fireEvent.click(container.querySelector('[data-plan-row="p"] > :first-child')!);
+            fireEvent.click(container.querySelector(`${rowSel("p")} > :first-child`)!);
             expect(container.querySelector("[data-plan-gap]")).toBeNull();
             // The same render: c's end rose by the band's 22px, and p's runs
             // now draw at its rollup height, so the ribbon out of them thins.
@@ -392,7 +388,7 @@ describe("Plan link ribbons (#818)", () => {
         // with it, or every row would remount as a focus opens and closes.
         const restore = stubLayout();
         const mounts: string[] = [];
-        setBodyRowMountProbe((key, phase) => mounts.push(`${phase} ${key}`));
+        setBodyRowMountProbe((key, phase) => mounts.push(`${phase} ${testKeyOf(key)}`));
         try {
             const { container } = renderPlan(planRoot([
                 planRow("a", spanKind([run("ra", W27, JUL13, confirmed)])),
@@ -403,7 +399,7 @@ describe("Plan link ribbons (#818)", () => {
             focusLinks(container, "a");
             expect(container.querySelector("[data-plan-ribbons]")).toBeTruthy();
             // x rails — the same row, drawn another way.
-            expect(container.querySelector('[data-plan-rail="x"]')).toBeTruthy();
+            expect(container.querySelector(rowSel("x", "data-plan-rail"))).toBeTruthy();
             fireEvent.click(container.querySelector("[data-plan-focusback]")!);
             expect(container.querySelector("[data-plan-ribbons]")).toBeNull();
             expect(mounts).toEqual([]);
@@ -441,20 +437,20 @@ describe("Plan expand-in-place (R2)", () => {
             }),
             planRow("l4m14", spanKind([])),
         ], {
-            // The render is the ROOT's resolver, called with the row ref.
-            expandRender: (ref: { key: string }) =>
-                variant("Text", { value: `UTIL RENDER · ${ref.key}`, style: none }),
+            // The render is the ROOT's resolver, called with the row's id (#822).
+            expandRender: (id: PlanRowId) =>
+                variant("Text", { value: `UTIL RENDER · ${id.value.path.join("/")}`, style: none }),
         }));
         // Only the declaring row grows the control.
-        expect(container.querySelector('[data-plan-row="l4m13"] [data-plan-control="expand"]')).toBeTruthy();
-        expect(container.querySelector('[data-plan-row="l4m14"] [data-plan-control="expand"]')).toBeNull();
+        expect(container.querySelector(`${rowSel("l4m13")} [data-plan-control="expand"]`)).toBeTruthy();
+        expect(container.querySelector(`${rowSel("l4m14")} [data-plan-control="expand"]`)).toBeNull();
 
         fireEvent.click(container.querySelector('[data-plan-control="expand"]')!);
         expect(container.querySelector('[data-plan-focusbar="expand"]')).toBeTruthy();
         expect(screen.getByText("EXPANDED · l4m13")).toBeTruthy();
         // The focused row keeps its NORMAL anatomy, with the axis treatment on
         // its own plot; the render mounts as its own body item beneath it.
-        const focal = container.querySelector('[data-plan-row="l4m13"]') as HTMLElement;
+        const focal = container.querySelector(rowSel("l4m13")) as HTMLElement;
         expect(focal).toBeTruthy();
         expect(focal.hasAttribute("data-ctx")).toBe(false);
         // The row EXPANDS to hold the render — the render is inside the focal
@@ -463,22 +459,22 @@ describe("Plan expand-in-place (R2)", () => {
         const region = focal.querySelector("[data-plan-expandrender]") as HTMLElement;
         expect(region).toBeTruthy();
         expect(screen.getByText("UTIL RENDER · l4m13")).toBeTruthy();
-        expect(container.querySelector('[data-plan-row="l4m13"] [data-axis="dim"]')).toBeTruthy();
+        expect(container.querySelector(`${rowSel("l4m13")} [data-axis="dim"]`)).toBeTruthy();
 
         // ── The #591 contract: COLLAPSE, NEVER REMOVE ──
         // The neighbour is still mounted, still in order, wearing the strip.
-        const ctxRow = container.querySelector('[data-plan-row="l4m14"]') as HTMLElement;
+        const ctxRow = container.querySelector(rowSel("l4m14")) as HTMLElement;
         expect(ctxRow).toBeTruthy();
         expect(ctxRow.hasAttribute("data-ctx")).toBe(true);
         // ...and it is BELOW the focal row and its render, not reordered.
         const order = [...container.querySelectorAll("[data-plan-row]")]
-            .map((el) => el.getAttribute("data-plan-row"));
+            .map((el) => testKeyOf(el.getAttribute("data-plan-row")!));
         expect(order).toEqual(["l4m13", "l4m14"]);
 
         fireEvent.keyDown(container.querySelector('[tabindex="0"]')!, { key: "Escape" });
         expect(container.querySelector("[data-plan-expandrender]")).toBeNull();
-        expect(container.querySelector('[data-plan-row="l4m13"]')!.hasAttribute("data-expanded")).toBe(false);
-        expect(container.querySelector('[data-plan-row="l4m14"]')!.hasAttribute("data-ctx")).toBe(false);
+        expect(container.querySelector(rowSel("l4m13"))!.hasAttribute("data-expanded")).toBe(false);
+        expect(container.querySelector(rowSel("l4m14"))!.hasAttribute("data-ctx")).toBe(false);
     });
 
     test("a strip is the return click target — clicking one leaves the focus, never selects it", () => {
@@ -486,11 +482,11 @@ describe("Plan expand-in-place (R2)", () => {
             planRow("focal", spanKind([]), { expand: { height: none, axis: variant("keep", null) } }),
             planRow("other", spanKind([])),
         ], {
-            expandRender: (ref: { key: string }) =>
-                variant("Text", { value: `R · ${ref.key}`, style: none }),
+            expandRender: (id: PlanRowId) =>
+                variant("Text", { value: `R · ${id.value.path.join("/")}`, style: none }),
         }));
         fireEvent.click(container.querySelector('[data-plan-control="expand"]')!);
-        const strip = container.querySelector('[data-plan-row="other"]') as HTMLElement;
+        const strip = container.querySelector(rowSel("other")) as HTMLElement;
         expect(strip.hasAttribute("data-ctx")).toBe(true);
         fireEvent.click(strip);
         expect(container.querySelector('[data-plan-focusbar="expand"]')).toBeNull();
@@ -514,24 +510,24 @@ describe("Plan expand-in-place (R2)", () => {
                 right: none, height: variant("spark", null), expandedHeight: none, expandable: none,
             })),
         ], {
-            expandRender: (ref: { key: string }) =>
-                variant("Text", { value: `R · ${ref.key}`, style: none }),
+            expandRender: (id: PlanRowId) =>
+                variant("Text", { value: `R · ${id.value.path.join("/")}`, style: none }),
         }));
         // At rest the chart row draws its marks and prints its axis.
-        expect(container.querySelector('[data-plan-row="cov"] [data-plan-mark="line"]')).toBeTruthy();
-        expect(container.querySelector('[data-plan-row="cov"] [data-plan-tickpx]')).toBeTruthy();
+        expect(container.querySelector(`${rowSel("cov")} [data-plan-mark="line"]`)).toBeTruthy();
+        expect(container.querySelector(`${rowSel("cov")} [data-plan-tickpx]`)).toBeTruthy();
         fireEvent.click(container.querySelector('[data-plan-control="expand"]')!);
         // R2 — values RE-ENCODE: the strip is a tone strip, so there is no SVG
         // to squash and no value axis to label in 16px — the ticks go with it.
-        expect(container.querySelector('[data-plan-row="cov"]')!.hasAttribute("data-ctx")).toBe(true);
-        expect(container.querySelector('[data-plan-row="cov"] [data-plan-mark="line"]')).toBeNull();
-        expect(container.querySelector('[data-plan-row="cov"] [data-plan-tickpx]')).toBeNull();
+        expect(container.querySelector(rowSel("cov"))!.hasAttribute("data-ctx")).toBe(true);
+        expect(container.querySelector(`${rowSel("cov")} [data-plan-mark="line"]`)).toBeNull();
+        expect(container.querySelector(`${rowSel("cov")} [data-plan-tickpx]`)).toBeNull();
         // R1 — the span bar is still there, still positioned, flagged for 7px.
-        const bar = container.querySelector('[data-plan-row="s"] [data-run="r1"]') as HTMLElement;
+        const bar = container.querySelector(`${rowSel("s")} [data-run="r1"]`) as HTMLElement;
         expect(bar).toBeTruthy();
         expect(bar.hasAttribute("data-ctx")).toBe(true);
         // R3 — the milestone keeps its silhouette; its label does not.
-        const dot = container.querySelector('[data-plan-row="e"] [data-mark="m1"]') as HTMLElement;
+        const dot = container.querySelector(`${rowSel("e")} [data-mark="m1"]`) as HTMLElement;
         expect(dot).toBeTruthy();
         expect(dot.hasAttribute("data-ctx")).toBe(true);
     });
@@ -562,21 +558,21 @@ describe("Plan expand-in-place (R2)", () => {
             }), { expand: { height: some("240px"), axis: variant("keep", null) } }),
             planRow("other", spanKind([])),
         ], {
-            expandRender: (ref: { key: string }) =>
-                variant("Text", { value: `R · ${ref.key}`, style: none }),
+            expandRender: (id: PlanRowId) =>
+                variant("Text", { value: `R · ${id.value.path.join("/")}`, style: none }),
         }), "plan-591-chart-band");
         // The plot SVG is the one holding the line — the gutter's control
         // icon is an SVG too.
-        const plotSvg = () => container.querySelector('[data-plan-row="cov"] [data-plan-mark="line"]')!.closest("svg")!;
-        const tick = () => container.querySelector('[data-plan-row="cov"] [data-plan-tickpx]')!;
+        const plotSvg = () => container.querySelector(`${rowSel("cov")} [data-plan-mark="line"]`)!.closest("svg")!;
+        const tick = () => container.querySelector(`${rowSel("cov")} [data-plan-tickpx]`)!;
         // At rest: a 32px spark. The scale's floor sits at the 4px pad + the
         // 24px inner height = 28px; too shallow for the ref label.
         expect(plotSvg().getAttribute("viewBox")).toBe("0 0 1000 32");
         expect(tick().getAttribute("data-plan-tickpx")).toBe("28");
         expect(screen.queryByText("TARGET 100")).toBeNull();
 
-        fireEvent.click(container.querySelector('[data-plan-row="cov"] [data-plan-control="expand"]')!);
-        const focal = container.querySelector('[data-plan-row="cov"]') as HTMLElement;
+        fireEvent.click(container.querySelector(`${rowSel("cov")} [data-plan-control="expand"]`)!);
+        const focal = container.querySelector(rowSel("cov")) as HTMLElement;
         expect(focal.hasAttribute("data-expanded")).toBe(true);
         expect(focal.querySelector("[data-plan-expandrender]")).toBeTruthy();
         // The ROW grew (32 + 240); the band did not — and the plot, the tick

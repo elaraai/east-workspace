@@ -21,8 +21,10 @@ import { system } from "../../theme/index.js";
 import { buildSliceHandle } from "../../platform/slice/index.js";
 import { initializeStore, getStore } from "../../platform/state-runtime.js";
 import { UIStore } from "../../platform/state-store.js";
-import { EastChakraPlan, type PlanRootValue, type PlanRowValue } from "./index.js";
+import { EastChakraPlan, type PlanRootValue } from "./index.js";
+import type { PlanWireRow } from "./model.js";
 import type { PlanInstantValue } from "./instant.js";
+import { rowId } from "./plan.test-utils.js";
 
 // A canvas persists its toggles under its storageKey (#813), and several tests
 // share one — nothing may carry from one test to the next.
@@ -66,15 +68,17 @@ function gutter(label: string, opts?: { sub?: string; value?: string; meta?: str
     };
 }
 
-function planRow(key: string, kind: unknown, opts?: { parent?: string; gutter?: unknown; expand?: unknown }): PlanRowValue {
+/** One WIRE row, as the source serves it — named by its test key (#822). */
+function planRow(key: string, kind: unknown, opts?: { parent?: string; gutter?: unknown; expand?: unknown; collapsed?: boolean }): PlanWireRow {
     return {
-        key,
-        parent: opts?.parent !== undefined ? some(opts.parent) : none,
+        id: rowId(key),
+        parent: opts?.parent !== undefined ? some(rowId(opts.parent)) : none,
         gutter: opts?.gutter ?? gutter(key),
         kind,
+        collapsed: opts?.collapsed !== undefined ? some(opts.collapsed) : none,
         pinned: none, height: none, status: none, approval: none,
         expand: opts?.expand !== undefined ? some(opts.expand) : none,
-    } as unknown as PlanRowValue;
+    } as unknown as PlanWireRow;
 }
 
 function spanKind(runs: unknown[], opts?: { rollup?: string; unit?: string }) {
@@ -85,17 +89,9 @@ function spanKind(runs: unknown[], opts?: { rollup?: string; unit?: string }) {
     });
 }
 
-/** The decoded row COLLECTION — the IR's `Dict<String, PlanRow>` (#568). A
- *  plain `Map` stands in for the decoder's `SortedMap`: the renderer only
- *  iterates it, and INSERTION order keeps these fixtures readable in the order
- *  they are written. Key ORDER itself is covered in `derive.test.ts`. */
-function rowCollection(rows: PlanRowValue[]): Map<string, PlanRowValue> {
-    return new Map(rows.map((r) => [r.key, r]));
-}
-
-function planRoot(rows: PlanRowValue[], opts?: { footer?: unknown[]; now?: Date | undefined; slice?: unknown; resolutions?: unknown[]; links?: unknown[]; popover?: unknown; hover?: unknown; expandRender?: unknown; source?: unknown; pick?: unknown; axis?: unknown; style?: { height?: string; maxHeight?: string }; clicks?: { onRunClick?: unknown; onEventClick?: unknown; onMarkClick?: unknown; onChipClick?: unknown; onCellClick?: unknown } }): PlanRootValue {
+function planRoot(rows: PlanWireRow[], opts?: { footer?: unknown[]; now?: Date | undefined; slice?: unknown; resolutions?: unknown[]; links?: unknown[]; popover?: unknown; hover?: unknown; expandRender?: unknown; source?: unknown; pick?: unknown; axis?: unknown; style?: { height?: string; maxHeight?: string }; clicks?: { onRunClick?: unknown; onEventClick?: unknown; onMarkClick?: unknown; onChipClick?: unknown; onCellClick?: unknown } }): PlanRootValue {
     return {
-        rows: opts?.source !== undefined ? variant("paged", opts.source) : variant("inline", rowCollection(rows)),
+        rows: opts?.source !== undefined ? variant("paged", opts.source) : variant("inline", rows),
         links: opts?.links ?? [],
         // The TIME arm by default (#631); the typed-axis tests pass their own.
         axis: opts?.axis ?? variant("time", {
@@ -173,37 +169,40 @@ describe("Plan resolution zoom (§3)", () => {
     });
 });
 
-describe("Plan horizon brush — per-step live application (§7 / #620)", () => {
-    const brushFixture = (key: string) => {
-        initializeStore(new UIStore());
-        const cfg = {
-            fields: new Map<string, unknown>([
-                ["at", variant("datetime", { label: "At", accessor: (r: { at: Date }) => r.at, format: none })],
-            ]),
-            rangeFieldId: some("at"), searchFieldIds: [], breakdownFieldIds: [],
-        };
-        const initial = {
-            // Applied window W29..W33 (4 weeks) inside the wider horizon.
-            range: some(variant("datetime", { from: new Date("2026-07-13T00:00:00Z"), to: new Date("2026-08-10T00:00:00Z") })),
-            compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
-            breakdown: none, search: none, visible: none, selectedIndex: none,
-            resolution: some(variant("week", null)),
-        };
-        // Data spans W27..W39 — a 12-week brushable domain (84 days).
-        const handle = buildSliceHandle(key, cfg as never, initial as never,
-            [{ at: W27 }, { at: W39 }] as never, none) as never as {
-                read(): { range: { value: { value: { from: Date; to: Date } } } };
-            };
-        const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], {
-            slice: some({ slice: handle, affordances: [variant("brush", null)] }),
-        }), key);
-        const track = container.querySelector("[data-brush-track]") as HTMLElement;
-        Object.defineProperty(track, "getBoundingClientRect", {
-            value: () => ({ left: 0, top: 0, right: 1000, bottom: 32, width: 1000, height: 32, x: 0, y: 0, toJSON: () => ({}) }),
-        });
-        return { container, track, range: () => handle.read().range.value.value };
+/** A slice-bound canvas whose brush strip spans a mocked 1000px track —
+ *  its applied window W29..W33 inside the W27..W39 domain. */
+const brushFixture = (key: string, axis?: unknown) => {
+    initializeStore(new UIStore());
+    const cfg = {
+        fields: new Map<string, unknown>([
+            ["at", variant("datetime", { label: "At", accessor: (r: { at: Date }) => r.at, format: none })],
+        ]),
+        rangeFieldId: some("at"), searchFieldIds: [], breakdownFieldIds: [],
     };
+    const initial = {
+        // Applied window W29..W33 (4 weeks) inside the wider horizon.
+        range: some(variant("datetime", { from: new Date("2026-07-13T00:00:00Z"), to: new Date("2026-08-10T00:00:00Z") })),
+        compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
+        breakdown: none, search: none, visible: none, selectedIndex: none,
+        resolution: some(variant("week", null)),
+    };
+    // Data spans W27..W39 — a 12-week brushable domain (84 days).
+    const handle = buildSliceHandle(key, cfg as never, initial as never,
+        [{ at: W27 }, { at: W39 }] as never, none) as never as {
+            read(): { range: { type: string; value: { value: { from: Date; to: Date } } } };
+        };
+    const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], {
+        slice: some({ slice: handle, affordances: [variant("brush", null)] }),
+        ...(axis !== undefined ? { axis } : {}),
+    }), key);
+    const track = container.querySelector("[data-brush-track]") as HTMLElement;
+    Object.defineProperty(track, "getBoundingClientRect", {
+        value: () => ({ left: 0, top: 0, right: 1000, bottom: 32, width: 1000, height: 32, x: 0, y: 0, toJSON: () => ({}) }),
+    });
+    return { container, track, range: () => handle.read().range.value.value, ranged: () => handle.read().range.type === "some" };
+};
 
+describe("Plan horizon brush — per-step live application (§7 / #620)", () => {
     test("a SLIDE applies each snapped step to the slice — the canvas re-renders honestly mid-gesture", async () => {
         const { track, range } = brushFixture("plan-620-slide");
         // Grab the window body (166.7px..500px on the mocked track) and
@@ -238,6 +237,55 @@ describe("Plan horizon brush — per-step live application (§7 / #620)", () => 
         fireEvent.pointerUp(track, { pointerId: 1 });
         expect(range().from.toISOString()).toBe("2026-07-13T00:00:00.000Z");
         expect(range().to.toISOString()).toBe("2026-08-03T00:00:00.000Z");
+    });
+});
+
+describe("the window is stated, or the slice's — never the rows' (#822)", () => {
+    const noWindow = variant("time", {
+        window: none, resolution: variant("week", null), resolutions: [], now: some(NOW), format: none,
+    });
+    /** A click on empty track, below the drag threshold — the brush's clear. */
+    const clickEmptyTrack = (track: HTMLElement) => {
+        fireEvent.pointerDown(track, { clientX: 800, pointerId: 1, buttons: 1 });
+        fireEvent.pointerUp(track, { clientX: 801, pointerId: 1 });
+    };
+
+    test("the brush's clear falls back to a stated window", () => {
+        const { container, track, ranged } = brushFixture("plan-822-clear-stated");
+        clickEmptyTrack(track);
+        expect(ranged()).toBe(false);
+        // The declared W27..W39: twelve weeks from W27.
+        const ticks = [...container.querySelectorAll('[data-slot="rulerTick"]')].map((e) => e.textContent);
+        expect(ticks[0]).toBe("W27");
+        expect(ticks).toHaveLength(12);
+    });
+
+    test("an axis that states none takes its window from the range — and the brush's clear keeps it", () => {
+        const { container, track, ranged, range } = brushFixture("plan-822-clear-none", noWindow);
+        expect(container.querySelector("[data-plan-empty]")).toBeNull();
+        clickEmptyTrack(track);
+        // Cleared, the canvas would have no window at all: the range stays.
+        expect(ranged()).toBe(true);
+        expect(range().from.toISOString()).toBe("2026-07-13T00:00:00.000Z");
+        expect(container.querySelector("[data-plan-empty]")).toBeNull();
+        expect(container.querySelector('[data-slot="rulerTick"]')!.textContent).toBe("W29");
+    });
+
+    test("with neither, the canvas says so — whatever its rows would span, inline or paged", () => {
+        // Rows that would once have fitted the axis: a run W27..W29.
+        const rows = [planRow("m1", spanKind([run("r1", W27, new Date("2026-07-13Z"), variant("actual", null))]))];
+        const inline = renderPlan(planRoot(rows, { axis: noWindow }), "plan-822-nowindow");
+        expect(inline.container.querySelector("[data-plan-empty]")!.textContent)
+            .toBe("NO WINDOW — declare an axis window, or bind a slice whose range supplies it");
+        expect(inline.container.querySelector("[data-run]")).toBeNull();
+        cleanup();
+        const source = {
+            id: "plan-822-nowindow-paged", page: () => some(rows), total: () => some(1n),
+            seek: none, revision: () => none, refresh: () => null,
+        };
+        const paged = renderPlan(planRoot([], { axis: noWindow, source }), "plan-822-nowindow-paged");
+        expect(paged.container.querySelector("[data-plan-empty]")!.textContent)
+            .toBe("NO WINDOW — declare an axis window, or bind a slice whose range supplies it");
     });
 });
 

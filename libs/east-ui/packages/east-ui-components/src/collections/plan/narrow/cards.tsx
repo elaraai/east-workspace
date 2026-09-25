@@ -49,7 +49,6 @@ export interface NarrowRowCardProps {
     styles: Styles;
     derived: PlanDerived;
     storageKey: string;
-    partial: boolean | undefined;
     review: PlanReview | undefined;
     /** Enrols the card in the list's viewport observer (a paged canvas, #812). */
     watch: ((el: HTMLElement | null) => (() => void) | undefined) | undefined;
@@ -79,7 +78,7 @@ function sameCard(a: NarrowRowCardProps, b: NarrowRowCardProps): boolean {
 /** One data row as a card: head = the gutter identity, body = the plot. */
 export const NarrowRowCard = memo(function NarrowRowCard({
     row, h, chartExpanded, selected, canDrill, drill, hasChildren,
-    styles, derived, storageKey, partial, review, watch,
+    styles, derived, storageKey, review, watch,
 }: NarrowRowCardProps) {
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
@@ -132,10 +131,10 @@ export const NarrowRowCard = memo(function NarrowRowCard({
                 {diagnostic !== undefined ? (
                     <RowDiagnostic diagnostic={diagnostic} styles={styles} />
                 ) : (
-                    <PlanPartBoundary part={{ kind: "row", key: row.key }} resetKey={row} styles={styles}>
+                    <PlanPartBoundary part={{ kind: "row", key: row.key, label: row.gutter.label }} resetKey={row} styles={styles}>
                         <KindPlot v={v} styles={styles} derived={derived}
                             hasChildren={hasChildren}
-                            ctx={false} plotHeight={h} chartExpanded={chartExpanded} partial={partial} />
+                            ctx={false} plotHeight={h} chartExpanded={chartExpanded} />
                         {row.kind.type === "chart" && (
                             <Box css={styles.narrowTicks}>
                                 <ChartLeftTicks kind={row.kind.value} styles={styles} height={h} />

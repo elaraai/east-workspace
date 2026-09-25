@@ -218,7 +218,7 @@ import {
     PlanLinkType,
     PlanRowsType,
     PlanElementRefType,
-    PlanRowRefType,
+    PlanRowIdType,
     PlanRunClickEventType,
     PlanEventClickEventType,
     PlanMarkClickEventType,
@@ -953,8 +953,8 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
 
     // Plan — the axis-aligned composite canvas: one shared axis
     // ({ time | number | ordinal }, #631) over heterogeneous rows — span runs, bucket
-    // lanes, chart layers, heat / table cells, chips and event marks — flat
-    // rows with `parent` keys. Rows are PURE DATA (`PlanRowType` — no UI, no
+    // lanes, chart layers, heat / table cells, chips and event marks — an
+    // ordered row stream with typed ids (#822). Rows are PURE DATA (`PlanRowType` — no UI, no
     // functions; pageable), so the arm references the named types directly;
     // only the root's resolver slots (`popover` / `hover` / `expandRender` /
     // `expandGutter`) and the review summary ride the recursion `node`.
@@ -969,7 +969,7 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         axis: PlanAxisType,
         grain: OptionType(PlanGrainType),
         // The generalized element resolvers (Plan Data Interface.md §3.3),
-        // over one element-ref variant — every ref carries the row key.
+        // over one element-ref variant — every ref carries the row's id.
         // Resolved lazily at interaction time; a `none` result opens no
         // surface. Naming per the Schematic / Flowchart `*Hover` resolver
         // convention (`on*` stays the action callbacks below).
@@ -977,18 +977,18 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         hover: OptionType(FunctionType([PlanElementRefType], OptionType(node))),
         // The R2 developer render for rows declaring `expand` (the row keeps
         // the `{ height, axis }` declaration; the render is ONE function).
-        expandRender: OptionType(FunctionType([PlanRowRefType], node)),
+        expandRender: OptionType(FunctionType([PlanRowIdType], node)),
         // The R2 gutter render — the expanded row's gutter grows with it, and
         // what fills the new space is the author's.
-        expandGutter: OptionType(FunctionType([PlanRowRefType], node)),
-        // Optional review chrome — mirror `reviewType(PlanRowRefType, ·)`
+        expandGutter: OptionType(FunctionType([PlanRowIdType], node)),
+        // Optional review chrome — mirror `reviewType(PlanRowIdType, ·)`
         // (`contracts/approval.ts`), `summary` on the recursion `node`;
-        // subjects are keyed rows, never indices.
+        // subjects are row ids, never indices.
         review: OptionType(StructType({
             columnLabel: StringType,
             summary: OptionType(node),
-            onApprove: OptionType(FunctionType([PlanRowRefType], NullType)),
-            onReject: OptionType(FunctionType([PlanRowRefType], NullType)),
+            onApprove: OptionType(FunctionType([PlanRowIdType], NullType)),
+            onReject: OptionType(FunctionType([PlanRowIdType], NullType)),
             onApproveAll: OptionType(FunctionType([], NullType)),
             onRejectAll: OptionType(FunctionType([], NullType)),
             onRerun: OptionType(FunctionType([], NullType)),
@@ -1006,7 +1006,7 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         onDrag: OptionType(FunctionType([DragEventType], NullType)),
         canDrop: OptionType(FunctionType([DragEventType], BooleanType)),
         // Selection + per-element clicks.
-        onSelect: OptionType(FunctionType([PlanRowRefType], NullType)),
+        onSelect: OptionType(FunctionType([PlanRowIdType], NullType)),
         onRunClick: OptionType(FunctionType([PlanRunClickEventType], NullType)),
         onEventClick: OptionType(FunctionType([PlanEventClickEventType], NullType)),
         onMarkClick: OptionType(FunctionType([PlanMarkClickEventType], NullType)),

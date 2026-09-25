@@ -26,9 +26,11 @@ import { system } from "../../theme/index.js";
 import { initializeStore } from "../../platform/state-runtime.js";
 import { UIStore } from "../../platform/state-store.js";
 import { registerReactiveTracker, type ReactiveTracker } from "../../reactive/tracker.js";
-import { EastChakraPlan, setPlanRootRenderProbe, type PlanRootValue, type PlanRowValue } from "./index.js";
+import { EastChakraPlan, setPlanRootRenderProbe, type PlanRootValue } from "./index.js";
+import type { PlanWireRow } from "./model.js";
 import { setBodyRowRenderProbe } from "./rows/BodyRow.js";
 import { PLAN_PAGE_SIZE } from "./use-plan-paging.js";
+import { rowId, rowIdEqual, rowSel, testKeyOf } from "./plan.test-utils.js";
 
 class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
 (globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverStub;
@@ -47,21 +49,22 @@ const W39 = new Date("2026-09-21T00:00:00Z");
 
 const span = () => variant("span", { runs: [], decisions: [], ports: [], rollup: none, unit: none });
 
-function planRow(key: string, kind: unknown = span()): PlanRowValue {
+/** One WIRE row, as the source serves it — named by its test key (#822). */
+function planRow(key: string, kind: unknown = span()): PlanWireRow {
     return {
-        key,
+        id: rowId(key),
         parent: none,
         gutter: { label: key, id: none, sub: none, value: none, meta: none, stacked: none, swatches: [] },
         kind,
-        pinned: none, height: none, status: none, approval: none, expand: none,
-    } as unknown as PlanRowValue;
+        collapsed: none, pinned: none, height: none, status: none, approval: none, expand: none,
+    } as unknown as PlanWireRow;
 }
+/** A stream without one row. */
+const without = (rows: PlanWireRow[], key: string) => rows.filter((r) => !rowIdEqual(r.id, rowId(key)));
 
-function planRoot(rows: PlanRowValue[], opts: { source?: unknown; links?: unknown[]; popover?: unknown } = {}): PlanRootValue {
+function planRoot(rows: PlanWireRow[], opts: { source?: unknown; links?: unknown[]; popover?: unknown } = {}): PlanRootValue {
     return {
-        rows: opts.source !== undefined
-            ? variant("paged", opts.source)
-            : variant("inline", new Map(rows.map((r) => [r.key, r]))),
+        rows: opts.source !== undefined ? variant("paged", opts.source) : variant("inline", rows),
         links: opts.links ?? [],
         axis: variant("time", {
             window: some({ min: W27, max: W39 }), resolution: variant("week", null),
@@ -113,10 +116,7 @@ function heldSource(windows: number, rowsPer: number) {
             const w = Number(offset) / PLAN_PAGE_SIZE;
             recording?.push(`w${w}`);
             if (w > state.openUpTo) return none;
-            return some(new Map(Array.from({ length: rowsPer }, (_u, i) => {
-                const row = planRow(`w${w}r${String(i).padStart(2, "0")}`);
-                return [row.key, row] as const;
-            })));
+            return some(Array.from({ length: rowsPer }, (_u, i) => planRow(`w${w}r${String(i).padStart(2, "0")}`)));
         },
         total: () => some(BigInt(windows * PLAN_PAGE_SIZE)),
         seek: none,
@@ -134,18 +134,18 @@ describe("the canvas over its controller (#815)", () => {
         const rows: string[] = [];
         let roots = 0;
         const commits: string[] = [];
-        const { container } = render(tree(planRoot(["m1", "m2", "m3", "m4"].map(planRow)), "plan-815-select", commits));
-        setBodyRowRenderProbe((key) => rows.push(key));
+        const { container } = render(tree(planRoot(["m1", "m2", "m3", "m4"].map((k) => planRow(k))), "plan-815-select", commits));
+        setBodyRowRenderProbe((key) => rows.push(testKeyOf(key)));
         setPlanRootRenderProbe(() => { roots += 1; });
 
-        fireEvent.click(container.querySelector('[data-plan-row="m2"]')!);
+        fireEvent.click(container.querySelector(rowSel("m2"))!);
         expect(rows).toEqual(["m2"]);
         rows.length = 0;
-        fireEvent.click(container.querySelector('[data-plan-row="m3"]')!);
+        fireEvent.click(container.querySelector(rowSel("m3"))!);
         expect([...rows].sort()).toEqual(["m2", "m3"]);
         // The root rendered for neither click: selection is not in its view.
         expect(roots).toBe(0);
-        expect(container.querySelector('[data-plan-row="m3"]')!.hasAttribute("data-selected")).toBe(true);
+        expect(container.querySelector(rowSel("m3"))!.hasAttribute("data-selected")).toBe(true);
     });
 
     test("a paged window landing is ONE commit that renders only the rows it added", async () => {
@@ -155,18 +155,18 @@ describe("the canvas over its controller (#815)", () => {
         const held = heldSource(5, 16);
         const commits: string[] = [];
         const { container } = render(tree(planRoot([], { source: held.source }), "plan-815-landing", commits));
-        await waitFor(() => expect(container.querySelector('[data-plan-row="w0r15"]')).toBeTruthy());
-        expect(container.querySelector('[data-plan-row="w1r00"]')).toBeNull();
+        await waitFor(() => expect(container.querySelector(rowSel("w0r15"))).toBeTruthy());
+        expect(container.querySelector(rowSel("w1r00"))).toBeNull();
 
         const rows: string[] = [];
-        setBodyRowRenderProbe((key) => rows.push(key));
+        setBodyRowRenderProbe((key) => rows.push(testKeyOf(key)));
         commits.length = 0;
         // Windows 1 and 2 land together — one channel firing, one settle.
         act(() => {
             held.state.openUpTo = 2;
             held.fire("w1");
         });
-        expect(container.querySelector('[data-plan-row="w2r15"]')).toBeTruthy();
+        expect(container.querySelector(rowSel("w2r15"))).toBeTruthy();
         expect(commits).toEqual(["update"]);
         // Every row that rendered is one that arrived; window 0's rows kept
         // their memo — their facts did not move.
@@ -177,25 +177,25 @@ describe("the canvas over its controller (#815)", () => {
     test("a value without the selected row commits ONCE — the selection gone, and gone for good", () => {
         initializeStore(new UIStore());
         const commits: string[] = [];
-        const all = ["r1", "r2", "r3", "r4"].map(planRow);
+        const all = ["r1", "r2", "r3", "r4"].map((k) => planRow(k));
         const { container, rerender } = render(tree(planRoot(all), "plan-815-vanish", commits));
-        fireEvent.click(container.querySelector('[data-plan-row="r2"]')!);
+        fireEvent.click(container.querySelector(rowSel("r2"))!);
         expect(container.querySelector("[data-selected]")).toBeTruthy();
 
         commits.length = 0;
-        rerender(tree(planRoot(all.filter((r) => r.key !== "r2")), "plan-815-vanish", commits));
+        rerender(tree(planRoot(without(all, "r2")), "plan-815-vanish", commits));
         // The reconcile is a view of the render, not an effect after it.
         expect(commits).toEqual(["update"]);
         expect(container.querySelector("[data-selected]")).toBeNull();
         // The row returning is a new row — its old selection does not.
         rerender(tree(planRoot(all), "plan-815-vanish", commits));
-        expect(container.querySelector('[data-plan-row="r2"]')!.hasAttribute("data-selected")).toBe(false);
+        expect(container.querySelector(rowSel("r2"))!.hasAttribute("data-selected")).toBe(false);
     });
 
     test("a value without the FOCUSED row commits once with no focus — no frame of rails around a row that is gone", () => {
         initializeStore(new UIStore());
-        const all = ["r1", "r2", "r3", "r4"].map(planRow);
-        const links = [{ fromRow: "r2", fromRun: "x", toRow: "r3", toRun: "y", quantity: 1, label: "L" }];
+        const all = ["r1", "r2", "r3", "r4"].map((k) => planRow(k));
+        const links = [{ fromRow: rowId("r2"), fromRun: "x", toRow: rowId("r3"), toRun: "y", quantity: 1, label: "L" }];
         // What EVERY commit put on screen — read as the commit lands.
         const frames: { rails: number; bar: boolean }[] = [];
         let container: HTMLElement | undefined;
@@ -211,13 +211,13 @@ describe("the canvas over its controller (#815)", () => {
         const commits: string[] = [];
         const view = render(tree(planRoot(all, { links }), "plan-815-focus", commits, frame));
         container = view.container;
-        fireEvent.click(container.querySelector('[data-plan-row="r2"] [data-plan-control="links"]')!);
+        fireEvent.click(container.querySelector(`${rowSel("r2")} [data-plan-control="links"]`)!);
         expect(container.querySelector("[data-plan-focusbar]")).toBeTruthy();
         expect(container.querySelectorAll("[data-plan-rail]").length).toBeGreaterThan(0);
 
         commits.length = 0;
         frames.length = 0;
-        view.rerender(tree(planRoot(all.filter((r) => r.key !== "r2"), { links }), "plan-815-focus", commits, frame));
+        view.rerender(tree(planRoot(without(all, "r2"), { links }), "plan-815-focus", commits, frame));
         expect(commits).toEqual(["update"]);
         expect(frames).toEqual([{ rails: 0, bar: false }]);
     });
@@ -255,11 +255,11 @@ describe("the canvas over its controller (#815)", () => {
         const commits: string[] = [];
         const { container } = render(tree(planRoot([], { source: held.source }), "plan-815-strict", commits,
             (n) => <StrictMode>{n}</StrictMode>));
-        await waitFor(() => expect(container.querySelector('[data-plan-row="w0r00"]')).toBeTruthy());
+        await waitFor(() => expect(container.querySelector(rowSel("w0r00"))).toBeTruthy());
         act(() => {
             held.state.openUpTo = 2;
             held.fire("w1");
         });
-        expect(container.querySelector('[data-plan-row="w2r15"]')).toBeTruthy();
+        expect(container.querySelector(rowSel("w2r15"))).toBeTruthy();
     });
 });

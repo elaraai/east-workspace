@@ -60,6 +60,8 @@ export interface PlanHeaderProps {
     pinnedId: string | undefined;
     /** The active row focus. */
     focus: PlanUiView["focus"];
+    /** The focused row's name, while a focus is active. */
+    focusLabel: string | undefined;
     /** Family sizes under a links focus. */
     linkCounts: { upstream: number; downstream: number } | undefined;
 }
@@ -68,7 +70,7 @@ export interface PlanHeaderProps {
 export function PlanHeader({
     styles, gridTemplate, headerRef, chrome, slice, affordances, resolution, resolutions, grain,
     transport, search, pick, diagnostics, now, rulerCaption, cursorChipRef, reviewLabel,
-    pinned, pinnedId, focus, linkCounts,
+    pinned, pinnedId, focus, focusLabel, linkCounts,
 }: PlanHeaderProps) {
     return (
         <Box background="bg.surface" ref={headerRef} data-plan-header>
@@ -98,7 +100,9 @@ export function PlanHeader({
             {pinnedId !== undefined && <Box role="rowgroup" id={pinnedId}>{pinned}</Box>}
             {/* The R1/R2 focus band — a SECTION row between the header and the
                 body (`← ALL ROWS` + caption); the ruler never moves. */}
-            {focus !== null && <FocusBar styles={styles} focus={focus} counts={linkCounts} />}
+            {focus !== null && (
+                <FocusBar styles={styles} focus={focus} label={focusLabel ?? ""} counts={linkCounts} />
+            )}
         </Box>
     );
 }

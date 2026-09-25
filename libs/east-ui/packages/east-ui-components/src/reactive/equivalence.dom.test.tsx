@@ -34,6 +34,7 @@ import { UIStore } from "../platform/state-store.js";
 import { getRegisteredPlatformImplementations } from "../platform/registry.js";
 import type { RosterValue } from "../collections/roster/index.js";
 import type { TableRootValue } from "../collections/table/index.js";
+import { rowSel } from "../collections/plan/plan.test-utils.js";
 
 afterEach(cleanup);
 
@@ -98,7 +99,7 @@ const reactivePlan = East.compile(East.function([], UIComponentType, (_$) =>
                 runs: (r) => [Plan.run({ key: "run", start: r.start, end: r.end, label: "RUN", state: "actual" })],
             }),
         ], ArrayType(Plan.Types.Series(UnitRow)));
-        const expandRender = $.const(East.function([Plan.Types.RowRef], UIComponentType, ($2, _ref) => {
+        const expandRender = $.const(East.function([Plan.Types.RowId], UIComponentType, ($2, _id) => {
             $2(countExpand());
             return Text.Root(label);
         }));
@@ -131,8 +132,10 @@ describe("closure-only changes through the dispatcher (#809)", () => {
         initializeStore(new UIStore());
         expandCalls = 0;
         const { container } = mount(reactivePlan());
-        await waitFor(() => expect(container.querySelector('[data-plan-row="u00"]')).toBeTruthy());
-        fireEvent.click(container.querySelector('[data-plan-row="u00"] [data-plan-control="expand"]') as HTMLElement);
+        // The unit's row — the `units` series' entry at its key (#822).
+        const unit = rowSel("u00", "data-plan-row", "units");
+        await waitFor(() => expect(container.querySelector(unit)).toBeTruthy());
+        fireEvent.click(container.querySelector(`${unit} [data-plan-control="expand"]`) as HTMLElement);
         await waitFor(() => expect(container.querySelector("[data-plan-expandrender]")?.textContent).toBe("ALPHA"));
         const callsAfterOpen = expandCalls;
 

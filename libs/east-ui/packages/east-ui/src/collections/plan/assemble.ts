@@ -4,14 +4,16 @@
  */
 
 /**
- * Row assembly — the shared row envelope (gutter / `makeRow`),
- * subtree normalization and re-parenting, the `.of` accessor override
- * channel, and the group-parent constructor every grouped form shares.
+ * Row assembly (#822) — the ONE row envelope every canvas row is built by
+ * ({@link planRow}), the gutter and expand values, the row streams the kind
+ * factories return, and the re-basing that places a hand-built stream under a
+ * series.
  *
- * Subtrees are KEYED collections (`Dict<String, PlanRow>`), so composition is
- * `union` with an explicit conflict policy rather than `concat`: every step
- * states what happens on a collision instead of one resolver at the end
- * absorbing all of them, and a row can no longer appear twice (#568).
+ * Rows are an ordered stream (`Array<PlanRow>`) with typed ids
+ * ({@link PlanRowIdType}). A kind factory's rows carry PROVISIONAL ids — an
+ * `entry` with no series yet (`series: ""`) whose path is the factory `key`s
+ * that lead to the row — and `Plan.series.rows` names the series and places
+ * them ({@link REBASE_ROWS}).
  *
  * @packageDocumentation
  */
@@ -20,10 +22,11 @@ import {
     type ExprType,
     type SubtypeExprOrValue,
     East,
+    ArrayType,
     BooleanType,
-    FunctionType,
     OptionType,
     StringType,
+    variant,
     some,
     none,
 } from "@elaraai/east";
@@ -36,23 +39,133 @@ import {
     PlanExpandAxisType,
     type PlanExpandAxisLiteral,
     PlanExpandType,
+    PlanRowIdType,
     PlanRowKindType,
     PlanRowType,
     PlanRowsCollectionType,
     type PlanRowsValue,
     type PlanAxisKindLiteral,
 } from "./types.js";
-import { resolveTag, emptyRows } from "./builders.js";
+import { resolveTag } from "./builders.js";
 
 // ============================================================================
-// Row envelope — the shared base-input handling
+// The envelope — every row is built here
+// ============================================================================
+
+/**
+ * Every field of a row, each given ONCE — the input of {@link planRow}.
+ *
+ * @remarks
+ * The optional fields are the row's `Option`s themselves (an accessor's result
+ * is a per-row data fact, so presence is too); omitted ⇒ `none`.
+ */
+export interface PlanRowFields {
+    /** The row's id. */
+    id: SubtypeExprOrValue<PlanRowIdType>;
+    /** The id of the row it nests under (`none` at the top of a stream). */
+    parent: SubtypeExprOrValue<OptionType<PlanRowIdType>>;
+    /** The gutter identity. */
+    gutter: SubtypeExprOrValue<PlanGutterType>;
+    /** The row kind. */
+    kind: SubtypeExprOrValue<PlanRowKindType>;
+    /** Initial collapse of a row with children. */
+    collapsed?: SubtypeExprOrValue<OptionType<BooleanType>>;
+    /** Pin above the virtualised body. */
+    pinned?: SubtypeExprOrValue<OptionType<BooleanType>>;
+    /** Fixed row-height override (CSS px). */
+    height?: SubtypeExprOrValue<OptionType<StringType>>;
+    /** The gutter status dot. */
+    status?: SubtypeExprOrValue<OptionType<StatusValueType>>;
+    /** The review verdict. */
+    approval?: SubtypeExprOrValue<OptionType<ApprovalStateType>>;
+    /** The expand-in-place declaration. */
+    expand?: SubtypeExprOrValue<OptionType<PlanExpandType>>;
+}
+
+/**
+ * THE row envelope (#822) — an entry's row, a derived parent, a section header,
+ * a hand-built row and a re-based one are all built by this one constructor, so
+ * the row's fields are spelled in exactly one place.
+ *
+ * @remarks
+ * Each field expression appears once in the value it builds. A caller that
+ * needs a value in two fields (an id that is also a child's parent) binds it
+ * first — East has no common-subexpression elimination, so a spliced
+ * expression is evaluated at every use.
+ *
+ * @param f - The row's fields ({@link PlanRowFields})
+ * @returns The row
+ */
+export function planRow(f: PlanRowFields): ExprType<PlanRowType> {
+    return East.value({
+        id:        f.id,
+        parent:    f.parent,
+        gutter:    f.gutter,
+        kind:      f.kind,
+        collapsed: f.collapsed ?? none,
+        pinned:    f.pinned ?? none,
+        height:    f.height ?? none,
+        status:    f.status ?? none,
+        approval:  f.approval ?? none,
+        expand:    f.expand ?? none,
+    }, PlanRowType);
+}
+
+/**
+ * The gutter's fields — the label, and the `Option`s a series reads per entry.
+ *
+ * @property label - The row name
+ * @property id - Render the label as a mono row id
+ * @property sub - The muted sub line
+ * @property value - The right-aligned value slot
+ * @property meta - The group meta line
+ * @property stacked - Two-line layout
+ * @property swatches - Chart legend chips
+ */
+export interface PlanGutterFields {
+    /** The row name. */
+    label: SubtypeExprOrValue<StringType>;
+    /** Render the label as a mono row id. */
+    id?: SubtypeExprOrValue<BooleanType> | boolean;
+    /** The muted sub line — the field's `Option`. */
+    sub?: SubtypeExprOrValue<OptionType<StringType>>;
+    /** The right-aligned value slot — the field's `Option`. */
+    value?: SubtypeExprOrValue<OptionType<StringType>>;
+    /** The group meta line — the field's `Option`. */
+    meta?: SubtypeExprOrValue<OptionType<StringType>>;
+    /** Two-line layout (label over sub). */
+    stacked?: SubtypeExprOrValue<BooleanType> | boolean;
+    /** Chart legend chips. */
+    swatches?: { color: SubtypeExprOrValue<StringType>; label: SubtypeExprOrValue<StringType> }[];
+}
+
+/**
+ * Build a gutter value.
+ *
+ * @param f - The gutter's fields ({@link PlanGutterFields})
+ * @returns The gutter
+ */
+export function planGutter(f: PlanGutterFields): ExprType<PlanGutterType> {
+    return East.value({
+        label:    f.label,
+        id:       f.id !== undefined ? some(f.id) : none,
+        sub:      f.sub ?? none,
+        value:    f.value ?? none,
+        meta:     f.meta ?? none,
+        stacked:  f.stacked !== undefined ? some(f.stacked) : none,
+        swatches: (f.swatches ?? []).map(s => East.value({ color: s.color, label: s.label }, PlanGutterSwatchType)),
+    }, PlanGutterType);
+}
+
+// ============================================================================
+// Row base input — what a hand-built row is written with
 // ============================================================================
 
 /**
  * The gutter + row fields shared by every kind factory (flattened into each
  * factory's input bag).
  *
- * @property key - The row key (stable identity; parent keys reference it)
+ * @property key - The row's key — its path segment (a nested row's path is its parents' keys, then its own)
  * @property label - The gutter name
  * @property id - `true` ⇒ the label renders as a mono row id
  * @property sub - The muted mono sub line
@@ -60,13 +173,15 @@ import { resolveTag, emptyRows } from "./builders.js";
  * @property meta - The group meta line
  * @property stacked - Two-line gutter layout
  * @property swatches - Chart-series legend chips
+ * @property collapsed - Initial collapse of a row with nested `rows`
  * @property pinned - Pin the row above the virtualised body, under the ruler
  * @property height - Fixed row-height override (px)
  * @property status - The quiet gutter status dot
  * @property approval - The review verdict (review chrome only)
+ * @property expand - The expand-in-place declaration
  */
 export interface PlanRowBaseInput {
-    /** The row key (stable identity; parent keys reference it). */
+    /** The row's key — its path segment. Keys must be unique among a row's siblings. */
     key: SubtypeExprOrValue<StringType>;
     /** The gutter name. */
     label: SubtypeExprOrValue<StringType>;
@@ -82,6 +197,8 @@ export interface PlanRowBaseInput {
     stacked?: SubtypeExprOrValue<BooleanType> | boolean;
     /** Chart-series legend chips printed under the label. */
     swatches?: { color: SubtypeExprOrValue<StringType>; label: SubtypeExprOrValue<StringType> }[];
+    /** Initial collapse of a row with nested `rows` (renderer state thereafter). */
+    collapsed?: SubtypeExprOrValue<BooleanType> | boolean;
     /** Pin the row above the virtualised body, under the ruler. */
     pinned?: SubtypeExprOrValue<BooleanType> | boolean;
     /** Fixed row-height override — a CSS px size (`"48px"`, the shared component-height type). */
@@ -94,23 +211,10 @@ export interface PlanRowBaseInput {
     expand?: PlanExpandInput;
 }
 
-/** Build the gutter value from a base input. */
-function buildGutter(base: PlanRowBaseInput): ExprType<PlanGutterType> {
-    return East.value({
-        label:    base.label,
-        id:       base.id !== undefined ? some(base.id) : none,
-        sub:      base.sub !== undefined ? some(base.sub) : none,
-        value:    base.value !== undefined ? some(base.value) : none,
-        meta:     base.meta !== undefined ? some(base.meta) : none,
-        stacked:  base.stacked !== undefined ? some(base.stacked) : none,
-        swatches: (base.swatches ?? []).map(s => East.value({ color: s.color, label: s.label }, PlanGutterSwatchType)),
-    }, PlanGutterType);
-}
-
 /**
  * The expand-in-place input (R2) — a pure-data declaration: presence marks
  * the row expandable; the mounted body is the ROOT's `expandRender`
- * resolver, called with the row ref when the control fires.
+ * resolver, called with the row's id when the control fires.
  *
  * @property height - The developer region's minimum height, a CSS px size (renderer default when omitted)
  * @property axis - How the shared grid + now-line run through the focused row's plot (`"keep"` default / `"dim"` / `"off"`)
@@ -130,204 +234,173 @@ function buildExpand(input: PlanExpandInput): ExprType<PlanExpandType> {
     }, PlanExpandType);
 }
 
-/**
- * Row composition is LAST WINS — a later copy of a synthesized row (a group
- * parent a second paged window re-emits) replaces the earlier one. Declared
- * once and passed to every `union`, so the policy is stated at each step
- * rather than assumed.
- */
-export const LAST_WINS = East.function(
-    [PlanRowType, PlanRowType, StringType], PlanRowType,
-    (_$, _existing, incoming) => incoming);
-
-/** Assemble one row from its base input + kind value, as a 1-row subtree.
- *  Keying it HERE is where uniqueness becomes structural: a factory cannot
- *  emit two rows under one key. */
-export function makeRow(base: PlanRowBaseInput, kind: ExprType<PlanRowKindType>): PlanRowsValue {
-    const row = East.value({
-        key:      base.key,
-        parent:   none,
-        gutter:   buildGutter(base),
-        kind,
-        pinned:   base.pinned !== undefined ? some(base.pinned) : none,
-        height:   base.height !== undefined ? some(base.height) : none,
-        status:   base.status !== undefined ? some(resolveTag(base.status, StatusValueType)) : none,
-        approval: base.approval !== undefined ? some(resolveTag(base.approval, ApprovalStateType)) : none,
-        expand:   base.expand !== undefined ? some(buildExpand(base.expand)) : none,
-    }, PlanRowType);
-    return East.value(new Map([[base.key, row]]), PlanRowsCollectionType);
+/** A hand-built row's gutter, from its base input's plain fields. */
+function baseGutter(base: PlanRowBaseInput): ExprType<PlanGutterType> {
+    return planGutter({
+        label: base.label,
+        ...(base.id !== undefined ? { id: base.id } : {}),
+        ...(base.sub !== undefined ? { sub: some(base.sub) } : {}),
+        ...(base.value !== undefined ? { value: some(base.value) } : {}),
+        ...(base.meta !== undefined ? { meta: some(base.meta) } : {}),
+        ...(base.stacked !== undefined ? { stacked: base.stacked } : {}),
+        ...(base.swatches !== undefined ? { swatches: base.swatches } : {}),
+    });
 }
 
 /**
- * A nested-rows input — a single flattened-subtree expression (a factory /
- * `Plan.rows` result) or a TS array of them. Kinded factory results
- * ({@link PlanRowsValue}) carry their axis kind through, so a parent takes
- * the union of its children's kinds; any other collection value is erased.
+ * A hand-built row's PROVISIONAL id — an `entry` with no series yet, at its
+ * own key. `Plan.series.rows` names its series and places it
+ * ({@link REBASE_ROWS}); a factory nesting it prefixes its own key.
+ */
+function literalId(key: SubtypeExprOrValue<StringType>): ExprType<PlanRowIdType> {
+    return East.value(variant("entry", { series: "", path: [key] }), PlanRowIdType);
+}
+
+/** A hand-built row — one row from its base input and its kind, at the top of its own stream. */
+function literalRow(base: PlanRowBaseInput, kind: ExprType<PlanRowKindType>): ExprType<PlanRowType> {
+    return planRow({
+        id:        literalId(base.key),
+        parent:    none,
+        gutter:    baseGutter(base),
+        kind,
+        collapsed: base.collapsed !== undefined ? some(base.collapsed) : none,
+        pinned:    base.pinned !== undefined ? some(base.pinned) : none,
+        height:    base.height !== undefined ? some(base.height) : none,
+        status:    base.status !== undefined ? some(resolveTag(base.status, StatusValueType)) : none,
+        approval:  base.approval !== undefined ? some(resolveTag(base.approval, ApprovalStateType)) : none,
+        expand:    base.expand !== undefined ? some(buildExpand(base.expand)) : none,
+    });
+}
+
+/** An empty row stream. */
+export function emptyRows(): PlanRowsValue {
+    return East.value([], PlanRowsCollectionType);
+}
+
+/**
+ * One hand-built row as a one-row stream.
  *
- * @typeParam K - The kind inferred from the kinded subtrees in the input
+ * @param base - The row's base input
+ * @param kind - The row's kind
+ * @returns The stream
+ */
+export function makeRow(base: PlanRowBaseInput, kind: ExprType<PlanRowKindType>): PlanRowsValue {
+    return East.value([literalRow(base, kind)], PlanRowsCollectionType);
+}
+
+/**
+ * A nested-rows input — a factory result (one row stream) or a TS array of
+ * them, in order. Kinded factory results ({@link PlanRowsValue}) carry their
+ * axis kind through, so a parent takes the union of its children's kinds.
+ *
+ * @typeParam K - The kind inferred from the kinded streams in the input
  */
 export type PlanRowsInput<K extends PlanAxisKindLiteral = never> =
-    | SubtypeExprOrValue<PlanRowsCollectionType>
+    | ExprType<PlanRowsCollectionType>
     | PlanRowsValue<K>
-    | (SubtypeExprOrValue<PlanRowsCollectionType> | PlanRowsValue<K>)[];
+    | (ExprType<PlanRowsCollectionType> | PlanRowsValue<K>)[];
 
-/** Normalize a nested-rows input into ONE subtree — the authored siblings
- *  unioned, last wins on a repeated key. Accepts any kind (the caller
- *  re-brands its result). */
+/**
+ * Normalize a nested-rows input into ONE stream — the authored siblings
+ * concatenated in order. Accepts any kind (the caller re-brands its result).
+ *
+ * @param input - The nested rows, or none
+ * @returns The stream
+ */
 export function normalizeRows(input: PlanRowsInput<PlanAxisKindLiteral> | undefined): PlanRowsValue {
     if (input === undefined) return emptyRows();
     if (Array.isArray(input)) {
         return input.reduce<PlanRowsValue>(
-            (acc, x) => acc.union(
-                East.value(x as SubtypeExprOrValue<PlanRowsCollectionType>, PlanRowsCollectionType),
-                LAST_WINS) as PlanRowsValue,
+            (acc, x) => acc.concat(x as ExprType<PlanRowsCollectionType>) as PlanRowsValue,
             emptyRows(),
         );
     }
-    return East.value(input as SubtypeExprOrValue<PlanRowsCollectionType>, PlanRowsCollectionType) as PlanRowsValue;
+    return input as PlanRowsValue;
 }
 
-/** Re-parent the ROOTS of a subtree (rows with `parent: none`). Values only —
- *  re-parenting never renames a row, so the keys are untouched and any
- *  author-written `links` / grandchild `parent` refs keep pointing. */
-export function reparentRoots(rows: PlanRowsValue, parentKey: SubtypeExprOrValue<StringType>): PlanRowsValue {
-    const parentOpt = East.value(some(parentKey), OptionType(StringType));
-    return rows.map((_$, r) => East.value({
-        key:      r.key,
-        parent:   r.parent.hasTag("none").ifElse(() => parentOpt, () => r.parent),
-        gutter:   r.gutter,
-        kind:     r.kind,
-        pinned:   r.pinned,
-        height:   r.height,
-        status:   r.status,
-        approval: r.approval,
-        expand:   r.expand,
-    }, PlanRowType)) as PlanRowsValue;
-}
+// ============================================================================
+// Re-basing — placing a stream under a series, a path and a parent
+// ============================================================================
 
-/** The subtree ROOTS of a child collection (rows with `parent: none`). */
-export function rootsOf(rows: PlanRowsValue): PlanRowsValue {
-    return rows.filter((_$, r) => r.parent.hasTag("none")) as PlanRowsValue;
-}
-
-/** The per-level group-parent constructor the grouping engine calls per group. */
-export type PlanGroupParentFn =
-    ExprType<FunctionType<[StringType, StringType, PlanRowsCollectionType], PlanRowsCollectionType>>;
+/** One id re-based: its series named, its path prefixed. */
+const rebaseId = East.function(
+    [PlanRowIdType, StringType, ArrayType(StringType)],
+    PlanRowIdType,
+    (_$, id, series, prefix) => id.match({
+        entry:   (_$2, e) => East.value(variant("entry", { series, path: prefix.concat(e.path) }), PlanRowIdType),
+        section: (_$2, s) => East.value(variant("section", { series, path: prefix.concat(s.path) }), PlanRowIdType),
+    }),
+);
 
 /**
- * Builds the per-level group-parent constructor shared by every grouped form
- * — one reified East function `(pathKey, label, children) => subtree`: the
- * parent row (its `kind` fully declared by the caller) joined with its
- * re-parented children in one keyed collection.
+ * Re-base a row stream — every id and parent id given the `series` and the
+ * `prefix` path, and every row at the top of the stream (`parent: none`)
+ * nested under `parent`.
  *
  * @remarks
- * The parent's POSITION is no longer load-bearing — its key orders it, and the
- * renderer walks the tree from the roots. `meta` is a CONSTANT gutter meta line
- * (the `.of` aggregate tag); anything derived from the members — the `"8 rs"`
- * count — is computed renderer-side, because a parent synthesized per paged
- * window would otherwise bake THAT window's count into the row (#568).
- *
- * @param kind - The parent row's fully-declared kind
- * @param meta - Optional constant gutter meta line
- * @returns The reified `(pathKey, label, children) => subtree` function
+ * How a hand-built stream lands on a canvas: `Plan.series.rows` names its
+ * series (the ids were provisional, `series: ""`), a factory's nested `rows:`
+ * are placed under their parent's key, and a stream under an entry is placed
+ * at that entry's path. Reified once and CALLED, so each argument is evaluated
+ * once, and each row is rebuilt by the one envelope ({@link planRow}).
  */
-export function groupParentFn(
-    kind: ExprType<PlanRowKindType>,
-    meta?: SubtypeExprOrValue<OptionType<StringType>>,
-): PlanGroupParentFn {
-    return East.function(
-        [StringType, StringType, PlanRowsCollectionType],
-        PlanRowsCollectionType,
-        ($, pathKey, label, children) => {
-            const reparented = $.let(reparentRoots(children as PlanRowsValue, pathKey), PlanRowsCollectionType);
-            const metaOpt = $.const(meta ?? none, OptionType(StringType));
-            const parent = $.const({
-                key:    pathKey,
-                parent: none,
-                gutter: {
-                    label, id: none, sub: none, value: none,
-                    meta: metaOpt,
-                    stacked: none, swatches: [],
-                },
-                kind,
-                pinned: none, height: none, status: none, approval: none, expand: none,
-            }, PlanRowType);
-            const out = $.let(new Map([[pathKey, parent]]), PlanRowsCollectionType);
-            $(out.unionInPlace(reparented, LAST_WINS));
-            return out;
-        },
-    );
-}
+export const REBASE_ROWS = East.function(
+    [PlanRowsCollectionType, StringType, ArrayType(StringType), OptionType(PlanRowIdType)],
+    PlanRowsCollectionType,
+    ($, rows, series, prefix, parent) => {
+        const rebase = $.const(rebaseId);
+        return rows.map((_$2, r) => planRow({
+            id:        rebase(r.id, series, prefix),
+            parent:    r.parent.match({
+                some: (_$3, p) => East.value(some(rebase(p, series, prefix)), OptionType(PlanRowIdType)),
+                none: (_$3) => parent,
+            }),
+            gutter:    r.gutter,
+            kind:      r.kind,
+            collapsed: r.collapsed,
+            pinned:    r.pinned,
+            height:    r.height,
+            status:    r.status,
+            approval:  r.approval,
+            expand:    r.expand,
+        }));
+    },
+);
 
 /**
- * Per-row `Option` fields the `.of` accessor forms inject — the expression
- * channel for the row envelope. Accessors return the fields' actual IR types
- * (`Option<…>`), so presence is a per-row data fact; the host config bag
- * never carries expressions of options.
+ * A parent row followed by its children, the children re-based under it: each
+ * child's path gains the parent's key in front, and the children at the top of
+ * their stream nest under the parent.
  */
-interface PlanRowOverrides {
-    sub?: SubtypeExprOrValue<OptionType<StringType>>;
-    value?: SubtypeExprOrValue<OptionType<StringType>>;
-    status?: SubtypeExprOrValue<OptionType<StatusValueType>>;
-    approval?: SubtypeExprOrValue<OptionType<ApprovalStateType>>;
-    expand?: SubtypeExprOrValue<OptionType<PlanExpandType>>;
-    pinned?: SubtypeExprOrValue<OptionType<BooleanType>>;
-}
-
-/** Rebuild a 1-row subtree with accessor-supplied `Option` envelope fields. */
-export function applyRowOverrides(rows: PlanRowsValue, o: PlanRowOverrides): PlanRowsValue {
-    if (o.sub === undefined && o.value === undefined && o.status === undefined
-        && o.approval === undefined
-        && o.expand === undefined && o.pinned === undefined) return rows;
-    const sub    = o.sub    !== undefined ? East.value(o.sub, OptionType(StringType)) : undefined;
-    const value  = o.value  !== undefined ? East.value(o.value, OptionType(StringType)) : undefined;
-    const status = o.status !== undefined ? East.value(o.status, OptionType(StatusValueType)) : undefined;
-    const approval = o.approval !== undefined ? East.value(o.approval, OptionType(ApprovalStateType)) : undefined;
-    const expand = o.expand !== undefined ? East.value(o.expand, OptionType(PlanExpandType)) : undefined;
-    const pinned = o.pinned !== undefined ? East.value(o.pinned, OptionType(BooleanType)) : undefined;
-    return rows.map((_$, r) => East.value({
-        key:    r.key,
-        parent: r.parent,
-        gutter: East.value({
-            label:    r.gutter.label,
-            id:       r.gutter.id,
-            sub:      sub ?? r.gutter.sub,
-            value:    value ?? r.gutter.value,
-            meta:     r.gutter.meta,
-            stacked:  r.gutter.stacked,
-            swatches: r.gutter.swatches,
-        }, PlanGutterType),
-        kind:     r.kind,
-        pinned:   pinned ?? r.pinned,
-        height:   r.height,
-        status:   status ?? r.status,
-        approval: approval ?? r.approval,
-        expand:   expand ?? r.expand,
-    }, PlanRowType)) as PlanRowsValue;
-}
+const NEST_ROWS = East.function(
+    [PlanRowType, PlanRowsCollectionType],
+    PlanRowsCollectionType,
+    ($, parentRow, children) => {
+        const prefix = $.let(parentRow.id.match({
+            entry:   (_$2, e) => e.path,
+            section: (_$2, s) => s.path,
+        }), ArrayType(StringType));
+        const nested = $.let(REBASE_ROWS(children, "", prefix, some(parentRow.id)), PlanRowsCollectionType);
+        const out = $.let([parentRow], PlanRowsCollectionType);
+        $(out.append(nested));
+        return out;
+    },
+);
 
 /**
  * Assemble a nesting parent — the parent row (its kind fully declared; the
- * renderer computes any derived numbers) joined with its re-parented children
- * in one keyed collection.
+ * renderer computes any derived numbers) followed by its children, re-based
+ * under it.
+ *
+ * @param base - The parent's base input
+ * @param rows - The nested child streams
+ * @param kind - The parent's kind
+ * @returns The stream — the parent, then its subtree
  */
 export function assembleNested(
     base: PlanRowBaseInput,
     rows: PlanRowsInput<PlanAxisKindLiteral>,
     kind: ExprType<PlanRowKindType>,
 ): PlanRowsValue {
-    const children = normalizeRows(rows);
-    const parent = East.value({
-        key:      base.key,
-        parent:   none,
-        gutter:   buildGutter(base),
-        kind,
-        pinned:   base.pinned !== undefined ? some(base.pinned) : none,
-        height:   base.height !== undefined ? some(base.height) : none,
-        status:   base.status !== undefined ? some(resolveTag(base.status, StatusValueType)) : none,
-        approval: base.approval !== undefined ? some(resolveTag(base.approval, ApprovalStateType)) : none,
-        expand:   base.expand !== undefined ? some(buildExpand(base.expand)) : none,
-    }, PlanRowType);
-    return East.value(new Map([[base.key, parent]]), PlanRowsCollectionType)
-        .union(reparentRoots(children, base.key), LAST_WINS) as PlanRowsValue;
+    return NEST_ROWS(literalRow(base, kind), normalizeRows(rows)) as PlanRowsValue;
 }

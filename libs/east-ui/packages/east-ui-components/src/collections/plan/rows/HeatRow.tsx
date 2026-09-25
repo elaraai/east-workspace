@@ -32,6 +32,7 @@ import { instantKey, type PlanInstantValue } from "../instant.js";
 import type { PlanBucket } from "../scale.js";
 import { maxOf, minOf } from "../reductions.js";
 import { cellName, heatValueText, segmentsText, weightValueText } from "../a11y.js";
+import type { PlanRowId } from "../model.js";
 import { usePlanWords } from "../words.js";
 
 type Styles = Record<string, Record<string, unknown>>;
@@ -53,24 +54,34 @@ const SEGMENT_FILL: Record<string, string> = {
 /** Segment fills that read dark enough for paper-coloured in-bar labels. */
 const SEGMENT_DARK = new Set(["brand", "success", "warning", "danger", "info", "neutral"]);
 
-export interface HeatCellsProps {
+export type HeatCellsProps = {
     /** R2 context strip (#591) — render this row's marks at strip size. */
     ctx?: boolean | undefined;
 
     rowKey: string;
     cells: HeatCellsValue;
     styles: Styles;
-    /** What a cell click DOES (default: select the row). A collapsed group's
-     *  summary strip passes its toggle — selecting the GROUP key is a click
-     *  that visibly does nothing, and it swallows the band's own toggle (#615). */
-    onCellClick?: (() => void) | undefined;
-}
+} & (
+    | {
+        /** A data row's cells are elements: a click selects the row and names
+         *  it by its id (#822). */
+        rowId: PlanRowId;
+        onCellClick?: undefined;
+    }
+    | {
+        /** What a strip's cell click DOES instead. A collapsed group's summary
+         *  strip passes its toggle — selecting the GROUP key is a click that
+         *  visibly does nothing, and it swallows the band's own toggle (#615). */
+        onCellClick: () => void;
+        rowId?: undefined;
+    }
+);
 
 /**
  * The heat-arm plot content — one cell / bar / composition per bucket,
  * positioned by `bucketOf` with the §8 3px insets.
  */
-export function HeatCells({ rowKey, cells, styles, ctx, onCellClick }: HeatCellsProps) {
+export function HeatCells({ rowKey, rowId, cells, styles, ctx, onCellClick }: HeatCellsProps) {
     const ctxAttr = ctx === true ? "" : undefined;
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
@@ -107,7 +118,7 @@ export function HeatCells({ rowKey, cells, styles, ctx, onCellClick }: HeatCells
         }
         dispatch({ t: "row.select", key: rowKey });
         // The cell's own declared instant — what the author addressed it by.
-        onElementClick?.(variant("cell", { row: rowKey, at }) as PlanElementRefValue);
+        if (rowId !== undefined) onElementClick?.(variant("cell", { row: rowId, at }) as PlanElementRefValue);
     };
 
     if (cells.type === "heat") {

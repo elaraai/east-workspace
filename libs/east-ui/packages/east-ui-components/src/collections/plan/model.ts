@@ -5,14 +5,19 @@
 
 /**
  * The Plan's decoded-value view model (`Plan Spec.md` §6.2) — pure selectors
- * over the flat `parent`-keyed rows: the row-tree index, the visible-row
- * derivation (grain × collapsed subtrees), and per-row height
- * estimation for the virtualizer. No React, no DOM.
+ * over the canvas rows: the row-tree index, the visible-row derivation (grain
+ * × collapsed subtrees), and per-row height estimation for the virtualizer. No
+ * React, no DOM.
  *
- * Rows arrive in the collection's canonical KEY order (the IR's row collection
- * is a `Dict`, decoded as a `SortedMap` — #568), and every traversal here
- * walks the TREE the `parent` keys encode rather than that flat order, so a
- * subtree need not be contiguous and no derivation depends on the container.
+ * Rows arrive as an ordered STREAM (#822) — the IR's row collection is an
+ * `Array`, and its order IS the render order: the series list's blocks, each
+ * parent before its descendants. A row carries a typed id; {@link toCanvasRows}
+ * keys every row by its id's canonical text, which is what every map, DOM
+ * attribute and piece of view state here keys by. The visible walk follows the
+ * STREAM and hides by the explicit `parent` keys — never a tree walk, because a
+ * parent's descendants need not follow it directly (an entry's children under
+ * `views` come after all of its view rows). The derivations still walk the
+ * tree, since a bottom-up aggregate is the same in any order.
  *
  * The derivations (`derive.ts`), the body items and link graph
  * (`body-items.ts`), the instant walks (`row-instants.ts`) and the tree walks
@@ -21,16 +26,17 @@
  * @packageDocumentation
  */
 
-import { type ValueTypeOf } from "@elaraai/east";
+import { none, some, type OptionType, type StringType, type ValueTypeOf } from "@elaraai/east";
 import { Plan } from "@elaraai/east-ui/internal";
 import { initialPlanState, type PlanGrain, type PlanUiState, type RowKey } from "./plan-state.js";
 import type { PlanAxisKind } from "./instant.js";
 import { ancestorsOf } from "./row-tree.js";
+import { rowKeyOf } from "./row-key.js";
 import { derivePlan, type PlanDerived } from "./derive.js";
 import { PLAN_GEOMETRY, planGeometry } from "./geometry.js";
 
 // The model's other halves, one import path for all of it (#815).
-export { forEachInstant, dataExtent, axisKindMismatches, type PlanAxisMismatch } from "./row-instants.js";
+export { forEachInstant, axisKindMismatches, type PlanAxisMismatch } from "./row-instants.js";
 export {
     tableRollupSeries, deriveBands, deriveHeatCells, deriveTableCells, deriveTableSeries, derivePlan, stableDerived,
     type DerivedBand, type HeatScale, type PlanRowDiagnostic, type PlanDerived,
@@ -42,33 +48,128 @@ export {
 
 /** The decoded Plan root value. */
 export type PlanRootValue = ValueTypeOf<typeof Plan.Types.Root>;
-/** One decoded flat row. */
-export type PlanRowValue = ValueTypeOf<typeof Plan.Types.Row>;
+/** One decoded WIRE row — the IR's `PlanRowType` value, as the source serves it. */
+export type PlanWireRow = ValueTypeOf<typeof Plan.Types.Row>;
+export { rowKeyOf, rowIdOfKey, rowKeyWords, type PlanRowId } from "./row-key.js";
 /** One decoded link edge (the R1 graph / K8 ribbon shape). */
 export type PlanLinkValue = ValueTypeOf<typeof Plan.Types.Link>;
 
-/** The flat rows indexed for traversal. */
+/**
+ * One CANVAS row — a wire row keyed for the canvas (#822).
+ *
+ * @remarks
+ * `key` is the canonical `.east` text of the row's typed `id`
+ * ({@link rowKeyOf}): the index every map, DOM attribute and piece of view
+ * state keys by, and what a drag names the row with. `parent` is the parent's
+ * key. The typed `id` rides along for every payload that names the row — a
+ * callback never sees the text.
+ */
+export type PlanRowValue = Omit<PlanWireRow, "parent"> & {
+    /** The row's key — the canonical text of its id; unique on the canvas. */
+    readonly key: RowKey;
+    /** The key of the row it nests under (`none` at the top of the stream). */
+    readonly parent: ValueTypeOf<OptionType<StringType>>;
+    /** When this row repeats the id an earlier row in its stream carries: that
+     *  row's key. The row keeps a unique key and renders as a diagnostic
+     *  (#811) — never a silent drop. */
+    readonly duplicateOf: RowKey | undefined;
+};
+
+/**
+ * Key a stream of wire rows for the canvas — each row's `key` its id's
+ * canonical text and its `parent` the parent's.
+ *
+ * @remarks
+ * Ids are unique by construction (series keys are unique across the series
+ * tree and a path is unique within a collection) except where hand-built rows
+ * repeat a key. A repeat keeps a distinct key — its text with `#n` appended,
+ * which no printed id can end with — and names the row it repeats in
+ * `duplicateOf`, so it renders as a diagnostic in place.
+ *
+ * @param wire - The rows in stream order
+ * @returns The canvas rows, in the same order
+ */
+export function toCanvasRows(wire: ReadonlyArray<PlanWireRow>): PlanRowValue[] {
+    const seen = new Map<RowKey, number>();
+    return wire.map((row): PlanRowValue => {
+        const text = rowKeyOf(row.id);
+        const repeats = seen.get(text) ?? 0;
+        seen.set(text, repeats + 1);
+        return {
+            ...row,
+            key: repeats === 0 ? text : `${text}#${repeats}`,
+            parent: row.parent.type === "some" ? some(rowKeyOf(row.parent.value)) : none,
+            duplicateOf: repeats === 0 ? undefined : text,
+        };
+    });
+}
+
+/** Each decoded inline stream's canvas rows — keyed once per stream. */
+const canvasRowsCache = new WeakMap<ReadonlyArray<PlanWireRow>, readonly PlanRowValue[]>();
+
+/**
+ * The canvas rows of an inline stream, keyed once per decoded array
+ * ({@link toCanvasRows}).
+ *
+ * @remarks
+ * The controller and the canvas both read a root's inline rows. A decoded
+ * value is never mutated, so its array's identity names its rows, and the two
+ * share one keying — and one set of row objects.
+ *
+ * @param wire - A decoded inline row stream
+ * @returns Its canvas rows
+ */
+export function canvasRowsOf(wire: ReadonlyArray<PlanWireRow>): readonly PlanRowValue[] {
+    const cached = canvasRowsCache.get(wire);
+    if (cached !== undefined) return cached;
+    const rows = toCanvasRows(wire);
+    canvasRowsCache.set(wire, rows);
+    return rows;
+}
+
+/**
+ * Whether a row's derived numbers — its member count and its strip — can
+ * cover rows from more than one paged window (#822).
+ *
+ * @remarks
+ * Only a TOP-LEVEL section header's can: its members are its series' entries,
+ * which the source's windows share out. Every other parent derives from one
+ * entry's subtree, which the entry carries whole and a window holds whole, or
+ * from hand-built rows every window serves complete — so its numbers are
+ * exact whether the canvas is inline or paged, loaded or not. A section adds
+ * no path segment, so one at the top (or inside another at the top) sits at
+ * the empty path; one inside an entry sits at that entry's path, and its
+ * members are that entry's.
+ *
+ * @param row - A canvas row
+ * @returns Whether its derived numbers depend on which windows have landed
+ */
+export function spansWindows(row: PlanRowValue): boolean {
+    return row.id.type === "section" && row.id.value.path.length === 0;
+}
+
+/** The canvas rows indexed for traversal. */
 export interface PlanRowIndex {
-    /** Rows in the collection's canonical key order. */
+    /** Rows in STREAM order — the render order. */
     rows: ReadonlyArray<PlanRowValue>;
     /** Row lookup by key. */
     byKey: ReadonlyMap<RowKey, PlanRowValue>;
-    /** Direct children (key order) by parent key. */
+    /** Direct children (stream order) by parent key. */
     children: ReadonlyMap<RowKey, PlanRowValue[]>;
-    /** Root rows (`parent: none`), key order. */
+    /** Top rows (`parent: none`), stream order. */
     roots: ReadonlyArray<PlanRowValue>;
-    /** Nesting depth by key (roots = 0). */
+    /** Nesting depth by key (top rows = 0). */
     depth: ReadonlyMap<RowKey, number>;
-    /** Group-strip keys that the IR declares initially collapsed. */
+    /** The keys of rows the IR declares initially collapsed — any row with
+     *  children may be (#822). */
     initiallyCollapsed: ReadonlySet<RowKey>;
 }
 
 /**
  * Build the row index once per decoded value.
  *
- * @param rows - The decoded rows in collection order (a keyed collection's
- *   values, already in key order — the caller flattens the `SortedMap`)
- * @returns The tree index every other selector walks
+ * @param rows - The canvas rows in stream order ({@link toCanvasRows})
+ * @returns The index every other selector walks
  */
 export function indexRows(rows: ReadonlyArray<PlanRowValue>): PlanRowIndex {
     const byKey = new Map<RowKey, PlanRowValue>();
@@ -92,9 +193,7 @@ export function indexRows(rows: ReadonlyArray<PlanRowValue>): PlanRowIndex {
     for (const root of roots) walk(root, 0);
     const initiallyCollapsed = new Set<RowKey>();
     for (const row of rows) {
-        if (row.kind.type === "group" && row.kind.value.collapsed.type === "some" && row.kind.value.collapsed.value) {
-            initiallyCollapsed.add(row.key);
-        }
+        if (row.collapsed.type === "some" && row.collapsed.value) initiallyCollapsed.add(row.key);
     }
     return { rows, byKey, children, roots, depth, initiallyCollapsed };
 }
@@ -111,13 +210,21 @@ export interface VisibleRow {
 /**
  * The visible rows for the current UI state — the §5/§6 derivation:
  *
- * - `resource` grain (default): depth-first walk; a collapsed group strip (or
- *   collapsed nesting parent) keeps its own line and hides its subtree.
- * - `group` grain: every root group collapses to its summary strip; non-group
- *   roots stay.
+ * - `resource` grain (default): the stream, in order; a collapsed row keeps
+ *   its own line and hides exactly its descendants.
+ * - `group` grain: every top-level group strip collapses to its summary
+ *   strip; other top rows stay.
+ *
+ * The walk follows the STREAM and hides a row whose parent is hidden or
+ * collapsed — by the explicit `parent` keys, never a tree walk, since a
+ * parent's descendants need not follow it directly (#822: an entry's children
+ * under `views` follow all of its view rows while nesting under the first).
+ * A parent precedes its descendants, so one pass suffices. A row whose parent
+ * is nowhere in the stream is not drawn — it derives nothing either
+ * (`derivePlan` walks the same tree).
  *
  * Pinned rows are excluded here — they render above the virtualised body,
- * under the ruler (`pinnedRows`).
+ * under the ruler (`pinnedRows`) — and so are their descendants.
  */
 export function visibleRows(
     index: PlanRowIndex,
@@ -132,20 +239,28 @@ export function visibleRows(
     const isPinned = (row: PlanRowValue) => row.pinned.type === "some" && row.pinned.value;
     // "Must this subtree stay open for the focus?" answered ONCE: the set of
     // strict ANCESTORS of every revealed key, built by walking `parent`
-    // pointers upward — O(reveal × depth). (It used to recurse down the
-    // children per visited row, O(n²) under a links focus on wide trees —
-    // #616.)
+    // pointers upward — O(reveal × depth) (#616).
     const revealAncestors = ancestorsOf(index, reveal);
-    const walk = (row: PlanRowValue, depth: number) => {
-        if (isPinned(row)) return;
-        const kids = index.children.get(row.key) ?? [];
+    // The rows whose descendants are out of view: collapsed, pinned, or
+    // themselves hidden.
+    const closed = new Set<RowKey>();
+    for (const row of index.rows) {
+        if (row.parent.type === "some" && closed.has(row.parent.value)) {
+            closed.add(row.key);
+            continue;
+        }
+        if (isPinned(row)) {
+            closed.add(row.key);
+            continue;
+        }
+        const depth = index.depth.get(row.key);
+        if (depth === undefined) continue;
         const isGroup = row.kind.type === "group";
         const collapsed = (ui.collapsed.has(row.key) || (grain === "group" && isGroup && depth === 0))
             && !revealAncestors.has(row.key);
         out.push({ row, depth, collapsed });
-        if (!collapsed) for (const child of kids) walk(child, depth + 1);
-    };
-    for (const root of index.roots) walk(root, 0);
+        if (collapsed) closed.add(row.key);
+    }
     return out;
 }
 

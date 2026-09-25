@@ -32,7 +32,7 @@ export const pagedSourceCanvas = example({
         "key", "prefix", "row-source", "contract", "in-memory", "Plan", "canvas",
         "keyed", "Dict", "key order", "offline",
     ],
-    description: "Window a collection already in hand — `Paged.of` over a KEYED dict serves DICT windows in canonical key order (the same shape and order a keyed dataset's windows arrive in), reports an exact total, and derives `seek` from the keys themselves, so a search result addresses a real canvas row; the canvas consumes it exactly as it consumes a bound source, which is what makes the whole paged path — windowing, exhaustion on an empty window, totals, key search — runnable with no server",
+    description: "Window a collection already in hand — `Paged.of` over a KEYED dict serves DICT windows in canonical key order (the same shape and order a keyed dataset's windows arrive in), reports an exact total, and derives `seek` from the keys themselves, so a search result addresses the rows its entry makes; the canvas consumes it exactly as it consumes a bound source, which is what makes the whole paged path — windowing, exhaustion on an empty window, totals, key search — runnable with no server",
     fn: East.function([], UIComponentType, ($) => {
         // Monday of ISO week n, 2026 — window W27–W39 (half-open), now W31.
         const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
@@ -40,9 +40,10 @@ export const pagedSourceCanvas = example({
             return w1.addWeeks(n.subtract(1n));
         }));
         const UnitRow = StructType({ start: DateTimeType, end: DateTimeType, tonnes: FloatType });
-        // KEYED, and the keys are the canvas keys: `page` windows this order,
-        // `seek` searches it, and a leaf row's key IS its data key (#568). The
-        // authored order is irrelevant — a Dict is canonical.
+        // KEYED: `page` windows this order, `seek` searches it, and a row's id
+        // path starts with its entry's key (#822), so a hit addresses the rows
+        // that entry makes. The authored order is irrelevant — a Dict is
+        // canonical.
         const units = $.const(new Map([
             ["L1-M07", { start: week(27n), end: week(30n), tonnes: 64.0 }],
             ["L1-M09", { start: week(28n), end: week(32n), tonnes: 112.0 }],
@@ -62,8 +63,8 @@ export const pagedSourceCanvas = example({
                 })],
             }),
         ], ArrayType(Plan.Types.Series(UnitRow)));
-        // A paged canvas DECLARES its window: fitting the axis to whatever
-        // prefix has landed would re-fit it on every landed window (#567 D8).
+        // Every canvas DECLARES its window (#822): a paged one could not fit to
+        // data that has not landed, so an inline one does not either.
         const axis = $.const(Plan.axis({
             window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n),
         }));
@@ -102,7 +103,7 @@ export const pagedTableSource = example({
         "Paged", "of", "paged", "source", "Table", "window", "page", "total",
         "row-source", "contract", "positional", "sort", "partial", "in-memory",
     ],
-    description: "The SAME row-source contract over a positional component — a `Table` takes `Paged.of` exactly as a Plan does, and the difference is only the collection: Table windows are ARRAYS that concatenate in stream order (rows are addressed by index, having no identity field), where a Plan's keyed windows merge by key. Client sort is withdrawn on a paged table and the footer says so, because sorting a loaded prefix sorts within whatever happened to land while looking like a sort of the whole table",
+    description: "The SAME row-source contract over a positional component — a `Table` takes `Paged.of` exactly as a Plan does, and the difference is only the collection: Table windows are ARRAYS that concatenate in stream order (rows are addressed by index, having no identity field), as a Plan's row windows do too, its rows carrying their own typed ids. Client sort is withdrawn on a paged table and the footer says so, because sorting a loaded prefix sorts within whatever happened to land while looking like a sort of the whole table",
     fn: East.function([], UIComponentType, ($) => {
         const UnitRow = StructType({ unit: StringType, line: StringType, tonnes: FloatType });
         const units = $.const([
@@ -157,7 +158,7 @@ export const pagedSourceWindows = example({
         const source = $.const(Paged.of("units", units));
         const series = $.const([
             Plan.series.span(UnitRow, {
-                key: "units-2", title: "Units",
+                key: "units", title: "Units",
                 label: (_r, k) => k, id: true,
                 value: r => some(East.str`${East.Float.printFixed(r.tonnes, 0n)} t`),
                 runs: (r, k) => [Plan.run({

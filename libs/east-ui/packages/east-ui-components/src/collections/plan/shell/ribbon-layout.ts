@@ -27,7 +27,7 @@
  * @packageDocumentation
  */
 
-import type { PlanBodyItem, PlanLinkValue, PlanRowIndex } from "../model.js";
+import { rowKeyOf, type PlanBodyItem, type PlanLinkValue, type PlanRowIndex } from "../model.js";
 import type { PlanScale } from "../scale.js";
 import type { PlanInstantValue } from "../instant.js";
 import type { PlanGeometry } from "../geometry.js";
@@ -222,18 +222,22 @@ function endpointOf(input: RibbonLayoutInput, rowKey: RowKey, runKey: string): E
  */
 export function layoutRibbons(input: RibbonLayoutInput): { ribbons: LaidRibbon[]; fades: RibbonFade[] } {
     const { links, visibleKeys } = input;
-    const edges: { link: number; l: PlanLinkValue }[] = [];
+    // A link names its ends by row id (#822); the body keys its rows by the
+    // ids' text.
+    const edges: { link: number; l: PlanLinkValue; fromKey: RowKey; toKey: RowKey }[] = [];
     links.forEach((l, link) => {
-        if (visibleKeys.has(l.fromRow) && visibleKeys.has(l.toRow)) edges.push({ link, l });
+        const fromKey = rowKeyOf(l.fromRow);
+        const toKey = rowKeyOf(l.toRow);
+        if (visibleKeys.has(fromKey) && visibleKeys.has(toKey)) edges.push({ link, l, fromKey, toKey });
     });
     // Opacity is a share of the FAMILY's largest quantity — over every edge
     // the focus gathers, so a ribbon does not brighten as others scroll away.
     const maxQty = edges.reduce((m, { l }) => Math.max(m, Math.abs(l.quantity)), 0);
     const ribbons: LaidRibbon[] = [];
     const fades: RibbonFade[] = [];
-    for (const { link, l } of edges) {
-        const from = endpointOf(input, l.fromRow, l.fromRun);
-        const to = endpointOf(input, l.toRow, l.toRun);
+    for (const { link, l, fromKey, toKey } of edges) {
+        const from = endpointOf(input, fromKey, l.fromRun);
+        const to = endpointOf(input, toKey, l.toRun);
         if (from === undefined || to === undefined) continue;
         // Both ends past the same edge: nothing of it is in view.
         if (from.end.off !== undefined && from.end.off === to.end.off) continue;

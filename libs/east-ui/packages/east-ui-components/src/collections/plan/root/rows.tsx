@@ -60,7 +60,8 @@ export interface PlanRowContext {
     /** The focused row's developer render / gutter body, or `null`. */
     expandBody: UIValue | null;
     expandGutterBody: UIValue | null;
-    /** Whether derived numbers cover an incomplete paged prefix. */
+    /** Whether the source is not yet exhausted — a paged canvas still loading
+     *  (a top-level section's count then covers only the loaded windows). */
     partial: boolean | undefined;
     review: PlanReview | undefined;
     rowDrop: PlanRowDrop | undefined;

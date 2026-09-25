@@ -22,8 +22,10 @@ import { none, some, variant } from "@elaraai/east";
 import { system } from "../../theme/index.js";
 import { initializeStore } from "../../platform/state-runtime.js";
 import { UIStore } from "../../platform/state-store.js";
-import { EastChakraPlan, type PlanRootValue, type PlanRowValue } from "./index.js";
+import { EastChakraPlan, type PlanRootValue } from "./index.js";
+import type { PlanRowId, PlanWireRow } from "./model.js";
 import type { PlanInstantValue } from "./instant.js";
+import { rowId, rowIdEqual, rowSel } from "./plan.test-utils.js";
 
 class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
 (globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverStub;
@@ -71,19 +73,21 @@ const spanKind = (runs: unknown[], ports: unknown[] = []) =>
 const port = (at: number, label?: string) =>
     ({ at: t(week(at)), label: label !== undefined ? some(label) : none });
 
-function planRow(key: string, kind: unknown, parent?: string): PlanRowValue {
+/** One WIRE row, as the source serves it — named by its test key (#822). */
+function planRow(key: string, kind: unknown, parent?: string, collapsed?: boolean): PlanWireRow {
     return {
-        key,
-        parent: parent !== undefined ? some(parent) : none,
+        id: rowId(key),
+        parent: parent !== undefined ? some(rowId(parent)) : none,
         gutter: { label: key, id: none, sub: none, value: none, meta: none, stacked: none, swatches: [] },
         kind,
+        collapsed: collapsed === true ? some(true) : none,
         pinned: none, height: none, status: none, approval: none, expand: none,
-    } as unknown as PlanRowValue;
+    } as unknown as PlanWireRow;
 }
 
-function planRoot(rows: PlanRowValue[], opts: { popover?: unknown; hover?: unknown; onRunClick?: unknown } = {}): PlanRootValue {
+function planRoot(rows: PlanWireRow[], opts: { popover?: unknown; hover?: unknown; onRunClick?: unknown } = {}): PlanRootValue {
     return {
-        rows: variant("inline", new Map(rows.map((r) => [r.key, r]))),
+        rows: variant("inline", rows),
         links: [],
         axis: variant("time", {
             window: some({ min: W27, max: W39 }), resolution: variant("week", null),
@@ -106,11 +110,15 @@ const renderPlan = (value: PlanRootValue, key: string) => render(
     </ChakraProvider>,
 );
 
-/** The element refs a resolver was called with, as `kind:row/key`. */
-type Ref = { type: string; value: { row: string; run?: string; at?: { type: string; value: Date } } };
-const refText = (ref: Ref) => ref.type === "cell"
-    ? `cell:${ref.value.row}@${ref.value.at!.value.toISOString().slice(0, 10)}`
-    : `${ref.type}:${ref.value.row}/${ref.value.run ?? ""}`;
+/** The element refs a resolver was called with, as `kind:row/key` — the row
+ *  named by its id's path (#822). */
+type Ref = { type: string; value: { row: PlanRowId; run?: string; at?: { type: string; value: Date } } };
+const refText = (ref: Ref) => {
+    const row = ref.value.row.value.path.join("/");
+    return ref.type === "cell"
+        ? `cell:${row}@${ref.value.at!.value.toISOString().slice(0, 10)}`
+        : `${ref.type}:${row}/${ref.value.run ?? ""}`;
+};
 /** A resolver that records its calls and opens a body named after the ref. */
 function recording(label: string) {
     const calls: string[] = [];
@@ -167,7 +175,7 @@ describe("one overlay layer (#816)", () => {
         expect(overlayParts()).toHaveLength(0);
         expect(pop.calls).toEqual([]);
 
-        await userEvent.setup().click(container.querySelector('[data-plan-row="r07"] [data-run="x3"]')!);
+        await userEvent.setup().click(container.querySelector(`${rowSel("r07")} [data-run="x3"]`)!);
         expect(await screen.findByText("POP · run:r07/x3")).toBeTruthy();
         // One popover, however many elements: every popover part sits in the
         // one open surface.
@@ -205,7 +213,7 @@ describe("one overlay layer (#816)", () => {
         const hov = recording("HOV");
         const { container } = renderPlan(planRoot([heat, weight, segments, table], { popover: pop.fn, hover: hov.fn }), "plan-816-cells");
         const user = userEvent.setup();
-        const cell = (row: string) => container.querySelector<HTMLElement>(`[data-plan-row="${row}"] [data-cell]`)!;
+        const cell = (row: string) => container.querySelector<HTMLElement>(`${rowSel(row)} [data-cell]`)!;
 
         await user.click(cell("heat"));
         expect(await screen.findByText("POP · cell:heat@2026-07-06")).toBeTruthy();
@@ -241,7 +249,7 @@ describe("one overlay layer (#816)", () => {
             const pop = recording("POP");
             const { container } = renderPlan(planRoot([heat], { popover: pop.fn }), "plan-816-narrow");
             await waitFor(() => expect(container.querySelector("[data-plan-narrow]")).toBeTruthy());
-            await userEvent.setup().click(container.querySelector('[data-plan-card="heat"] [data-cell]')!);
+            await userEvent.setup().click(container.querySelector(`${rowSel("heat", "data-plan-card")} [data-cell]`)!);
             expect(await screen.findByText("POP · cell:heat@2026-07-06")).toBeTruthy();
         } finally {
             Element.prototype.getBoundingClientRect = realRect;
@@ -252,7 +260,7 @@ describe("one overlay layer (#816)", () => {
      *  esc rung has something to spend, and the run's bar focused. */
     function selectedBar(key: string, popover: unknown) {
         const { container } = renderPlan(planRoot([planRow("m1", spanKind([run("b214", 1, 4)]))], { popover }), key);
-        const row = container.querySelector<HTMLElement>('[data-plan-row="m1"]')!;
+        const row = container.querySelector<HTMLElement>(rowSel("m1"))!;
         fireEvent.click(row.children[0]!);
         expect(row.hasAttribute("data-selected")).toBe(true);
         const bar = container.querySelector<HTMLElement>('[data-run="b214"]')!;
@@ -379,8 +387,7 @@ describe("one overlay layer (#816)", () => {
                 min: some(0), max: some(100), warnAt: none,
             })),
             summaryAggregate: none,
-            collapsed: some(true),
-        }));
+        }), undefined, true);
         const { container } = renderPlan(planRoot([
             group,
             planRow("m1", spanKind([run("b214", 1, 4)]), "line"),
@@ -389,12 +396,15 @@ describe("one overlay layer (#816)", () => {
         const user = userEvent.setup();
         await user.click(container.querySelector('[data-run="c7"]')!);
         expect(await screen.findByText("POP · run:m2/c7")).toBeTruthy();
-        expect(container.querySelector('[data-plan-row="m2"]')!.hasAttribute("data-selected")).toBe(true);
-        await waitFor(() => expect(clicks).toEqual([{ row: "m2", run: "c7" }]));
+        expect(container.querySelector(rowSel("m2"))!.hasAttribute("data-selected")).toBe(true);
+        await waitFor(() => expect(clicks).toHaveLength(1));
+        const click = clicks[0] as { row: PlanRowId; run: string };
+        expect(rowIdEqual(click.row, rowId("m2"))).toBe(true);
+        expect(click.run).toBe("c7");
         // The strip's cell is the band's toggle, not an element.
-        expect(container.querySelector('[data-plan-group="line"] [data-cell]')).toBeNull();
+        expect(container.querySelector(`${rowSel("line", "data-plan-group")} [data-cell]`)).toBeNull();
         await user.click(screen.getByText("80"));
-        expect(container.querySelector('[data-plan-row="m1"]')).toBeTruthy();
+        expect(container.querySelector(rowSel("m1"))).toBeTruthy();
         expect(pop.calls).toEqual(["run:m2/c7"]);
     });
 

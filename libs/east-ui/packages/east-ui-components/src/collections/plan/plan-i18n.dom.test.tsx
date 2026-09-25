@@ -20,7 +20,9 @@ import { system } from "../../theme/index.js";
 import { initializeStore } from "../../platform/state-runtime.js";
 import { UIStore } from "../../platform/state-store.js";
 import { registerReactiveTracker, type ReactiveTracker } from "../../reactive/tracker.js";
-import { EastChakraPlan, type PlanRootValue, type PlanRowValue } from "./index.js";
+import { EastChakraPlan, type PlanRootValue } from "./index.js";
+import type { PlanWireRow } from "./model.js";
+import { itemSel, rowId, rowSel } from "./plan.test-utils.js";
 import { PlanMessagesProvider, planMessages, type PlanMessages } from "./messages.js";
 import { PLAN_PAGE_SIZE } from "./use-plan-paging.js";
 import type { PlanInstantValue } from "./instant.js";
@@ -43,18 +45,19 @@ const NOW = new Date("2026-07-13T00:00:00Z");
 const day = (iso: string) => new Date(`${iso}T00:00:00Z`);
 const t = (d: Date): PlanInstantValue => variant("time", d) as PlanInstantValue;
 
-function planRow(key: string, kind: unknown, opts?: { parent?: string; label?: string; status?: string }): PlanRowValue {
+/** One WIRE row, as the source serves it — named by its test key (#822). */
+function planRow(key: string, kind: unknown, opts?: { parent?: string; label?: string; status?: string }): PlanWireRow {
     return {
-        key,
-        parent: opts?.parent !== undefined ? some(opts.parent) : none,
+        id: rowId(key),
+        parent: opts?.parent !== undefined ? some(rowId(opts.parent)) : none,
         gutter: { label: opts?.label ?? key, id: none, sub: none, value: none, meta: none, stacked: none, swatches: [] },
         kind,
-        pinned: none, height: none,
+        collapsed: none, pinned: none, height: none,
         status: opts?.status !== undefined ? some(variant(opts.status, null)) : none,
         approval: none, expand: none,
-    } as unknown as PlanRowValue;
+    } as unknown as PlanWireRow;
 }
-const group = () => variant("group", { summary: none, summaryAggregate: none, collapsed: none });
+const group = () => variant("group", { summary: none, summaryAggregate: none });
 function run(key: string, start: PlanInstantValue, end: PlanInstantValue, opts?: { qty?: number; moved?: bigint }) {
     return {
         key, start, end, label: key.toUpperCase(), quantity: none,
@@ -76,14 +79,12 @@ const heat = (cells: [Date, number][], aggregate?: string) => variant("heat", {
     aggregate: aggregate !== undefined ? some(variant(aggregate, null)) : none,
 });
 
-function planRoot(rows: PlanRowValue[], opts: {
+function planRoot(rows: PlanWireRow[], opts: {
     source?: unknown; resolution?: string; window?: { min: Date; max: Date } | null; links?: unknown[]; review?: unknown;
 } = {}): PlanRootValue {
     const window = opts.window === null ? none : some(opts.window ?? { min: W27, max: W39 });
     return {
-        rows: opts.source !== undefined
-            ? variant("paged", opts.source)
-            : variant("inline", new Map(rows.map((r) => [r.key, r]))),
+        rows: opts.source !== undefined ? variant("paged", opts.source) : variant("inline", rows),
         links: opts.links ?? [],
         axis: variant("time", {
             window, resolution: variant(opts.resolution ?? "week", null),
@@ -136,10 +137,7 @@ function heldSource(windows: number, rowsPer: number, openUpTo = 0) {
             const w = Number(offset) / PLAN_PAGE_SIZE;
             recording?.push(`w${w}`);
             if (w > state.openUpTo) return none;
-            return some(new Map(Array.from({ length: rowsPer }, (_u, i) => {
-                const row = planRow(`w${w}r${String(i).padStart(2, "0")}`, span([]));
-                return [row.key, row] as const;
-            })));
+            return some(Array.from({ length: rowsPer }, (_u, i) => planRow(`w${w}r${String(i).padStart(2, "0")}`, span([]))));
         },
         total: () => some(BigInt(windows * PLAN_PAGE_SIZE)),
         seek: none,
@@ -176,7 +174,7 @@ const allMarked = (texts: readonly string[]) => {
 // ── Every chrome word is the table's ──────────────────────────────────────
 describe("one message table (#820)", () => {
     test("desktop: the toolbar, the ruler, a group's meta, a diagnostic row, a run's counter and a links focus all speak it", () => {
-        const links = [{ fromRow: "s", fromRun: "r1", toRow: "u", toRun: "ru", quantity: 1, label: "1 t" }];
+        const links = [{ fromRow: rowId("s"), fromRun: "r1", toRow: rowId("u"), toRun: "ru", quantity: 1, label: "1 t" }];
         const { container } = renderPlan(planRoot([
             planRow("G", group(), { label: "Line 1" }),
             planRow("s", span([run("r1", t(W27), t(day("2026-07-13")), { moved: 2n })]), { parent: "G" }),
@@ -196,7 +194,7 @@ describe("one message table (#820)", () => {
         expect(words(ruler)).toContain("⟦W27");
         expect(words(ruler)).toContain("⟦NOW");
         // A group band: the author's label, then the derived meta.
-        expect(words(container.querySelector("[data-plan-group='G'] [role='rowheader']")!)).toEqual(["Line 1", "⟦3 rs"]);
+        expect(words(container.querySelector(`${rowSel("G", "data-plan-group")} [role='rowheader']`)!)).toEqual(["Line 1", "⟦3 rs"]);
         // A diagnostic row's reason.
         allMarked(words(container.querySelector("[data-plan-diagnostic]")!));
         // A run bar: the author's label, then the churn counter.
@@ -206,7 +204,7 @@ describe("one message table (#820)", () => {
         expect(container.querySelector("[data-run='r1']")!.getAttribute("aria-label")).toMatch(/^⟦/u);
         // A links focus: the control's name, the way back, the caption, and
         // the family tag each related row wears.
-        const control = container.querySelector("[data-plan-item='r:s'] [data-plan-control='links']")!;
+        const control = container.querySelector(`${itemSel("s")} [data-plan-control='links']`)!;
         expect(control.getAttribute("aria-label")).toBe("⟦Focus linked rows");
         fireEvent.click(control);
         allMarked(words(container.querySelector("[data-plan-focusbar]")!));
@@ -222,10 +220,7 @@ describe("one message table (#820)", () => {
             page: (offset: bigint) => {
                 const w = Number(offset) / PLAN_PAGE_SIZE;
                 if (w === 1 && state.failing) throw new Error("fetch failed: 503");
-                return some(new Map(Array.from({ length: 2 }, (_u, i) => {
-                    const row = planRow(`w${w}r${i}`, span([]));
-                    return [row.key, row] as const;
-                })));
+                return some(Array.from({ length: 2 }, (_u, i) => planRow(`w${w}r${i}`, span([]))));
             },
             total: () => some(BigInt(3 * PLAN_PAGE_SIZE)),
             seek: none,
@@ -246,7 +241,7 @@ describe("one message table (#820)", () => {
     test("paged: the footer's transport line, the unloaded band, and what the live region says", async () => {
         const held = heldSource(5, 16);
         const { container } = renderPlan(planRoot([], { source: held.source }), "plan-820-paged", marked);
-        await waitFor(() => expect(container.querySelector("[data-plan-item='r:w0r15']")).toBeTruthy());
+        await waitFor(() => expect(container.querySelector(itemSel("w0r15"))).toBeTruthy());
         allMarked(words(container.querySelector("[data-slot='footerTransport']")!));
         allMarked(words(container.querySelector("[data-plan-window-band]")!));
         // The controller speaks the table too — the landing it announced.
@@ -268,7 +263,7 @@ describe("one message table (#820)", () => {
     test("the empty state — a canvas with no window", () => {
         const { container } = renderPlan(planRoot([], { window: null }), "plan-820-empty", marked);
         expect(words(container.querySelector("[data-plan-empty]")!))
-            .toEqual(["⟦NO WINDOW — give the plan an axis window, a bound slice range, or dated rows"]);
+            .toEqual(["⟦NO WINDOW — declare an axis window, or bind a slice whose range supplies it"]);
     });
 
     describe("narrow (§10)", () => {
@@ -292,10 +287,10 @@ describe("one message table (#820)", () => {
             expect(words(tabs)).toEqual(["⟦Groups", "⟦1", "⟦Rows", "⟦2"]);
             // A group's section head: its label, then its meta; the rows in
             // no group, under the table's own heading.
-            expect(words(container.querySelector("[data-plan-section='G']")!)).toEqual(["Line 1", "⟦1 rs"]);
+            expect(words(container.querySelector(rowSel("G", "data-plan-section"))!)).toEqual(["Line 1", "⟦1 rs"]);
             allMarked(words(container.querySelector("[data-plan-section='other']")!));
             // Scoped to the group: the way back is the table's.
-            fireEvent.click(container.querySelector("[data-plan-section='G']")!);
+            fireEvent.click(container.querySelector(rowSel("G", "data-plan-section"))!);
             allMarked(words(container.querySelector("[data-plan-back]")!));
             cleanup();
             // A plan with nothing to list says so in the table's words.
@@ -320,7 +315,7 @@ describe("the locale (#820)", () => {
     const week = { min: W27, max: day("2026-07-06") };
     const german = (plan: ReactNode) => <I18nProvider locale="de-DE">{plan}</I18nProvider>;
     const ticks = (c: HTMLElement) => [...c.querySelectorAll("[data-slot='rulerTick']")].map((x) => x.textContent);
-    const heatLabel = (c: HTMLElement) => c.querySelector("[data-plan-row='H'] [data-plan-bucket] > span")!.textContent;
+    const heatLabel = (c: HTMLElement) => c.querySelector(`${rowSel("H")} [data-plan-bucket] > span`)!.textContent;
 
     test("under I18nProvider de-DE, derived numbers and ruler dates are German", () => {
         const { container, getByText } = renderPlan(planRoot(rows(), { resolution: "day", window: week }), "plan-820-de", german);
@@ -380,14 +375,14 @@ describe("PlanMessagesProvider (#820)", () => {
                 <PlanMessagesProvider messages={INNER}>{plan}</PlanMessagesProvider>
             </PlanMessagesProvider>
         ));
-        expect(words(container.querySelector("[data-plan-group='G'] [role='rowheader']")!)).toEqual(["Line 1", "2 Zeilen"]);
+        expect(words(container.querySelector(`${rowSel("G", "data-plan-group")} [role='rowheader']`)!)).toEqual(["Line 1", "2 Zeilen"]);
         expect(words(container.querySelector("[data-plan-seg='grain']")!)).toEqual(["GRUPPE", "RESSOURCE"]);
         expect(words(container.querySelector("[data-slot='ruler']")!)[0]).toBe("RESSOURCE");
         // The inner table reaches the controller: the live region speaks it.
-        fireEvent.click(container.querySelector("[data-plan-item='r:s']")!);
+        fireEvent.click(container.querySelector(itemSel("s"))!);
         expect(container.querySelector("[data-plan-announce]")!.textContent).toBe("Ausgewählt: Mill 3");
         // Whatever neither overrides is the default table's.
-        expect(container.querySelector("[data-plan-item='r:s'] [role='rowheader'] [role='img']")!.getAttribute("aria-label"))
+        expect(container.querySelector(`${itemSel("s")} [role='rowheader'] [role='img']`)!.getAttribute("aria-label"))
             .toBe("Status: warning");
         expect(container.querySelector("[role='treegrid']")!.getAttribute("aria-label")).toBe("Plan");
     });
@@ -395,17 +390,17 @@ describe("PlanMessagesProvider (#820)", () => {
     test("a new table takes effect without a remount", () => {
         const { container, rerenderWith } = renderPlan(fixture(), "plan-820-swap",
             (plan) => <PlanMessagesProvider messages={OUTER}>{plan}</PlanMessagesProvider>);
-        expect(words(container.querySelector("[data-plan-group='G'] [role='rowheader']")!)).toEqual(["Line 1", "2 Zeilen"]);
-        fireEvent.click(container.querySelector("[data-plan-item='r:m']")!);
+        expect(words(container.querySelector(`${rowSel("G", "data-plan-group")} [role='rowheader']`)!)).toEqual(["Line 1", "2 Zeilen"]);
+        fireEvent.click(container.querySelector(itemSel("m"))!);
         expect(container.querySelector("[data-plan-announce]")!.textContent).toBe("Selected m");
         const french: Partial<PlanMessages> = {
             groupMeta: ({ count }) => `${count} lignes`,
             announceSelected: ({ label }) => `Sélectionné : ${label}`,
         };
         rerenderWith((plan) => <PlanMessagesProvider messages={french}>{plan}</PlanMessagesProvider>);
-        expect(words(container.querySelector("[data-plan-group='G'] [role='rowheader']")!)).toEqual(["Line 1", "2 lignes"]);
+        expect(words(container.querySelector(`${rowSel("G", "data-plan-group")} [role='rowheader']`)!)).toEqual(["Line 1", "2 lignes"]);
         // The controller hears the new table too.
-        fireEvent.click(container.querySelector("[data-plan-item='r:s']")!);
+        fireEvent.click(container.querySelector(itemSel("s"))!);
         expect(container.querySelector("[data-plan-announce]")!.textContent).toBe("Sélectionné : Mill 3");
     });
 });

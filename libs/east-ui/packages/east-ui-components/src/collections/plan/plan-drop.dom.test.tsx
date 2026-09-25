@@ -27,12 +27,15 @@
 import { describe, test, expect, afterEach } from "vitest";
 import { render, cleanup, fireEvent } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
-import { variant, some, none } from "@elaraai/east";
+import { parseFor, variant, some, none } from "@elaraai/east";
+import { Plan } from "@elaraai/east-ui/internal";
 import { system } from "../../theme/index.js";
 import { initializeStore } from "../../platform/state-runtime.js";
 import { UIStore } from "../../platform/state-store.js";
 import { DragLayerProvider, useDragSourceItem, type DragEventValue } from "../../dnd/drag-layer";
-import { EastChakraPlan, type PlanRootValue, type PlanRowValue } from "./index.js";
+import { EastChakraPlan, type PlanRootValue } from "./index.js";
+import type { PlanWireRow } from "./model.js";
+import { rowId, rowIdEqual, rowKey, testKeyOf } from "./plan.test-utils.js";
 
 afterEach(cleanup);
 
@@ -43,15 +46,15 @@ const W27 = new Date("2026-06-29T00:00:00Z");
 const W31 = new Date("2026-07-27T00:00:00Z");
 const W39 = new Date("2026-09-21T00:00:00Z");
 
-/** One row of a given kind — every kind's minimal empty payload. */
-function row(key: string, kind: PlanRowValue["kind"]): PlanRowValue {
+/** One WIRE row of a given kind — every kind's minimal empty payload (#822). */
+function row(key: string, kind: PlanWireRow["kind"]): PlanWireRow {
     return {
-        key,
+        id: rowId(key),
         parent: none,
         gutter: { label: key, id: none, sub: none, value: none, meta: none, stacked: none, swatches: [] },
         kind,
-        pinned: none, height: none, status: none, approval: none, expand: none,
-    } as unknown as PlanRowValue;
+        collapsed: none, pinned: none, height: none, status: none, approval: none, expand: none,
+    } as unknown as PlanWireRow;
 }
 
 const KINDS = {
@@ -71,8 +74,8 @@ const KINDS = {
         series: [], split: variant("horizontal", null),
         aggregate: none, format: none, emphasis: variant("body", null),
     }),
-    group:   variant("group", { summary: none, summaryAggregate: none, collapsed: none }),
-} as unknown as Record<string, PlanRowValue["kind"]>;
+    group:   variant("group", { summary: none, summaryAggregate: none }),
+} as unknown as Record<string, PlanWireRow["kind"]>;
 
 interface PlanOpts {
     id?: string;
@@ -99,9 +102,9 @@ function axisOf(kind: PlanOpts["axis"]): unknown {
     }
 }
 
-function planRoot(rows: PlanRowValue[], opts: PlanOpts = {}): PlanRootValue {
+function planRoot(rows: PlanWireRow[], opts: PlanOpts = {}): PlanRootValue {
     return {
-        rows: variant("inline", new Map(rows.map((r) => [r.key, r]))),
+        rows: variant("inline", rows),
         links: [],
         axis: axisOf(opts.axis),
         grain: none, popover: none, hover: none,
@@ -152,7 +155,10 @@ function renderPlan(value: PlanRootValue) {
 /** The registered drop cells, named by the row each one belongs to. */
 function dropRows(container: HTMLElement): string[] {
     return Array.from(container.querySelectorAll<HTMLElement>("[data-drag-cell]"))
-        .map((el) => el.closest("[data-plan-row]")?.getAttribute("data-plan-row") ?? "?");
+        .map((el) => {
+            const row = el.closest("[data-plan-row]")?.getAttribute("data-plan-row");
+            return row !== null && row !== undefined ? testKeyOf(row) : "?";
+        });
 }
 
 const ALL_KINDS = [
@@ -193,7 +199,7 @@ describe("Plan drop target", () => {
         expect(container.querySelectorAll("[data-plan-drop-preview]")).toHaveLength(0);
     });
 
-    test("a drop reports `add` with the row KEY and the bucket instant", async () => {
+    test("a drop reports `add` with the row's id as its canonical text, and the bucket instant", async () => {
         const events: DragEventValue[] = [];
         const { container, getByTestId } = renderPlan(
             planRoot(ALL_KINDS, { onDrag: (e) => { events.push(e); } }));
@@ -209,9 +215,13 @@ describe("Plan drop target", () => {
             expect(add.from.library).toBe("cards");
             expect(add.from.key).toBe("job-1");
             expect(add.into.surface).toBe("ops-plan");
-            // The row is the canvas row's own KEY — a Plan row key IS its data
-            // key, so the host maps it straight back with no lookup table.
-            expect(add.into.row).toBe("a-span");
+            // The row is its id's canonical text (#822) — the shared drag
+            // grammar stays string-based, and the host parses it straight back
+            // to the typed id (`row.parse(Plan.Types.RowId)`), no lookup table.
+            expect(add.into.row).toBe(rowKey("a-span"));
+            const parsed = parseFor(Plan.Types.RowId)(add.into.row);
+            if (!parsed.success) throw new Error(`the drop's row is no id: ${parsed.error}`);
+            expect(rowIdEqual(parsed.value, rowId("a-span"))).toBe(true);
             // The slot is the bucket the pointer was over, named by its START
             // instant. jsdom reports a zero-width rect, so the pointer resolves
             // into the FIRST bucket — deterministic here, and the encoding is
@@ -246,7 +256,7 @@ describe("Plan drop target", () => {
         const { container, getByTestId } = renderPlan(planRoot(ALL_KINDS, {
             onDrag: (e) => { events.push(e); },
             // This canvas takes the card on `events` rows only.
-            canDrop: (e) => e.type === "add" && e.value.into.row === "g-events",
+            canDrop: (e) => e.type === "add" && e.value.into.row === rowKey("g-events"),
         }));
         const cells = container.querySelectorAll<HTMLElement>("[data-drag-cell]");
         const spanCell = cells[0]!;

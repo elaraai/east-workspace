@@ -11,32 +11,34 @@
  * heat/table rows (Matrix cells / bucketed numerals), cards rows (Roster
  * chips) and event rows — sliced and reviewed as one surface.
  *
- * A canvas is DEFINED as `data` + `series`: a keyed source of raw rows, and
- * one `Plan.series.*` value per row series whose accessors derive the canvas
- * rows (`Plan.pick` makes the list pickable). The kind factories (`Plan.span`
- * / `buckets` / … / `group`) build the rows no dataset holds, placed by a
- * `Plan.series.rows` entry.
+ * A canvas is DEFINED as `data` + `series`: a keyed source of entries, and a
+ * list of `Plan.series.*` row recipes over them (`Plan.pick` makes the list
+ * pickable). The list IS the layout — each series contributes one contiguous
+ * block, in declared order — and the rows are an ordered STREAM
+ * (`Array<PlanRow>`, #822), each parent followed by its subtree. The kind
+ * factories (`Plan.span` / `buckets` / … / `group`) build the rows no dataset
+ * holds, placed by a `Plan.series.rows` entry.
  *
- * Rows are **flat and KEYED** in the IR (`Dict<String, PlanRow>`) with
- * `parent` keys; the kind factories nest via `rows:`, the span / heat / table
- * series via `groupBy`, and the declared aggregates — span rollup bands
- * (union / byStatus, `×k` peak concurrency, summed quantities, pessimistic
- * certainty), per-bucket heat `mean`/`max`/`sum`, table subtotals, strip
- * summaries and member counts — are derived renderer-side from the tree the
- * `parent` keys encode. Every kind factory returns the row's **subtree**
- * (`ExprType<PlanRowsCollectionType>`), so factories compose: a nested `rows:`
- * input is just other factories' results, and a repeated key is one row, not
- * two (#568).
+ * Hierarchy comes only from the data's own nesting: a series' `children` walk
+ * more of its own entries (a recursive entry, to any depth) or step down with
+ * `Plan.children(of, [series…])`; `Plan.series.section` titles a block and
+ * `Plan.series.views` shows one entry several ways. The declared aggregates —
+ * span rollup bands (union / byStatus, `×k` peak concurrency, summed
+ * quantities, pessimistic certainty), per-bucket heat `mean`/`max`/`sum`,
+ * table subtotals, strip summaries and member counts — are derived
+ * renderer-side from the tree the rows' `parent` ids encode, and are exact
+ * because a whole subtree rides in its entry. Every row carries a typed id
+ * (`{ series, path }` — `Plan.ref` builds one), which every callback reports.
  *
  * The module is the namespace assembler over the split sources:
  * `types.ts` (the UIComponent-free row vocabulary) · `ir.ts` (the root and
  * review types at `UIComponentType`) · `builders.ts` (the axis, instant,
- * element and cell builders) · `assemble.ts` (the row envelope, subtree
- * re-parenting and group parents) · `factories.ts` (the kind factories and
- * chart-layer consumption) · `data-forms.ts` (the accessor configs and the
- * groupBy engine behind the series) · `series.ts` (`Plan.series.*` and their
- * application to `data`) · `pick.ts` (`Plan.pick` / `Plan.pickItems`) ·
- * `root.ts` (`Plan.Root`).
+ * element and cell builders, and row ids) · `assemble.ts` (the one row
+ * envelope, the row streams and their re-basing) · `factories.ts` (the kind
+ * factories, the per-kind constructors and chart-layer consumption) ·
+ * `series.ts` (`Plan.series.*`, `Plan.children` and their application to
+ * `data`) · `pick.ts` (`Plan.pick` / `Plan.pickItems`) · `root.ts`
+ * (`Plan.Root`).
  *
  * @packageDocumentation
  */
@@ -73,7 +75,7 @@ import {
     PlanTableSplitType,
     PlanTableEmphasisType,
     PlanEventMarkKindType,
-    PlanRowRefType,
+    PlanRowIdType,
     PlanRunClickEventType,
     PlanEventClickEventType,
     PlanMarkClickEventType,
@@ -116,6 +118,8 @@ import {
     createTableCells,
     createTableSeries,
     createLink,
+    createRef,
+    createSectionRef,
 } from "./builders.js";
 import {
     createLayer,
@@ -140,7 +144,10 @@ import {
     createSeriesCards,
     createSeriesEvents,
     createSeriesGroup,
+    createSeriesSection,
+    createSeriesViews,
     createSeriesRows,
+    createChildren,
 } from "./series.js";
 import { createPlanRoot } from "./root.js";
 import { createPlanPick, createPlanPickItems } from "./pick.js";
@@ -220,7 +227,7 @@ export {
     PlanTableEmphasisType,
     type PlanTableEmphasisLiteral,
     PlanEventMarkKindType,
-    PlanRowRefType,
+    PlanRowIdType,
     PlanRunClickEventType,
     PlanEventClickEventType,
     PlanMarkClickEventType,
@@ -268,7 +275,7 @@ export {
     type PlanTableSeriesInput,
     type PlanLinkInput,
 } from "./builders.js";
-export { type PlanExpandInput, type PlanRowBaseInput, type PlanRowsInput } from "./assemble.js";
+export { type PlanExpandInput, type PlanRowBaseInput, type PlanRowsInput, type PlanRowFields, type PlanGutterFields } from "./assemble.js";
 export {
     type PlanLayerChannels,
     type PlanWrappedLayer,
@@ -282,22 +289,27 @@ export {
     type PlanCardsInput,
     type PlanEventsInput,
     type PlanGroupInput,
+    type PlanSpanParts,
+    type PlanBucketsParts,
+    type PlanChartParts,
+    type PlanHeatParts,
+    type PlanTableParts,
 } from "./factories.js";
-export {
-    type PlanAccessor,
-    type PlanElementsAccessor,
-    type PlanKindedAccessor,
-    type PlanSpanOfConfig,
-    type PlanHeatOfConfig,
-    type PlanTableOfConfig,
-} from "./data-forms.js";
 export { type PlanReviewConfig, type PlanConfig } from "./root.js";
 export { type PlanPickOptions, createPlanPick, createPlanPickItems } from "./pick.js";
 export {
     PlanSeriesType,
+    type PlanSeriesArm,
     type PlanSeriesValue,
     type PlanSeriesInput,
-    type PlanSeriesEnvelopeConfig,
+    type PlanSeriesIdentity,
+    type PlanEntryExpr,
+    type PlanAccessor,
+    type PlanElementsAccessor,
+    type PlanKindedAccessor,
+    type PlanChildren,
+    type PlanChildrenInput,
+    type PlanSeriesRowConfig,
     type PlanSpanSeriesConfig,
     type PlanHeatSeriesConfig,
     type PlanTableSeriesOfConfig,
@@ -305,8 +317,9 @@ export {
     type PlanCardsSeriesConfig,
     type PlanEventsSeriesConfig,
     type PlanChartSeriesConfig,
-    type PlanGroupSeriesChrome,
-    type PlanGroupSeriesByConfig,
+    type PlanGroupSeriesConfig,
+    type PlanSectionSeriesConfig,
+    type PlanViewsSeriesConfig,
 } from "./series.js";
 
 // ============================================================================
@@ -328,7 +341,7 @@ export interface PlanNamespace {
      *  `.ordinal(s)` (element builders wrap by type; these are for records
      *  written as data and for reading as a declaration). */
     at: typeof at;
-    /** Span-row SUBTREE builder (`series.rows` chrome + nested `rows:` input). */
+    /** Span-row stream builder (`series.rows` chrome + nested `rows:` input). */
     span: typeof createSpan;
     /** Bucket-row subtree builder. */
     buckets: typeof createBuckets;
@@ -345,28 +358,38 @@ export interface PlanNamespace {
     /** Group strips (the heterogeneous container). */
     group: typeof createGroup;
     /** Data-driven row SERIES over one source (`data` + `series` props) —
-     *  each builder takes the row type first and returns a real East series
-     *  value (`Plan Data Interface.md` §3.5a). */
+     *  each builder takes the entry type first and returns a real East series
+     *  value; the list is the layout (#822). */
     series: {
-        /** A span series (runs; groupBy rollup parents). */
+        /** A span series (runs; a parent rolls its subtree up into bands). */
         span: typeof createSeriesSpan;
         /** A bucket series (Planner tiles). */
         buckets: typeof createSeriesBuckets;
-        /** A chart series (layers from each row's data). */
+        /** A chart series (layers from each entry's data). */
         chart: typeof createSeriesChart;
-        /** A heat series (groupBy aggregate parents). */
+        /** A heat series (a parent aggregates its children per bucket). */
         heat: typeof createSeriesHeat;
-        /** A table series (groupBy subtotal parents). */
+        /** A table series (a parent subtotals its children per position). */
         table: typeof createSeriesTable;
         /** A cards series (Roster chips). */
         cards: typeof createSeriesCards;
         /** An events series (instant marks). */
         events: typeof createSeriesEvents;
-        /** A group strip around child series. */
+        /** One group strip per entry, its members the entry's children. */
         group: typeof createSeriesGroup;
-        /** Literal one-off chrome rows, placed by their own keys. */
+        /** A fixed titled block over series. */
+        section: typeof createSeriesSection;
+        /** One row per member series per entry, adjacent. */
+        views: typeof createSeriesViews;
+        /** Hand-built rows, named by the series and placed as its block. */
         rows: typeof createSeriesRows;
     };
+    /** A step down from an entry to a child collection of another type — a series' `children` (#822). */
+    children: typeof createChildren;
+    /** A row's id by series and path — `Plan.ref("machine-jobs", "L1", "m03")` (#822). */
+    ref: typeof createRef;
+    /** A section header's id — `Plan.sectionRef("crew-block", "L1")` (#822). */
+    sectionRef: typeof createSectionRef;
     /** Builds one span run. */
     run: typeof createRun;
     /** Builds one decision diamond. */
@@ -425,10 +448,12 @@ export interface PlanNamespace {
         Instant: typeof PlanInstantType;
         /** The two grains (group / resource). */
         Grain: typeof PlanGrainType;
-        /** One flat canvas row. */
+        /** One canvas row. */
         Row: typeof PlanRowType;
-        /** The canvas's row COLLECTION — rows keyed by their stable `key`. */
+        /** The canvas's rows — an ordered stream (#822). */
         Rows: typeof PlanRowsCollectionType;
+        /** A row's typed identity — `{ series, path }` (#822). */
+        RowId: typeof PlanRowIdType;
         /** The eight-arm row kind. */
         RowKind: typeof PlanRowKindType;
         /** The gutter identity. */
@@ -499,12 +524,11 @@ export interface PlanNamespace {
         Expand: typeof PlanExpandType;
         /** The expand render's axis treatment (keep / dim / off). */
         ExpandAxis: typeof PlanExpandAxisType;
-        /** The review config at the keyed-row subject. */
+        /** The review config at the row's id. */
         Review: typeof PlanReviewType;
-        /** The keyed row-subject reference. */
-        RowRef: typeof PlanRowRefType;
         /** The series type CONSTRUCTOR — `Plan.Types.Series(RowType)` gives the
-         *  concrete variant type of one series over that row type. */
+         *  concrete variant type of one series over `Dict<String, RowType>`
+         *  entries; `Plan.Types.Series(RowType, KeyType)` over another key type. */
         Series: typeof PlanSeriesType;
         /** The `onRunClick` payload. */
         RunClickEvent: typeof PlanRunClickEventType;
@@ -529,8 +553,8 @@ export interface PlanNamespace {
 
 /**
  * The `Plan` namespace — the axis-aligned composite canvas. Assemble a
- * Plan with `Plan.Root` (the `<Plan>` tag) over `data` + `series` (one
- * `Plan.series.*` value per row series, or a `Plan.pick` handle), declare the
+ * Plan with `Plan.Root` (the `<Plan>` tag) over `data` + `series` (the
+ * `Plan.series.*` blocks in layout order, or a `Plan.pick` handle), declare the
  * axis with `Plan.axis` (`time`) / `Plan.axis.number` / `Plan.axis.ordinal`,
  * place content with the value builders (`Plan.run` / `event` / `chip` /
  * `mark` / …, instants via `Plan.at.*` when written as data), build one-off
@@ -559,8 +583,13 @@ export const Plan: PlanNamespace = {
         cards: createSeriesCards,
         events: createSeriesEvents,
         group: createSeriesGroup,
+        section: createSeriesSection,
+        views: createSeriesViews,
         rows: createSeriesRows,
     },
+    children: createChildren,
+    ref: createRef,
+    sectionRef: createSectionRef,
     run: createRun,
     decision: createDecision,
     port: createPort,
@@ -591,6 +620,7 @@ export const Plan: PlanNamespace = {
         Grain: PlanGrainType,
         Row: PlanRowType,
         Rows: PlanRowsCollectionType,
+        RowId: PlanRowIdType,
         RowKind: PlanRowKindType,
         Gutter: PlanGutterType,
         Run: PlanRunType,
@@ -627,7 +657,6 @@ export const Plan: PlanNamespace = {
         Expand: PlanExpandType,
         ExpandAxis: PlanExpandAxisType,
         Review: PlanReviewType,
-        RowRef: PlanRowRefType,
         Series: PlanSeriesType,
         RunClickEvent: PlanRunClickEventType,
         EventClickEvent: PlanEventClickEventType,

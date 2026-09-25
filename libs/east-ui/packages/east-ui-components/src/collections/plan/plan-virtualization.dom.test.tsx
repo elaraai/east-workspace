@@ -19,9 +19,11 @@ import { none, some, variant } from "@elaraai/east";
 import { system } from "../../theme/index.js";
 import { initializeStore } from "../../platform/state-runtime.js";
 import { UIStore } from "../../platform/state-store.js";
-import { EastChakraPlan, type PlanRootValue, type PlanRowValue } from "./index.js";
+import { EastChakraPlan, type PlanRootValue } from "./index.js";
+import type { PlanRowId, PlanWireRow } from "./model.js";
 import { setBodyRowMountProbe } from "./rows/BodyRow.js";
 import type { PlanInstantValue } from "./instant.js";
+import { rowId, rowSel, testKeyOf } from "./plan.test-utils.js";
 
 // Every virtualizer's `measure()` is counted — the rest of TanStack is the
 // real thing. (A re-measure is what a height change must cost and what a
@@ -113,18 +115,19 @@ const W27 = new Date("2026-06-29T00:00:00Z");
 const W39 = new Date("2026-09-21T00:00:00Z");
 const t = (d: Date): PlanInstantValue => variant("time", d) as PlanInstantValue;
 
-function planRow(key: string, kind: unknown, opts?: { parent?: string; expand?: unknown }): PlanRowValue {
+/** One WIRE row, as the source serves it — named by its test key (#822). */
+function planRow(key: string, kind: unknown, opts?: { parent?: string; expand?: unknown }): PlanWireRow {
     return {
-        key,
-        parent: opts?.parent !== undefined ? some(opts.parent) : none,
+        id: rowId(key),
+        parent: opts?.parent !== undefined ? some(rowId(opts.parent)) : none,
         gutter: { label: key, id: none, sub: none, value: none, meta: none, stacked: none, swatches: [] },
         kind,
-        pinned: none, height: none, status: none, approval: none,
+        collapsed: none, pinned: none, height: none, status: none, approval: none,
         expand: opts?.expand !== undefined ? some(opts.expand) : none,
-    } as unknown as PlanRowValue;
+    } as unknown as PlanWireRow;
 }
 const span = () => variant("span", { runs: [], decisions: [], ports: [], rollup: none, unit: none });
-const group = () => variant("group", { summary: none, summaryAggregate: none, collapsed: none });
+const group = () => variant("group", { summary: none, summaryAggregate: none });
 /** A spark chart the gutter toggles to expanded (32px ↔ 88px). */
 const chart = () => variant("chart", {
     layers: [], left: none, right: none,
@@ -133,11 +136,9 @@ const chart = () => variant("chart", {
 const expandable = (px: string) => ({ height: some(px), axis: variant("keep", null) });
 const pad = (i: number, width: number) => String(i).padStart(width, "0");
 
-function planRoot(rows: PlanRowValue[], opts?: { height?: string; source?: unknown; expandRender?: boolean }): PlanRootValue {
+function planRoot(rows: PlanWireRow[], opts?: { height?: string; source?: unknown; expandRender?: boolean }): PlanRootValue {
     return {
-        rows: opts?.source !== undefined
-            ? variant("paged", opts.source)
-            : variant("inline", new Map(rows.map((r) => [r.key, r]))),
+        rows: opts?.source !== undefined ? variant("paged", opts.source) : variant("inline", rows),
         links: [],
         axis: variant("time", {
             window: some({ min: W27, max: W39 }), resolution: variant("week", null),
@@ -146,7 +147,7 @@ function planRoot(rows: PlanRowValue[], opts?: { height?: string; source?: unkno
         grain: none,
         popover: none, hover: none,
         expandRender: opts?.expandRender === true
-            ? some((ref: { key: string }) => variant("Text", { value: `R · ${ref.key}`, style: none }))
+            ? some((id: PlanRowId) => variant("Text", { value: `R · ${id.value.path.join("/")}`, style: none }))
             : none,
         review: none, pick: none, slice: none, footer: [],
         id: "", sources: [], onDrag: none, canDrop: none,
@@ -199,7 +200,7 @@ describe("Plan heights at a constant row count (#812, #743 item 1)", () => {
         expect(extentOf(container)).toBe(startOf(rest, 61));
 
         // Spark → expanded: +56px at a constant count.
-        fireEvent.click(container.querySelector('[data-plan-row="chart"]')!.children[0]!);
+        fireEvent.click(container.querySelector(rowSel("chart"))!.children[0]!);
         const open = rest.map((h, i) => (i === 1 ? 88 : h));
         expect(extentOf(container)).toBe(startOf(open, 61));
         // Deep in the canvas, the first mounted row sits where the NEW heights
@@ -211,7 +212,7 @@ describe("Plan heights at a constant row count (#812, #743 item 1)", () => {
 
         // Expanded → spark: back by the same delta.
         scrollFrame(container, 0);
-        fireEvent.click(container.querySelector('[data-plan-row="chart"]')!.children[0]!);
+        fireEvent.click(container.querySelector(rowSel("chart"))!.children[0]!);
         expect(extentOf(container)).toBe(startOf(rest, 61));
         scrollFrame(container, 1200);
         const back = columnOf(container);
@@ -220,7 +221,7 @@ describe("Plan heights at a constant row count (#812, #743 item 1)", () => {
 
     test("opening and closing an expand render re-lays every row: the focal row grows, the rest strip, the extent follows", () => {
         const { container } = renderPlan(planRoot(rows(), { height: "400px", expandRender: true }), "plan-812-expand");
-        fireEvent.click(container.querySelector('[data-plan-row="r00"] [data-plan-control="expand"]')!);
+        fireEvent.click(container.querySelector(`${rowSel("r00")} [data-plan-control="expand"]`)!);
         // The clamp floors the render at 88px here (400 − strips − chrome < 0),
         // so r00 is 32 + 88 and every other row a 16px strip.
         const focused = Array.from({ length: 61 }, (_u, i) => (i === 0 ? 32 + 88 : 16));
@@ -252,14 +253,14 @@ describe("Plan rows are keyed (#812)", () => {
         test(`${mode}: collapsing a group keeps every surviving row's component instance`, () => {
             viewport = 2_000;                                   // every row mounted, before and after
             const events: string[] = [];
-            setBodyRowMountProbe((key, phase) => events.push(`${phase} ${key}`));
+            setBodyRowMountProbe((key, phase) => events.push(`${phase} ${testKeyOf(key)}`));
             const { container } = renderPlan(
                 planRoot(rows(), mode === "bounded" ? { height: "2000px" } : undefined), `plan-812-keys-${mode}`);
             expect(container.querySelectorAll("[data-plan-row]")).toHaveLength(15);
             events.length = 0;
 
-            fireEvent.click(container.querySelector('[data-plan-group="A"]')!);
-            expect(container.querySelector('[data-plan-row="a1"]')).toBeNull();
+            fireEvent.click(container.querySelector(rowSel("A", "data-plan-group"))!);
+            expect(container.querySelector(rowSel("a1"))).toBeNull();
             // The hidden rows went; no row that is still on screen was
             // unmounted or mounted again. Keyed by index, the instances that
             // had drawn c1…c5 unmounted while c1…c5 moved up into instances
@@ -280,10 +281,10 @@ describe("Plan re-measures on heights, never on selection (#812)", () => {
         ], { height: "400px" }), "plan-812-measure");
         expect(counted.measure).toBe(0);
 
-        fireEvent.click(container.querySelector('[data-plan-row="r2"]')!);
-        fireEvent.click(container.querySelector('[data-plan-row="r3"]')!);
-        expect(container.querySelector('[data-plan-row="r3"]')!.hasAttribute("data-selected")).toBe(true);
-        const plot = container.querySelector('[data-plan-row="r1"]')!.children[1] as HTMLElement;
+        fireEvent.click(container.querySelector(rowSel("r2"))!);
+        fireEvent.click(container.querySelector(rowSel("r3"))!);
+        expect(container.querySelector(rowSel("r3"))!.hasAttribute("data-selected")).toBe(true);
+        const plot = container.querySelector(rowSel("r1"))!.children[1] as HTMLElement;
         Object.defineProperty(plot, "getBoundingClientRect", {
             value: () => ({ left: 0, top: 0, right: 1000, bottom: 32, width: 1000, height: 32, x: 0, y: 0, toJSON: () => ({}) }),
         });
@@ -292,7 +293,7 @@ describe("Plan re-measures on heights, never on selection (#812)", () => {
         expect(counted.measure).toBe(0);
 
         // The control: a height that moves IS re-measured — exactly once.
-        fireEvent.click(container.querySelector('[data-plan-row="chart"]')!.children[0]!);
+        fireEvent.click(container.querySelector(rowSel("chart"))!.children[0]!);
         expect(counted.measure).toBe(1);
     });
 });
@@ -304,7 +305,7 @@ describe("Plan expand clamp reads the LIVE header (#812)", () => {
             planRow("r0", span(), { expand: expandable("500px") }),
             ...Array.from({ length: 9 }, (_u, i) => planRow(`r${i + 1}`, span())),
         ], { height: "600px", expandRender: true }), "plan-812-clamp");
-        fireEvent.click(container.querySelector('[data-plan-row="r0"] [data-plan-control="expand"]')!);
+        fireEvent.click(container.querySelector(`${rowSel("r0")} [data-plan-control="expand"]`)!);
         expect(container.querySelector("[data-plan-focusbar]")).toBeTruthy();
         // 600 − (32 + 9 × 16 strips) − (40 + the 30px focus bar) = 354px of
         // render: r0 is 32 + 354, the strips 16 each. A header measured
@@ -338,7 +339,7 @@ describe("Plan large unbounded canvases (#812)", () => {
             </ChakraProvider>,
         );
         expect(container.querySelector('[data-virtual-rows="ancestor"]')).toBeTruthy();
-        expect(container.querySelector('[data-plan-row="r00000"]')).toBeTruthy();
+        expect(container.querySelector(rowSel("r00000"))).toBeTruthy();
         expect(container.querySelectorAll("[data-plan-row]").length).toBeLessThan(100);
         // The frame is as tall as all of its rows — it still grows to content.
         expect(extentOf(container)).toBe(10_000 * 32);
@@ -347,8 +348,8 @@ describe("Plan large unbounded canvases (#812)", () => {
         scrolled = 5_000 * 32;
         scroller.scrollTop = scrolled;
         fireEvent.scroll(scroller);
-        expect(container.querySelector('[data-plan-row="r05000"]')).toBeTruthy();
-        expect(container.querySelector('[data-plan-row="r00000"]')).toBeNull();
+        expect(container.querySelector(rowSel("r05000"))).toBeTruthy();
+        expect(container.querySelector(rowSel("r00000"))).toBeNull();
         expect(container.querySelectorAll("[data-plan-row]").length).toBeLessThan(100);
     });
 
@@ -375,10 +376,8 @@ describe("Plan narrow paged demand (#812)", () => {
             page: (offset: bigint) => {
                 const from = Number(offset);
                 asked.push(from / 200);
-                return some(new Map(Array.from({ length: Math.max(0, Math.min(200, 2_000 - from)) }, (_u, i) => {
-                    const row = planRow(`u${pad(from + i, 4)}`, span());
-                    return [row.key, row] as const;
-                })));
+                return some(Array.from({ length: Math.max(0, Math.min(200, 2_000 - from)) }, (_u, i) =>
+                    planRow(`u${pad(from + i, 4)}`, span())));
             },
             total: () => some(2_000n),
             seek: none,
@@ -409,7 +408,7 @@ describe("Plan narrow paged demand (#812)", () => {
 
         const { value: source, asked } = source2k();
         const { container } = renderPlan(planRoot([], { source }), "plan-812-narrow");
-        await vi.waitFor(() => expect(container.querySelector('[data-plan-card="u0000"]')).toBeTruthy());
+        await vi.waitFor(() => expect(container.querySelector(rowSel("u0000", "data-plan-card"))).toBeTruthy());
         expect(container.querySelector("[data-plan-narrow]")).toBeTruthy();
         // At rest the demand is the opening ring — windows 0–2, no further.
         expect(Math.max(...asked)).toBe(2);
@@ -439,7 +438,7 @@ describe("Plan narrow paged demand (#812)", () => {
         delete (globalThis as { IntersectionObserver?: unknown }).IntersectionObserver;
         const { value: source, asked } = source2k();
         const { container } = renderPlan(planRoot([], { source }), "plan-812-narrow-tap");
-        await vi.waitFor(() => expect(container.querySelector('[data-plan-card="u0000"]')).toBeTruthy());
+        await vi.waitFor(() => expect(container.querySelector(rowSel("u0000", "data-plan-card"))).toBeTruthy());
         // Nothing reports the viewport, so the resident rows run out: reveal
         // them all, and the load-more becomes the tail band in list form.
         for (let step = 0; step < 200 && container.querySelector('[data-plan-more="rows"]') !== null; step++) {
@@ -450,7 +449,7 @@ describe("Plan narrow paged demand (#812)", () => {
         expect(Math.max(...asked)).toBe(2);
         // A tap loads past the run — and opens the next page of it.
         fireEvent.click(tail);
-        await vi.waitFor(() => expect(container.querySelector('[data-plan-card="u0600"]')).toBeTruthy());
+        await vi.waitFor(() => expect(container.querySelector(rowSel("u0600", "data-plan-card"))).toBeTruthy());
         expect(asked).toContain(3);
     }, 60_000);
 });

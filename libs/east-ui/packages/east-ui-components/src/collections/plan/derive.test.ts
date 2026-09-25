@@ -5,20 +5,20 @@
 
 /**
  * The renderer-side derivations (`derive.ts`) — rollup bands, heat / table
- * aggregates, their cost at scale (#810), and diagnostic rows (#811).
+ * aggregates, their cost at scale (#810), and diagnostic rows (#811, #822).
  *
- * (Split out of `model.test.ts` with the module it tests, #815: every
- * test moved verbatim.)
+ * (Split out of `model.test.ts` with the module it tests, #815.)
  */
 
 import { describe, test, expect } from "vitest";
 import { some, none, variant } from "@elaraai/east";
 import {
-    rowHeight, deriveBands, deriveHeatCells, deriveTableCells, derivePlan, indexRows, windowRestHeight,
-    axisKindMismatches, dataExtent, HEAT_ROW_H, ROW_H, ROW_H_DENSE, GROUP_STRIP_H, GROUP_H, type PlanRowValue,
-    type VisibleRow,
+    rowHeight, deriveBands, deriveHeatCells, deriveTableCells, derivePlan, indexRows, toCanvasRows, windowRestHeight,
+    axisKindMismatches, HEAT_ROW_H, ROW_H, ROW_H_DENSE, GROUP_STRIP_H, GROUP_H, type PlanRowValue,
+    type PlanWireRow, type VisibleRow,
 } from "./model.js";
 import type { PlanInstantValue } from "./instant.js";
+import { rowId, rowKey } from "./plan.test-utils.js";
 
 /** Instants on each arm — REAL East variant values, as the decoder yields them (#631). */
 const t = (d: Date): PlanInstantValue => variant("time", d) as PlanInstantValue;
@@ -28,7 +28,7 @@ const o = (v: string): PlanInstantValue => variant("ordinal", v) as PlanInstantV
 function visible(r: PlanRowValue, opts?: { collapsed?: boolean }): VisibleRow {
     return { row: r, depth: 0, collapsed: opts?.collapsed === true };
 }
-const spanKind = variant("span", { runs: [], decisions: [], ports: [], rollup: none, bands: [] });
+const spanKind = variant("span", { runs: [], decisions: [], ports: [], rollup: none, unit: none });
 
 // ── Derivations (§4.2 — the semantics the IR used to precompute) ────────────
 
@@ -81,15 +81,33 @@ describe("Plan derived bands (§4·K1 rollups)", () => {
     });
 });
 
-/** One decoded row at a key, optionally parented. */
-function trow(key: string, parent: string | undefined, kind: unknown): PlanRowValue {
+/**
+ * One canvas row at a key, optionally parented. The derivations treat keys as
+ * opaque, so these rows key by the test's own words rather than by their ids'
+ * canonical text — every map below reads `"mid"`, not the id printed.
+ */
+function trow(key: string, parent: string | undefined, kind: unknown, opts?: { collapsed?: boolean }): PlanRowValue {
     return {
+        id: rowId(key),
         key,
         parent: parent !== undefined ? some(parent) : none,
         gutter: { label: key, id: none, sub: none, value: none, meta: none, stacked: none, swatches: [] },
         kind,
+        collapsed: opts?.collapsed !== undefined ? some(opts.collapsed) : none,
         pinned: none, height: none, status: none, approval: none, expand: none,
+        duplicateOf: undefined,
     } as unknown as PlanRowValue;
+}
+
+/** One WIRE row, for the tests that need the stream's own keying. */
+function wire(key: string, parent: string | undefined, kind: unknown): PlanWireRow {
+    return {
+        id: rowId(key),
+        parent: parent !== undefined ? some(rowId(parent)) : none,
+        gutter: { label: key, id: none, sub: none, value: none, meta: none, stacked: none, swatches: [] },
+        kind,
+        collapsed: none, pinned: none, height: none, status: none, approval: none, expand: none,
+    } as unknown as PlanWireRow;
 }
 
 /** `gp → (mid → a, b), leaf` — two declared-subtotal levels over raw cells. */
@@ -132,12 +150,14 @@ describe("Plan derived heat / table aggregates", () => {
         expect(derived.tableSeries.get("gp")![0]!.cells[0]).toMatchObject({ value: { type: "some", value: 160 } });    // 150 derived + 10 leaf
     });
 
-    test("the walk follows the TREE, not the container order (#568)", () => {
-        // The collection is a Dict, so its order is KEY order and a parent can
-        // sit after its own children. Feeding a bottom-up aggregation the wrong
-        // order produces WRONG NUMBERS, not an error — this is the regression
-        // that guards `derivePlan`'s post-order traversal. Same rows, three
-        // orders (depth-first, key order, and reversed), identical results.
+    test("the walk follows the TREE, not the container order (#568, #822)", () => {
+        // The stream puts a parent before its subtree, but not always right
+        // before it (`views` puts an entry's children after all of its view
+        // rows), and a keyed collection once sorted parents after children.
+        // Feeding a bottom-up aggregation the wrong order produces WRONG
+        // NUMBERS, not an error — this guards `derivePlan`'s post-order
+        // traversal. Same rows, three orders (depth-first, key order, and
+        // reversed), identical results.
         const depthFirst = nestedTableRows();
         const keyOrder = [...depthFirst].sort((x, y) => (x.key < y.key ? -1 : x.key > y.key ? 1 : 0));
         const reversed = [...depthFirst].reverse();
@@ -239,11 +259,10 @@ describe("Plan derived heat / table aggregates", () => {
     });
 
     test("a group's member count is DERIVED, not carried by the IR (#568)", () => {
-        // A group parent synthesized once per paged window would otherwise bake
-        // that window's count into the row; the renderer counts the members it
-        // actually has.
+        // A count is an aggregate like any other: the renderer counts the
+        // members the group actually has.
         const group = (key: string, parent?: string) => trow(key, parent,
-            variant("group", { summary: none, summaryAggregate: none, collapsed: none }));
+            variant("group", { summary: none, summaryAggregate: none }));
         const rows = [
             group("g"),
             trow("m1", "g", spanKind),
@@ -297,7 +316,7 @@ describe("Plan derived heat / table aggregates", () => {
         expect(merged[0]).toMatchObject({ from: o("INTAKE"), to: o("QC"), count: 2 });
     });
 
-    test("axisKindMismatches names every row whose instants ride another arm; dataExtent reads only the axis's arm (#631)", () => {
+    test("axisKindMismatches names every row whose instants ride another arm (#631)", () => {
         const heat = (at: PlanInstantValue) => variant("heat", {
             cells: variant("heat", { cells: [{ at, value: some(1), label: none }], min: none, max: none, warnAt: none }),
             aggregate: none,
@@ -316,10 +335,32 @@ describe("Plan derived heat / table aggregates", () => {
             { row: "ok", found: "number" },
             { row: "worse", found: "ordinal" },
         ]);
-        // The extent skips the other arms rather than mixing units.
-        expect(dataExtent(rows, "number")).toEqual({ min: 2, max: 2 });
-        expect(dataExtent(rows, "time")).toEqual({ min: W27.getTime(), max: W27.getTime() });
-        expect(dataExtent(rows, "ordinal")).toBeUndefined();
+    });
+
+    test("a table parent with values of its own shows them; one with none shows its subtree's subtotal (#822)", () => {
+        // A recursive table's parent is the same series as its children, so
+        // it declares `aggregate` whether or not the data gave it numbers.
+        const tableKind = (v: number | undefined) => variant("table", {
+            series: [{
+                cells: v !== undefined ? [{ at: t(W27), value: some(v), text: none, tone: none }] : [],
+                format: none, tone: none, strong: none, rollup: none,
+            }],
+            split: variant("horizontal", null),
+            aggregate: some(variant("sum", null)), format: none, emphasis: variant("body", null),
+        });
+        const derived = derivePlan(indexRows([
+            trow("own", undefined, tableKind(7)),
+            trow("a", "own", tableKind(96)),
+            trow("empty", undefined, tableKind(undefined)),
+            trow("b", "empty", tableKind(54)),
+            trow("mid", "empty", tableKind(undefined)),
+            trow("c", "mid", tableKind(10)),
+        ]));
+        // Its own 7 stands — never replaced by the 96 beneath it.
+        expect(derived.tableSeries.has("own")).toBe(false);
+        // An empty parent subtotals its subtree, through an empty parent too.
+        expect(derived.tableSeries.get("mid")![0]!.cells[0]).toMatchObject({ value: { type: "some", value: 10 } });
+        expect(derived.tableSeries.get("empty")![0]!.cells[0]).toMatchObject({ value: { type: "some", value: 64 } });
     });
 
     test("table sum subtotals carry raw values; text and tone stay renderer-owned", () => {
@@ -403,7 +444,7 @@ describe("Plan derivations at scale (#810)", () => {
         const kinds = [heatOn(0, 100, 90), heatOn(-5, 100, 80), heatOn(0, 120, 95)];
         const member = trow("m", "g", kinds[0]);
         const rows: PlanRowValue[] = [
-            trow("g", undefined, variant("group", { summary: none, summaryAggregate: some(variant("max", null)), collapsed: none })),
+            trow("g", undefined, variant("group", { summary: none, summaryAggregate: some(variant("max", null)) })),
         ];
         // One shared kind object per scale — 250,000 rows, not 250,000 kinds.
         for (let i = 0; i < N; i++) rows.push({ ...member, key: `m${i}`, kind: kinds[i % kinds.length] } as unknown as PlanRowValue);
@@ -457,7 +498,7 @@ describe("Plan diagnostic rows (#811)", () => {
         })),
         trow("h1", "hp", heatAt(n(1), 10)),
         trow("h2", "hp", heatAt(t(W27), 90)),
-        trow("g", undefined, variant("group", { summary: none, summaryAggregate: some(variant("max", null)), collapsed: none })),
+        trow("g", undefined, variant("group", { summary: none, summaryAggregate: some(variant("max", null)) })),
         trow("h3", "g", heatAt(n(1), 20, [0, 100])),
         trow("h4", "g", heatAt(t(W27), 99, [-50, 500])),
     ];
@@ -489,8 +530,8 @@ describe("Plan diagnostic rows (#811)", () => {
             trow("heatbad", undefined, heatAt(t(W27), 1)),
             trow("grp", undefined, variant("group", {
                 summary: some(variant("heat", { cells: [{ at: t(W27), value: some(1), label: none }], min: none, max: none, warnAt: none })),
-                summaryAggregate: none, collapsed: some(true),
-            })),
+                summaryAggregate: none,
+            }), { collapsed: true }),
         ];
         const index = indexRows(rows);
         const derived = derivePlan(index, undefined, "number");
@@ -509,14 +550,23 @@ describe("Plan diagnostic rows (#811)", () => {
         expect(windowRestHeight([rows[0]!], "resource", false, "number")).toBe(ROW_H);
     });
 
-    test("a MIXED row stretches no fitted window — it renders as a diagnostic, not its marks", () => {
-        const mixed = variant("span", {
-            runs: [numRun("r", n(1), n(3), 1)],
-            decisions: [{ key: "d", at: t(W27), applied: false }],
-            ports: [], rollup: none, unit: none,
-        });
-        const rows = [trow("mixed", undefined, mixed), trow("fine", undefined, span([numRun("f", n(5), n(9), 1)]))];
-        expect(dataExtent(rows, "number")).toEqual({ min: 5, max: 9 });
+    test("a repeated id is a diagnostic row of its own — it derives nothing, and the first keeps its numbers (#822)", () => {
+        // Hand-built rows can repeat an id; the stream keeps both rows, the
+        // second keyed apart and naming the first.
+        const rows = toCanvasRows([
+            wire("p", undefined, span([], true)),
+            wire("c", "p", span([numRun("r1", n(1), n(3), 5)])),
+            wire("c", "p", span([numRun("r2", n(6), n(8), 7)])),
+        ]);
+        const derived = derivePlan(indexRows(rows), undefined, "number");
+        expect([...derived.diagnostics]).toEqual([
+            [`${rowKey("c")}#1`, { kind: "duplicate", of: rowKey("c") }],
+        ]);
+        // The rollup is the first c's runs alone — the repeat's 7 t is not in it.
+        expect(derived.bands.get(rowKey("p"))).toEqual([expect.objectContaining({ from: n(1), to: n(3), quantity: "5 t" })]);
+        // A repeat is diagnosed with or without an axis kind: it is never a
+        // second row answering to one id.
+        expect(derivePlan(indexRows(rows)).diagnostics.size).toBe(1);
     });
 });
 

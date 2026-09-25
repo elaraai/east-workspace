@@ -42,7 +42,7 @@ import { usePlanGridRow } from "../root/grid.js";
 import { statusText } from "../a11y.js";
 import { usePlanWords } from "../words.js";
 import type { PlanFocusTagWord } from "../messages.js";
-import { rowItemKey, type PlanDerived, type VisibleRow } from "../model.js";
+import { rowItemKey, spansWindows, type PlanDerived, type VisibleRow } from "../model.js";
 import type { PlanEvent } from "../plan-state.js";
 
 type Styles = Record<string, Record<string, unknown>>;
@@ -96,7 +96,10 @@ export interface PlanBodyRowProps {
     /** Whether the row grows the links / expand focus controls. */
     showLinksControl: boolean;
     showExpandControl: boolean;
-    /** Whether derived numbers cover an incomplete paged prefix (#567 D9). */
+    /** Whether the canvas's source is not yet exhausted — a paged canvas still
+     *  loading (#567 D9). A top-level section band's count then covers only
+     *  the loaded windows; every other row's numbers are exact
+     *  (`spansWindows`, #822). */
     partial: boolean | undefined;
     /** The review model, when the canvas carries review chrome. */
     review: PlanReview | undefined;
@@ -212,7 +215,7 @@ export const PlanBodyRow = memo(function PlanBodyRow({
                 summaryCells={derived.groupSummary.get(v.row.key)}
                 summaryScale={derived.groupSummaryScale.get(v.row.key)}
                 memberCount={derived.groupMembers.get(v.row.key)}
-                partial={partial} diagnostic={diagnostic} grid={grid} />
+                partial={partial === true && spansWindows(v.row)} diagnostic={diagnostic} grid={grid} />
         );
     }
 
@@ -320,10 +323,10 @@ export const PlanBodyRow = memo(function PlanBodyRow({
                 <RowDiagnostic diagnostic={diagnostic} styles={styles} ctx={isCtx} />
             ) : (
                 // One row's render failure stays in that row (#811).
-                <PlanPartBoundary part={{ kind: "row", key: v.row.key }} resetKey={v.row} styles={styles}>
+                <PlanPartBoundary part={{ kind: "row", key: v.row.key, label: v.row.gutter.label }} resetKey={v.row} styles={styles}>
                     <KindPlot v={v} styles={styles} derived={derived}
                         hasChildren={hasChildren} ctx={isCtx}
-                        plotHeight={plotH} chartExpanded={chartExpanded_} partial={partial} />
+                        plotHeight={plotH} chartExpanded={chartExpanded_} />
                 </PlanPartBoundary>
             )}
         </RowShell>

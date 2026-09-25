@@ -59,8 +59,8 @@ export const SheetRegisterMembersType = ArrayType(SheetRegisterMemberType);
  * Print one member in the grammar's display form.
  *
  * @remarks
- * A module-scope East function (the `LAST_WINS` precedent): built once,
- * called by `print` and by the factory's `String`-field projection.
+ * A module-scope East function (the Plan's `REBASE_ROWS` precedent): built
+ * once, called by `print` and by the factory's `String`-field projection.
  */
 export const printMember = East.function([SheetMemberType], StringType, (_$, m) =>
     m.match({

@@ -36,7 +36,7 @@ import {
     PlanLinkType,
     PlanRowsType,
     PlanElementRefType,
-    PlanRowRefType,
+    PlanRowIdType,
     PlanRunClickEventType,
     PlanEventClickEventType,
     PlanMarkClickEventType,
@@ -52,10 +52,10 @@ import {
 // ============================================================================
 
 /**
- * The Plan review config — the shared review contract at the Plan's
- * keyed-row subject (`{ key }`).
+ * The Plan review config — the shared review contract at the row's id
+ * ({@link PlanRowIdType}, #822).
  */
-export const PlanReviewType: ReviewStructType<PlanRowRefType, UIComponentType> = reviewType(PlanRowRefType, UIComponentType);
+export const PlanReviewType: ReviewStructType<PlanRowIdType, UIComponentType> = reviewType(PlanRowIdType, UIComponentType);
 /** Type alias for {@link PlanReviewType}. */
 export type PlanReviewType = typeof PlanReviewType;
 
@@ -68,7 +68,7 @@ export type PlanReviewType = typeof PlanReviewType;
  * order is data (no sort callback), and element detail lives in the root
  * RESOLVERS: `popover` / `hover` over {@link PlanElementRefType} (a `none`
  * result opens nothing) and `expandRender` over the row ref (the R2
- * developer render for rows declaring `expand`) — one stored function per
+ * developer render for rows declaring `expand`, over the row's id) — one stored function per
  * surface instead of UI embedded per element.
  */
 export const PlanRootType = StructType({
@@ -84,12 +84,12 @@ export const PlanRootType = StructType({
     // the action callbacks below).
     popover: OptionType(FunctionType([PlanElementRefType], OptionType(UIComponentType))),
     hover: OptionType(FunctionType([PlanElementRefType], OptionType(UIComponentType))),
-    expandRender: OptionType(FunctionType([PlanRowRefType], UIComponentType)),
+    expandRender: OptionType(FunctionType([PlanRowIdType], UIComponentType)),
     // The GUTTER half of R2. An expanded row's gutter cell grows with the row
     // (one tall cell, top-aligned), and the space that opens up is the
     // author's — identity that only earns its place when the row has the
-    // canvas. Same shape as `expandRender`, over the same row ref.
-    expandGutter: OptionType(FunctionType([PlanRowRefType], UIComponentType)),
+    // canvas. Same shape as `expandRender`, over the same row id.
+    expandGutter: OptionType(FunctionType([PlanRowIdType], UIComponentType)),
     review: OptionType(PlanReviewType),
     pick: OptionType(PickBindType),
     slice: OptionType(SliceChromeType),
@@ -100,7 +100,7 @@ export const PlanRootType = StructType({
     onDrag: OptionType(FunctionType([DragEventType], NullType)),
     canDrop: OptionType(CanDropFnType),
     // Selection + per-element clicks.
-    onSelect: OptionType(FunctionType([PlanRowRefType], NullType)),
+    onSelect: OptionType(FunctionType([PlanRowIdType], NullType)),
     onRunClick: OptionType(FunctionType([PlanRunClickEventType], NullType)),
     onEventClick: OptionType(FunctionType([PlanEventClickEventType], NullType)),
     onMarkClick: OptionType(FunctionType([PlanMarkClickEventType], NullType)),

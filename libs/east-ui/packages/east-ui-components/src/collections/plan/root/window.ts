@@ -7,8 +7,8 @@
  * Slice integration is the Table adopter pattern, chrome-only: the rows are
  * whatever the host fed (`Slice.rows` upstream) — the Plan never narrows its
  * own data. Beyond Table, the slice's `range` / `resolution` STATE is the
- * window / resolution source of truth; the axis declaration seeds the unbound
- * case, and the rows only when the window is fitted to them.
+ * window / resolution source of truth; the axis's stated window seeds the
+ * unbound case. The rows never set the window (#822).
  *
  * @packageDocumentation
  */
@@ -18,15 +18,12 @@ import { type ValueTypeOf } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../../utils.js";
 import { useSliceReactivity } from "../../../slice/use-slice-reactivity.js";
-import { resolveScale, scaleReadsRows, sliceWindowOf } from "../axis.js";
+import { resolveScale, sliceWindowOf } from "../axis.js";
 import type { PlanScale } from "../scale.js";
-import type { PlanRootValue, PlanRowValue } from "../model.js";
+import type { PlanRootValue } from "../model.js";
 import type { PlanWords } from "../words.js";
 
 type SliceBindValue = ValueTypeOf<typeof Slice.Types.Bind>;
-
-/** The rows a scale with a stated window is resolved over — none (#812). */
-const NO_ROWS: readonly PlanRowValue[] = [];
 
 /** The canvas's slice chrome and scale. */
 export interface PlanWindow {
@@ -45,12 +42,10 @@ export interface PlanWindow {
  *
  * @param value - The latest root (its slice chrome)
  * @param data - The root's data-stable twin (its axis)
- * @param rows - The canvas's rows (inline, or the resident paged ones)
  * @param words - The canvas's words — the locale the ruler labels format in (#820)
  * @returns The chrome and the scale
  */
-export function usePlanWindow(value: PlanRootValue, data: PlanRootValue, rows: readonly PlanRowValue[], words: PlanWords): PlanWindow {
-    const paged = data.rows.type === "paged";
+export function usePlanWindow(value: PlanRootValue, data: PlanRootValue, words: PlanWords): PlanWindow {
     const decl = useMemo(() => getSomeorUndefined(value.slice), [value.slice]);
     const slice = decl !== undefined ? (decl.slice as SliceBindValue) : undefined;
     // Re-render on every write to the slice — the window and resolution are
@@ -73,19 +68,14 @@ export function usePlanWindow(value: PlanRootValue, data: PlanRootValue, rows: r
     const sliceFromN = sliceWin?.[0];
     const sliceToN = sliceWin?.[1];
     const sliceResolution = sliceState !== undefined ? getSomeorUndefined(sliceState.resolution)?.type : undefined;
-    // `resolveScale` owns the ladder: the slice's range ▸ the declared window
-    // ▸ fit-to-data (a PAGED canvas must declare — #567 D8), per axis kind.
-    // The rows are an input only when the window is fitted to them: a stated
-    // window keeps one scale while windows land, rather than handing every
-    // mounted row a new one (#812).
-    const fitRows = scaleReadsRows(data.axis, sliceWin, paged) ? rows : NO_ROWS;
+    // `resolveScale` owns the ladder: the slice's range ▸ the stated window,
+    // per axis kind. The rows are no input (#822), so windows landing keep
+    // one scale rather than handing every mounted row a new one (#812).
     const scale = useMemo(() => resolveScale({
         axis: data.axis,
         sliceWindow: sliceFromN === undefined || sliceToN === undefined ? undefined : [sliceFromN, sliceToN],
         sliceResolution,
-        rows: fitRows,
-        paged,
         words,
-    }), [data.axis, sliceFromN, sliceToN, sliceResolution, fitRows, paged, words]);
+    }), [data.axis, sliceFromN, sliceToN, sliceResolution, words]);
     return { chrome: decl !== undefined, slice, affordances, scale };
 }

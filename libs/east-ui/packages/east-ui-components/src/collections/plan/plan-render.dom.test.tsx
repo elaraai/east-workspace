@@ -16,9 +16,11 @@ import { render, cleanup, fireEvent } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { variant, some, none } from "@elaraai/east";
 import { system } from "../../theme/index.js";
-import { EastChakraPlan, type PlanRootValue, type PlanRowValue } from "./index.js";
+import { EastChakraPlan, type PlanRootValue } from "./index.js";
+import type { PlanWireRow } from "./model.js";
 import { setBodyRowRenderProbe } from "./rows/BodyRow.js";
 import type { PlanInstantValue } from "./instant.js";
+import { rowId, rowSel, testKeyOf } from "./plan.test-utils.js";
 
 // A canvas persists its toggles under its storageKey (#813), and several tests
 // share one — nothing may carry from one test to the next.
@@ -62,15 +64,17 @@ function gutter(label: string, opts?: { sub?: string; value?: string; meta?: str
     };
 }
 
-function planRow(key: string, kind: unknown, opts?: { parent?: string; gutter?: unknown; expand?: unknown }): PlanRowValue {
+/** One WIRE row, as the source serves it — named by its test key (#822). */
+function planRow(key: string, kind: unknown, opts?: { parent?: string; gutter?: unknown; expand?: unknown; collapsed?: boolean }): PlanWireRow {
     return {
-        key,
-        parent: opts?.parent !== undefined ? some(opts.parent) : none,
+        id: rowId(key),
+        parent: opts?.parent !== undefined ? some(rowId(opts.parent)) : none,
         gutter: opts?.gutter ?? gutter(key),
         kind,
+        collapsed: opts?.collapsed !== undefined ? some(opts.collapsed) : none,
         pinned: none, height: none, status: none, approval: none,
         expand: opts?.expand !== undefined ? some(opts.expand) : none,
-    } as unknown as PlanRowValue;
+    } as unknown as PlanWireRow;
 }
 
 function spanKind(runs: unknown[], opts?: { rollup?: string; unit?: string }) {
@@ -81,17 +85,9 @@ function spanKind(runs: unknown[], opts?: { rollup?: string; unit?: string }) {
     });
 }
 
-/** The decoded row COLLECTION — the IR's `Dict<String, PlanRow>` (#568). A
- *  plain `Map` stands in for the decoder's `SortedMap`: the renderer only
- *  iterates it, and INSERTION order keeps these fixtures readable in the order
- *  they are written. Key ORDER itself is covered in `derive.test.ts`. */
-function rowCollection(rows: PlanRowValue[]): Map<string, PlanRowValue> {
-    return new Map(rows.map((r) => [r.key, r]));
-}
-
-function planRoot(rows: PlanRowValue[], opts?: { footer?: unknown[]; now?: Date | undefined; slice?: unknown; resolutions?: unknown[]; links?: unknown[]; popover?: unknown; hover?: unknown; expandRender?: unknown; source?: unknown; pick?: unknown; axis?: unknown; style?: { height?: string; maxHeight?: string }; clicks?: { onRunClick?: unknown; onEventClick?: unknown; onMarkClick?: unknown; onChipClick?: unknown; onCellClick?: unknown } }): PlanRootValue {
+function planRoot(rows: PlanWireRow[], opts?: { footer?: unknown[]; now?: Date | undefined; slice?: unknown; resolutions?: unknown[]; links?: unknown[]; popover?: unknown; hover?: unknown; expandRender?: unknown; source?: unknown; pick?: unknown; axis?: unknown; style?: { height?: string; maxHeight?: string }; clicks?: { onRunClick?: unknown; onEventClick?: unknown; onMarkClick?: unknown; onChipClick?: unknown; onCellClick?: unknown } }): PlanRootValue {
     return {
-        rows: opts?.source !== undefined ? variant("paged", opts.source) : variant("inline", rowCollection(rows)),
+        rows: opts?.source !== undefined ? variant("paged", opts.source) : variant("inline", rows),
         links: opts?.links ?? [],
         // The TIME arm by default (#631); the typed-axis tests pass their own.
         axis: opts?.axis ?? variant("time", {
@@ -142,7 +138,7 @@ describe("Plan row-layer memoization (#616)", () => {
         // The render probe records WHICH rows ran — the memo property is
         // asserted deterministically, never inferred from profiler timings.
         const rendered: string[] = [];
-        setBodyRowRenderProbe((key) => rendered.push(key));
+        setBodyRowRenderProbe((key) => rendered.push(testKeyOf(key)));
         try {
             const { container } = renderPlan(planRoot([
                 planRow("m1", spanKind([])),
@@ -157,17 +153,17 @@ describe("Plan row-layer memoization (#616)", () => {
             // First selection: ONLY the newly-selected row re-renders — the
             // other rows' facts did not move, so their memo bails.
             rendered.length = 0;
-            fireEvent.click(container.querySelector('[data-plan-row="m2"]')!);
+            fireEvent.click(container.querySelector(rowSel("m2"))!);
             expect(rendered).toEqual(["m2"]);
             // Moving the selection re-renders exactly the two rows whose
             // `selected` fact changed.
             rendered.length = 0;
-            fireEvent.click(container.querySelector('[data-plan-row="m3"]')!);
+            fireEvent.click(container.querySelector(rowSel("m3"))!);
             expect([...rendered].sort()).toEqual(["m2", "m3"]);
             // A chart spark↔expanded toggle re-renders exactly the toggled
             // row (its `chartExpanded` + height moved; nothing else did).
             rendered.length = 0;
-            fireEvent.click(container.querySelector('[data-plan-row="cov"]')!.children[0]!);
+            fireEvent.click(container.querySelector(rowSel("cov"))!.children[0]!);
             expect(rendered).toEqual(["cov"]);
         } finally {
             setBodyRowRenderProbe(undefined);
@@ -245,7 +241,7 @@ describe("Plan ephemeral UI state survives a data commit (#610)", () => {
     // vanished drop, and declared collapse seeds ONCE, never again.
     const rowsAt = (tag: string, opts?: { withM2?: boolean; withGroup?: boolean }) => [
         ...(opts?.withGroup === false ? [] : [
-            planRow("line1", variant("group", { summary: none, summaryAggregate: none, collapsed: some(true) })),
+            planRow("line1", variant("group", { summary: none, summaryAggregate: none }), { collapsed: true }),
             planRow("m1", spanKind([]), { parent: "line1" }),
         ]),
         ...(opts?.withM2 === false ? [] : [
@@ -253,7 +249,7 @@ describe("Plan ephemeral UI state survives a data commit (#610)", () => {
         ]),
         planRow("keep", spanKind([])),
     ];
-    const remount = (rerender: (ui: Parameters<typeof render>[0]) => void, rows: PlanRowValue[], key: string) => {
+    const remount = (rerender: (ui: Parameters<typeof render>[0]) => void, rows: PlanWireRow[], key: string) => {
         rerender(
             <ChakraProvider value={system}>
                 <EastChakraPlan value={planRoot(rows)} storageKey={key} />
@@ -264,40 +260,40 @@ describe("Plan ephemeral UI state survives a data commit (#610)", () => {
     test("a data change keeps the opened group and the selection; a vanished row drops its entry", () => {
         const { container, rerender } = renderPlan(planRoot(rowsAt("v1")), "plan-reconcile");
         // The DECLARED-collapsed group starts collapsed; the user opens it...
-        expect(container.querySelector('[data-plan-row="m1"]')).toBeNull();
-        fireEvent.click(container.querySelector('[data-plan-group="line1"]')!);
-        expect(container.querySelector('[data-plan-row="m1"]')).toBeTruthy();
+        expect(container.querySelector(rowSel("m1"))).toBeNull();
+        fireEvent.click(container.querySelector(rowSel("line1", "data-plan-group"))!);
+        expect(container.querySelector(rowSel("m1"))).toBeTruthy();
         // ... and selects m2.
-        fireEvent.click(container.querySelector('[data-plan-row="m2"]')!);
-        expect(container.querySelector('[data-plan-row="m2"]')!.hasAttribute("data-selected")).toBe(true);
+        fireEvent.click(container.querySelector(rowSel("m2"))!);
+        expect(container.querySelector(rowSel("m2"))!.hasAttribute("data-selected")).toBe(true);
 
         // The host commits: same rows, new numbers.
         remount(rerender, rowsAt("v2"), "plan-reconcile");
         // The group the user opened stays open; the selection survives.
-        expect(container.querySelector('[data-plan-row="m1"]')).toBeTruthy();
-        expect(container.querySelector('[data-plan-row="m2"]')!.hasAttribute("data-selected")).toBe(true);
+        expect(container.querySelector(rowSel("m1"))).toBeTruthy();
+        expect(container.querySelector(rowSel("m2"))!.hasAttribute("data-selected")).toBe(true);
 
         // m2 vanishes → its entry goes with it: back in a LATER commit, it
         // renders unselected rather than resurrecting the old selection.
         remount(rerender, rowsAt("v3", { withM2: false }), "plan-reconcile");
-        expect(container.querySelector('[data-plan-row="m2"]')).toBeNull();
+        expect(container.querySelector(rowSel("m2"))).toBeNull();
         remount(rerender, rowsAt("v4"), "plan-reconcile");
-        expect(container.querySelector('[data-plan-row="m2"]')!.hasAttribute("data-selected")).toBe(false);
+        expect(container.querySelector(rowSel("m2"))!.hasAttribute("data-selected")).toBe(false);
         // The opened group survived all three commits.
-        expect(container.querySelector('[data-plan-row="m1"]')).toBeTruthy();
+        expect(container.querySelector(rowSel("m1"))).toBeTruthy();
     });
 
     test("a group that vanishes and returns re-seeds its declared collapse", () => {
         const { container, rerender } = renderPlan(planRoot(rowsAt("v1")), "plan-reseed");
-        fireEvent.click(container.querySelector('[data-plan-group="line1"]')!);   // the user opens it
-        expect(container.querySelector('[data-plan-row="m1"]')).toBeTruthy();
+        fireEvent.click(container.querySelector(rowSel("line1", "data-plan-group"))!);   // the user opens it
+        expect(container.querySelector(rowSel("m1"))).toBeTruthy();
         // The group leaves the data entirely, then returns declared-collapsed:
         // a returning key is a NEW row, so the declaration applies again.
         remount(rerender, rowsAt("v2", { withGroup: false }), "plan-reseed");
-        expect(container.querySelector('[data-plan-group="line1"]')).toBeNull();
+        expect(container.querySelector(rowSel("line1", "data-plan-group"))).toBeNull();
         remount(rerender, rowsAt("v3"), "plan-reseed");
-        expect(container.querySelector('[data-plan-group="line1"]')).toBeTruthy();
-        expect(container.querySelector('[data-plan-row="m1"]')).toBeNull();
+        expect(container.querySelector(rowSel("line1", "data-plan-group"))).toBeTruthy();
+        expect(container.querySelector(rowSel("m1"))).toBeNull();
     });
 });
 

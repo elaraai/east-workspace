@@ -28,17 +28,14 @@ import { none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../../utils.js";
 import { boundRangeDomain } from "../../../platform/slice/index.js";
-import { axisNow, rangeArmOf, rangeOf, resolveScale, scaleReadsRows, sliceWindowOf } from "../axis.js";
+import { axisNow, axisStatesWindow, rangeArmOf, rangeOf, resolveScale, sliceWindowOf } from "../axis.js";
 import { resolutionInterval, type PlanResolution, type PlanScale } from "../scale.js";
 import type { PlanInstantValue } from "../instant.js";
-import type { PlanRootValue, PlanRowValue } from "../model.js";
+import { rowIdOfKey, type PlanRootValue } from "../model.js";
 import type { PlanEffect } from "../plan-state.js";
 
 type SliceBindValue = ValueTypeOf<typeof Slice.Types.Bind>;
 type SliceStateValue = ValueTypeOf<typeof Slice.Types.State>;
-
-/** The rows a scale with a stated window is resolved over — none. */
-const NO_ROWS: readonly PlanRowValue[] = [];
 
 /** The bound slice handle a root carries, if any. */
 export function sliceOf(value: PlanRootValue): SliceBindValue | undefined {
@@ -48,24 +45,19 @@ export function sliceOf(value: PlanRootValue): SliceBindValue | undefined {
 
 /**
  * The scale as the slice holds it NOW — the same resolution the canvas renders
- * with (`resolveScale` over the slice's range and resolution, the declared
- * axis, and the rows when the window is fitted to them).
+ * with (`resolveScale` over the slice's range and resolution, and the axis's
+ * stated window).
  *
  * @param value - The latest root
- * @param rows - The canvas's rows (inline, or the resident paged ones)
  * @returns The scale, or `undefined` when no window resolves
  */
-export function currentScale(value: PlanRootValue, rows: readonly PlanRowValue[]): PlanScale | undefined {
+export function currentScale(value: PlanRootValue): PlanScale | undefined {
     const slice = sliceOf(value);
     const state: SliceStateValue | undefined = slice !== undefined ? slice.read() : undefined;
-    const sliceWindow = sliceWindowOf(state, value.axis.type);
-    const paged = value.rows.type === "paged";
     return resolveScale({
         axis: value.axis,
-        sliceWindow,
+        sliceWindow: sliceWindowOf(state, value.axis.type),
         sliceResolution: state !== undefined ? getSomeorUndefined(state.resolution)?.type : undefined,
-        rows: scaleReadsRows(value.axis, sliceWindow, paged) ? rows : NO_ROWS,
-        paged,
     });
 }
 
@@ -86,25 +78,28 @@ function writeWindow(slice: SliceBindValue, scale: PlanScale, min: PlanInstantVa
  *
  * @param effects - The effects the transition returned
  * @param value - The latest root (its slice and callbacks)
- * @param rows - The canvas's rows, for a window fitted to them
  */
-export function runPlanEffects(effects: readonly PlanEffect[], value: PlanRootValue, rows: readonly PlanRowValue[]): void {
+export function runPlanEffects(effects: readonly PlanEffect[], value: PlanRootValue): void {
     for (const eff of effects) {
         const slice = sliceOf(value);
         switch (eff.t) {
             case "slice.setRange": {
-                const scale = slice !== undefined ? currentScale(value, rows) : undefined;
+                const scale = slice !== undefined ? currentScale(value) : undefined;
                 if (slice !== undefined && scale !== undefined) writeWindow(slice, scale, eff.min, eff.max);
                 break;
             }
             case "slice.clearRange":
-                if (slice !== undefined) slice.setRange(none);
+                // A cleared range falls back to the axis's stated window. An
+                // axis that states none takes its window FROM the range
+                // (#822), so clearing it would leave the canvas nothing to
+                // draw on: the brush moves that window, and never removes it.
+                if (slice !== undefined && axisStatesWindow(value.axis)) slice.setRange(none);
                 break;
             case "slice.setResolution": {
                 // A resolution is a TIME-axis fact — the segment only mounts
                 // there (a number axis has `step`; an ordinal list no unit).
                 if (slice === undefined) break;
-                const scale = currentScale(value, rows);
+                const scale = currentScale(value);
                 if (scale === undefined || scale.kind !== "time" || scale.window.min.type !== "time") break;
                 // Zoom to the new resolution keeping the CURRENT column count
                 // (12 weeks showing → DAY shows 12 days), anchored at the window
@@ -121,13 +116,16 @@ export function runPlanEffects(effects: readonly PlanEffect[], value: PlanRootVa
                 break;
             }
             case "emit.select": {
+                // A callback names the row by its typed id, never its key (#822).
                 const fn = getSomeorUndefined(value.onSelect);
-                if (fn !== undefined) queueMicrotask(() => fn({ key: eff.key }));
+                const id = fn !== undefined ? rowIdOfKey(eff.key) : undefined;
+                if (fn !== undefined && id !== undefined) queueMicrotask(() => fn(id));
                 break;
             }
             case "emit.groupToggle": {
                 const fn = getSomeorUndefined(value.onGroupToggle);
-                if (fn !== undefined) queueMicrotask(() => fn({ row: eff.key, expanded: eff.expanded }));
+                const id = fn !== undefined ? rowIdOfKey(eff.key) : undefined;
+                if (fn !== undefined && id !== undefined) queueMicrotask(() => fn({ row: id, expanded: eff.expanded }));
                 break;
             }
             case "emit.grainChange": {
@@ -140,7 +138,7 @@ export function runPlanEffects(effects: readonly PlanEffect[], value: PlanRootVa
                 // the WINDOW — slice state. An unbound canvas has no writable
                 // window, so the rung idles there, like the resolution segment.
                 if (slice === undefined) break;
-                const scale = currentScale(value, rows);
+                const scale = currentScale(value);
                 const nowInstant = axisNow(value.axis);
                 if (scale === undefined || nowInstant === undefined) break;
                 // Re-derive the window on period edges with the SAME column
@@ -152,7 +150,7 @@ export function runPlanEffects(effects: readonly PlanEffect[], value: PlanRootVa
             }
             case "pan": {
                 if (slice === undefined) break;
-                const scale = currentScale(value, rows);
+                const scale = currentScale(value);
                 if (scale === undefined) break;
                 writeWindow(slice, scale, scale.offset(scale.window.min, eff.buckets), scale.offset(scale.window.max, eff.buckets));
                 break;

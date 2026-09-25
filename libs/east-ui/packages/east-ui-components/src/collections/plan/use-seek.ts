@@ -14,11 +14,12 @@
  * `seek` answers in SOURCE ELEMENT indices, and a Plan synthesizes its rows per
  * element (a series can emit several rows for one element, or none), so an
  * element index is not a canvas row index and never will be. What makes the
- * jump well-defined is #568: a leaf row's key IS its data key, and both the
- * source and the canvas collection are in canonical key order. So a query's
- * matches — one CONTIGUOUS run in the source's key order — begin at the first
- * canvas row at-or-after the sought key, and THAT row is addressable in key
- * space alone.
+ * jump well-defined is #822: a row's id starts with the key of the element it
+ * came from, the source's windows land in its key order, and each series
+ * places its rows in element order. So a query's matches — one CONTIGUOUS run
+ * in the source's key order — begin at the first canvas row whose element
+ * sorts at-or-after the sought key, and THAT row is addressable in key space
+ * alone.
  *
  * The k-th match is NOT the k-th row of that run: a series emits any number of
  * canvas rows per source element, so the element delta the control steps by is

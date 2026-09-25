@@ -29,6 +29,7 @@ import { ToneStrip, type ToneDatum } from "./ToneStrip.js";
 import type { PlanBucket } from "../scale.js";
 import { instantKey } from "../instant.js";
 import { cellName, tablePartsText } from "../a11y.js";
+import type { PlanRowId } from "../model.js";
 import { usePlanWords } from "../words.js";
 
 type Styles = Record<string, Record<string, unknown>>;
@@ -37,6 +38,8 @@ type TableSeriesValue = ValueTypeOf<typeof Plan.Types.TableSeries>;
 
 export interface TableRowCellsProps {
     rowKey: string;
+    /** The row's id — what an element click names the row by (#822). */
+    rowId: PlanRowId;
     /** The rendered series — the row's own, or its derived subtotal positions. */
     series: readonly TableSeriesValue[];
     /** The part layout (visible only with more than one series). */
@@ -49,7 +52,7 @@ export interface TableRowCellsProps {
 }
 
 /** The table-row plot content — per-bucket cells of series-joined parts. */
-export function TableRowCells({ rowKey, series, split, format, styles, ctx }: TableRowCellsProps) {
+export function TableRowCells({ rowKey, rowId, series, split, format, styles, ctx }: TableRowCellsProps) {
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
     const words = usePlanWords();
@@ -124,7 +127,7 @@ export function TableRowCells({ rowKey, series, split, format, styles, ctx }: Ta
                             // Parts join BY bucket (their own `at`s may differ
                             // inside it) — the BUCKET instant is the honest
                             // subject, exactly as the payload documents.
-                            onElementClick?.(variant("cell", { row: rowKey, at: b.start }) as PlanElementRefValue);
+                            onElementClick?.(variant("cell", { row: rowId, at: b.start }) as PlanElementRefValue);
                         }}
                     >
                         {printed.map(({ text, tone, strong }, i) => (

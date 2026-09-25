@@ -5,12 +5,16 @@
 
 /**
  * The canvas axis, resolved (#631) — from the decoded root `axis` (one of
- * the three arms), the bound slice's range / resolution state and the rows
- * (fit-to-data) to the one `PlanScale` every row positions against; plus the
- * slice bridge the other way: a window WRITE (the brush, `[` / `]` / `n`,
- * the narrow pan) becomes the range arm the slice's field speaks —
- * `datetime` for a time axis, `float` / `integer` for a number axis, nothing
- * for an ordinal one (its list is its window).
+ * the three arms) and the bound slice's range / resolution state to the one
+ * `PlanScale` every row positions against; plus the slice bridge the other
+ * way: a window WRITE (the brush, `[` / `]` / `n`, the narrow pan) becomes the
+ * range arm the slice's field speaks — `datetime` for a time axis, `float` /
+ * `integer` for a number axis, nothing for an ordinal one (its list is its
+ * window).
+ *
+ * The window is never fitted to the rows (#822): it is the slice's range or
+ * the axis's stated window, so the canvas reads the same inline and paged,
+ * and rows landing or changing never move it.
  *
  * @packageDocumentation
  */
@@ -18,9 +22,8 @@
 import { variant, type ValueTypeOf } from "@elaraai/east";
 import { Plan, Slice } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils.js";
-import { effectiveResolution, planScale, resolutionInterval, type PlanResolution, type PlanScale } from "./scale.js";
+import { effectiveResolution, planScale, type PlanScale } from "./scale.js";
 import type { PlanAxisKind, PlanInstantValue } from "./instant.js";
-import { dataExtent, type PlanRowValue } from "./model.js";
 import type { PlanWords } from "./words.js";
 
 /** The decoded axis declaration — `{ time | number | ordinal }`. */
@@ -54,6 +57,18 @@ export function axisNow(axis: PlanAxisValue): PlanInstantValue | undefined {
  *  a number axis; an ordinal list has no unit). */
 export function axisResolutions(axis: PlanAxisValue): string[] {
     return axis.type === "time" ? axis.value.resolutions.map((r) => r.type) : [];
+}
+
+/**
+ * Whether the axis states its own window — a time or number axis's `window`;
+ * an ordinal axis's list is its window. An axis that states none takes its
+ * window from the bound slice's range (#822).
+ *
+ * @param axis - The decoded root axis
+ * @returns `true` when the axis supplies a window without the slice
+ */
+export function axisStatesWindow(axis: PlanAxisValue): boolean {
+    return axis.type === "ordinal" || axis.value.window.type === "some";
 }
 
 /** An ordinal axis's value → index map (what orders its instants); `undefined` otherwise. */
@@ -153,7 +168,7 @@ export function rangeOf(arm: PlanRangeArm, min: PlanInstantValue, max: PlanInsta
     }
 }
 
-/** What {@link resolveScale} needs — the declaration, the slice's say, the rows. */
+/** What {@link resolveScale} needs — the declaration and the slice's say. */
 export interface ResolveScaleArgs {
     /** The decoded root axis. */
     axis: PlanAxisValue;
@@ -161,67 +176,34 @@ export interface ResolveScaleArgs {
     sliceWindow: readonly [number, number] | undefined;
     /** The bound slice's resolution tag, when it carries one (a time axis only). */
     sliceResolution: string | undefined;
-    /** The decoded rows (the fit-to-data fallback). */
-    rows: ReadonlyArray<PlanRowValue>;
-    /** Whether the rows stream from a paged source — such a canvas must DECLARE its window (#567 D8). */
-    paged: boolean;
     /** The canvas's words — the locale its ruler labels format in (#820); the default English `en-US` words when omitted. */
     words?: PlanWords | undefined;
 }
 
 /**
- * Whether {@link resolveScale} reads the rows at all — only to FIT the window
- * to the data, when neither the slice nor the axis states one on an unpaged
- * time or number axis. A caller keys its scale on the rows only then, so a
- * canvas with a stated window keeps ONE scale while rows change under it
- * (#812): every row reads the scale through context, so a new one — built on
- * each paged window landing — repaints every mounted row.
- *
- * @param axis - The decoded root axis
- * @param sliceWindow - The bound slice's window on the axis's domain (see {@link sliceWindowOf})
- * @param paged - Whether the rows stream from a paged source (it must state its window)
- * @returns `true` when the scale is fitted to the rows
- */
-export function scaleReadsRows(axis: PlanAxisValue, sliceWindow: readonly [number, number] | undefined, paged: boolean): boolean {
-    if (paged || sliceWindow !== undefined || axis.type === "ordinal") return false;
-    return axis.value.window.type === "none";
-}
-
-/**
- * Resolve the scale: slice state ▸ the axis declaration ▸ fit-to-data (§3/§8).
+ * Resolve the scale: the slice's range ▸ the axis's stated window (§3/§8).
  *
  * @remarks
- * A PAGED canvas must declare its window (or bind a slice range): fitting to
- * the data means fitting to whatever prefix has landed, so the axis would
- * widen and every bar re-flow as each window arrives (#567 D8). A fitted
- * window extends to whole periods, half-open. An ordinal axis needs nothing
- * resolved — its list is its window.
+ * Never the rows (#822): a window fitted to the data would be fitted to
+ * whatever has loaded, so the axis would widen and every bar re-flow as a
+ * paged canvas's windows land, and an inline canvas would read differently
+ * from the same data paged. The rows are no input, so a canvas keeps ONE scale
+ * while rows change under it (#812). An ordinal axis needs nothing resolved —
+ * its list is its window.
  *
  * @param args - See {@link ResolveScaleArgs}
- * @returns The scale, or `undefined` when no window can be resolved
+ * @returns The scale, or `undefined` when neither states a window
  */
-export function resolveScale({ axis, sliceWindow, sliceResolution, rows, paged, words }: ResolveScaleArgs): PlanScale | undefined {
+export function resolveScale({ axis, sliceWindow, sliceResolution, words }: ResolveScaleArgs): PlanScale | undefined {
     switch (axis.type) {
         case "time": {
             const a = axis.value;
             const declared = getSomeorUndefined(a.window);
-            let window = sliceWindow !== undefined
+            const window = sliceWindow !== undefined
                 ? { min: new Date(sliceWindow[0]), max: new Date(sliceWindow[1]) }
                 : (declared !== undefined ? { min: declared.min, max: declared.max } : undefined);
-            const declaredResolution = sliceResolution ?? a.resolution.type;
-            let res: PlanResolution;
-            if (window === undefined) {
-                if (paged) return undefined;
-                const extent = dataExtent(rows, "time");
-                if (extent === undefined) return undefined;
-                const fitted = { min: new Date(extent.min), max: new Date(extent.max) };
-                res = effectiveResolution(declaredResolution, fitted);
-                // Extend the fitted extent to whole periods, half-open.
-                const interval = resolutionInterval(res);
-                window = { min: interval.floor(fitted.min), max: interval.offset(interval.floor(fitted.max), 1) };
-            } else {
-                res = effectiveResolution(declaredResolution, window);
-            }
+            if (window === undefined) return undefined;
+            const res = effectiveResolution(sliceResolution ?? a.resolution.type, window);
             return planScale({
                 kind: "time", window, resolution: res,
                 now: getSomeorUndefined(a.now), format: getSomeorUndefined(a.format), words,
@@ -232,18 +214,10 @@ export function resolveScale({ axis, sliceWindow, sliceResolution, rows, paged, 
             const step = a.step;
             if (!Number.isFinite(step) || !(step > 0)) return undefined;
             const declared = getSomeorUndefined(a.window);
-            let window = sliceWindow !== undefined
+            const window = sliceWindow !== undefined
                 ? { min: sliceWindow[0], max: sliceWindow[1] }
                 : (declared !== undefined ? { min: declared.min, max: declared.max } : undefined);
-            if (window === undefined) {
-                if (paged) return undefined;
-                const extent = dataExtent(rows, "number");
-                if (extent === undefined) return undefined;
-                // Whole steps, half-open — the `TimeResolution` rule, numerically.
-                const eps = step * 1e-9;
-                const floor = (n: number) => Math.floor((n + eps) / step) * step;
-                window = { min: floor(extent.min), max: floor(extent.max) + step };
-            }
+            if (window === undefined) return undefined;
             return planScale({
                 kind: "number", window, step,
                 now: getSomeorUndefined(a.now), format: getSomeorUndefined(a.format), words,

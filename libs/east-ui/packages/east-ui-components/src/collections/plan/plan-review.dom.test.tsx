@@ -7,8 +7,8 @@
  * The Plan's review chrome (#569) — actions only.
  *
  * The property under test is not "buttons render". It is that the canvas keeps
- * NO verdict of its own: clicking Approve reports a row KEY and changes
- * nothing on screen; what a decided row looks like comes back through the
+ * NO verdict of its own: clicking Approve reports the row's typed id (#822) and
+ * changes nothing on screen; what a decided row looks like comes back through the
  * DATA, exactly like every other pixel here. A renderer-local copy would pass
  * a "does the tick appear" test and still be wrong — it would keep claiming a
  * verdict after the write that triggered it had failed and rolled back.
@@ -21,7 +21,9 @@ import { variant, some, none } from "@elaraai/east";
 import { system } from "../../theme/index.js";
 import { initializeStore } from "../../platform/state-runtime.js";
 import { UIStore } from "../../platform/state-store.js";
-import { EastChakraPlan, type PlanRootValue, type PlanRowValue } from "./index.js";
+import { EastChakraPlan, type PlanRootValue } from "./index.js";
+import type { PlanRowId, PlanWireRow } from "./model.js";
+import { rowId, rowIdEqual, rowSel } from "./plan.test-utils.js";
 
 afterEach(cleanup);
 
@@ -32,11 +34,11 @@ const W27 = new Date("2026-06-29T00:00:00Z");
 const W31 = new Date("2026-08-03T00:00:00Z");
 const W39 = new Date("2026-09-21T00:00:00Z");
 
-/** One span row, with the verdict its DATA carries. */
-function row(key: string, opts?: { approval?: "approved" | "pending" | "rejected"; state?: string; parent?: string }): PlanRowValue {
+/** One span row, with the verdict its DATA carries — a WIRE row (#822). */
+function row(key: string, opts?: { approval?: "approved" | "pending" | "rejected"; state?: string; parent?: string }): PlanWireRow {
     return {
-        key,
-        parent: opts?.parent !== undefined ? some(opts.parent) : none,
+        id: rowId(key),
+        parent: opts?.parent !== undefined ? some(rowId(opts.parent)) : none,
         gutter: { label: key, id: none, sub: none, value: none, meta: none, stacked: none, swatches: [] },
         kind: variant("span", {
             runs: [{
@@ -47,26 +49,30 @@ function row(key: string, opts?: { approval?: "approved" | "pending" | "rejected
             }],
             decisions: [], ports: [], rollup: none, unit: none,
         }),
-        pinned: none, height: none, status: none,
+        collapsed: none, pinned: none, height: none, status: none,
         approval: opts?.approval !== undefined ? some(variant(opts.approval, null)) : none,
         expand: none,
-    } as unknown as PlanRowValue;
+    } as unknown as PlanWireRow;
 }
 
 /** A DECLARED-collapsed group band. */
-function groupRow(key: string): PlanRowValue {
+function groupRow(key: string): PlanWireRow {
     return {
-        key,
+        id: rowId(key),
         parent: none,
         gutter: { label: key, id: none, sub: none, value: none, meta: none, stacked: none, swatches: [] },
-        kind: variant("group", { summary: none, summaryAggregate: none, collapsed: some(true) }),
-        pinned: none, height: none, status: none, approval: none, expand: none,
-    } as unknown as PlanRowValue;
+        kind: variant("group", { summary: none, summaryAggregate: none }),
+        collapsed: some(true), pinned: none, height: none, status: none, approval: none, expand: none,
+    } as unknown as PlanWireRow;
 }
 
-function planRoot(rows: PlanRowValue[], review: unknown): PlanRootValue {
+/** Whether a mock was called with the id of the row `key` — ids compare with East's equality. */
+const calledWithRow = (fn: { mock: { calls: unknown[][] } }, key: string) =>
+    fn.mock.calls.some((c) => rowIdEqual(c[0] as PlanRowId, rowId(key)));
+
+function planRoot(rows: PlanWireRow[], review: unknown): PlanRootValue {
     return {
-        rows: variant("inline", new Map(rows.map((r) => [r.key, r]))),
+        rows: variant("inline", rows),
         links: [],
         axis: variant("time", {
             window: some({ min: W27, max: W39 }), resolution: variant("week", null),
@@ -85,7 +91,7 @@ function planRoot(rows: PlanRowValue[], review: unknown): PlanRootValue {
 }
 
 /** A review config with the verbs the test wires. */
-function reviewCfg(opts: { onApprove?: (r: { key: string }) => void; onReject?: (r: { key: string }) => void; onApproveAll?: () => void }) {
+function reviewCfg(opts: { onApprove?: (r: PlanRowId) => void; onReject?: (r: PlanRowId) => void; onApproveAll?: () => void }) {
     return {
         columnLabel: "Decision",
         summary: none,
@@ -108,7 +114,7 @@ function renderPlan(value: PlanRootValue) {
 }
 
 describe("Plan review chrome (#569)", () => {
-    test("mounts from `value.review` and reports the row KEY, never an index", async () => {
+    test("mounts from `value.review` and reports the row's ID, never an index (#822)", async () => {
         const onApprove = vi.fn();
         const onReject = vi.fn();
         const { container } = renderPlan(planRoot(
@@ -117,15 +123,16 @@ describe("Plan review chrome (#569)", () => {
         expect(container.querySelector('[data-slot="decisionHeader"]')!.textContent).toBe("Decision");
         expect(container.querySelectorAll('[data-slot="decisionCell"]')).toHaveLength(2);
 
-        fireEvent.click(container.querySelector('[data-plan-approve="m2"]')!);
+        fireEvent.click(container.querySelector(rowSel("m2", "data-plan-approve"))!);
         await waitFor(() => expect(onApprove).toHaveBeenCalled());
-        // The subject is the row's KEY. An index would survive this assertion
-        // only by coincidence, and would reattach to the wrong row the moment
-        // a paged window landed above it (#577).
-        expect(onApprove).toHaveBeenCalledWith({ key: "m2" });
+        // The subject is the row's typed id. An index would survive this
+        // assertion only by coincidence, and would reattach to the wrong row
+        // the moment a paged window landed above it (#577).
+        expect(onApprove).toHaveBeenCalledTimes(1);
+        expect(calledWithRow(onApprove, "m2")).toBe(true);
 
-        fireEvent.click(container.querySelector('[data-plan-reject="m1"]')!);
-        await waitFor(() => expect(onReject).toHaveBeenCalledWith({ key: "m1" }));
+        fireEvent.click(container.querySelector(rowSel("m1", "data-plan-reject"))!);
+        await waitFor(() => expect(calledWithRow(onReject, "m1")).toBe(true));
     });
 
     test("no chrome without `review` — the column and foot simply are not there", () => {
@@ -141,12 +148,12 @@ describe("Plan review chrome (#569)", () => {
         const onApprove = vi.fn();
         const { container, rerender } = renderPlan(planRoot([row("m1")], reviewCfg({ onApprove })));
 
-        const pressed = () => container.querySelector('[data-plan-approve="m1"]')!.getAttribute("aria-pressed");
+        const pressed = () => container.querySelector(rowSel("m1", "data-plan-approve"))!.getAttribute("aria-pressed");
         const verdict = () => container.querySelector('[data-slot="decisionCell"]')!.getAttribute("data-verdict");
         expect(pressed()).toBe("false");
         expect(verdict()).toBe("pending");
 
-        fireEvent.click(container.querySelector('[data-plan-approve="m1"]')!);
+        fireEvent.click(container.querySelector(rowSel("m1", "data-plan-approve"))!);
         await waitFor(() => expect(onApprove).toHaveBeenCalled());
         // Nothing recorded the verdict, so nothing claims one.
         expect(pressed()).toBe("false");
@@ -172,15 +179,15 @@ describe("Plan review chrome (#569)", () => {
         const { container, rerender } = renderPlan(v());
 
         // The user opens the declared-collapsed group and selects the member.
-        expect(container.querySelector('[data-plan-row="m1"]')).toBeNull();
-        fireEvent.click(container.querySelector('[data-plan-group="g1"]')!);
-        expect(container.querySelector('[data-plan-row="m1"]')).toBeTruthy();
-        fireEvent.click(container.querySelector('[data-plan-row="m1"]')!);
-        expect(container.querySelector('[data-plan-row="m1"]')!.hasAttribute("data-selected")).toBe(true);
+        expect(container.querySelector(rowSel("m1"))).toBeNull();
+        fireEvent.click(container.querySelector(rowSel("g1", "data-plan-group"))!);
+        expect(container.querySelector(rowSel("m1"))).toBeTruthy();
+        fireEvent.click(container.querySelector(rowSel("m1"))!);
+        expect(container.querySelector(rowSel("m1"))!.hasAttribute("data-selected")).toBe(true);
 
         // Approve m2; the author's write lands and comes back through the data.
-        fireEvent.click(container.querySelector('[data-plan-approve="m2"]')!);
-        await waitFor(() => expect(onApprove).toHaveBeenCalledWith({ key: "m2" }));
+        fireEvent.click(container.querySelector(rowSel("m2", "data-plan-approve"))!);
+        await waitFor(() => expect(calledWithRow(onApprove, "m2")).toBe(true));
         rerender(
             <ChakraProvider value={system}>
                 <EastChakraPlan value={v("approved")} storageKey="plan-review" />
@@ -190,8 +197,8 @@ describe("Plan review chrome (#569)", () => {
             container.querySelector('[data-slot="decisionCell"][data-verdict="approved"]')).toBeTruthy());
         // The verdict is ALL that changed: the group is still open, the
         // selection held — a data commit reconciles, it does not reset.
-        expect(container.querySelector('[data-plan-row="m1"]')).toBeTruthy();
-        expect(container.querySelector('[data-plan-row="m1"]')!.hasAttribute("data-selected")).toBe(true);
+        expect(container.querySelector(rowSel("m1"))).toBeTruthy();
+        expect(container.querySelector(rowSel("m1"))!.hasAttribute("data-selected")).toBe(true);
     });
 
     test("appearance is DERIVED — the same write can repaint the bar, not just the button", async () => {

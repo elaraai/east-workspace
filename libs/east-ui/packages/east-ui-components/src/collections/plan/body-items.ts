@@ -16,13 +16,15 @@ import type { PlanFocusCtx, PlanLinkValue, PlanRowIndex, VisibleRow } from "./mo
 import type { RowKey } from "./plan-state.js";
 import type { PlanRowDiagnostic } from "./derive.js";
 import { ancestorsOf } from "./row-tree.js";
+import { rowKeyOf } from "./row-key.js";
 
 // ── The R1 link graph (renderer-derived over the decoded `links` edges) ─────
 
-/** Every row key any link edge touches — the rows that grow the `links` control. */
+/** Every row key any link edge touches — the rows that grow the `links` control.
+ *  A link names its ends by row id (#822); the graph keys by their text. */
 export function linkedRowKeys(links: readonly PlanLinkValue[]): ReadonlySet<RowKey> {
     const out = new Set<RowKey>();
-    for (const l of links) { out.add(l.fromRow); out.add(l.toRow); }
+    for (const l of links) { out.add(rowKeyOf(l.fromRow)); out.add(rowKeyOf(l.toRow)); }
     return out;
 }
 
@@ -130,13 +132,13 @@ export function rowItemKey(key: RowKey): string {
  * last row that came from an EARLIER window, or first when none did.
  *
  * @remarks
- * Windows serve source elements in key order and the canvas walks its rows in
- * key order, so a window's rows sit between its neighbours' — its band goes
- * in the seam. A parent every window re-emits is attributed to the LATEST
- * window that emitted it (`originOf`) and so never anchors a seam early; its
- * earlier windows' children do. (Series banked apart by `keyPrefix` interleave
- * windows, so a failed window there marks the seam of the last bank only —
- * the per-block ledger of #823 is what gives each bank its own.)
+ * Windows serve source elements in key order and the stream concatenates them
+ * in window order (#822), so a window's rows sit between its neighbours' — its
+ * band goes in the seam. A row every window re-serves (a hand-built row, a
+ * section header) is attributed to the FIRST window that served it
+ * (`originOf`), so it anchors no later seam. (Several series each place a
+ * block per window, so a failed window there marks the seam of the last block
+ * only — the per-block ledger of #823 is what gives each block its own.)
  *
  * @param items - The body items, rows in visible order
  * @param failures - The failed windows
@@ -281,8 +283,10 @@ export function deriveLinkFamily(links: readonly PlanLinkValue[], key: RowKey): 
     const fwd = new Map<RowKey, RowKey[]>();
     const rev = new Map<RowKey, RowKey[]>();
     for (const l of links) {
-        (fwd.get(l.fromRow) ?? fwd.set(l.fromRow, []).get(l.fromRow)!).push(l.toRow);
-        (rev.get(l.toRow) ?? rev.set(l.toRow, []).get(l.toRow)!).push(l.fromRow);
+        const from = rowKeyOf(l.fromRow);
+        const to = rowKeyOf(l.toRow);
+        (fwd.get(from) ?? fwd.set(from, []).get(from)!).push(to);
+        (rev.get(to) ?? rev.set(to, []).get(to)!).push(from);
     }
     const walk = (edges: ReadonlyMap<RowKey, RowKey[]>): Set<RowKey> => {
         const seen = new Set<RowKey>();

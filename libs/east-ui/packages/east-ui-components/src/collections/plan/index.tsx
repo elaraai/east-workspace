@@ -82,7 +82,8 @@ import type { PlanInstantValue } from "./instant.js";
 import type { PlanEvent } from "./plan-state.js";
 import type { PlanPart } from "./messages.js";
 import {
-    bodyItemKey, derivePlan, indexRows, linkedRowKeys, pinnedRows, pxOf, rowHeight, rowItemKey, visibleRows,
+    bodyItemKey, canvasRowsOf, derivePlan, indexRows, linkedRowKeys, pinnedRows, pxOf, rowHeight, rowItemKey, rowKeyOf,
+    rowKeyWords, visibleRows,
     type PlanRootValue, type VisibleRow,
 } from "./model.js";
 import { PlanNarrow, PLAN_NARROW_BELOW } from "./narrow/index.js";
@@ -197,7 +198,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     // ── The controller — once per mount (#815) ────────────────────────────
     const [controller] = useState(() => createPlanController({
         grain: declaredGrainOf(value),
-        collapsed: value.rows.type === "inline" ? declaredCollapsedOf([...value.rows.value.values()]) : [],
+        collapsed: value.rows.type === "inline" ? declaredCollapsedOf(canvasRowsOf(value.rows.value)) : [],
         restored: persistedOf(stored),
         persist: (next) => persistTo.current(next),
     }));
@@ -214,10 +215,10 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     // ── The rows: inline, or the paged source's resident ones (§3.8) ──────
     const paging = useControllerSelector(controller, selectPaging);
     const paged = data.rows.type === "paged";
-    // The inline arm is the canvas's KEYED collection (#568) — decoded as a
-    // SortedMap, so its values are already in canonical key order.
+    // The inline arm is the canvas's row STREAM (#822) — its order is the
+    // render order — keyed for the canvas once per decoded array.
     const rows = useMemo(
-        () => (data.rows.type === "inline" ? [...data.rows.value.values()] : paging.rows),
+        () => (data.rows.type === "inline" ? canvasRowsOf(data.rows.value) : paging.rows),
         [data.rows, paging.rows],
     );
     const index = useMemo(() => indexRows(rows), [rows]);
@@ -269,7 +270,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     }, [index]);
 
     // ── Chrome: slice, scale, series library, review, transport, search ──
-    const { chrome, slice, affordances, scale } = usePlanWindow(value, data, rows, words);
+    const { chrome, slice, affordances, scale } = usePlanWindow(value, data, words);
     // The series library (#590) — chrome, like the slice rail: the Plan feeds
     // ITSELF the picked series, so all that is left here is the panel.
     const pick = useMemo(() => getSomeorUndefined(value.pick), [value.pick]);
@@ -282,9 +283,11 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
         [data.review, controller]);
     // What the chrome tells the truth with (#567 D9). Counted in ELEMENTS —
     // the number `total()` reports — never canvas rows, since a series can
-    // emit any number of rows per element. `partial` qualifies every derived
-    // number (rollup bands, group counts, strip summaries): they cover the
-    // loaded prefix until the source is exhausted.
+    // emit any number of rows per element. `partial` says the source is not
+    // exhausted: counts across the canvas cover the loaded windows, and so
+    // does a top-level section's member count and strip. Every other parent
+    // derives from one entry's subtree, which a window holds whole, so its
+    // numbers are exact (`spansWindows`, #822).
     const transport = useMemo<PlanTransport | undefined>(() => {
         if (!paged) return undefined;
         const loaded = paging.resident?.elements ?? 0;
@@ -299,9 +302,10 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     }, [paged, paging.resident, paging.total, paging.loading]);
     // Key search is a capability of the SOURCE (`search` becomes seek — #567
     // D9): a jump rebases residency on the matched ELEMENT, and the canvas
-    // positions by key, since a leaf row's key IS its data key. The control
-    // is keyed on the search's epoch: a new source revision drops the matches
-    // it holds, which index the previous snapshot (#821).
+    // positions on the first row that element placed, since a row's id starts
+    // with its element's key (#822). The control is keyed on the search's
+    // epoch: a new source revision drops the matches it holds, which index the
+    // previous snapshot (#821).
     const seekable = data.rows.type === "paged" && data.rows.value.seek.type === "some";
     const search = useMemo<PlanSearch | undefined>(
         () => (seekable ? { ...controller.search, resetKey: String(seek.epoch) } : undefined),
@@ -531,17 +535,12 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
 
     // A source that cannot be READ no longer replaces the canvas (#811): its
     // windows fail one by one, each as its own band with the reason and a
-    // Retry. A missing WINDOW is the one thing no row can be placed without.
+    // Retry. A missing WINDOW is the one thing no row can be placed without —
+    // and it is never the rows' to supply (#822), inline or paged.
     if (scale === undefined) {
         return (
             <Box css={styles.diagnostic} data-plan-empty>
-                {paged
-                    ? words.m.noWindowPaged()
-                    : axisKind === "number"
-                        ? words.m.noWindowNumber()
-                        : axisKind === "ordinal"
-                            ? words.m.noWindowOrdinal()
-                            : words.m.noWindowTime()}
+                {axisKind === "ordinal" ? words.m.noWindowOrdinal() : words.m.noWindow()}
             </Box>
         );
     }
@@ -559,6 +558,11 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
             ))}
             pinnedId={pinned.length > 0 ? pinnedId : undefined}
             focus={view.focus}
+            // The focused row by name — its label, or its key's words while a
+            // paged row is not resident (#822: a key is an id's text).
+            focusLabel={view.focus !== null
+                ? index.byKey.get(view.focus.key)?.gutter.label ?? rowKeyWords(view.focus.key)
+                : undefined}
             linkCounts={linkFamily !== undefined
                 ? { upstream: linkFamily.upstream.size, downstream: linkFamily.downstream.size }
                 : undefined} />
@@ -605,7 +609,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
         const ref = refOfElement(el);
         if (ref === undefined) return;
         overlayHandlers.openAt(el);
-        controller.dispatch({ t: "row.select", key: ref.value.row });
+        controller.dispatch({ t: "row.select", key: rowKeyOf(ref.value.row) });
         controller.elementClick(ref);
     };
     /** A key in the grid — `true` when it was the grid's. */
@@ -746,7 +750,8 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                 data-plan-bounded={frameFills ? "" : undefined}
                 // The narrow layout is in charge (the footer wraps, etc.).
                 data-plan-narrow={narrow ? "" : undefined}
-                // Every derived number in this body is over a prefix.
+                // The source is not exhausted: the counts across this body
+                // cover the loaded windows (`PlanTransport.partial`).
                 data-plan-partial={transport?.partial === true ? "" : undefined}
                 // The geometry as CSS variables — every height the recipe
                 // draws that the model also computes reads one of these.

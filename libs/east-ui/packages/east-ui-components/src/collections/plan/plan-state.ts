@@ -56,7 +56,8 @@ export type PlanGrain = "group" | "resource";
 export interface PlanUiState {
     /** The active grain (initial from the IR; the toolbar segment drives it after). */
     grain: PlanGrain;
-    /** Collapsed group strips (keys present = COLLAPSED — rows carry the initial set). */
+    /** Collapsed rows — any row with children (#822; keys present = COLLAPSED —
+     *  rows carry the initial set). */
     collapsed: ReadonlySet<RowKey>;
     /** The selected row, if any (`--brand-tint`, the one selection colour). */
     selected: RowKey | null;
@@ -307,7 +308,7 @@ export type PlanAction =
          * landed — so an incomplete set prunes nothing.
          */
         complete: boolean;
-        /** The new value's declared-collapsed group keys. */
+        /** The new value's declared-collapsed row keys. */
         declaredCollapsed: ReadonlySet<RowKey>;
         /** The new value's declared initial grain. */
         declaredGrain: PlanGrain;
@@ -337,7 +338,7 @@ function collapsedBy(overrides: ReadonlyMap<RowKey, boolean>, key: RowKey, decla
  * The initial store for a decoded root (declared collapse counts as seeded).
  *
  * @param grain - The declared grain
- * @param collapsedKeys - The declared-collapsed group keys
+ * @param collapsedKeys - The declared-collapsed row keys
  * @param restored - The user's persisted toggles, when a remount restores them
  *   (#813): a toggled row keeps its toggle, and only the rows the user never
  *   touched take the declaration

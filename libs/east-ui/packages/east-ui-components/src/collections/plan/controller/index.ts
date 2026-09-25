@@ -43,7 +43,7 @@ import { getSomeorUndefined } from "../../../utils.js";
 import type { DragEventValue } from "../../../dnd/drag-layer";
 import type { PlanElementRefValue, PlanElementResolver } from "../context.js";
 import {
-    bodyItemKey, windowRestHeight,
+    bodyItemKey, canvasRowsOf, rowIdOfKey, rowKeyWords, windowRestHeight,
     type PlanBodyItem, type PlanRootValue, type PlanRowValue,
 } from "../model.js";
 import {
@@ -158,7 +158,7 @@ export interface PlanSnapshot {
 export interface PlanControllerOptions {
     /** The declared grain at mount. */
     grain: PlanGrain;
-    /** The declared-collapsed group keys at mount. */
+    /** The declared-collapsed row keys at mount. */
     collapsed: Iterable<RowKey>;
     /** What the last session persisted under the canvas's `storageKey` (#813). */
     restored?: PlanPersisted | undefined;
@@ -192,7 +192,8 @@ export interface PlanController {
     tooltipIntent(tip: PlanTooltip | null): void;
     /** A completed drop on the canvas — reported to `onDrag`. */
     drop(event: DragEventValue): void;
-    /** The review verbs, by row KEY (#569). */
+    /** The review verbs, by row KEY (#569) — the callbacks receive the row's
+     *  typed id (#822). */
     approveRow(key: string): void;
     rejectRow(key: string): void;
     approveAll(): void;
@@ -250,17 +251,16 @@ const refEqual = equalFor(Plan.Types.ElementRef);
 type PlanReviewValue = ValueTypeOf<typeof Plan.Types.Review>;
 
 /**
- * The declared-collapsed group keys among `rows`.
+ * The declared-collapsed row keys among `rows`.
  *
  * @param rows - Canvas rows
- * @returns The keys of the groups that declare `collapsed: true`
+ * @returns The keys of the rows that declare `collapsed: true` — any row with
+ *   children may (#822)
  */
 export function declaredCollapsedOf(rows: readonly PlanRowValue[]): ReadonlySet<RowKey> {
     const out = new Set<RowKey>();
     for (const row of rows) {
-        if (row.kind.type === "group" && row.kind.value.collapsed.type === "some" && row.kind.value.collapsed.value) {
-            out.add(row.key);
-        }
+        if (row.collapsed.type === "some" && row.collapsed.value) out.add(row.key);
     }
     return out;
 }
@@ -281,7 +281,7 @@ export interface PlanReconcileModel {
     alive: ReadonlySet<RowKey>;
     /** Whether `alive` is every row the canvas has (inline), or only the resident ones (paged). */
     complete: boolean;
-    /** The declared-collapsed group keys among them. */
+    /** The declared-collapsed row keys among them. */
     declaredCollapsed: ReadonlySet<RowKey>;
     /** The declared grain. */
     declaredGrain: PlanGrain;
@@ -376,10 +376,11 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
     function refresh(): void {
         const p = paging.getSnapshot();
         const s = seek.getSnapshot();
-        // The key search's target: the first loaded row at-or-after the sought
-        // key (a leaf row's key IS its data key, and both the source and the
-        // canvas are in canonical key order — #568). A target that LANDS takes
-        // the viewport back from the skipped-row chip: the latest request wins.
+        // The key search's target: the first loaded row whose element sorts
+        // at-or-after the sought key (a row's id starts with the key of the
+        // element it came from, and the source serves its elements in key
+        // order — #822). A target that LANDS takes the viewport back from the
+        // skipped-row chip: the latest request wins.
         const targetKey = s.sought !== null ? p.rows[firstAtOrAfter(p.rows, s.sought.key)]?.key : undefined;
         if (targetKey !== scroll.targetKey) {
             scroll = { ...scroll, targetKey, owner: targetKey !== undefined ? "search" : scroll.owner };
@@ -397,9 +398,10 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
         if (!drawn) dirty = true;
     }
 
-    /** A row's name as the live region says it — its gutter label. */
+    /** A row's name as the live region says it — its gutter label, or its
+     *  key's words when the row is not at hand (#822). */
     function labelOf(key: RowKey): string {
-        return rows().find((r) => r.key === key)?.gutter.label ?? key;
+        return rows().find((r) => r.key === key)?.gutter.label ?? rowKeyWords(key);
     }
 
     /** Put words in the live region (#819) — nothing when there are none. */
@@ -424,10 +426,11 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
         }
     }
 
-    /** The canvas's rows — inline, or the resident paged ones. */
+    /** The canvas's rows — inline, or the resident paged ones. Read through
+     *  the data-stable root, so the inline rows are the canvas's own objects. */
     function rows(): readonly PlanRowValue[] {
-        if (value === undefined) return NO_ROWS;
-        return value.rows.type === "inline" ? [...value.rows.value.values()] : paging.getSnapshot().rows;
+        if (data === undefined) return NO_ROWS;
+        return data.rows.type === "inline" ? canvasRowsOf(data.rows.value) : paging.getSnapshot().rows;
     }
 
     /** Write the user's toggles when they differ from what storage holds (#813). */
@@ -455,11 +458,13 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
         persistToggles();
     }
 
-    /** One of the root's review callbacks, fired after the handler (#569). */
+    /** One of the root's review callbacks, fired after the handler (#569),
+     *  naming the row by its typed id (#822). */
     function reviewCall(k: "onApprove" | "onReject", key: string): void {
         const review: PlanReviewValue | undefined = value !== undefined ? getSomeorUndefined(value.review) : undefined;
         const fn = review !== undefined ? getSomeorUndefined(review[k]) : undefined;
-        if (fn !== undefined) queueMicrotask(() => fn({ key }));
+        const id = fn !== undefined ? rowIdOfKey(key) : undefined;
+        if (fn !== undefined && id !== undefined) queueMicrotask(() => fn(id));
     }
     function reviewBatchCall(k: "onApproveAll" | "onRejectAll" | "onRerun"): void {
         const review: PlanReviewValue | undefined = value !== undefined ? getSomeorUndefined(value.review) : undefined;
@@ -522,17 +527,17 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
                 const before = store.ui;
                 // A resolution lives in the slice: what it was, to say what it became.
                 const resolutionBefore = e.t === "resolution.set" && value !== undefined
-                    ? currentScale(value, rows())?.resolution : undefined;
+                    ? currentScale(value)?.resolution : undefined;
                 const step = planStoreReducer(store, { t: "event", e });
                 store = step.store;
-                if (value !== undefined && step.effects.length > 0) runPlanEffects(step.effects, value, rows());
+                if (value !== undefined && step.effects.length > 0) runPlanEffects(step.effects, value);
                 persistToggles();
                 // What the interaction changed, for the live region (#819) —
                 // said by the action that did it, so a reconcile or a landing
                 // that moves the same state says nothing.
                 say(announcementOf(e, before, store.ui, labelOf, words));
                 if (e.t === "resolution.set" && value !== undefined) {
-                    const after = currentScale(value, rows())?.resolution;
+                    const after = currentScale(value)?.resolution;
                     if (after !== undefined && after !== resolutionBefore) say(words.m.announceResolution({ resolution: after }));
                 }
             });

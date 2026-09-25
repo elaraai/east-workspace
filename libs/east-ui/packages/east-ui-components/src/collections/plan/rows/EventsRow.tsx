@@ -25,6 +25,7 @@ import type { IconName, IconPrefix } from "@fortawesome/fontawesome-svg-core";
 import { Plan } from "@elaraai/east-ui/internal";
 import { usePlanDispatch, usePlanResolvers, usePlanScale, type PlanElementRefValue } from "../context.js";
 import { markName } from "../a11y.js";
+import type { PlanRowId } from "../model.js";
 import { usePlanWords } from "../words.js";
 
 type Styles = Record<string, Record<string, unknown>>;
@@ -35,12 +36,14 @@ export interface EventsRowProps {
      *  K7 icon override falls back to the kind's default geometry. */
     ctx?: boolean | undefined;
     rowKey: string;
+    /** The row's id — what an element click names the row by (#822). */
+    rowId: PlanRowId;
     kind: EventsKindValue;
     styles: Styles;
 }
 
 /** The event-row plot content — kind-glyph marks + labels. */
-export function EventsRow({ rowKey, kind, styles, ctx }: EventsRowProps) {
+export function EventsRow({ rowKey, rowId, kind, styles, ctx }: EventsRowProps) {
     const ctxAttr = ctx === true ? "" : undefined;
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
@@ -56,7 +59,7 @@ export function EventsRow({ rowKey, kind, styles, ctx }: EventsRowProps) {
                 const frac = x.toFixed(4);
                 const label = mark.label.type === "some" ? mark.label.value : undefined;
                 const icon = mark.icon.type === "some" ? mark.icon.value : undefined;
-                const ref = variant("mark", { row: rowKey, mark: mark.key }) as PlanElementRefValue;
+                const ref = variant("mark", { row: rowId, mark: mark.key }) as PlanElementRefValue;
                 const onClick = (e: MouseEvent) => {
                     e.stopPropagation();
                     dispatch({ t: "row.select", key: rowKey });

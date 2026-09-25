@@ -21,8 +21,10 @@ import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { variant, some, none } from "@elaraai/east";
 import { system } from "../../theme/index.js";
-import { EastChakraPlan, type PlanRootValue, type PlanRowValue } from "./index.js";
+import { EastChakraPlan, type PlanRootValue } from "./index.js";
+import type { PlanWireRow } from "./model.js";
 import type { PlanInstantValue } from "./instant.js";
+import { rowId, rowSel } from "./plan.test-utils.js";
 
 // A canvas persists its toggles under its storageKey (#813), and several tests
 // share one — nothing may carry from one test to the next.
@@ -67,15 +69,17 @@ function gutter(label: string, opts?: { sub?: string; value?: string; meta?: str
     };
 }
 
-function planRow(key: string, kind: unknown, opts?: { parent?: string; gutter?: unknown; expand?: unknown }): PlanRowValue {
+/** One WIRE row, as the source serves it — named by its test key (#822). */
+function planRow(key: string, kind: unknown, opts?: { parent?: string; gutter?: unknown; expand?: unknown; collapsed?: boolean }): PlanWireRow {
     return {
-        key,
-        parent: opts?.parent !== undefined ? some(opts.parent) : none,
+        id: rowId(key),
+        parent: opts?.parent !== undefined ? some(rowId(opts.parent)) : none,
         gutter: opts?.gutter ?? gutter(key),
         kind,
+        collapsed: opts?.collapsed !== undefined ? some(opts.collapsed) : none,
         pinned: none, height: none, status: none, approval: none,
         expand: opts?.expand !== undefined ? some(opts.expand) : none,
-    } as unknown as PlanRowValue;
+    } as unknown as PlanWireRow;
 }
 
 function spanKind(runs: unknown[], opts?: { rollup?: string; unit?: string }) {
@@ -86,17 +90,9 @@ function spanKind(runs: unknown[], opts?: { rollup?: string; unit?: string }) {
     });
 }
 
-/** The decoded row COLLECTION — the IR's `Dict<String, PlanRow>` (#568). A
- *  plain `Map` stands in for the decoder's `SortedMap`: the renderer only
- *  iterates it, and INSERTION order keeps these fixtures readable in the order
- *  they are written. Key ORDER itself is covered in `derive.test.ts`. */
-function rowCollection(rows: PlanRowValue[]): Map<string, PlanRowValue> {
-    return new Map(rows.map((r) => [r.key, r]));
-}
-
-function planRoot(rows: PlanRowValue[], opts?: { footer?: unknown[]; now?: Date | undefined; slice?: unknown; resolutions?: unknown[]; links?: unknown[]; popover?: unknown; hover?: unknown; expandRender?: unknown; source?: unknown; pick?: unknown; axis?: unknown; style?: { height?: string; maxHeight?: string }; clicks?: { onRunClick?: unknown; onEventClick?: unknown; onMarkClick?: unknown; onChipClick?: unknown; onCellClick?: unknown } }): PlanRootValue {
+function planRoot(rows: PlanWireRow[], opts?: { footer?: unknown[]; now?: Date | undefined; slice?: unknown; resolutions?: unknown[]; links?: unknown[]; popover?: unknown; hover?: unknown; expandRender?: unknown; source?: unknown; pick?: unknown; axis?: unknown; style?: { height?: string; maxHeight?: string }; clicks?: { onRunClick?: unknown; onEventClick?: unknown; onMarkClick?: unknown; onChipClick?: unknown; onCellClick?: unknown } }): PlanRootValue {
     return {
-        rows: opts?.source !== undefined ? variant("paged", opts.source) : variant("inline", rowCollection(rows)),
+        rows: opts?.source !== undefined ? variant("paged", opts.source) : variant("inline", rows),
         links: opts?.links ?? [],
         // The TIME arm by default (#631); the typed-axis tests pass their own.
         axis: opts?.axis ?? variant("time", {
@@ -210,18 +206,18 @@ describe("Plan ruler + footer chrome", () => {
 describe("Plan group strips (§5)", () => {
     test("a group toggles its subtree in place and shows the member meta", () => {
         const { container } = renderPlan(planRoot([
-            planRow("line1", variant("group", { summary: none, summaryAggregate: none, collapsed: none }),
+            planRow("line1", variant("group", { summary: none, summaryAggregate: none }),
                 { gutter: gutter("LINE 1", { meta: "2 rs" }) }),
             planRow("m1", spanKind([]), { parent: "line1" }),
             planRow("m2", spanKind([]), { parent: "line1" }),
         ]));
         expect(screen.getByText("2 rs")).toBeTruthy();
-        expect(container.querySelector('[data-plan-row="m1"]')).toBeTruthy();
-        fireEvent.click(container.querySelector('[data-plan-group="line1"]')!);
-        expect(container.querySelector('[data-plan-row="m1"]')).toBeNull();
-        expect(container.querySelector('[data-plan-row="m2"]')).toBeNull();
-        fireEvent.click(container.querySelector('[data-plan-group="line1"]')!);
-        expect(container.querySelector('[data-plan-row="m1"]')).toBeTruthy();
+        expect(container.querySelector(rowSel("m1"))).toBeTruthy();
+        fireEvent.click(container.querySelector(rowSel("line1", "data-plan-group"))!);
+        expect(container.querySelector(rowSel("m1"))).toBeNull();
+        expect(container.querySelector(rowSel("m2"))).toBeNull();
+        fireEvent.click(container.querySelector(rowSel("line1", "data-plan-group"))!);
+        expect(container.querySelector(rowSel("m1"))).toBeTruthy();
     });
 
     test("an IR-collapsed group starts collapsed and renders its summary heat strip", () => {
@@ -232,11 +228,10 @@ describe("Plan group strips (§5)", () => {
                     min: some(0), max: some(100), warnAt: none,
                 })),
                 summaryAggregate: none,
-                collapsed: some(true),
-            })),
+            }), { collapsed: true }),
             planRow("m3", spanKind([]), { parent: "line2" }),
         ]));
-        expect(container.querySelector('[data-plan-row="m3"]')).toBeNull();
+        expect(container.querySelector(rowSel("m3"))).toBeNull();
         expect(screen.getByText("80")).toBeTruthy();
     });
 
@@ -250,13 +245,12 @@ describe("Plan group strips (§5)", () => {
                     min: some(0), max: some(100), warnAt: none,
                 })),
                 summaryAggregate: none,
-                collapsed: some(true),
-            })),
+            }), { collapsed: true }),
             planRow("m3", spanKind([]), { parent: "line2" }),
         ]), "plan-strip-toggle");
-        expect(container.querySelector('[data-plan-row="m3"]')).toBeNull();
+        expect(container.querySelector(rowSel("m3"))).toBeNull();
         fireEvent.click(screen.getByText("80"));
-        expect(container.querySelector('[data-plan-row="m3"]')).toBeTruthy();
+        expect(container.querySelector(rowSel("m3"))).toBeTruthy();
     });
 });
 
@@ -311,7 +305,7 @@ describe("Plan chart rows (§4·K3)", () => {
         const spark = renderPlan(planRoot([
             planRow("cov", chart(variant("spark", null)), { gutter: gutter("COVERAGE", { id: true, value: "94.2%" }) }),
         ]));
-        expect(spark.container.querySelector('[data-plan-row="cov"] svg [data-plan-mark="line"]')).toBeTruthy();
+        expect(spark.container.querySelector(`${rowSel("cov")} svg [data-plan-mark="line"]`)).toBeTruthy();
         expect(screen.queryByText("TARGET 100")).toBeNull();   // too shallow for the label
         expect(screen.getByText("94.2%")).toBeTruthy();
         expect(screen.getByText("80")).toBeTruthy();           // left tick in the gutter edge
@@ -444,13 +438,13 @@ describe("Plan table rows (§4·K5)", () => {
             ]), { parent: "net" }),
             planRow("wk2", tableKindOf([tableCell(new Date("2026-06-29Z"), 54)]), { parent: "net" }),
         ]));
-        const wkRow = container.querySelector('[data-plan-row="wk"]')!;
+        const wkRow = container.querySelector(rowSel("wk"))!;
         // Negatives tone `neg`, missing values the muted em-dash — derived
         // from the raw values at render; explicit text overrides win.
         expect(wkRow.querySelector('[data-tone="neg"]')!.textContent).toBe("-4");
         expect(wkRow.querySelector('[data-tone="muted"]')!.textContent).toBe("—");
         expect(wkRow.textContent).toContain("seven");
-        const netRow = container.querySelector('[data-plan-row="net"]')!;
+        const netRow = container.querySelector(rowSel("net"))!;
         expect(netRow.textContent).toContain("150");                  // derived 96 + 54
         expect(netRow.getAttribute("data-emphasis")).toBe("footer");
     });
@@ -473,7 +467,7 @@ describe("Plan table rows (§4·K5)", () => {
                 aggregate: none, format: none, emphasis: variant("body", null),
             })),
         ]));
-        const cell = container.querySelector('[data-plan-row="flow"] [data-split="horizontal"]')!;
+        const cell = container.querySelector(`${rowSel("flow")} [data-split="horizontal"]`)!;
         expect(cell).toBeTruthy();
         const parts = cell.querySelectorAll("span");
         expect(parts).toHaveLength(2);
@@ -491,23 +485,23 @@ describe("Plan table rows (§4·K5)", () => {
                 { gutter: gutter("net", { meta: "sum" }) }),
             planRow("wk", tableKindOf([tableCell(new Date("2026-06-29Z"), 96)]), { parent: "net" }),
         ]));
-        const netRow = () => container.querySelector('[data-plan-row="net"]')!;
-        expect(container.querySelector('[data-plan-row="wk"]')).toBeTruthy();
+        const netRow = () => container.querySelector(rowSel("net"))!;
+        expect(container.querySelector(rowSel("wk"))).toBeTruthy();
         // The `.of` aggregate-tag meta prints in the gutter's right cluster.
         expect(screen.getByText("sum")).toBeTruthy();
 
         // Clicking the LABEL (anywhere in the gutter, not just the caret)
         // collapses the subtree — and does NOT select the row.
         fireEvent.click(screen.getByText("net"));
-        expect(container.querySelector('[data-plan-row="wk"]')).toBeNull();
+        expect(container.querySelector(rowSel("wk"))).toBeNull();
         expect(netRow().hasAttribute("data-selected")).toBe(false);
         fireEvent.click(screen.getByText("net"));
-        expect(container.querySelector('[data-plan-row="wk"]')).toBeTruthy();
+        expect(container.querySelector(rowSel("wk"))).toBeTruthy();
 
         // The plot region keeps the selection contract.
         fireEvent.click(netRow().children[1]!);
         expect(netRow().hasAttribute("data-selected")).toBe(true);
-        expect(container.querySelector('[data-plan-row="wk"]')).toBeTruthy();  // no accidental toggle
+        expect(container.querySelector(rowSel("wk"))).toBeTruthy();  // no accidental toggle
     });
 });
 

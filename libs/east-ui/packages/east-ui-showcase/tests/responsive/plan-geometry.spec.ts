@@ -24,7 +24,15 @@
  */
 
 import { test, expect, type Locator, type Page } from "playwright/test";
+import { printFor, variant } from "@elaraai/east";
+import { Plan } from "@elaraai/east-ui/internal";
 import { settled } from "./settle";
+
+/** A row's element. `data-plan-row` holds the row's id as its canonical text
+ *  (#822) — printed by East, so the selector is the id the example builds. */
+const printId = printFor(Plan.Types.RowId);
+const rowSel = (series: string, ...path: string[]) =>
+    `[data-plan-row=${JSON.stringify(printId(variant("entry", { series, path }) as Parameters<typeof printId>[0]))}]`;
 
 /** The Plan examples, between them every row kind, group strips, pinned
  *  rows, number and ordinal axes. */
@@ -86,7 +94,7 @@ test.describe("Plan geometry (#817)", () => {
 
     test("chart rows hold at rest and expanded", async ({ page }) => {
         const entry = await openExample(page, "planChartRows");
-        const spark = entry.locator('[data-plan-row="spark"]');
+        const spark = entry.locator(rowSel("spark", "spark"));
         const rest = Number(await spark.getAttribute("data-plan-h"));
         // The expandable spark's gutter is its toggle.
         await spark.locator("> :first-child").click();
@@ -113,7 +121,7 @@ test.describe("Plan geometry (#817)", () => {
         // (Layout boxes, which is all this measures, are not clipped.)
         const toggleChart = () => chart.locator("> :first-child").dispatchEvent("click");
         // A one-line span row — the shared row, which density sets.
-        const spanRow = entry.locator('[data-plan-row="20-m04"]');
+        const spanRow = entry.locator(rowSel("mach", "m04"));
         const rowAt: Record<string, number> = {};
         for (const density of ["COMFORTABLE", "CONDENSED", "COMPACT"]) {
             await entry.getByText(density, { exact: true }).click();
@@ -208,19 +216,26 @@ test.describe("Plan toolbar segments (#632)", () => {
 test.describe("Plan link ribbons (#818)", () => {
     test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "measured once, at the desktop width");
 
-    /** planSpanRows' six links, in order: [from row, run, to row, run]. Every
-     *  routing case is among them — forward, the loopbacks, a same-row feed,
-     *  and a landing past the window (dsp's run starts where it ends). */
+    /** planSpanRows' rows the links join — each its series and path. */
+    const M07 = rowSel("flavours", "L1-M07");
+    const M09 = rowSel("detail", "L1-M09");
+    const M03 = rowSel("rollup", "Program A", "L1-M03");
+    const M11 = rowSel("rollup", "Program A", "L2-M11");
+    const DSP = rowSel("despatch", "dsp");
+    /** planSpanRows' six links, in order: [from row, run, to row, run], each
+     *  row by its selector. Every routing case is among them — forward, the
+     *  loopbacks, a same-row feed, and a landing past the window (dsp's run
+     *  starts where it ends). */
     const LINKS = [
-        ["L1-M07", "run", "L1-M09", "a"], ["L1-M09", "a", "L1-M09", "b"], ["L1-M09", "b", "L1-M03", "b221"],
-        ["L1-M03", "b214", "L2-M11", "b241"], ["L2-M11", "b241", "L1-M09", "b"], ["L1-M09", "b", "dsp", "d1"],
+        [M07, "run", M09, "a"], [M09, "a", M09, "b"], [M09, "b", M03, "b221"],
+        [M03, "b214", M11, "b241"], [M11, "b241", M09, "b"], [M09, "b", DSP, "d1"],
     ];
 
     /** Focus L1-M09's links — every link above touches its family — and let
      *  the focused canvas come to rest. */
     async function focusLinks(page: Page): Promise<Locator> {
         const entry = await openExample(page, "planSpanRows");
-        await entry.locator('[data-plan-row="L1-M09"] [data-plan-control="links"]').click();
+        await entry.locator(`${M09} [data-plan-control="links"]`).click();
         await expect(entry.locator("[data-plan-ribbons] [data-plan-link]")).toHaveCount(LINKS.length);
         await settled(page);
         return entry;
@@ -239,11 +254,11 @@ test.describe("Plan link ribbons (#818)", () => {
                 const [fromRow, fromRun, toRow, toRun] = links[Number(g.getAttribute("data-plan-link"))]!;
                 const band = nums(g.querySelector("[data-plan-ribbon-band]")!.getAttribute("d")!);
                 const tip = nums(g.querySelector("[data-plan-ribbon-head]")!.getAttribute("d")!).slice(2, 4);
-                const src = root.querySelector(`[data-plan-row="${fromRow}"] [data-run="${fromRun}"]`)!.getBoundingClientRect();
-                const dst = root.querySelector(`[data-plan-row="${toRow}"] [data-run="${toRun}"]`)!.getBoundingClientRect();
+                const src = root.querySelector(`${fromRow} [data-run="${fromRun}"]`)!.getBoundingClientRect();
+                const dst = root.querySelector(`${toRow} [data-run="${toRun}"]`)!.getBoundingClientRect();
                 // A run starting past the window lands on the plot's edge.
-                const plot = root.querySelector(`[data-plan-row="${toRow}"]`)!.children[1]!.getBoundingClientRect();
-                const edge = `${fromRow}·${fromRun} → ${toRow}·${toRun}`;
+                const plot = root.querySelector(toRow!)!.children[1]!.getBoundingClientRect();
+                const edge = `link ${g.getAttribute("data-plan-link")} (${fromRun} → ${toRun})`;
                 near(`${edge} start x`, svg.left + band[0]!, src.right);
                 near(`${edge} start y`, svg.top + band[1]!, src.top + src.height / 2);
                 near(`${edge} tip x`, svg.left + tip[0]!, Math.min(dst.left, plot.right));

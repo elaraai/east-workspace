@@ -67,10 +67,12 @@ export interface GroupRowProps {
      *  count is an aggregate like any other, so it is derived here rather than
      *  baked into the row). */
     memberCount?: number | undefined;
-    /** Whether the derived numbers cover an INCOMPLETE prefix (a paged canvas
-     *  still loading) — the count prints `~8 rs` and the band carries
-     *  `data-plan-partial` (#567 D9). The author's own `meta` is never
-     *  rewritten: it is their text, not a derivation. */
+    /** Whether the derived numbers cover only the windows that have landed —
+     *  a top-level section band on a paged canvas still loading, the one
+     *  parent whose members span windows (`spansWindows`, #822). The count
+     *  prints `~8 rs` and the band carries `data-plan-partial` (#567 D9). The
+     *  author's own `meta` is never rewritten: it is their text, not a
+     *  derivation. */
     partial?: boolean | undefined;
     /** Set when the band's own declared strip rides another arm than the axis
      *  (#811): the band keeps its toggle and its members, and its plot says

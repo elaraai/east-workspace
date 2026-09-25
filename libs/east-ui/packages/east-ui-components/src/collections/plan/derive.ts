@@ -346,13 +346,20 @@ function subtreeRuns(index: PlanRowIndex, key: RowKey, diagnosed: ReadonlyMap<Ro
  * Why a row cannot be drawn where it is (#811) — it renders in place as a
  * diagnostic row carrying this, and derives nothing.
  *
- * @property found - The arm the row's instants ride (the first one found)
- * @property expected - The arm the axis speaks
+ * - `axis` — the row's instants ride another arm than the axis speaks:
+ *   `found` is the arm they ride (the first one found), `expected` the axis's.
+ * - `duplicate` — the row repeats an id an earlier row carries (#822): `of` is
+ *   that row's key. Ids are unique by construction except where hand-built rows
+ *   repeat a key, and a repeat is shown, never dropped.
  */
-export interface PlanRowDiagnostic {
-    kind: "axis";
-    found: PlanAxisKind;
-    expected: PlanAxisKind;
+export type PlanRowDiagnostic =
+    | { kind: "axis"; found: PlanAxisKind; expected: PlanAxisKind }
+    | { kind: "duplicate"; of: RowKey };
+
+/** Whether a table row carries values of its own — a parent with none shows
+ *  its children's subtotals in the positions it declares. */
+function hasOwnValues(series: readonly TableSeriesValue[]): boolean {
+    return series.some((s) => s.cells.length > 0);
 }
 
 /** The per-value derived numbers, computed once per decoded root. */
@@ -371,8 +378,8 @@ export interface PlanDerived {
      *  `inheritedScale`) — absent when it paints on its own extent. */
     groupSummaryScale: ReadonlyMap<RowKey, HeatScale>;
     /** Direct-member count by group row key — the `"8 rs"` gutter meta.
-     *  Derived here, not baked into the IR: a group parent synthesized per
-     *  paged window would otherwise carry THAT window's count (#568). */
+     *  Derived here like every other aggregate: the IR declares no count, so
+     *  the meta is always the members the group has (#568). */
     groupMembers: ReadonlyMap<RowKey, number>;
     /** The rows that render as diagnostic rows, by key (#811) — excluded
      *  from every band, aggregate, subtotal and strip above. */
@@ -386,10 +393,12 @@ export interface PlanDerived {
  * The walk is an explicit POST-ORDER traversal from the roots: a declared
  * parent whose children are themselves declared parents aggregates their
  * DERIVED cells, so nesting composes to arbitrary depth — and it is correct
- * for ANY container order. (It used to walk the flat array in reverse, which
- * was only right while that array happened to be depth-first; under a keyed
- * collection a parent can sort before its children, and feeding a bottom-up
- * aggregation the wrong order yields wrong numbers, not an error — #568.)
+ * for ANY container order. The stream puts a parent before its subtree, but
+ * not always right before it (#822: an entry's children follow all of its
+ * `views` rows), so nothing here reads position. (It once walked the flat
+ * array in reverse, which was only right while that array happened to be
+ * depth-first; feeding a bottom-up aggregation the wrong order yields wrong
+ * numbers, not an error — #568.)
  *
  * Rows outside the tree — a `parent` naming a key that does not exist — are
  * unreachable from the roots and derive nothing, exactly as they render
@@ -425,6 +434,10 @@ export function derivePlan(
             diagnostics.set(m.row, { kind: "axis", found: m.found, expected: axisKind });
         }
     }
+    // A repeated id (#822) — the row keeps a key of its own and says so.
+    for (const row of index.rows) {
+        if (row.duplicateOf !== undefined) diagnostics.set(row.key, { kind: "duplicate", of: row.duplicateOf });
+    }
     const placeable = (row: PlanRowValue): boolean => !diagnostics.has(row.key);
     // A row's effective cells — its own, or (for declared parents) its
     // already-derived cells from the bottom-up walk. A diagnostic row has none.
@@ -436,8 +449,7 @@ export function derivePlan(
     };
     const resolvedTableSeries = (row: PlanRowValue): readonly TableSeriesValue[] => {
         if (row.kind.type !== "table" || !placeable(row)) return [];
-        const own = tableRollupSeries(row.kind.value.series);
-        if (own.length > 0) return own;
+        if (hasOwnValues(row.kind.value.series)) return tableRollupSeries(row.kind.value.series);
         return tableSeries.get(row.key) ?? [];
     };
     const visit = (row: PlanRowValue): void => {
@@ -460,8 +472,10 @@ export function derivePlan(
             heatCells.set(row.key, deriveHeatCells(
                 children.flatMap(resolvedHeatCells), kind.value.aggregate.value.type, ordinal, number));
         }
+        // A table parent with no values of its own — a series parent declares
+        // its positions with empty cells — shows its children's subtotals.
         if (kind.type === "table" && kind.value.aggregate.type === "some"
-            && tableRollupSeries(kind.value.series).length === 0 && children.length > 0) {
+            && !hasOwnValues(kind.value.series) && children.length > 0) {
             const positions = children.map(resolvedTableSeries).filter((p) => p.length > 0);
             if (positions.length > 0) {
                 tableSeries.set(row.key, deriveTableSeries(positions, kind.value.aggregate.value.type, ordinal));
@@ -498,7 +512,9 @@ function sameScale(a: HeatScale, b: HeatScale): boolean {
 }
 
 function sameDiagnostic(a: PlanRowDiagnostic, b: PlanRowDiagnostic): boolean {
-    return a.kind === b.kind && a.found === b.found && a.expected === b.expected;
+    if (a.kind === "axis" && b.kind === "axis") return a.found === b.found && a.expected === b.expected;
+    if (a.kind === "duplicate" && b.kind === "duplicate") return a.of === b.of;
+    return false;
 }
 
 /** `next`, with each entry `prev` already held for the same key reused when equal. */

@@ -20,6 +20,7 @@ import { Plan } from "@elaraai/east-ui/internal";
 import { usePlanDispatch, usePlanResolvers, usePlanScale, type PlanElementRefValue } from "../context.js";
 import { runStateKey } from "./SpanRow.js";
 import { chipName } from "../a11y.js";
+import type { PlanRowId } from "../model.js";
 import { usePlanWords } from "../words.js";
 
 type Styles = Record<string, Record<string, unknown>>;
@@ -30,12 +31,14 @@ export interface CardsRowProps {
     ctx?: boolean | undefined;
 
     rowKey: string;
+    /** The row's id — what an element click names the row by (#822). */
+    rowId: PlanRowId;
     kind: CardsKindValue;
     styles: Styles;
 }
 
 /** The cards-row plot content — whole-bucket shift chips. */
-export function CardsRow({ rowKey, kind, styles, ctx }: CardsRowProps) {
+export function CardsRow({ rowKey, rowId, kind, styles, ctx }: CardsRowProps) {
     const ctxAttr = ctx === true ? "" : undefined;
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
@@ -58,7 +61,7 @@ export function CardsRow({ rowKey, kind, styles, ctx }: CardsRowProps) {
                 const left = outside ? f0 : Math.max(0, f0);
                 const width = Math.max(0, (outside ? f1 : Math.min(1, f1)) - left);
                 const icon = chip.icon.type === "some" ? chip.icon.value : undefined;
-                const ref = variant("chip", { row: rowKey, chip: chip.key }) as PlanElementRefValue;
+                const ref = variant("chip", { row: rowId, chip: chip.key }) as PlanElementRefValue;
                 return (
                     <Box key={chip.key} css={styles.cardChip}
                         data-ctx={ctxAttr}

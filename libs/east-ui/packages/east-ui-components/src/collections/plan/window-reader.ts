@@ -47,16 +47,12 @@
  * @packageDocumentation
  */
 
-import { SortedMap, StringType, compareFor } from "@elaraai/east";
-import type { PlanRowValue } from "./model.js";
+import { toCanvasRows, type PlanRowValue } from "./model.js";
 import type { PlanPagedSourceValue } from "./use-plan-paging.js";
 
-/** East's own total order on row keys — the order both the source windows and
- *  the merged collection are in. */
-const ROW_KEY_ORDER = compareFor(StringType);
-
-/** One window's canvas rows, keyed. */
-export type WindowRows = ReadonlyMap<string, PlanRowValue>;
+/** One window's canvas rows, in stream order — keyed for the canvas once, when
+ *  the window is read ({@link toCanvasRows}). */
+export type WindowRows = readonly PlanRowValue[];
 
 /** The caller-owned read-once cache, keyed by window index. */
 export type WindowCache = Map<number, WindowRows>;
@@ -150,7 +146,7 @@ export function readWindows(
             }
             continue;
         }
-        const rows: WindowRows = win.value as WindowRows;
+        const rows: WindowRows = toCanvasRows(win.value);
         cache.set(w, rows);
         resident.push({ w, rows });
     }
@@ -159,31 +155,36 @@ export function readWindows(
 }
 
 /**
- * Merge windows into one keyed collection, last wins.
+ * Merge windows into ONE stream — the windows' rows concatenated in window
+ * order (#822).
  *
- * A row a later window re-emits — a group parent every window synthesizes — replaces
- * the earlier copy instead of appearing twice, and the result stays in
- * canonical key order however the windows interleave (#568).
+ * A row a later window re-serves — a hand-built row, or a section header,
+ * which every window's series emit alike — keeps its first copy rather than
+ * appearing twice; a window's own repeats were already made distinct when it
+ * was read.
  *
  * @param windows - The resident windows, any order
- * @returns The merged rows in canonical key order
+ * @returns The merged stream
  */
 export function mergeWindows(windows: readonly { w: number; rows: WindowRows }[]): PlanRowValue[] {
-    const merged = new SortedMap<string, PlanRowValue>(undefined, ROW_KEY_ORDER);
-    // Ascending window order, so "last wins" means the later WINDOW wins — the
-    // same rule whatever order the caller collected them in.
+    const merged: PlanRowValue[] = [];
+    const seen = new Set<string>();
     for (const { rows } of [...windows].sort((a, b) => a.w - b.w)) {
-        for (const [key, row] of rows) merged.set(key, row);
+        for (const row of rows) {
+            if (seen.has(row.key)) continue;
+            seen.add(row.key);
+            merged.push(row);
+        }
     }
-    return [...merged.values()];
+    return merged;
 }
 
 /**
  * Which window each merged row came from — the row→window map the driver needs
  * to turn a mounted ROW range back into a window, and #582's missing piece.
  *
- * Last window wins, matching {@link mergeWindows}: a row two windows both emit
- * is attributed to the later one, so the map and the rows always agree.
+ * First window wins, matching {@link mergeWindows}: a row two windows both
+ * serve is attributed to the earlier one, so the map and the rows always agree.
  *
  * @param windows - The resident windows, any order
  * @returns Window index by row key
@@ -191,7 +192,7 @@ export function mergeWindows(windows: readonly { w: number; rows: WindowRows }[]
 export function originOf(windows: readonly { w: number; rows: WindowRows }[]): Map<string, number> {
     const origin = new Map<string, number>();
     for (const { w, rows } of [...windows].sort((a, b) => a.w - b.w)) {
-        for (const key of rows.keys()) origin.set(key, w);
+        for (const row of rows) if (!origin.has(row.key)) origin.set(row.key, w);
     }
     return origin;
 }

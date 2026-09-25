@@ -9,8 +9,9 @@
  * Elements are plain DOM. Every element kind already names itself —
  * `data-run`, `data-event`, `data-chip`, `data-mark`, `data-cell` (the cell's
  * instant, `instantKey`-encoded) — and its row names it (`data-plan-row`, or a
- * narrow card's `data-plan-card`), so the element ref a resolver is called
- * with is read back from the DOM. The canvas body listens once:
+ * narrow card's `data-plan-card`: the row's key, its id's canonical text), so
+ * the element ref a resolver is called with is read back from the DOM, its row
+ * parsed back to the typed id (#822). The canvas body listens once:
  *
  * - a click opens the popover (and a second click on the same element closes
  *   it) — in the CAPTURE phase, because the elements stop their clicks from
@@ -41,6 +42,7 @@ import { EastChakraComponent } from "../../../component.js";
 import { useHoverCapable } from "../../../contracts/adaptive.js";
 import type { PlanElementRefValue } from "../context.js";
 import { instantKey, instantOfKey } from "../instant.js";
+import { rowIdOfKey, rowKeyOf } from "../row-key.js";
 import { usePlanController, usePlanSelector } from "../controller/react.js";
 import type { PlanController, PlanSnapshot } from "../controller/index.js";
 import { PlanPartBoundary } from "../rows/PartBoundary.js";
@@ -102,8 +104,9 @@ function elementIn(body: HTMLElement | null, target: EventTarget | null, selecto
  */
 export function refOfElement(el: Element): PlanElementRefValue | undefined {
     const holder = el.closest("[data-plan-row],[data-plan-card]");
-    const row = holder?.getAttribute("data-plan-row") ?? holder?.getAttribute("data-plan-card");
-    if (row === null || row === undefined) return undefined;
+    const key = holder?.getAttribute("data-plan-row") ?? holder?.getAttribute("data-plan-card");
+    const row = key !== null && key !== undefined ? rowIdOfKey(key) : undefined;
+    if (row === undefined) return undefined;
     const run = el.getAttribute("data-run");
     if (run !== null) return variant("run", { row, run }) as PlanElementRefValue;
     const event = el.getAttribute("data-event");
@@ -134,12 +137,13 @@ function tipOf(el: Element): { key: string; text: string } | undefined {
 
 /** A stable identity for an open surface — its element's kind, row and key. */
 function refKey(ref: PlanElementRefValue): string {
+    const row = rowKeyOf(ref.value.row);
     switch (ref.type) {
-        case "run": return `run|${ref.value.row}|${ref.value.run}`;
-        case "event": return `event|${ref.value.row}|${ref.value.event}`;
-        case "chip": return `chip|${ref.value.row}|${ref.value.chip}`;
-        case "mark": return `mark|${ref.value.row}|${ref.value.mark}`;
-        case "cell": return `cell|${ref.value.row}|${instantKey(ref.value.at)}`;
+        case "run": return `run|${row}|${ref.value.run}`;
+        case "event": return `event|${row}|${ref.value.event}`;
+        case "chip": return `chip|${row}|${ref.value.chip}`;
+        case "mark": return `mark|${row}|${ref.value.mark}`;
+        case "cell": return `cell|${row}|${instantKey(ref.value.at)}`;
     }
 }
 

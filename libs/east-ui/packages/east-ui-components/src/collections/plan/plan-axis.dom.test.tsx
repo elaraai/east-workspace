@@ -18,8 +18,10 @@ import { system } from "../../theme/index.js";
 import { buildSliceHandle } from "../../platform/slice/index.js";
 import { initializeStore } from "../../platform/state-runtime.js";
 import { UIStore } from "../../platform/state-store.js";
-import { EastChakraPlan, type PlanRootValue, type PlanRowValue } from "./index.js";
+import { EastChakraPlan, type PlanRootValue } from "./index.js";
+import type { PlanWireRow } from "./model.js";
 import type { PlanInstantValue } from "./instant.js";
+import { rowId, rowSel } from "./plan.test-utils.js";
 
 // A canvas persists its toggles under its storageKey (#813), and several tests
 // share one — nothing may carry from one test to the next.
@@ -65,15 +67,17 @@ function gutter(label: string, opts?: { sub?: string; value?: string; meta?: str
     };
 }
 
-function planRow(key: string, kind: unknown, opts?: { parent?: string; gutter?: unknown; expand?: unknown }): PlanRowValue {
+/** One WIRE row, as the source serves it — named by its test key (#822). */
+function planRow(key: string, kind: unknown, opts?: { parent?: string; gutter?: unknown; expand?: unknown; collapsed?: boolean }): PlanWireRow {
     return {
-        key,
-        parent: opts?.parent !== undefined ? some(opts.parent) : none,
+        id: rowId(key),
+        parent: opts?.parent !== undefined ? some(rowId(opts.parent)) : none,
         gutter: opts?.gutter ?? gutter(key),
         kind,
+        collapsed: opts?.collapsed !== undefined ? some(opts.collapsed) : none,
         pinned: none, height: none, status: none, approval: none,
         expand: opts?.expand !== undefined ? some(opts.expand) : none,
-    } as unknown as PlanRowValue;
+    } as unknown as PlanWireRow;
 }
 
 function spanKind(runs: unknown[], opts?: { rollup?: string; unit?: string }) {
@@ -84,17 +88,9 @@ function spanKind(runs: unknown[], opts?: { rollup?: string; unit?: string }) {
     });
 }
 
-/** The decoded row COLLECTION — the IR's `Dict<String, PlanRow>` (#568). A
- *  plain `Map` stands in for the decoder's `SortedMap`: the renderer only
- *  iterates it, and INSERTION order keeps these fixtures readable in the order
- *  they are written. Key ORDER itself is covered in `derive.test.ts`. */
-function rowCollection(rows: PlanRowValue[]): Map<string, PlanRowValue> {
-    return new Map(rows.map((r) => [r.key, r]));
-}
-
-function planRoot(rows: PlanRowValue[], opts?: { footer?: unknown[]; now?: Date | undefined; slice?: unknown; resolutions?: unknown[]; links?: unknown[]; popover?: unknown; hover?: unknown; expandRender?: unknown; source?: unknown; pick?: unknown; axis?: unknown; style?: { height?: string; maxHeight?: string }; clicks?: { onRunClick?: unknown; onEventClick?: unknown; onMarkClick?: unknown; onChipClick?: unknown; onCellClick?: unknown } }): PlanRootValue {
+function planRoot(rows: PlanWireRow[], opts?: { footer?: unknown[]; now?: Date | undefined; slice?: unknown; resolutions?: unknown[]; links?: unknown[]; popover?: unknown; hover?: unknown; expandRender?: unknown; source?: unknown; pick?: unknown; axis?: unknown; style?: { height?: string; maxHeight?: string }; clicks?: { onRunClick?: unknown; onEventClick?: unknown; onMarkClick?: unknown; onChipClick?: unknown; onCellClick?: unknown } }): PlanRootValue {
     return {
-        rows: opts?.source !== undefined ? variant("paged", opts.source) : variant("inline", rowCollection(rows)),
+        rows: opts?.source !== undefined ? variant("paged", opts.source) : variant("inline", rows),
         links: opts?.links ?? [],
         // The TIME arm by default (#631); the typed-axis tests pass their own.
         axis: opts?.axis ?? variant("time", {
@@ -201,8 +197,8 @@ describe("Plan typed axis (#631) — every row kind on every axis kind", () => {
         })),
         planRow("group", variant("group", {
             summary: some(variant("heat", { cells: [{ at: a.at2, value: some(80), label: some("80") }], min: some(0), max: some(100), warnAt: none })),
-            summaryAggregate: none, collapsed: some(true),
-        })),
+            summaryAggregate: none,
+        }), { collapsed: true }),
     ];
 
     for (const [kind, a] of Object.entries(AXES)) {
@@ -210,15 +206,15 @@ describe("Plan typed axis (#631) — every row kind on every axis kind", () => {
             const { container } = renderPlan(planRoot(rowsFor(a), { axis: a.axis }), `plan-631-${kind}`);
             const q = (sel: string) => container.querySelector(sel);
             // Continuous kinds at fraction 2/12; quantised kinds in bucket 2.
-            expect(q('[data-plan-row="span"] [data-run="r"]')!.getAttribute("data-plan-frac")).toBe("0.1667");
-            expect(q('[data-plan-row="buckets"] [data-plan-cell="2:0"]')).toBeTruthy();
+            expect(q(`${rowSel("span")} [data-run="r"]`)!.getAttribute("data-plan-frac")).toBe("0.1667");
+            expect(q(`${rowSel("buckets")} [data-plan-cell="2:0"]`)).toBeTruthy();
             // The column rect's x = (2/12 + 0.18/12) × 1000 viewBox units.
-            expect(parseFloat(q('[data-plan-row="chart"] svg rect')!.getAttribute("x")!)).toBeCloseTo(181.67, 1);
-            expect(q('[data-plan-row="heat"] [data-plan-bucket="2"]')).toBeTruthy();
-            expect(q('[data-plan-row="table"] [data-plan-bucket="2"]')).toBeTruthy();
-            expect(q('[data-plan-row="cards"] [data-chip="c"]')!.getAttribute("data-plan-frac")).toBe("0.1667");
-            expect(q('[data-plan-row="events"] [data-mark="m"]')!.getAttribute("data-plan-frac")).toBe("0.1667");
-            expect(q('[data-plan-group="group"] [data-plan-bucket="2"]')).toBeTruthy();
+            expect(parseFloat(q(`${rowSel("chart")} svg rect`)!.getAttribute("x")!)).toBeCloseTo(181.67, 1);
+            expect(q(`${rowSel("heat")} [data-plan-bucket="2"]`)).toBeTruthy();
+            expect(q(`${rowSel("table")} [data-plan-bucket="2"]`)).toBeTruthy();
+            expect(q(`${rowSel("cards")} [data-chip="c"]`)!.getAttribute("data-plan-frac")).toBe("0.1667");
+            expect(q(`${rowSel("events")} [data-mark="m"]`)!.getAttribute("data-plan-frac")).toBe("0.1667");
+            expect(q(`${rowSel("group", "data-plan-group")} [data-plan-bucket="2"]`)).toBeTruthy();
             // Twelve ruler ticks whatever the kind, labelled in the kind's vocabulary.
             const labels = [...container.querySelectorAll('[data-slot="rulerTick"]')].map((e) => e.textContent);
             expect(labels).toHaveLength(12);
@@ -235,14 +231,14 @@ describe("Plan typed axis (#631) — every row kind on every axis kind", () => {
             // Time instants on a number axis — the Planner's single-axis-kind rule.
             planRow("m1", spanKind([run("x", W27, new Date("2026-07-13Z"), variant("actual", null))])),
         ], { axis: AXES.number.axis }), "plan-631-mismatch");
-        const diag = container.querySelector('[data-plan-row="m1"] [data-plan-diagnostic]')!;
+        const diag = container.querySelector(`${rowSel("m1")} [data-plan-diagnostic]`)!;
         expect(diag).toBeTruthy();
         expect(diag.getAttribute("data-plan-diagnostic")).toBe("time");
         expect(diag.textContent).toBe("AXIS MISMATCH — this row carries time instants; the axis is number");
         // Nothing is drawn somewhere wrong: the mismatched row places no mark...
         expect(container.querySelector('[data-run="x"]')).toBeNull();
         // ...while the rest of the canvas draws, and the toolbar counts it.
-        expect(container.querySelector('[data-plan-row="ok"] [data-run="r"]')).toBeTruthy();
+        expect(container.querySelector(`${rowSel("ok")} [data-run="r"]`)).toBeTruthy();
         const chip = container.querySelector('[data-plan-diagnostics="rows"]')!;
         expect(chip.getAttribute("data-count")).toBe("1");
         expect(chip.textContent).toBe("1 row skipped");

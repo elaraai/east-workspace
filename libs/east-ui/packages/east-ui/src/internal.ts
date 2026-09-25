@@ -88,13 +88,13 @@ export type {
     PlanTableSeriesInput, PlanExpandInput, PlanLinkInput,
     PlanIconInput, PlanLayerChannels,
     PlanChartLayerInput, PlanChartAxisInput, PlanHeatCellsOptions,
-    PlanSpanOfConfig, PlanHeatOfConfig, PlanTableOfConfig,
     PlanReviewConfig, PlanRowsInput,
     PlanRowsValue,
-    PlanSeriesValue, PlanSeriesInput, PlanSeriesEnvelopeConfig,
+    PlanSeriesArm, PlanSeriesValue, PlanSeriesInput, PlanSeriesIdentity,
+    PlanEntryExpr, PlanAccessor, PlanChildren, PlanChildrenInput, PlanSeriesRowConfig,
     PlanSpanSeriesConfig, PlanHeatSeriesConfig, PlanTableSeriesOfConfig,
     PlanBucketsSeriesConfig, PlanCardsSeriesConfig, PlanEventsSeriesConfig,
-    PlanChartSeriesConfig, PlanGroupSeriesChrome,
+    PlanChartSeriesConfig, PlanGroupSeriesConfig, PlanSectionSeriesConfig, PlanViewsSeriesConfig,
 } from "./collections/index.js";
 export { Chart } from "./charts/chart/index.js";
 export { Sparkline } from "./charts/index.js";

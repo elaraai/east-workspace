@@ -5,13 +5,14 @@
 
 /**
  * The instants a row carries (#631) — one walk over every arm's instant
- * fields, and what the axis reads off it: the fit-to-data extent and the rows
- * whose instants ride another arm (split out of `model.ts`, #815).
+ * fields, and what the axis reads off it: the rows whose instants ride another
+ * arm (split out of `model.ts`, #815). The axis never fits its window to them
+ * (#822): the window is stated, or a bound slice's range.
  *
  * @packageDocumentation
  */
 
-import { instantOrder, type PlanAxisKind, type PlanInstantValue } from "./instant.js";
+import type { PlanAxisKind, PlanInstantValue } from "./instant.js";
 import type { PlanRowIndex, PlanRowValue } from "./model.js";
 import type { RowKey } from "./plan-state.js";
 
@@ -19,8 +20,8 @@ import type { RowKey } from "./plan-state.js";
 
 /**
  * Visit every instant a row carries — each arm's instant fields, whatever
- * the kind — so the axis-kind checks and the fit-to-data extent walk one
- * list rather than each keeping a copy of the row vocabulary.
+ * the kind — so every walk over a row's instants reads one list rather than
+ * keeping its own copy of the row vocabulary.
  *
  * @param row - The decoded row
  * @param visit - Called once per instant (interval ENDS flagged, so an
@@ -75,39 +76,6 @@ export function forEachInstant(row: PlanRowValue, visit: (t: PlanInstantValue, e
             break;
         }
     }
-}
-
-/**
- * Every instant a row set touches ON the axis's arm, as numbers — the
- * fit-to-data window fallback. A row carrying ANY instant of another arm is
- * skipped whole: it renders as a diagnostic row (#811), never its marks, so
- * none of its instants may stretch the window. An ordinal axis has no extent
- * to fit (its list is its window).
- *
- * @param rows - The decoded rows
- * @param kind - The axis kind
- * @returns The `[min, max]` extent, or `undefined` when nothing positions
- */
-export function dataExtent(rows: ReadonlyArray<PlanRowValue>, kind: PlanAxisKind): { min: number; max: number } | undefined {
-    if (kind === "ordinal") return undefined;
-    let min = Infinity;
-    let max = -Infinity;
-    for (const row of rows) {
-        let lo = Infinity;
-        let hi = -Infinity;
-        let offArm = false;
-        forEachInstant(row, (t) => {
-            if (t.type !== kind) { offArm = true; return; }
-            const n = instantOrder(t);
-            if (n < lo) lo = n;
-            if (n > hi) hi = n;
-        });
-        if (offArm) continue;
-        if (lo < min) min = lo;
-        if (hi > max) max = hi;
-    }
-    if (!Number.isFinite(min) || !Number.isFinite(max) || max < min) return undefined;
-    return { min, max };
 }
 
 /** One row whose instants ride another arm than the axis — the diagnostic's subject. */

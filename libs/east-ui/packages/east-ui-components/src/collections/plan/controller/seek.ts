@@ -22,13 +22,26 @@ import type { PlanRowValue } from "../model.js";
 import type { PlanPagedSourceValue } from "../use-plan-paging.js";
 import { soughtKeyOf, toSeekQuery, type SeekQueryValue } from "../use-seek.js";
 
-/** Canvas keys are Strings (#568) — a Plan's search input is typed against
- *  that, whatever the underlying dataset keys its elements by. */
+/** A row names the element it came from by a String — the first segment of
+ *  its id's path (#822: a String key as is, any other printed) — so a Plan's
+ *  search input is typed against that, whatever the underlying dataset keys
+ *  its elements by. */
 export const CANVAS_KEY_TYPE: EastTypeValue = toEastTypeValue(StringType);
 
-/** East's own total order on the row keys — the order both the source windows
- *  and the merged canvas collection are in. */
+/** East's own total order on Strings — the order a String-keyed source serves
+ *  its elements in, and so the order its rows' element keys run in. */
 const KEY_ORDER = compareFor(StringType);
+
+/**
+ * The key of the element a row came from — its id's first path segment — or
+ * `undefined` for a row no element placed (a section header).
+ *
+ * @param row - A canvas row
+ * @returns The element key
+ */
+export function elementKeyOf(row: PlanRowValue): string | undefined {
+    return row.id.type === "entry" ? row.id.value.path[0] : undefined;
+}
 
 /** The decoded `seek` capability of a paged source. */
 export type PlanSeekFn = Extract<PlanPagedSourceValue["seek"], { type: "some" }>["value"];
@@ -51,7 +64,7 @@ export const NO_SEEK: PlanSeekSnapshot = { sought: null, searchError: undefined,
 
 /** Options for {@link createSeekDriver}. */
 export interface SeekDriverOptions {
-    /** The loaded canvas rows, in canonical key order — what `listRange` labels. */
+    /** The loaded canvas rows, in stream order — what `listRange` labels. */
     rows: () => readonly PlanRowValue[];
     /** Drop the paging driver's pending jump pin — a cleared search has no target (#614). */
     clearJump: () => void;
@@ -86,15 +99,24 @@ export interface SeekDriver {
 }
 
 /**
- * The first loaded row at-or-after `key`, in canonical key order — where a
- * search positions the canvas, and where its labels start.
+ * The first loaded row whose element sorts at-or-after `key` — where a search
+ * positions the canvas, and where its labels start.
  *
- * @param rows - The loaded canvas rows, key order
+ * @remarks
+ * Windows land in the source's key order, and each series places its rows in
+ * element order within a window, so the first row in stream order at-or-after
+ * the key is the first row of the match run (#822). A parent precedes its
+ * subtree, so that row is the element's own, never a child's.
+ *
+ * @param rows - The loaded canvas rows, stream order
  * @param key - The sought key
- * @returns The index, or `-1` when no loaded row sorts at or after it
+ * @returns The index, or `-1` when no loaded row's element sorts at or after it
  */
 export function firstAtOrAfter(rows: readonly PlanRowValue[], key: string): number {
-    return rows.findIndex((r) => KEY_ORDER(r.key, key) >= 0);
+    return rows.findIndex((r) => {
+        const element = elementKeyOf(r);
+        return element !== undefined && KEY_ORDER(element, key) >= 0;
+    });
 }
 
 /**
@@ -177,11 +199,20 @@ export function createSeekDriver(options: SeekDriverOptions): SeekDriver {
             // Labels preview the LOADED head of the match run, anchored by the
             // KEY — never by element arithmetic into a row array (the #582
             // fallacy). A far match whose windows have not landed yet lists
-            // nothing; the labels arrive with the rows.
+            // nothing; the labels arrive with the rows. Each element is
+            // labelled once, by its key, in key order: an element places any
+            // number of rows, and a later series' block of the same window
+            // starts over at the window's first element.
             const loaded = options.rows();
             const first = firstAtOrAfter(loaded, soughtKey);
             if (first < 0) return [];
-            return loaded.slice(first, first + limit).map((r) => r.key);
+            const labels: string[] = [];
+            for (let i = first; i < loaded.length && labels.length < limit; i++) {
+                const element = elementKeyOf(loaded[i]!);
+                const last = labels[labels.length - 1];
+                if (element !== undefined && (last === undefined || KEY_ORDER(element, last) > 0)) labels.push(element);
+            }
+            return labels;
         },
         clear() {
             drop("search cleared");

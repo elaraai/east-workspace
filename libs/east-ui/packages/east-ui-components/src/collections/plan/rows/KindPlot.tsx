@@ -43,24 +43,22 @@ export interface KindPlotProps {
     plotHeight: number;
     /** Chart rows: render at expanded density (breach rectangles, ref labels). */
     chartExpanded: boolean;
-    /** Whether derived numbers cover an incomplete paged prefix (#567 D9). */
-    partial: boolean | undefined;
 }
 
 /** The plot content for a data row kind (`null` for a group band). */
-export function KindPlot({ v, styles, derived, hasChildren, ctx, plotHeight, chartExpanded, partial }: KindPlotProps) {
+export function KindPlot({ v, styles, derived, hasChildren, ctx, plotHeight, chartExpanded }: KindPlotProps) {
     // Bar heights are the canvas's geometry (#817) — the density's bar, or
     // the rollup band's height for a collapsed parent.
     const geometry = usePlanGeometry();
     const kind = v.row.kind;
     const rowKey = v.row.key;
+    const rowId = v.row.id;
     switch (kind.type) {
         case "span":
             return (
-                <SpanRow rowKey={rowKey} kind={kind.value} styles={styles} ctx={ctx}
+                <SpanRow rowKey={rowKey} rowId={rowId} kind={kind.value} styles={styles} ctx={ctx}
                     bands={derived.bands.get(rowKey) ?? []}
-                    barHeight={v.collapsed && hasChildren ? geometry.rollBar : geometry.bar}
-                    partial={partial} />
+                    barHeight={v.collapsed && hasChildren ? geometry.rollBar : geometry.bar} />
             );
         case "chart":
             return (
@@ -75,11 +73,11 @@ export function KindPlot({ v, styles, derived, hasChildren, ctx, plotHeight, cha
             const cells = derivedCells !== undefined && kind.value.cells.type === "heat"
                 ? variant("heat", { ...kind.value.cells.value, cells: derivedCells })
                 : kind.value.cells;
-            return <HeatCells rowKey={rowKey} cells={cells} styles={styles} ctx={ctx} />;
+            return <HeatCells rowKey={rowKey} rowId={rowId} cells={cells} styles={styles} ctx={ctx} />;
         }
         case "buckets":
             return (
-                <BucketsRow rowKey={rowKey} kind={kind.value} styles={styles} ctx={ctx} />
+                <BucketsRow rowKey={rowKey} rowId={rowId} kind={kind.value} styles={styles} ctx={ctx} />
             );
         case "table": {
             // A declared-aggregate parent renders its derived subtotal
@@ -87,7 +85,7 @@ export function KindPlot({ v, styles, derived, hasChildren, ctx, plotHeight, cha
             // series (per-position style, raw cells).
             const derivedSeries = derived.tableSeries.get(rowKey);
             return (
-                <TableRowCells rowKey={rowKey}
+                <TableRowCells rowKey={rowKey} rowId={rowId}
                     series={derivedSeries ?? kind.value.series}
                     split={kind.value.split.type} ctx={ctx}
                     format={getSomeorUndefined(kind.value.format)} styles={styles} />
@@ -95,11 +93,11 @@ export function KindPlot({ v, styles, derived, hasChildren, ctx, plotHeight, cha
         }
         case "cards":
             return (
-                <CardsRow rowKey={rowKey} kind={kind.value} styles={styles} ctx={ctx} />
+                <CardsRow rowKey={rowKey} rowId={rowId} kind={kind.value} styles={styles} ctx={ctx} />
             );
         case "events":
             return (
-                <EventsRow rowKey={rowKey} kind={kind.value} styles={styles} ctx={ctx} />
+                <EventsRow rowKey={rowKey} rowId={rowId} kind={kind.value} styles={styles} ctx={ctx} />
             );
         case "group":
             return null;

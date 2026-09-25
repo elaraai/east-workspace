@@ -15,13 +15,23 @@
 
 import { describe, test, expect, vi } from "vitest";
 import { some, none } from "@elaraai/east";
-import type { PlanRowValue } from "../model.js";
+import type { PlanWireRow } from "../model.js";
 import { PLAN_PAGE_SIZE, FAILED_BAND_MIN_PX, type PlanPagedSourceValue, type PlanViewport } from "../use-plan-paging.js";
 import { createPagingDriver, type PlanPagingSnapshot } from "./paging.js";
+import { rowId, testKeyOf } from "../plan.test-utils.js";
 
 const ROW_PX = 32;
 
-/** A synchronous source of `windows` windows, `rowsPer` rows each, keyed by
+/** A wire row carrying what the driver reads — its id (#822), no parent, and
+ *  anything else a test tags it with. */
+function wire(key: string, extra?: Record<string, unknown>): PlanWireRow {
+    return { id: rowId(key), parent: none, ...extra } as unknown as PlanWireRow;
+}
+
+/** The resident rows' test keys, in stream order. */
+const rowKeys = (s: PlanPagingSnapshot) => s.rows.map((r) => testKeyOf(r.key));
+
+/** A synchronous source of `windows` windows, `rowsPer` rows each, named by
  *  window so the merged order is checkable. Records which windows were asked
  *  for. */
 function source(windows: number, rowsPer = 2) {
@@ -32,11 +42,8 @@ function source(windows: number, rowsPer = 2) {
             const w = Number(offset) / PLAN_PAGE_SIZE;
             asked.push(w);
             const pad = String(w).padStart(4, "0");
-            const rows = new Map<string, PlanRowValue>();
-            for (let i = 0; i < rowsPer; i++) {
-                const key = `w${pad}r${String(i).padStart(3, "0")}`;
-                rows.set(key, { key, parent: none } as unknown as PlanRowValue);
-            }
+            const rows: PlanWireRow[] = [];
+            for (let i = 0; i < rowsPer; i++) rows.push(wire(`w${pad}r${String(i).padStart(3, "0")}`));
             return some(rows);
         },
         total: () => some(BigInt(windows * PLAN_PAGE_SIZE)),
@@ -70,7 +77,7 @@ describe("paging driver — first paint", () => {
         // The demand settles at [0, ahead] — window 0 plus its prefetch ring.
         expect(residentText(snap())).toBe("0-600");
         expect(snap().rows).toHaveLength(6);
-        expect(snap().rows[0]!.key).toBe("w0000r000");
+        expect(rowKeys(snap())[0]).toBe("w0000r000");
         // Nothing above the top, and everything below is one band.
         expect(bandText(snap().head)).toBe("-");
         expect(bandText(snap().tail)).toBe("600-9999");
@@ -229,7 +236,7 @@ describe("paging driver — pins and totals (#614)", () => {
             page: (offset: bigint) => {
                 const w = Number(offset) / PLAN_PAGE_SIZE;
                 asked.push(w);
-                return some(new Map([[`w${w}`, { key: `w${w}`, parent: none } as unknown as PlanRowValue]]));
+                return some([wire(`w${w}`)]);
             },
             total: () => some(total),
             seek: none,
@@ -239,7 +246,7 @@ describe("paging driver — pins and totals (#614)", () => {
         const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
         try {
             const { snap, report } = drive(value);
-            expect(snap().rows.map((r) => r.key)).toContain("w0");
+            expect(rowKeys(snap())).toContain("w0");
             total = 1_600n;
             report({ kind: "band", at: "tail" });                // any re-read
             expect(warn).toHaveBeenCalled();
@@ -267,8 +274,7 @@ describe("paging driver — a pending jump owns the viewport (#812)", () => {
                 if (w === broken) throw new Error("fetch failed: 503");
                 if (w >= 100 && !state.open) return none;
                 const pad = String(w).padStart(4, "0");
-                return some(new Map([`w${pad}r000`, `w${pad}r001`].map((key) =>
-                    [key, { key, parent: none } as unknown as PlanRowValue])));
+                return some([wire(`w${pad}r000`), wire(`w${pad}r001`)]);
             },
             total: () => some(BigInt(windows * PLAN_PAGE_SIZE)),
             seek: none,
@@ -363,8 +369,7 @@ describe("paging driver — a failed window (#811)", () => {
                 asked.push(w);
                 if (w === 1 && state.failing) throw new Error("fetch failed: 503");
                 const pad = String(w).padStart(4, "0");
-                return some(new Map([`w${pad}r000`, `w${pad}r001`].map((key) =>
-                    [key, { key, parent: none } as unknown as PlanRowValue])));
+                return some([wire(`w${pad}r000`), wire(`w${pad}r001`)]);
             },
             total: () => some(BigInt(windows * PLAN_PAGE_SIZE)),
             seek: none,
@@ -379,7 +384,7 @@ describe("paging driver — a failed window (#811)", () => {
         try {
             const { snap } = drive(flaky(50).value);
             expect(snap().failures.map((f) => f.w)).toEqual([1]);
-            const keys = snap().rows.map((r) => r.key);
+            const keys = rowKeys(snap());
             expect(keys).toContain("w0002r000");
             expect(keys).toContain("w0000r000");
             expect(keys.some((k) => k.startsWith("w0001"))).toBe(false);
@@ -409,7 +414,7 @@ describe("paging driver — a failed window (#811)", () => {
 
             state.failing = false;
             d.retry(1);
-            expect(snap().rows.map((r) => r.key)).toContain("w0001r000");
+            expect(rowKeys(snap())).toContain("w0001r000");
             expect(snap().failures).toEqual([]);
             expect(asked.filter((w) => w === 1).length).toBe(askedBefore + 1);
         } finally {
@@ -470,8 +475,7 @@ describe("paging driver — a derived source whose rows change (#590)", () => {
             id,
             page: (offset: bigint) => {
                 const w = Number(offset) / PLAN_PAGE_SIZE;
-                const key = `${label}-w${w}`;
-                return some(new Map([[key, { key, parent: none } as unknown as PlanRowValue]]));
+                return some([wire(`${label}-w${w}`)]);
             },
             total: () => some(BigInt(PLAN_PAGE_SIZE)),
             seek: none,
@@ -479,7 +483,7 @@ describe("paging driver — a derived source whose rows change (#590)", () => {
             refresh: () => null,
         } as unknown as PlanPagedSourceValue;
     }
-    const keys = (s: PlanPagingSnapshot) => s.rows.map((r) => r.key).join(" ");
+    const keys = (s: PlanPagingSnapshot) => rowKeys(s).join(" ");
 
     test("a NEW page function under the SAME id re-reads its resident windows (#809)", () => {
         const { d, snap } = drive(labelled("ops", "before"));
@@ -526,8 +530,7 @@ describe("paging driver — content revisions (#821)", () => {
                 const w = Number(offset) / PLAN_PAGE_SIZE;
                 if (!state.open.has(state.revision)) return none;
                 const pad = String(w).padStart(4, "0");
-                return some(new Map([`w${pad}r000`, `w${pad}r001`].map((key) =>
-                    [key, { key, parent: none, rev: state.revision } as unknown as PlanRowValue])));
+                return some([wire(`w${pad}r000`, { rev: state.revision }), wire(`w${pad}r001`, { rev: state.revision })]);
             },
             total: () => (state.open.has(state.revision) ? some(BigInt(state.total)) : none),
             seek: none,

@@ -19,7 +19,9 @@ import { system } from "../../theme/index.js";
 import { buildSliceHandle } from "../../platform/slice/index.js";
 import { initializeStore } from "../../platform/state-runtime.js";
 import { UIStore } from "../../platform/state-store.js";
-import { EastChakraPlan, type PlanRootValue, type PlanRowValue } from "./index.js";
+import { EastChakraPlan, type PlanRootValue } from "./index.js";
+import type { PlanWireRow } from "./model.js";
+import { rowId, rowItem, rowKey, rowSel } from "./plan.test-utils.js";
 
 class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
 (globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverStub;
@@ -69,19 +71,19 @@ afterEach(() => {
 const W27 = new Date("2026-06-29T00:00:00Z");
 const W39 = new Date("2026-09-21T00:00:00Z");
 
-function planRow(key: string, kind: unknown, parent?: string): PlanRowValue {
+/** One WIRE row, as the source serves it — named by its test key (#822). */
+function planRow(key: string, kind: unknown, parent?: string, collapsed?: boolean): PlanWireRow {
     return {
-        key,
-        parent: parent !== undefined ? some(parent) : none,
+        id: rowId(key),
+        parent: parent !== undefined ? some(rowId(parent)) : none,
         gutter: { label: key, id: none, sub: none, value: none, meta: none, stacked: none, swatches: [] },
         kind,
+        collapsed: collapsed === true ? some(true) : none,
         pinned: none, height: none, status: none, approval: none, expand: none,
-    } as unknown as PlanRowValue;
+    } as unknown as PlanWireRow;
 }
 const span = () => variant("span", { runs: [], decisions: [], ports: [], rollup: none, unit: none });
-const group = (collapsed: boolean) => variant("group", {
-    summary: none, summaryAggregate: none, collapsed: collapsed ? some(true) : none,
-});
+const group = () => variant("group", { summary: none, summaryAggregate: none });
 const chart = () => variant("chart", {
     layers: [], left: none, right: none,
     height: variant("spark", null), expandedHeight: none, expandable: some(true),
@@ -91,19 +93,17 @@ const pad = (i: number, width: number) => String(i).padStart(width, "0");
 /** A (declared collapsed) and B, three members each; an expandable chart;
  *  sixty plain rows. */
 const rows = () => [
-    planRow("A", group(true)),
+    planRow("A", group(), undefined, true),
     ...[1, 2, 3].map((i) => planRow(`a${i}`, span(), "A")),
-    planRow("B", group(false)),
+    planRow("B", group()),
     ...[1, 2, 3].map((i) => planRow(`b${i}`, span(), "B")),
     planRow("chart", chart()),
     ...Array.from({ length: 60 }, (_u, i) => planRow(`r${pad(i, 2)}`, span())),
 ];
 
-function planRoot(body: PlanRowValue[], opts?: { source?: unknown; slice?: unknown; resolutions?: unknown[] }): PlanRootValue {
+function planRoot(body: PlanWireRow[], opts?: { source?: unknown; slice?: unknown; resolutions?: unknown[] }): PlanRootValue {
     return {
-        rows: opts?.source !== undefined
-            ? variant("paged", opts.source)
-            : variant("inline", new Map(body.map((r) => [r.key, r]))),
+        rows: opts?.source !== undefined ? variant("paged", opts.source) : variant("inline", body),
         links: [],
         axis: variant("time", {
             window: some({ min: W27, max: W39 }), resolution: variant("week", null),
@@ -164,25 +164,25 @@ describe("Plan UI state survives a remount (#813)", () => {
         });
         const first = renderPlan(value(), "plan-813");
         // A was declared collapsed: open it. Collapse B. Expand the chart.
-        fireEvent.click(first.container.querySelector('[data-plan-group="A"]')!);
-        fireEvent.click(first.container.querySelector('[data-plan-group="B"]')!);
-        fireEvent.click(first.container.querySelector('[data-plan-row="chart"]')!.children[0]!);
+        fireEvent.click(first.container.querySelector(rowSel("A", "data-plan-group"))!);
+        fireEvent.click(first.container.querySelector(rowSel("B", "data-plan-group"))!);
+        fireEvent.click(first.container.querySelector(rowSel("chart"))!.children[0]!);
         fireEvent.click(screen.getByText("DAY"));
         // Rest the scroll 10px into r30: A 26 + a1–a3 96 + B 26 + chart 88
         // + thirty rows of 32 = 1,196px.
         await scrollAndSettle(first.container, 1_196 + 10);
-        expect(storedAt("plan-813").anchor).toMatchObject({ key: "r:r30", offset: 10 });
+        expect(storedAt("plan-813").anchor).toMatchObject({ key: rowItem("r30"), offset: 10 });
         // Selection is never persisted.
-        fireEvent.click(first.container.querySelector('[data-plan-row="r31"]')!);
-        expect(first.container.querySelector('[data-plan-row="r31"]')!.hasAttribute("data-selected")).toBe(true);
+        fireEvent.click(first.container.querySelector(rowSel("r31"))!);
+        expect(first.container.querySelector(rowSel("r31"))!.hasAttribute("data-selected")).toBe(true);
         first.unmount();
 
         const second = renderPlan(value(), "plan-813");
         const c = second.container;
         // The scroll is back 10px into r30 — and nothing is selected there.
         await waitFor(() => expect(frameOf(c).scrollTop).toBe(1_196 + 10));
-        expect(c.querySelector('[data-plan-row="r30"]')).toBeTruthy();
-        expect(c.querySelector('[data-plan-row="r31"]')!.hasAttribute("data-selected")).toBe(false);
+        expect(c.querySelector(rowSel("r30"))).toBeTruthy();
+        expect(c.querySelector(rowSel("r31"))!.hasAttribute("data-selected")).toBe(false);
         // The body is the one the user left: A open (its three members), B
         // collapsed, the chart expanded to 88px.
         expect(extentOf(c)).toBe(26 + 3 * 32 + 26 + 88 + 60 * 32);
@@ -190,25 +190,25 @@ describe("Plan UI state survives a remount (#813)", () => {
         expect(c.querySelector('[data-slot="rulerTick"]')!.textContent).toBe("MON");
         // Back at the top, the groups read as the user left them.
         await scrollAndSettle(c, 0);
-        expect(c.querySelector('[data-plan-row="a1"]')).toBeTruthy();
-        expect(c.querySelector('[data-plan-row="b1"]')).toBeNull();
+        expect(c.querySelector(rowSel("a1"))).toBeTruthy();
+        expect(c.querySelector(rowSel("b1"))).toBeNull();
     });
 
     test("a persisted key that no longer exists is ignored; an anchor whose row is gone lands on its clamped index", async () => {
         localStorage.setItem("plan-813-stale", JSON.stringify({
-            collapse: [["gone", true], ["B", true]],
+            collapse: [["gone", true], [rowKey("B"), true]],
             charts: ["gone-chart"],
             anchor: { key: "r:vanished", offset: 12, index: 40, window: null },
         }));
         const { container } = renderPlan(planRoot(rows()), "plan-813-stale");
         // B's toggle applies; A, never touched, takes its declaration.
-        expect(container.querySelector('[data-plan-row="b1"]')).toBeNull();
-        expect(container.querySelector('[data-plan-row="a1"]')).toBeNull();
+        expect(container.querySelector(rowSel("b1"))).toBeNull();
+        expect(container.querySelector(rowSel("a1"))).toBeNull();
         // The anchor's row is gone: index 40 is r37 (A, B and the chart first),
         // at 26 + 26 + 32 + 37 × 32 = 1,268px — offset dropped with the row.
         await waitFor(() => expect(frameOf(container).scrollTop).toBe(1_268));
         // What no longer exists stops being carried.
-        await waitFor(() => expect(storedAt("plan-813-stale").collapse).toEqual([["B", true]]));
+        await waitFor(() => expect(storedAt("plan-813-stale").collapse).toEqual([[rowKey("B"), true]]));
         expect(storedAt("plan-813-stale").charts).toEqual([]);
     });
 
@@ -217,23 +217,23 @@ describe("Plan UI state survives a remount (#813)", () => {
             collapse: "B", charts: [1, 2], anchor: { key: 5 },
         }));
         const { container } = renderPlan(planRoot(rows()), "plan-813-bad");
-        expect(container.querySelector('[data-plan-row="b1"]')).toBeTruthy();
-        expect(container.querySelector('[data-plan-row="a1"]')).toBeNull();
+        expect(container.querySelector(rowSel("b1"))).toBeTruthy();
+        expect(container.querySelector(rowSel("a1"))).toBeNull();
         expect(frameOf(container).scrollTop).toBe(0);
     });
 
     test("two canvases with different storageKeys share nothing", () => {
         const one = renderPlan(planRoot(rows()), "plan-813-one");
-        fireEvent.click(one.container.querySelector('[data-plan-group="B"]')!);
-        expect(one.container.querySelector('[data-plan-row="b1"]')).toBeNull();
+        fireEvent.click(one.container.querySelector(rowSel("B", "data-plan-group"))!);
+        expect(one.container.querySelector(rowSel("b1"))).toBeNull();
         one.unmount();
 
         const two = renderPlan(planRoot(rows()), "plan-813-two");
-        expect(two.container.querySelector('[data-plan-row="b1"]')).toBeTruthy();
+        expect(two.container.querySelector(rowSel("b1"))).toBeTruthy();
         two.unmount();
 
         const again = renderPlan(planRoot(rows()), "plan-813-one");
-        expect(again.container.querySelector('[data-plan-row="b1"]')).toBeNull();
+        expect(again.container.querySelector(rowSel("b1"))).toBeNull();
     });
 
     test("a paged canvas looks for the anchor's row in its window — a jump, not a walk", async () => {
@@ -243,10 +243,8 @@ describe("Plan UI state survives a remount (#813)", () => {
             page: (offset: bigint) => {
                 const from = Number(offset);
                 asked.push(from / 200);
-                return some(new Map(Array.from({ length: Math.max(0, Math.min(200, 2_000 - from)) }, (_u, i) => {
-                    const row = planRow(`u${pad(from + i, 4)}`, span());
-                    return [row.key, row] as const;
-                })));
+                return some(Array.from({ length: Math.max(0, Math.min(200, 2_000 - from)) }, (_u, i) =>
+                    planRow(`u${pad(from + i, 4)}`, span())));
             },
             total: () => some(2_000n),
             seek: none,
@@ -256,13 +254,13 @@ describe("Plan UI state survives a remount (#813)", () => {
         // The last session rested on u1300, which came from window 6 — and
         // left toggles on rows the opening ring does not hold.
         localStorage.setItem("plan-813-paged", JSON.stringify({
-            collapse: [["u1900", true]], charts: ["u1999"],
-            anchor: { key: "r:u1300", offset: 0, index: 500, window: 6 },
+            collapse: [[rowKey("u1900"), true]], charts: [rowKey("u1999")],
+            anchor: { key: rowItem("u1300"), offset: 0, index: 500, window: 6 },
         }));
         const { container } = renderPlan(planRoot([], { source }), "plan-813-paged");
         // The opening ring does not hold it, so the canvas jumps to its window
         // and scrolls to the row once it lands.
-        await waitFor(() => expect(container.querySelector('[data-plan-row="u1300"]')).toBeTruthy(), { timeout: 5_000 });
+        await waitFor(() => expect(container.querySelector(rowSel("u1300"))).toBeTruthy(), { timeout: 5_000 });
         expect(frameOf(container).scrollTop).toBeGreaterThan(0);
         // Windows 3 and 4 lie between the opening ring and the anchor's
         // ring — never asked.
@@ -270,7 +268,7 @@ describe("Plan UI state survives a remount (#813)", () => {
         expect(asked).not.toContain(4);
         // A paged source's resident rows are not all its rows: the toggles on
         // rows that have not landed are kept for when they do.
-        expect(storedAt("plan-813-paged").collapse).toEqual([["u1900", true]]);
-        expect(storedAt("plan-813-paged").charts).toEqual(["u1999"]);
+        expect(storedAt("plan-813-paged").collapse).toEqual([[rowKey("u1900"), true]]);
+        expect(storedAt("plan-813-paged").charts).toEqual([rowKey("u1999")]);
     });
 });

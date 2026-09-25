@@ -27,7 +27,7 @@ import {
 // | Roster  | person key       | day key (e.g. `"wed"`)                        |
 // | Board   | area key         | shift key                                     |
 // | Blend   | target key       | `"alloc"` (synthetic single slot)             |
-// | Plan    | canvas row key   | the pointed-at bucket's START instant, per the axis kind (#631): `time` ⇒ the Z-less ISO instant; `number` ⇒ the bucket start as a decimal; `ordinal` ⇒ the value |
+// | Plan    | the row id's canonical text (#822) | the pointed-at bucket's START instant, per the axis kind (#631): `time` ⇒ the Z-less ISO instant; `number` ⇒ the bucket start as a decimal; `ordinal` ⇒ the value |
 //
 // The composite rule: if a target's slot subdivides, the sub-slot key is
 // appended with `":"` — the same composite key the renderer uses to index its
@@ -40,14 +40,17 @@ import {
 //
 // The Plan prints every slot through one shared encoding
 // (`east-ui-components/src/dnd/slot-key.ts`), which any future axis-bearing
-// target must reuse so a host parses every slot the same way. A Plan row key
-// IS the data key its canvas is built from and searched by, so a Plan `add`
-// maps straight back to the source element with no lookup table.
+// target must reuse so a host parses every slot the same way. A Plan `row` is
+// the canonical `.east` text of the row's typed id (`PlanRowIdType` — its series
+// and the path of entry keys to it), so the grammar stays string-based: a host
+// keys its tables by `East.print(Plan.ref(series, …path))`, or reads the id back
+// with `row.parse(Plan.Types.RowId)`.
 //
 // A Plan accepts drops only on the row kinds that hold discrete scheduled
 // objects — `span`, `buckets`, `events`, `cards`. Rows rendering derived values
-// (`chart`, `heat`, `table`) and group strips register no cell at all, so they
-// are inert to a drag before any `canDrop` predicate is consulted.
+// (`chart`, `heat`, `table`), section headers and group strips register no
+// cell at all, so they are inert to a drag before any `canDrop` predicate is
+// consulted.
 
 /**
  * Reference to an item in a Library (a drag **source**).

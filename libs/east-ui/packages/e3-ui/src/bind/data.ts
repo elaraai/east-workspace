@@ -485,9 +485,11 @@ export const DataPagedPrimitives = {
  * import { Data } from "@elaraai/e3-ui";
  * import * as e3 from "@elaraai/e3";
  *
- * // KEYED, because the Plan's canvas rows inherit the dataset's keys — the
- * // same key space `page` windows and `seek` searches.
- * const ops = e3.input("ops", DictType(StringType, OpsRow), variant("value", new Map()));
+ * // KEYED, because a Plan row's id starts with its entry's key — the same key
+ * // space `page` windows and `seek` searches — and GROUPED by line where the
+ * // data is made (an e3 task): the canvas nests what the data nests (#822).
+ * const OpsLine = DictType(StringType, OpsRow);
+ * const ops = e3.input("ops", DictType(StringType, OpsLine), variant("value", new Map()));
  *
  * // Mirrors `dataBindPagedPlan` in test/bind/data/data.examples.tsx.
  * const dataBindPagedPlan = East.function([], UIComponentType, _$ => {
@@ -495,9 +497,9 @@ export const DataPagedPrimitives = {
  *         const paged = $.let(Data.bindPaged(ops));
  *         // In an event handler: $(paged.refresh(none)) discovers current content;
  *         // $(paged.refresh(some(committedHash))) pins an acknowledged write.
- *         const series = $.const([…], ArrayType(Plan.Types.Series(OpsRow)));
- *         // A paged canvas DECLARES its window: fitting the axis to whatever
- *         // prefix has landed re-fits it on every window (#567 D8).
+ *         const series = $.const([…], ArrayType(Plan.Types.Series(OpsLine)));
+ *         // Every canvas states its window, paged or inline — none is fitted
+ *         // to whatever has loaded (#822).
  *         const axis = $.const(Plan.axis({
  *             window: { min: week(24n), max: week(42n) }, resolution: "week",
  *         }));

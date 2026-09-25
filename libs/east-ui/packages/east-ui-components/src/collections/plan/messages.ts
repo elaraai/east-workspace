@@ -36,9 +36,10 @@ export type PlanGrainWord = "group" | "resource";
 /** An axis kind, as a message receives it (#631). */
 export type PlanAxisWord = "time" | "number" | "ordinal";
 
-/** A part of the canvas that can fail to render on its own (#811). */
+/** A part of the canvas that can fail to render on its own (#811). A row is
+ *  named to a reader by its label, and in `data-plan-error` by its key. */
 export type PlanPart =
-    | { kind: "row"; key: string }
+    | { kind: "row"; key: string; label: string }
     | { kind: "group"; label: string }
     | { kind: "expandRender" }
     | { kind: "expandGutter" }
@@ -71,20 +72,20 @@ export interface PlanMessages {
     // ── The frame ──────────────────────────────────────────────────────────
     /** The treegrid's accessible name. */
     gridLabel: () => string;
-    /** No window: a paged canvas that declares none. */
-    noWindowPaged: () => string;
-    /** No window: a number axis with nothing to span. */
-    noWindowNumber: () => string;
+    /** No window: a time or number axis that states none, with no bound slice
+     *  range to supply one (#822 — the rows never do). */
+    noWindow: () => string;
     /** No window: an ordinal axis with no values. */
     noWindowOrdinal: () => string;
-    /** No window: a time axis with nothing to span. */
-    noWindowTime: () => string;
     /** A part of the canvas, named — what its render-failure line says failed. */
     partName: (p: { part: PlanPart }) => string;
     /** A part's render-failure line. */
     partFailed: (p: { part: string; message: string }) => string;
     /** A row whose instants ride another arm than the axis (#811). */
     axisMismatch: (p: { found: PlanAxisWord; expected: PlanAxisWord }) => string;
+    /** A row repeating the id of an earlier row on the canvas (#822) — `id` is
+     *  the id's canonical text. */
+    duplicateRow: (p: { id: string }) => string;
 
     // ── The toolbar ────────────────────────────────────────────────────────
     /** The grain segment's accessible name. */
@@ -143,10 +144,11 @@ export interface PlanMessages {
     // ── Row focus (R1 / R2) ────────────────────────────────────────────────
     /** The focus band's way back. */
     allRows: () => string;
-    /** The links focus caption — `LINKS · M-214 · 4 UPSTREAM · 6 DOWNSTREAM`. */
-    focusLinks: (p: { key: string; upstream: string | undefined; downstream: string | undefined }) => string;
-    /** The expand focus caption. */
-    focusExpanded: (p: { key: string }) => string;
+    /** The links focus caption — `LINKS · M-214 · 4 UPSTREAM · 6 DOWNSTREAM`;
+     *  `label` is the focused row's gutter label. */
+    focusLinks: (p: { label: string; upstream: string | undefined; downstream: string | undefined }) => string;
+    /** The expand focus caption — `label` is the focused row's gutter label. */
+    focusExpanded: (p: { label: string }) => string;
     /** A row's family tag under a links focus. */
     focusTag: (p: { tag: PlanFocusTagWord }) => string;
     /** The links-focus control's accessible name. */
@@ -155,7 +157,9 @@ export interface PlanMessages {
     expandControl: () => string;
 
     // ── Rows and bands ─────────────────────────────────────────────────────
-    /** A group's derived member count — `~8 rs` over a partial prefix. */
+    /** A group's derived member count — `8 rs`, or `~8 rs` while it covers only
+     *  the loaded windows (a top-level section on a paged canvas still
+     *  loading — the one parent whose members span windows, #822). */
     groupMeta: (p: { n: number; count: string; partial: boolean }) => string;
     /** What a links focus's gap band stands for — `12 hidden rows`. */
     hiddenRows: (p: { n: number; count: string; what: "row" | "group" }) => string;
@@ -171,8 +175,9 @@ export interface PlanMessages {
     retry: () => string;
     /** A run bar's churn counter — `moved ×3`. */
     moved: (p: { n: number; count: string }) => string;
-    /** A rollup band's caption — `×2 · 208 t`, `~`-marked over a partial prefix. */
-    rollupCaption: (p: { count: string | undefined; quantity: string | undefined; partial: boolean }) => string;
+    /** A rollup band's caption — `×2 · 208 t`. Always exact: a span parent
+     *  rolls up one entry's subtree, which a window holds whole (#822). */
+    rollupCaption: (p: { count: string | undefined; quantity: string | undefined }) => string;
     /** The resting chip of a proposed bucket tile. */
     planChip: () => string;
 
@@ -330,13 +335,11 @@ const listed = (parts: ReadonlyArray<string | undefined>): string =>
  */
 export const planMessages: PlanMessages = {
     gridLabel: () => "Plan",
-    noWindowPaged: () => "NO WINDOW — a paged plan must declare an axis window or bind a slice range",
-    noWindowNumber: () => "NO WINDOW — give the plan an axis window, a bound slice range, or numbered rows",
+    noWindow: () => "NO WINDOW — declare an axis window, or bind a slice whose range supplies it",
     noWindowOrdinal: () => "NO WINDOW — an ordinal axis needs at least one declared value",
-    noWindowTime: () => "NO WINDOW — give the plan an axis window, a bound slice range, or dated rows",
     partName: ({ part }) => {
         switch (part.kind) {
-            case "row": return `row ${part.key}`;
+            case "row": return `row ${part.label}`;
             case "group": return `group ${part.label}`;
             case "expandRender": return "expand render";
             case "expandGutter": return "expand gutter";
@@ -347,6 +350,7 @@ export const planMessages: PlanMessages = {
     },
     partFailed: ({ part, message }) => `${part} could not render — ${message}`,
     axisMismatch: ({ found, expected }) => `AXIS MISMATCH — this row carries ${found} instants; the axis is ${expected}`,
+    duplicateRow: ({ id }) => `DUPLICATE ID — an earlier row already has ${id}`,
 
     grainLabel: () => "Grain",
     grainName: ({ grain }) => grain.toUpperCase(),
@@ -377,9 +381,9 @@ export const planMessages: PlanMessages = {
     periodQuarter: ({ quarter, year }) => `Q${quarter} ${year}`,
 
     allRows: () => "← ALL ROWS",
-    focusLinks: ({ key, upstream, downstream }) =>
-        `LINKS · ${key}${upstream !== undefined && downstream !== undefined ? ` · ${upstream} UPSTREAM · ${downstream} DOWNSTREAM` : ""}`,
-    focusExpanded: ({ key }) => `EXPANDED · ${key}`,
+    focusLinks: ({ label, upstream, downstream }) =>
+        `LINKS · ${label}${upstream !== undefined && downstream !== undefined ? ` · ${upstream} UPSTREAM · ${downstream} DOWNSTREAM` : ""}`,
+    focusExpanded: ({ label }) => `EXPANDED · ${label}`,
     focusTag: ({ tag }) => tag,
     linksControl: () => "Focus linked rows",
     expandControl: () => "Expand row",
@@ -392,12 +396,9 @@ export const planMessages: PlanMessages = {
     windowFailed: ({ from, to, reason }) => `Elements ${from}–${to} could not be read — ${reason}`,
     retry: () => "Retry",
     moved: ({ count }) => `moved ×${count}`,
-    rollupCaption: ({ count, quantity, partial }) => {
-        const counts = [count !== undefined ? `×${count}` : undefined, quantity]
-            .filter((p): p is string => p !== undefined && p !== "").join(" · ");
-        // A rollup over a partial prefix is an understatement, not a number.
-        return partial && counts !== "" ? `~${counts}` : counts;
-    },
+    rollupCaption: ({ count, quantity }) =>
+        [count !== undefined ? `×${count}` : undefined, quantity]
+            .filter((p): p is string => p !== undefined && p !== "").join(" · "),
     planChip: () => "plan",
 
     approve: () => "Approve",

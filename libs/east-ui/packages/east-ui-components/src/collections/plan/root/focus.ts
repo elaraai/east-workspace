@@ -13,7 +13,7 @@ import { getSomeorUndefined } from "../../../utils.js";
 import type { EastChakraComponent } from "../../../component.js";
 import { useElementHeight } from "../use-element-height.js";
 import {
-    deriveLinkFamily, pxOf, rowHeight,
+    deriveLinkFamily, pxOf, rowHeight, rowIdOfKey,
     type LinkFamily, type PlanDerived, type PlanFocusCtx, type PlanLinkValue, type PlanRootValue,
     type PlanRowIndex, type VisibleRow,
 } from "../model.js";
@@ -84,8 +84,8 @@ export interface PlanExpand {
 
 /**
  * The focused row's developer render — the ROOT's `expandRender` resolver
- * called with the row ref (rows only DECLARE `{ height, axis }`), evaluated
- * once per focus — and the v2 clamp on its height.
+ * called with the row's id (#822; rows only DECLARE `{ height, axis }`),
+ * evaluated once per focus — and the v2 clamp on its height.
  *
  * @param value - The latest root (its resolvers)
  * @param focus - The active row focus
@@ -110,19 +110,23 @@ export function usePlanExpand(
     const expandRenderFn = useMemo(() => getSomeorUndefined(value.expandRender), [value.expandRender]);
     const expandGutterFn = useMemo(() => getSomeorUndefined(value.expandGutter), [value.expandGutter]);
     const expandKey = focus?.kind === "expand" ? focus.key : undefined;
+    // Keyed on the focused row's KEY, so a landing or a data commit that keeps
+    // the focus does not run the resolvers again.
     const expandBody = useMemo((): UIValue | null => {
-        if (expandKey === undefined || expandRenderFn === undefined) return null;
+        const id = expandKey !== undefined ? rowIdOfKey(expandKey) : undefined;
+        if (id === undefined || expandRenderFn === undefined) return null;
         try {
-            return expandRenderFn({ key: expandKey });
+            return expandRenderFn(id);
         } catch (err) {
             console.error("[Plan] expandRender resolver failed:", err);
             return null;
         }
     }, [expandKey, expandRenderFn]);
     const expandGutterBody = useMemo((): UIValue | null => {
-        if (expandKey === undefined || expandGutterFn === undefined) return null;
+        const id = expandKey !== undefined ? rowIdOfKey(expandKey) : undefined;
+        if (id === undefined || expandGutterFn === undefined) return null;
         try {
-            return expandGutterFn({ key: expandKey });
+            return expandGutterFn(id);
         } catch (err) {
             console.error("[Plan] expandGutter resolver failed:", err);
             return null;

@@ -20,21 +20,23 @@ export interface FocusBarProps {
     styles: Styles;
     /** The active focus. */
     focus: { kind: "links" | "expand"; key: string };
+    /** The focused row's name — its gutter label, never its key (#822). */
+    label: string;
     /** Family sizes (links focus). */
     counts?: { upstream: number; downstream: number } | undefined;
 }
 
 /** The focus header band — the return chip + the caption. */
-export function FocusBar({ styles, focus, counts }: FocusBarProps) {
+export function FocusBar({ styles, focus, label, counts }: FocusBarProps) {
     const dispatch = usePlanDispatch();
     const words = usePlanWords();
     const caption = focus.kind === "links"
         ? words.m.focusLinks({
-            key: focus.key,
+            label,
             upstream: counts !== undefined ? words.number(counts.upstream) : undefined,
             downstream: counts !== undefined ? words.number(counts.downstream) : undefined,
         })
-        : words.m.focusExpanded({ key: focus.key });
+        : words.m.focusExpanded({ label });
     return (
         <Box css={styles.focusBar} data-plan-focusbar={focus.kind}>
             <chakra.button

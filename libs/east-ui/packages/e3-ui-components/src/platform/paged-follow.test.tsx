@@ -17,13 +17,14 @@ import { describe, test, expect, afterEach } from "vitest";
 import { render, screen, cleanup, act } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import {
-    DictType, East, StringType, StructType, compareFor, encodeBeast2For, none, some, toEastTypeValue, variant,
+    DictType, East, StringType, StructType, compareFor, encodeBeast2For, none, printFor, some, toEastTypeValue, variant,
+    type ValueTypeOf,
 } from "@elaraai/east";
 import { Paged } from "@elaraai/east-ui";
-import { Sheet, UIComponentType } from "@elaraai/east-ui/internal";
+import { Plan, Sheet, UIComponentType } from "@elaraai/east-ui/internal";
 import {
     EastChakraPlan, EastChakraSheet, getRegisteredPlatformImplementations, system,
-    type PlanRootValue, type PlanRowValue, type SheetRootValue,
+    type PlanRootValue, type SheetRootValue,
 } from "@elaraai/east-ui-components";
 import type { DatasetPage } from "@elaraai/e3-api-client";
 import type { TreePath } from "@elaraai/e3-types";
@@ -99,10 +100,15 @@ function standInServer(initial: Content) {
     };
 }
 
+/** A machine's row id — the `machines` series' entry at its key (#822). */
+const machineId = (key: string) => variant("entry", { series: "machines", path: [key] }) as ValueTypeOf<typeof Plan.Types.RowId>;
+/** The row's element: `data-plan-row` holds its id's canonical text. */
+const machineRow = (key: string) => `[data-plan-row=${JSON.stringify(printFor(Plan.Types.RowId)(machineId(key)))}]`;
+
 /** A canvas row per machine — what the series pipeline would derive. */
-function rowOf(key: string, label: string): PlanRowValue {
+function rowOf(key: string, label: string): ValueTypeOf<typeof Plan.Types.Row> {
     return {
-        key,
+        id: machineId(key),
         parent: none,
         gutter: { label: key, id: none, sub: none, value: none, meta: none, stacked: none, swatches: [] },
         kind: variant("span", {
@@ -112,8 +118,8 @@ function rowOf(key: string, label: string): PlanRowValue {
             }],
             decisions: [], ports: [], rollup: none, unit: none,
         }),
-        pinned: none, height: none, status: none, approval: none, expand: none,
-    } as unknown as PlanRowValue;
+        collapsed: none, pinned: none, height: none, status: none, approval: none, expand: none,
+    } as unknown as ValueTypeOf<typeof Plan.Types.Row>;
 }
 
 /** The Plan root over the bound handle — its `page` mapped to canvas rows,
@@ -131,7 +137,7 @@ function planOver(handle: Record<string, unknown>): PlanRootValue {
         page: (offset: bigint, limit: bigint) => {
             const win = bound.page(offset, limit);
             if (win.type !== "some" || win.value === undefined) return none;
-            return some(new Map([...win.value].map(([k, v]) => [k, rowOf(k, v.label)])));
+            return some([...win.value].map(([k, v]) => rowOf(k, v.label)));
         },
         total: bound.total,
         seek: none,
@@ -165,7 +171,7 @@ describe("a Plan over Data.bindPaged follows its dataset (#821)", () => {
             </ChakraProvider>,
         );
         await screen.findByText("A-M1");
-        const row = container.querySelector('[data-plan-row="m1"]');
+        const row = container.querySelector(machineRow("m1"));
         expect(row).toBeTruthy();
 
         // The dataset is written, and the next status poll reports it. B's
@@ -174,7 +180,7 @@ describe("a Plan over Data.bindPaged follows its dataset (#821)", () => {
         await act(async () => { server.poll(); });
         await settle();
         // The same row, still showing A — never an empty frame.
-        expect(container.querySelector('[data-plan-row="m1"]')).toBe(row);
+        expect(container.querySelector(machineRow("m1"))).toBe(row);
         expect(screen.getByText("A-M1")).toBeTruthy();
         expect(screen.queryByText("B-M1")).toBeNull();
 
@@ -183,7 +189,7 @@ describe("a Plan over Data.bindPaged follows its dataset (#821)", () => {
         await settle();
         await screen.findByText("B-M1");
         expect(screen.queryByText("A-M1")).toBeNull();
-        expect(container.querySelector('[data-plan-row="m1"]')).toBe(row);
+        expect(container.querySelector(machineRow("m1"))).toBe(row);
     });
 });
 

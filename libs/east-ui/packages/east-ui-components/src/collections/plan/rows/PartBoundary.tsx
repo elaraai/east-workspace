@@ -27,7 +27,8 @@ import { usePlanWords } from "../words.js";
 type Styles = Record<string, Record<string, unknown>>;
 
 /**
- * A part's stable id — the fallback's `data-plan-error`: `row m3`, `popover`.
+ * A part's stable id — the fallback's `data-plan-error`: `popover`, or `row`
+ * and the row's key (its id's canonical text, #822), which a label is not.
  *
  * @param part - The part
  * @returns Its id

@@ -33,6 +33,7 @@ import { Paged, Plan, Table, UIComponentType } from "@elaraai/east-ui/internal";
 import { PLAN_PAGE_SIZE, type PlanPagedSourceValue } from "./plan/use-plan-paging.js";
 import { createPagingDriver, type PagingDriver } from "./plan/controller/paging.js";
 import { useTablePagedRows, type TablePagedSourceValue } from "./table/use-paged-rows.js";
+import { rowKey } from "./plan/plan.test-utils.js";
 
 afterEach(cleanup);
 
@@ -49,6 +50,8 @@ const Entry = StructType({ n: IntegerType });
 const ENTRIES = new Map(Array.from({ length: 5_000 }, (_, i) =>
     [`e${String(i).padStart(5, "0")}`, { n: BigInt(i) }] as const));
 const ENTRY_KEYS = [...ENTRIES.keys()];
+/** An entry's row on the canvas — the `entries` series at the entry's key (#822). */
+const entryRow = (i: number) => rowKey(ENTRY_KEYS[i]!, "entries");
 
 /** 1,000 positional rows for the Table — five windows, all inside the dense
  *  prefix it reads (at most 20 windows). */
@@ -142,7 +145,7 @@ describe("a trimmed source through the Plan's paging driver (#829)", () => {
 
         // Back to the top: the evicted window is read again — whole again.
         driver.jumpToElement(0);
-        await waitFor(() => expect(driver.getSnapshot().origin.has(ENTRY_KEYS[0]!)).toBe(true));
+        await waitFor(() => expect(driver.getSnapshot().origin.has(entryRow(0))).toBe(true));
         expectWholePlanWindows();
     });
 
@@ -150,9 +153,9 @@ describe("a trimmed source through the Plan's paging driver (#829)", () => {
         const driver = drivePlan(planSource());
         await waitFor(() => expect(driver.getSnapshot().resident).toBeDefined());
         driver.jumpToElement(3_333);
-        await waitFor(() => expect(driver.getSnapshot().origin.has(ENTRY_KEYS[3_333]!)).toBe(true));
+        await waitFor(() => expect(driver.getSnapshot().origin.has(entryRow(3_333))).toBe(true));
         expectWholePlanWindows();
-        expect(driver.getSnapshot().origin.get(ENTRY_KEYS[3_333]!)).toBe(Math.floor(3_333 / PLAN_PAGE_SIZE));
+        expect(driver.getSnapshot().origin.get(entryRow(3_333))).toBe(Math.floor(3_333 / PLAN_PAGE_SIZE));
     });
 });
 

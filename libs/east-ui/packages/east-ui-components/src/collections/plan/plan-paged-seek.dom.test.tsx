@@ -47,6 +47,10 @@ import { UIStore } from "../../platform/state-store.js";
 import { getRegisteredPlatformImplementations } from "../../platform/registry.js";
 import { EastChakraPlan, type PlanRootValue } from "./index.js";
 import { PLAN_PAGE_SIZE } from "./use-plan-paging.js";
+import { rowSel, testKeyOf } from "./plan.test-utils.js";
+
+/** A unit's row — the `units` series' entry at the unit's key (#822). */
+const unitRow = (key: string) => rowSel(key, "data-plan-row", "units");
 
 afterEach(cleanup);
 
@@ -172,7 +176,7 @@ describe("Plan paged random access (#567/#574/#577)", () => {
 
         // The compiled `page` answered, and its rows reached the canvas.
         await waitFor(() => {
-            expect(container.querySelector('[data-plan-row="u0000"]')).toBeTruthy();
+            expect(container.querySelector(unitRow("u0000"))).toBeTruthy();
         });
         // The compiled `total` taught the transport the exact element count.
         await waitFor(() => {
@@ -193,7 +197,7 @@ describe("Plan paged random access (#567/#574/#577)", () => {
             const { root, asked } = withRecordedWindows(buildPagedPlan());
             const { container } = renderPlan(root, "plan-jump");
             await waitFor(() => {
-                expect(container.querySelector('[data-plan-row="u0000"]')).toBeTruthy();
+                expect(container.querySelector(unitRow("u0000"))).toBeTruthy();
             });
             const beforeJump = new Set(asked);
 
@@ -212,7 +216,7 @@ describe("Plan paged random access (#567/#574/#577)", () => {
             // The canvas MOVED: the target window landed, and the page
             // scrolled to its row...
             await waitFor(() => {
-                expect(container.querySelector(`[data-plan-row="${TARGET_KEY}"]`)).toBeTruthy();
+                expect(container.querySelector(unitRow(TARGET_KEY))).toBeTruthy();
             }, { timeout: 10_000 });
             expect(window.scrollY).toBeGreaterThan(0);
             // ...and the head it left behind is described by a band, not by
@@ -221,7 +225,7 @@ describe("Plan paged random access (#567/#574/#577)", () => {
             const head = container.querySelector('[data-plan-window-band="head"]');
             expect(head).toBeTruthy();
             expect(Number(head!.getAttribute("data-plan-elements"))).toBeGreaterThan(2_000);
-            expect(container.querySelector('[data-plan-row="u0000"]')).toBeNull();
+            expect(container.querySelector(unitRow("u0000"))).toBeNull();
 
             // The point of paging: it jumped, it did not walk. Everything between
             // the opening ring and the target ring stayed unread.
@@ -248,8 +252,72 @@ describe("Plan paged random access (#567/#574/#577)", () => {
         expect(paged.querySelector('[data-part="dataset-key-search"]')).toBeTruthy();
         cleanup();
 
-        const inline: PlanRootValue = { ...root, rows: variant("inline", new Map()) as PlanRootValue["rows"] };
+        const inline: PlanRootValue = { ...root, rows: variant("inline", []) as PlanRootValue["rows"] };
         const { container: plain } = renderPlan(inline, "plan-bar-inline");
         expect(plain.querySelector('[data-slot="toolbar"]')).toBeNull();
+    }, 30_000);
+});
+
+describe("the same canvas inline and paged (#822)", () => {
+    /** One canvas over `n` units, built by the factory and compiled — its
+     *  `series` over the Dict itself, or over a `Paged.of` of it. */
+    function buildOver(n: number, twoSeries: boolean, paged: boolean): PlanRootValue {
+        const units = new Map(Array.from({ length: n }, (_, i) => [
+            `u${String(i).padStart(4, "0")}`,
+            { start: W27, end: W39, tonnes: i + 0.5 },
+        ] as const));
+        const program = East.function([], UIComponentType, ($) => {
+            const UnitRow = StructType({ start: DateTimeType, end: DateTimeType, tonnes: FloatType });
+            const data = $.const(units, DictType(StringType, UnitRow));
+            const jobs = Plan.series.span(UnitRow, {
+                key: "jobs", title: "Jobs", label: (_r, k) => k,
+                runs: (r, k) => [Plan.run({ key: "run", start: r.start, end: r.end, label: k, state: "actual" })],
+            });
+            const loads = Plan.series.span(UnitRow, {
+                key: "loads", title: "Loads", label: (_r, k) => East.str`${k} · load`,
+                runs: (r) => [Plan.run({ key: "run", start: r.start, end: r.end, label: "LOAD", qty: r.tonnes, state: "confirmed" })],
+            });
+            const axis = $.const(Plan.axis({ window: { min: W27, max: W39 }, resolution: "week", now: NOW }));
+            const series = twoSeries ? [jobs, loads] : [jobs];
+            return paged
+                ? Plan.Root({ axis, data: $.const(Paged.of("uniform", data)), series })
+                : Plan.Root({ axis, data, series });
+        });
+        const value = East.compile(program, getRegisteredPlatformImplementations())() as
+            ValueTypeOf<typeof UIComponentType> & { value: PlanRootValue };
+        return value.value;
+    }
+
+    /** Every row the canvas drew, in order — as `series/key`. */
+    const drawn = (c: HTMLElement) => [...c.querySelectorAll("[data-plan-row]")].map((el) => {
+        const key = el.getAttribute("data-plan-row")!;
+        const series = /series="([^"]*)"/.exec(key)?.[1] ?? "?";
+        return `${series}/${testKeyOf(key)}`;
+    });
+
+    async function bothWays(n: number, twoSeries: boolean): Promise<[string[], string[]]> {
+        const inline = renderPlan(buildOver(n, twoSeries, false), `plan-822-inline-${n}`);
+        const expected = drawn(inline.container);
+        cleanup();
+        const paged = renderPlan(buildOver(n, twoSeries, true), `plan-822-paged-${n}`);
+        await waitFor(() => {
+            expect(paged.container.querySelector('[data-slot="footerTransport"]')?.textContent)
+                .toBe(`${n.toLocaleString("en-US")} loaded of ${n.toLocaleString("en-US")}`);
+        }, { timeout: 10_000 });
+        return [expected, drawn(paged.container)];
+    }
+
+    test("two series over one window: the same rows, block by block, in the same order", async () => {
+        const [inline, paged] = await bothWays(30, true);
+        expect(inline).toHaveLength(60);
+        expect(inline.slice(0, 2)).toEqual(["jobs/u0000", "jobs/u0001"]);
+        expect(inline[30]).toBe("loads/u0000");
+        expect(paged).toEqual(inline);
+    }, 30_000);
+
+    test("one series over two windows: the windows concatenate into the inline order", async () => {
+        const [inline, paged] = await bothWays(300, false);
+        expect(inline).toHaveLength(300);
+        expect(paged).toEqual(inline);
     }, 30_000);
 });

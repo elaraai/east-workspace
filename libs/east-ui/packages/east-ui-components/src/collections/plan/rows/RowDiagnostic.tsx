@@ -9,7 +9,9 @@
  *
  * Every instant on a canvas must ride its axis's arm (#631). A row that does
  * not cannot be placed truthfully, so it is not placed at all — and not
- * rolled up either (`derivePlan`) — while the rest of the canvas draws.
+ * rolled up either (`derivePlan`) — while the rest of the canvas draws. A row
+ * repeating the id of an earlier row (#822) is drawn the same way: never a
+ * silent drop, and never a second row answering to one id.
  */
 
 import { Box } from "@chakra-ui/react";
@@ -26,7 +28,10 @@ type Styles = Record<string, Record<string, unknown>>;
  * @returns The message
  */
 export function diagnosticText(diagnostic: PlanRowDiagnostic, w: PlanWords): string {
-    return w.m.axisMismatch({ found: diagnostic.found, expected: diagnostic.expected });
+    switch (diagnostic.kind) {
+        case "axis": return w.m.axisMismatch({ found: diagnostic.found, expected: diagnostic.expected });
+        case "duplicate": return w.m.duplicateRow({ id: diagnostic.of });
+    }
 }
 
 export interface RowDiagnosticProps {
@@ -45,7 +50,9 @@ export interface RowDiagnosticProps {
 export function RowDiagnostic({ diagnostic, styles, ctx }: RowDiagnosticProps) {
     const words = usePlanWords();
     return (
-        <Box css={styles.rowDiagnostic} data-plan-diagnostic={diagnostic.found}
+        <Box css={styles.rowDiagnostic}
+            // The axis kind the row's instants ride, or `duplicate`.
+            data-plan-diagnostic={diagnostic.kind === "axis" ? diagnostic.found : "duplicate"}
             data-ctx={ctx === true ? "" : undefined}>
             {diagnosticText(diagnostic, words)}
         </Box>

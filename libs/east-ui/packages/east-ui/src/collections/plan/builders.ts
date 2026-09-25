@@ -92,8 +92,7 @@ import {
     PlanChipType,
     PlanEventMarkType,
     PlanLaneType,
-    PlanRowsCollectionType,
-    type PlanRowsValue,
+    PlanRowIdType,
 } from "./types.js";
 
 // ============================================================================
@@ -153,11 +152,6 @@ export function resolveIcon(icon: PlanIconInput): SubtypeExprOrValue<IconType> {
         }, IconType);
     }
     return icon as SubtypeExprOrValue<IconType>;
-}
-
-/** An empty flattened-subtree value — the keyed collection with no rows. */
-export function emptyRows(): PlanRowsValue {
-    return East.value(new Map(), PlanRowsCollectionType);
 }
 
 // ============================================================================
@@ -246,6 +240,14 @@ export const at = {
 // ============================================================================
 
 /**
+ * The axis values built WITHOUT a window (#822) — a canvas given one must bind
+ * a slice, whose range supplies the window, or the root refuses it at build
+ * time. An axis held in a variable (`$.const(Plan.axis(…))`) is not the value
+ * recorded here, so its canvas is held to the rule at render instead.
+ */
+export const WINDOWLESS_AXES = new WeakSet<object>();
+
+/**
  * Builds the `time` axis declaration — `Plan.axis({ … })` / `Plan.axis.time`.
  *
  * @param options - Window, resolution(s), now instant and tick format ({@link PlanAxisOptions})
@@ -253,13 +255,13 @@ export const at = {
  *
  * @remarks
  * The window is half-open `[min, max)` in UTC; omit it to follow the bound
- * slice's datetime range (else fit to the data). `resolutions` lists the
- * WEEK/DAY-style segment options (omit ⇒ no segment). When the Plan is
- * slice-bound, slice state supersedes window + resolution after mount — the
- * slice is the single source of truth.
+ * slice's datetime range — a canvas states one or the other (#822). There is
+ * no fit to the data. `resolutions` lists the WEEK/DAY-style segment options
+ * (omit ⇒ no segment). When the Plan is slice-bound, slice state supersedes
+ * window + resolution after mount — the slice is the single source of truth.
  */
 export function createTimeAxis(options: PlanAxisOptions): PlanAxisExpr<"time"> {
-    return East.value(variant("time", {
+    const axis = East.value(variant("time", {
         window: options.window !== undefined
             ? some({ min: options.window.min, max: options.window.max })
             : none,
@@ -268,6 +270,8 @@ export function createTimeAxis(options: PlanAxisOptions): PlanAxisExpr<"time"> {
         now:         options.now !== undefined ? some(options.now) : none,
         format:      options.format !== undefined ? some(options.format) : none,
     }), PlanAxisType) as PlanAxisExpr<"time">;
+    if (options.window === undefined) WINDOWLESS_AXES.add(axis);
+    return axis;
 }
 
 /**
@@ -280,15 +284,15 @@ export function createTimeAxis(options: PlanAxisOptions): PlanAxisExpr<"time"> {
  * @remarks
  * `[min, max)` ÷ `step` = `n` buckets, edges on whole multiples of `step`
  * (the `TimeResolution` rule, numerically). Omit the window to follow the
- * bound slice's `float` / `integer` range (else fit to the data). Element
- * instants on this canvas are numbers — a `FloatType` / `IntegerType`
- * accessor or a bare number wraps to the `number` arm.
+ * bound slice's `float` / `integer` range — a canvas states one or the other
+ * (#822). Element instants on this canvas are numbers — a `FloatType` /
+ * `IntegerType` accessor or a bare number wraps to the `number` arm.
  */
 export function createNumberAxis(options: PlanNumberAxisOptions): PlanAxisExpr<"number"> {
     if (typeof options.step === "number" && !(options.step > 0)) {
         throw new Error(`Plan.axis.number: \`step\` must be > 0 (got ${options.step}) — it is the bucket width`);
     }
-    return East.value(variant("number", {
+    const axis = East.value(variant("number", {
         window: options.window !== undefined
             ? some({ min: options.window.min, max: options.window.max })
             : none,
@@ -296,6 +300,8 @@ export function createNumberAxis(options: PlanNumberAxisOptions): PlanAxisExpr<"
         now:    options.now !== undefined ? some(options.now) : none,
         format: options.format !== undefined ? some(options.format) : none,
     }), PlanAxisType) as PlanAxisExpr<"number">;
+    if (options.window === undefined) WINDOWLESS_AXES.add(axis);
+    return axis;
 }
 
 /**
@@ -588,23 +594,60 @@ export function createLane(input: PlanLaneInput): ExprType<PlanLaneType> {
 }
 
 /**
+ * A row's id by its series and path — `Plan.ref("machine-jobs", "L1", "m03")`
+ * is the row series `machine-jobs` made from entry `m03` under `L1` (#822).
+ * What `links` name their ends with, and what a callback's row compares to.
+ *
+ * @remarks
+ * A segment is an entry's key as the canvas prints it: a String key as is, any
+ * other key type as its `.east` text (`printFor`), an `Array` child's index as
+ * its digits.
+ *
+ * @param series - The series key
+ * @param path - The entry keys that lead to the row, outermost first
+ * @returns The `entry` id
+ */
+export function createRef(
+    series: SubtypeExprOrValue<StringType>,
+    ...path: SubtypeExprOrValue<StringType>[]
+): ExprType<PlanRowIdType> {
+    return East.value(variant("entry", { series, path }), PlanRowIdType);
+}
+
+/**
+ * A section header's id — `Plan.sectionRef("crew-block", "L1")` is the
+ * `crew-block` section's header under entry `L1`; a top-level section's path
+ * is empty (#822).
+ *
+ * @param series - The section's series key
+ * @param path - The path of the entry the section sits under (empty at the top level)
+ * @returns The `section` id
+ */
+export function createSectionRef(
+    series: SubtypeExprOrValue<StringType>,
+    ...path: SubtypeExprOrValue<StringType>[]
+): ExprType<PlanRowIdType> {
+    return East.value(variant("section", { series, path }), PlanRowIdType);
+}
+
+/**
  * Flat input for {@link Plan.link} — one run-edge quantity link of the
  * canvas's link graph (`Plan.Root`'s `links`).
  *
- * @property from - The source row key
+ * @property from - The source row's id (`Plan.ref(series, …path)`)
  * @property fromRun - The source run key (the ribbon leaves this run's end edge)
- * @property to - The destination row key
+ * @property to - The destination row's id
  * @property toRun - The destination run key (the ribbon lands on this run's start edge)
  * @property quantity - The moved quantity (drives ribbon share + opacity)
  * @property label - The printed quantity caption (`"34 t"`)
  */
 export interface PlanLinkInput {
-    /** The source row key. */
-    from: SubtypeExprOrValue<StringType>;
+    /** The source row's id (`Plan.ref(series, …path)`). */
+    from: SubtypeExprOrValue<PlanRowIdType>;
     /** The source run key (the ribbon leaves this run's end edge). */
     fromRun: SubtypeExprOrValue<StringType>;
-    /** The destination row key. */
-    to: SubtypeExprOrValue<StringType>;
+    /** The destination row's id. */
+    to: SubtypeExprOrValue<PlanRowIdType>;
     /** The destination run key (the ribbon lands on this run's start edge). */
     toRun: SubtypeExprOrValue<StringType>;
     /** The moved quantity (drives ribbon share + opacity). */

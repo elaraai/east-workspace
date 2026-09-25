@@ -14,10 +14,11 @@ import { buildSliceHandle } from "../../../platform/slice/index.js";
 import { initializeStore } from "../../../platform/state-runtime.js";
 import { UIStore } from "../../../platform/state-store.js";
 import { registerReactiveTracker, type ReactiveTracker } from "../../../reactive/tracker.js";
-import type { PlanRootValue, PlanRowValue } from "../model.js";
+import type { PlanRootValue, PlanRowId, PlanWireRow } from "../model.js";
 import type { PlanPersisted } from "../persisted.js";
 import { PLAN_PAGE_SIZE } from "../use-plan-paging.js";
 import { createPlanController, reconciledUi, type PlanController } from "./index.js";
+import { rowId, rowIdEqual, rowKey } from "../plan.test-utils.js";
 
 const W27 = new Date("2026-06-29T00:00:00Z");           // Monday, ISO week 27
 const W39 = new Date("2026-09-21T00:00:00Z");           // exclusive max → 12 weeks
@@ -25,23 +26,24 @@ const DAY = 86_400_000;
 const WEEK = 7 * DAY;
 
 const span = () => variant("span", { runs: [], decisions: [], ports: [], rollup: none, unit: none });
-const group = () => variant("group", { summary: none, summaryAggregate: none, collapsed: none });
+const group = () => variant("group", { summary: none, summaryAggregate: none });
 
-function planRow(key: string, kind: unknown = span(), parent?: string): PlanRowValue {
+/** One WIRE row, as the source serves it — named by its test key (#822). */
+function planRow(key: string, kind: unknown = span(), parent?: string, series?: string): PlanWireRow {
     return {
-        key,
-        parent: parent !== undefined ? some(parent) : none,
+        id: rowId(key, series),
+        parent: parent !== undefined ? some(rowId(parent, series)) : none,
         gutter: { label: key, id: none, sub: none, value: none, meta: none, stacked: none, swatches: [] },
         kind,
-        pinned: none, height: none, status: none, approval: none, expand: none,
-    } as unknown as PlanRowValue;
+        collapsed: none, pinned: none, height: none, status: none, approval: none, expand: none,
+    } as unknown as PlanWireRow;
 }
 
-/** A decoded root — inline rows unless a paged source is given; callbacks as
- *  the decoder hands them over (plain functions inside `some`). */
-function root(rows: PlanRowValue[], opts: Partial<Record<string, unknown>> = {}): PlanRootValue {
+/** A decoded root — the inline stream unless a paged source is given;
+ *  callbacks as the decoder hands them over (plain functions inside `some`). */
+function root(rows: PlanWireRow[], opts: Partial<Record<string, unknown>> = {}): PlanRootValue {
     return {
-        rows: opts.source !== undefined ? variant("paged", opts.source) : variant("inline", new Map(rows.map((r) => [r.key, r]))),
+        rows: opts.source !== undefined ? variant("paged", opts.source) : variant("inline", rows),
         links: [],
         axis: variant("time", {
             window: some({ min: W27, max: W39 }), resolution: variant("week", null),
@@ -56,6 +58,10 @@ function root(rows: PlanRowValue[], opts: Partial<Record<string, unknown>> = {})
 }
 
 const ROWS = [planRow("G", group()), planRow("g1", span(), "G"), planRow("r1"), planRow("r2"), planRow("r3")];
+/** {@link ROWS} without one row. */
+const without = (key: string) => ROWS.filter((r) => !rowIdEqual(r.id, rowId(key)));
+/** A row's test key from its id. */
+const nameOf = (id: PlanRowId) => id.value.path.join("/");
 
 type SliceState = { range: { type: string; value?: { type: string; value: { from: Date; to: Date } } }; resolution: { type: string; value?: { type: string } } };
 
@@ -118,10 +124,10 @@ describe("actions run their own effects (#815)", () => {
     test("two different effects in one handler both reach the author — a select, then a grain cycle", async () => {
         const calls: string[] = [];
         const { c } = show(root(ROWS, {
-            onSelect: some((e: { key: string }) => { calls.push(`select ${e.key}`); }),
+            onSelect: some((id: PlanRowId) => { calls.push(`select ${nameOf(id)}`); }),
             onGrainChange: some((g: { type: string }) => { calls.push(`grain ${g.type}`); }),
         }));
-        c.dispatch({ t: "row.select", key: "r1" });
+        c.dispatch({ t: "row.select", key: rowKey("r1") });
         c.dispatch({ t: "key", key: "g" });
         // Callbacks fire after the handler, never inside it.
         expect(calls).toEqual([]);
@@ -150,10 +156,10 @@ describe("actions run their own effects (#815)", () => {
 describe("one notification per action", () => {
     test("an action that changes something notifies once; one that changes nothing, never", () => {
         const { c, notified } = show(root(ROWS));
-        c.dispatch({ t: "row.select", key: "r1" });
+        c.dispatch({ t: "row.select", key: rowKey("r1") });
         expect(notified()).toBe(1);
         // Re-selecting holds (selection is idempotent) — nothing moved.
-        c.dispatch({ t: "row.select", key: "r1" });
+        c.dispatch({ t: "row.select", key: rowKey("r1") });
         expect(notified()).toBe(1);
         // The same value again is no change at all.
         const same = c.getSnapshot();
@@ -165,12 +171,13 @@ describe("reconcile is the view the canvas already drew (#610, #815)", () => {
     test("a value without the selected, focused row drops both — and setValue commits exactly the render's view", () => {
         const v1 = root(ROWS);
         const { c } = show(v1);
-        c.dispatch({ t: "row.select", key: "r2" });
-        c.dispatch({ t: "focus.links", key: "r2" });
-        const v2 = root(ROWS.filter((r) => r.key !== "r2"));
+        c.dispatch({ t: "row.select", key: rowKey("r2") });
+        c.dispatch({ t: "focus.links", key: rowKey("r2") });
+        const v2 = root(without("r2"));
         // What the canvas's first render of v2 draws — before anything commits.
         const view = reconciledUi(c.getSnapshot().store, {
-            alive: new Set(["G", "g1", "r1", "r3"]), complete: true, declaredCollapsed: new Set(), declaredGrain: "resource",
+            alive: new Set(["G", "g1", "r1", "r3"].map((k) => rowKey(k))), complete: true,
+            declaredCollapsed: new Set(), declaredGrain: "resource",
         });
         expect(view.selected).toBeNull();
         expect(view.focus).toBeNull();
@@ -183,9 +190,9 @@ describe("reconcile is the view the canvas already drew (#610, #815)", () => {
 
     test("the commit of a drawn reconcile notifies nobody — the value renders once", () => {
         const { c, notified } = show(root(ROWS));
-        c.dispatch({ t: "row.select", key: "r2" });
+        c.dispatch({ t: "row.select", key: rowKey("r2") });
         const n = notified();
-        const v2 = root(ROWS.filter((r) => r.key !== "r2"));
+        const v2 = root(without("r2"));
         c.setValue(v2, v2);
         // Pruned for real, and silently: the canvas drew exactly this.
         expect(c.getSnapshot().store.ui.selected).toBeNull();
@@ -194,7 +201,7 @@ describe("reconcile is the view the canvas already drew (#610, #815)", () => {
 
     test("a changed DECLARED grain notifies — it clears the selection of a row that is still there", () => {
         const { c, notified } = show(root(ROWS));
-        c.dispatch({ t: "row.select", key: "r1" });
+        c.dispatch({ t: "row.select", key: rowKey("r1") });
         const n = notified();
         const regrained = root(ROWS, { grain: some(variant("group", null)) });
         c.setValue(regrained, regrained);
@@ -206,7 +213,7 @@ describe("reconcile is the view the canvas already drew (#610, #815)", () => {
     test("a closure-only change (same data identity) reconciles nothing", () => {
         const v = root(ROWS);
         const { c, notified } = show(v);
-        c.dispatch({ t: "group.toggle", key: "G" });
+        c.dispatch({ t: "group.toggle", key: rowKey("G") });
         const n = notified();
         const before = c.getSnapshot().store;
         c.setValue(root(ROWS, { onSelect: some(() => undefined) }), v);
@@ -217,7 +224,7 @@ describe("reconcile is the view the canvas already drew (#610, #815)", () => {
 
 describe("the open element overlay", () => {
     const BODY = { body: "A" } as never;
-    const runRef = (run: string) => variant("run", { row: "r1", run }) as never;
+    const runRef = (run: string) => variant("run", { row: rowId("r1"), run }) as never;
 
     test("the resolver runs first — only a `some` body opens; one element's surface at a time", () => {
         const resolved: string[] = [];
@@ -296,12 +303,52 @@ describe("the author's callbacks", () => {
             onEventClick: some((e: { event: string }) => { calls.push(`event ${e.event}`); }),
             onDrag: some(() => { calls.push("drag"); }),
         }));
-        c.elementClick(variant("event", { row: "r1", event: "e1" }) as never);
-        c.elementClick(variant("run", { row: "r1", run: "x1" }) as never);
+        c.elementClick(variant("event", { row: rowId("r1"), event: "e1" }) as never);
+        c.elementClick(variant("run", { row: rowId("r1"), run: "x1" }) as never);
         c.drop({} as never);
         expect(calls).toEqual([]);
         await microtasks();
         expect(calls).toEqual(["event e1", "run x1", "drag"]);
+    });
+});
+
+describe("payloads name rows by their typed id (#822)", () => {
+    test("onSelect, onGroupToggle and the review callbacks receive the row's id — never its key", async () => {
+        const selected: PlanRowId[] = [];
+        const toggled: { row: PlanRowId; expanded: boolean }[] = [];
+        const approved: PlanRowId[] = [];
+        const rejected: PlanRowId[] = [];
+        const { c } = show(root(ROWS, {
+            onSelect: some((id: PlanRowId) => { selected.push(id); }),
+            onGroupToggle: some((e: { row: PlanRowId; expanded: boolean }) => { toggled.push(e); }),
+            review: some({
+                onApprove: some((id: PlanRowId) => { approved.push(id); }),
+                onReject: some((id: PlanRowId) => { rejected.push(id); }),
+                onApproveAll: none, onRejectAll: none, onRerun: none,
+            }),
+        }));
+        c.dispatch({ t: "row.select", key: rowKey("r2") });
+        c.dispatch({ t: "group.toggle", key: rowKey("G") });
+        c.approveRow(rowKey("r1"));
+        c.rejectRow(rowKey("r3"));
+        await microtasks();
+        expect(selected).toHaveLength(1);
+        expect(rowIdEqual(selected[0]!, rowId("r2"))).toBe(true);
+        expect(toggled).toHaveLength(1);
+        expect(rowIdEqual(toggled[0]!.row, rowId("G"))).toBe(true);
+        expect(toggled[0]!.expanded).toBe(false);
+        expect(approved.map(nameOf)).toEqual(["r1"]);
+        expect(rejected.map(nameOf)).toEqual(["r3"]);
+        expect(rowIdEqual(approved[0]!, rowId("r1"))).toBe(true);
+    });
+
+    test("a repeated id's row still names the id it repeats", async () => {
+        const selected: PlanRowId[] = [];
+        const { c } = show(root([...ROWS, planRow("r1")], { onSelect: some((id: PlanRowId) => { selected.push(id); }) }));
+        c.dispatch({ t: "row.select", key: `${rowKey("r1")}#1` });
+        await microtasks();
+        expect(selected).toHaveLength(1);
+        expect(rowIdEqual(selected[0]!, rowId("r1"))).toBe(true);
     });
 });
 
@@ -341,18 +388,18 @@ describe("the live region (#819)", () => {
     test("says what an interaction changed — and nothing for one that changed nothing", () => {
         const { c } = show(root(ROWS));
         const said = () => c.getSnapshot().announce?.text;
-        c.dispatch({ t: "row.select", key: "r1" });
+        c.dispatch({ t: "row.select", key: rowKey("r1") });
         expect(said()).toBe("Selected r1");
         const seq = c.getSnapshot().announce!.seq;
-        c.dispatch({ t: "row.select", key: "r1" });
+        c.dispatch({ t: "row.select", key: rowKey("r1") });
         expect(c.getSnapshot().announce!.seq).toBe(seq);
-        c.dispatch({ t: "group.toggle", key: "G" });
+        c.dispatch({ t: "group.toggle", key: rowKey("G") });
         expect(said()).toBe("G collapsed");
-        c.dispatch({ t: "group.toggle", key: "G" });
+        c.dispatch({ t: "group.toggle", key: rowKey("G") });
         expect(said()).toBe("G expanded");
-        c.dispatch({ t: "chart.toggle", key: "r3" });
+        c.dispatch({ t: "chart.toggle", key: rowKey("r3") });
         expect(said()).toBe("r3 chart expanded");
-        c.dispatch({ t: "focus.links", key: "r2" });
+        c.dispatch({ t: "focus.links", key: rowKey("r2") });
         expect(said()).toBe("Showing rows linked to r2");
         // The esc ladder, a rung at a time.
         c.dispatch({ t: "key", key: "esc" });
@@ -374,13 +421,13 @@ describe("what survives a remount (#813)", () => {
     test("a toggle is written once, when it moves; a selection is never written", () => {
         const writes: PlanPersisted[] = [];
         const { c } = show(root(ROWS), (p) => writes.push(p));
-        c.dispatch({ t: "group.toggle", key: "G" });
+        c.dispatch({ t: "group.toggle", key: rowKey("G") });
         expect(writes).toHaveLength(1);
-        expect(writes[0]!.collapse).toEqual([["G", true]]);
-        c.dispatch({ t: "row.select", key: "r1" });
-        c.dispatch({ t: "chart.toggle", key: "r3" });
+        expect(writes[0]!.collapse).toEqual([[rowKey("G"), true]]);
+        c.dispatch({ t: "row.select", key: rowKey("r1") });
+        c.dispatch({ t: "chart.toggle", key: rowKey("r3") });
         expect(writes).toHaveLength(2);
-        expect(writes[1]!.charts).toEqual(["r3"]);
+        expect(writes[1]!.charts).toEqual([rowKey("r3")]);
     });
 });
 
@@ -411,10 +458,7 @@ describe("the source's channels (#815)", () => {
                 const w = Number(offset) / PLAN_PAGE_SIZE;
                 recording?.push(`w${w}`);
                 if (!state.open) return none;
-                return some(new Map([0, 1].map((i) => {
-                    const row = planRow(`w${w}r${i}`);
-                    return [row.key, row] as const;
-                })));
+                return some([0, 1].map((i) => planRow(`w${w}r${i}`)));
             },
             total: () => some(BigInt(windows * PLAN_PAGE_SIZE)),
             seek: none,
@@ -500,10 +544,7 @@ describe("a new source revision (#821)", () => {
             id: "c821",
             page: (offset: bigint) => {
                 const w = Number(offset) / PLAN_PAGE_SIZE;
-                return some(new Map([0, 1].map((i) => {
-                    const row = planRow(`w${w}r${i}`);
-                    return [row.key, row] as const;
-                })));
+                return some([0, 1].map((i) => planRow(`w${w}r${i}`)));
             },
             total: () => some(BigInt(2 * PLAN_PAGE_SIZE)),
             seek: some(() => some({ found: true, row: 0n, count: 1n })),
@@ -533,6 +574,37 @@ describe("a new source revision (#821)", () => {
         expect(c.getSnapshot().paging.revision).toBe("B");
         expect(c.getSnapshot().seek.sought).toBeNull();
         expect(c.getSnapshot().seek.epoch).toBe(1);
+    });
+
+    test("a key search targets the first row its element placed — a `views` entry's first view row (#822)", async () => {
+        // Each element places two view rows and a child under the first:
+        // the stream is `jobs/e0, util/e0, jobs-child/e0/c, jobs/e1, …`.
+        const elements = ["e0", "e1", "e2", "e3"];
+        const viewRows = elements.flatMap((e) => [
+            planRow(e, span(), undefined, "jobs"),
+            planRow(e, span(), undefined, "util"),
+            { ...planRow(`${e}-c`, span(), undefined, "jobs-child"),
+                id: variant("entry", { series: "jobs-child", path: [e, "c"] }),
+                parent: some(rowId(e, "jobs")) } as unknown as PlanWireRow,
+        ]);
+        const source = {
+            id: "c822-seek",
+            page: () => some(viewRows),
+            total: () => some(BigInt(elements.length)),
+            seek: some(() => some({ found: true, row: 2n, count: 1n })),
+            revision: () => none,
+            refresh: () => null,
+        };
+        const { c } = show(root([], { source }));
+        await c.search.find({ key: '"e2"' });
+        expect(c.getSnapshot().scroll.targetKey).toBe(rowKey("e2", "jobs"));
+        // A prefix, or a key between two, lands on the next element's first row.
+        await c.search.find({ prefix: "e1" });
+        expect(c.getSnapshot().scroll.targetKey).toBe(rowKey("e1", "jobs"));
+        await c.search.find({ key: '"e10"' });
+        expect(c.getSnapshot().scroll.targetKey).toBe(rowKey("e2", "jobs"));
+        // The labels are the elements, each once, in key order from the key.
+        expect(await c.search.listRange(0, 3)).toEqual(["e2", "e3"]);
     });
 
     test("the first revision a source names is not a move — a search asked before it survives", async () => {

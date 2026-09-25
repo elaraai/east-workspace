@@ -12,7 +12,11 @@
 
 import { describe, test, expect } from "vitest";
 import { none, some, variant } from "@elaraai/east";
-import { indexRows, type PlanBodyItem, type PlanLinkValue, type PlanRowValue, type VisibleRow } from "../model.js";
+import {
+    indexRows, rowKeyOf, toCanvasRows,
+    type PlanBodyItem, type PlanLinkValue, type PlanRowValue, type PlanWireRow, type VisibleRow,
+} from "../model.js";
+import { rowId, rowKey, testKeyOf } from "../plan.test-utils.js";
 import { planScale, type PlanScale } from "../scale.js";
 import type { PlanInstantValue } from "../instant.js";
 import { PLAN_GEOMETRY } from "../geometry.js";
@@ -33,28 +37,29 @@ const PLOT = { left: 168, width: 1000 };
 const centre = (top: number, h: number) => top + (h - G.rule) / 2;
 
 function spanRow(key: string, opts?: { parent?: string; sub?: boolean }): PlanRowValue {
-    return {
-        key,
-        parent: opts?.parent !== undefined ? some(opts.parent) : none,
+    return toCanvasRows([{
+        id: rowId(key),
+        parent: opts?.parent !== undefined ? some(rowId(opts.parent)) : none,
         gutter: {
             label: key, id: none, sub: opts?.sub === true ? some("sub") : none,
             value: none, meta: none, stacked: none, swatches: [],
         },
         kind: variant("span", { runs: [], decisions: [], ports: [], rollup: none, unit: none }),
-        pinned: none, height: none, status: none, approval: none, expand: none,
-    } as unknown as PlanRowValue;
+        collapsed: none, pinned: none, height: none, status: none, approval: none, expand: none,
+    } as unknown as PlanWireRow])[0]!;
 }
 const rowItem = (r: PlanRowValue, collapsed = false): PlanBodyItem =>
     ({ kind: "row", row: { row: r, depth: 0, collapsed } as VisibleRow });
 const gapItem = (key: string): PlanBodyItem =>
     ({ kind: "gap", gap: { key, first: key, rows: 3, groups: 0, tone: undefined } });
+/** A link names its ends by row id (#822). */
 const link = (from: string, fromRun: string, to: string, toRun: string, quantity = 10, label = "10 t"): PlanLinkValue =>
-    ({ fromRow: from, fromRun, toRow: to, toRun, quantity, label }) as PlanLinkValue;
+    ({ fromRow: rowId(from), fromRun, toRow: rowId(to), toRun, quantity, label }) as PlanLinkValue;
 
-/** Runs by `row|run`: [start, end]. */
+/** Runs by `row|run` (the row's test key): [start, end]. */
 function runDatesOf(runs: Record<string, [Date, Date]>): RibbonLayoutInput["runDates"] {
     return (row, run) => {
-        const r = runs[`${row}|${run}`];
+        const r = runs[`${testKeyOf(row)}|${run}`];
         return r !== undefined ? { start: t(r[0]), end: t(r[1]) } : undefined;
     };
 }
@@ -64,7 +69,7 @@ const xOf = (d: Date) => PLOT.left + scale.fracOf(t(d)) * PLOT.width;
 
 function input(over: Partial<RibbonLayoutInput> & Pick<RibbonLayoutInput, "links" | "body" | "runDates">): RibbonLayoutInput {
     return {
-        visibleKeys: new Set(over.links.flatMap((l) => [l.fromRow, l.toRow])),
+        visibleKeys: new Set(over.links.flatMap((l) => [rowKeyOf(l.fromRow), rowKeyOf(l.toRow)])),
         beyond: () => undefined,
         scale, plot: PLOT, viewport: undefined,
         ...over,
@@ -81,8 +86,8 @@ describe("the ribbon body (#818)", () => {
             { kind: "band", band: { at: "tail", from: 400, to: 999, px: 900 } },
         ];
         const body = ribbonBody(items, [640, 32, 22, 42, 900], indexRows([a, b]), G);
-        expect(body.slots.get("a")).toEqual({ top: 640, height: 32, bar: G.bar });
-        expect(body.slots.get("b")).toEqual({ top: 640 + 32 + 22, height: 42, bar: G.bar });
+        expect(body.slots.get(rowKey("a"))).toEqual({ top: 640, height: 32, bar: G.bar });
+        expect(body.slots.get(rowKey("b"))).toEqual({ top: 640 + 32 + 22, height: 42, bar: G.bar });
         expect(body.height).toBe(640 + 32 + 22 + 42 + 900);
     });
 
@@ -90,10 +95,10 @@ describe("the ribbon body (#818)", () => {
         const p = spanRow("p");
         const c = spanRow("c", { parent: "p" });
         const index = indexRows([p, c]);
-        expect(ribbonBody([rowItem(p, true)], [32], index, G).slots.get("p")!.bar).toBe(G.rollBar);
-        expect(ribbonBody([rowItem(p, false), rowItem(c)], [32, 32], index, G).slots.get("p")!.bar).toBe(G.bar);
+        expect(ribbonBody([rowItem(p, true)], [32], index, G).slots.get(rowKey("p"))!.bar).toBe(G.rollBar);
+        expect(ribbonBody([rowItem(p, false), rowItem(c)], [32, 32], index, G).slots.get(rowKey("p"))!.bar).toBe(G.bar);
         // Dense tightens the bar the table says.
-        expect(ribbonBody([rowItem(c)], [24], index, PLAN_GEOMETRY.dense).slots.get("c")!.bar).toBe(PLAN_GEOMETRY.dense.bar);
+        expect(ribbonBody([rowItem(c)], [24], index, PLAN_GEOMETRY.dense).slots.get(rowKey("c"))!.bar).toBe(PLAN_GEOMETRY.dense.bar);
     });
 });
 
@@ -176,7 +181,7 @@ describe("ribbon endpoints come from the model (#818)", () => {
     test("an edge with an end outside the focus's family is not drawn", () => {
         const { ribbons } = layoutRibbons(input({
             links: [link("a", "ra", "b", "rb"), link("a", "ra", "c", "rc")], body, runDates,
-            visibleKeys: new Set(["a", "b"]),
+            visibleKeys: new Set([rowKey("a"), rowKey("b")]),
         }));
         expect(ribbons.map((r) => r.link)).toEqual([0]);
     });
@@ -252,7 +257,7 @@ describe("rows the body does not hold (#818)", () => {
     test("a pinned row sits past the rows' top — the ribbon meets it with a stub pointing up at the header", () => {
         const { ribbons } = layoutRibbons(input({
             links: [link("pin", "y", "a", "x")], body, runDates,
-            beyond: (key) => (key === "pin" ? "above" : undefined),
+            beyond: (key) => (key === rowKey("pin") ? "above" : undefined),
         }));
         expect(ribbons[0]!.from).toMatchObject({ off: "above", top: 0, bottom: G.bar });
         expect(ribbons[0]!.tail).not.toBe("");

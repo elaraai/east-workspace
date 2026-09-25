@@ -9,11 +9,14 @@
  * Two things make this different from the shared `useReviewController` the
  * other adopters use, and both follow from what a Plan is.
  *
- * **Subjects are KEYS, not indices.** `PlanReviewType = reviewType(PlanRowRefType, …)`
- * declares `{ key }`, and the shared controller fires `{ rowIndex }` — they
- * simply do not fit. Keys are also the only thing that survives paging: a
- * window landing above a decided row shifts every index beneath it (#577), so
- * an index-keyed verdict would quietly reattach to a different job.
+ * **Subjects are row IDS, not indices.** `PlanReviewType = reviewType(PlanRowIdType, …)`
+ * declares the row's typed id (#822), and the shared controller fires
+ * `{ rowIndex }` — they simply do not fit. An id is also the only thing that
+ * survives paging: a window landing above a decided row shifts every index
+ * beneath it (#577), so an index-keyed verdict would quietly reattach to a
+ * different job. The verbs here take the row's KEY — its id's canonical text,
+ * what every map on the canvas keys by — and the controller hands the root's
+ * callback the id itself.
  *
  * **The canvas holds NO copy of the verdict.** The shared controller keeps an
  * optimistic `Record<rowIndex, ApprovalTag>` in React state; this does not.

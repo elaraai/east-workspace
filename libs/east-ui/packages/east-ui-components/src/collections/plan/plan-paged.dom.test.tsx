@@ -20,8 +20,10 @@ import { buildSliceHandle } from "../../platform/slice/index.js";
 import { initializeStore } from "../../platform/state-runtime.js";
 import { UIStore } from "../../platform/state-store.js";
 import { registerReactiveTracker, type ReactiveTracker } from "../../reactive/tracker.js";
-import { EastChakraPlan, type PlanRootValue, type PlanRowValue } from "./index.js";
+import { EastChakraPlan, type PlanRootValue } from "./index.js";
+import type { PlanRowId, PlanWireRow } from "./model.js";
 import type { PlanInstantValue } from "./instant.js";
+import { rowId, rowSel, sectionId, sectionSel } from "./plan.test-utils.js";
 
 // A canvas persists its toggles under its storageKey (#813), and several tests
 // share one — nothing may carry from one test to the next.
@@ -65,15 +67,20 @@ function gutter(label: string, opts?: { sub?: string; value?: string; meta?: str
     };
 }
 
-function planRow(key: string, kind: unknown, opts?: { parent?: string; gutter?: unknown; expand?: unknown }): PlanRowValue {
+/** One WIRE row, as the source serves it — named by its test key (#822), or
+ *  by an explicit `id` (a section header's), and nested under a parent named
+ *  by its test key or by its `parentId`. */
+function planRow(key: string, kind: unknown, opts?: { id?: PlanRowId; parent?: string; parentId?: PlanRowId; gutter?: unknown; expand?: unknown; collapsed?: boolean }): PlanWireRow {
     return {
-        key,
-        parent: opts?.parent !== undefined ? some(opts.parent) : none,
+        id: opts?.id ?? rowId(key),
+        parent: opts?.parentId !== undefined ? some(opts.parentId)
+            : opts?.parent !== undefined ? some(rowId(opts.parent)) : none,
         gutter: opts?.gutter ?? gutter(key),
         kind,
+        collapsed: opts?.collapsed !== undefined ? some(opts.collapsed) : none,
         pinned: none, height: none, status: none, approval: none,
         expand: opts?.expand !== undefined ? some(opts.expand) : none,
-    } as unknown as PlanRowValue;
+    } as unknown as PlanWireRow;
 }
 
 function spanKind(runs: unknown[], opts?: { rollup?: string; unit?: string }) {
@@ -84,17 +91,9 @@ function spanKind(runs: unknown[], opts?: { rollup?: string; unit?: string }) {
     });
 }
 
-/** The decoded row COLLECTION — the IR's `Dict<String, PlanRow>` (#568). A
- *  plain `Map` stands in for the decoder's `SortedMap`: the renderer only
- *  iterates it, and INSERTION order keeps these fixtures readable in the order
- *  they are written. Key ORDER itself is covered in `derive.test.ts`. */
-function rowCollection(rows: PlanRowValue[]): Map<string, PlanRowValue> {
-    return new Map(rows.map((r) => [r.key, r]));
-}
-
-function planRoot(rows: PlanRowValue[], opts?: { footer?: unknown[]; now?: Date | undefined; slice?: unknown; resolutions?: unknown[]; links?: unknown[]; popover?: unknown; hover?: unknown; expandRender?: unknown; source?: unknown; pick?: unknown; axis?: unknown; style?: { height?: string; maxHeight?: string }; clicks?: { onRunClick?: unknown; onEventClick?: unknown; onMarkClick?: unknown; onChipClick?: unknown; onCellClick?: unknown } }): PlanRootValue {
+function planRoot(rows: PlanWireRow[], opts?: { footer?: unknown[]; now?: Date | undefined; slice?: unknown; resolutions?: unknown[]; links?: unknown[]; popover?: unknown; hover?: unknown; expandRender?: unknown; source?: unknown; pick?: unknown; axis?: unknown; style?: { height?: string; maxHeight?: string }; clicks?: { onRunClick?: unknown; onEventClick?: unknown; onMarkClick?: unknown; onChipClick?: unknown; onCellClick?: unknown } }): PlanRootValue {
     return {
-        rows: opts?.source !== undefined ? variant("paged", opts.source) : variant("inline", rowCollection(rows)),
+        rows: opts?.source !== undefined ? variant("paged", opts.source) : variant("inline", rows),
         links: opts?.links ?? [],
         // The TIME arm by default (#631); the typed-axis tests pass their own.
         axis: opts?.axis ?? variant("time", {
@@ -151,7 +150,7 @@ describe("Plan paged source (P-c)", () => {
             // Window 0 carries the rows; the NEXT window is empty (= end).
             page: (offset: bigint, _limit: bigint) => {
                 calls.push(offset);
-                return offset === 0n ? some(rowCollection(w1)) : some(rowCollection([]));
+                return offset === 0n ? some(w1) : some([]);
             },
             total: () => none,
             // The contract's comparable identity + seek capability (#567): a
@@ -164,8 +163,8 @@ describe("Plan paged source (P-c)", () => {
         const { container } = renderPlan(planRoot([], { source }));
         // The loader streams the prefix in an effect — rows appear after it.
         await screen.findByText("R1");
-        expect(container.querySelector('[data-plan-row="m1"]')).toBeTruthy();
-        expect(container.querySelector('[data-plan-row="m2"]')).toBeTruthy();
+        expect(container.querySelector(rowSel("m1"))).toBeTruthy();
+        expect(container.querySelector(rowSel("m2"))).toBeTruthy();
         // Sequential prefix requests at PAGE_SIZE offsets, then done.
         expect(calls[0]).toBe(0n);
         expect(calls.length).toBeGreaterThanOrEqual(1);
@@ -182,10 +181,10 @@ describe("Plan paged source (P-c)", () => {
         const source = {
             page: (offset: bigint, _limit: bigint) => {
                 calls.push(offset);
-                if (offset === 0n) return some(rowCollection(w0));
-                if (offset === 200n) return some(rowCollection([]));   // filtered to nothing
-                if (offset === 400n) return some(rowCollection(w2));
-                return some(rowCollection([]));
+                if (offset === 0n) return some(w0);
+                if (offset === 200n) return some([]);   // filtered to nothing
+                if (offset === 400n) return some(w2);
+                return some([]);
             },
             // 600 source elements ⇒ three windows, whatever any window yields.
             total: () => some(600n),
@@ -198,7 +197,7 @@ describe("Plan paged source (P-c)", () => {
         await screen.findByText("R1");
         // The row from AFTER the empty window is what the old loader lost.
         await screen.findByText("R3");
-        expect(container.querySelector('[data-plan-row="m3"]')).toBeTruthy();
+        expect(container.querySelector(rowSel("m3"))).toBeTruthy();
         expect(calls).toContain(400n);
     });
 
@@ -212,7 +211,7 @@ describe("Plan paged source (P-c)", () => {
         const w0 = [planRow("m1", spanKind([run("r1", W27, new Date("2026-07-13Z"), variant("actual", null))]))];
         const source = {
             // Window 0 lands; the next is still in flight.
-            page: (offset: bigint) => (offset === 0n ? some(rowCollection(w0)) : none),
+            page: (offset: bigint) => (offset === 0n ? some(w0) : none),
             total: () => some(600n),
             id: "dom-test-transport",
             seek: none,
@@ -233,7 +232,7 @@ describe("Plan paged source (P-c)", () => {
     test("an EXHAUSTED source drops every partial mark", async () => {
         const rows = [planRow("m1", spanKind([run("r1", W27, new Date("2026-07-13Z"), variant("actual", null))]))];
         const source = {
-            page: (offset: bigint) => (offset === 0n ? some(rowCollection(rows)) : some(rowCollection([]))),
+            page: (offset: bigint) => (offset === 0n ? some(rows) : some([])),
             total: () => some(2n),
             id: "dom-test-exhausted",
             seek: none,
@@ -258,31 +257,97 @@ describe("Plan paged source (P-c)", () => {
         expect(container.querySelector("[data-plan-body][data-plan-partial]")).toBeNull();
     });
 
-    test("derived numbers over a partial prefix are MARKED, not printed as final", async () => {
-        // A group's member count is a renderer-derived aggregate (#568). Over a
-        // loaded prefix it is an understatement, so it prints `~2 rs` and the
-        // band carries `data-plan-partial` — the author's own `meta` is never
-        // rewritten, since that is their text rather than a derivation.
+    test("a top-level section's count covers the loaded windows — MARKED until the source is exhausted (#822)", async () => {
+        // A section's members are its series' ENTRIES, which the source's
+        // windows share out between them — the one parent whose rows can span
+        // windows. Over the loaded windows its derived member count is an
+        // understatement, so it prints `~2 rs` and the band carries
+        // `data-plan-partial` — the author's own `meta` is never rewritten,
+        // since that is their text rather than a derivation.
+        const line = sectionId("line");
         const w0 = [
-            planRow("g1", variant("group", { summary: none, summaryAggregate: none, collapsed: none }),
-                { gutter: gutter("Line 1") }),
-            planRow("m1", spanKind([run("r1", W27, new Date("2026-07-13Z"), variant("actual", null))]), { parent: "g1" }),
-            planRow("m2", spanKind([run("r2", W27, new Date("2026-07-13Z"), variant("actual", null))]), { parent: "g1" }),
+            planRow("line", variant("group", { summary: none, summaryAggregate: none }),
+                { id: line, gutter: gutter("Line 1") }),
+            planRow("m1", spanKind([run("r1", W27, new Date("2026-07-13Z"), variant("actual", null))]), { parentId: line }),
+            planRow("m2", spanKind([run("r2", W27, new Date("2026-07-13Z"), variant("actual", null))]), { parentId: line }),
+        ];
+        const sourceOf = (total: bigint, id: string) => ({
+            page: (offset: bigint) => (offset === 0n ? some(w0) : total > 200n ? none : some([])),
+            total: () => some(total),
+            id,
+            seek: none,
+            revision: () => none,
+            refresh: () => null,
+        });
+        const partial = renderPlan(planRoot([], { source: sourceOf(600n, "dom-test-partial") }), "plan-d9-partial");
+        await screen.findByText("R1");
+        const band = partial.container.querySelector(sectionSel("line"))!;
+        expect(band.getAttribute("data-plan-partial")).toBe("");
+        expect(band.textContent).toContain("~2 rs");
+        cleanup();
+
+        // Every element resident: the count is the section's, and final.
+        const done = renderPlan(planRoot([], { source: sourceOf(3n, "dom-test-partial-done") }), "plan-d9-partial-done");
+        await screen.findByText("R1");
+        const final = done.container.querySelector(sectionSel("line"))!;
+        expect(final.getAttribute("data-plan-partial")).toBeNull();
+        expect(final.textContent).toContain("2 rs");
+        expect(final.textContent).not.toContain("~");
+    });
+
+    test("every other parent is EXACT over a partial prefix — its subtree rides whole in one window, and it draws as it does inline (#822)", async () => {
+        // A group strip per entry, a span parent rolling its children up, and
+        // a section INSIDE an entry all derive from one entry's subtree, which
+        // the entry carries whole and a window holds whole. Their numbers are
+        // final the moment their window lands — marking them `~` on a paged
+        // canvas would draw it differently from the same canvas inline.
+        const groupKind = variant("group", { summary: none, summaryAggregate: none });
+        const inner = sectionId("inner", "g2");
+        const rows = [
+            planRow("g1", groupKind, { gutter: gutter("Line 1") }),
+            planRow("a", spanKind([run("ra", W27, new Date("2026-07-13Z"), variant("actual", null))]), { parent: "g1" }),
+            planRow("b", spanKind([run("rb", W27, new Date("2026-07-13Z"), variant("actual", null))]), { parent: "g1" }),
+            planRow("p1", spanKind([], { rollup: "union", unit: "t" }), { gutter: gutter("Program A") }),
+            planRow("c", spanKind([run("rc", W27, new Date("2026-07-13Z"), variant("actual", null), { qty: 10 })]), { parent: "p1" }),
+            planRow("d", spanKind([run("rd", new Date("2026-07-06Z"), new Date("2026-07-20Z"), variant("actual", null), { qty: 20 })]), { parent: "p1" }),
+            planRow("g2", groupKind, { gutter: gutter("Line 2") }),
+            planRow("inner", groupKind, { id: inner, parentId: rowId("g2"), gutter: gutter("Machines") }),
+            planRow("e", spanKind([run("re", W27, new Date("2026-07-13Z"), variant("actual", null))]), { parentId: inner }),
         ];
         const source = {
-            page: (offset: bigint) => (offset === 0n ? some(rowCollection(w0)) : none),
+            // Window 0 lands; 400 more elements have not.
+            page: (offset: bigint) => (offset === 0n ? some(rows) : none),
             total: () => some(600n),
-            id: "dom-test-partial",
+            id: "dom-test-exact",
             seek: none,
             revision: () => none,
             refresh: () => null,
         };
-        const { container } = renderPlan(planRoot([], { source }), "plan-d9-partial");
-        await screen.findByText("R1");
+        /** What the parents say: each band's text, and the rollup's captions. */
+        const said = (c: HTMLElement) => ({
+            g1: c.querySelector(rowSel("g1", "data-plan-group"))!.textContent,
+            g2: c.querySelector(rowSel("g2", "data-plan-group"))!.textContent,
+            inner: c.querySelector(sectionSel("inner", ["g2"]))!.textContent,
+            rollup: [...c.querySelector(rowSel("p1"))!.querySelectorAll("[data-state]:not([data-run])")].map((b) => b.textContent),
+        });
 
-        const band = container.querySelector('[data-plan-group="g1"]')!;
-        expect(band.getAttribute("data-plan-partial")).toBe("");
-        expect(screen.getByText("~2 rs")).toBeTruthy();
+        const paged = renderPlan(planRoot([], { source }), "plan-822-exact");
+        await screen.findByText("RA");
+        const c = paged.container;
+        // The canvas IS partial — its source has more to serve…
+        expect(c.querySelector("[data-plan-body][data-plan-partial]")).toBeTruthy();
+        // …and none of these parents says so, because none of them is.
+        expect(c.querySelectorAll("[data-plan-group][data-plan-partial]")).toHaveLength(0);
+        const pagedSaid = said(c);
+        expect(pagedSaid.g1).toContain("2 rs");
+        expect(pagedSaid.inner).toContain("1 rs");
+        expect(pagedSaid.rollup).toContain("×2 · 30 t");
+        for (const text of [pagedSaid.g1, pagedSaid.g2, pagedSaid.inner, ...pagedSaid.rollup]) expect(text).not.toContain("~");
+        cleanup();
+
+        // The same rows inline say exactly the same.
+        const inline = renderPlan(planRoot(rows), "plan-822-exact-inline");
+        expect(said(inline.container)).toEqual(pagedSaid);
     });
 
     test("a narrowing affordance is SCOPE-BADGED and `summary` counts elements (#567 D9)", async () => {
@@ -304,7 +369,7 @@ describe("Plan paged source (P-c)", () => {
         const handle = buildSliceHandle("plan.paged.chrome", cfg as never, initial as never, [] as never, none) as never;
         const w0 = [planRow("m1", spanKind([run("r1", W27, new Date("2026-07-13Z"), variant("actual", null))]))];
         const source = {
-            page: (offset: bigint) => (offset === 0n ? some(rowCollection(w0)) : none),
+            page: (offset: bigint) => (offset === 0n ? some(w0) : none),
             total: () => some(600n),
             id: "dom-test-chrome",
             seek: none,
@@ -333,7 +398,7 @@ describe("Plan paged source (P-c)", () => {
             planRow("l2m9", spanKind([run("r2", W27, new Date("2026-07-13Z"), variant("actual", null))])),
         ];
         const source = {
-            page: (offset: bigint) => (offset === 0n ? some(rowCollection(w0)) : none),
+            page: (offset: bigint) => (offset === 0n ? some(w0) : none),
             total: () => some(600n),
             id: "dom-test-seek",
             // The compiled handle's `seek` — `some(fn)` for a key-ordered
@@ -384,7 +449,7 @@ describe("Plan paged source (P-c)", () => {
         initializeStore(new UIStore());
         const w0 = [planRow("m1", spanKind([run("r1", W27, new Date("2026-07-13Z"), variant("actual", null))]))];
         const source = {
-            page: (offset: bigint) => (offset === 0n ? some(rowCollection(w0)) : none),
+            page: (offset: bigint) => (offset === 0n ? some(w0) : none),
             total: () => some(600n),
             id: "dom-test-noseek",
             seek: none,
@@ -432,7 +497,7 @@ describe("Plan paged source (P-c)", () => {
         const source = {
             page: (offset: bigint) => {
                 offsets.push(offset);
-                return offset === 0n ? some(rowCollection(w0)) : some(rowCollection([]));
+                return offset === 0n ? some(w0) : some([]);
             },
             // 40 windows — well past the runtime's retention cap.
             total: () => some(8000n),
@@ -454,7 +519,7 @@ describe("Plan paged source (P-c)", () => {
         expect(line.getAttribute("data-partial")).toBe("");
         // The rows it did load are still there — the failure mode was that they
         // vanished on the next evaluation.
-        expect(container.querySelector('[data-plan-row="m1"]')).toBeTruthy();
+        expect(container.querySelector(rowSel("m1"))).toBeTruthy();
     });
 
     test("the unloaded remainder renders as ONE band, sized by the ledger (#577)", async () => {
@@ -468,7 +533,7 @@ describe("Plan paged source (P-c)", () => {
             ...Array.from({ length: 29 }, (_u, i) => planRow(`f${i}`, spanKind([]))),
         ];
         const source = {
-            page: (offset: bigint) => (offset === 0n ? some(rowCollection(w0)) : some(rowCollection([]))),
+            page: (offset: bigint) => (offset === 0n ? some(w0) : some([])),
             total: () => some(10_000n),          // 50 windows
             id: "dom-test-band",
             seek: none,
@@ -491,18 +556,19 @@ describe("Plan paged source (P-c)", () => {
     });
 
     test("a parent whose members are NOT resident still renders, and claims nothing (#577)", async () => {
-        // Literal chrome (`Plan.series.rows`) is emitted by every window whether
-        // or not that window holds any of its members, so a group parent can be
-        // resident with none of its children. It must render — it is wayfinding
-        // — and it must not print `0 rs`, which would be a measured-looking
-        // claim about rows that simply have not loaded.
+        // A section header (`Plan.series.section`) is emitted by every window
+        // whether or not that window holds any of its members, so a section
+        // can be resident with none of its members (#822: the one parent whose
+        // members span windows). It must render — it is wayfinding — and it
+        // must not print `0 rs`, which would be a measured-looking claim about
+        // rows that simply have not loaded.
         const w0 = [
-            planRow("chrome", variant("group", { summary: none, summaryAggregate: none, collapsed: none }),
-                { gutter: gutter("Line 9") }),
+            planRow("chrome", variant("group", { summary: none, summaryAggregate: none }),
+                { id: sectionId("chrome"), gutter: gutter("Line 9") }),
             planRow("m1", spanKind([run("r1", W27, new Date("2026-07-13Z"), variant("actual", null))])),
         ];
         const source = {
-            page: (offset: bigint) => (offset === 0n ? some(rowCollection(w0)) : none),
+            page: (offset: bigint) => (offset === 0n ? some(w0) : none),
             total: () => some(10_000n),
             id: "dom-test-lonely-parent",
             seek: none,
@@ -512,7 +578,7 @@ describe("Plan paged source (P-c)", () => {
         const { container } = renderPlan(planRoot([], { source }), "plan-lonely");
         await screen.findByText("R1");
 
-        const band = container.querySelector('[data-plan-group="chrome"]');
+        const band = container.querySelector(sectionSel("chrome"));
         expect(band).toBeTruthy();
         expect(screen.getByText("Line 9")).toBeTruthy();
         // No member count at all — not `0 rs`, and not `~0 rs`.
@@ -533,17 +599,17 @@ describe("Plan paged source (P-c)", () => {
         // window 0, so the demand rests on its ring and windows 3–4 stay a
         // band — #812.)
         const w0 = [
-            planRow("g1", variant("group", { summary: none, summaryAggregate: none, collapsed: some(true) })),
+            planRow("g1", variant("group", { summary: none, summaryAggregate: none }), { collapsed: true }),
             ...Array.from({ length: 20 }, (_u, i) => planRow(`m${i}`, spanKind([]), { parent: "g1" })),
             ...Array.from({ length: 15 }, (_u, i) => planRow(`p${i}`, spanKind([]))),
-            { ...planRow("pin", spanKind([])), pinned: some(true) } as PlanRowValue,
+            { ...planRow("pin", spanKind([])), pinned: some(true) } as PlanWireRow,
         ];
         const source = {
             page: (offset: bigint) => {
-                if (offset === 0n) return some(rowCollection(w0));
-                if (offset === 200n) return some(rowCollection([planRow("w1", spanKind([]))]));
-                if (offset === 400n) return some(rowCollection([planRow("w2", spanKind([]))]));
-                return some(rowCollection([]));
+                if (offset === 0n) return some(w0);
+                if (offset === 200n) return some([planRow("w1", spanKind([]))]);
+                if (offset === 400n) return some([planRow("w2", spanKind([]))]);
+                return some([]);
             },
             total: () => some(1_000n),                    // 5 windows; [0..2] land
             id: "dom-test-rest-height",
@@ -560,8 +626,8 @@ describe("Plan paged source (P-c)", () => {
             expect(band!.getAttribute("data-plan-px")).toBe("1012");
         });
         // The window renders the way it was measured: collapsed, pin in header.
-        expect(container.querySelector('[data-plan-row="m0"]')).toBeNull();
-        expect(container.querySelector('[data-plan-group="g1"]')).toBeTruthy();
+        expect(container.querySelector(rowSel("m0"))).toBeNull();
+        expect(container.querySelector(rowSel("g1", "data-plan-group"))).toBeTruthy();
     });
 
     test("a source that cannot be READ says why where its rows would be — never a blank axis (#567 D10, #811)", async () => {
@@ -633,7 +699,7 @@ describe("Plan paged source (P-c)", () => {
             page: (offset: bigint) => {
                 recording?.push("window");
                 if (!state.open.has(state.revision)) return none;
-                return offset === 0n ? some(rowCollection(rowsAt(state.revision))) : some(rowCollection([]));
+                return offset === 0n ? some(rowsAt(state.revision)) : some([]);
             },
             total: () => (state.open.has(state.revision) ? some(1n) : none),
             id: "dom-test-revision",
@@ -647,20 +713,20 @@ describe("Plan paged source (P-c)", () => {
         try {
             const { container } = renderPlan(planRoot([], { source }), "plan-revision");
             await screen.findByText("A1");
-            const row = container.querySelector('[data-plan-row="m1"]');
+            const row = container.querySelector(rowSel("m1"));
             expect(row).toBeTruthy();
             // The dataset is written: the source serves B, its window in flight.
             state.revision = "B";
             act(() => { fire("revision"); });
             // The old rows stand in — the canvas is never emptied.
-            expect(container.querySelector('[data-plan-row="m1"]')).toBe(row);
+            expect(container.querySelector(rowSel("m1"))).toBe(row);
             expect(screen.getByText("A1")).toBeTruthy();
             // B's window lands: the same row swaps its content in place.
             state.open.add("B");
             act(() => { fire("window"); });
             await screen.findByText("B1");
             expect(screen.queryByText("A1")).toBeNull();
-            expect(container.querySelector('[data-plan-row="m1"]')).toBe(row);
+            expect(container.querySelector(rowSel("m1"))).toBe(row);
         } finally {
             unregister();
         }

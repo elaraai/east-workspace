@@ -116,7 +116,8 @@ export interface PlanPagingSnapshot {
     /** Which publish this is — they count up, so the canvas can say which one
      *  it committed. */
     seq: number;
-    /** The resident rows, merged by key, in canonical key order. */
+    /** The resident rows — the windows' row streams concatenated in window
+     *  order, each row kept once (#822). */
     rows: readonly PlanRowValue[];
     /** Which window each row came from. */
     origin: ReadonlyMap<string, number>;
@@ -228,7 +229,7 @@ const NOTHING_READ: ReadOutcome = {
     total: undefined, resident: [], loading: false, failed: [], sourceError: undefined, revision: undefined,
 };
 
-/** Whether two window lists name the same windows with the same row maps. */
+/** Whether two window lists name the same windows with the same row lists. */
 function sameWindows(a: readonly { w: number; rows: WindowRows }[], b: readonly { w: number; rows: WindowRows }[]): boolean {
     return a.length === b.length && a.every((x, i) => x.w === b[i]!.w && x.rows === b[i]!.rows);
 }
@@ -383,7 +384,7 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
         if (out.total !== undefined) ledgerRevision = out.revision;
         // ── Landed windows teach the ledger ───────────────────────────────
         for (const { w, rows } of out.resident) {
-            ledger = observeWindow(ledger, w, { px: options.heightOf([...rows.values()]), rows: rows.size });
+            ledger = observeWindow(ledger, w, { px: options.heightOf(rows), rows: rows.length });
         }
         // ── A pin protects the jump target until it SETTLES ───────────────
         // It lands, or its read fails (#811) — and the canvas commits that

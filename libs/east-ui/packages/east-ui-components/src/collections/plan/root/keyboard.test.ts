@@ -14,18 +14,23 @@ import { describe, test, expect } from "vitest";
 import { none, some, variant } from "@elaraai/east";
 import { indexRows, type PlanBodyItem, type PlanRowValue, type VisibleRow } from "../model.js";
 import { planNavItems, planNavKey, resolveNavIntent, type PlanNavItem } from "./keyboard.js";
+import { rowId } from "../plan.test-utils.js";
 
+/** One canvas row. The keyboard map treats keys as opaque, so these key by
+ *  the test's own words (`r:G` is `G`'s item) rather than their ids' text. */
 function row(key: string, kind: unknown, parent?: string): PlanRowValue {
     return {
+        id: rowId(key),
         key,
         parent: parent !== undefined ? some(parent) : none,
         gutter: { label: key, id: none, sub: none, value: none, meta: none, stacked: none, swatches: [] },
         kind,
-        pinned: none, height: none, status: none, approval: none, expand: none,
+        collapsed: none, pinned: none, height: none, status: none, approval: none, expand: none,
+        duplicateOf: undefined,
     } as unknown as PlanRowValue;
 }
 const span = () => variant("span", { runs: [], decisions: [], ports: [], rollup: none, unit: none });
-const group = () => variant("group", { summary: none, summaryAggregate: none, collapsed: none });
+const group = () => variant("group", { summary: none, summaryAggregate: none });
 const chart = (expandable: boolean) => variant("chart", {
     layers: [], left: none, right: none, height: variant("spark", null), expandedHeight: none,
     expandable: expandable ? some(true) : none,

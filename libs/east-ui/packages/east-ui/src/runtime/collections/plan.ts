@@ -34,17 +34,25 @@ const { Root: _root, ...authoring } = PlanFactory;
  * numerals), cards rows (Roster chips), event marks and group strips —
  * sliced and reviewed as one surface.
  *
- * A canvas is its `data` — a keyed collection of raw rows, or a paged source
- * of one — and its `series`: one `Plan.series.*` value per row series, whose
- * accessors derive each canvas row from the raw fields (`Plan.pick` makes the
- * list one the user picks from). Content comes from the value builders
- * (`Plan.run` / `event` / `chip` / `mark` / `marker` / `decision` / `port` /
- * `segment` / the cell builders, instants via `Plan.at.*`), the axis from
- * `Plan.axis` (`time`) / `Plan.axis.number` / `Plan.axis.ordinal`, and rows
- * no dataset holds from the kind factories (`Plan.span` / `buckets` /
- * `chart` / `heat` / `table` / `cards` / `events` / `group`), placed by a
- * `Plan.series.rows` entry. Props are {@link PlanConfig}; maps to
- * `Plan.Root`.
+ * A canvas is its `data` — a keyed collection of raw entries, or a paged
+ * source of one — and its `series`: one `Plan.series.*` value per row series,
+ * whose accessors derive each canvas row from the raw fields (`Plan.pick`
+ * makes the list one the user picks from). The list IS the layout — one block
+ * per series, top to bottom — and hierarchy comes only from the data's own
+ * nesting (#822): a series' `children` walk what an entry holds, to any depth
+ * (`Plan.children` steps down to another entry type), and a flat source is
+ * grouped in a data step first (`groupToDicts`). `Plan.series.section` titles
+ * a block and `Plan.series.views` shows one entry several ways. Every row has
+ * a typed id — its series and the path of entry keys to it (`Plan.ref`).
+ *
+ * Content comes from the value builders (`Plan.run` / `event` / `chip` /
+ * `mark` / `marker` / `decision` / `port` / `segment` / the cell builders,
+ * instants via `Plan.at.*`), the axis from `Plan.axis` (`time`) /
+ * `Plan.axis.number` / `Plan.axis.ordinal` — its window stated, or supplied by
+ * a bound slice — and rows no dataset holds from the kind factories
+ * (`Plan.span` / `buckets` / `chart` / `heat` / `table` / `cards` / `events` /
+ * `group`), placed by a `Plan.series.rows` entry. Props are
+ * {@link PlanConfig}; maps to `Plan.Root`.
  *
  * @example
  * ```tsx
@@ -91,53 +99,77 @@ const { Root: _root, ...authoring } = PlanFactory;
  *             { key: "s2", from: week(31n), to: week(33n), hours: 64.0, state: variant("proposed", variant("recommended", null)) },
  *         ] }) }],
  *     ]), DictType(StringType, OpsRow));
+ *     // Hierarchy is the DATA's (#822): one `groupToDicts` groups the rows
+ *     // into the canvas's blocks — each machine under its line, the crews
+ *     // under one "Crews" block. An entry of the result holds its rows.
+ *     const blocks = $.let(ops.groupToDicts(
+ *         ($, r) => r.kind.hasTag("crew").ifElse(() => "Crews", () => r.line),
+ *         ($, _r, k) => k));
+ *     const Block = DictType(StringType, OpsRow);
  *     // The series — real East values bound in the body, typed by the
- *     // constructor. The accessors are where raw fields become canvas
- *     // vocabulary: labels, quantity displays and chip text all derive
- *     // CLIENT-SIDE, inside each series' `derive`. Rows sit in KEY order;
- *     // the series order only settles two series emitting one key.
+ *     // constructor. The list IS the layout: one block per series, top to
+ *     // bottom. The accessors are where raw fields become canvas vocabulary:
+ *     // labels, quantity displays and chip text all derive CLIENT-SIDE,
+ *     // inside each series' `derive`.
  *     const series = $.const([
- *         Plan.series.rows(OpsRow, { key: "chrome", title: "Milestones", subtitle: "one-off chrome" },
+ *         // One row per line, its machines stepped down into
+ *         // (`Plan.children`) and their runs rolled up into its bands.
+ *         Plan.series.span(Block, {
+ *             key: "lines", title: "Lines",
+ *             match: (_b, name) => name.equal("Crews").not(),
+ *             label: (_b, name) => name,
+ *             runs: _b => [],
+ *             rollup: "union", unit: "t",
+ *             children: Plan.children((b) => b, [
+ *                 Plan.series.span(OpsRow, {
+ *                     key: "machines", title: "Machines",
+ *                     match: r => r.kind.hasTag("machine"),
+ *                     label: (_r, k) => k, id: true,
+ *                     runs: r => r.kind.unwrap("machine").jobs.map((_$, j) => Plan.run({
+ *                         key: j.batch, start: j.start, end: j.end,
+ *                         label: East.str`RUN · ${j.batch}`,
+ *                         quantity: East.str`${East.Float.printFixed(j.tonnes, 0n)} t`,
+ *                         qty: j.tonnes, state: j.state,
+ *                     })),
+ *                 }),
+ *             ]),
+ *         }),
+ *         // One strip per matching block — here the one "Crews" block,
+ *         // wearing its member count.
+ *         Plan.series.group(Block, {
+ *             key: "crews", title: "Crews",
+ *             match: (_b, name) => name.equal("Crews"),
+ *             label: (_b, name) => name,
+ *             children: Plan.children((b) => b, [
+ *                 Plan.series.cards(OpsRow, {
+ *                     key: "crew-shifts", title: "Crew shifts",
+ *                     match: r => r.kind.hasTag("crew"),
+ *                     label: (_r, k) => k,
+ *                     chips: r => r.kind.unwrap("crew").shifts.map(($, s) => {
+ *                         const hrs = $.let(East.Float.printFixed(s.hours, 0n), StringType);
+ *                         // `+` marks ADDED hours — a removed proposal keeps the
+ *                         // plain figure (see planCardRows for the full ladder).
+ *                         const label = $.let(s.state.match({
+ *                             proposed: (_$, p) => p.hasTag("removed").ifElse(
+ *                                 () => East.str`${hrs}h`,
+ *                                 () => East.str`+${hrs}h`),
+ *                         }, _$ => East.str`${hrs}h`), StringType);
+ *                         return Plan.chip({ key: s.key, from: s.from, to: s.to, label, state: s.state });
+ *                     }),
+ *                 }),
+ *             ]),
+ *         }),
+ *         Plan.series.rows(Block, { key: "chrome", title: "Milestones", subtitle: "one-off chrome" },
  *             [Plan.events({ key: "ms", label: "MILESTONES", id: true, marks: [
  *                 Plan.mark({ key: "kick", at: week(28n), kind: "milestone", label: "KICKOFF" }),
  *                 Plan.mark({ key: "rel", at: week(33n), kind: "milestone", label: "REL 2.4" }),
  *             ] })]),
- *         Plan.series.span(OpsRow, {
- *             key: "span-2", title: "Span",
- *             match: r => r.kind.hasTag("machine"),
- *             label: (_r, k) => k, id: true,
- *             runs: r => r.kind.unwrap("machine").jobs.map((_$, j) => Plan.run({
- *                 key: j.batch, start: j.start, end: j.end,
- *                 label: East.str`RUN · ${j.batch}`,
- *                 quantity: East.str`${East.Float.printFixed(j.tonnes, 0n)} t`,
- *                 qty: j.tonnes, state: j.state,
- *             })),
- *             groupBy: [r => r.line], rollup: "union", unit: "t",
- *         }),
- *         Plan.series.group(OpsRow, { key: "crews", label: "Crews", meta: "1 rs" }, [
- *             Plan.series.cards(OpsRow, {
- *                 key: "cards-2", title: "Cards",
- *                 match: r => r.kind.hasTag("crew"),
- *                 label: (_r, k) => k,
- *                 chips: r => r.kind.unwrap("crew").shifts.map(($, s) => {
- *                     const hrs = $.let(East.Float.printFixed(s.hours, 0n), StringType);
- *                     // `+` marks ADDED hours — a removed proposal keeps the
- *                     // plain figure (see planCardRows for the full ladder).
- *                     const label = $.let(s.state.match({
- *                         proposed: (_$, p) => p.hasTag("removed").ifElse(
- *                             () => East.str`${hrs}h`,
- *                             () => East.str`+${hrs}h`),
- *                     }, _$ => East.str`${hrs}h`), StringType);
- *                     return Plan.chip({ key: s.key, from: s.from, to: s.to, label, state: s.state });
- *                 }),
- *             }),
- *         ]),
- *     ], ArrayType(Plan.Types.Series(OpsRow)));
+ *     ], ArrayType(Plan.Types.Series(Block)));
  *     const axis = $.const(Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n) }));
  *     return (
  *         <Plan
  *             axis={axis}
- *             data={ops}
+ *             data={blocks}
  *             series={series}
  *         />
  *     );
@@ -147,10 +179,11 @@ const { Root: _root, ...authoring } = PlanFactory;
  * @remarks
  * Carries the factory namespace except `Root` (the tag is the root):
  * `Plan.axis` (+ `.time` / `.number` / `.ordinal`), `Plan.at`,
- * `Plan.series.*`, `Plan.pick` / `Plan.pickItems`, the kind factories, the
- * value and cell builders, `Plan.link`, `Plan.layer` / `Plan.fixed` (chart
- * channels), `Plan.markKind`, and `Plan.Types.*`. Replaces `Gantt`, `Planner`
- * and `AlignedStack`.
+ * `Plan.series.*`, `Plan.children`, `Plan.ref` / `Plan.sectionRef`,
+ * `Plan.pick` / `Plan.pickItems`, the kind factories, the value and cell
+ * builders, `Plan.link`, `Plan.layer` / `Plan.fixed` (chart channels),
+ * `Plan.markKind`, and `Plan.Types.*`. Replaces `Gantt`, `Planner` and
+ * `AlignedStack`.
  *
  * The tag is generic in the canvas's axis kind `K`, inferred from `axis`:
  * a series whose instants ride another arm is a compile error at the tag

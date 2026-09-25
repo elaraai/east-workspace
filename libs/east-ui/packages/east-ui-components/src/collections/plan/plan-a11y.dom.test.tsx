@@ -20,7 +20,9 @@ import { system } from "../../theme/index.js";
 import { initializeStore } from "../../platform/state-runtime.js";
 import { UIStore } from "../../platform/state-store.js";
 import { registerReactiveTracker, type ReactiveTracker } from "../../reactive/tracker.js";
-import { EastChakraPlan, type PlanRootValue, type PlanRowValue } from "./index.js";
+import { EastChakraPlan, type PlanRootValue } from "./index.js";
+import type { PlanRowId, PlanWireRow } from "./model.js";
+import { itemSel, rowId, rowSel, testKeyOf } from "./plan.test-utils.js";
 import { setBodyRowRenderProbe } from "./rows/BodyRow.js";
 import { PLAN_PAGE_SIZE } from "./use-plan-paging.js";
 import { minOf } from "./reductions.js";
@@ -71,22 +73,23 @@ const W39 = new Date("2026-09-21T00:00:00Z");
 const day = (iso: string) => new Date(`${iso}T00:00:00Z`);
 const t = (d: Date): PlanInstantValue => variant("time", d) as PlanInstantValue;
 
-function planRow(key: string, kind: unknown, opts?: { parent?: string; label?: string; pinned?: boolean; status?: string; expand?: boolean }): PlanRowValue {
+/** One WIRE row, as the source serves it — named by its test key (#822). */
+function planRow(key: string, kind: unknown, opts?: { parent?: string; label?: string; pinned?: boolean; status?: string; expand?: boolean; collapsed?: boolean }): PlanWireRow {
     return {
-        key,
-        parent: opts?.parent !== undefined ? some(opts.parent) : none,
+        id: rowId(key),
+        parent: opts?.parent !== undefined ? some(rowId(opts.parent)) : none,
         gutter: { label: opts?.label ?? key, id: none, sub: none, value: none, meta: none, stacked: none, swatches: [] },
         kind,
+        collapsed: opts?.collapsed !== undefined ? some(opts.collapsed) : none,
         pinned: opts?.pinned === true ? some(true) : none,
         height: none,
         status: opts?.status !== undefined ? some(variant(opts.status, null)) : none,
         approval: none,
         expand: opts?.expand === true ? some({ height: some("120px"), axis: variant("keep", null) }) : none,
-    } as unknown as PlanRowValue;
+    } as unknown as PlanWireRow;
 }
-const group = (collapsed?: boolean, summary?: unknown) => variant("group", {
+const group = (summary?: unknown) => variant("group", {
     summary: summary !== undefined ? some(summary) : none, summaryAggregate: none,
-    collapsed: collapsed !== undefined ? some(collapsed) : none,
 });
 function run(key: string, start: Date, end: Date, state: unknown = variant("actual", null), status?: string) {
     return {
@@ -106,14 +109,12 @@ const heatCells = (cells: [Date, number | undefined][], warnAt?: number) => vari
     min: some(0), max: some(100), warnAt: warnAt !== undefined ? some(warnAt) : none,
 });
 
-function planRoot(rows: PlanRowValue[], opts: {
+function planRoot(rows: PlanWireRow[], opts: {
     source?: unknown; popover?: unknown; onRunClick?: unknown; links?: unknown[];
     height?: string; expandRender?: boolean;
 } = {}): PlanRootValue {
     return {
-        rows: opts.source !== undefined
-            ? variant("paged", opts.source)
-            : variant("inline", new Map(rows.map((r) => [r.key, r]))),
+        rows: opts.source !== undefined ? variant("paged", opts.source) : variant("inline", rows),
         links: opts.links ?? [],
         axis: variant("time", {
             window: some({ min: W27, max: W39 }), resolution: variant("week", null),
@@ -123,7 +124,7 @@ function planRoot(rows: PlanRowValue[], opts: {
         popover: opts.popover !== undefined ? some(opts.popover) : none,
         hover: none,
         expandRender: opts.expandRender === true
-            ? some((ref: { key: string }) => variant("Text", { value: `R · ${ref.key}`, style: none }))
+            ? some((id: PlanRowId) => variant("Text", { value: `R · ${id.value.path.join("/")}`, style: none }))
             : none,
         expandGutter: none, review: none, pick: none, slice: none, footer: [],
         id: "", sources: [], onDrag: none, canDrop: none,
@@ -180,10 +181,17 @@ const EVERY_KIND = () => [
     }), { parent: "G" }),
 ];
 
-const item = (c: HTMLElement, key: string) => c.querySelector(`[data-plan-item="${key}"]`) as HTMLElement;
+/** An item by its key in the test's words — `r:s` is row `s`'s item (its key
+ *  is the id's text, #822); `b:tail` and `f:2` are bands. */
+const item = (c: HTMLElement, key: string) =>
+    c.querySelector(key.startsWith("r:") ? itemSel(key.slice(2)) : `[data-plan-item="${key}"]`) as HTMLElement;
 const gridOf = (c: HTMLElement) => c.querySelector('[role="treegrid"]') as HTMLElement;
 const announced = (c: HTMLElement) => c.querySelector("[data-plan-announce]")!.textContent;
-const focusedItem = () => (document.activeElement as HTMLElement | null)?.getAttribute("data-plan-item");
+/** The focused item's key, in the test's words. */
+const focusedItem = () => {
+    const key = (document.activeElement as HTMLElement | null)?.getAttribute("data-plan-item");
+    return key !== null && key !== undefined && key.startsWith("r:") ? `r:${testKeyOf(key.slice(2))}` : key;
+};
 const press = (key: string, opts: { shiftKey?: boolean } = {}) =>
     fireEvent.keyDown(document.activeElement as HTMLElement, { key, ...opts });
 
@@ -229,19 +237,19 @@ describe("the canvas is a treegrid (#819)", () => {
             return [el.getAttribute("role"), el.getAttribute("aria-label")];
         };
         expect(named("[data-run='r1']")).toEqual(["button", "R1, Jun 29, 2026 – Jul 13, 2026, actual, warning"]);
-        expect(named("[data-plan-item='r:s'] [data-mark='d1']")).toEqual(["button", "Decision, Jul 6, 2026, applied"]);
+        expect(named(`${itemSel("s")} [data-mark='d1']`)).toEqual(["button", "Decision, Jul 6, 2026, applied"]);
         expect(named("[data-port]")).toEqual(["img", "IN · 40 t"]);
         expect(named("[data-event='e1']")).toEqual(["button", "Pour, Week of Jun 29, 2026, AM, confirmed"]);
         expect(named("[data-marker]")).toEqual(["img", "Crew short"]);
         expect(named("[data-chip='c1']")).toEqual(["button", "D. OKAFOR, Jun 29, 2026 – Jul 13, 2026, confirmed"]);
-        expect(named("[data-plan-item='r:e'] [data-mark='k1'][tabindex]")).toEqual(["button", "KICKOFF, milestone, Jun 29, 2026"]);
-        expect(named("[data-plan-item='r:e'] [data-mark='k2']")).toEqual(["button", "Decision, pending, Jul 13, 2026"]);
-        expect(named("[data-plan-item='r:e'] [data-mark='k3']")).toEqual(["button", "Exception, Jul 27, 2026"]);
+        expect(named(`${itemSel("e")} [data-mark='k1'][tabindex]`)).toEqual(["button", "KICKOFF, milestone, Jun 29, 2026"]);
+        expect(named(`${itemSel("e")} [data-mark='k2']`)).toEqual(["button", "Decision, pending, Jul 13, 2026"]);
+        expect(named(`${itemSel("e")} [data-mark='k3']`)).toEqual(["button", "Exception, Jul 27, 2026"]);
         // A printed mark label is that name's echo — hidden from a reader.
-        expect(container.querySelector("[data-plan-item='r:e'] [data-mark='k1']:not([tabindex])")!.getAttribute("aria-hidden")).toBe("true");
-        expect(named("[data-plan-item='r:t'] [data-cell]")).toEqual(["button", "Week of Jun 29, 2026: 1,204"]);
+        expect(container.querySelector(`${itemSel("e")} [data-mark='k1']:not([tabindex])`)!.getAttribute("aria-hidden")).toBe("true");
+        expect(named(`${itemSel("t")} [data-cell]`)).toEqual(["button", "Week of Jun 29, 2026: 1,204"]);
         // A chart is a shape: an image, named by its values, with a title.
-        const plot = container.querySelector("[data-plan-item='r:k'] [data-plan-chart]")!;
+        const plot = container.querySelector(`${itemSel("k")} [data-plan-chart]`)!;
         expect(plot.getAttribute("role")).toBe("img");
         expect(plot.getAttribute("aria-label")).toBe("Chart: line min 94, max 101, last 101");
         expect(plot.querySelector("svg > title")!.textContent).toBe("Chart: line min 94, max 101, last 101");
@@ -256,7 +264,7 @@ describe("the canvas is a treegrid (#819)", () => {
         const { container } = renderPlan(planRoot(rows), "plan-819-renumber");
         expect(item(container, "r:b1").getAttribute("aria-rowindex")).toBe("5");
         const rendered: string[] = [];
-        setBodyRowRenderProbe((key) => rendered.push(key));
+        setBodyRowRenderProbe((key) => rendered.push(testKeyOf(key)));
         fireEvent.click(item(container, "r:A"));
         expect(gridOf(container).getAttribute("aria-rowcount")).toBe("4");
         expect(["b1", "b2", "b3"].map((k) => item(container, `r:${k}`).getAttribute("aria-rowindex"))).toEqual(["2", "3", "4"]);
@@ -287,14 +295,14 @@ describe("the canvas is a treegrid (#819)", () => {
             const mounted = () => [...container.querySelectorAll("[data-plan-item]")] as HTMLElement[];
             /** Each mounted row's place — from its key — and the index it says. */
             const places = (): [number, number][] => mounted().map((r) =>
-                [Number(r.getAttribute("data-plan-row")!.slice(1)) + 1, Number(r.getAttribute("aria-rowindex"))]);
+                [Number(testKeyOf(r.getAttribute("data-plan-row")!).slice(1)) + 1, Number(r.getAttribute("aria-rowindex"))]);
             expect(mounted().length).toBeLessThan(200);
             for (const [want, got] of places()) expect(got).toBe(want);
             // Deep in: the rows mounted there number from where they are.
             const frame = container.querySelector('[data-virtual-rows="bounded"]') as HTMLElement;
             frame.scrollTop = 100 * 32;
             fireEvent.scroll(frame);
-            expect(container.querySelector('[data-plan-row="r000"]')).toBeNull();
+            expect(container.querySelector(rowSel("r000"))).toBeNull();
             expect(minOf(places().map(([w]) => w))).toBeGreaterThan(50);
             for (const [want, got] of places()) expect(got).toBe(want);
         });
@@ -328,10 +336,7 @@ function heldSource(windows: number, rowsPer: number, openUpTo = 0) {
             const w = Number(offset) / PLAN_PAGE_SIZE;
             recording?.push(`w${w}`);
             if (w > state.openUpTo) return none;
-            return some(new Map(Array.from({ length: rowsPer }, (_u, i) => {
-                const row = planRow(`w${w}r${String(i).padStart(2, "0")}`, span());
-                return [row.key, row] as const;
-            })));
+            return some(Array.from({ length: rowsPer }, (_u, i) => planRow(`w${w}r${String(i).padStart(2, "0")}`, span())));
         },
         total: () => some(BigInt(windows * PLAN_PAGE_SIZE)),
         seek: none,
@@ -449,7 +454,7 @@ describe("one tab stop, and the keyboard map (#819)", () => {
     });
 
     test("Tab walks into a row's widgets; ← → step its elements in time order; Esc returns to the row", () => {
-        const links = [{ fromRow: "m", fromRun: "b", toRow: "n", toRun: "x", quantity: 1, label: "1 t" }];
+        const links = [{ fromRow: rowId("m"), fromRun: "b", toRow: rowId("n"), toRun: "x", quantity: 1, label: "1 t" }];
         const { container } = renderPlan(planRoot([
             // Data order is not time order: the August run comes first.
             planRow("m", span(
@@ -502,7 +507,10 @@ describe("one tab stop, and the keyboard map (#819)", () => {
         press("Enter");
         expect(screen.getByText("RUN DETAIL")).toBeTruthy();
         expect(row.getAttribute("aria-selected")).toBe("true");
-        await waitFor(() => expect(clicks).toEqual([{ row: "m", run: "b214" }]));
+        await waitFor(() => expect(clicks).toHaveLength(1));
+        // The click names its row by the row's typed id (#822).
+        const click = clicks[0] as { row: PlanRowId; run: string };
+        expect([click.row.value.path.join("/"), click.run]).toEqual(["m", "b214"]);
         // The popover's Esc first — met, as a user's always is, by its armed
         // layer: the surface closes and focus is back on the bar… (An Esc
         // inside the first frame, before the layer listens, is the canvas's
@@ -608,7 +616,7 @@ describe("every colour-only cell says its value (#819)", () => {
                 aggregate: none,
             })),
         ]), "plan-819-cells");
-        const names = (key: string) => [...container.querySelectorAll(`[data-plan-item="r:${key}"] [data-cell]`)]
+        const names = (key: string) => [...container.querySelectorAll(`${itemSel(key)} [data-cell]`)]
             .map((c) => c.getAttribute("aria-label"));
         expect(names("h")).toEqual([
             "Week of Jun 29, 2026: 80, at or above the warning threshold",
@@ -621,10 +629,10 @@ describe("every colour-only cell says its value (#819)", () => {
 
     test("a group's summary strip says each bucket's value as text", () => {
         const { container } = renderPlan(planRoot([
-            planRow("L", group(true, heatCells([[W27, 80], [day("2026-07-06"), undefined]])), { label: "Line 1" }),
+            planRow("L", group(heatCells([[W27, 80], [day("2026-07-06"), undefined]])), { label: "Line 1", collapsed: true }),
             planRow("m", span(), { parent: "L" }),
         ]), "plan-819-strip");
-        const cells = [...container.querySelectorAll('[data-plan-group="L"] [data-plan-bucket]')];
+        const cells = [...container.querySelectorAll(`${rowSel("L", "data-plan-group")} [data-plan-bucket]`)];
         // What a reader hears: everything but the printed label, which is the
         // words' echo (the no-data dash) and hidden from them.
         const heard = (c: Element) => [...c.children].filter((x) => x.getAttribute("aria-hidden") !== "true")
@@ -638,7 +646,7 @@ describe("every colour-only cell says its value (#819)", () => {
             planRow("focal", span(), { expand: true }),
             planRow("k", chart([[W27, 94], [day("2026-07-06"), 101]], false)),
         ], { expandRender: true }), "plan-819-tones");
-        fireEvent.click(container.querySelector('[data-plan-item="r:focal"] [data-plan-control="expand"]')!);
+        fireEvent.click(container.querySelector(`${itemSel("focal")} [data-plan-control="expand"]`)!);
         const strip = item(container, "r:k");
         expect(strip.hasAttribute("data-ctx")).toBe(true);
         expect([...strip.querySelectorAll("[role='gridcell'] > *")].map((c) => c.textContent).filter((s) => s !== ""))

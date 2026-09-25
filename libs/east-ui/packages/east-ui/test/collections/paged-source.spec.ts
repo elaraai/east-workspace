@@ -290,11 +290,11 @@ describeEast("Row-source contract (#567)", (test) => {
         const axis = $.const(Plan.axis({ window: TRIM_WINDOW, resolution: "week" }));
         const plan = $.let(Plan.Root({ axis, data: src, series }));
         const derived = $.let(plan.unwrap().unwrap("Plan").rows.unwrap("paged"));
-        // One row per entry: a whole window is 20 rows, keyed r00…r19.
+        // One row per entry: a whole window is 20 rows, r00…r19 in key order.
         const w0 = $.let(derived.page(0n, 20n));
         $(Assert.equal(w0.unwrap("some").size(), 20n));
-        $(Assert.equal(w0.unwrap("some").has("r19"), true));
-        $(Assert.equal(w0.unwrap("some").has("r20"), false));
+        $(Assert.equal(w0.unwrap("some").get(0n).id, Plan.ref("entries", "r00")));
+        $(Assert.equal(w0.unwrap("some").get(19n).id, Plan.ref("entries", "r19")));
         const w2 = $.let(derived.page(40n, 20n));
         $(Assert.equal(w2.unwrap("some").size(), 10n));
     });

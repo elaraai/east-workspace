@@ -11,9 +11,11 @@
  */
 
 import {
+    type EastType,
     type ExprType,
     type SubtypeExprOrValue,
     East,
+    Expr,
     ArrayType,
     BooleanType,
     DictType,
@@ -22,6 +24,7 @@ import {
     OptionType,
     StringType,
     StructType,
+    isTypeEqual,
     variant,
     some,
     none,
@@ -39,7 +42,7 @@ import {
     PlanGrainType,
     type PlanGrainLiteral,
     PlanLinkType,
-    PlanRowRefType,
+    PlanRowIdType,
     PlanRunClickEventType,
     PlanEventClickEventType,
     PlanMarkClickEventType,
@@ -55,9 +58,8 @@ import {
     type PlanAxisInput,
 } from "./types.js";
 import { PlanReviewType } from "./ir.js";
-import { resolveTag } from "./builders.js";
-import { applySeries, PlanSeriesType, type PlanSeriesInput } from "./series.js";
-import { seriesSignature } from "./pick.js";
+import { resolveTag, WINDOWLESS_AXES } from "./builders.js";
+import { applySeries, checkSeries, PlanSeriesType, type PlanSeriesInput } from "./series.js";
 import { pickActive, PickBindType, type PickHandle } from "../../contracts/pick.js";
 import { resolveRowSource, buildRowSource, type PagedSourceLike } from "../../contracts/source.js";
 
@@ -71,10 +73,10 @@ const DEFAULT_PLAN_AFFORDANCES: SliceAffordanceLiteral[] =
     ["cohort", "filter", "search", "range", "resolution", "brush", "summary"];
 
 /**
- * The Plan review config — the shared {@link ReviewConfig} at the keyed-row
- * subject (`{ key }`).
+ * The Plan review config — the shared {@link ReviewConfig} at the row's id
+ * ({@link PlanRowIdType}).
  */
-export type PlanReviewConfig = ReviewConfig<PlanRowRefType>;
+export type PlanReviewConfig = ReviewConfig<PlanRowIdType>;
 
 /**
  * Configuration for {@link Plan.Root} (the `<Plan>` tag's props).
@@ -90,15 +92,15 @@ export type PlanReviewConfig = ReviewConfig<PlanRowRefType>;
  *
  * @typeParam K - The canvas's axis kind — inferred from `axis`
  * @property axis - The shared axis declaration (`Plan.axis` / `.time` / `.number` / `.ordinal`)
- * @property data - The raw data source (a `Dict<String, R>` value/expression, or a paged source of one); pairs with `series` or `pick`
- * @property series - The row series over `data` — `Plan.series.*` values (declared order resolves key collisions; rows sit in KEY order); exclusive with `pick`
+ * @property data - The source — a `Dict<K, R>` value/expression, or a paged source of one; pairs with `series` or `pick`
+ * @property series - The row series over `data` — `Plan.series.*` values; the list IS the layout; exclusive with `pick`
  * @property pick - A bound series library (`Plan.pick`) — the canvas shows the picked series and mounts the library panel; exclusive with `series`
  * @property links - The link graph (R1) — run-edge quantity links (`Plan.link` values)
  * @property grain - Initial grain (`"group"` / `"resource"`; default resource)
  * @property popover - Generalized click-popover resolver over the element ref (`none` result ⇒ no surface)
  * @property hover - Generalized hovercard resolver over the element ref (`none` result ⇒ no surface)
- * @property expandRender - The R2 developer render for rows declaring `expand` (called with the row ref)
- * @property expandGutter - The R2 gutter render — fills the expanded row's grown gutter cell (called with the row ref)
+ * @property expandRender - The R2 developer render for rows declaring `expand` (called with the row's id)
+ * @property expandGutter - The R2 gutter render — fills the expanded row's grown gutter cell (called with the row's id)
  * @property review - The shared review chrome (decision column + batch foot)
  * @property slice - Bound slice chrome (toolbar affordances)
  * @property footer - Status-footer items
@@ -112,40 +114,34 @@ export type PlanReviewConfig = ReviewConfig<PlanRowRefType>;
  * @property onMarkClick - Event mark / decision diamond click
  * @property onChipClick - Cards chip click
  * @property onCellClick - Heat / table / weight / segment cell click
- * @property onGroupToggle - Group strip ↔ rows toggle
+ * @property onGroupToggle - A row with children expanded or collapsed
  * @property onGrainChange - Grain segment change
  * @property style - Sizing, density and gutter width
  */
 export interface PlanConfig<K extends PlanAxisKindLiteral = PlanAxisKindLiteral> {
-    /** The shared axis declaration (`Plan.axis` / `.time` / `.number` / `.ordinal`) — fixes the canvas kind `K`. */
+    /** The shared axis declaration (`Plan.axis` / `.time` / `.number` / `.ordinal`) — fixes the canvas kind `K`.
+     *  A time or number axis states its `window`, or the canvas binds a `slice` whose range supplies it —
+     *  there is no fit to the data (#822), inline or paged. */
     axis: PlanAxisInput<K>;
-    /** The raw data source — a KEYED collection: a `Dict<String, R>` value or
-     *  expression (a `$.let`-bound map, `Data.bind(...).read()`) for the INLINE
-     *  arm, or a `$.let`-bound paged handle over one (`Data.bindPaged(ops)`)
-     *  for the PAGED arm; the East type is the discriminant.
+    /** The source — a KEYED collection: a `Dict<K, R>` value or expression (a
+     *  `$.let`-bound map, `Data.bind(...).read()`) for the INLINE arm, or a
+     *  `$.let`-bound paged handle over one (`Data.bindPaged(ops)`) for the
+     *  PAGED arm; the East type is the discriminant. Any key type: a row's path
+     *  starts with its entry's key (the String itself, any other key as its
+     *  `.east` text), so the canvas is addressed by the keys the source is
+     *  searched and windowed by. Entries may be any East type — a struct, a
+     *  recursive node, or a collection (`groupToDicts`' groups).
      *
-     *  The keys are load-bearing: a leaf row's key IS its data key, so the
-     *  canvas is ordered and addressed by the same keys the source is
-     *  (`datasetGetPage` windows and `datasetFindKey` searches that key order).
      *  A positional collection is refused — key it at the call site with
-     *  `rows.toDict((_$, r) => r.id)`, which makes the choice explicit.
+     *  `rows.toDict((_$, r) => r.id)`, which makes the choice explicit. */
+    data: SubtypeExprOrValue<DictType<EastType, EastType>> | PagedSourceLike;
+    /** The row series over `data` — `Plan.series.*` values, a TS array or an
+     *  East expression of `ArrayType(Plan.Types.Series(R))`.
      *
-     *  A PAGED canvas must also declare `axis.window` (or bind a slice range):
-     *  fitting the axis to whatever prefix has landed would re-fit it on every
-     *  window (#567 D8). */
-    data: SubtypeExprOrValue<DictType<StringType, StructType>> | PagedSourceLike;
-    /** The row series over `data` — `Plan.series.*` values, applied in DECLARED
-     *  order (a TS array or an East expression of
-     *  `ArrayType(Plan.Types.Series(R))`).
-     *
-     *  Declared order resolves KEY COLLISIONS only (last wins). It does NOT
-     *  set row order on screen: the canvas is one keyed collection
-     *  (`PlanRowsCollectionType` is a `Dict`, decoded as a `SortedMap`), so
-     *  rows sit in canonical KEY order however the series are listed. Order
-     *  rows by keying them for it — a `keyPrefix` per series, or ordered data
-     *  keys (`"10-line1"`, `"20-line2"`).
-     *
-     *  Literal one-off chrome rides a `Plan.series.rows` entry.
+     *  The list IS the layout (#822): each series contributes one contiguous
+     *  block, top to bottom in declared order, its rows in source order, each
+     *  parent followed by its subtree. Series keys must be unique across the
+     *  whole series tree — a TS array is checked here.
      *
      *  Every series' axis kind must lie within the axis's (`K`): a `"time"`
      *  series on a `"number"` axis fails to compile here. */
@@ -159,10 +155,9 @@ export interface PlanConfig<K extends PlanAxisKindLiteral = PlanAxisKindLiteral>
      * Give one or the other: `series` for a fixed canvas, `pick` for a canvas
      * whose rows the user chooses.
      *
-     * The Plan does the rest — it feeds itself the picked series and mounts the
-     * library panel as chrome, the way `slice` mounts the rail. Nothing is left
-     * for the author to wire, because a Plan already holds both things a pick
-     * needs: `series` IS the item list and `data` IS what the counts derive from.
+     * The Plan does the rest — it feeds itself the picked series (in the pick's
+     * order, which is the layout) and mounts the library panel as chrome, the
+     * way `slice` mounts the rail.
      *
      * A pick is STATE, so a Plan carrying one must sit inside a `Reactive` —
      * `Plan.pick` binds through `State.bind`, and a bind outside a reactive
@@ -170,27 +165,28 @@ export interface PlanConfig<K extends PlanAxisKindLiteral = PlanAxisKindLiteral>
      */
     pick?: PickHandle<ReturnType<typeof PlanSeriesType>>;
     /** The link graph (R1) — run-edge quantity links (`Plan.link` values, map-derivable
-     *  from data); the links-focus control gathers a row's transitive family over it. */
+     *  from data, their ends `Plan.ref(series, …path)`); the links-focus control gathers a
+     *  row's transitive family over it. */
     links?: SubtypeExprOrValue<ArrayType<PlanLinkType>>;
     /** Initial grain (default `"resource"`). */
     grain?: PlanGrainLiteral | SubtypeExprOrValue<PlanGrainType>;
     /** Generalized click-popover resolver — called with the clicked element's
      *  ref (`run` / `event` / `chip` / `mark` / `cell` arm, each carrying the
-     *  row key); returning `none` opens no surface. */
+     *  row's id); returning `none` opens no surface. */
     popover?: SubtypeExprOrValue<FunctionType<[PlanElementRefType], OptionType<UIComponentType>>>;
     /** Generalized hovercard resolver — the hover twin of `popover`. */
     hover?: SubtypeExprOrValue<FunctionType<[PlanElementRefType], OptionType<UIComponentType>>>;
-    /** The R2 developer render — called with the row ref when a row declaring
+    /** The R2 developer render — called with the row's id when a row declaring
      *  `expand` focuses; builds the mounted body from captured data /
      *  bind-handles. */
-    expandRender?: SubtypeExprOrValue<FunctionType<[PlanRowRefType], UIComponentType>>;
+    expandRender?: SubtypeExprOrValue<FunctionType<[PlanRowIdType], UIComponentType>>;
     /** The R2 GUTTER render — an expanded row's gutter cell grows with the row
      *  (one tall cell, top-aligned under the row's name), and this fills the
      *  space that opens up: the identity, measures or controls that only earn
-     *  their place once the row has the canvas. Called with the same row ref
+     *  their place once the row has the canvas. Called with the same row id
      *  as `expandRender`. */
-    expandGutter?: SubtypeExprOrValue<FunctionType<[PlanRowRefType], UIComponentType>>;
-    /** The shared review chrome (decision column + batch foot); callbacks receive `{ key }`. */
+    expandGutter?: SubtypeExprOrValue<FunctionType<[PlanRowIdType], UIComponentType>>;
+    /** The shared review chrome (decision column + batch foot); callbacks receive the row's id. */
     review?: PlanReviewConfig;
     /** Bound slice chrome — the handle + toolbar affordances (default `["cohort","filter","search","range","resolution","brush","summary"]`). */
     slice?: {
@@ -213,12 +209,13 @@ export interface PlanConfig<K extends PlanAxisKindLiteral = PlanAxisKindLiteral>
     /** Library ids accepted for `add` drags (omit = no adds). */
     sources?: string[];
     /** The shared drag funnel (`contracts/drag.ts`) — a library card dropped on a row reports an
-     *  `add` here. Nothing on the canvas starts a drag, so `move` / `resize` / `remove` never arrive. */
+     *  `add` here, its `CellRef.row` the row id's canonical text. Nothing on the canvas starts a
+     *  drag, so `move` / `resize` / `remove` never arrive. */
     onDrag?: SubtypeExprOrValue<FunctionType<[DragEventType], NullType>>;
     /** IR-level drop veto — `false` ⇒ the ⊘ invalid stage; a throwing predicate fails open. */
     canDrop?: SubtypeExprOrValue<FunctionType<[DragEventType], BooleanType>>;
-    /** Row click (selection). */
-    onSelect?: SubtypeExprOrValue<FunctionType<[PlanRowRefType], NullType>>;
+    /** Row click (selection) — the row's id. */
+    onSelect?: SubtypeExprOrValue<FunctionType<[PlanRowIdType], NullType>>;
     /** Span bar click (`{ row, run }`). */
     onRunClick?: SubtypeExprOrValue<FunctionType<[PlanRunClickEventType], NullType>>;
     /** Bucket tile click (`{ row, event }`). */
@@ -229,7 +226,7 @@ export interface PlanConfig<K extends PlanAxisKindLiteral = PlanAxisKindLiteral>
     onChipClick?: SubtypeExprOrValue<FunctionType<[PlanChipClickEventType], NullType>>;
     /** Bucket-cell click (`{ row, at }` — the bucket instant, not an index). */
     onCellClick?: SubtypeExprOrValue<FunctionType<[PlanCellClickEventType], NullType>>;
-    /** Group strip ↔ rows toggle (fires after the in-place swap). */
+    /** A row with children expanded or collapsed (fires after the in-place swap). */
     onGroupToggle?: SubtypeExprOrValue<FunctionType<[PlanGroupToggleEventType], NullType>>;
     /** Grain segment change (grain is Plan-local state; initial via `grain`). */
     onGrainChange?: SubtypeExprOrValue<FunctionType<[PlanGrainType], NullType>>;
@@ -246,12 +243,21 @@ export interface PlanConfig<K extends PlanAxisKindLiteral = PlanAxisKindLiteral>
     };
 }
 
+/** The source collection a series list's East type reads — its `derive`'s input, when the list's element is a series variant. */
+function seriesSourceOf(list: ExprType<EastType>): EastType | undefined {
+    const element = (Expr.type(list as unknown as Expr) as { value?: { type?: string; cases?: Record<string, { fields?: Record<string, { inputs?: EastType[] }> }> } }).value;
+    if (element?.type !== "Variant") return undefined;
+    return element.cases?.["span"]?.fields?.["derive"]?.inputs?.[0];
+}
+
 /**
  * Creates the Plan root — the whole canvas.
  *
  * @typeParam K - The canvas's axis kind, inferred from `config.axis`; every series must lie within it
  * @param config - The Plan configuration ({@link PlanConfig})
  * @returns An East expression of `UIComponentType`
+ * @throws {Error} When `data` is not a keyed source, `series` / `pick` are both or neither given, two series share a
+ *   key, a bound series list reads another key type than `data`, or the axis states no window and no slice is bound
  *
  * @remarks
  * Window and resolution have no callbacks by design: they are slice writes
@@ -273,40 +279,55 @@ export function createPlanRoot<K extends PlanAxisKindLiteral = PlanAxisKindLiter
             "so passing both says it twice and lets the two disagree.",
         );
     }
-    // A pick feeds the canvas its SURVIVING series; everything downstream —
-    // application, the paged signature — sees one series input either way.
+    // There is no fit to the data (#822): every canvas states its window, or
+    // binds a slice whose range supplies it — inline and paged alike.
+    if (WINDOWLESS_AXES.has(config.axis as object) && config.slice === undefined) {
+        throw new Error(
+            "Plan: the axis states no `window` and no `slice` is bound — declare the window " +
+            "(`Plan.axis({ window: { min, max }, … })`), or bind a slice whose range supplies it. " +
+            "A canvas never fits its axis to the data, so it reads the same inline and paged.",
+        );
+    }
+    if (config.series !== undefined) checkSeries(config.series, "Plan");
+    // A pick feeds the canvas its SURVIVING series; everything downstream sees
+    // one series input either way.
     const seriesInput: PlanSeriesInput = config.pick !== undefined
         ? (pickActive(config.pick) as unknown as PlanSeriesInput)
         : config.series as PlanSeriesInput;
     // The shared row-source resolution (#567): inline collection, paged
     // source, or a whole-value bind handle — one dispatch, one vocabulary,
-    // and the series pipeline is the `make` that turns each window's domain
-    // rows into canvas rows (the single R-erasure point).
+    // and the series pipeline is the `make` that turns each window's entries
+    // into canvas rows (the single R-erasure point).
     const resolved = resolveRowSource(config.data, "Plan");
-    // The canvas is KEYED, so its source must be: a leaf row's key is its data
-    // key, which is what keeps the canvas addressable by the keys the source is
-    // searched and windowed by (#568). Refuse anything else here rather than
-    // inventing keys the source does not have.
-    const keyType = (resolved.keyType as { type?: string } | undefined)?.type;
-    if (keyType !== "String") {
-        const got = (resolved.collectionType as { type: string }).type;
-        const keyed = keyType !== undefined ? ` keyed by ${keyType}` : "";
+    // The canvas is KEYED: a row's path starts with its entry's key, which is
+    // what keeps the canvas addressable by the keys the source is searched and
+    // windowed by (#568). Refuse anything else rather than inventing keys.
+    const collectionType = resolved.collectionType as { type: string };
+    if (collectionType.type !== "Dict") {
         throw new Error(
-            "Plan: `data` must be a keyed collection (`Dict<String, R>`) — its keys become the " +
-            "canvas row keys, so the canvas is ordered and addressed the same way the source is " +
-            "(the row space a paged source windows and seeks). " +
-            `Got a ${got}${keyed}; key it at the call site, e.g. ` +
+            "Plan: `data` must be a keyed collection (`Dict<K, R>`) — a row's path starts with its entry's " +
+            "key, so the canvas is addressed the same way the source is (the row space a paged source windows " +
+            `and seeks). Got a ${collectionType.type}; key it at the call site, e.g. ` +
             "`data={rows.toDict((_$, r) => r.id)}`.",
         );
+    }
+    // A series list bound as an East value was built for its declared key
+    // type — it must read the source's.
+    if (!Array.isArray(seriesInput)) {
+        const reads = seriesSourceOf(seriesInput as unknown as ExprType<EastType>);
+        if (reads !== undefined && !isTypeEqual(reads, resolved.collectionType)) {
+            throw new Error(
+                "Plan: the series list is typed for another source than `data` — a list bound as an East value " +
+                "(a `$.const` list, a `Plan.pick`) is built for the entries' declared key type, String unless a " +
+                "series says `keyType`. Declare `keyType` on each series and type the list " +
+                "`Plan.Types.Series(R, keyType)`, or pass the series as a TS array, which is built for `data` itself.",
+            );
+        }
     }
     const rowsValue = buildRowSource(
         resolved,
         PlanRowsCollectionType,
-        (source) => applySeries(seriesInput, source as ExprType<DictType<StringType, StructType>>),
-        // The paged source's rows depend on WHICH series are active — a pick
-        // narrows the list — so the derived id has to say which. Without it a
-        // toggle leaves resident windows serving rows nobody asked for.
-        seriesSignature(seriesInput),
+        (source) => applySeries(seriesInput, source),
     ) as unknown as ExprType<PlanRowsType>;
     const style = config.style;
     const styleValue = style !== undefined
@@ -340,10 +361,10 @@ export function createPlanRoot<K extends PlanAxisKindLiteral = PlanAxisKindLiter
             ? some(East.value(config.hover, FunctionType([PlanElementRefType], OptionType(UIComponentType))))
             : none,
         expandRender: config.expandRender !== undefined
-            ? some(East.value(config.expandRender, FunctionType([PlanRowRefType], UIComponentType)))
+            ? some(East.value(config.expandRender, FunctionType([PlanRowIdType], UIComponentType)))
             : none,
         expandGutter: config.expandGutter !== undefined
-            ? some(East.value(config.expandGutter, FunctionType([PlanRowRefType], UIComponentType)))
+            ? some(East.value(config.expandGutter, FunctionType([PlanRowIdType], UIComponentType)))
             : none,
         review:   config.review !== undefined ? some(buildReview(config.review, PlanReviewType)) : none,
         // The library rides as chrome, like the slice rail: the non-generic

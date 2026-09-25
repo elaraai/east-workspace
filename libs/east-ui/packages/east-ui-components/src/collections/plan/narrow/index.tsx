@@ -71,7 +71,7 @@ import { PlanDiagnosticChips, hasDiagnostics, type PlanDiagnostics } from "../sh
 import type { PlanReview } from "../shell/Review.js";
 import type { PlanTransport } from "../shell/transport.js";
 import {
-    rowHeight,
+    rowHeight, spansWindows,
     type PlanDerived, type PlanRowIndex, type PlanRowValue, type PlanWindowFailure,
 } from "../model.js";
 import { appendAll } from "../reductions.js";
@@ -137,6 +137,9 @@ export interface PlanNarrowProps {
     expandGutterBody: UIValue | null;
     /** Whether the root declares `expandRender` at all. */
     canExpand: boolean;
+    /** Whether the source is not yet exhausted (`PlanTransport.partial`) — the
+     *  tab counts, and a top-level section's member count, then cover only the
+     *  loaded windows (`spansWindows`, #822). */
     partial: boolean | undefined;
     /** A bounded frame — the list scrolls inside it. */
     fill: boolean;
@@ -165,9 +168,14 @@ export function PlanNarrow({
     const dispatch = usePlanDispatch();
     const geometry = usePlanGeometry();
     const words = usePlanWords();
-    // A member count as a group's meta (#820) — `~` over a paged prefix.
+    // A member count as a group's meta (#820) — `~` while it covers only the
+    // loaded windows.
     const membersMeta = (count: number, over: boolean) =>
         words.m.groupMeta({ n: count, count: words.number(count), partial: over });
+    // Whether a group's derived count covers only the loaded windows: a
+    // top-level section's, on a source not yet exhausted — every other
+    // group's members ride in its own entry (#822).
+    const countPartial = (row: PlanRowValue) => partial === true && spansWindows(row);
     // The selection is read HERE, not passed down: a tap re-renders the list,
     // and each card's memo lets through only the two whose selection moved.
     const selected = usePlanSelector(selectSelected);
@@ -236,7 +244,7 @@ export function PlanNarrow({
                     scope: root.key,
                     label: root.gutter.label,
                     meta: root.gutter.meta.type === "some" ? root.gutter.meta.value
-                        : (members !== undefined && members > 0 ? membersMeta(members, partial === true) : undefined),
+                        : (members !== undefined && members > 0 ? membersMeta(members, countPartial(root)) : undefined),
                     value: root.gutter.value.type === "some" ? root.gutter.value.value : undefined,
                     tone: root.status.type === "some" ? root.status.value.type : undefined,
                 },
@@ -294,7 +302,7 @@ export function PlanNarrow({
                 drill={drilled && expandBody !== null ? { body: expandBody, gutter: expandGutterBody } : undefined}
                 hasChildren={(index.children.get(row.key)?.length ?? 0) > 0}
                 styles={styles} derived={derived} storageKey={storageKey}
-                partial={partial} review={review} watch={watch} />
+                review={review} watch={watch} />
         );
     };
 
@@ -335,7 +343,7 @@ export function PlanNarrow({
                     const members = derived.groupMembers.get(row.key);
                     const meta = row.gutter.meta.type === "some"
                         ? row.gutter.meta.value
-                        : (members !== undefined && members > 0 ? membersMeta(members, partial === true) : undefined);
+                        : (members !== undefined && members > 0 ? membersMeta(members, countPartial(row)) : undefined);
                     const value = row.gutter.value.type === "some" ? row.gutter.value.value : undefined;
                     const statusTone = row.status.type === "some" ? row.status.value.type : undefined;
                     return (

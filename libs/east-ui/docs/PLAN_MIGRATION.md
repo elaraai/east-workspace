@@ -37,12 +37,100 @@ both fields, and a hand-written `{ id, page, total, seek }` source still
 builds — `buildRowSource` gives it `revision = none` and a `refresh` that
 raises.
 
+**#822 breaks the Plan wire again**, and its authoring API with it — the
+rows become an ordered stream with typed ids, and hierarchy comes only from
+the data's nesting. The wire changes and every removal, each with its
+replacement, are in [Rows as a stream (#822)](#rows-as-a-stream-822) below.
+Positions are not reserved; stored `UIComponentType` values re-emit.
+
 The public API break alongside it: the `Gantt` / `Planner` / `AlignedStack`
 exports (tags, factories, `*.Types`) are gone from `@elaraai/east-ui` and
 `@elaraai/east-ui/internal`, as are `EastChakraGantt` / `EastChakraPlanner`
 from `@elaraai/east-ui-components`. `AlignedGutterType` is gone from
 `shared/plot-gutter.js` (`PlotGutterType` and the per-component `plotGutter`
 prop remain).
+
+## Rows as a stream (#822)
+
+Before #822 a canvas sat in canonical KEY order, and one String was a row's
+identity, its position, its seek anchor and its link end at once: authors
+numbered their keys to get a layout, spelled views of one entity with key
+affixes, and lost a row silently when two series emitted the same key.
+Hierarchy was synthesized from field values (`groupBy`), which is only exact
+over data that is all in hand — so a paged canvas could not behave like an
+inline one. Now the series list is the layout, hierarchy comes from the data's
+own nesting, every row has a typed identity, and the same canvas renders the
+same rows whether its data is inline or paged.
+
+### The wire
+
+| Type | Before | After |
+|---|---|---|
+| `PlanRowsCollectionType` | `Dict<String, PlanRow>` (key order) | `Array<PlanRow>` — the stream IS the render order |
+| `PlanRowType.key` | `String` | removed — `id: PlanRowIdType` |
+| `PlanRowType.parent` | `Option<String>` | `Option<PlanRowIdType>` |
+| `PlanRowType.collapsed` | on the `group` kind only | on the row — any row with children may start collapsed; the `group` kind is `{ summary, summaryAggregate }` |
+| `PlanRowIdType` | — | `Variant { entry: { series, path: Array<String> }, section: { series, path } }` |
+| click payloads (`Run` / `Event` / `Mark` / `Chip` / `Cell`), `ElementRef` arms, `GroupToggleEvent` | `row: String` | `row: PlanRowIdType` |
+| `onSelect`, review `onApprove` / `onReject`, `expandRender`, `expandGutter` | `PlanRowRefType` (`{ key }`) | `PlanRowIdType` — `PlanRowRefType` / `Plan.Types.RowRef` are removed |
+| `PlanLinkType.fromRow` / `toRow` | `String` | `PlanRowIdType` |
+| `Plan.Types.Series(R)` | 9 arms; `derive: Fn(Dict<String, R>) → Dict<String, PlanRow>` | 11 arms (`+ section`, `views`); `derive: Fn(Dict<K, R>) → Array<PlanRow>`; `Plan.Types.Series(R, K)` for a key type other than String |
+| drag `CellRef.row` | the row key | still a `String` — the row id's canonical `.east` text (`East.print(Plan.ref(…))`), so the shared drag grammar is unchanged in shape |
+
+A path segment is an entry's key: at the top the source key — the String
+itself, or its `.east` text for any other key type (`3`, `(line="L1", bin=3)`)
+— and below that a `Dict` child's key or an `Array` child's index. A section
+header adds no segment: its id is `section { series, path }` at its parent's
+path.
+
+### Removals and their replacements
+
+| Removed | Replacement | Example |
+|---|---|---|
+| `groupBy: [r => r.top, r => r.program]` on span / heat / table | reshape first — `rows.groupToDicts(($, r) => r.top, ($, _r, k) => k)` — and nest: `children: Plan.children((g) => g, [series…])`; a recursive entry nests with `children: (r) => r.children`, to any depth. A parent declares `rollup` / `unit` (span), `aggregate` (heat, default `"mean"`; table, default `"sum"`) and `format` as before, and derives exactly, since its whole subtree rides in its entry. A paged source is grouped in its dataflow. | `planGroupedRows`, `planSeriesData`, `planTableRows` |
+| `Plan.series.group(R, { by, keyPrefix?, collapsed?, summaryAggregate? })` | `Plan.series.group(G, { key, title, label, children, summaryAggregate?, summary?, collapsed? })` over grouped entries — one strip PER ENTRY, its members the entry's children. The old form throws, naming this replacement. | `planGroupedRows`, `planNarrow` |
+| `Plan.series.group(R, chrome, children)` — a static group over series | `Plan.series.section(R, { key, title, collapsed?, meta?, value?, status?, summary?, summaryAggregate? }, [series…])` | `planTargetState`, `planLibraryDnd` |
+| `keySuffix` (`"m03"` → `"m03/chart"`) and `keyPrefix` | `Plan.series.views(R, { key, title, match?, children?, collapsed? }, [series…])` — one row per member per entry, adjacent and in order; each row's id is its MEMBER's key and the entry's path, and a seek on the entry lands on its first view row | `planLibraryDnd`, `planFill` |
+| numbered keys to force a layout (`"10-line1"`, `"40-crewA"`) | order the series list — each series is one block, top to bottom | `planTargetState` |
+| `Plan.link({ from: "m03", to: "m04", … })` | `Plan.link({ from: Plan.ref("machines", "m03"), to: Plan.ref("machines", "m04"), … })` | `planSpanRows` |
+| `{ key }` / a row key String in a callback | the `Plan.Types.RowId`: compare with `East.equal(ev.row, Plan.ref(…))`, or read the entry's key with `id.unwrap("entry").path.get(0n)` | `planTargetState`, `planReview`, `planExpand` |
+| a drop's `into.row` equal to the data key | the id's text — key host tables by `East.print(Plan.ref(series, …path))` (an id is a variant, so it cannot be a `Dict` key itself), or read it back with `row.parse(Plan.Types.RowId)` | `planRowDrop` |
+| `Plan.pick(key, all, { data, hidden })` — per-series row counts | `Plan.pick(key, all, { hidden })` — the library lists series by title, subtitle and kind icon; a count means something only with every entry in hand | `planPick`, `planLibraryDnd` |
+| fit-to-data — an axis with no `window` and no bound slice fitted itself to the rows (inline only) | state `axis.window`, or bind a slice whose range supplies it. Written in place, the canvas is refused at build; a bound or stored axis draws the `NO WINDOW` diagnostic. A slice-bound canvas with no stated window takes its window from the slice's range — the Plan's own brush then cannot clear it (other slice chrome still can). | `planTargetState`, `planNumberAxis` |
+| heat series `scale` — the derived parent cells' scale | the parent's own (possibly empty) cells carry it: `cells: r => Plan.heatCells(r.cells, { min, max, warnAt })` | `planHeatRows` |
+| series keys unique per source; a repeat silently replaced rows (`LAST_WINS`) | series keys unique across the WHOLE series tree — a repeat is a build-time error naming both sites; a repeated run-time id (hand-built rows sharing a key) draws a `DUPLICATE ID` row diagnostic | — |
+| `data: Dict<String, R>` only | `Dict<K, R>` for any `K`; accessors receive `(entry, key: K)`; a series whose accessors read a non-String key declares `keyType` (and a bound list types itself `Plan.Types.Series(R, K)`) | — |
+| `seriesSignature` and the derived `#signature` paged id | the derived source keeps the handle's id — equivalence (#809) and revisions (#821) cover what the signature tried to | — |
+| `shared/reify.ts`: `flatMapRowsBlock`, `foldEntriesToDict` | removed with the machinery they served; the series build (`series.ts`) reifies each function once and calls it | — |
+
+### Behaviour that changed
+
+- **Order.** A canvas's order is its series list's. Examples whose old order
+  was accidental key order now follow their series (`planChartRows`,
+  `planExpand`); `planGroupedRows` became one strip per line (a
+  `groupToDicts` group per entry); `planNarrow`'s coverage KPI is a hand-built
+  row placed by `Plan.series.rows`.
+- **Paged canvases.** A paged canvas reads its windows in window order, each
+  window its entries' rows with their whole subtrees; a row two windows both
+  serve (a section header) appears once, where the first placed it. Several
+  top-level series therefore repeat their blocks per window until #823 pages
+  each block separately.
+- **Partial marks.** While a paged source is not exhausted, only a TOP-LEVEL
+  section's member count and strip print `~`-marked — its members are entries
+  the windows share out. Every other parent's numbers are exact, so it draws
+  exactly as it does inline.
+- **e3-ui.** `dataBindPagedPlan` groups its ops dataset by line
+  (`Dict<String, OpsLine>`); the `Data.bindPaged` TypeDoc example follows it.
+
+### Renderer (`@elaraai/east-ui-components`)
+
+- DOM attributes that name a row (`data-plan-row`, `data-plan-group`,
+  `data-plan-card`, `data-plan-item="r:…"`, …) carry the id's canonical text.
+- The message table: `noWindowPaged` / `noWindowNumber` / `noWindowTime` are one
+  `noWindow`; `duplicateRow({ id })` is new; `focusLinks` and `focusExpanded`
+  take the focused row's `label` (was `key`); `PlanPart`'s `row` arm carries
+  `label` beside `key`, and `partName` names a row by it; `rollupCaption` loses
+  `partial` (a rollup is always exact).
 
 ## Extracted contracts (do this first when migrating imports)
 
@@ -59,12 +147,13 @@ resolve to `PlannerStateType` and their data round-trips unchanged.
 
 ## 1:1 recipes
 
-Every Plan is defined ONE way: keyed `data` (`Dict<String, R>` — key it at
-the call site with `rows.toDict((_$, r) => r.id)`) + `series`
-(`Plan.series.*` per row series) + root resolvers. **Re-keying is real
-migration work**: the chosen key becomes the canvas row key — what `links`
-address, what `onSelect` / review callbacks report, and what `seek` lands
-on. Pick the row's stable domain id, never an index.
+Every Plan is defined ONE way: keyed `data` (`Dict<K, R>` — key it at the
+call site with `rows.toDict((_$, r) => r.id)`) + `series` (`Plan.series.*`
+per row series, the list the layout) + root resolvers. **Re-keying is real
+migration work**: the chosen key is the path segment of every row the entry
+makes — what `Plan.ref` names in `links`, what `onSelect` / review callbacks
+report inside the row id, and what `seek` lands on. Pick the row's stable
+domain id, never an index.
 
 ### `<Gantt>` → `<Plan>` with a span series
 
@@ -100,8 +189,8 @@ on. Pick the row's stable domain id, never an index.
 - **Task move/resize drags**: not in Plan R1. The DnD target role covers
   Library `add` drops (snapped bucket instants); in-canvas move/resize of
   runs is future scope. `onTaskProgressChange` has no equivalent.
-- **Review**: identical chrome; callbacks receive `{ key }` (the row key),
-  never `{ rowIndex }`.
+- **Review**: identical chrome; callbacks receive the row's id
+  (`Plan.Types.RowId`, #822), never `{ rowIndex }`.
 
 ### `<Planner.Point>` → `<Plan>` with a buckets series
 

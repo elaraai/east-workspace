@@ -18,7 +18,9 @@ import { render, cleanup, fireEvent } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { none, some, variant } from "@elaraai/east";
 import { system } from "../../theme/index.js";
-import { EastChakraPlan, type PlanRootValue, type PlanRowValue } from "./index.js";
+import { EastChakraPlan, type PlanRootValue } from "./index.js";
+import type { PlanWireRow } from "./model.js";
+import { rowId, rowSel } from "./plan.test-utils.js";
 import { numberInstant } from "./instant.js";
 import { maxOf, minOf } from "./reductions.js";
 
@@ -47,19 +49,20 @@ const chartKind = (layers: unknown[], opts: { left?: unknown; right?: unknown } 
     expandable: none,
 });
 
-function planRow(key: string, kind: unknown): PlanRowValue {
+/** One WIRE row, as the source serves it — named by its test key (#822). */
+function planRow(key: string, kind: unknown): PlanWireRow {
     return {
-        key, parent: none,
+        id: rowId(key), parent: none,
         gutter: { label: key, id: none, sub: none, value: none, meta: none, stacked: none, swatches: [] },
         kind,
-        pinned: none, height: none, status: none, approval: none, expand: none,
-    } as unknown as PlanRowValue;
+        collapsed: none, pinned: none, height: none, status: none, approval: none, expand: none,
+    } as unknown as PlanWireRow;
 }
 
 /** A canvas on a number axis `[0, n)` at step 1 — `n` columns, no now. */
-function planRoot(rows: PlanRowValue[], n: number): PlanRootValue {
+function planRoot(rows: PlanWireRow[], n: number): PlanRootValue {
     return {
-        rows: variant("inline", new Map(rows.map((r) => [r.key, r]))),
+        rows: variant("inline", rows),
         links: [],
         axis: variant("number", { window: some({ min: 0, max: n }), step: 1, now: none, format: none }),
         grain: none, popover: none, hover: none, expandRender: none, review: none, pick: none,
@@ -91,7 +94,7 @@ describe("chart marks at their true positions (#743 item 3)", () => {
         const { container } = renderPlan(planRoot([planRow("c", chartKind([
             variant("line", { points: [pt(-1, 0), pt(0.5, 10), pt(2, 0)], axis: left, breach: none }),
         ]))], 1), "chart-743-offwindow");
-        const d = container.querySelector('[data-plan-row="c"] [data-plan-mark="line"]')!.getAttribute("d")!;
+        const d = container.querySelector(`${rowSel("c")} [data-plan-mark="line"]`)!.getAttribute("d")!;
         // In the 1000-unit viewBox: x = -1000 and 2000, not clamped to 0 and
         // 1000 — so the line meets each window edge at its true value (6.67),
         // not at 0.
@@ -103,7 +106,7 @@ describe("chart marks at their true positions (#743 item 3)", () => {
             variant("area", { points: [pt(-1, 2), pt(1.5, 4)], axis: left }),
             variant("band", { points: [{ t: numberInstant(-1), lo: 1, hi: 3 }, { t: numberInstant(1.5), lo: 2, hi: 4 }], axis: left }),
         ]))], 1), "chart-743-area");
-        const xs = (sel: string) => subpaths(container.querySelector(`[data-plan-row="c"] ${sel}`)!.getAttribute("d")!)
+        const xs = (sel: string) => subpaths(container.querySelector(`${rowSel("c")} ${sel}`)!.getAttribute("d")!)
             .flat().map(([x]) => x);
         expect(minOf(xs('[data-plan-mark="area"]'))).toBe(-1000);
         expect(maxOf(xs('[data-plan-mark="area"]'))).toBe(1500);
@@ -117,7 +120,7 @@ describe("chart marks at their true positions (#743 item 3)", () => {
             variant("refDot", { t: numberInstant(-0.5), y: 2, axis: left, label: none }),
             variant("refDot", { t: numberInstant(10), y: 2, axis: left, label: none }),
         ]))], 1), "chart-743-annotations");
-        const row = container.querySelector('[data-plan-row="c"]')!;
+        const row = container.querySelector(rowSel("c"))!;
         // The breaching point is past the window's end: at x = 1500, in the
         // overscan — not stacked on the edge at 1000.
         expect([...row.querySelectorAll('[data-plan-mark="breach"]')].map((c) => Number(c.getAttribute("cx")))).toEqual([1500]);
@@ -131,10 +134,10 @@ describe("chart marks at their true positions (#743 item 3)", () => {
             variant("refLine", { y: 5, axis: left, label: none }),
             variant("refBand", { from: numberInstant(-1), to: numberInstant(0.5), label: none }),
         ], { left: valueAxis({ min: 0, max: 10 }) }))], 1), "chart-743-refs");
-        const rule = container.querySelector('[data-plan-row="c"] [data-plan-mark="refline"]')!;
+        const rule = container.querySelector(`${rowSel("c")} [data-plan-mark="refline"]`)!;
         // [0, 1) at step 1 overscans two steps each side: [-2, 3).
         expect([Number(rule.getAttribute("x1")), Number(rule.getAttribute("x2"))]).toEqual([-2000, 3000]);
-        const band = container.querySelector('[data-plan-row="c"] [data-plan-mark="refband"]')!;
+        const band = container.querySelector(`${rowSel("c")} [data-plan-mark="refband"]`)!;
         expect([band.getAttribute("data-plan-frac"), band.getAttribute("data-plan-frac-end")]).toEqual(["-1.0000", "0.5000"]);
     });
 });
@@ -146,7 +149,7 @@ describe("columns fit the plot and keep to their axis (#743 items 2, 4)", () => 
             variant("column", { points: [pt(0.5, 20)], axis: left, series: some("a"), breach: none }),
             variant("column", { points: [pt(0.5, 30)], axis: left, series: some("b"), breach: none }),
         ]))], 1), "chart-743-stack");
-        const row = container.querySelector('[data-plan-row="c"]')!;
+        const row = container.querySelector(rowSel("c"))!;
         // Domain [0, 50] over an 88px plot (4px air): 20 → 32px, 30 → 48px.
         expect(rects(row)).toEqual([[52, 32], [4, 48]]);
         for (const [y, h] of rects(row)) {
@@ -160,7 +163,7 @@ describe("columns fit the plot and keep to their axis (#743 items 2, 4)", () => 
             variant("column", { points: [pt(0.5, 20)], axis: left, series: some("a"), breach: none }),
             variant("column", { points: [pt(0.5, 30)], axis: left, series: some("b"), breach: none }),
         ], { left: valueAxis({ ticks: [0, 20] }) }))], 1), "chart-743-ticks");
-        const row = container.querySelector('[data-plan-row="c"]')!;
+        const row = container.querySelector(rowSel("c"))!;
         const ticks = [...row.querySelectorAll("[data-plan-tickpx]")].map((t) => Number(t.getAttribute("data-plan-tickpx")));
         // The 0 tick sits on the stack's baseline and the 20 tick where the
         // first part ends — ticks that span only part of the stack still
@@ -174,7 +177,7 @@ describe("columns fit the plot and keep to their axis (#743 items 2, 4)", () => 
             variant("column", { points: [pt(0.5, 20)], axis: left, series: some("s"), breach: none }),
             variant("column", { points: [pt(0.5, 300)], axis: right, series: some("s"), breach: none }),
         ], { left: valueAxis({ min: 0, max: 100 }), right: valueAxis({ min: 0, max: 1000 }) }))], 1), "chart-743-dual");
-        const row = container.querySelector('[data-plan-row="c"]')!;
+        const row = container.querySelector(rowSel("c"))!;
         // Left 20 of 100 → 16px from the baseline; right 300 of 1000 → 24px,
         // ALSO from the baseline (84). Sharing one stack put it on top of the
         // left column's 20 — in right-axis units.
@@ -187,7 +190,7 @@ describe("columns fit the plot and keep to their axis (#743 items 2, 4)", () => 
             variant("column", { points: [pt(0.5, -10)], axis: left, series: some("b"), breach: none }),
         ]))], 1), "chart-743-mixed");
         // Domain [-10, 30] over 80px: 0 sits at 64; +30 climbs to 4, −10 descends to 84.
-        expect(rects(container.querySelector('[data-plan-row="c"]')!)).toEqual([[4, 60], [64, 20]]);
+        expect(rects(container.querySelector(rowSel("c"))!)).toEqual([[4, 60], [64, 20]]);
     });
 });
 
@@ -197,7 +200,7 @@ describe("gaps (#743)", () => {
             variant("line", { points: [pt(0.5, 1), pt(1.5, 2), pt(2.5, Number.NaN), pt(3.5, 3)], axis: left, breach: none }),
             variant("area", { points: [pt(0.5, 1), pt(1.5, Number.NaN), pt(2.5, 2), pt(3.5, 3)], axis: left }),
         ]))], 4), "chart-743-gaps");
-        const row = container.querySelector('[data-plan-row="c"]')!;
+        const row = container.querySelector(rowSel("c"))!;
         const line = subpaths(row.querySelector('[data-plan-mark="line"]')!.getAttribute("d")!);
         expect(line.map((s) => s.map(([x]) => x))).toEqual([[125, 375], [875]]);
         // Two runs of fill, not one bridged across the gap.
@@ -208,7 +211,7 @@ describe("gaps (#743)", () => {
         const focal = {
             ...planRow("focal", variant("span", { runs: [], decisions: [], ports: [], rollup: none, unit: none })),
             expand: some({ height: none, axis: variant("keep", null) }),
-        } as PlanRowValue;
+        } as PlanWireRow;
         const value = {
             ...planRoot([focal, planRow("c", chartKind([
                 variant("line", { points: [pt(0.5, 1), pt(1.5, Number.NaN), pt(2.5, 3)], axis: left, breach: none }),
@@ -217,7 +220,7 @@ describe("gaps (#743)", () => {
         } as unknown as PlanRootValue;
         const { container } = renderPlan(value, "chart-743-strip");
         fireEvent.click(container.querySelector('[data-plan-control="expand"]')!);
-        const strip = container.querySelector('[data-plan-row="c"]')!;
+        const strip = container.querySelector(rowSel("c"))!;
         expect(strip.hasAttribute("data-ctx")).toBe(true);
         // The gap's bucket wears the no-data hatch — a NaN value used to reach
         // the depth ramp as a measured bucket.
@@ -243,7 +246,7 @@ describe("the crosshair readout (#743)", () => {
                 </Profiler>
             </ChakraProvider>,
         );
-        const row = container.querySelector('[data-plan-row="c"]')!;
+        const row = container.querySelector(rowSel("c"))!;
         const readout = row.querySelector("[data-plan-readout]") as HTMLElement;
         const values = () => [...readout.querySelectorAll("[data-plan-readout-value]")].map((v) => v.textContent);
         // Closed at rest — one reading per DATA layer (the reference line reads nothing).

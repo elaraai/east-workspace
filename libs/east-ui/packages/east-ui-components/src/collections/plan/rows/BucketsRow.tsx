@@ -35,6 +35,7 @@ import type { PlanBucket } from "../scale.js";
 import type { PlanInstantValue } from "../instant.js";
 import { appendAll } from "../reductions.js";
 import { tileName } from "../a11y.js";
+import type { PlanRowId } from "../model.js";
 import { usePlanWords } from "../words.js";
 
 type Styles = Record<string, Record<string, unknown>>;
@@ -58,13 +59,15 @@ export interface BucketsRowProps {
     ctx?: boolean | undefined;
 
     rowKey: string;
+    /** The row's id — what an element click names the row by (#822). */
+    rowId: PlanRowId;
     kind: BucketsKindValue;
     styles: Styles;
 }
 
 /** One event chip — the `.chk` / `.pchip` resting looks + labelled tiles. */
-function EventChip({ ev, styles, rowKey, ctx, bucket, lane }: {
-    ev: BucketEventValue; styles: Styles; rowKey: string; ctx?: boolean | undefined;
+function EventChip({ ev, styles, rowKey, rowId, ctx, bucket, lane }: {
+    ev: BucketEventValue; styles: Styles; rowKey: string; rowId: PlanRowId; ctx?: boolean | undefined;
     /** The bucket the tile renders in — its place in the row's time order (#819). */
     bucket: PlanBucket;
     /** Its lane's caption, when the lane has one. */
@@ -75,7 +78,7 @@ function EventChip({ ev, styles, rowKey, ctx, bucket, lane }: {
     const system = useChakraContext();
     const scale = usePlanScale();
     const words = usePlanWords();
-    const ref = variant("event", { row: rowKey, event: ev.key }) as PlanElementRefValue;
+    const ref = variant("event", { row: rowId, event: ev.key }) as PlanElementRefValue;
     const label = ev.label.type === "some" ? ev.label.value : undefined;
     const icon = ev.icon.type === "some" ? ev.icon.value : undefined;
     const stateKey = runStateKey(ev.state);
@@ -123,7 +126,7 @@ function EventChip({ ev, styles, rowKey, ctx, bucket, lane }: {
 }
 
 /** The bucket-row plot content — the washed bucket × lane cell grid. */
-export function BucketsRow({ rowKey, kind, styles, ctx }: BucketsRowProps) {
+export function BucketsRow({ rowKey, rowId, kind, styles, ctx }: BucketsRowProps) {
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
     const lanes = kind.lanes;
@@ -220,7 +223,7 @@ export function BucketsRow({ rowKey, kind, styles, ctx }: BucketsRowProps) {
             >
                 {caption !== undefined && ctx !== true && <Box css={styles.laneLabel}>{caption}</Box>}
                 {events.map((ev) => (
-                    <EventChip key={ev.key} ev={ev} styles={styles} rowKey={rowKey} ctx={ctx}
+                    <EventChip key={ev.key} ev={ev} styles={styles} rowKey={rowKey} rowId={rowId} ctx={ctx}
                         bucket={b} lane={laneCaption(ev.lane)} />
                 ))}
                 {marker !== undefined && (

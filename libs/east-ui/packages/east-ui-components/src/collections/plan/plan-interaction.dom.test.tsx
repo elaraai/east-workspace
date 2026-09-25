@@ -22,8 +22,10 @@ import { system } from "../../theme/index.js";
 import { buildSliceHandle } from "../../platform/slice/index.js";
 import { initializeStore } from "../../platform/state-runtime.js";
 import { UIStore } from "../../platform/state-store.js";
-import { EastChakraPlan, type PlanRootValue, type PlanRowValue } from "./index.js";
+import { EastChakraPlan, type PlanRootValue } from "./index.js";
+import type { PlanRowId, PlanWireRow } from "./model.js";
 import type { PlanInstantValue } from "./instant.js";
+import { rowId, rowSel } from "./plan.test-utils.js";
 
 // A canvas persists its toggles under its storageKey (#813), and several tests
 // share one — nothing may carry from one test to the next.
@@ -67,15 +69,17 @@ function gutter(label: string, opts?: { sub?: string; value?: string; meta?: str
     };
 }
 
-function planRow(key: string, kind: unknown, opts?: { parent?: string; gutter?: unknown; expand?: unknown }): PlanRowValue {
+/** One WIRE row, as the source serves it — named by its test key (#822). */
+function planRow(key: string, kind: unknown, opts?: { parent?: string; gutter?: unknown; expand?: unknown; collapsed?: boolean }): PlanWireRow {
     return {
-        key,
-        parent: opts?.parent !== undefined ? some(opts.parent) : none,
+        id: rowId(key),
+        parent: opts?.parent !== undefined ? some(rowId(opts.parent)) : none,
         gutter: opts?.gutter ?? gutter(key),
         kind,
+        collapsed: opts?.collapsed !== undefined ? some(opts.collapsed) : none,
         pinned: none, height: none, status: none, approval: none,
         expand: opts?.expand !== undefined ? some(opts.expand) : none,
-    } as unknown as PlanRowValue;
+    } as unknown as PlanWireRow;
 }
 
 function spanKind(runs: unknown[], opts?: { rollup?: string; unit?: string }) {
@@ -86,17 +90,9 @@ function spanKind(runs: unknown[], opts?: { rollup?: string; unit?: string }) {
     });
 }
 
-/** The decoded row COLLECTION — the IR's `Dict<String, PlanRow>` (#568). A
- *  plain `Map` stands in for the decoder's `SortedMap`: the renderer only
- *  iterates it, and INSERTION order keeps these fixtures readable in the order
- *  they are written. Key ORDER itself is covered in `derive.test.ts`. */
-function rowCollection(rows: PlanRowValue[]): Map<string, PlanRowValue> {
-    return new Map(rows.map((r) => [r.key, r]));
-}
-
-function planRoot(rows: PlanRowValue[], opts?: { footer?: unknown[]; now?: Date | undefined; slice?: unknown; resolutions?: unknown[]; links?: unknown[]; popover?: unknown; hover?: unknown; expandRender?: unknown; source?: unknown; pick?: unknown; axis?: unknown; style?: { height?: string; maxHeight?: string }; clicks?: { onRunClick?: unknown; onEventClick?: unknown; onMarkClick?: unknown; onChipClick?: unknown; onCellClick?: unknown }; onGrainChange?: unknown }): PlanRootValue {
+function planRoot(rows: PlanWireRow[], opts?: { footer?: unknown[]; now?: Date | undefined; slice?: unknown; resolutions?: unknown[]; links?: unknown[]; popover?: unknown; hover?: unknown; expandRender?: unknown; source?: unknown; pick?: unknown; axis?: unknown; style?: { height?: string; maxHeight?: string }; clicks?: { onRunClick?: unknown; onEventClick?: unknown; onMarkClick?: unknown; onChipClick?: unknown; onCellClick?: unknown }; onGrainChange?: unknown }): PlanRootValue {
     return {
-        rows: opts?.source !== undefined ? variant("paged", opts.source) : variant("inline", rowCollection(rows)),
+        rows: opts?.source !== undefined ? variant("paged", opts.source) : variant("inline", rows),
         links: opts?.links ?? [],
         // The TIME arm by default (#631); the typed-axis tests pass their own.
         axis: opts?.axis ?? variant("time", {
@@ -146,7 +142,7 @@ function renderPlan(value: PlanRootValue, key = "plan") {
 describe("Plan selection + esc ladder", () => {
     test("click selects (data-selected); re-clicking holds; esc deselects", () => {
         const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))]));
-        const row = () => container.querySelector('[data-plan-row="m1"]')!;
+        const row = () => container.querySelector(rowSel("m1"))!;
         fireEvent.click(row());
         expect(row().hasAttribute("data-selected")).toBe(true);
         fireEvent.click(row());
@@ -174,7 +170,7 @@ describe("Plan hover cursor is DOM chrome (#609)", () => {
         expect(container.querySelectorAll("[data-plan-cursorline]")).toHaveLength(3);
         expect(body.hasAttribute("data-plan-cursor")).toBe(false);
 
-        const plot = container.querySelector('[data-plan-row="m1"]')!.children[1] as HTMLElement;
+        const plot = container.querySelector(rowSel("m1"))!.children[1] as HTMLElement;
         stubRect(plot);
         fireEvent.pointerMove(plot, { clientX: 500 });
         expect(body.hasAttribute("data-plan-cursor")).toBe(true);
@@ -185,7 +181,7 @@ describe("Plan hover cursor is DOM chrome (#609)", () => {
         expect(chip.style.display).not.toBe("none");
 
         // Crossing to ANOTHER row keeps tracking — same variable, same chip.
-        const plot2 = container.querySelector('[data-plan-row="m3"]')!.children[1] as HTMLElement;
+        const plot2 = container.querySelector(rowSel("m3"))!.children[1] as HTMLElement;
         stubRect(plot2);
         fireEvent.pointerMove(plot2, { clientX: 250 });
         expect(body.style.getPropertyValue("--plan-cursor-x")).toBe("0.25");
@@ -210,7 +206,7 @@ describe("Plan hover cursor is DOM chrome (#609)", () => {
                 </Profiler>
             </ChakraProvider>,
         );
-        const plot = container.querySelector('[data-plan-row="r0"]')!.children[1] as HTMLElement;
+        const plot = container.querySelector(rowSel("r0"))!.children[1] as HTMLElement;
         stubRect(plot);
         const before = commits.length;
         for (let x = 100; x <= 900; x += 100) fireEvent.pointerMove(plot, { clientX: x });
@@ -235,6 +231,13 @@ function bucketEvent(key: string, at: Date, state: unknown, opts?: { lane?: stri
 }
 
 describe("Plan element clicks (#569)", () => {
+    /** Click payloads with each row id named by its path — the row is the
+     *  row's typed id (#822). */
+    const named = (payloads: readonly unknown[]) => payloads.map((p) => {
+        const { row, ...rest } = p as { row: PlanRowId };
+        return { row: row.value.path.join("/"), ...rest };
+    });
+
     test("each element kind reports its click ref to the right callback — and still selects", async () => {
         const seen: Record<string, unknown[]> = { run: [], event: [], mark: [], chip: [], cell: [] };
         const at = new Date("2026-06-29Z");
@@ -274,13 +277,13 @@ describe("Plan element clicks (#569)", () => {
         fireEvent.click(screen.getByText("80"));
         await waitFor(() => expect(seen["cell"]!.length).toBe(1));
 
-        expect(seen["run"]).toEqual([{ row: "s", run: "r1" }]);
-        expect(seen["event"]).toEqual([{ row: "b", event: "e1" }]);
-        expect(seen["mark"]).toEqual([{ row: "e", mark: "k1" }]);
-        expect(seen["chip"]).toEqual([{ row: "c", chip: "c1" }]);
-        expect(seen["cell"]).toEqual([{ row: "h", at: t(at) }]);
+        expect(named(seen["run"]!)).toEqual([{ row: "s", run: "r1" }]);
+        expect(named(seen["event"]!)).toEqual([{ row: "b", event: "e1" }]);
+        expect(named(seen["mark"]!)).toEqual([{ row: "e", mark: "k1" }]);
+        expect(named(seen["chip"]!)).toEqual([{ row: "c", chip: "c1" }]);
+        expect(named(seen["cell"]!)).toEqual([{ row: "h", at: t(at) }]);
         // The canvas behaviour is unchanged: the click also selected the row.
-        expect(container.querySelector('[data-plan-row="h"]')!.hasAttribute("data-selected")).toBe(true);
+        expect(container.querySelector(rowSel("h"))!.hasAttribute("data-selected")).toBe(true);
     });
 });
 
@@ -343,7 +346,7 @@ describe("Plan keyboard rungs (#569)", () => {
 });
 
 describe("The toolbar's grain segment (#632)", () => {
-    const group = () => variant("group", { summary: none, summaryAggregate: none, collapsed: none });
+    const group = () => variant("group", { summary: none, summaryAggregate: none });
     /** Two root groups, a row in each. */
     const grouped = () => [
         planRow("line1", group(), { gutter: gutter("Line 1") }),
@@ -388,24 +391,24 @@ describe("The toolbar's grain segment (#632)", () => {
         expect(caption(container)).toBe("RESOURCE");
 
         fireEvent.click(radio(container, "GROUP"));
-        expect(container.querySelector("[data-plan-row='m1']")).toBeNull();
-        expect(container.querySelector("[data-plan-row='m2']")).toBeNull();
-        expect(container.querySelector("[data-plan-group='line1']")!.getAttribute("aria-expanded")).toBe("false");
-        expect(container.querySelector("[data-plan-group='line2']")!.getAttribute("aria-expanded")).toBe("false");
+        expect(container.querySelector(rowSel("m1"))).toBeNull();
+        expect(container.querySelector(rowSel("m2"))).toBeNull();
+        expect(container.querySelector(rowSel("line1", "data-plan-group"))!.getAttribute("aria-expanded")).toBe("false");
+        expect(container.querySelector(rowSel("line2", "data-plan-group"))!.getAttribute("aria-expanded")).toBe("false");
         expect(caption(container)).toBe("GROUP");
         expect(radio(container, "GROUP").getAttribute("aria-checked")).toBe("true");
         await waitFor(() => expect(seen).toEqual([variant("group", null)]));
 
         fireEvent.click(radio(container, "RESOURCE"));
-        expect(container.querySelector("[data-plan-row='m1']")).not.toBeNull();
-        expect(container.querySelector("[data-plan-row='m2']")).not.toBeNull();
+        expect(container.querySelector(rowSel("m1"))).not.toBeNull();
+        expect(container.querySelector(rowSel("m2"))).not.toBeNull();
         expect(caption(container)).toBe("RESOURCE");
         await waitFor(() => expect(seen).toEqual([variant("group", null), variant("resource", null)]));
 
         // One control, two ways in: the segment follows the `g` key.
         fireEvent.keyDown(container.querySelector("[data-plan-body]")!, { key: "g" });
         expect(radio(container, "GROUP").getAttribute("aria-checked")).toBe("true");
-        expect(container.querySelector("[data-plan-row='m1']")).toBeNull();
+        expect(container.querySelector(rowSel("m1"))).toBeNull();
     });
 
     test("the segment is ONE tab stop; ← / → and Home / End move and pick, and the live region says so", () => {
@@ -422,7 +425,7 @@ describe("The toolbar's grain segment (#632)", () => {
         expect(groupRadio.getAttribute("aria-checked")).toBe("true");
         expect(groupRadio.tabIndex).toBe(0);
         expect(resourceRadio.tabIndex).toBe(-1);
-        expect(container.querySelector("[data-plan-row='m1']")).toBeNull();
+        expect(container.querySelector(rowSel("m1"))).toBeNull();
         expect(announced(container)).toBe("Grain: group");
 
         // ← wraps from the first to the last; Home and End go to the ends.
@@ -435,7 +438,7 @@ describe("The toolbar's grain segment (#632)", () => {
         expect(groupRadio.getAttribute("aria-checked")).toBe("true");
         fireEvent.keyDown(groupRadio, { key: "End" });
         expect(document.activeElement).toBe(resourceRadio);
-        expect(container.querySelector("[data-plan-row='m1']")).not.toBeNull();
+        expect(container.querySelector(rowSel("m1"))).not.toBeNull();
     });
 
     test("the resolution segment is the same radio group — → re-buckets through the slice", async () => {
@@ -497,8 +500,8 @@ describe("Plan interaction fixes (#615)", () => {
         }), "plan-brush-phantom");
 
         // Select a row — the esc target a phantom rung would eat.
-        fireEvent.click(container.querySelector('[data-plan-row="m1"]')!);
-        expect(container.querySelector('[data-plan-row="m1"]')!.hasAttribute("data-selected")).toBe(true);
+        fireEvent.click(container.querySelector(rowSel("m1"))!);
+        expect(container.querySelector(rowSel("m1"))!.hasAttribute("data-selected")).toBe(true);
 
         // A caption click is not a brush gesture...
         const caption = screen.getByText(/^HORIZON/);
@@ -515,7 +518,7 @@ describe("Plan interaction fixes (#615)", () => {
 
         // ONE Escape clears the selection — nothing ate it.
         fireEvent.keyDown(container.querySelector('[tabindex="0"]')!, { key: "Escape" });
-        expect(container.querySelector('[data-plan-row="m1"]')!.hasAttribute("data-selected")).toBe(false);
+        expect(container.querySelector(rowSel("m1"))!.hasAttribute("data-selected")).toBe(false);
     });
 
     test("the resolution segment does not mount without a bound slice — its write has nowhere to go", () => {
@@ -541,8 +544,8 @@ describe("Plan interaction fixes (#615)", () => {
 describe("Plan element resolvers (popover / hover)", () => {
     test("the root popover resolver opens per ref — a some body for the named run, none opens nothing", async () => {
         const refs: string[] = [];
-        const popover = (ref: { type: string; value: { row: string; run?: string } }) => {
-            refs.push(`${ref.type}:${ref.value.row}/${ref.value.run}`);
+        const popover = (ref: { type: string; value: { row: PlanRowId; run?: string } }) => {
+            refs.push(`${ref.type}:${ref.value.row.value.path.join("/")}/${ref.value.run}`);
             if (ref.type === "run" && ref.value.run === "b214") {
                 return some(variant("Text", { value: "RUN DETAIL · B-214", style: none }));
             }

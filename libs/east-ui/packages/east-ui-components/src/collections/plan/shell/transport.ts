@@ -32,8 +32,11 @@ export interface PlanTransport {
     total: number | undefined;
     /** Whether a requested window is still in flight. */
     loading: boolean;
-    /** Whether every derived number is computed over an INCOMPLETE prefix —
-     *  true until the total is known AND reached. */
+    /** Whether the source is not yet exhausted — true until the total is known
+     *  AND reached. Counts across the canvas cover the loaded windows until
+     *  then, and so does a top-level section's member count and strip, the one
+     *  parent whose members span windows (`spansWindows`, #822); every other
+     *  parent's numbers are exact, its subtree riding whole in one entry. */
     partial: boolean;
 }
 

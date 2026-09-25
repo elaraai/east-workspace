@@ -27,7 +27,7 @@ import { Plan } from "@elaraai/east-ui/internal";
 import { usePlanDispatch, usePlanResolvers, usePlanScale, type PlanElementRefValue } from "../context.js";
 import { decisionName, runName } from "../a11y.js";
 import { usePlanWords } from "../words.js";
-import type { DerivedBand } from "../model.js";
+import type { DerivedBand, PlanRowId } from "../model.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 type SpanKindValue = Extract<ValueTypeOf<typeof Plan.Types.Row>["kind"], { type: "span" }>["value"];
@@ -52,6 +52,8 @@ export interface SpanRowProps {
     ctx?: boolean | undefined;
 
     rowKey: string;
+    /** The row's id — what an element click names the row by (#822). */
+    rowId: PlanRowId;
     kind: SpanKindValue;
     /** Renderer-derived rollup bands (the IR carries only the declaration). */
     bands: readonly DerivedBand[];
@@ -59,13 +61,10 @@ export interface SpanRowProps {
     /** Bar height, px — the canvas geometry's `bar` (or `rollBar` for a
      *  collapsed parent; `KindPlot` decides). */
     barHeight: number;
-    /** Whether the derived bands cover an INCOMPLETE prefix (a paged canvas
-     *  still loading) — their captions print `~×2 · 276 t` (#567 D9). */
-    partial?: boolean | undefined;
 }
 
 /** The span-row plot content — bars, rollup bands, diamonds, ports. */
-export function SpanRow({ rowKey, kind, bands: rollBands, styles, barHeight, partial, ctx }: SpanRowProps) {
+export function SpanRow({ rowKey, rowId, kind, bands: rollBands, styles, barHeight, ctx }: SpanRowProps) {
     const ctxAttr = ctx === true ? "" : undefined;
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
@@ -99,7 +98,7 @@ export function SpanRow({ rowKey, kind, bands: rollBands, styles, barHeight, par
                 const stuck = run.status.type === "some" && run.status.value.type === "warning";
                 const qty = run.quantity.type === "some" ? run.quantity.value : undefined;
                 const moved = run.moved.type === "some" ? Number(run.moved.value) : undefined;
-                const ref = variant("run", { row: rowKey, run: run.key }) as PlanElementRefValue;
+                const ref = variant("run", { row: rowId, run: run.key }) as PlanElementRefValue;
                 return (
                     <Box
                         key={run.key}
@@ -142,16 +141,14 @@ export function SpanRow({ rowKey, kind, bands: rollBands, styles, barHeight, par
                 if (f1 <= 0 || f0 >= 1) return null;
                 const left = Math.max(0, f0);
                 const width = Math.max(0, Math.min(1, f1) - left);
-                // A rollup over a partial prefix is an understatement, not a
-                // number — the caption marks it rather than print it as final.
+                // The band rolls up this row's own subtree, which rides whole
+                // in one entry — exact on a paged canvas too (#822).
                 const caption = words.m.rollupCaption({
                     count: band.count > 1 ? words.number(band.count) : undefined,
                     quantity: band.quantity,
-                    partial: partial === true,
                 });
                 return (
                     <Box key={`band-${i}`} css={styles.rollBand} data-state={runStateKey(band.state)} data-ctx={ctxAttr}
-                        data-plan-partial={partial === true ? "" : undefined}
                         left={`${left * 100}%`} width={`${width * 100}%`}>
                         {caption}
                     </Box>
@@ -173,7 +170,7 @@ export function SpanRow({ rowKey, kind, bands: rollBands, styles, barHeight, par
             {kind.decisions.map((dec) => {
                 const x = scale.fracOf(dec.at);
                 if (x <= scale.renderMin || x >= scale.renderMax) return null;
-                const ref = variant("mark", { row: rowKey, mark: dec.key }) as PlanElementRefValue;
+                const ref = variant("mark", { row: rowId, mark: dec.key }) as PlanElementRefValue;
                 return (
                     <Box key={dec.key} css={styles.diamond} data-applied={dec.applied ? "" : undefined} data-ctx={ctxAttr}
                         data-mark={dec.key} data-plan-frac={x.toFixed(4)} left={`${x * 100}%`} tabIndex={-1}

@@ -29,6 +29,7 @@ import { initializeStore } from "../../platform/state-runtime.js";
 import { UIStore } from "../../platform/state-store.js";
 import { getRegisteredPlatformImplementations } from "../../platform/registry.js";
 import { EastChakraPlan, type PlanRootValue } from "./index.js";
+import { rowSel, testKeyOf } from "./plan.test-utils.js";
 
 afterEach(cleanup);
 
@@ -69,7 +70,7 @@ const inlineCanvas = East.compile(East.function([StringType], UIComponentType, (
             runs: (r) => [Plan.run({ key: "run", start: r.start, end: r.end, label: "RUN", state: "actual" })],
         }),
     ], ArrayType(Plan.Types.Series(UnitRow)));
-    const expandRender = $.const(East.function([Plan.Types.RowRef], UIComponentType, ($2, _ref) => {
+    const expandRender = $.const(East.function([Plan.Types.RowId], UIComponentType, ($2, _id) => {
         $2(countExpand());
         return Text.Root(label);
     }));
@@ -108,16 +109,18 @@ function view(value: PlanRootValue) {
 }
 
 const rowKeys = (container: HTMLElement): string[] =>
-    [...container.querySelectorAll("[data-plan-row]")].map((el) => el.getAttribute("data-plan-row")!);
+    [...container.querySelectorAll("[data-plan-row]")].map((el) => testKeyOf(el.getAttribute("data-plan-row")!));
+/** A unit's row — the `units` series' entry at the unit's key (#822). */
+const unitRow = (key: string) => rowSel(key, "data-plan-row", "units");
 
 describe("Plan — closures that change (#809)", () => {
     test("a resolver that captured new data re-renders; a rebuild with the same captures does not", async () => {
         initializeStore(new UIStore());
         expandCalls = 0;
         const { container, rerender } = render(view(planOf(inlineCanvas("ALPHA"))));
-        await waitFor(() => expect(container.querySelector('[data-plan-row="u00"]')).toBeTruthy());
+        await waitFor(() => expect(container.querySelector(unitRow("u00"))).toBeTruthy());
 
-        const control = container.querySelector('[data-plan-row="u00"] [data-plan-control="expand"]') as HTMLElement;
+        const control = container.querySelector(`${unitRow("u00")} [data-plan-control="expand"]`) as HTMLElement;
         fireEvent.click(control);
         await waitFor(() => expect(container.querySelector("[data-plan-expandrender]")?.textContent).toBe("ALPHA"));
         const callsAfterOpen = expandCalls;

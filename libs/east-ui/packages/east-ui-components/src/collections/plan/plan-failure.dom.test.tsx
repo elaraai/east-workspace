@@ -18,8 +18,10 @@ import { variant, some, none } from "@elaraai/east";
 import { system } from "../../theme/index.js";
 import { initializeStore } from "../../platform/state-runtime.js";
 import { UIStore } from "../../platform/state-store.js";
-import { EastChakraPlan, type PlanRootValue, type PlanRowValue } from "./index.js";
+import { EastChakraPlan, type PlanRootValue } from "./index.js";
+import type { PlanWireRow } from "./model.js";
 import type { PlanInstantValue } from "./instant.js";
+import { rowId, rowKey, rowSel, testKeyOf } from "./plan.test-utils.js";
 
 // A canvas persists its toggles under its storageKey (#813), and several tests
 // share one — nothing may carry from one test to the next.
@@ -64,15 +66,17 @@ function gutter(label: string, opts?: { sub?: string; value?: string; meta?: str
     };
 }
 
-function planRow(key: string, kind: unknown, opts?: { parent?: string; gutter?: unknown; expand?: unknown }): PlanRowValue {
+/** One WIRE row, as the source serves it — named by its test key (#822). */
+function planRow(key: string, kind: unknown, opts?: { parent?: string; gutter?: unknown; expand?: unknown; collapsed?: boolean }): PlanWireRow {
     return {
-        key,
-        parent: opts?.parent !== undefined ? some(opts.parent) : none,
+        id: rowId(key),
+        parent: opts?.parent !== undefined ? some(rowId(opts.parent)) : none,
         gutter: opts?.gutter ?? gutter(key),
         kind,
+        collapsed: opts?.collapsed !== undefined ? some(opts.collapsed) : none,
         pinned: none, height: none, status: none, approval: none,
         expand: opts?.expand !== undefined ? some(opts.expand) : none,
-    } as unknown as PlanRowValue;
+    } as unknown as PlanWireRow;
 }
 
 function spanKind(runs: unknown[], opts?: { rollup?: string; unit?: string }) {
@@ -83,17 +87,9 @@ function spanKind(runs: unknown[], opts?: { rollup?: string; unit?: string }) {
     });
 }
 
-/** The decoded row COLLECTION — the IR's `Dict<String, PlanRow>` (#568). A
- *  plain `Map` stands in for the decoder's `SortedMap`: the renderer only
- *  iterates it, and INSERTION order keeps these fixtures readable in the order
- *  they are written. Key ORDER itself is covered in `derive.test.ts`. */
-function rowCollection(rows: PlanRowValue[]): Map<string, PlanRowValue> {
-    return new Map(rows.map((r) => [r.key, r]));
-}
-
-function planRoot(rows: PlanRowValue[], opts?: { footer?: unknown[]; now?: Date | undefined; slice?: unknown; resolutions?: unknown[]; links?: unknown[]; popover?: unknown; hover?: unknown; expandRender?: unknown; source?: unknown; pick?: unknown; axis?: unknown; style?: { height?: string; maxHeight?: string }; clicks?: { onRunClick?: unknown; onEventClick?: unknown; onMarkClick?: unknown; onChipClick?: unknown; onCellClick?: unknown } }): PlanRootValue {
+function planRoot(rows: PlanWireRow[], opts?: { footer?: unknown[]; now?: Date | undefined; slice?: unknown; resolutions?: unknown[]; links?: unknown[]; popover?: unknown; hover?: unknown; expandRender?: unknown; source?: unknown; pick?: unknown; axis?: unknown; style?: { height?: string; maxHeight?: string }; clicks?: { onRunClick?: unknown; onEventClick?: unknown; onMarkClick?: unknown; onChipClick?: unknown; onCellClick?: unknown } }): PlanRootValue {
     return {
-        rows: opts?.source !== undefined ? variant("paged", opts.source) : variant("inline", rowCollection(rows)),
+        rows: opts?.source !== undefined ? variant("paged", opts.source) : variant("inline", rows),
         links: opts?.links ?? [],
         // The TIME arm by default (#631); the typed-axis tests pass their own.
         axis: opts?.axis ?? variant("time", {
@@ -143,13 +139,13 @@ describe("Plan failure is local (#811)", () => {
     /** One source window of span rows keyed `w{w}r{i}` — two per window unless
      *  asked for more, each with a time-axis run; `offAxis` rows carry NUMBER
      *  instants instead. */
-    const windowRows = (w: number, offAxis: ReadonlySet<string> = new Set(), perWindow = 2) => rowCollection(Array.from({ length: perWindow }, (_u, i) => {
+    const windowRows = (w: number, offAxis: ReadonlySet<string> = new Set(), perWindow = 2): PlanWireRow[] => Array.from({ length: perWindow }, (_u, i) => {
         const key = `w${w}r${i}`;
         return planRow(key, spanKind([offAxis.has(key)
             ? { key: `x${key}`, start: n(3), end: n(6), label: key, quantity: none, qty: none,
                 state: variant("actual", null), status: none, moved: none, icon: none }
             : run(`x${key}`, W27, new Date("2026-07-13Z"), variant("actual", null))]));
-    }));
+    });
     const TOTAL = 1_200n;                                    // six windows of 200 elements
 
     test("paged: window 3 arrives with an off-axis row — it renders as a diagnostic row, windows 0–2 and 4+ render, the toolbar counts 1", async () => {
@@ -160,7 +156,7 @@ describe("Plan failure is local (#811)", () => {
                 const w = Number(offset) / 200;
                 // Sixteen rows a window: window 0 fills the jsdom viewport, so
                 // the demand rests on its ring (#812).
-                return w < 6 ? some(windowRows(w, new Set(["w3r0"]), 16)) : some(rowCollection([]));
+                return w < 6 ? some(windowRows(w, new Set(["w3r0"]), 16)) : some([]);
             },
             total: () => some(TOTAL),
             // A keyed source seeks: every query lands on element 600 — window 3.
@@ -170,8 +166,8 @@ describe("Plan failure is local (#811)", () => {
         };
         const { container } = renderPlan(planRoot([], { source }), "plan-811-axis");
         // The opening ring is windows 0–2; window 3 has not arrived.
-        await waitFor(() => expect(container.querySelector('[data-plan-row="w2r1"]')).toBeTruthy());
-        expect(container.querySelector('[data-plan-row="w3r0"]')).toBeNull();
+        await waitFor(() => expect(container.querySelector(rowSel("w2r1"))).toBeTruthy());
+        expect(container.querySelector(rowSel("w3r0"))).toBeNull();
 
         // Jump to window 3 through the shipped key search — the bad row
         // arrives mid-session, as it would mid-scroll.
@@ -180,15 +176,15 @@ describe("Plan failure is local (#811)", () => {
         await waitFor(() => expect(container.querySelector('[data-part="dataset-key-search"]')!.textContent).toMatch(/match/),
             { timeout: 5_000 });
         fireEvent.keyDown(input, { key: "Enter" });
-        await waitFor(() => expect(container.querySelector('[data-plan-row="w5r1"]')).toBeTruthy(), { timeout: 10_000 });
+        await waitFor(() => expect(container.querySelector(rowSel("w5r1"))).toBeTruthy(), { timeout: 10_000 });
 
         // The canvas stayed up, and every other window's rows render.
         expect(container.querySelector("[data-plan-body]")).toBeTruthy();
         for (const key of ["w0r0", "w1r1", "w2r0", "w3r1", "w4r0", "w5r1"]) {
-            expect(container.querySelector(`[data-plan-row="${key}"] [data-run="x${key}"]`), key).toBeTruthy();
+            expect(container.querySelector(`${rowSel(key)} [data-run="x${key}"]`), key).toBeTruthy();
         }
         // The off-axis row is IN PLACE, as its diagnostic, placing no mark.
-        const bad = container.querySelector('[data-plan-row="w3r0"]')!;
+        const bad = container.querySelector(rowSel("w3r0"))!;
         expect(bad.querySelector('[data-plan-diagnostic="number"]')!.textContent)
             .toBe("AXIS MISMATCH — this row carries number instants; the axis is time");
         expect(bad.querySelector("[data-run]")).toBeNull();
@@ -206,7 +202,7 @@ describe("Plan failure is local (#811)", () => {
                 const w = Number(offset) / 200;
                 asked.push(w);
                 if (w === 2 && state.failing) throw new Error("fetch failed: 503");
-                return w < 6 ? some(windowRows(w)) : some(rowCollection([]));
+                return w < 6 ? some(windowRows(w)) : some([]);
             },
             total: () => some(TOTAL),
             seek: none,
@@ -226,23 +222,25 @@ describe("Plan failure is local (#811)", () => {
             expect(band.getAttribute("data-plan-px")).toBe("200");
             expect(band.textContent).toMatch(/Elements 401–600 could not be read — fetch failed: 503/);
             // The neighbours landed and render.
-            expect(container.querySelector('[data-plan-row="w0r0"]')).toBeTruthy();
-            expect(container.querySelector('[data-plan-row="w1r1"]')).toBeTruthy();
-            expect(container.querySelector('[data-plan-row="w2r0"]')).toBeNull();
+            expect(container.querySelector(rowSel("w0r0"))).toBeTruthy();
+            expect(container.querySelector(rowSel("w1r1"))).toBeTruthy();
+            expect(container.querySelector(rowSel("w2r0"))).toBeNull();
             // The band sits in window 2's seam — after window 1's rows.
-            const order = [...container.querySelectorAll("[data-plan-row], [data-plan-failed]")]
-                .map((el) => el.getAttribute("data-plan-row") ?? `F${el.getAttribute("data-plan-failed")}`);
+            const order = [...container.querySelectorAll("[data-plan-row], [data-plan-failed]")].map((el) => {
+                const row = el.getAttribute("data-plan-row");
+                return row !== null ? testKeyOf(row) : `F${el.getAttribute("data-plan-failed")}`;
+            });
             expect(order.slice(0, 5)).toEqual(["w0r0", "w0r1", "w1r0", "w1r1", "F2"]);
 
             // The source recovers; Retry asks window 2 again and its rows land.
             const tries = asked.filter((w) => w === 2).length;
             state.failing = false;
             fireEvent.click(band.querySelector('[data-plan-retry="2"]')!);
-            await waitFor(() => expect(container.querySelector('[data-plan-row="w2r0"]')).toBeTruthy());
+            await waitFor(() => expect(container.querySelector(rowSel("w2r0"))).toBeTruthy());
             expect(asked.filter((w) => w === 2).length).toBe(tries + 1);
             expect(container.querySelector("[data-plan-failed]")).toBeNull();
-            expect(container.querySelector('[data-plan-row="w0r0"]')).toBeTruthy();
-            expect(container.querySelector('[data-plan-row="w1r1"]')).toBeTruthy();
+            expect(container.querySelector(rowSel("w0r0"))).toBeTruthy();
+            expect(container.querySelector(rowSel("w1r1"))).toBeTruthy();
         } finally {
             err.mockRestore();
         }
@@ -268,9 +266,9 @@ describe("Plan failure is local (#811)", () => {
             // Inside the popover's own surface, not in the canvas.
             expect(container.contains(fallback)).toBe(false);
             // The canvas is still there and still answers.
-            fireEvent.click(container.querySelector('[data-plan-row="m2"]')!);
-            expect(container.querySelector('[data-plan-row="m2"]')!.hasAttribute("data-selected")).toBe(true);
-            expect(container.querySelector('[data-plan-row="m1"] [data-run="r1"]')).toBeTruthy();
+            fireEvent.click(container.querySelector(rowSel("m2"))!);
+            expect(container.querySelector(rowSel("m2"))!.hasAttribute("data-selected")).toBe(true);
+            expect(container.querySelector(`${rowSel("m1")} [data-run="r1"]`)).toBeTruthy();
         } finally {
             err.mockRestore();
         }
@@ -284,13 +282,13 @@ describe("Plan failure is local (#811)", () => {
                 planRow("other", spanKind([run("r2", W27, new Date("2026-07-13Z"), variant("actual", null))])),
             ], { expandRender: () => variant("Text", null) }), "plan-811-expand");
             fireEvent.click(container.querySelector('[data-plan-control="expand"]')!);
-            const focal = container.querySelector('[data-plan-row="focal"]')!;
+            const focal = container.querySelector(rowSel("focal"))!;
             expect(focal.querySelector('[data-plan-expandrender] [data-plan-error="expand render"]')).toBeTruthy();
             // The strip is still the way back, and the canvas still answers it.
-            fireEvent.click(container.querySelector('[data-plan-row="other"]')!);
+            fireEvent.click(container.querySelector(rowSel("other"))!);
             expect(container.querySelector("[data-plan-expandrender]")).toBeNull();
-            fireEvent.click(container.querySelector('[data-plan-row="other"]')!);
-            expect(container.querySelector('[data-plan-row="other"]')!.hasAttribute("data-selected")).toBe(true);
+            fireEvent.click(container.querySelector(rowSel("other"))!);
+            expect(container.querySelector(rowSel("other"))!.hasAttribute("data-selected")).toBe(true);
         } finally {
             err.mockRestore();
         }
@@ -307,15 +305,17 @@ describe("Plan failure is local (#811)", () => {
                 planRow("bad", spanKind([broken])),
                 planRow("after", spanKind([run("ra", W27, new Date("2026-07-13Z"), variant("actual", null))])),
             ]), "plan-811-row");
-            const bad = container.querySelector('[data-plan-row="bad"]')!;
-            expect(bad.querySelector('[data-plan-error="row bad"]')!.textContent).toMatch(/^row bad could not render — /);
+            const bad = container.querySelector(rowSel("bad"))!;
+            // Named by its label in words, by its key in the stable id.
+            expect(bad.querySelector(`[data-plan-error=${JSON.stringify(`row ${rowKey("bad")}`)}]`)!.textContent)
+                .toMatch(/^row bad could not render — /);
             // The row keeps its gutter; its neighbours draw their marks.
             expect(bad.textContent).toContain("bad");
-            expect(container.querySelector('[data-plan-row="good"] [data-run="rg"]')).toBeTruthy();
-            expect(container.querySelector('[data-plan-row="after"] [data-run="ra"]')).toBeTruthy();
+            expect(container.querySelector(`${rowSel("good")} [data-run="rg"]`)).toBeTruthy();
+            expect(container.querySelector(`${rowSel("after")} [data-run="ra"]`)).toBeTruthy();
             // And the canvas still answers.
-            fireEvent.click(container.querySelector('[data-plan-row="after"]')!);
-            expect(container.querySelector('[data-plan-row="after"]')!.hasAttribute("data-selected")).toBe(true);
+            fireEvent.click(container.querySelector(rowSel("after"))!);
+            expect(container.querySelector(rowSel("after"))!.hasAttribute("data-selected")).toBe(true);
         } finally {
             err.mockRestore();
         }
@@ -347,7 +347,7 @@ describe("Plan failure is local (#811)", () => {
             page: (offset: bigint) => {
                 const w = Number(offset) / 200;
                 if (w === 1 && state.failing) throw new Error("fetch failed: 503");
-                return w < 3 ? some(windowRows(w, new Set(["w0r1"]))) : some(rowCollection([]));
+                return w < 3 ? some(windowRows(w, new Set(["w0r1"]))) : some([]);
             },
             total: () => some(600n),
             seek: none,
@@ -359,8 +359,8 @@ describe("Plan failure is local (#811)", () => {
             const { container } = renderPlan(planRoot([], { source }), "plan-811-narrow");
             await waitFor(() => expect(container.querySelector('[data-plan-failed="1"]')).toBeTruthy());
             expect(container.querySelector("[data-plan-narrow]")).toBeTruthy();
-            expect(container.querySelector('[data-plan-card="w0r1"] [data-plan-diagnostic="number"]')).toBeTruthy();
-            expect(container.querySelector('[data-plan-card="w0r0"] [data-run="xw0r0"]')).toBeTruthy();
+            expect(container.querySelector(`${rowSel("w0r1", "data-plan-card")} [data-plan-diagnostic="number"]`)).toBeTruthy();
+            expect(container.querySelector(`${rowSel("w0r0", "data-plan-card")} [data-run="xw0r0"]`)).toBeTruthy();
             // The count is stated; the narrow list has no scroll target to seek.
             const chip = container.querySelector("[data-slot='narrowChips'] [data-plan-diagnostics='rows']")!;
             expect(chip.tagName).not.toBe("BUTTON");
@@ -368,7 +368,7 @@ describe("Plan failure is local (#811)", () => {
 
             state.failing = false;
             fireEvent.click(container.querySelector('[data-plan-retry="1"]')!);
-            await waitFor(() => expect(container.querySelector('[data-plan-card="w1r0"]')).toBeTruthy());
+            await waitFor(() => expect(container.querySelector(rowSel("w1r0", "data-plan-card"))).toBeTruthy());
             expect(container.querySelector("[data-plan-failed]")).toBeNull();
         } finally {
             err.mockRestore();
