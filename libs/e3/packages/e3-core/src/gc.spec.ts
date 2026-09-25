@@ -11,9 +11,9 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
 import { existsSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
-import { East, ArrayType, BlobType, DictType, IntegerType, OptionType, StringType, StructType, SEGMENT_RULE_KEYED, decodeBeast2For, encodeBeast2For, fromEastTypeValue, variant, some, none, toEastTypeValue } from '@elaraai/east';
+import { East, ArrayType, BlobType, DateTimeType, DictType, EastTypeType, IntegerType, OptionType, StringType, StructType, VariantType, SEGMENT_RULE_KEYED, decodeBeast2For, encodeBeast2For, fromEastTypeValue, variant, some, none, toEastTypeValue } from '@elaraai/east';
 import e3 from '@elaraai/e3';
-import { WorkspaceStateType, PackageObjectType, TASK_OBJECT_KIND, TaskObjectType, FunctionObjectType, DataRefType, DatasetRefType, RecordCommitType, RecordIndexObjectType, MutationObjectType, EnvironmentSpecType, PartitionPlanType, RunnerType, TreePathType, COLLECTION_MANIFEST_KIND, UNIT_PLAN_KIND, encodeCollectionManifest, decodeCollectionManifest, encodePartitionPlan, encodeUnitPlan } from '@elaraai/e3-types';
+import { WorkspaceStateType, PackageObjectType, PackageDataType, TASK_OBJECT_KIND, TaskObjectType, FunctionObjectType, DataRefType, DatasetRefType, RecordCommitType, RecordIndexObjectType, MutationObjectType, EnvironmentSpecType, PythonEnvironmentType, NodeEnvironmentType, ImageEnvironmentType, PartitionPlanType, RunnerType, TreePathType, COLLECTION_MANIFEST_KIND, CollectionManifestType, RECORD_STATE_KIND, RecordStateType, UNIT_PLAN_KIND, UnitPlanType, encodeCollectionManifest, decodeCollectionManifest, encodePartitionPlan, encodeUnitPlan } from '@elaraai/e3-types';
 import type { WorkspaceState, PackageObject, TaskObject } from '@elaraai/e3-types';
 import { repoGc, collectAllRoots, markReachable, sweepBatch } from './storage/local/gc.js';
 import { readDatasetWhole } from './dataset-open.js';
@@ -1455,6 +1455,282 @@ describe('gc', () => {
       for (const entry of manifest.entries) await storage.objects.read(testRepoPath, entry.hash);
       const whole = decodeBeast2For(type)(await readDatasetWhole(storage, testRepoPath, hash)) as Map<string, bigint>;
       assert.strictEqual(whole.size, 20_000);
+    });
+  });
+
+  // A kind-tagged object is walked by the tag table: its fields begin with a
+  // released version of the kind, and it carries the kind's tag. A later
+  // version, which appends fields, is walked for the fields this build knows.
+  describe('the tag table', () => {
+    const trace = (objects: Map<string, Uint8Array>) =>
+      async (h: string): Promise<Uint8Array | null> => objects.get(h) ?? null;
+    const PRIMARY = '1'.repeat(64);
+    const INDEX_MANIFEST = '2'.repeat(64);
+    const INDEX_OBJECT = '3'.repeat(64);
+    const KEY_IR = '4'.repeat(64);
+
+    it('keeps a record state\'s primary, its index manifests and the index objects they were built under reachable', async () => {
+      const root = 'a-record-state'.padEnd(64, '0');
+      const objects = new Map([
+        [root, encodeBeast2For(RecordStateType)({
+          kind: RECORD_STATE_KIND,
+          primary: PRIMARY,
+          indexes: new Map([['by_status', { manifest: INDEX_MANIFEST, index: INDEX_OBJECT }]]),
+        })],
+        // The index object is walked for the programs it names, so it exists.
+        [INDEX_OBJECT, encodeBeast2For(RecordIndexObjectType)({
+          keyIr: KEY_IR,
+          multi: false,
+          valueIr: none,
+          keyType: toEastTypeValue(IntegerType),
+          valueType: toEastTypeValue(StringType),
+          buildIr: '5'.repeat(64),
+          runner: variant('east_node', { platforms: ['@elaraai/east-node-std'] }),
+          mergeIr: '6'.repeat(64),
+        })],
+      ]);
+
+      const reachable = await markReachable(trace(objects), new Set([root]));
+      for (const [label, hash] of [
+        ['the primary', PRIMARY], ['the index manifest', INDEX_MANIFEST],
+        ['the index object', INDEX_OBJECT], ['the index\'s key function', KEY_IR],
+      ] as const) {
+        assert.ok(reachable.has(hash), `${label} must survive`);
+      }
+    });
+
+    it('treats a record-state-shaped struct carrying another kind as a leaf', async () => {
+      const root = 'not-a-state'.padEnd(64, '0');
+      const objects = new Map([[root, encodeBeast2For(RecordStateType)({
+        kind: '$something-else',
+        primary: PRIMARY,
+        indexes: new Map([['by_status', { manifest: INDEX_MANIFEST, index: INDEX_OBJECT }]]),
+      })]]);
+
+      const reachable = await markReachable(trace(objects), new Set([root]));
+      assert.deepStrictEqual([...reachable], [root]);
+    });
+
+    it('walks a later manifest, which appends a field, for the segments it names', async () => {
+      const grown = fromEastTypeValue(variant('Struct', [
+        ...(toEastTypeValue(CollectionManifestType).value as { name: string; type: unknown }[]),
+        { name: 'a_field_appended_later', type: toEastTypeValue(IntegerType) },
+      ]) as never);
+      const root = 'a-newer-manifest'.padEnd(64, '0');
+      const header = 'f'.repeat(64);
+      const segment = '7'.repeat(64);
+      const objects = new Map([[root, encodeBeast2For(grown as never)({
+        kind: COLLECTION_MANIFEST_KIND,
+        level: 0n,
+        type: toEastTypeValue(DictType(StringType, IntegerType)),
+        rule: SEGMENT_RULE_KEYED,
+        header,
+        entries: [{ hash: segment, fence: new Uint8Array([1]), count: 10n, bytes: 100n }],
+        a_field_appended_later: 0n,
+      } as never)]]);
+
+      const reachable = await markReachable(trace(objects), new Set([root]));
+      assert.ok(reachable.has(header) && reachable.has(segment), 'the header and the segment must survive');
+    });
+
+    it('walks a later record state, which appends a field, for what it names', async () => {
+      const grown = fromEastTypeValue(variant('Struct', [
+        ...(toEastTypeValue(RecordStateType).value as { name: string; type: unknown }[]),
+        { name: 'a_field_appended_later', type: toEastTypeValue(IntegerType) },
+      ]) as never);
+      const root = 'a-newer-state'.padEnd(64, '0');
+      const objects = new Map([[root, encodeBeast2For(grown as never)({
+        kind: RECORD_STATE_KIND,
+        primary: PRIMARY,
+        indexes: new Map([['by_status', { manifest: INDEX_MANIFEST, index: INDEX_OBJECT }]]),
+        a_field_appended_later: 0n,
+      } as never)]]);
+
+      const reachable = await markReachable(trace(objects), new Set([root]));
+      assert.ok(reachable.has(PRIMARY) && reachable.has(INDEX_MANIFEST), 'the primary and the index manifest must survive');
+    });
+
+    it('walks a later unit plan, which appends a field, for what its stage names', async () => {
+      const grown = fromEastTypeValue(variant('Struct', [
+        ...(toEastTypeValue(UnitPlanType).value as { name: string; type: unknown }[]),
+        { name: 'a_field_appended_later', type: toEastTypeValue(IntegerType) },
+      ]) as never);
+      const root = 'a-newer-plan'.padEnd(64, '0');
+      const piece = '8'.repeat(64);
+      const objects = new Map([[root, encodeBeast2For(grown as never)({
+        kind: UNIT_PLAN_KIND,
+        task: 'b'.repeat(64),
+        inputs: '9'.repeat(64),
+        stage: variant('pieces', [[piece]]),
+        a_field_appended_later: 0n,
+      } as never)]]);
+
+      const reachable = await markReachable(trace(objects), new Set([root]));
+      assert.ok(reachable.has(piece), 'the piece\'s input must survive');
+    });
+  });
+
+  // An object without a tag is recognised by its shape, and a repository holds
+  // every version of it that was ever released: each is pinned here. One gc
+  // stops recognising is a leaf, and the next sweep deletes what it names.
+  describe('every released version of an untagged shape', () => {
+    const trace = (objects: Map<string, Uint8Array>) =>
+      async (h: string): Promise<Uint8Array | null> => objects.get(h) ?? null;
+    const VALUE = '1'.repeat(64);
+    const BODY = '2'.repeat(64);
+
+    it('walks a package from before functions', async () => {
+      const root = 'a-legacy-package'.padEnd(64, '0');
+      const objects = new Map([[root, encodeBeast2For(StructType({ tasks: DictType(StringType, StringType), data: PackageDataType }))({
+        tasks: new Map(),
+        data: { structure: variant('struct', new Map()), refs: new Map([['inputs/x', variant('value', { hash: VALUE, versions: new Map() })]]) },
+      })]]);
+
+      const reachable = await markReachable(trace(objects), new Set([root]));
+      assert.ok(reachable.has(VALUE), 'the dataset value must survive');
+    });
+
+    it('walks a package from before records', async () => {
+      const root = 'a-functions-era-package'.padEnd(64, '0');
+      const objects = new Map([[root, encodeBeast2For(StructType({
+        tasks: DictType(StringType, StringType),
+        data: PackageDataType,
+        functions: DictType(StringType, StringType),
+      }))({
+        tasks: new Map(),
+        data: { structure: variant('struct', new Map()), refs: new Map([['inputs/x', variant('value', { hash: VALUE, versions: new Map() })]]) },
+        functions: new Map(),
+      })]]);
+
+      const reachable = await markReachable(trace(objects), new Set([root]));
+      assert.ok(reachable.has(VALUE), 'the dataset value must survive');
+    });
+
+    it('walks a package from before sources', async () => {
+      const root = 'a-records-era-package'.padEnd(64, '0');
+      const objects = new Map([[root, encodeBeast2For(StructType({
+        tasks: DictType(StringType, StringType),
+        data: PackageDataType,
+        functions: DictType(StringType, StringType),
+        records: DictType(StringType, StringType),
+      }))({
+        tasks: new Map(),
+        data: { structure: variant('struct', new Map()), refs: new Map([['inputs/x', variant('value', { hash: VALUE, versions: new Map() })]]) },
+        functions: new Map(),
+        records: new Map(),
+      })]]);
+
+      const reachable = await markReachable(trace(objects), new Set([root]));
+      assert.ok(reachable.has(VALUE), 'the dataset value must survive');
+    });
+
+    it('walks a function from before environments', async () => {
+      const root = 'an-older-function'.padEnd(64, '0');
+      const objects = new Map([[root, encodeBeast2For(StructType({
+        bodyIr: StringType,
+        inputTypes: ArrayType(EastTypeType),
+        outputType: EastTypeType,
+        runner: RunnerType,
+      }))({
+        bodyIr: BODY,
+        inputTypes: [toEastTypeValue(IntegerType)],
+        outputType: toEastTypeValue(IntegerType),
+        runner: variant('east_node', { platforms: ['@elaraai/east-node-std'] }),
+      })]]);
+
+      const reachable = await markReachable(trace(objects), new Set([root]));
+      assert.ok(reachable.has(BODY), 'the function body must survive');
+    });
+
+    it('walks a record from before indexes, and the mutations it names', async () => {
+      const root = 'an-older-record'.padEnd(64, '0');
+      const mutation = 'a-mutation'.padEnd(64, '0');
+      const objects = new Map([
+        [root, encodeBeast2For(StructType({ path: StringType, mutations: DictType(StringType, StringType) }))({
+          path: 'records/orders',
+          mutations: new Map([['seed', mutation]]),
+        })],
+        [mutation, encodeBeast2For(MutationObjectType)({
+          bodyIr: BODY,
+          argTypes: [],
+          runner: variant('east_node', { platforms: ['@elaraai/east-node-std'] }),
+          form: 'reduce',
+          programIr: '',
+        })],
+      ]);
+
+      const reachable = await markReachable(trace(objects), new Set([root]));
+      assert.ok(reachable.has(mutation) && reachable.has(BODY), 'the mutation and its body must survive');
+    });
+
+    it('walks a mutation from before the delta', async () => {
+      const root = 'an-older-mutation'.padEnd(64, '0');
+      const objects = new Map([[root, encodeBeast2For(StructType({
+        bodyIr: StringType,
+        argTypes: ArrayType(EastTypeType),
+        runner: RunnerType,
+      }))({
+        bodyIr: BODY,
+        argTypes: [toEastTypeValue(IntegerType)],
+        runner: variant('east_node', { platforms: ['@elaraai/east-node-std'] }),
+      })]]);
+
+      const reachable = await markReachable(trace(objects), new Set([root]));
+      assert.ok(reachable.has(BODY), 'the mutation body must survive');
+    });
+
+    it('walks a commit from before the delta', async () => {
+      const root = 'an-older-commit'.padEnd(64, '0');
+      const objects = new Map([[root, encodeBeast2For(StructType({
+        parent: OptionType(StringType),
+        state: StringType,
+        mutation: StringType,
+        args: OptionType(StringType),
+        actor: StringType,
+        at: DateTimeType,
+      }))({
+        parent: none,
+        state: VALUE,
+        mutation: '$init',
+        args: none,
+        actor: 'system',
+        at: new Date(0),
+      })]]);
+
+      const reachable = await markReachable(trace(objects), new Set([root]));
+      assert.ok(reachable.has(VALUE), 'the state the commit produced must survive');
+    });
+
+    it('walks an environment spec from before tools', async () => {
+      const root = 'an-older-environment'.padEnd(64, '0');
+      const tarball = '3'.repeat(64);
+      const objects = new Map([[root, encodeBeast2For(VariantType({
+        python: PythonEnvironmentType,
+        node: NodeEnvironmentType,
+        image: ImageEnvironmentType,
+      }))(variant('node', { packageJson: '4'.repeat(64), lock: '5'.repeat(64), tarballs: [tarball] }))]]);
+
+      const reachable = await markReachable(trace(objects), new Set([root]));
+      assert.ok(reachable.has(tarball), 'the project tarball must survive');
+    });
+
+    it('walks a partition plan from before merges', async () => {
+      const root = 'an-older-plan'.padEnd(64, '0');
+      const slice = '6'.repeat(64);
+      const objects = new Map([[root, encodeBeast2For(StructType({
+        partitions: ArrayType(StringType),
+        boundaries: ArrayType(IntegerType),
+        splits: ArrayType(ArrayType(StructType({ seg: IntegerType, offset: IntegerType }))),
+        slices: ArrayType(ArrayType(StringType)),
+      }))({
+        partitions: ['7'.repeat(64)],
+        boundaries: [0n],
+        splits: [],
+        slices: [[slice]],
+      })]]);
+
+      const reachable = await markReachable(trace(objects), new Set([root]));
+      assert.ok(reachable.has(slice), 'the carved slice must survive');
     });
   });
 });

@@ -280,4 +280,54 @@ describe('stopped executions', () => {
         await assertKillMinusNine(runner, 4);
       });
   }
+
+  it('kill -9 of e3 once three pieces have finished: the next run finds them in the execution cache, and runs only the fourth', async () => {
+    // Only the piece holding the last key waits on the hold file, so the other
+    // three finish while it runs.
+    const tableInput = e3.input('table', TableType);
+    const held = e3.streamTask('held', {
+      inputs: [e3.partition(tableInput)],
+      output: e3.output.dict(IntegerType, StringType),
+      runner: EAST_NODE,
+    }, ($, table, emit) => {
+      const startedPath = $.const(started);
+      const holdPath = $.const(hold);
+      $.if(table.has(3_599n), ($) => {
+        $(FileSystem.writeFile(startedPath, 'running'));
+        $.while(FileSystem.exists(holdPath), (_$) => { });
+      });
+      $.for(table, ($, value, key) => {
+        $(emit(key, value));
+      });
+    });
+    const zip = join(dir, 'held.zip');
+    await e3.export(e3.package('held', '1.0.0', held), zip);
+    const tablePath = join(dir, 'table.beast2');
+    writeFileSync(tablePath, encodeInSegmentsOf(TableType, 1_000)(table));
+    for (const args of [
+      ['repo', 'create', repo],
+      ['package', 'import', repo, zip],
+      ['workspace', 'create', repo, 'ws'],
+      ['workspace', 'deploy', repo, 'ws', 'held@1.0.0'],
+      ['dataset', 'set', repo, 'ws.table', '--from-file', tablePath],
+    ]) {
+      const result = await runE3Command(args, dir);
+      assert.equal(result.exitCode, 0, `e3 ${args.join(' ')}:\n${result.stderr}\n${result.stdout}`);
+    }
+
+    writeFileSync(hold, '');
+    const run = spawnE3Command(['dataflow', 'run', repo, 'ws', '--jobs', '4'], dir, { env: PIECES });
+    await waitFor(() => existsSync(started), 30_000);
+    const taskHash = await workspaceGetTaskHash(storage, repo, 'ws', 'held');
+    await waitFor(async () => (await storage.refs.executionListLatest(repo, taskHash))
+      .filter(({ status }) => status.type === 'success').length === 3, 60_000);
+    run.kill('SIGKILL');
+    await run.result;
+
+    await assertNextRunExecutes();
+    const logs = await runE3Command(['task', 'logs', repo, 'ws.held'], dir);
+    assert.equal(logs.exitCode, 0, logs.stderr);
+    const pieces = [...logs.stdout.matchAll(/^piece (\d+)\/4 (\w+) /gm)].map(([, index, state]) => `${index} ${state}`).sort();
+    assert.deepEqual(pieces, ['1 cached', '2 cached', '3 cached', '4 completed'], logs.stdout);
+  });
 });

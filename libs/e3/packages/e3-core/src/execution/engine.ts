@@ -276,7 +276,8 @@ export class SplitTask {
 
   /**
    * Reports a unit of the stage settled: its line in the task's log, naming
-   * its execution, and its progress when it succeeded.
+   * its execution and, when its runner reported one, its peak memory; and its
+   * progress when it succeeded.
    *
    * @param index - The unit's index in the stage
    * @param result - The unit's result
@@ -287,7 +288,8 @@ export class SplitTask {
       const merge = this.current.merge;
       const label = merge === null ? `piece ${index + 1}/${total}` : `${this.phase} level ${merge.level}/${merge.levels} unit ${index + 1}/${total}`;
       const state = result.cancelled ? 'cancelled' : result.cached ? 'cached' : result.state === 'success' ? 'completed' : 'failed';
-      const line = `${label} ${state} task=${this.taskHash} inputs=${result.inputsHash} execution=${result.executionId} duration=${result.duration}\n`;
+      const peak = result.peakBytes === undefined ? '' : ` peak=${result.peakBytes}`;
+      const line = `${label} ${state} task=${this.taskHash} inputs=${result.inputsHash} execution=${result.executionId} duration=${result.duration}${peak}\n`;
       this.logWrites = this.logWrites.then(async () => {
         try {
           await this.storage.logs.append(this.repo, this.taskHash, this.ids.inHash, this.ids.executionId, 'stdout', line);

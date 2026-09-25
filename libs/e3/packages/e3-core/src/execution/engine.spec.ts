@@ -114,6 +114,7 @@ describe('a task split into pieces', () => {
     // Every piece holds every remainder: one group, merged in one range.
     assert.deepEqual(lines.filter((line) => line.startsWith('merge ')).map((line) => line.split(' task=')[0]),
       ['merge level 1/1 unit 1/1 completed']);
+    assert.ok(lines.every((line) => / peak=\d+$/.test(line)), `every unit that ran names its runner's peak:\n${lines.join('\n')}`);
   });
 
   it('concatenates pieces whose keys are disjoint, with no merge', async () => {
@@ -141,7 +142,7 @@ describe('a task split into pieces', () => {
       output: e3.output.dict(IntegerType, IntegerType, { merge: (_$, _key, a, b) => a.add(b) }),
     }, ($, sales, emit) => {
       $.for(sales, ($, _amount, key) => {
-        const at = key.multiply(7919n).remainder(8000n).multiply(4n);
+        const at = $.const(key.multiply(7919n).remainder(8000n).multiply(4n));
         $(emit(at, 1n));
         $(emit(at.add(1n), 1n));
         $(emit(at.add(2n), 1n));

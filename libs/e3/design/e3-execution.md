@@ -199,11 +199,11 @@ The units run a stage at a time: the pieces, then each level of the merges. Each
 
 While the stages run, the task's own execution, `(taskHash, inputsHash(inputHashes))`, is recorded `running` under the orchestrator, with the orchestrator as its runner and its owner. Its `stdout.txt` gets one line per unit once the unit's result is known (`combine` names a fold's merges):
 ```
-piece <i>/<n> <completed|cached|failed|cancelled> task=<hash> inputs=<hash> execution=<id> duration=<ms>
-merge level <l>/<levels> unit <i>/<n> <state> task=<hash> inputs=<hash> execution=<id> duration=<ms>
-combine level <l>/<levels> unit <i>/<n> <state> task=<hash> inputs=<hash> execution=<id> duration=<ms>
+piece <i>/<n> <completed|cached|failed|cancelled> task=<hash> inputs=<hash> execution=<id> duration=<ms> peak=<bytes>
+merge level <l>/<levels> unit <i>/<n> <state> task=<hash> inputs=<hash> execution=<id> duration=<ms> peak=<bytes>
+combine level <l>/<levels> unit <i>/<n> <state> task=<hash> inputs=<hash> execution=<id> duration=<ms> peak=<bytes>
 ```
-The ids are in full, so `e3 task logs <repo> --execution <task>/<inputs>/<id>` opens any unit's own logs. When the last stage yields the output, the task's execution records `success`, and its sidecar is cleared, as it is at every other end:
+The ids are in full, so `e3 task logs <repo> --execution <task>/<inputs>/<id>` opens any unit's own logs. `peak` is the runner's peak resident memory, as the unit's result reports it: the larger of the run's and, when a set or dict closed several runs, their merge's. A unit served from the cache, or whose runner recorded no result, has none. When the last stage yields the output, the task's execution records `success`, and its sidecar is cleared, as it is at every other end:
 - a unit's failure: `failed` with the unit's exit code, or `error`, naming the stage's lowest-index failing unit, so the cause is the same at every pool width;
 - a unit whose executor threw: `error`, naming the lowest-index one, whose error is then raised;
 - pieces that cannot be planned, or outputs that cannot be grouped or assembled: `error`, naming why;
@@ -267,7 +267,9 @@ The execution state carries its version (`EXECUTION_STATE_VERSION`, 2: a task's 
 
 ## Garbage Collection Integration
 
-A recorded execution's `output` ref is a GC root, so its output object is kept, a unit's among them. Status files, owner sidecars and logs are files beside it, not objects. The `plan` sidecar is a root while it names a plan. GC walks a `$plan`: the task as a node, each piece's inputs and each group's entries as dataset values (a manifest among them names its segments), and each range as a leaf. So every object a split task's execution can resume from is kept until the execution ends. After that, a piece or range no plan names is swept, and a later run cuts the same pieces again, with the same hashes, and finds its units in the cache.
+A recorded execution's `output` ref is a GC root, so its output object is kept, a unit's among them. Status files, owner sidecars and logs are files beside it, not objects. The `plan` sidecar is a root while it names a plan. GC walks a `$plan`: the task as a node, each piece's inputs and each group's entries as dataset values (a manifest among them names its segments), and each range as a leaf.
+
+GC dispatches a kind-tagged object — a manifest, a record state, a task object, a unit plan — on its tag, through one table that lists the field names of every released version of each kind and the objects a value of it names. An object is walked as a kind when its fields begin with one of the kind's versions and it carries the kind's tag, so a later version, which appends fields, is walked for the fields this build knows. Every other object is recognised by its shape, and each released version of each shape is pinned by a test. So every object a split task's execution can resume from is kept until the execution ends. After that, a piece or range no plan names is swept, and a later run cuts the same pieces again, with the same hashes, and finds its units in the cache.
 
 gc takes the repository's `#tasks` lock exclusively and every workspace's `#dataflow` lock before marking, and refuses while a run holds one; a dataflow run holds its workspace's `#dataflow` lock, and an ad-hoc `e3 run` holds `#tasks` shared for its execution (and refuses, in turn, while gc holds it). So gc never runs while a split task's pieces or its units' outputs are in use.
 

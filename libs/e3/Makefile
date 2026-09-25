@@ -39,7 +39,7 @@ INTEGRATION := test/integration
 INTEGRATION_SPECS = $(patsubst $(INTEGRATION)/%,%,$(wildcard $(INTEGRATION)/dist/*.spec.js $(INTEGRATION)/dist/*/*.spec.js))
 # The shards CI runs side by side. Shards 1 and 2 name the longest-running
 # specs; shard 3 runs every spec neither names, so a new spec lands there.
-INTEGRATION_SHARD_1 := dist/api-compliance.spec.js
+INTEGRATION_SHARD_1 := dist/api-compliance.spec.js dist/rekey-bound.spec.js
 INTEGRATION_SHARD_2 := dist/partition-merge-parity.spec.js dist/e2e-workflow.spec.js dist/dataset-set.spec.js
 INTEGRATION_SHARD_3 = $(filter-out $(INTEGRATION_SHARD_1) $(INTEGRATION_SHARD_2),$(INTEGRATION_SPECS))
 

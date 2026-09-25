@@ -1443,6 +1443,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       duration: Date.now() - startTime,
       error: result.error ?? null,
       cancelled: result.cancelled ?? false,
+      ...(result.peakBytes !== undefined && { peakBytes: result.peakBytes }),
     };
   }
 

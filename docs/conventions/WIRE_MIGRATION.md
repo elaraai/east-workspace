@@ -33,12 +33,15 @@ kind.
   a newer one, naming its version. A test pins each version by decoding a state
   that version wrote.
 - **A package-borne type changes:** change it and re-export. Any read-compat
-  decoder the type still carries goes in the same change. The task object and
-  the partition and stream metadata carry such decoders today, and lose them at
-  their next change.
+  decoder the type still carries goes in the same change. The package,
+  function, record and mutation objects carry such decoders today, and lose
+  them at their next change.
 - **A new object kind names other objects:** it carries a `kind` tag, and lands
-  with a GC test. GC recognizes objects by their shape, so it is a reader of
-  every such wire.
+  with a GC test. GC dispatches a tagged object on its tag, through a table
+  listing the field names of every released version of each kind, so a new
+  version of a kind is one more entry there, with its test. An object without
+  a tag GC recognizes by its shape. Either way GC is a reader of every such
+  wire.
 
 ## Frozen wires
 

@@ -20,8 +20,8 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { tmpdir } from 'os';
-import { decodeBeast2, isEastDict, isTypeValueEqual, readBeast2Type, toEastTypeValue, variant, type EastTypeValue } from '@elaraai/east';
-import { COLLECTION_MANIFEST_KIND, MutationObjectType, PartitionPlanType, RECORD_STATE_KIND, RecordCommitType, RecordIndexObjectType, RecordObjectType, TASK_OBJECT_KIND, TaskObjectType, UNIT_PLAN_KIND, UnitPlanType, isCollectionManifestType, isRecordStateType, type UnitPlan } from '@elaraai/e3-types';
+import { decodeBeast2, isEastDict, readBeast2Type, toEastTypeValue, variant, type EastTypeValue } from '@elaraai/east';
+import { COLLECTION_MANIFEST_KIND, CollectionManifestType, MutationObjectType, PartitionPlanType, RECORD_STATE_KIND, RecordCommitType, RecordIndexObjectType, RecordObjectType, RecordStateType, TASK_OBJECT_KIND, TaskObjectType, UNIT_PLAN_KIND, UnitPlanType, type CollectionManifest, type RecordState, type TaskObject, type UnitPlan } from '@elaraai/e3-types';
 import type { RepoStore, GcObjectEntry, GcRootScanResult, LockHandle, StorageBackend } from '../interfaces.js';
 import { transferStagingDir } from './localHelpers.js';
 import { sweepScratchDirs } from '../../execution/scratch.js';
@@ -155,10 +155,11 @@ export type GcChildKind =
  * Trace the object graph from roots using iterative DFS with schema-aware traversal.
  *
  * Decodes each object using BEAST2 self-describing format and extracts child
- * hashes based on the detected object type (Package, Task, Tree, or collection
- * manifest). Objects known to be leaves (IR blobs, segment objects) are marked
- * reachable without reading; see {@link GcChildKind} for how a dataset value is
- * treated.
+ * hashes by what the object is: a kind-tagged object by its tag (a manifest, a
+ * record state, a task object or a unit plan), any other by its shape (a
+ * package, a tree, a commit…). Objects known to be leaves (IR blobs, segment
+ * objects) are marked reachable without reading; see {@link GcChildKind} for
+ * how a dataset value is treated.
  *
  * With `options.readHead`, a root or child whose kind is not known in advance
  * is classified by its header first: 64 KiB of head, growing to 1 MiB and then
@@ -301,26 +302,111 @@ function isEnvironmentSpecShape(type: any): boolean {
     && [...names].every((n) => known.has(n));
 }
 
-/** `TaskObjectType`'s field names, in wire order, read from the type itself:
- *  a task object of any later vintage BEGINS with these, because struct fields
- *  encode positionally and a field is only ever appended LAST. */
-const TASK_OBJECT_FIELDS: readonly string[] =
-  (toEastTypeValue(TaskObjectType).value as { name: string }[]).map(f => f.name);
+/** A kind of object that names other objects and carries a `kind` tag. */
+interface TaggedKind {
+  /** The field names of every released version of the kind, in wire order. A
+   *  later version appends fields, so its names begin with an earlier one's. */
+  readonly versions: readonly (readonly string[])[];
+  /** The objects a value of the kind names, and how each is treated. */
+  readonly children: (value: any) => { hash: string; kind: GcChildKind }[];
+}
 
 /**
- * Check if a decoded EastTypeValue represents a TaskObject: a struct beginning
- * with {@link TASK_OBJECT_FIELDS}, so one a newer e3 wrote with a field
- * appended is still recognised. Its `kind` tag is checked when the children
- * are extracted, so a struct of this shape carrying another tag is a leaf.
+ * Every kind-tagged object, by its tag: the mark dispatches on the tag.
  *
- * A task object this does not recognise is a leaf: its program goes unmarked,
- * and the next sweep deletes what the deployed package runs.
+ * @remarks
+ * An object is walked as a kind when its fields begin with one of the kind's
+ * versions and its `kind` is the kind's tag. A struct of that shape carrying
+ * another tag is a user value, and a leaf. A later version appends fields, so
+ * it is walked for the fields this build knows. A new version of a kind is one
+ * more entry in its `versions`, with a GC test; a new kind is one more entry
+ * here, with its tests.
+ *
+ * A tagged object this does not recognise is a leaf: what it names goes
+ * unmarked, and the next sweep deletes it.
  */
-function isTaskObjectShape(type: any): boolean {
-  if (type.type !== 'Struct') return false;
+const TAGGED_KINDS: ReadonlyMap<string, TaggedKind> = new Map<string, TaggedKind>([
+  [COLLECTION_MANIFEST_KIND, {
+    versions: [(toEastTypeValue(CollectionManifestType).value as { name: string }[]).map(f => f.name)],
+    children: (manifest: CollectionManifest) => [
+      // The header bytes every segment is written under — what makes a splice
+      // possible, and the one object an empty collection still names.
+      { hash: manifest.header, kind: 'leaf' },
+      // Level 0 entries are segment objects; above it they are child
+      // manifests, which name objects of their own.
+      ...manifest.entries.map((entry): { hash: string; kind: GcChildKind } => ({ hash: entry.hash, kind: manifest.level === 0n ? 'leaf' : 'node' })),
+    ],
+  }],
+  [RECORD_STATE_KIND, {
+    versions: [(toEastTypeValue(RecordStateType).value as { name: string }[]).map(f => f.name)],
+    children: (state: RecordState) => [
+      { hash: state.primary, kind: 'value' },
+      // The declaration an index was built under must outlive the package
+      // that declared it: a state read at an older commit names it.
+      ...[...state.indexes.values()].flatMap((entry): { hash: string; kind: GcChildKind }[] => [
+        { hash: entry.manifest, kind: 'value' },
+        { hash: entry.index, kind: 'node' },
+      ]),
+    ],
+  }],
+  [TASK_OBJECT_KIND, {
+    versions: [(toEastTypeValue(TaskObjectType).value as { name: string }[]).map(f => f.name)],
+    children: (task: TaskObject) => {
+      // The program or the command IR, and what the output folds with: every
+      // one an IR blob or a value, which name nothing.
+      const children: { hash: string; kind: GcChildKind }[] = [
+        { hash: task.body.type === 'east' ? task.body.value.program : task.body.value.commandIr, kind: 'leaf' },
+      ];
+      const kind = task.output.kind;
+      if (kind.type === 'dict' && kind.value.merge.type === 'some') {
+        children.push({ hash: kind.value.merge.value, kind: 'leaf' });
+      }
+      if (kind.type === 'fold') {
+        children.push({ hash: kind.value.zero, kind: 'leaf' }, { hash: kind.value.combine, kind: 'leaf' });
+      }
+      if (task.environment.type === 'some') {
+        children.push({ hash: task.environment.value, kind: 'node' }); // walk the spec's blobs
+      }
+      return children;
+    },
+  }],
+  [UNIT_PLAN_KIND, {
+    versions: [(toEastTypeValue(UnitPlanType).value as { name: string }[]).map(f => f.name)],
+    children: (plan: UnitPlan) => {
+      // The task, whose program the units run. A piece's inputs and a merge's
+      // parts are dataset values, which may be manifests naming segment
+      // objects; a merge's key range is a small value that names nothing.
+      const children: { hash: string; kind: GcChildKind }[] = [{ hash: plan.task, kind: 'node' }];
+      if (plan.stage.type === 'pieces') {
+        for (const inputs of plan.stage.value) {
+          for (const input of inputs) children.push({ hash: input, kind: 'value' });
+        }
+      } else {
+        for (const group of plan.stage.value.groups) {
+          if (group.range.type === 'some') children.push({ hash: group.range.value, kind: 'leaf' });
+          for (const entry of group.entries) children.push({ hash: entry, kind: 'value' });
+        }
+      }
+      return children;
+    },
+  }],
+]);
+
+/**
+ * The tag of the kind an object of this type may be: the kind one of whose
+ * versions its fields begin with. Only the `kind` the object carries, read
+ * once it is decoded, makes it one.
+ *
+ * @param type - The object's root type
+ * @returns The tag, or `null` when the type is no tagged kind's
+ */
+function taggedKindOf(type: any): string | null {
+  if (type.type !== 'Struct') return null;
   const names = (type.value as { name: string }[]).map(f => f.name);
-  if (names.length < TASK_OBJECT_FIELDS.length) return false;
-  return TASK_OBJECT_FIELDS.every((name, i) => name === names[i]);
+  for (const [tag, kind] of TAGGED_KINDS) {
+    if (kind.versions.some((version) => version.length <= names.length && version.every((name, i) => name === names[i]))) return tag;
+  }
+  return null;
 }
 
 /**
@@ -400,14 +486,6 @@ function isRecordIndexObjectShape(type: any): boolean {
   return RECORD_INDEX_OBJECT_FIELDS.every((name, i) => name === names[i]);
 }
 
-/**
- * Check if a decoded EastTypeValue represents a record's `$record` state — the
- * table naming its primary manifest and every index's.
- */
-function isRecordStateShape(type: any): boolean {
-  return isRecordStateType(type as EastTypeValue);
-}
-
 /** `MutationObjectType`'s field names, in wire order, read from the type
  *  itself: a mutation of any vintage is a PREFIX of this list. */
 const MUTATION_OBJECT_FIELDS: readonly string[] =
@@ -431,19 +509,6 @@ function isMutationObjectShape(type: any): boolean {
   const common = Math.min(names.length, MUTATION_OBJECT_FIELDS.length);
   if (common < MUTATION_OBJECT_MIN_FIELDS) return false;
   return MUTATION_OBJECT_FIELDS.slice(0, common).every((name, i) => name === names[i]);
-}
-
-/**
- * Check if a decoded EastTypeValue represents a CollectionManifest — the
- * object a collection dataset's ref points at, naming its segment objects.
- *
- * Exact field set, as every recognizer here is: a record's state is an
- * arbitrary user struct flowing through the same dispatch. `kind` is checked
- * when the children are extracted, so a struct of this shape carrying another
- * tag is a leaf rather than a mis-traversed manifest.
- */
-function isCollectionManifestShape(type: any): boolean {
-  return isCollectionManifestType(type as EastTypeValue);
 }
 
 /** `RecordCommitType`'s field names, in wire order, read from the type itself:
@@ -504,22 +569,6 @@ function isPartitionPlanShape(type: any): boolean {
   return PARTITION_PLAN_FIELDS.slice(0, common).every((name, i) => name === names[i]);
 }
 
-/** `UnitPlanType` as a type value: a unit plan's header declares it exactly. */
-const UNIT_PLAN_TYPE = toEastTypeValue(UnitPlanType);
-
-/**
- * Check if a decoded EastTypeValue represents a split task's unit plan — the
- * `$plan` of a stage, naming the task, the pieces' inputs, and the parts a
- * merge level merges and their key ranges.
- *
- * Exact type, as a kind this build introduced is. `kind` is checked when the
- * children are extracted, so a struct of this shape carrying another tag is a
- * leaf.
- */
-function isUnitPlanShape(type: any): boolean {
-  return isTypeValueEqual(type as EastTypeValue, UNIT_PLAN_TYPE);
-}
-
 /**
  * Check if a field type is a DataRef (Variant with cases: unassigned, null, value, tree).
  */
@@ -546,10 +595,9 @@ function isTreeObjectShape(type: any): boolean {
  */
 function isStructuralShape(type: EastTypeValue): boolean {
   const t = type as any;
-  return isPackageObjectShape(t) || isTaskObjectShape(t) || isPreCutoverTaskObjectShape(t) || isFunctionObjectShape(t)
+  return taggedKindOf(t) !== null || isPackageObjectShape(t) || isPreCutoverTaskObjectShape(t) || isFunctionObjectShape(t)
     || isRecordObjectShape(t) || isMutationObjectShape(t) || isEnvironmentSpecShape(t)
-    || isRecordCommitShape(t) || isPartitionPlanShape(t) || isUnitPlanShape(t) || isTreeObjectShape(t)
-    || isCollectionManifestShape(t) || isRecordIndexObjectShape(t) || isRecordStateShape(t);
+    || isRecordCommitShape(t) || isPartitionPlanShape(t) || isTreeObjectShape(t) || isRecordIndexObjectShape(t);
 }
 
 /**
@@ -563,6 +611,13 @@ function extractChildren(
 ): { hash: string; kind: GcChildKind }[] {
   const t = type as any;
   const children: { hash: string; kind: GcChildKind }[] = [];
+
+  // A kind-tagged object dispatches on its tag. A struct of a tagged kind's
+  // shape carrying another tag is a user value, and a leaf.
+  const tag = taggedKindOf(t);
+  if (tag !== null) {
+    return (value as { kind?: unknown }).kind === tag ? TAGGED_KINDS.get(tag)!.children(value) : children;
+  }
 
   if (isPackageObjectShape(t)) {
     const pkg = value as { tasks: Map<string, string>; data: { structure: unknown; refs?: Map<string, { type: string; value: any }> }; functions?: Map<string, string>; records?: Map<string, string> };
@@ -591,30 +646,6 @@ function extractChildren(
           children.push({ hash: ref.value.hash, kind: 'value' });
         }
       }
-    }
-    return children;
-  }
-
-  if (isTaskObjectShape(t)) {
-    const task = value as {
-      kind: string;
-      body: { type: string; value: { program?: string; commandIr?: string } };
-      output: { kind: { type: string; value: any } };
-      environment: { type: string; value: string };
-    };
-    if (task.kind !== TASK_OBJECT_KIND) return children; // a look-alike user struct
-    // The program or the command IR, and what the output folds with: every one
-    // an IR blob or a value, which name nothing.
-    children.push({ hash: (task.body.value.program ?? task.body.value.commandIr)!, kind: 'leaf' });
-    const kind = task.output.kind;
-    if (kind.type === 'dict' && kind.value.merge.type === 'some') {
-      children.push({ hash: kind.value.merge.value, kind: 'leaf' });
-    }
-    if (kind.type === 'fold') {
-      children.push({ hash: kind.value.zero, kind: 'leaf' }, { hash: kind.value.combine, kind: 'leaf' });
-    }
-    if (task.environment.type === 'some') {
-      children.push({ hash: task.environment.value, kind: 'node' }); // walk the spec's blobs
     }
     return children;
   }
@@ -662,19 +693,6 @@ function extractChildren(
     return children;
   }
 
-  if (isRecordStateShape(t)) {
-    const state = value as { kind: string; primary: string; indexes: Map<string, { manifest: string; index: string }> };
-    if (state.kind !== RECORD_STATE_KIND) return children; // a look-alike user struct
-    children.push({ hash: state.primary, kind: 'value' });
-    for (const entry of state.indexes.values()) {
-      children.push({ hash: entry.manifest, kind: 'value' });
-      // The declaration an index was built under must outlive the package
-      // that declared it: a state read at an older commit names it.
-      children.push({ hash: entry.index, kind: 'node' });
-    }
-    return children;
-  }
-
   if (isMutationObjectShape(t)) {
     // A mutation written before the delta existed names no program.
     const mut = value as { bodyIr: string; programIr?: string };
@@ -709,21 +727,6 @@ function extractChildren(
       for (const member of env.members) children.push({ hash: member.tarball, kind: 'leaf' });
     }
     // image: no object-store references
-    return children;
-  }
-
-  if (isCollectionManifestShape(t)) {
-    const manifest = value as { kind: string; level: bigint; header: string; entries: { hash: string }[] };
-    if (manifest.kind !== COLLECTION_MANIFEST_KIND) return children; // a look-alike user struct
-    // The header bytes every segment is written under — what makes a splice
-    // possible, and the one object an empty collection still names.
-    children.push({ hash: manifest.header, kind: 'leaf' });
-    // Level 0 entries are segment objects (leaves); above it they are child
-    // manifests, which name objects of their own.
-    const entriesAreLeaves = manifest.level === 0n;
-    for (const entry of manifest.entries) {
-      children.push({ hash: entry.hash, kind: entriesAreLeaves ? 'leaf' : 'node' });
-    }
     return children;
   }
 
@@ -762,26 +765,6 @@ function extractChildren(
     }
     for (const merge of plan.merges ?? []) {
       for (const range of merge.ranges) children.push({ hash: range, kind: 'value' });
-    }
-    return children;
-  }
-
-  if (isUnitPlanShape(t)) {
-    const plan = value as UnitPlan;
-    if (plan.kind !== UNIT_PLAN_KIND) return children; // a look-alike user struct
-    // The task, whose program the units run. A piece's inputs and a merge's
-    // parts are dataset values, which may be manifests naming segment objects;
-    // a merge's key range is a small value that names nothing.
-    children.push({ hash: plan.task, kind: 'node' });
-    if (plan.stage.type === 'pieces') {
-      for (const inputs of plan.stage.value) {
-        for (const input of inputs) children.push({ hash: input, kind: 'value' });
-      }
-    } else {
-      for (const group of plan.stage.value.groups) {
-        if (group.range.type === 'some') children.push({ hash: group.range.value, kind: 'leaf' });
-        for (const entry of group.entries) children.push({ hash: entry, kind: 'value' });
-      }
     }
     return children;
   }

@@ -89,6 +89,11 @@ export interface ExecutionResult {
   /** True when e3 stopped the execution because the run was aborted: it is
    *  recorded `cancelled`, and is not the task's own failure */
   cancelled: boolean;
+  /** The runner's peak resident memory in bytes, as its unit's result reports
+   *  it: the larger of the run's and, when it needed one, the merge of its
+   *  runs'. Absent when no unit ran here: a result served from the cache, a
+   *  command body, or a runner that recorded no result. */
+  peakBytes?: number;
 }
 
 /**
@@ -161,6 +166,9 @@ function toTaskResult(result: ExecutionResult): TaskResult {
   };
   if (result.cancelled) {
     taskResult.cancelled = true;
+  }
+  if (result.peakBytes !== undefined) {
+    taskResult.peakBytes = result.peakBytes;
   }
   if (result.state === 'success' && result.outputHash) {
     taskResult.outputHash = result.outputHash;
@@ -542,13 +550,18 @@ export async function taskExecuteBody(
     // Step 7: Get boot ID for crash detection
     const bootId = await getBootId();
 
+    /** The highest peak a unit's runner reported, over the run and its merge. */
+    let peakBytes: number | undefined;
+
     /** Spawns the runner, and resolves with the execution's record when it
      *  did not end well — `null` when it did. A unit ends well only when
      *  its runner recorded an `ok` result. */
     const spawnRunner = async (argv: string[], staged: StagedUnit | null): Promise<ExecutionResult | null> => {
       const result = await runCommand(storage, repo, taskHash, inHash, executionId, argv, inputHashes, bootId, scratchDir, options, envBins, stock);
+      const recorded = staged === null ? null : await readUnitResult(staged);
+      if (recorded !== null) peakBytes = Math.max(peakBytes ?? 0, Number(recorded.peakBytes));
       if (result.exitCode === 0) {
-        if (staged === null || (await readUnitResult(staged))?.outcome.type === 'ok') return null;
+        if (staged === null || recorded?.outcome.type === 'ok') return null;
         return await errorResult('the runner exited 0 without recording an ok result for its unit', 0);
       }
       // e3 stopped the runner, or a signal ended it: the record names the
@@ -580,6 +593,7 @@ export async function taskExecuteBody(
         duration: Date.now() - startTime,
         error: result.error,
         cancelled: false,
+        ...(peakBytes !== undefined && { peakBytes }),
       };
     };
 
@@ -645,6 +659,7 @@ export async function taskExecuteBody(
       duration: Date.now() - startTime,
       error: null,
       cancelled: false,
+      ...(peakBytes !== undefined && { peakBytes }),
     };
   } finally {
     // Cleanup scratch directory

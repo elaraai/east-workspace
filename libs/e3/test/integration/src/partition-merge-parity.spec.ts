@@ -303,7 +303,7 @@ function parityPackage(name: string, runner: Runner) {
     runner,
   }, ($, rows, emit) => {
     $.for(rows, ($, pair) => {
-      const at = pair.key.multiply(4n);
+      const at = $.const(pair.key.multiply(4n));
       $(emit(at, pair.value));
       $(emit(at.add(1n), pair.value));
       $(emit(at.add(2n), pair.value));
@@ -316,7 +316,7 @@ function parityPackage(name: string, runner: Runner) {
     runner,
   }, ($, rows, emit) => {
     $.for(rows, ($, pair) => {
-      const at = pair.key.multiply(4n);
+      const at = $.const(pair.key.multiply(4n));
       $(emit(at, pair.value));
       $(emit(at.add(1n), pair.value));
       $(emit(at.add(2n), pair.value));

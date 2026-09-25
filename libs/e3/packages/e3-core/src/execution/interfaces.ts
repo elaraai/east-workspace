@@ -65,6 +65,9 @@ export interface TaskResult {
   /** True when e3 stopped the task because the run was aborted (state
    *  'error', message `cancelled: …`) — not the task's own failure */
   cancelled?: boolean;
+  /** The runner's peak resident memory in bytes, when a unit it ran reported
+   *  one. */
+  peakBytes?: number;
 }
 
 /**
