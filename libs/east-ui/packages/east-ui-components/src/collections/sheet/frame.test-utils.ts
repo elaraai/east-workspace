@@ -76,6 +76,40 @@ export function emulateWindowScroll(): () => void {
 }
 
 /**
+ * Animation frames the test runs itself: from the call on, a frame asked for
+ * waits until `run`, so the test decides what happens before the next one — a
+ * window landing before TanStack reconciles a scroll, say (#885).
+ *
+ * @returns `run`, which runs the frames waiting and those they ask for until
+ *   none is left, and the restore
+ */
+export function holdFrames(): { run: () => void; restore: () => void } {
+    const waiting = new Map<number, FrameRequestCallback>();
+    let next = 0;
+    const saved = { request: window.requestAnimationFrame, cancel: window.cancelAnimationFrame };
+    window.requestAnimationFrame = (callback: FrameRequestCallback) => {
+        waiting.set(++next, callback);
+        return next;
+    };
+    window.cancelAnimationFrame = (id: number) => { waiting.delete(id); };
+    return {
+        run: () => {
+            // A reconcile asks for the next frame until it settles; a hundred is a hang.
+            for (let frames = 0; waiting.size > 0; frames++) {
+                if (frames === 100) throw new Error("Frames kept asking for more");
+                const now = [...waiting.values()];
+                waiting.clear();
+                for (const callback of now) callback(performance.now());
+            }
+        },
+        restore: () => {
+            window.requestAnimationFrame = saved.request;
+            window.cancelAnimationFrame = saved.cancel;
+        },
+    };
+}
+
+/**
  * Where a body item starts among the rows: its virtual row's offset when the
  * sheet mounts a screenful, else the heights the sheet gave each item before
  * it in flow.

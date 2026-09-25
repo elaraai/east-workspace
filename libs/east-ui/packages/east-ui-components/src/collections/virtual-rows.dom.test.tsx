@@ -13,7 +13,7 @@
  * fractional measurements cannot leak into row offsets.
  */
 
-import { describe, test, expect, beforeEach, afterEach } from "vitest";
+import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 import { useEffect } from "react";
 import { render, cleanup, fireEvent, act } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
@@ -478,9 +478,10 @@ describe("VirtualRows — scroll anchoring (#878)", () => {
         rerender(frame(ROWS, { scrollToIndex: 80 }));
         const requested = scrollEl.scrollTop;
         expect(requested).not.toBe(50 * ROW_H);
-        // …and rows land above before it arrives: the request stands.
+        // …and rows land above before it arrives: the request stands, and follows its row (#885) — row 80
+        // keeps the place in the view it was given. The anchor, taken before the request, never applies.
         rerender(frame([...keysOf("n", 10), ...ROWS], { scrollToIndex: 80 }));
-        expect(scrollEl.scrollTop).toBe(requested);
+        expect(scrollEl.scrollTop).toBe(requested + 10 * ROW_H);
 
         // The user scrolls, and rows land above before the event arrives: their scroll stands.
         const { container: c2, rerender: rerender2 } = render(frame(ROWS));
@@ -510,6 +511,111 @@ describe("VirtualRows — scroll anchoring (#878)", () => {
         const el2 = scrollTo(c2, 50 * ROW_H);
         rerender2(frame([...keysOf("n", 10), ...ROWS], { anchorable: null }));
         expect(el2.scrollTop).toBe(50 * ROW_H);
+    });
+
+    describe("a scroll request follows its row, not its index (#885)", () => {
+        /** The next animation frame — TanStack reconciles a scroll in one. */
+        const nextFrame = () => new Promise<void>((resolve) => { requestAnimationFrame(() => resolve()); });
+        /**
+         * A paged frame, as the Plan draws one — exact sizes, keyed: a band stands for the rows not loaded above
+         * the loaded ones, as tall as they are, and never anchors.
+         */
+        const paged = (loaded: readonly string[], above: number, scrollToIndex: number) => {
+            const keys = ["band", ...loaded];
+            return (
+                <ChakraProvider value={system}>
+                    <VirtualRows height="200px" maxHeight={undefined} count={keys.length}
+                        sizes={keys.map((k) => (k === "band" ? above * ROW_H : ROW_H))} measureRows={false} overscan={2}
+                        getItemKey={(i) => keys[i]!} anchorable={(i) => keys[i] !== "band"} scrollToIndex={scrollToIndex}
+                        renderRow={(i) => <div data-key={keys[i]}>{keys[i]}</div>} />
+                </ChakraProvider>
+            );
+        };
+
+        test("a window landing above the row a request brought in, before the next frame, leaves it where the request put it", async () => {
+            const { container, rerender } = render(paged(ROWS, 100, 0));
+            const scrollEl = container.firstElementChild as HTMLElement;
+            Object.defineProperty(scrollEl, "scrollHeight", { configurable: true, get: () => 200 * ROW_H });
+            // A jump to r0, the first loaded row, under the band: the frame scrolls, and the scroll is reported.
+            rerender(paged(ROWS, 100, 1));
+            fireEvent.scroll(scrollEl);
+            const placed = scrollEl.scrollTop;
+            expect(placed).toBe(100 * ROW_H - (200 - ROW_H) / 2);
+            // The ten rows above it land before the next frame: the band gives up their height, so r0 starts where
+            // it did — and index 1, the request's, is now n0, ten rows up. The frames come: the view stays on r0.
+            rerender(paged([...keysOf("n", 10), ...ROWS], 90, 1));
+            await act(async () => { await nextFrame(); await nextFrame(); });
+            expect(scrollEl.scrollTop).toBe(placed);
+        });
+
+        // A frame that does not anchor takes nothing else from TanStack between the row's measure and the
+        // follow-up: it reads the commit's measurements itself.
+        test.each([["an anchoring frame", () => true], ["a frame that does not anchor", null]] as const)(
+            "a requested row that measures taller than its estimate is still brought wholly into view — %s",
+            (_frame, anchorable) => {
+                // Row 80 draws 96px tall; its estimate is a row's 32.
+                const measured = Element.prototype.getBoundingClientRect;
+                Element.prototype.getBoundingClientRect = function (this: Element) {
+                    const rect = measured.call(this);
+                    return this.querySelector('[data-key="r80"]') !== null && this.hasAttribute("data-index") ? { ...rect, height: 96, bottom: 96 } : rect;
+                };
+                try {
+                    const { container, rerender } = render(frame(ROWS, { anchorable }));
+                    const scrollEl = container.firstElementChild as HTMLElement;
+                    Object.defineProperty(scrollEl, "scrollHeight", { configurable: true, get: () => 100 * ROW_H + 64 });
+                    rerender(frame(ROWS, { anchorable, scrollToIndex: 80 }));
+                    // A commit before the scroll is reported — a hover, say — finds row 80 where its estimate puts
+                    // it, not yet mounted: the request stands.
+                    rerender(frame(ROWS, { anchorable, scrollToIndex: 80 }));
+                    // The scroll is reported; row 80 mounts, measures, and the frame centres it at its height.
+                    fireEvent.scroll(scrollEl);
+                    expect(inView(container, "r80")).toBe((200 - 96) / 2);
+                } finally {
+                    Element.prototype.getBoundingClientRect = measured;
+                }
+            },
+        );
+
+        test("the viewer's scroll ends it: rows landing above later are the anchor's, and the view is not taken back to the row", () => {
+            const { container, rerender } = render(frame(ROWS));
+            const scrollEl = container.firstElementChild as HTMLElement;
+            Object.defineProperty(scrollEl, "scrollHeight", { configurable: true, get: () => 110 * ROW_H });
+            rerender(frame(ROWS, { scrollToIndex: 80 }));
+            // Before row 80 is in, the viewer scrolls to row 20.
+            scrollTo(container, 20 * ROW_H);
+            // Ten rows land above the view: the viewer's rows keep their place, and nothing scrolls to row 80.
+            rerender(frame([...keysOf("n", 10), ...ROWS], { scrollToIndex: 80 }));
+            expect(scrollEl.scrollTop).toBe(30 * ROW_H);
+            expect(inView(container, "r20")).toBe(0);
+        });
+
+        test("a request is followed for five seconds at most, TanStack's own cap", () => {
+            const { container, rerender } = render(frame(ROWS));
+            const scrollEl = container.firstElementChild as HTMLElement;
+            Object.defineProperty(scrollEl, "scrollHeight", { configurable: true, get: () => 120 * ROW_H });
+            rerender(frame(ROWS, { scrollToIndex: 80 }));
+            const requested = scrollEl.scrollTop;
+            // Six seconds on, with its scroll still unreported, rows land above row 80: the request has lapsed.
+            const start = performance.now();
+            const clock = vi.spyOn(performance, "now").mockReturnValue(start + 6_000);
+            try {
+                rerender(frame([...keysOf("n", 10), ...ROWS], { scrollToIndex: 80 }));
+            } finally {
+                clock.mockRestore();
+            }
+            expect(scrollEl.scrollTop).toBe(requested);
+        });
+
+        test("a request whose row leaves the frame is dropped: nothing scrolls after it, least of all to the row that took its index", () => {
+            const { container, rerender } = render(paged(ROWS, 100, 0));
+            const scrollEl = container.firstElementChild as HTMLElement;
+            Object.defineProperty(scrollEl, "scrollHeight", { configurable: true, get: () => 200 * ROW_H });
+            rerender(paged(ROWS, 100, 1));
+            const requested = scrollEl.scrollTop;
+            // Before its scroll is reported, r0 leaves as the ten rows above it land: index 1 is n0, ten rows up.
+            rerender(paged([...keysOf("n", 10), ...ROWS.slice(1)], 90, 1));
+            expect(scrollEl.scrollTop).toBe(requested);
+        });
     });
 });
 

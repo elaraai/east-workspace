@@ -33,7 +33,7 @@ import { getRegisteredPlatformImplementations } from "../../platform/registry.js
 import { EastChakraSheet } from "./index.js";
 import { SHEET_PAGE_SIZE } from "./paging.js";
 import { sheetJournal } from "./journal.test-utils.js";
-import { emulateWindowScroll, measureRowsAsDrawn, offsetOf } from "./frame.test-utils.js";
+import { emulateWindowScroll, holdFrames, measureRowsAsDrawn, offsetOf } from "./frame.test-utils.js";
 import type { SheetRootValue, SheetRowValue, SheetSelectionValue } from "./values.js";
 
 // A sheet of 400 rows or more mounts a screenful and measures it (#856):
@@ -908,14 +908,18 @@ describe("a window loading above the rows never hides them (#876)", () => {
         }
     }, HELD_TEST_MS);
 
-    test("a jump whose target lands before the window above it shows the target at once; landing, that window's rows join above and the row stays where it was shown", async () => {
+    test("a jump whose target lands before the window above it shows the target at once; landing, that window's rows join above and the row stays where it was shown, through the frames after (#885)", async () => {
         const restore = emulateWindowScroll();
+        // From the jump on the frames are the test's: window 29 lands before the frame in which TanStack
+        // reconciles the jump's scroll, whatever the machine's load (#885).
+        let frames: ReturnType<typeof holdFrames> | undefined;
         try {
             const held = heldSheet(8_000);
             // Window 29, above element 6,000's, stays on the wire.
             held.state.inFlight.add(29);
             const { container } = mount(held.value);
             await waitFor(() => expect(container.querySelector('[data-row-id="r000"]')).toBeTruthy(), { timeout: 15_000 });
+            frames = holdFrames();
             await seekKey(container, "r6000");
             const cell = () => container.querySelector('[data-row-id="r6000"] [data-key="task"]');
             await waitFor(() => expect(cell()?.hasAttribute("data-selected")).toBe(true), { timeout: 10_000 });
@@ -924,14 +928,23 @@ describe("a window loading above the rows never hides them (#876)", () => {
             const row = container.querySelector('[data-row-id="r6000"]') as HTMLElement;
             await waitFor(() => expect(window.scrollY).toBeGreaterThan(0));
             const top = offsetOf(row);
-            expect(window.scrollY).toBeLessThanOrEqual(top);
-            expect(top + parseFloat(row.style.minHeight)).toBeLessThanOrEqual(window.scrollY + window.innerHeight);
+            const y = window.scrollY;
+            expect(y).toBeLessThanOrEqual(top);
+            expect(top + parseFloat(row.style.minHeight)).toBeLessThanOrEqual(y + window.innerHeight);
             held.state.inFlight.delete(29);
             held.touch();
             await waitFor(() => expect(container.querySelector('[data-row-id="r5999"]')).toBeTruthy(), { timeout: 10_000 });
-            expect(offsetOf(container.querySelector('[data-row-id="r6000"]')!)).toBe(top);
+            const shown = () => container.querySelector('[data-row-id="r6000"]');
+            expect(shown()).not.toBeNull();
+            expect(offsetOf(shown()!)).toBe(top);
+            // The frames come: the page stays where the jump put it, and the row where it was shown.
+            act(() => { frames!.run(); });
+            expect(window.scrollY).toBe(y);
+            expect(shown()).not.toBeNull();
+            expect(offsetOf(shown()!)).toBe(top);
             expect(cell()?.hasAttribute("data-selected")).toBe(true);
         } finally {
+            frames?.restore();
             restore();
         }
     }, HELD_TEST_MS);

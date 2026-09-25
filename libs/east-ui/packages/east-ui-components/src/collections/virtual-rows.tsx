@@ -72,6 +72,16 @@
  * one — wins. Rows in flow (the unbounded frame below scale) are the
  * browser's to anchor.
  *
+ * A keyed frame's scroll request (`scrollToIndex`) brings in its ROW, never
+ * whichever row holds its index a frame later (#885). TanStack reconciles a
+ * `scrollToIndex` by index for a few frames, so a paged window landing above
+ * the row in that time handed the scroll to a row a window's worth above it.
+ * The frame scrolls to the offset the request's alignment gives the row and
+ * follows the row itself, by key: after every commit until the row has mounted
+ * where its alignment puts it, a row that has moved — measured at a height its
+ * estimate missed, rows above it changed — is scrolled to again. The view
+ * moving while the row does not, the viewer's scroll, ends it.
+ *
  * Only a bounded frame pins its header. An unbounded frame's header sits in
  * flow above its rows and scrolls with the page: a collection that scrolls
  * sideways inside its own box (`overflow-x` in `rootCss`) is a scroll
@@ -207,6 +217,9 @@ interface VirtualRowsBaseProps {
      * bounded frame scrolls itself; an unbounded frame that watches its
      * ancestor (at scale, or reporting its range) scrolls the ancestor; an
      * unbounded frame with nothing to watch does not scroll, and ignores it.
+     * In a keyed frame the request is the row's at that index when it is
+     * applied: rows landing above it as it comes into view leave the scroll on
+     * it (#885).
      */
     scrollToIndex?: number | undefined;
     /**
@@ -494,8 +507,27 @@ function anchorOf(virtualizer: Rows, offset: number, top: number, height: number
 }
 
 /**
- * Where the item with `key` starts now, looking out from `hint` — rows
- * inserted or removed above an anchor shift its index by as many.
+ * Where the item with `key` is now, looking out from `hint` — rows inserted
+ * or removed above it shift its index by as many.
+ *
+ * @param count - The rows
+ * @param keyOf - A row's key
+ * @param key - The item's key
+ * @param hint - Its index when it was last seen
+ * @returns Its index, or undefined when it has left the frame
+ */
+function indexOfKey(count: number, keyOf: (index: number) => ItemKey, key: ItemKey, hint: number): number | undefined {
+    for (let d = 0; hint + d < count || hint - d >= 0; d++) {
+        const below = hint + d;
+        if (below < count && keyOf(below) === key) return below;
+        const above = hint - d;
+        if (d > 0 && above >= 0 && above < count && keyOf(above) === key) return above;
+    }
+    return undefined;
+}
+
+/**
+ * Where the item with `key` starts now (see {@link indexOfKey}).
  *
  * @param virtualizer - The frame's virtualizer, its measurements current
  * @param count - The rows
@@ -505,14 +537,25 @@ function anchorOf(virtualizer: Rows, offset: number, top: number, height: number
  * @returns Its start, or undefined when it has left the frame
  */
 function startOfKey(virtualizer: Rows, count: number, keyOf: (index: number) => ItemKey, key: ItemKey, hint: number): number | undefined {
-    for (let d = 0; hint + d < count || hint - d >= 0; d++) {
-        const below = hint + d;
-        if (below < count && keyOf(below) === key) return virtualizer.measurementsCache[below]?.start;
-        const above = hint - d;
-        if (d > 0 && above >= 0 && above < count && keyOf(above) === key) return virtualizer.measurementsCache[above]?.start;
-    }
-    return undefined;
+    const index = indexOfKey(count, keyOf, key, hint);
+    return index === undefined ? undefined : virtualizer.measurementsCache[index]?.start;
 }
+
+/** A keyed frame's scroll request (#885): the row it brings in, where to look
+ *  for it first, the alignment the request resolved to, the offset last
+ *  scrolled to for it, what it scrolled, and when it was made. */
+interface ScrollRequest {
+    key: ItemKey;
+    index: number;
+    align: "auto" | "start" | "center" | "end";
+    offset: number;
+    scroller: Rows["scrollElement"];
+    at: number;
+}
+
+/** How long a scroll request is followed at most — TanStack's own cap on its
+ *  reconcile. */
+const FOLLOW_MS = 5_000;
 
 /**
  * @param props - see {@link VirtualRowsProps}
@@ -614,6 +657,9 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
     // render moved to that the commit has yet to write (#878).
     const anchorRef = useRef<ScrollAnchor | null>(null);
     const anchorTarget = useRef<number | null>(null);
+    // A keyed frame's scroll request, followed by its row's key until it
+    // settles (#885).
+    const requestRef = useRef<ScrollRequest | null>(null);
 
     const estimate = sizes !== undefined
         ? (i: number) => sizes[i] ?? 0
@@ -649,6 +695,9 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
     });
     const virtualizer: Rows = onWindow ? windowRows : elementRows;
     const virtualized = bounded || ancestor !== undefined;
+    // The scroll offset now, in the virtualizer's terms — ahead of a scroll
+    // event still to come.
+    const liveOffset = (): number | undefined => (bounded ? scrollRef.current?.scrollTop : offsetNow(ancestor, itemsRef));
 
     // Scroll anchoring (#878): when the anchor taken at the last commit has
     // moved — rows above it changed height or count — and the frame has not
@@ -665,7 +714,7 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
             virtualizer.getTotalSize();  // this render's measurements
             const start = startOfKey(virtualizer, count, getItemKey, anchor.key, anchor.index);
             if (start !== undefined && start !== anchor.start) {
-                const live = bounded ? scrollRef.current?.scrollTop : offsetNow(ancestor, itemsRef);
+                const live = liveOffset();
                 if (live !== undefined && Math.abs(live - offset) < 1) {
                     const target = Math.max(0, offset + start - anchor.start);
                     virtualizer.scrollOffset = target;
@@ -701,10 +750,25 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
     // re-request nonce) alone, so a row set that grows underneath a standing
     // target (paged windows landing) does not re-scroll on every frame — and
     // on the virtualizer going live, so a target that arrived before an
-    // unbounded frame found its ancestor is still honoured.
+    // unbounded frame found its ancestor is still honoured. A keyed frame
+    // scrolls to the offset the request's alignment gives the row, which
+    // TanStack's reconcile then holds where its `scrollToIndex` would follow
+    // the index, and follows the row by its key itself (#885, below).
     useEffect(() => {
         if (scrollToIndex === undefined || !virtualized) return;
-        virtualizer.scrollToIndex(scrollToIndex, { align: scrollAlign });
+        if (getItemKey === undefined) {
+            virtualizer.scrollToIndex(scrollToIndex, { align: scrollAlign });
+            return;
+        }
+        if (count === 0) return;
+        const index = Math.max(0, Math.min(scrollToIndex, count - 1));
+        const target = virtualizer.getOffsetForIndex(index, scrollAlign);
+        if (target === undefined) return;
+        requestRef.current = {
+            key: getItemKey(index), index, align: target[1], offset: target[0],
+            scroller: virtualizer.scrollElement, at: performance.now(),
+        };
+        virtualizer.scrollToOffset(target[0]);
         // eslint-disable-next-line react-hooks/exhaustive-deps -- the target index, the nonce and going live are the trigger
     }, [scrollToIndex, scrollNonce, virtualized]);
 
@@ -763,6 +827,42 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps -- the sizes are the trigger
     }, [sizes]);
+
+    // Follow a keyed frame's scroll request by its row's key, after every
+    // commit until it settles (#885). A row that has moved since the frame
+    // scrolled to it — measured at a height its estimate missed, rows above it
+    // changed — is scrolled to again: the correction TanStack's reconcile made
+    // by index. The request settles once the row is mounted where its
+    // alignment puts it; when the view has moved and the row has not (the
+    // viewer scrolled); when the row, or what scrolls it, has left the frame;
+    // or after TanStack's own five seconds.
+    useLayoutEffect(() => {
+        const request = requestRef.current;
+        if (request === null) return;
+        const index = virtualized && getItemKey !== undefined && virtualizer.scrollElement === request.scroller
+            && performance.now() - request.at <= FOLLOW_MS
+            ? indexOfKey(count, getItemKey, request.key, request.index) : undefined;
+        virtualizer.getTotalSize();  // this render's measurements
+        const target = index === undefined ? undefined : virtualizer.getOffsetForIndex(index, request.align);
+        const live = liveOffset();
+        if (index === undefined || target === undefined || live === undefined) {
+            requestRef.current = null;
+            return;
+        }
+        request.index = index;
+        const offset = target[0];
+        if (Math.abs(offset - live) < 1) {
+            // Where its alignment puts it: settled once it is mounted, and so measured.
+            request.offset = offset;
+            if (virtualizer.getVirtualItems().some((item) => item.index === index)) requestRef.current = null;
+        } else if (Math.abs(offset - request.offset) < 1) {
+            // The row is where the frame put it and the view is not: the viewer scrolled.
+            requestRef.current = null;
+        } else {
+            request.offset = offset;
+            virtualizer.scrollToOffset(offset);
+        }
+    });
 
     // The header is watched: whatever changes its height moves the rows below
     // it — bounded, the scroll margin follows; unbounded, the offset re-samples.
