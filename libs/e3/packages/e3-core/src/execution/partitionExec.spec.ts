@@ -14,9 +14,9 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  StringType, IntegerType, NullType, StructType, DictType, ArrayType,
-  East, SortedMap, compareFor,
-  encodeBeast2For, decodeBeast2For, encodeBeast2SegmentsFor, encodeEastIR, readBeast2Extents,
+  StringType, IntegerType, StructType, DictType, ArrayType,
+  SortedMap, compareFor,
+  encodeBeast2For, decodeBeast2For, encodeBeast2SegmentsFor, readBeast2Extents,
 } from '@elaraai/east';
 import { decodeCollectionManifest, type PartitionPlan } from '@elaraai/e3-types';
 import { carvePartitionSlices, planPartitions, spliceBlobs } from './partitionExec.js';
@@ -66,7 +66,7 @@ describe('partition planning, carving and splicing', () => {
     const table = makeTable(1000);
     const tableHash = await storage.objects.write(repo, encodeInSegmentsOf(TableType, 100)(table));
 
-    const { plan, partitions } = await planPartitions(storage, repo, { primary: tableHash, secondaries: [], by: null, targetBytes: 1 });
+    const { plan, partitions } = await planPartitions(storage, repo, { primary: tableHash, targetBytes: 1 });
     assert.equal(partitions, 10);
     assert.deepEqual(plan.boundaries, Array.from({ length: 10 }, (_, i) => BigInt(i)));
     assert.deepEqual(plan.splits, []);
@@ -79,24 +79,9 @@ describe('partition planning, carving and splicing', () => {
 
   it('plans one partition when the target covers every segment', async () => {
     const tableHash = await storage.objects.write(repo, encodeInSegmentsOf(TableType, 100)(makeTable(1000)));
-    const { plan, partitions } = await planPartitions(storage, repo, { primary: tableHash, secondaries: [], by: null, targetBytes: 1 << 30 });
+    const { plan, partitions } = await planPartitions(storage, repo, { primary: tableHash, targetBytes: 1 << 30 });
     assert.equal(partitions, 1);
     assert.deepEqual(plan.boundaries, [0n]);
-  });
-
-  it('co-partitions a secondary at the primary boundaries, re-encoding only split edges', async () => {
-    const primaryHash = await storage.objects.write(repo, encodeInSegmentsOf(TableType, 100)(makeTable(1000)));
-    // The secondary covers a sub-range with segment boundaries that do NOT
-    // line up with the primary's fences, so most partition boundaries land
-    // inside its segments and exercise the edge rebuild.
-    const secondary = makeTable(500, 250);
-    const secondaryHash = await storage.objects.write(repo, encodeInSegmentsOf(TableType, 100)(secondary));
-
-    const { plan, partitions } = await planPartitions(storage, repo, { primary: primaryHash, secondaries: [secondaryHash], by: null, targetBytes: 1 });
-    const [, secondarySlices] = await carveAll(plan, partitions);
-    // Splicing the secondary slices gives exactly the secondary value — every
-    // key once, in canonical order — as its own manifest.
-    assert.equal(await spliceBlobs(storage, repo, secondarySlices!), await datasetWrite(storage, repo, secondary, TableType));
   });
 
   it('plans and carves at bounded memory: the input is never read whole', async () => {
@@ -136,7 +121,7 @@ describe('partition planning, carving and splicing', () => {
       if (h === tableHash) maxRangeLength = Math.max(maxRangeLength, length);
       return origRange(r, h, offset, length);
     };
-    const { plan, partitions } = await planPartitions(storage, repo, { primary: tableHash, secondaries: [], by: null, targetBytes: 1 });
+    const { plan, partitions } = await planPartitions(storage, repo, { primary: tableHash, targetBytes: 1 });
     const [slices] = await carveAll(plan, partitions);
     objects.read = origRead;
     objects.readRange = origRange;
@@ -171,7 +156,7 @@ describe('partition planning, carving and splicing', () => {
       if (segmentObjects.has(h)) wholeSegmentReads.push(h);
       return origRead(r, h);
     };
-    const { plan, partitions } = await planPartitions(storage, repo, { primary: manifestHash, secondaries: [], by: null, targetBytes: 1 });
+    const { plan, partitions } = await planPartitions(storage, repo, { primary: manifestHash, targetBytes: 1 });
     const [slices] = await carveAll(plan, partitions);
     const spliced = await spliceBlobs(storage, repo, slices!);
     objects.read = origRead;
@@ -194,137 +179,18 @@ describe('partition planning, carving and splicing', () => {
     });
     const arrayHash = await storage.objects.write(repo, encodeInSegmentsOf(ArrayType(PairType), 40)(scrambled));
 
-    const { plan, partitions } = await planPartitions(storage, repo, { primary: arrayHash, secondaries: [], by: null, targetBytes: 1 });
+    const { plan, partitions } = await planPartitions(storage, repo, { primary: arrayHash, targetBytes: 1 });
     assert.equal(partitions, 10);
     const [slices] = await carveAll(plan, partitions);
     assert.equal(await spliceBlobs(storage, repo, slices!), await datasetWrite(storage, repo, scrambled, ArrayType(PairType)),
       'the slices splice back into the scrambled array, in its order');
   });
 
-  it('aligns boundaries on a `by` field read without compiling the projection', async () => {
-    const GroupKeyType = StructType({ group: IntegerType, id: IntegerType });
-    // 1000 rows in 100-row segments, 150 rows per group: a group straddles
-    // every fence except where one starts (rows 300, 600 and 900).
-    const table = new SortedMap<{ group: bigint; id: bigint }, string>(
-      Array.from({ length: 1000 }, (_, i) =>
-        [{ group: BigInt(Math.floor(i / 150)), id: BigInt(i) }, `row-${i}`] as [{ group: bigint; id: bigint }, string]),
-      compareFor(GroupKeyType),
-    );
-    const tableHash = await storage.objects.write(repo, encodeInSegmentsOf(DictType(GroupKeyType, StringType), 100)(table));
-    // The projection reads `key.group` after calling a platform function no
-    // runtime provides: compiling it would fail, so planning succeeding pins
-    // that it only reads the projection's shape.
-    const unprovided = East.platform('e3_core_test_unprovided', [], NullType);
-    const byFn = East.function([GroupKeyType], IntegerType, ($, key) => {
-      $(unprovided());
-      return key.group;
-    });
-
-    const { plan, partitions } = await planPartitions(storage, repo, { primary: tableHash, secondaries: [], by: encodeEastIR(byFn.toIR()), targetBytes: 1 });
-    // A cut at every fence, kept only where a group starts.
-    assert.equal(partitions, 4);
-    assert.deepEqual(plan.boundaries, [0n, 3n, 6n, 9n]);
-    const [slices] = await carveAll(plan, partitions);
-    assert.equal(await spliceBlobs(storage, repo, slices!), await datasetWrite(storage, repo, table, DictType(GroupKeyType, StringType)));
-  });
-
-  it('refuses a `by` projection that is not a leading-prefix key read', async () => {
-    const GroupKeyType = StructType({ group: IntegerType, id: IntegerType });
-    const table = new SortedMap<{ group: bigint; id: bigint }, string>(
-      Array.from({ length: 200 }, (_, i) => [{ group: BigInt(i >> 4), id: BigInt(i) }, `row-${i}`] as [{ group: bigint; id: bigint }, string]),
-      compareFor(GroupKeyType),
-    );
-    const tableHash = await storage.objects.write(repo, encodeInSegmentsOf(DictType(GroupKeyType, StringType), 50)(table));
-    const byFn = East.function([GroupKeyType], IntegerType, (_$, key) => key.group.add(1n));
-
-    await assert.rejects(
-      planPartitions(storage, repo, { primary: tableHash, secondaries: [], by: encodeEastIR(byFn.toIR()), targetBytes: 1 }),
-      { message: 'partition by projection is not a leading-prefix key projection — re-export the package with the current SDK' },
-    );
-  });
-
-  it('aligns an identity `by` over co-partitioned keys on the shared fields, not the primary key', async () => {
-    const WideKeyType = StructType({ sku: StringType, period: IntegerType, line: IntegerType });
-    const SharedKeyType = StructType({ sku: StringType, period: IntegerType });
-    type Shared = { sku: string; period: bigint };
-    // The primary holds three lines per (sku, period) in 4-row segments, so
-    // groups straddle fences; the secondary holds one row per (sku, period).
-    const groups: Shared[] = ['a', 'b', 'c'].flatMap((sku) => [0n, 1n, 2n, 3n].map((period) => ({ sku, period })));
-    const primary = new SortedMap<Shared & { line: bigint }, bigint>(
-      groups.flatMap((g) => [0n, 1n, 2n].map((line) => [{ ...g, line }, line] as [Shared & { line: bigint }, bigint])),
-      compareFor(WideKeyType),
-    );
-    const secondary = new SortedMap<Shared, bigint>(groups.map((g) => [g, g.period] as [Shared, bigint]), compareFor(SharedKeyType));
-    const primaryHash = await storage.objects.write(repo, encodeInSegmentsOf(DictType(WideKeyType, IntegerType), 4)(primary));
-    const secondaryHash = await storage.objects.write(repo, encodeInSegmentsOf(DictType(SharedKeyType, IntegerType), 5)(secondary));
-    const byFn = East.function([SharedKeyType], SharedKeyType, (_$, key) => key);
-
-    const { plan, partitions } = await planPartitions(storage, repo, {
-      primary: primaryHash, secondaries: [secondaryHash], by: encodeEastIR(byFn.toIR()), targetBytes: 1,
-    });
-    assert.ok(partitions > 1, 'the primary carves into several partitions');
-
-    // Every partition's primary slice holds exactly the (sku, period) groups of
-    // its secondary slice: no group is split from its counterpart.
-    const decodePrimary = decodeBeast2For(DictType(WideKeyType, IntegerType));
-    const decodeSecondary = decodeBeast2For(DictType(SharedKeyType, IntegerType));
-    const groupsOf = (keys: Iterable<Shared>): Set<string> => new Set([...keys].map((k) => `${k.sku}/${k.period}`));
-    const [primarySlices, secondarySlices] = await carveAll(plan, partitions);
-    for (let p = 0; p < partitions; p++) {
-      assert.deepEqual(
-        groupsOf(decodePrimary(await storage.objects.read(repo, primarySlices![p]!)).keys()),
-        groupsOf(decodeSecondary(await storage.objects.read(repo, secondarySlices![p]!)).keys()),
-      );
-    }
-  });
-
-  it('refuses a co-partitioned secondary that does not follow the boundary projection order', async () => {
-    // The secondary's canonical order is b-major while the implicit boundary
-    // projection compares under the primary's a-major key: its projected
-    // fences descend, which must fail loudly instead of mis-assigning rows.
-    const AB = StructType({ a: IntegerType, b: IntegerType });
-    const BA = StructType({ b: IntegerType, a: IntegerType });
-    const primary = new SortedMap(
-      Array.from({ length: 12 }, (_, i) => [{ a: BigInt(i), b: 0n }, `p-${i}`] as [{ a: bigint; b: bigint }, string]),
-      compareFor(AB));
-    const primaryHash = await storage.objects.write(repo, encodeInSegmentsOf(DictType(AB, StringType), 2)(primary));
-    // b-major canonical order with `a` values that DESCEND across fences.
-    const secondary = new SortedMap(
-      Array.from({ length: 12 }, (_, i) => [{ b: BigInt(i), a: BigInt(11 - i) }, `s-${i}`] as [{ b: bigint; a: bigint }, string]),
-      compareFor(BA));
-    const secondaryHash = await storage.objects.write(repo, encodeInSegmentsOf(DictType(BA, StringType), 2)(secondary));
-
-    await assert.rejects(
-      planPartitions(storage, repo, { primary: primaryHash, secondaries: [secondaryHash], by: null, targetBytes: 1 }),
-      /projected segment fences are not monotone/,
-    );
-  });
-
-  it('refuses a primary whose own projected partition boundaries descend', async () => {
-    // A `by` reading a field that is not the key's leading one passes the
-    // shape check, but its projection runs against the primary's canonical
-    // order, so the boundary values descend — and the secondaries' split
-    // searches resume forward from the previous bound and cannot go back.
-    const BA = StructType({ b: IntegerType, a: IntegerType });
-    const rows = (n: number): [{ b: bigint; a: bigint }, string][] =>
-      Array.from({ length: n }, (_, i) => [{ b: BigInt(i), a: BigInt(n - 1 - i) }, `p-${i}`]);
-    const write = (n: number, batchSize: number): Promise<string> => storage.objects.write(
-      repo, encodeInSegmentsOf(DictType(BA, StringType), batchSize)(new SortedMap(rows(n), compareFor(BA))));
-    const primaryHash = await write(12, 2);
-    const secondaryHash = await write(12, 3);
-    const byFn = East.function([BA], IntegerType, (_$, key) => key.a);
-
-    await assert.rejects(
-      planPartitions(storage, repo, { primary: primaryHash, secondaries: [secondaryHash], by: encodeEastIR(byFn.toIR()), targetBytes: 1 }),
-      /projected partition boundaries are not monotone/,
-    );
-  });
-
   it('refuses an input that carries no segment index', async () => {
     // Whole-value v5 encode: no index, so the input cannot be carved.
     const tableHash = await storage.objects.write(repo, encodeBeast2For(TableType)(makeTable(50)));
     await assert.rejects(
-      planPartitions(storage, repo, { primary: tableHash, secondaries: [], by: null, targetBytes: 1 }),
+      planPartitions(storage, repo, { primary: tableHash, targetBytes: 1 }),
       /segment index/,
     );
   });
@@ -345,7 +211,7 @@ describe('partition planning, carving and splicing', () => {
   });
 
   it('probing every fence of a many-segment blob keeps a bounded prefix cache', async () => {
-    // Planning walks every fence of each co-partitioned secondary. The prober
+    // A walk over a blob's fences probes every segment in turn. The prober
     // used to retain the frame prefix of every segment it probed and scan
     // them all on each read — O(segments) memory and O(segments²)
     // comparisons, in the module whose claim is one segment at a time.

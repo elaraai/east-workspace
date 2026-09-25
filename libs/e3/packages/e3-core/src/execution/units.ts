@@ -11,10 +11,12 @@
  * runner given one does the work, writes its output by the output's kind, and
  * records a result (`UnitResultType`). This module turns a task object into its
  * `run` unit — the program, the staged inputs and the output kind, with each
- * function and value the kind folds with staged beside them — and takes what
- * the units wrote into the store through its door: a value or an array as the
- * manifest the runner wrote, a set or a dict from its runs, which a `merge` unit
- * assembles when there are several, and a fold as the value it folded to.
+ * function and value the kind folds with staged beside them — and, for a task
+ * split into pieces, into the `merge` units that assemble what its pieces
+ * wrote. It takes what the units wrote into the store through its door: a
+ * value or an array as the manifest the runner wrote, a set or a dict from its
+ * runs, which a `merge` unit assembles when there are several, and a fold as
+ * the value it folded to.
  *
  * Spawning a unit is the caller's: the local runner spawns a process, and
  * another backend runs it wherever it runs units. Every path a unit names is
@@ -63,14 +65,25 @@ export interface StagedUnit {
   readonly result: string;
 }
 
-/** A task's `run` unit, staged in its directory. */
-export interface RunUnit extends StagedUnit {
+/** A unit of a task — its `run` unit, or a `merge` of what its pieces wrote —
+ *  staged in its directory. */
+export interface TaskUnit extends StagedUnit {
   /** The directory the unit and every file it names are in. */
   readonly dir: string;
   /** The unit, as its file holds it. */
   readonly unit: Unit;
   /** The runner that executes it. */
   readonly runner: StockRunner;
+}
+
+/** What a `merge` unit of a split task assembles: outputs its pieces wrote. */
+export interface MergeParts {
+  /** The parts' hashes, in piece order. */
+  readonly parts: readonly string[];
+  /** The hash of the key range the merge is limited to — `{from, to}` over
+   *  the parts' key type, as `planMergeRanges` writes it — or `null` to
+   *  merge them whole. */
+  readonly range: string | null;
 }
 
 /** The file a unit's result is recorded in, beside the unit. */
@@ -99,7 +112,7 @@ export async function stageRunUnit(
   dir: string,
   task: TaskObject,
   inputs: readonly string[],
-): Promise<RunUnit> {
+): Promise<TaskUnit> {
   const runner = task.runner;
   if (task.body.type !== 'east' || runner.type === 'custom') {
     throw new Error('a run unit runs an East program on a stock runner');
@@ -147,6 +160,76 @@ export async function stageRunUnit(
 }
 
 /**
+ * Stages a `merge` unit of a split task in `dir`: parts its pieces wrote,
+ * assembled as its output kind says — a set's or a dict's merged into one run,
+ * over the key range when one is given, or a fold's partials folded in order,
+ * starting at its `zero` — and the files the kind folds with.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param dir - The execution's scratch directory, holding the staged parts
+ * @param task - The task object: on a stock runner, with a set, dict or fold
+ *   output
+ * @param parts - The staged parts, in piece order
+ * @param range - The staged key range, or `null` to merge the parts whole
+ * @returns The staged unit
+ * @throws {Error} When the task's runner is the `custom` runtime, or its output
+ *   is a value or an array, whose parts no unit merges.
+ */
+export async function stageMergeUnit(
+  storage: StorageBackend,
+  repo: string,
+  dir: string,
+  task: TaskObject,
+  parts: readonly string[],
+  range: string | null,
+): Promise<TaskUnit> {
+  const runner = task.runner;
+  if (runner.type === 'custom') {
+    throw new Error('a merge unit runs on a stock runner');
+  }
+  // A stock runner only reads what it is given, so every file is a link.
+  const stage = async (name: string, hash: string): Promise<string> => {
+    await storage.objects.materialize(repo, hash, path.join(dir, name), { link: true });
+    return name;
+  };
+  const kind = task.output.kind;
+  let output: UnitOutput;
+  switch (kind.type) {
+    case 'set': output = variant('set', 'output'); break;
+    case 'dict':
+      output = variant('dict', {
+        dir: 'output',
+        merge: kind.value.merge.type === 'some' ? some(await stage('merge.beast2', kind.value.merge.value)) : none,
+      });
+      break;
+    case 'fold':
+      output = variant('fold', {
+        path: 'output.beast2',
+        zero: await stage('zero.beast2', kind.value.zero),
+        combine: await stage('combine.beast2', kind.value.combine),
+      });
+      break;
+    case 'value':
+    case 'array':
+      throw new Error(`a merge unit assembles a set, dict or fold output, and this task's output is ${kind.type}, whose parts no unit merges`);
+  }
+  const unit: Unit = {
+    work: variant('merge', {
+      parts: parts.map((part) => unitPath(dir, part)),
+      range: range === null ? none : some(unitPath(dir, range)),
+      output,
+    }),
+    platforms: runner.value.platforms,
+    threads: BigInt(availableParallelism()),
+    result: RESULT_FILE,
+  };
+  const file = path.join(dir, 'unit.beast2');
+  await fs.writeFile(file, encodeBeast2For(UnitType)(unit));
+  return { file, result: path.join(dir, RESULT_FILE), dir, unit, runner };
+}
+
+/**
  * The argv that runs a staged unit: `<runner> exec <unit>`, with the stdin
  * lifeline, and `-v` when the runner should print where the time went.
  *
@@ -175,7 +258,7 @@ export async function readUnitResult(unit: StagedUnit): Promise<UnitResult | nul
 }
 
 /** The runs a set or dict output closed, in the order they closed. */
-async function outputRuns(unit: RunUnit): Promise<string[]> {
+async function outputRuns(unit: TaskUnit): Promise<string[]> {
   const runs = (await fs.readdir(path.join(unit.dir, 'output'))).filter((name) => /^\d+\.beast2$/.test(name));
   return runs.sort((a, b) => parseInt(a, 10) - parseInt(b, 10)).map((name) => `output/${name}`);
 }
@@ -192,7 +275,7 @@ async function outputRuns(unit: RunUnit): Promise<string[]> {
  * @param unit - The run unit, which has run
  * @returns The merge unit, or `null` when the output needs none
  */
-export async function stageOutputMerge(unit: RunUnit): Promise<StagedUnit | null> {
+export async function stageOutputMerge(unit: TaskUnit): Promise<StagedUnit | null> {
   const work = unit.unit.work;
   if (work.type !== 'run') return null;
   const output = work.value.output;
@@ -215,7 +298,7 @@ export async function stageOutputMerge(unit: RunUnit): Promise<StagedUnit | null
 }
 
 /**
- * Takes what a finished run unit wrote, merged if it needed a merge, into the
+ * Takes what a finished unit wrote, merged if it needed a merge, into the
  * store through its door, and returns the output's hash.
  *
  * @remarks
@@ -223,19 +306,28 @@ export async function stageOutputMerge(unit: RunUnit): Promise<StagedUnit | null
  * directory for a collection — and each segment file is linked in as it
  * stands. A set or a dict is its one run, or the merge unit's run when it
  * closed several, or the empty collection when nothing was emitted: the
- * program's `emit` parameter says its type.
+ * program's `emit` parameter says its type. A `merge` unit of a split task
+ * wrote one run, or the value its partials folded to.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
- * @param unit - The run unit, which has run, and whose merge has run if it
- *   needed one
+ * @param unit - The unit, which has run, and whose merge has run if it needed
+ *   one
  * @returns The output's hash
  * @throws {Error} When an output file is missing or the door refuses it.
  */
-export async function storeUnitOutput(storage: StorageBackend, repo: string, unit: RunUnit): Promise<string> {
+export async function storeUnitOutput(storage: StorageBackend, repo: string, unit: TaskUnit): Promise<string> {
   const at = (file: string): string => path.join(unit.dir, file);
   const work = unit.unit.work;
-  if (work.type !== 'run') throw new Error('a run unit has run work');
+  if (work.type === 'merge') {
+    const merged = work.value.output;
+    switch (merged.type) {
+      case 'set': return storeDatasetFile(storage, repo, at(`${merged.value}/0.beast2`), { canonical: true });
+      case 'dict': return storeDatasetFile(storage, repo, at(`${merged.value.dir}/0.beast2`), { canonical: true });
+      case 'fold': return storeDatasetFile(storage, repo, at(merged.value.path), { canonical: true });
+      default: throw new Error(`a merge unit writes a set, a dict or a fold, not ${merged.type}`);
+    }
+  }
   const output = work.value.output;
   switch (output.type) {
     case 'value':

@@ -29,7 +29,8 @@ import { materializeEnvironment } from './environment.js';
 import { runDetached, type DetachedSpec, type DetachedResult, type DetachedRunOptions } from './runDetached.js';
 import { executionScratchDir } from './scratch.js';
 import type { JobSlots, ReleaseSlot } from './jobs.js';
-import { readUnitResult, stageOutputMerge, stageRunUnit, storeUnitOutput, unitArgv, type RunUnit, type StagedUnit } from './units.js';
+import { readUnitResult, stageMergeUnit, stageOutputMerge, stageRunUnit, storeUnitOutput, unitArgv, type MergeParts, type StagedUnit, type TaskUnit } from './units.js';
+import { executeSplitTask } from './engine.js';
 
 // Re-exported from processExec.js (where the implementation moved) for
 // backwards compatibility — exported for testing, not public API.
@@ -53,18 +54,18 @@ export interface ExecuteOptions {
   onStdout?: (data: string) => void;
   /** Stream stderr callback */
   onStderr?: (data: string) => void;
-  /** The most units of a partitioned task in flight at once — its pool
-   *  width. Defaults to the jobs budget's capacity, else 4. Runtime-only:
-   *  never affects hashes or caching. */
+  /** The most units of a split task in flight at once — its pool width.
+   *  Defaults to the jobs budget's capacity, else 4. Runtime-only: never
+   *  affects hashes or caching. */
   partitionConcurrency?: number;
   /** The run's jobs budget: a runner spawns only while its execution holds
-   *  one of the slots, and a partitioned task's units take slots like any
+   *  one of the slots, and a split task's units take slots like any
    *  execution, so the budget bounds the runner processes of the whole run.
    *  Runtime-only, and never seen by a remote backend. Absent, spawns are
    *  not budgeted. */
   jobs?: JobSlots;
-  /** Called as each unit of a partitioned task (slice execution or combine
-   *  step) starts and completes. Runtime-only progress reporting. */
+  /** Called as each unit of a split task (a piece, or a merge of their
+   *  outputs) starts, and as it succeeds. Runtime-only progress reporting. */
   onPartitionProgress?: (progress: PartitionProgress) => void;
 }
 
@@ -170,6 +171,11 @@ export class LocalTaskRunner implements TaskRunner {
  * 5. Runs the runner
  * 6. Stores the output and updates status
  *
+ * A task whose work is split over an input — an East body on a stock runner,
+ * emitting its output, with an input `e3.partition` marks — runs through the
+ * engine instead (engine.ts): a unit per piece, each through these steps, and
+ * the units that assemble their outputs.
+ *
  * @param storage - Storage backend
  * @param repo - Repository identifier (for local storage, the path to e3 repository directory)
  * @param taskHash - Hash of the task object
@@ -226,7 +232,17 @@ export async function taskExecute(
     };
   }
 
-  return taskExecuteBody(storage, repo, taskHash, task, inputHashes, { inHash, executionId, startTime }, options);
+  const ids = { inHash, executionId, startTime };
+  if (
+    task.body.type === 'east' &&
+    task.runner.type !== 'custom' &&
+    task.output.kind.type !== 'value' &&
+    task.inputs.some((input) => input.partition.type === 'some')
+  ) {
+    return executeSplitTask(storage, repo, taskHash, task, inputHashes, ids, options,
+      (unitInputs, unitIds, merge) => taskExecuteBody(storage, repo, taskHash, task, unitInputs, unitIds, options, merge));
+  }
+  return taskExecuteBody(storage, repo, taskHash, task, inputHashes, ids, options);
 }
 
 /**
@@ -236,7 +252,7 @@ export async function taskExecute(
  * exited is first rewritten as `interrupted` (see
  * {@link repairInterruptedExecution}), so it no longer reads as live.
  *
- * Exported for the record steps, which probe every unit before running it.
+ * Exported for the engine, which probes every unit before running it.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
@@ -320,8 +336,8 @@ export interface ExecutionIds {
 }
 
 /** The standard execution body: scratch dir, input marshalling, the runner's
- *  argv, spawn, and the output through the store's door. Exported for the
- *  record steps, which run their units through it.
+ *  argv, spawn, and the output through the store's door. The engine runs each
+ *  unit of a split task through it.
  *
  *  What the argv is depends on the body. A command body — a custom task's, or
  *  a record step's — is its command IR, evaluated over the staged paths. An
@@ -329,6 +345,10 @@ export interface ExecutionIds {
  *  unit a set or dict output needs when it closed several runs. An East body
  *  on the `custom` runtime is its command given `run`'s arguments: `-i` for
  *  each input, `-o` and the program's file.
+ *
+ *  Given `merge`, the execution is a merge unit of a split task instead: the
+ *  parts and the range are staged, and `inputHashes` are only the identity its
+ *  record carries.
  *  @internal */
 export async function taskExecuteBody(
   storage: StorageBackend,
@@ -337,7 +357,8 @@ export async function taskExecuteBody(
   task: TaskObject,
   inputHashes: string[],
   ids: ExecutionIds,
-  options: ExecuteOptions = {}
+  options: ExecuteOptions = {},
+  merge: MergeParts | null = null,
 ): Promise<ExecutionResult> {
   const { inHash, executionId, startTime } = ids;
   const stock = task.runner.type !== 'custom';
@@ -380,16 +401,22 @@ export async function taskExecuteBody(
     // a hard link would rewrite the object itself — so it gets copies. A
     // runner whose reader opens a segment manifest gets one staged as the
     // manifest plus its linked segments; every other gets the spliced value.
-    const inputPaths = await marshalInputsToDir(storage, repo, scratchDir, inputHashes, {
+    const staged = merge === null ? inputHashes : [...(merge.range === null ? [] : [merge.range]), ...merge.parts];
+    const inputPaths = await marshalInputsToDir(storage, repo, scratchDir, staged, {
       link: stock,
       manifests: runnerOpensManifests(task.runner),
     });
 
     // Step 6: The runner's argv, by the body.
     const outputPath = path.join(scratchDir, 'output.beast2');
-    let unit: RunUnit | null = null;
+    let unit: TaskUnit | null = null;
     let args: string[];
-    if (task.body.type === 'command') {
+    if (merge !== null) {
+      unit = merge.range === null
+        ? await stageMergeUnit(storage, repo, scratchDir, task, inputPaths, null)
+        : await stageMergeUnit(storage, repo, scratchDir, task, inputPaths.slice(1), inputPaths[0]!);
+      args = unitArgv(unit.runner, unit, options.verbose);
+    } else if (task.body.type === 'command') {
       // The e3 SDK's `customTask` wraps the user command in `["bash", "-c",
       // "<cmd-with-paths-interpolated>"]`. Bash treats `\` as an escape
       // character (e.g. `\U`, `\f`, `\b`), so a Windows backslash path mangles

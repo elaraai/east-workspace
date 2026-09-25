@@ -260,25 +260,25 @@ export const ExecutionEventType = VariantType({
 export type ExecutionEvent = ValueTypeOf<typeof ExecutionEventType>;
 
 /**
- * Progress notification for one unit of a partitioned task — a partition
- * slice execution, a combine step or a merge unit. Delivered through
- * runner-layer callbacks while the logical task runs. Deliberately NOT
- * persisted as execution events: {@link ExecutionEventType} is a frozen beast2
- * wire (see its wire warning), and nothing consumes persisted partition
- * progress — local `[PART]`/`[MERGE]`/`[COMBINE]` lines come straight from
- * this callback.
+ * Progress notification for one unit of a task split into pieces — a piece,
+ * or a unit merging or folding their outputs. Delivered through runner-layer
+ * callbacks while the task runs. Deliberately NOT persisted as execution
+ * events: {@link ExecutionEventType} is a frozen beast2 wire (see its wire
+ * warning), and nothing consumes persisted partition progress — local
+ * `[PART]`/`[MERGE]`/`[COMBINE]` lines come straight from this callback.
  */
 export interface PartitionProgress {
-  /** Which phase the unit belongs to. */
+  /** Which phase the unit belongs to: a piece (`partition`), a merge of a set
+   *  or dict output, or a fold of a fold output (`combine`). */
   phase: 'partition' | 'combine' | 'merge';
   /** Zero-based index of the unit within its phase. */
   index: number;
-  /** Total units in the phase (partitions, or combine steps in the level). */
+  /** Total units in the phase (the pieces, or the units of a merge level). */
   total: number;
-  /** Units of the phase completed so far, including this one when `state`
-   *  is `completed`. */
+  /** Units of the phase that succeeded so far, including this one when
+   *  `state` is `completed`. */
   completed: number;
-  /** Whether the unit started or finished. */
+  /** Whether the unit started, or succeeded. */
   state: 'started' | 'completed';
   /** Whether the unit was served from the execution cache (completed only). */
   cached?: boolean;

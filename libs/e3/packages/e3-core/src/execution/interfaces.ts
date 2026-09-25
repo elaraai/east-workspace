@@ -35,16 +35,16 @@ export interface TaskExecuteOptions {
   onStdout?: (data: string) => void;
   /** Callback for stderr data */
   onStderr?: (data: string) => void;
-  /** The most units of a partitioned task in flight at once — its pool
-   *  width. Defaults to the jobs budget's capacity, else 4. Runtime-only:
-   *  never affects hashes or caching. */
+  /** The most units of a split task in flight at once — its pool width.
+   *  Defaults to the jobs budget's capacity, else 4. Runtime-only: never
+   *  affects hashes or caching. */
   partitionConcurrency?: number;
   /** The local run's jobs budget (see {@link JobSlots}): every runner the
-   *  local runner spawns holds one of its slots, the units of a partitioned
-   *  task included. Runtime-only; a remote runner ignores it. */
+   *  local runner spawns holds one of its slots, the units of a split task
+   *  included. Runtime-only; a remote runner ignores it. */
   jobs?: JobSlots;
-  /** Called as each unit of a partitioned task (slice execution or combine
-   *  step) starts and completes. Runtime-only progress reporting. */
+  /** Called as each unit of a split task (a piece, or a merge of their
+   *  outputs) starts, and as it succeeds. Runtime-only progress reporting. */
   onPartitionProgress?: (progress: PartitionProgress) => void;
 }
 

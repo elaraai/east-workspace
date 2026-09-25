@@ -128,8 +128,6 @@ export async function executeRecordOperation(
   try {
     planned = await planPartitions(storage, repo, {
       primary: operation.over,
-      secondaries: [],
-      by: null,
       targetBytes: operation.targetBytes ?? RECORD_SLICE_BYTES,
     });
   } catch (err) {

@@ -9,9 +9,11 @@
  *
  * The job #770 was reported on: the #765 harness row (16 fields, six nested
  * arrays of 11 structs) re-keyed by a scattered id into a Dict of more than
- * 3 GiB, by an `e3.streamTask` on east-c whose output is folded by `merge`.
- * The CLI runs under `NODE_OPTIONS=--max-old-space-size=256`, a fraction of
- * the output, and must finish with every row in it. `e3 repo gc` then collects
+ * 3 GiB, by an `e3.streamTask` on east-c whose output is folded by `merge`:
+ * the input splits into pieces of the platform's size, and merge units
+ * assemble their outputs. The CLI runs under
+ * `NODE_OPTIONS=--max-old-space-size=256`, a fraction of the output, and must
+ * finish with every row in it. `e3 repo gc` then collects
  * the repository under `--max-old-space-size=128`, over datasets many times
  * its heap.
  *
@@ -153,6 +155,7 @@ describe('partition assembly at scale', { skip: !optedIn ? 'opt-in: set E3_PARTI
   it('assembles a re-keyed output larger than 3 GiB under a 256 MiB orchestrator heap', async () => {
     const run = await runE3Command(['dataflow', 'run', repo, 'ws'], dir, { env: { NODE_OPTIONS: '--max-old-space-size=256' } });
     assert.equal(run.exitCode, 0, `${run.stderr}\n${run.stdout}`);
+    assert.match(run.stdout, /\[MERGE\] rekeyed/, 'the pieces\' outputs were merged by merge units');
 
     const output = await DatasetSegments.open(storage, repo, await outputHash());
     assert.ok(output.bytes >= 3 * GIB, `the output is ${output.bytes} bytes`);

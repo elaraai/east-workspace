@@ -27,6 +27,7 @@
 
 import {
   decodeBeast2For,
+  decodeBeast2ElementsFor,
   carveBeast2Ranged,
   compareFor,
   decodeBeast2FenceFor,
@@ -185,6 +186,45 @@ export class DatasetSegments {
       : openBeast2PagesFor(this.typeValue)(await this.segment(i)).fence(0);
     this.fences.set(i, value);
     return value;
+  }
+
+  /**
+   * Segment `i`'s last key (Dict) or element (Set).
+   *
+   * @remarks
+   * The one bound neither backing stores: a segment's keys end before the next
+   * segment's fence, and the last segment has no next. Costs a read and a
+   * decode of the segment.
+   *
+   * @param i - zero-based segment index
+   * @returns the decoded key
+   * @throws {Error} When the root is an Array, which has no key order, or `i`
+   *   is out of range.
+   */
+  async lastKey(i: number): Promise<unknown> {
+    if (segmentKeyTypeOf(this.typeValue) === null) {
+      throw new Error('beast2 v5: a last key addresses Set and Dict roots; this holds Array');
+    }
+    let last: unknown;
+    for await (const element of decodeBeast2ElementsFor(this.typeValue)([await this.segment(i)])) last = element;
+    return this.typeValue.type === 'Dict' ? (last as [unknown, unknown])[0] : last;
+  }
+
+  /**
+   * Segment `i`'s stored size in bytes: its object's, when a manifest names
+   * it, or its frame's in the blob.
+   *
+   * @param i - zero-based segment index
+   * @returns the size
+   * @throws {Error} When `i` is out of range.
+   */
+  segmentBytes(i: number): number {
+    if (i < 0 || i >= this.counts.length) {
+      throw new Error(`beast2 v5: segment ${i} out of range (${this.counts.length} segments)`);
+    }
+    if (this.backing.kind === 'manifest') return Number(this.backing.manifest.entries[i]!.bytes);
+    const extents = this.backing.extents!;
+    return segmentEnd(extents, i) - extents.offsets[i]!;
   }
 
   /**

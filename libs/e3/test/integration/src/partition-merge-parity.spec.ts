@@ -7,25 +7,32 @@
  * Partition merge parity (issue #770, gate (b)).
  *
  * A task whose output is a Dict or a Set sorts what its body emits, and folds
- * a key's values with the output's `merge` in the order they were emitted;
- * the output then goes through the store's door. So a job that emits its rows
- * in any order must store exactly the manifest its twin stores — a task that
- * emits the same rows already sorted, duplicates adjacent in the order the job
- * emits them, through the same `merge`. The jobs read their input through
- * `e3.partition`, so the comparison holds however the input is cut. Per runner
- * on PATH:
+ * a key's values with the output's `merge` in the order they were emitted; a
+ * task split into pieces merges its pieces' outputs the same way, in piece
+ * order, and the output then goes through the store's door. So a job that
+ * emits its rows in any order, over pieces, must store exactly the manifest its
+ * twin stores — a task that emits the same rows already sorted, duplicates
+ * adjacent in the order the job emits them, through the same `merge`. The jobs
+ * read their input through `e3.partition`, and the test's piece size makes a
+ * piece of every segment of it. Per runner on PATH:
  *
- * - a re-keyed Dict, whose keys repeat within the input's segments and across
- *   them, stores its twin's manifest, and so does a re-keyed Set;
- * - a Dict keyed in three groups, one per third of the input's segments, and
- *   one keyed by id, store their twins' manifests;
+ * - a re-keyed Dict, whose keys repeat within a piece and across pieces,
+ *   stores its twin's manifest, and so does a re-keyed Set: every piece's keys
+ *   spread over the whole key space, so one level of merge units assembles
+ *   them;
+ * - a Dict keyed in three groups, one per third of the input's segments, has
+ *   pieces whose outputs form three groups, each merged by one unit, and
+ *   stores its twin's manifest;
+ * - a Dict keyed by id has pieces whose outputs are disjoint, runs no merge
+ *   unit, and stores its twin's manifest;
  * - outputs of one type name one header, whichever task wrote them;
  * - a job over wide rows — `Dict<Integer, Struct{v: String, f0..f149:
  *   Integer}>`, 2,200 rows of 5,380 characters of 64-symbol noise, rows 0–379
  *   one character longer, rows the cut rule measures by their bytes — stores
  *   its twin's manifest;
- * - a job over 10,000 narrow rows in scrambled order stores its twin's
- *   manifest;
+ * - a job over 10,000 narrow rows in scrambled order, emitting four rows for
+ *   each, so every piece's output spans several segments, merges over key
+ *   ranges, a unit a range, and stores its twin's manifest;
  * - a forced re-run at `--jobs 1`, one runner at a time where the first run
  *   held as many as there are CPUs, writes the same hash for every output:
  *   the bytes are a function of the inputs and the task, never of how many
@@ -36,8 +43,8 @@
  * runner.
  *
  * The inputs are delivered in batches of the test's choosing, and the store
- * cuts each the Writer's way: `grouped`'s groups are thirds of the Writer's
- * segments of the table.
+ * cuts each the Writer's way: a piece of the table is one of the Writer's
+ * segments of it, and `grouped`'s groups are thirds of them.
  *
  * A runner is on PATH when `<runner> version` exits 0 in this process's
  * environment, which the CLI passes on to the runners it spawns. CI builds all
@@ -94,9 +101,16 @@ const WIDE_LONGER_ROWS = 380;
 /** The narrow rows: enough of them to fill many segments. */
 const RANGED_ROWS = 10_000;
 const RANGED_CHARS = 40;
-/** The first ids of the second and third thirds of the Writer's segments of
- *  the table, which bound `grouped`'s groups; set once the table is written. */
+/** The rows `ranged` emits for each row it reads. */
+const RANGED_FANOUT = 4;
+/** The pieces the table is cut into — one per segment the Writer cuts it
+ *  into — and the first ids of the second and third thirds of them, which
+ *  bound `grouped`'s groups; set once the table is written. */
+let pieces = 0;
 let groupBounds: [bigint, bigint] = [0n, 0n];
+/** Pieces of 1 to 16 KiB of stored bytes: the smallest segment of the table
+ *  is larger, so every segment of it is a piece. */
+const PIECES = { E3_TEST_PIECE_BYTES: '4096' };
 
 const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 
@@ -281,13 +295,19 @@ function parityPackage(name: string, runner: Runner) {
     });
   });
 
+  // Four rows for each row read, so every piece's output holds several
+  // segments of rows spread over the whole key space.
   const ranged = e3.streamTask('ranged', {
     inputs: [e3.partition(rangedScrambled)],
     output: e3.output.dict(IntegerType, AggType, { merge: ($, _key, a, _b) => a }),
     runner,
   }, ($, rows, emit) => {
     $.for(rows, ($, pair) => {
-      $(emit(pair.key, pair.value));
+      const at = pair.key.multiply(4n);
+      $(emit(at, pair.value));
+      $(emit(at.add(1n), pair.value));
+      $(emit(at.add(2n), pair.value));
+      $(emit(at.add(3n), pair.value));
     });
   });
   const rangedTwin = e3.streamTask('ranged_twin', {
@@ -296,7 +316,11 @@ function parityPackage(name: string, runner: Runner) {
     runner,
   }, ($, rows, emit) => {
     $.for(rows, ($, pair) => {
-      $(emit(pair.key, pair.value));
+      const at = pair.key.multiply(4n);
+      $(emit(at, pair.value));
+      $(emit(at.add(1n), pair.value));
+      $(emit(at.add(2n), pair.value));
+      $(emit(at.add(3n), pair.value));
     });
   });
 
@@ -327,17 +351,18 @@ describe('partition merge parity', () => {
     mkdirSync(inputDir, { recursive: true });
     const table = makeTable();
     assert.ok(deflateRawSync(table.get(0n)!.text).length > 2048, 'a row is wider than 2 KB deflated');
-    // The thirds of the Writer's segments of the table, which bound
-    // `grouped`'s groups.
+    // A piece per segment the Writer cuts the table into, and the thirds of
+    // them that bound `grouped`'s groups.
     const tableCounts = readBeast2Extents(encodeBeast2PagedFor(TableType)(table)).counts;
-    assert.ok(tableCounts.length >= 6, `the table is cut into several segments: ${tableCounts.length}`);
+    pieces = tableCounts.length;
+    assert.ok(pieces >= 6, `the table is cut into several segments: ${pieces}`);
     const firstIds: bigint[] = [];
     let at = 0;
     for (const count of tableCounts) {
       firstIds.push(BigInt(at));
       at += count;
     }
-    groupBounds = [firstIds[Math.floor(tableCounts.length / 3)]!, firstIds[Math.floor((2 * tableCounts.length) / 3)]!];
+    groupBounds = [firstIds[Math.floor(pieces / 3)]!, firstIds[Math.floor((2 * pieces) / 3)]!];
     const wideRows = makeWideRows();
     const rangedRows = makeRangedRows();
     const rangedScrambled = rangedRows.map((_, i) => rangedRows[Number((BigInt(i) * 7919n) % BigInt(RANGED_ROWS))]!);
@@ -369,6 +394,7 @@ describe('partition merge parity', () => {
     describe(name, { skip: onPath(name) ? false : `${name} not on PATH` }, () => {
       let dir: string;
       let repo: string;
+      let run: { stdout: string; stderr: string };
       let tasks: ReturnType<typeof parityPackage>['tasks'];
       const storage = new LocalStorage();
 
@@ -380,6 +406,22 @@ describe('partition merge parity', () => {
       };
       /** A task's output, whole. */
       const outputBlob = async (task: TaskDef): Promise<Uint8Array> => readDatasetWhole(storage, repo, await outputHash(task));
+
+      /** The lines of a split task's log naming its units. */
+      const unitLines = async (task: string): Promise<string[]> => {
+        const logs = await runE3Command(['task', 'logs', repo, `ws.${task}`, '--all'], dir);
+        assert.equal(logs.exitCode, 0, logs.stderr);
+        return logs.stdout.split('\n').filter((line) => /^(piece|merge) /.test(line));
+      };
+      /** The merge units of a log, as their position and state, sorted: the
+       *  log names them as they finish. */
+      const mergeLines = (lines: string[]): string[] =>
+        lines.filter((line) => line.startsWith('merge ')).map((line) => line.split(' ').slice(0, 6).join(' ')).sort();
+      /** The merge units of one level, numbered in order. */
+      const oneLevel = (units: string[]): string[] => units.map((_, i) => `merge level 1/1 unit ${i + 1}/${units.length} completed`).sort();
+      /** The pieces of a log that ran, of `total`. */
+      const piecesRun = (lines: string[], total: number): number =>
+        lines.filter((line) => new RegExp(`^piece \\d+/${total} completed `).test(line)).length;
 
       before(async () => {
         dir = createTestDir();
@@ -397,11 +439,13 @@ describe('partition merge parity', () => {
           ['workspace', 'create', repo, 'ws'],
           ['workspace', 'deploy', repo, 'ws', `${packageName}@1.0.0`],
           ...Object.entries(inputFiles).map(([input, file]) => ['dataset', 'set', repo, `ws.${input}`, '--from-file', file]),
-          ['dataflow', 'run', repo, 'ws'],
         ]) {
           const result = await runE3Command(args, dir);
           assert.equal(result.exitCode, 0, `e3 ${args.join(' ')}:\n${result.stderr}\n${result.stdout}`);
         }
+        const result = await runE3Command(['dataflow', 'run', repo, 'ws'], dir, { env: PIECES });
+        assert.equal(result.exitCode, 0, `dataflow run:\n${result.stderr}\n${result.stdout}`);
+        run = result;
       });
 
       after(() => {
@@ -409,6 +453,13 @@ describe('partition merge parity', () => {
       });
 
       it('a re-keyed Dict folded by merge stores its twin\'s manifest', async () => {
+        const lines = await unitLines('rekeyed');
+        assert.equal(piecesRun(lines, pieces), pieces, lines.join('\n'));
+        // One group of every piece's output: one level of units, one a range.
+        const units = mergeLines(lines);
+        assert.ok(units.length >= 1, lines.join('\n'));
+        assert.deepEqual(units, oneLevel(units), lines.join('\n'));
+
         assert.equal(await outputHash(tasks.rekeyed), await outputHash(tasks.rekeyedTwin), 'the output is the twin\'s manifest');
         const value = decodeBeast2For(OutType)(await outputBlob(tasks.rekeyed));
         assert.equal(value.size, 1200);
@@ -418,16 +469,32 @@ describe('partition merge parity', () => {
       });
 
       it('a re-keyed Set stores its twin\'s manifest', async () => {
+        const lines = await unitLines('keys');
+        const units = mergeLines(lines);
+        assert.ok(units.length >= 1, lines.join('\n'));
+        assert.deepEqual(units, oneLevel(units), lines.join('\n'));
         assert.equal(await outputHash(tasks.keys), await outputHash(tasks.keysTwin), 'the output is the twin\'s manifest');
         assert.equal(decodeBeast2For(KeysType)(await outputBlob(tasks.keys)).size, 1200);
       });
 
-      it('a Dict keyed in three groups stores its twin\'s manifest', async () => {
+      it('a Dict keyed in three groups merges one unit a group and stores its twin\'s manifest', async () => {
+        // Every piece's output of a group is one segment, so each group merges
+        // whole, in one unit.
+        const lines = await unitLines('grouped');
+        assert.deepEqual(mergeLines(lines), [
+          'merge level 1/1 unit 1/3 completed',
+          'merge level 1/1 unit 2/3 completed',
+          'merge level 1/1 unit 3/3 completed',
+        ]);
         assert.equal(await outputHash(tasks.grouped), await outputHash(tasks.groupedTwin), 'the output is the twin\'s manifest');
         assert.equal(decodeBeast2For(OutType)(await outputBlob(tasks.grouped)).size, 300, 'three groups of 100 keys');
       });
 
-      it('a Dict keyed by id stores its twin\'s manifest', async () => {
+      it('a Dict keyed by id runs no merge unit and stores its twin\'s manifest', async () => {
+        const lines = await unitLines('disjoint');
+        assert.equal(piecesRun(lines, pieces), pieces, lines.join('\n'));
+        assert.deepEqual(lines.filter((line) => line.startsWith('merge ')), [], 'no merge unit ran');
+        assert.doesNotMatch(run.stdout, /\[MERGE\] disjoint/);
         assert.equal(await outputHash(tasks.disjoint), await outputHash(tasks.disjointTwin), 'the output is the twin\'s manifest');
         assert.equal(decodeBeast2For(OutType)(await outputBlob(tasks.disjoint)).size, ROWS);
       });
@@ -440,7 +507,12 @@ describe('partition merge parity', () => {
       });
 
       it('wide rows store their twin\'s manifest', async () => {
-        // 2,200 rows of about 6 KB: the output is cut by bytes, not by count.
+        // 2,200 rows of about 6 KB: the output is cut by bytes, not by count,
+        // and so is every piece's.
+        const lines = await unitLines('wide');
+        const units = mergeLines(lines);
+        assert.ok(units.length >= 1, lines.join('\n'));
+        assert.deepEqual(units, oneLevel(units), lines.join('\n'));
         const output = await outputHash(tasks.wide);
         assert.equal(output, await outputHash(tasks.wideTwin), 'the output is the twin\'s manifest');
         const segments = await DatasetSegments.open(storage, repo, output);
@@ -449,10 +521,19 @@ describe('partition merge parity', () => {
         written.set(name, { rekeyed: await outputHash(tasks.rekeyed), keys: await outputHash(tasks.keys), wide: output, ranged: await outputHash(tasks.ranged) });
       });
 
-      it('narrow rows emitted in scrambled order store their twin\'s manifest', async () => {
+      it('narrow rows emitted in scrambled order merge per key range and store their twin\'s manifest', async () => {
+        // Every piece's output spans several segments and the whole key space,
+        // so the group cuts into ranges, each merged by its own unit — where
+        // outputs of one segment would leave it one range and one unit.
+        const lines = await unitLines('ranged');
+        const total = Number(/^piece \d+\/(\d+) /.exec(lines[0] ?? '')?.[1]);
+        assert.ok(total >= 2 && piecesRun(lines, total) === total, lines.join('\n'));
+        const units = mergeLines(lines);
+        assert.ok(units.length >= 2, `the merge ran per key range: ${units.join(', ')}`);
+        assert.deepEqual(units, oneLevel(units), lines.join('\n'));
         const output = await outputHash(tasks.ranged);
         assert.equal(output, await outputHash(tasks.rangedTwin), 'the output is the twin\'s manifest');
-        assert.equal((await DatasetSegments.open(storage, repo, output)).elementCount, RANGED_ROWS);
+        assert.equal((await DatasetSegments.open(storage, repo, output)).elementCount, RANGED_ROWS * RANGED_FANOUT);
       });
 
       it('a forced serial re-run writes the same hash for every output', async () => {
@@ -462,7 +543,7 @@ describe('partition merge parity', () => {
           return out;
         };
         const before = await hashes();
-        const rerun = await runE3Command(['dataflow', 'run', repo, 'ws', '--force', '--jobs', '1'], dir);
+        const rerun = await runE3Command(['dataflow', 'run', repo, 'ws', '--force', '--jobs', '1'], dir, { env: PIECES });
         assert.equal(rerun.exitCode, 0, `--force --jobs 1:\n${rerun.stderr}\n${rerun.stdout}`);
         assert.match(rerun.stdout, /\[DONE\] ranged /, 'the forced run executed the partitioned task');
         for (const [task, hash] of await hashes()) {

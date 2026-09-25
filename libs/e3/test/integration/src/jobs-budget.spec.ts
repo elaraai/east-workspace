@@ -5,9 +5,10 @@
 
 /**
  * The jobs budget, end to end (issue #770): `e3 dataflow run --jobs 2` over
- * four tasks, none depending on another — three plain tasks and one whose
- * input is partitioned — keeps exactly two runner processes in flight at once,
- * and every execution completes once the hold is released.
+ * three plain tasks and a task split into several pieces, none depending on
+ * another, keeps exactly two runner processes in flight at once — the plain
+ * tasks and the pieces draw from the same budget — and every execution
+ * completes once the hold is released.
  *
  * Every body spins while a hold file exists, so the run parks with its two
  * runners up and everything else queued; the `running` execution records
@@ -21,7 +22,7 @@ import { join } from 'node:path';
 import e3 from '@elaraai/e3';
 import { East, DictType, IntegerType, SortedMap, StringType, compareFor, variant } from '@elaraai/east';
 import { FileSystem } from '@elaraai/east-node-std';
-import { LocalStorage, workspaceGetTaskHash } from '@elaraai/e3-core';
+import { DatasetSegments, LocalStorage, workspaceGetDatasetHash, workspaceGetTaskHash } from '@elaraai/e3-core';
 import { encodeInSegmentsOf } from '@elaraai/e3-core/test';
 import { createTestDir, removeTestDir, runE3Command, spawnE3Command, waitFor } from './helpers.js';
 
@@ -61,7 +62,8 @@ describe('the jobs budget', () => {
     });
     const zip = join(dir, 'budget.zip');
     await e3.export(e3.package('budget', '1.0.0', ...plain, held), zip);
-    // The table the partitioned task reads, stored in several segments.
+    // Enough rows for the table to be stored in several segments, a piece
+    // each at the test's piece size.
     const table = new SortedMap(Array.from({ length: 3_600 }, (_, i) => [BigInt(i), `row-${i}`] as [bigint, string]), compareFor(IntegerType));
     const tablePath = join(dir, 'table.beast2');
     writeFileSync(tablePath, encodeInSegmentsOf(TableType, 1_000)(table));
@@ -82,8 +84,9 @@ describe('the jobs budget', () => {
     removeTestDir(dir);
   });
 
-  /** The runner pids of every `running` record across the tasks — none of
-   *  them e3's own. */
+  /** The runner pids of every `running` record across the plain tasks and
+   *  the split task's pieces — not the split task's own record, whose pid is
+   *  e3's. */
   async function runnersUp(e3Pid: number | undefined): Promise<number[]> {
     const pids: number[] = [];
     for (const name of [...PLAIN_TASKS, 'held_p']) {
@@ -95,9 +98,10 @@ describe('the jobs budget', () => {
     return pids;
   }
 
-  it('keeps exactly --jobs runners in flight across the tasks, then completes them all', async () => {
+  it('keeps exactly --jobs runners in flight across plain tasks and pieces, then completes them all', async () => {
     writeFileSync(hold, '');
-    const run = spawnE3Command(['dataflow', 'run', repo, 'ws', '--jobs', '2'], dir);
+    // Pieces of 64 to 1024 stored bytes: a piece a segment of the table.
+    const run = spawnE3Command(['dataflow', 'run', repo, 'ws', '--jobs', '2'], dir, { env: { E3_TEST_PIECE_BYTES: '256' } });
     // Two runners come up and hold; nothing else spawns while they do.
     await waitFor(async () => (await runnersUp(run.pid)).length === 2, 30_000);
     await new Promise((resolve) => setTimeout(resolve, 750));
@@ -110,12 +114,17 @@ describe('the jobs budget', () => {
     assert.match(result.stdout, /Jobs: 2/);
     for (const name of [...PLAIN_TASKS, 'held_p']) assert.match(result.stdout, new RegExp(`\\[DONE\\] ${name} `));
     assert.deepEqual(await runnersUp(run.pid), [], 'no runner is left running');
-    // Every execution succeeded.
+    // Every execution — three plain tasks, a piece per segment of the table,
+    // the split task's own — succeeded.
+    const { hash: tableHash } = await workspaceGetDatasetHash(storage, repo, 'ws', [variant('field', 'inputs'), variant('field', 'table')]);
+    const pieces = (await DatasetSegments.open(storage, repo, tableHash!)).segmentCount;
+    assert.ok(pieces > 2, `the table is stored in ${pieces} segments`);
+    assert.match(result.stdout, new RegExp(`\\[PART\\] held_p ${pieces}/${pieces} `), 'every piece ran');
     let successes = 0;
     for (const name of [...PLAIN_TASKS, 'held_p']) {
       const taskHash = await workspaceGetTaskHash(storage, repo, 'ws', name);
       for (const { status } of await storage.refs.executionListLatest(repo, taskHash)) if (status.type === 'success') successes++;
     }
-    assert.equal(successes, 4);
+    assert.equal(successes, 3 + pieces + 1);
   });
 });

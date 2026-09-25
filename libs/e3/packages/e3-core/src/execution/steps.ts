@@ -12,13 +12,13 @@
  * overlapping ones form components, and a component merges through a tree of
  * units, each taking up to {@link MERGE_TREE_FANIN} entries. Nothing here
  * decodes a partial whole: a partial's range is its first fence and its last
- * key, read from its index and one segment. A record's index build merges its
- * partials this way.
+ * key, read from its manifest and one segment. A split task's set or dict
+ * output and a record's index build merge their partials this way.
  */
 
-import { compareFor, type EastTypeValue } from '@elaraai/east';
+import { compareFor, segmentKeyTypeOf, type EastTypeValue } from '@elaraai/east';
 import type { StorageBackend } from '../storage/interfaces.js';
-import { PartitionBlob } from './partitionIo.js';
+import { DatasetSegments } from '../dataset-open.js';
 
 /** The most partials one merge unit merges. */
 export const MERGE_TREE_FANIN = 32;
@@ -58,21 +58,16 @@ export async function mergeComponents(
   let typeValue: EastTypeValue | null = null;
   const ranges: { partition: number; first: unknown; last: unknown }[] = [];
   for (let p = 0; p < partials.length; p++) {
-    const blob = await PartitionBlob.open(storage, repo, partials[p]!);
-    try {
-      typeValue ??= blob.extents.typeValue;
-      if (blob.extents.offsets.length === 0) continue;
-      ranges.push({ partition: p, first: await blob.fence(0), last: await blob.lastKey() });
-    } finally {
-      blob.release();
+    const segments = await DatasetSegments.open(storage, repo, partials[p]!);
+    if (segments.typeValue.type !== 'Dict' && segments.typeValue.type !== 'Set') {
+      throw new Error(`partition merge applies to Dict and Set outputs, got ${segments.typeValue.type}`);
     }
+    typeValue ??= segments.typeValue;
+    if (segments.segmentCount === 0) continue;
+    ranges.push({ partition: p, first: await segments.fence(0), last: await segments.lastKey(segments.segmentCount - 1) });
   }
   const collection = typeValue!;
-  if (collection.type !== 'Dict' && collection.type !== 'Set') {
-    throw new Error(`partition merge applies to Dict and Set outputs, got ${collection.type}`);
-  }
-  const keyType: EastTypeValue = collection.type === 'Dict' ? collection.value.key : collection.value;
-  const cmp = compareFor(keyType as any) as (a: unknown, b: unknown) => number;
+  const cmp = compareFor(segmentKeyTypeOf(collection)!) as (a: unknown, b: unknown) => number;
 
   ranges.sort((a, b) => cmp(a.first, b.first) || a.partition - b.partition);
   const components: MergeComponent[] = [];

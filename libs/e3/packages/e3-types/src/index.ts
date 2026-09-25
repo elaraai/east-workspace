@@ -65,10 +65,6 @@ export {
   type MergeRangePlan,
   encodePartitionPlan,
   decodePartitionPlan,
-  type ProjectionShape,
-  partitionProjectionShape,
-  projectedKeyType,
-  projectKey,
 } from './task.js';
 
 // Stream and merge commands
