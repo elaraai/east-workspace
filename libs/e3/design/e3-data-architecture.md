@@ -318,7 +318,7 @@ The left column decides how work, and so floating-point folds, are grouped, whic
 
 ### 3.11 Object kinds and GC
 
-Every object this plan introduces or rewrites that names other objects carries a `kind` tag: task objects and unit graphs (`$plan`), alongside the existing `$segments` and `$record`. A piece merges its own runs (§3.7), so no object names a unit's runs. GC's `markReachable` dispatches on the tag. Pre-cutover shapes keep their shape recognition, each pinned by a test (F36). Every new kind lands with its GC test in the same PR.
+Every object this plan introduces or rewrites that names other objects carries a `kind` tag: task objects and unit graphs (`$plan`), alongside the existing `$segments` and `$record`. A piece merges its own runs (§3.7), so no object names a unit's runs. GC's `markReachable` dispatches on the tag through one table: for each tag, the field names of every released version of its kind, and the objects a value of it names. An object is walked as a kind when its fields begin with one of the kind's versions and its `kind` is the kind's tag. So a later version, which appends fields, is walked for the fields this build knows, and a new version is one entry in the table and a GC test. Pre-cutover shapes keep their shape recognition, each pinned by a test (F36). Every new kind lands with its GC test in the same PR.
 
 ### 3.12 Migration
 
@@ -545,6 +545,11 @@ In three parts:
      - `docs/conventions/WIRE_MIGRATION.md` moves the execution event wire from the frozen wires to the stored state that changes by version.
      - `--jobs` is the one knob a person sets. The deprecated `--concurrency` and `--partition-concurrency` aliases and the `partitionConcurrency` option are deleted, and the TUI's `/run` takes `--jobs`. A split task's units take the dataflow's slots, and a task run on its own sizes its pool to the jobs budget.
   4. **Kind tags, GC and 4a's acceptance tests.**
+     - GC dispatches on the tag (§3.11): one table, keyed by `$segments`, `$record`, `$task` and `$plan`, replaces each tagged kind's own recognizer. Every shape without a tag that a repository can hold keeps its shape recognition, and each of its versions is pinned by a test (F36): packages, functions, records, index objects, mutations, environment specs, commits, trees, task objects from before the cutover, and partition plans.
+     - Each unit's peak memory, as its runner reports it (`peakBytes`), goes on the unit's line in the task's log. Stage 5 stores it in the execution record.
+     - The re-key acceptance test (§6), `rekey-bound.spec.ts` beside `partition-scale.spec.ts`: a `streamTask` over a partitioned collection of nested rows, emitting to a `dict` with `merge` in random key order, on every runner installed and at two input sizes. Every unit's peak stays under the runner's baseline plus the RunSorter's cap and does not grow with the input, e3 runs under a fixed heap, and the output is the Writer's manifest for the value, on every runner and at `--jobs` 1 and the default. It runs small in CI, where each piece still closes more than one run, and at full scale by hand.
+     - A crash resumes at the unit: `kill -9` of e3 once some pieces have finished, and the next run finds them in the execution cache and runs only the rest.
+     - The other acceptance items of 4a are tested already: a yield resumes at the unit (the orchestration spec), an insertion re-runs only the pieces around it (the engine's spec), and GC keeps what a unit graph names (the GC spec).
 - **4b — records.**
   - Index builds and mutations on the engine (§3.7).
   - `$conflict` in the delta.
