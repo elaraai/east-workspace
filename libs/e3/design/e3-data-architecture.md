@@ -214,7 +214,7 @@ It checks the declared type, as `dataset-type.ts` does today, and never decodes 
 
 The backend capabilities every path relies on — ranged reads, adoption by link, `materialize`, plan and owner records, and the adoption memo — become required (F37), and their whole-object fallbacks are deleted (F21).
 
-The door frames inline, on the calling thread. The worker frame pool keeps each finished frame's buffers until that worker's GC runs, which V8 triggers only after about 64 MB of them per worker (#841), so a door that framed on it would hold memory in proportion to the value. Stage 5 bounds the pool, and the door frames on it again.
+The door frames on the worker frame pool once a value is large enough to be worth it. The pool holds the frames in flight and nothing more: each worker reuses its slots' shared buffers and its deflate's working buffers, so nothing a frame leaves waits on a worker's GC, which V8 runs only after about 64 MB of buffers per worker (#841). Its memory is bounded by the workers and the largest segment, whatever it frames. A worker that fails abandons the pool, and the process frames inline from then on. e3's own pool is sized by the budget (§3.8).
 
 Scratch defaults to a directory inside the repository, on the object store's filesystem. Runner output then links in without a copy and never sits on tmpfs (F33).
 
@@ -260,6 +260,7 @@ One budget replaces the dataflow's `concurrency`, the partition pool's width and
 - **Capacity.**
   - Cores: `-j`, defaulting to the CPUs available (affinity and the cgroup's `cpu.max`, as today).
   - Memory: `--memory` or `E3_MEMORY`, defaulting to the cgroup's `memory.max` found the same way, else physical memory, less a reserve for e3 and the OS.
+  - e3's own framing: the door frames on a worker pool in e3's process (§3.6), whose workers take cores too. The CLI and the API server cap the pool from the budget, at two workers by default: the door's writing thread is the bottleneck, and two give it all the speed-up measured on narrow rows.
 - **Admission.** A unit takes one core, which is its `threads` grant, plus a memory reservation, and starts when both fit.
   - A unit larger than the whole budget runs alone.
   - A unit that does not fit lets smaller ones pass for a bounded time, then waits for the room it needs.
@@ -605,11 +606,13 @@ Changes:
 - Remove `state.concurrency` and the API request's `concurrency`, which the budget replaces (F33). `partitionConcurrency` and the deprecated `--concurrency` and `--partition-concurrency` aliases went in stage 4a.
 - **The frame pool** (#841):
   - its memory becomes O(workers × segment): shared buffers reused per slot, and nothing allocated per frame that waits on a worker's GC;
-  - then the store door frames on it again.
+  - then the store door frames on it again;
+  - a worker that fails, loading or later, abandons the pool instead of crashing its process, and workers start without the parent's node options, which one could refuse: `--input-type` did (decided 2026-09-26: found while implementing);
+  - e3's own pool, the one the door frames on, is sized by the budget (§3.8) (decided 2026-09-26).
 
 Built in four parts, in this order (decided 2026-09-26):
-1. **The frame pool** (#841): its memory bounded by workers × segment, and the store door framing on it again.
-2. **The budget:** cores and memory (`--memory` / `E3_MEMORY`, the cgroup's `memory.max`), admission, and the removal of `state.concurrency` and the API request's `concurrency`.
+1. **The frame pool** (#841): its memory bounded by workers × segment, the store door framing on it again, and a worker's failure no longer crashing its process.
+2. **The budget:** cores and memory (`--memory` / `E3_MEMORY`, the cgroup's `memory.max`), admission, e3's own frame pool sized from it, and the removal of `state.concurrency` and the API request's `concurrency`.
 3. **Reservations from measured peaks:** execution records store each unit's `peakBytes`, a unit reserves its kind's recent peak, and a task with no history runs one unit before it fans out.
 4. **The guard,** and per-unit cgroups where delegation exists.
 

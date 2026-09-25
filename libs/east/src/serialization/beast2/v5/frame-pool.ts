@@ -14,11 +14,22 @@
  *
  * The writer's API is synchronous — {@link Beast2Writer.write} is called from
  * inside compiled East bodies (the emit sink) — so results cannot come back as
- * messages the main thread would have to yield to receive. Each job instead
- * carries three `SharedArrayBuffer`s: the logical bytes in, the frame bytes
- * out, and a status cell the worker flips and `Atomics.notify`s. The main
- * thread polls the cell to append what is done and `Atomics.wait`s on it only
- * when it must (back-pressure, a settle, `finish`).
+ * messages the main thread would have to yield to receive. A frame instead
+ * travels through a slot: three `SharedArrayBuffer`s — the logical bytes in,
+ * the frame bytes out, and a status cell the worker flips and
+ * `Atomics.notify`s — handed to one worker once and reused by every frame
+ * after, grown only for a larger segment. The main thread polls the cell to
+ * append what is done and `Atomics.wait`s on it only when it must
+ * (back-pressure, a settle, `finish`).
+ *
+ * Nothing a frame allocates waits on a worker's garbage collector. A worker
+ * allocates almost nothing on its own heap, so its collector rarely runs — V8
+ * weighs buffers' memory towards a collection only after about 64 MiB of it per
+ * isolate — and fresh buffers shared per frame were held up to that much per
+ * worker (#841). The pool holds its slots: two segments' bytes for each frame in
+ * flight, and a writer keeps at most two in flight per worker. A slot grows by
+ * doubling, so the buffers it outgrew, which wait on that GC, come to less than
+ * it holds.
  *
  * Node-only and optional: without `worker_threads`, `SharedArrayBuffer` or a
  * second CPU, {@link framePool} returns `null` and the writer frames inline,
@@ -34,7 +45,9 @@
  * its isolate before its `catch` runs — and the main thread cannot receive the
  * worker's `exit` event while it is blocked waiting on that worker's frame. So
  * every wait is bounded: a frame pending past the wait timeout fails, the pool
- * is abandoned, and the process frames inline from then on.
+ * is abandoned, and the process frames inline from then on. A worker's failure
+ * the main thread hears between writes — its `error` event — abandons the pool
+ * the same way, where unheard it would end the process.
  *
  * The pool is process-wide and outlives the write that started it, so a
  * long-lived process — an API server, a terminal UI — would otherwise keep one
@@ -108,10 +121,11 @@ type WorkerLike = {
   postMessage(message: unknown): void;
   unref(): void;
   terminate(): Promise<number>;
+  on(event: "error", listener: () => void): unknown;
 };
 type WorkerThreadsModule = {
   isMainThread: boolean;
-  Worker: new (filename: URL, options: { workerData: unknown }) => WorkerLike;
+  Worker: new (filename: URL, options: { workerData: unknown; execArgv: string[] }) => WorkerLike;
 };
 type OsModule = { availableParallelism?: () => number; cpus(): unknown[] };
 type FsModule = { existsSync(path: URL): boolean };
@@ -143,6 +157,10 @@ const FRAME_POOL_IDLE_MS = 30_000;
 /** How often the live pool is checked for idleness (more often only when the
  *  idle limit is shorter). */
 const IDLE_CHECK_INTERVAL_MS = 10_000;
+
+/** The bytes a slot's input starts with, so a run of small segments does not
+ *  grow it frame by frame. */
+const SLOT_MIN_BYTES = 64 * 1024;
 
 /** The settings in force; {@link configureFramePool} changes them. */
 const settings: Required<FramePoolSettings> = {
@@ -244,6 +262,17 @@ function retireIfIdle(): void {
   if (!(shared instanceof WorkerFramePool)) armIdleCheck();
 }
 
+/** A frame's way to one worker and back: its buffers, reused by every frame
+ *  the slot carries. */
+interface Slot {
+  readonly id: number;
+  input: SharedArrayBuffer;
+  output: SharedArrayBuffer;
+  readonly status: Int32Array;
+  /** Whether the worker has the slot's buffers as they are now. */
+  sent: boolean;
+}
+
 /** The worker-thread pool {@link framePool} hands out. */
 class WorkerFramePool implements FramePool {
   readonly workers: number;
@@ -254,45 +283,70 @@ class WorkerFramePool implements FramePool {
   /** When a frame was last submitted or taken, or the pool started. */
   lastActivity = Date.now();
   private readonly threads: readonly WorkerLike[];
+  /** Each worker's slots with no frame in them. */
+  private readonly free: Slot[][];
+  private slots = 0;
   private next = 0;
 
   constructor(threads: readonly WorkerLike[]) {
     this.threads = threads;
     this.workers = threads.length;
+    this.free = threads.map(() => []);
   }
 
   submit(logical: Uint8Array, codec: Beast2Codec): PendingFrame {
-    const input = new SharedArrayBuffer(Math.max(1, logical.length));
-    new Uint8Array(input).set(logical);
-    const output = new SharedArrayBuffer(logical.length + FRAME_HEADER_MAX);
-    const status = new Int32Array(new SharedArrayBuffer(8));
-    this.threads[this.next]!.postMessage({ input, length: logical.length, output, status: status.buffer, codec });
+    const worker = this.next;
     this.next = (this.next + 1) % this.threads.length;
+    // A worker has a slot for each frame it holds, so several writers sharing
+    // the pool never wait on one another's slots.
+    const slot = this.free[worker]!.pop() ?? {
+      id: this.slots++,
+      input: new SharedArrayBuffer(SLOT_MIN_BYTES),
+      output: new SharedArrayBuffer(SLOT_MIN_BYTES + FRAME_HEADER_MAX),
+      status: new Int32Array(new SharedArrayBuffer(8)),
+      sent: false,
+    };
+    if (slot.input.byteLength < logical.length) {
+      const bytes = 2 ** Math.ceil(Math.log2(logical.length));
+      slot.input = new SharedArrayBuffer(bytes);
+      slot.output = new SharedArrayBuffer(bytes + FRAME_HEADER_MAX);
+      slot.sent = false;
+    }
+    new Uint8Array(slot.input).set(logical);
+    Atomics.store(slot.status, 0, PENDING);
+    const job: FrameJob = { slot: slot.id, length: logical.length, codec };
+    if (!slot.sent) {
+      job.buffers = { input: slot.input, output: slot.output, status: slot.status.buffer as SharedArrayBuffer };
+      slot.sent = true;
+    }
+    this.threads[worker]!.postMessage(job);
     this.outstanding++;
     this.lastActivity = Date.now();
     let taken = false;
     return {
-      ready: () => Atomics.load(status, 0) !== PENDING,
+      ready: () => Atomics.load(slot.status, 0) !== PENDING,
       take: () => {
         try {
           const deadline = Date.now() + settings.waitTimeoutMs;
-          while (Atomics.load(status, 0) === PENDING) {
+          while (Atomics.load(slot.status, 0) === PENDING) {
             const remaining = deadline - Date.now();
             if (this.lost || remaining <= 0) {
               abandonPool(this);
               throw new Error("beast2 v5: a frame worker stopped responding — its thread was lost");
             }
-            Atomics.wait(status, 0, PENDING, Math.min(FRAME_WAIT_SLICE_MS, remaining));
+            Atomics.wait(slot.status, 0, PENDING, Math.min(FRAME_WAIT_SLICE_MS, remaining));
           }
-          if (Atomics.load(status, 0) === FAILED) {
+          if (Atomics.load(slot.status, 0) === FAILED) {
             throw new Error("beast2 v5: a frame worker failed to build a frame");
           }
-          return new Uint8Array(output, 0, Atomics.load(status, 1)).slice();
+          return new Uint8Array(slot.output, 0, Atomics.load(slot.status, 1)).slice();
         } finally {
-          // Taken once, however it ended: a failed frame is not outstanding.
+          // Taken once, however it ended: a failed frame is not outstanding,
+          // and its slot is free.
           if (!taken) {
             taken = true;
             this.outstanding--;
+            this.free[worker]!.push(slot);
           }
           this.lastActivity = Date.now();
         }
@@ -334,13 +388,23 @@ function createPool(): FramePool | null {
   // returned once every worker has proven it runs.
   const ready = new Int32Array(new SharedArrayBuffer(4 * cpus));
   const workers: WorkerLike[] = [];
+  let pool: WorkerFramePool | undefined;
   const abandon = (): null => {
     for (const worker of workers) void worker.terminate();
     return null;
   };
+  // A worker that fails — its script does not load, or it throws — says so
+  // only through an `error` event, and one nobody hears ends the process.
+  const failed = (): void => {
+    if (pool === undefined) abandon();
+    else if (!pool.lost) abandonPool(pool);
+  };
   try {
     for (let i = 0; i < cpus; i++) {
-      const worker = new threads.Worker(script, { workerData: { ready: ready.buffer, index: i } });
+      // A worker loads one module and needs none of the process's options,
+      // which it could refuse: `--input-type` stops it loading a file.
+      const worker = new threads.Worker(script, { workerData: { ready: ready.buffer, index: i }, execArgv: [] });
+      worker.on("error", failed);
       // Idle workers must not keep a finished process alive; a writer that
       // is waiting on one is blocked on the main thread anyway.
       worker.unref();
@@ -358,8 +422,22 @@ function createPool(): FramePool | null {
     }
   }
 
-  return new WorkerFramePool(workers);
+  pool = new WorkerFramePool(workers);
+  return pool;
 }
 
 /** Status cell values, for the worker. @internal */
 export const FRAME_STATUS = { PENDING, DONE, FAILED } as const;
+
+/** A frame, as the pool posts it to a worker. @internal */
+export interface FrameJob {
+  /** The slot the frame travels through. */
+  slot: number;
+  /** The logical bytes' length, from the start of the slot's input. */
+  length: number;
+  /** The requested frame codec. */
+  codec: Beast2Codec;
+  /** The slot's buffers, when the worker does not have them as they are now:
+   *  the slot's first frame, and a frame larger than the slot held. */
+  buffers?: { input: SharedArrayBuffer; output: SharedArrayBuffer; status: SharedArrayBuffer };
+}

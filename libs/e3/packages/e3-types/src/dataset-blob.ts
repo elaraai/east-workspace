@@ -122,10 +122,9 @@ export async function writeCollectionManifest(
 ): Promise<Uint8Array> {
   const typeValue = asTypeValue(type);
   const entries: CollectionManifestEntry[] = [];
-  // Frames deflate inline. The worker pool keeps each finished frame's
-  // buffers until that worker's GC runs, so framing on it would make a door's
-  // memory grow with the value (#841).
-  const recut = recutBeast2For<EastType, CollectionSegmentRef>(typeValue);
+  // Frames deflate on the worker pool once the value is large enough to be
+  // worth it; the pool holds the frames in flight and nothing more.
+  const recut = recutBeast2For<EastType, CollectionSegmentRef>(typeValue, { parallel: true });
   const stats = await recut(pieces, {
     written: async (segment) => {
       entries.push({

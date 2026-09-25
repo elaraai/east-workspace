@@ -12,6 +12,10 @@
  * other: a door that held the input's bytes grows with them, and the foreign
  * inputs are uncompressed so that their bytes are as large as the value.
  *
+ * A door frames on the frame pool, two workers here, once it has written
+ * enough to start one. Both sizes are well past that and the workers' first
+ * frames, so both runs carry the pool.
+ *
  * Linux only: the peak is the kernel's high-water mark (VmHWM), the measure
  * the runners report.
  */
@@ -19,7 +23,7 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { closeSync, openSync, writeSync } from 'node:fs';
+import { closeSync, openSync, writeFileSync, writeSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import {
   Beast2ElementWriter, Beast2Writer, DictType, IntegerType, SortedMap, StringType, StructType,
@@ -43,12 +47,17 @@ const HEAP_CAP_MB = 96;
 /** How much more the larger input may cost the child at its peak. */
 const GROWTH_LIMIT_KIB = 12 * 1024;
 
-/** A door, run on one input: the child prints its peak resident memory. */
+/** A door, run on one input: the child prints its peak resident memory. It
+ *  runs from a file: the pool's workers inherit the process's options, and an
+ *  `--input-type` among them stops a worker loading its own file. */
 const CHILD = `
 import { readFileSync, createReadStream } from 'node:fs';
-const [coreUrl, e3Url, door, repo, arg] = process.argv.slice(1);
+const [eastUrl, coreUrl, e3Url, door, repo, arg] = process.argv.slice(2);
+const { configureFramePool } = await import(eastUrl);
 const core = await import(coreUrl);
 const { readDatasetFileType } = await import(e3Url);
+// Two workers, as a runner granted two threads has.
+configureFramePool({ workers: 2 });
 const storage = new core.LocalStorage();
 const input = JSON.parse(arg);
 switch (door) {
@@ -91,16 +100,20 @@ console.log(JSON.stringify({ peakKiB: Number(peak[1]) }));
 describe('the memory each door holds', { skip: process.platform === 'linux' ? false : 'the peak is read from /proc' }, () => {
   let repo: string;
   let dir: string;
+  let script: string;
   let storage: StorageBackend;
   const inputs: Record<'small' | 'large', Record<string, unknown>> = { small: {}, large: {} };
+  const eastUrl = import.meta.resolve('@elaraai/east');
   const coreUrl = new URL('./index.js', import.meta.url).href;
   const e3Url = import.meta.resolve('@elaraai/e3');
 
   before(async () => {
     repo = createTestRepo();
     dir = createTempDir();
+    script = join(dir, 'door.mjs');
+    writeFileSync(script, CHILD);
     storage = new LocalStorage(dirname(repo));
-    for (const [size, rows] of [['small', 250_000], ['large', 1_000_000]] as const) {
+    for (const [size, rows] of [['small', 500_000], ['large', 2_000_000]] as const) {
       // A stock runner's output: the Writer's own bytes.
       const canonical = join(dir, `${size}.canonical.beast2`);
       let fd = openSync(canonical, 'w');
@@ -166,8 +179,7 @@ describe('the memory each door holds', { skip: process.platform === 'linux' ? fa
       // never grows; held at its largest, the upload door's larger run peaks
       // higher instead.
       '--min-semi-space-size=1', '--max-semi-space-size=1',
-      '--input-type=module', '-e', CHILD,
-      coreUrl, e3Url, door, repo, JSON.stringify(inputs[size]),
+      script, eastUrl, coreUrl, e3Url, door, repo, JSON.stringify(inputs[size]),
     ], { encoding: 'utf8' });
     if (child.status !== 0) {
       throw new Error(`${door}, ${size}: the child ended ${child.status ?? child.signal}: ${child.stderr.slice(-2_000)}`);
@@ -179,7 +191,7 @@ describe('the memory each door holds', { skip: process.platform === 'linux' ? fa
     it(`holds as much at four times the input: ${door}`, (t) => {
       const small = peakKiB(door, 'small');
       const large = peakKiB(door, 'large');
-      const peaks = `${door}: ${Math.round(small / 1024)} MiB at 250,000 rows, ${Math.round(large / 1024)} MiB at 1,000,000`;
+      const peaks = `${door}: ${Math.round(small / 1024)} MiB at 500,000 rows, ${Math.round(large / 1024)} MiB at 2,000,000`;
       t.diagnostic(peaks);
       assert.ok(large - small < GROWTH_LIMIT_KIB, peaks);
     });

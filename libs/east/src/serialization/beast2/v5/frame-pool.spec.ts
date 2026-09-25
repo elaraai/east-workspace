@@ -11,13 +11,18 @@
  * fall is decided from the elements alone, never from bytes emitted, so the
  * oracle is simply the same elements through a writer that never pools: every
  * case must match it byte for byte, across a pool's retirement and a worker's
- * loss.
+ * loss. The pool's peak memory is pinned at two output sizes (#841), and a
+ * worker's failure never ends its process.
  *
  * Throughput is printed under `EAST_POOL_BENCH=1`, never asserted.
  */
 
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { ArrayType, DictType, IntegerType, StringType } from "../../../types.js";
 import { compareFor } from "../../../comparison.js";
 import { SortedMap } from "../../../index.js";
@@ -28,7 +33,31 @@ import {
   encodeBeast2PagedFor,
   type Beast2Segment,
 } from "../index.js";
+import { BufferWriter } from "../../binary-utils.js";
 import { configureFramePool, framePool } from "./frame-pool.js";
+import { DeflateScratch } from "./deflate.js";
+import { FRAME_HEADER_MAX, writeFrame, writeFrameInto } from "./frames.js";
+
+/** A pooled writer framing `count` rows of the shape #841 measured: the child
+ *  prints its peak resident memory. It runs from a file: workers inherit the
+ *  process's options, and an `--input-type` among them stops a worker loading
+ *  its own file. */
+const POOL_CHILD = `
+import { readFileSync } from 'node:fs';
+const [beast2Url, typesUrl, count] = process.argv.slice(2);
+const { Beast2ElementWriter, configureFramePool } = await import(beast2Url);
+const { DictType, IntegerType, StringType, StructType } = await import(typesUrl);
+// Two workers, as a runner granted two threads has.
+configureFramePool({ workers: 2 });
+const type = DictType(StringType, StructType({ id: IntegerType, name: StringType }));
+const writer = new Beast2ElementWriter(type, () => {}, { parallel: true });
+for (let i = 0; i < Number(count); i++) {
+  writer.add(['key' + String(i).padStart(9, '0'), { id: BigInt(i), name: 'name ' + i }]);
+}
+writer.finish();
+const peak = /VmHWM:\\s+(\\d+) kB/.exec(readFileSync('/proc/self/status', 'utf8'));
+console.log(JSON.stringify({ peakKiB: Number(peak[1]) }));
+`;
 
 /** xorshift32 — a fixed stream, so a failure reproduces exactly. */
 function rng(seed: number): () => number {
@@ -232,6 +261,112 @@ describe("beast2 v5 parallel frame writer", () => {
     } finally {
       configureFramePool(previous);
     }
+  });
+
+  test("a frame written in place is the frame writeFrame writes", () => {
+    const scratch = new DeflateScratch();
+    const next = rng(0xf7a3);
+    for (const logical of [
+      new Uint8Array(0),
+      new Uint8Array(63).fill(1),
+      new Uint8Array(64).fill(1),
+      new Uint8Array(4096).map(() => next() & 0xff),
+      new TextEncoder().encode(strings(2_000, 0xf00d).join("")),
+    ]) {
+      for (const codec of ["none", "deflate"] as const) {
+        const expected = new BufferWriter();
+        writeFrame(expected, logical, codec);
+        const target = new Uint8Array(logical.length + FRAME_HEADER_MAX);
+        const length = writeFrameInto(target, logical, codec, scratch);
+        assert.equal(Buffer.compare(target.subarray(0, length), expected.toUint8Array()), 0, `${logical.length} bytes, ${codec}`);
+      }
+    }
+  });
+
+  test("holds the frames in flight and nothing more: the same peak at three times the output",
+    { skip: process.platform === "linux" ? false : "the peak is read from /proc" }, (t) => {
+      if (framePool() === null) {
+        t.skip("no frame pool on this host — frames are written inline");
+        return;
+      }
+      const beast2Url = new URL("../index.js", import.meta.url).href;
+      const typesUrl = new URL("../../../types.js", import.meta.url).href;
+      const dir = mkdtempSync(join(tmpdir(), "east-frame-pool-"));
+      const script = join(dir, "child.mjs");
+      writeFileSync(script, POOL_CHILD);
+      const peakKiB = (count: number): number => {
+        const child = spawnSync(process.execPath, [
+          // A young generation that never grows, so what differs is what the
+          // pool holds (see e3-core's door-memory spec).
+          "--min-semi-space-size=1", "--max-semi-space-size=1",
+          script, beast2Url, typesUrl, String(count),
+        ], { encoding: "utf8" });
+        if (child.status !== 0) {
+          throw new Error(`the child ended ${child.status ?? child.signal}: ${child.stderr.slice(-2_000)}`);
+        }
+        return (JSON.parse(child.stdout.trim().split("\n").pop()!) as { peakKiB: number }).peakKiB;
+      };
+      try {
+        // Both well past the rows the writer frames inline before it starts
+        // the pool, and the workers' first frames. A pool that held what it
+        // framed grew by 55 MiB between them (#841).
+        const small = peakKiB(400_000);
+        const large = peakKiB(1_200_000);
+        const peaks = `${Math.round(small / 1024)} MiB framing 400K rows, ${Math.round(large / 1024)} MiB framing 1.2M`;
+        t.diagnostic(peaks);
+        assert.ok(large - small < 16 * 1024, peaks);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+  test("a process started with --input-type frames on the pool", (t) => {
+    if (framePool() === null) {
+      t.skip("no frame pool on this host — frames are written inline");
+      return;
+    }
+    // Workers that inherited the option could not load their file.
+    const logical = new Uint8Array(64 * 1024).fill(0x61);
+    const child = spawnSync(process.execPath, ["--input-type=module", "-e", `
+      const { configureFramePool, framePool } = await import(${JSON.stringify(new URL("./frame-pool.js", import.meta.url).href)});
+      configureFramePool({ workers: 2 });
+      const pool = framePool();
+      const frame = pool?.submit(new Uint8Array(${logical.length}).fill(0x61), 'deflate').take();
+      console.log(JSON.stringify({ pooled: pool !== null, bytes: frame?.length ?? 0 }));
+    `], { encoding: "utf8" });
+    assert.equal(child.status, 0, child.stderr.slice(-2_000));
+    const expected = new BufferWriter();
+    writeFrame(expected, logical, "deflate");
+    assert.deepEqual(JSON.parse(child.stdout), { pooled: true, bytes: expected.size });
+  });
+
+  test("a worker that fails abandons the pool instead of ending its process", (t) => {
+    if (framePool() === null) {
+      t.skip("no frame pool on this host — frames are written inline");
+      return;
+    }
+    // Every worker the child's pool starts reports it loaded, then throws.
+    const failing = "import { workerData } from 'node:worker_threads';" +
+      " const cells = new Int32Array(workerData.ready);" +
+      " Atomics.store(cells, workerData.index, 1); Atomics.notify(cells, workerData.index);" +
+      " throw new Error('a worker that fails');";
+    const child = spawnSync(process.execPath, ["--input-type=module", "-e", `
+      const threads = process.getBuiltinModule('node:worker_threads');
+      const Worker = threads.Worker;
+      threads.Worker = class extends Worker {
+        constructor(_script, options) {
+          super(new URL('data:text/javascript,' + encodeURIComponent(${JSON.stringify(failing)})), options);
+        }
+      };
+      const { configureFramePool, framePool } = await import(${JSON.stringify(new URL("./frame-pool.js", import.meta.url).href)});
+      configureFramePool({ workers: 2 });
+      const started = framePool() !== null;
+      const deadline = Date.now() + 10_000;
+      while (framePool() !== null && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 25));
+      console.log(JSON.stringify({ started, abandoned: framePool() === null }));
+    `], { encoding: "utf8" });
+    assert.equal(child.status, 0, child.stderr.slice(-2_000));
+    assert.deepEqual(JSON.parse(child.stdout), { started: true, abandoned: true });
   });
 
   // LAST in this file: losing a worker abandons the process's pool, so every
