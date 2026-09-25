@@ -14,6 +14,8 @@ import {
     type SheetColumnSpec,
     type SheetOptions,
     type SheetGroupedOptions,
+    type SheetEntriesOptions,
+    type SheetEntryOf,
     type SheetBindHandle,
     type SheetLinesField,
     type SheetLineOf,
@@ -23,6 +25,18 @@ import type { DataRowType } from "../../collections/table/index.js";
 import { hasKeys } from "../combinators.js";
 import type { UIElement } from "../runtime.js";
 
+/**
+ * `<Sheet data={entries} id="id" group={Sheet.group(P, "lines", …)} columns={{ … }} />`
+ * — GROUPED rows with LOOSE rows between the groups (#846): `data` holds
+ * `Sheet.Types.Entry(P, "lines")` entries, each a group or a row of the
+ * line type; `columns` are declared over the line type.
+ */
+function SheetTag<P extends StructType, F extends SheetLinesField<P>>(
+    props: {
+        data: NoInfer<SubtypeExprOrValue<ArrayType<SheetEntryOf<P, F>>> | SheetBindHandle<SheetEntryOf<P, F>> | PagedSource<ArrayType<SheetEntryOf<P, F>>> | PagedSource<DictType<StringType, SheetEntryOf<P, F>>>>;
+        columns: SheetColumnSpec<SheetLineOf<P, F>>;
+    } & SheetEntriesOptions<P, F>,
+): UIElement;
 /**
  * `<Sheet data={plans} id="id" group={Sheet.group(P, "lines", …)} columns={{ … }} />`
  * — GROUPED rows (#740): the rows are groups, `columns` are declared over
@@ -122,7 +136,8 @@ const { Root: _root, ...authoring } = SheetFactory;
  * `Sheet.column.*` (the builders), `Sheet.register.members` / `.concat`,
  * `Sheet.driver`, `Sheet.link.arity` / `.check` / `.parse` / `.print`,
  * `Sheet.patch`, `Sheet.apply` (a checked batch applied to a collection),
- * `Sheet.group` / `Sheet.group.cell.*` (grouped rows, #740), `Sheet.subRows`
+ * `Sheet.group` / `Sheet.group.cell.*` (grouped rows, #740 — with loose rows
+ * between the groups over `Sheet.Types.Entry` entries, #846), `Sheet.subRows`
  * / `Sheet.subRow` (sub rows, #844), and `Sheet.Types.*` (the closed wire
  * types plus the typed constructors, among them `DraftContext(R, D)` /
  * `Fill(T)` / `Patch(R)` / `Proposal(R)` / `CheckContext(R)` / `Draft(R)` /

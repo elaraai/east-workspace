@@ -236,17 +236,20 @@ export function sheetRuleCell(rule: "level" | "actual" | "detail", column: strin
  * the wire — the bridge (§4.8) reads it off the real row instead. Blank
  * padding rows are renderer state, never rows.
  *
- * On a GROUPED sheet (#740) every row is a group: `cells` holds the band's
- * cells (the group's fields under line columns, the title under
+ * On a GROUPED sheet (#740) a group row's `cells` hold the band's cells (the
+ * group's fields under line columns, the title under
  * {@link SHEET_TITLE_CELL}), `lines` its lines and `band` is `some`. On a
- * flat sheet `lines` is empty and `band` is `none`.
+ * flat sheet `lines` is empty and `band` is `none` — and so on a grouped
+ * sheet with LOOSE rows between its groups (#846): a loose row is a row of
+ * the line type, its `cells` the line columns' projection, with no lines
+ * and no band.
  *
  * @property id - The row identity (the `id` field, or a keyed source's key)
  * @property owned - `true` ⇒ the row belongs to the upstream system: no copilot, stamped columns read-only
  * @property cells - Column key → cell, one entry per declared column
- * @property lines - A group row's lines, in order (empty on a flat sheet)
- * @property band - A group row's band (`none` on a flat sheet)
- * @property subRows - A flat row's sub rows (#844; empty on a grouped sheet, whose lines carry them)
+ * @property lines - A group row's lines, in order (empty on a flat sheet, and for a loose row)
+ * @property band - A group row's band (`none` on a flat sheet, and for a loose row)
+ * @property subRows - A flat or loose row's sub rows (#844; empty for a group row, whose lines carry them)
  */
 export const SheetRowType = StructType({
     id:      StringType,
@@ -474,12 +477,12 @@ export type SheetCountedType = typeof SheetCountedType;
  * driver lookup — so a field of the host's row that has no column keeps its
  * value in every provider, check, edit event and patch.
  *
- * @property rowIndex - Sheet position among REAL (resident) rows (a grouped sheet: the line's index within its group)
- * @property rowId - The row's id — the source lookup's argument (a grouped sheet: the GROUP's id)
+ * @property rowIndex - The row's index in `rows` (a grouped sheet: a line's index within its group)
+ * @property rowId - The row's id — the source lookup's argument (a grouped sheet: a line's GROUP's id, a loose row's own)
  * @property offset - The row's source offset — the paged arm's `page` lookup
- * @property line - A grouped sheet: the line's address within its group; `none` on a flat sheet
+ * @property line - A grouped sheet: the line's address within its group; `none` on a flat sheet, and for a loose row (#846)
  * @property row - The row as it would be if the open editor committed (a grouped sheet: the LINE's cells)
- * @property rows - The resident sheet, real rows in sheet order (a grouped sheet: the resident GROUP rows)
+ * @property rows - The resident sheet, real rows in sheet order (a grouped sheet: the resident GROUP rows and loose rows)
  * @property rowsOffset - The source offset of `rows[0]` (`0` on the inline arm)
  * @property partial - `true` on a paged sheet whose source is not exhausted
  * @property driver - The resolved driver member's key
@@ -506,8 +509,8 @@ export type SheetContextType = typeof SheetContextType;
  * where its row sits among the batch's rows, and its driver.
  * @internal
  *
- * @property index - The checked row's index in the batch's `rows` (a grouped sheet: its GROUP's)
- * @property line - A grouped sheet: the checked line's index within its group; `none` on a flat sheet
+ * @property index - The checked row's index in the batch's `rows` (a grouped sheet: a line's GROUP's)
+ * @property line - A grouped sheet: the checked line's index within its group; `none` on a flat sheet, and for a loose row (#846)
  * @property driver - The resolved driver member's key
  */
 export const SheetReadyCheckType = StructType({
@@ -621,10 +624,10 @@ export type SheetSuggestType = typeof SheetSuggestType;
 /**
  * The WIRE check context — what a bridged member check receives (B§2).
  *
- * @property rowIndex - Sheet position among real rows (a grouped sheet: the line's index within its group)
- * @property rowId - The row's id (the source lookup's argument; a grouped sheet: the GROUP's id)
+ * @property rowIndex - Sheet position among real rows (a grouped sheet: a line's index within its group, a loose row's among the loose rows)
+ * @property rowId - The row's id (the source lookup's argument; a grouped sheet: a line's GROUP's id, a loose row's own)
  * @property offset - The row's source offset
- * @property line - A grouped sheet: the line's address within its group; `none` on a flat sheet
+ * @property line - A grouped sheet: the line's address within its group; `none` on a flat sheet, and for a loose row (#846)
  * @property row - The row as it would be if the editor committed (a grouped sheet: the LINE's cells)
  * @property half - The half being edited
  * @property member - The resolved member under check
@@ -859,12 +862,14 @@ export type SheetNounType = typeof SheetNounType;
  * @property keyed - `true` ⇒ `Dict<String, L>` lines (keys are stable), `false` ⇒ `Array<L>` lines (a line's key is its position)
  * @property cells - The band's cells, the title first under {@link SHEET_TITLE_CELL}
  * @property noun - The host's word for a group (#844); `none` ⇒ the renderer's own (#861)
+ * @property loose - `true` ⇒ the source's entries are `Sheet.Types.Entry(P, "lines")`: a group, or a LOOSE row of the line type between the groups (#846) — a wire row with no band
  */
 export const SheetGroupType = StructType({
     lines: StringType,
     keyed: BooleanType,
     cells: ArrayType(SheetGroupCellType),
     noun:  OptionType(SheetNounType),
+    loose: BooleanType,
 });
 /** Type alias for {@link SheetGroupType}. */
 export type SheetGroupType = typeof SheetGroupType;
@@ -1192,6 +1197,15 @@ export type SheetLineOf<P extends StructType, F extends SheetLinesField<P>> =
     : never;
 
 /**
+ * One entry of a source that holds LOOSE rows between its groups (#846) —
+ * `Sheet.Types.Entry(P, "lines")`: a group, or a row of the line type.
+ *
+ * @typeParam P - The group's row type
+ * @typeParam F - The lines field
+ */
+export type SheetEntryOf<P extends StructType, F extends SheetLinesField<P>> = VariantType<{ group: P; row: SheetLineOf<P, F> }>;
+
+/**
  * A line's address within its group — the index of `Array` lines, the key of
  * `Dict` lines.
  *
@@ -1234,10 +1248,14 @@ export function sheetLinesOf(groupType: StructType, field: string): { lineType: 
  * @param driverType - The driver's row type value (default `NullType`)
  * @returns The concrete context `StructType`
  *
- * @property rowIndex - The line's index WITHIN its group
+ * On a sheet with loose rows between its groups (#846), a LOOSE row's
+ * context has no group: `rows` are the resident loose rows, `rowIndex` its
+ * index among them.
+ *
+ * @property rowIndex - The line's index WITHIN its group (a loose row: its index in `rows`)
  * @property row - The line as it would be if the open editor committed
- * @property rows - The group's lines, in order
- * @property group - The group row
+ * @property rows - The group's lines, in order (a loose row: the resident loose rows)
+ * @property group - The group row (`none` for a loose row)
  * @property groups - The resident groups, in sheet order
  * @property partial - `true` on a paged sheet whose source is not exhausted
  * @property driver - The driver's row for `row`

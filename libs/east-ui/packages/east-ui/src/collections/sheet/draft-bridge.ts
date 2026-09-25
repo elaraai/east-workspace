@@ -4,11 +4,11 @@
  */
 
 /** Typed draft decoding without domain defaults. @packageDocumentation */
-import { ArrayType, East, FunctionType, OptionType, StringType, StructType, none, some, variant, type BlockBuilder, type EastType, type ExprType, type SubtypeExprOrValue } from "@elaraai/east";
+import { ArrayType, East, FunctionType, OptionType, StringType, StructType, none, some, variant, type BlockBuilder, type EastType, type ExprType, type SubtypeExprOrValue, type VariantType } from "@elaraai/east";
 import { SheetCellType, SheetRowType } from "./types.js";
 import { SheetCellsType, type SheetColumnMeta } from "./bridge.js";
 import { SheetDraftFieldType, SheetDraftTypeFor } from "./transactions.js";
-import { SheetDraftGroupTypeFor } from "./drafts.js";
+import { SheetDraftEntryTypeFor, SheetDraftGroupTypeFor } from "./drafts.js";
 import { printLink, printLinkWith, SheetRegisterMembersType } from "./link.js";
 import type { SheetRegisterValue } from "./registers.js";
 
@@ -130,4 +130,42 @@ export function buildDraftGroupDecoder(
         }), ArrayType(rowDraft));
         return $.const({ ...Object.fromEntries(Object.keys(ownType.fields).map(key => [key, own[key]])), [field]: children } as SubtypeExprOrValue<StructType>, draftType);
     });
+}
+
+/**
+ * Decode one entry of a source with LOOSE rows between its groups (#846) —
+ * `Sheet.Types.Entry(P, "lines")`: a wire row with a band is a group, decoded
+ * against its entry's group arm; one without is a loose row, its cells over
+ * its row arm, its id field written from the wire row's id.
+ *
+ * @param entryType - The entry variant
+ * @param field - The group's lines field
+ * @param groupDecoder - A group's cells and lines over its draft ({@link buildDraftGroupDecoder})
+ * @param looseDecoder - A loose row's cells over its draft ({@link buildDraftRowDecoder} with the id field)
+ * @returns The wire row, its previous draft entry and wire row → its draft entry
+ */
+export function buildDraftEntryDecoder(
+    entryType: VariantType<{ group: StructType; row: StructType }>,
+    field: string,
+    groupDecoder: ReturnType<typeof buildDraftGroupDecoder>,
+    looseDecoder: DecodeRow,
+): ExprType<FunctionType<[SheetRowType, OptionType<EastType>, OptionType<SheetRowType>], EastType>> {
+    const draftType = SheetDraftEntryTypeFor(entryType, field) as unknown as VariantType<{ group: StructType; row: StructType }>;
+    const groupDraft = SheetDraftGroupTypeFor(entryType.cases.group, field) as StructType;
+    const rowDraft = SheetDraftTypeFor(entryType.cases.row) as StructType;
+    return East.function([SheetRowType, OptionType(draftType), OptionType(SheetRowType)], draftType, ($, row, base, previous) => {
+        const decodeGroup = $.const(groupDecoder);
+        const decodeLoose = $.const(looseDecoder);
+        const prior = base as unknown as ExprType<OptionType<VariantType<{ group: StructType; row: StructType }>>>;
+        return row.band.match({
+            some: ($2) => {
+                const own = $2.const(prior.match({ none: () => none, some: (_$3, entry) => entry.match({ group: (_$4, g) => some(g), row: () => none }) }), OptionType(groupDraft));
+                return $2.const(variant("group", decodeGroup(row, own, previous)), draftType);
+            },
+            none: ($2) => {
+                const own = $2.const(prior.match({ none: () => none, some: (_$3, entry) => entry.match({ row: (_$4, r) => some(r), group: () => none }) }), OptionType(rowDraft));
+                return $2.const(variant("row", decodeLoose(row.id, row.cells, own)), draftType);
+            },
+        });
+    }) as unknown as ExprType<FunctionType<[SheetRowType, OptionType<EastType>, OptionType<SheetRowType>], EastType>>;
 }

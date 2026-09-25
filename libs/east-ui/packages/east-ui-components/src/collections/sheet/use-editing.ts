@@ -42,9 +42,10 @@ export const EMPTY_LAYER: LocalLayer = { edits: new Map(), appended: [], removed
  * @param rows - The source's resident rows
  * @param positions - Each resident row's source position — a failed window before it does not move it (#853)
  * @param storageKey - The view's key
+ * @param mint - On a sheet with loose rows between its groups (#846), mints a new line's id field — the field a loose row is identified by
  * @returns The session, its layer and gesture recorder, the drafts, and whether editing is available
  */
-export function useSheetEditing(editing: Editing, source: SheetPagedSourceValue | undefined, rows: readonly SheetRowValue[], positions: readonly number[], storageKey: string) {
+export function useSheetEditing(editing: Editing, source: SheetPagedSourceValue | undefined, rows: readonly SheetRowValue[], positions: readonly number[], storageKey: string, mint?: () => string) {
     const store = getStore();
     const entryType = useMemo(() => fromEastTypeValue(editing.entryType), [editing.entryType]);
     const draftType = useMemo(() => fromEastTypeValue(editing.draftType), [editing.draftType]);
@@ -195,7 +196,7 @@ export function useSheetEditing(editing: Editing, source: SheetPagedSourceValue 
         const update = (id: string, row: SheetRowValue | undefined, placement?: Placement) => {
             const before = updates.get(id)?.before ?? original(id);
             const current = updates.get(id)?.after ?? before;
-            const prepared = row === undefined ? undefined : prepareCreation(row, current, inputs.get(id), placement ?? current.place, editing, draftType);
+            const prepared = row === undefined ? undefined : prepareCreation(row, current, inputs.get(id), placement ?? current.place, editing, draftType, mint);
             if (row !== undefined) inputs.set(id, row);
             const after: EntryVersion = prepared === undefined ? absent : {
                 draft: codecs.decodeDraft(editing.decode(encodeWire(prepared.row), prepared.draft === undefined ? none : some(codecs.encodeDraft(prepared.draft)), prepared.previous === undefined ? none : some(encodeWire(prepared.previous)))),
@@ -217,7 +218,7 @@ export function useSheetEditing(editing: Editing, source: SheetPagedSourceValue 
         }
         const gestureOrigin = originOverride ?? origin;
         session.record([...updates.values()], gestureOrigin, gestureOrigin === "insert" ? "Insert row" : origin === "pasted" ? "Paste cells" : origin === "remove" ? "Remove rows" : origin === "pattern" ? "Accept proposed rows" : "Edit cells");
-    }, [session, observed, original, codecs, editing, draftType]);
+    }, [session, observed, original, codecs, editing, draftType, mint]);
     const layer = useMemo<LocalLayer>(() => {
         const edits = new Map<string, SheetRowValue>();
         const appended: SheetRowValue[] = [];

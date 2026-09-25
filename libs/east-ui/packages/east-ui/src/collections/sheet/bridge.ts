@@ -33,7 +33,11 @@
  * `draftRow` / the patch run over `L`, `rowById` returns the group, and the
  * group half of the bridge ({@link SheetGroupBridge}) projects the group's
  * summary cells and ordered children. Internal child keys preserve identity
- * during local editing; the author's child arrays remain positional.
+ * during local editing; the author's child arrays remain positional. A
+ * source with LOOSE rows between its groups (#846) holds entries
+ * `Sheet.Types.Entry(P, "lines")`: `rowById` returns the entry, a draft is
+ * the entry's draft, and a loose row decodes as a row of `L` whose id is its
+ * own.
  *
  * The bridge is the one place a string ever names a field: inside the
  * factory, against the column list it has already validated.
@@ -46,6 +50,7 @@ import {
     type EastType,
     type ExprType,
     type SubtypeExprOrValue,
+    type VariantType,
     East,
     Expr,
     ArrayType,
@@ -96,9 +101,9 @@ import {
 import { resolveTag } from "../plan/builders.js";
 import type { SheetSubRowsValue } from "./sub-rows.js";
 import { SheetMembersType, SheetRegisterMembersType, parseLink, EMPTY_LINK } from "./link.js";
-import { buildDraftRowDecoder, buildDraftGroupDecoder } from "./draft-bridge.js";
+import { buildDraftRowDecoder, buildDraftGroupDecoder, buildDraftEntryDecoder } from "./draft-bridge.js";
 import { buildDraftContextBridge, buildDraftBase, buildReadyContexts } from "./context-bridge.js";
-import { SheetDraftGroupTypeFor } from "./drafts.js";
+import { SheetDraftEntryTypeFor, SheetDraftGroupTypeFor } from "./drafts.js";
 import { SheetDraftTypeFor } from "./transactions.js";
 import type { SheetAnyColumnConfig, SheetColumn } from "./columns.js";
 import type { SheetGroupCell } from "./group.js";
@@ -478,6 +483,14 @@ export interface SheetGroupBridge {
     projectGroupCells: ExprType<FunctionType<[StructType], typeof SheetCellsType>>;
     /** `P` → its wire lines, in order, keyed by source identity. */
     projectLines: ExprType<FunctionType<[StructType], ArrayType<SheetLineType>>>;
+    /** The group's row type `P` — the source row's, or on a source with loose rows its entries' group arm (#846). */
+    groupType: StructType;
+    /** Whether the source holds loose rows between its groups — entries `Sheet.Types.Entry(P, "lines")` (#846). */
+    loose: boolean;
+    /** A group's cells and lines over its `DraftGroup(P, "lines")` — the whole `draftDecode` without loose rows. */
+    decodeGroup: ExprType<FunctionType<[SheetRowType, OptionType<StructType>, OptionType<SheetRowType>], StructType>>;
+    /** A loose row's cells over its `Draft(L)`, its id field written from the row's id (#846). */
+    decodeLoose?: ReturnType<typeof buildDraftRowDecoder> | undefined;
 }
 
 /**
@@ -486,16 +499,17 @@ export interface SheetGroupBridge {
  *
  * @remarks
  * `rowType` is the SOURCE row's type — the host's row on a flat sheet, the
- * group's on a grouped one — and `lineType` the type the columns are
- * declared over: the same type on a flat sheet, the line type on a grouped
- * one. The patch, the proposal, `projectRow` and `draftRow` run over
- * `lineType`; `rowById` and the edit type over `rowType`.
+ * group's on a grouped one, the entry `Sheet.Types.Entry(P, "lines")` on one
+ * with loose rows (#846) — and `lineType` the type the columns are declared
+ * over: the same type on a flat sheet, the line type on a grouped one. The
+ * patch, the proposal, `projectRow` and `draftRow` run over `lineType`;
+ * `rowById` and the edit type over `rowType`.
  *
  * @internal
  */
 export interface SheetBridge {
-    /** The source row's type — the host's row, or the group's. */
-    rowType: StructType;
+    /** The source row's type — the host's row, the group's, or an entry of groups and loose rows. */
+    rowType: EastType;
     /** The type the columns are declared over — the row, or the line. */
     lineType: StructType;
     /** The driver's row type (`NullType` without a driver). */
@@ -516,10 +530,10 @@ export interface SheetBridge {
     projectSubRows: ExprType<FunctionType<[StructType], ArrayType<SheetSubRowType>>>;
     /** Decode one row into its complete field draft. */
     draftRow: ReturnType<typeof buildDraftRowDecoder>;
-    /** Decode edited cells into field drafts, preserving the previous child identities. */
-    draftDecode: ExprType<FunctionType<[SheetRowType, OptionType<StructType>, OptionType<SheetRowType>], StructType>>;
+    /** Decode edited cells into the source row's draft, preserving the previous child identities. */
+    draftDecode: ExprType<FunctionType<[SheetRowType, OptionType<EastType>, OptionType<SheetRowType>], EastType>>;
     /** `(id, offset)` → the real source row. */
-    rowById: ExprType<FunctionType<[StringType, IntegerType], OptionType<StructType>>>;
+    rowById: ExprType<FunctionType<[StringType, IntegerType], OptionType<EastType>>>;
     /** The wire context → the typed context. */
     bridgeCtx: ExprType<FunctionType<[SheetContextType], StructType>>;
     /** A readiness batch → one typed context per check, over rows built once (#882). */
@@ -540,7 +554,8 @@ export interface SheetBridgeGroupInput {
 
 /** What the bridge needs from the root. */
 export interface SheetBridgeInput {
-    rowType: StructType;
+    /** The source row's type — a struct, or on a source with loose rows the entry variant (#846). */
+    rowType: EastType;
     idField: string | undefined;
     metas: SheetColumnMeta[];
     registers: Record<string, SheetRegisterValue>;
@@ -550,11 +565,23 @@ export interface SheetBridgeInput {
     subRows?: SheetSubRowsValue<StructType>;
 }
 
-/** The id of a row — the id field, or the key of a keyed window. */
-function idOf(r: ExprType<StructType>, idField: string | undefined): ExprType<StringType> {
+/**
+ * The id of a row — the id field; on a source with loose rows (#846) the id
+ * field of whichever arm the entry holds.
+ */
+function idOf(r: ExprType<EastType>, idField: string | undefined): ExprType<StringType> {
     if (idField === undefined) throw new Error("Sheet: a positional source needs `id` — the String field that identifies a row");
+    if (Expr.type(r as Expr<EastType>).type === "Variant") {
+        return (r as unknown as ExprType<VariantType<{ group: StructType; row: StructType }>>).match({
+            group: (_$, g) => (g as unknown as Record<string, ExprType<StringType>>)[idField] as ExprType<StringType>,
+            row: (_$, l) => (l as unknown as Record<string, ExprType<StringType>>)[idField] as ExprType<StringType>,
+        });
+    }
     return (r as unknown as Record<string, ExprType<StringType>>)[idField] as ExprType<StringType>;
 }
+
+/** A source of LOOSE rows between groups (#846): the entry variant `Sheet.Types.Entry(P, "lines")`. */
+type SheetEntryVariant = VariantType<{ group: StructType; row: StructType }>;
 
 /**
  * Compile the bridge for one sheet.
@@ -566,15 +593,18 @@ export function buildBridge(input: SheetBridgeInput): SheetBridge {
     const { rowType, idField, metas, registers, driver, source, group: groupInput, subRows } = input;
     const driverType: EastType = driver !== undefined ? driver.rowType : NullType;
     // A grouped sheet's columns are declared over the LINE type; its source
-    // rows are groups. A flat sheet's line type is its row type.
-    const shape = groupInput !== undefined ? sheetLinesOf(rowType, groupInput.linesField) : undefined;
-    const lineType = shape?.lineType ?? rowType;
+    // rows are groups — or, with loose rows between them (#846), entries of a
+    // group or a row of the line type. A flat sheet's line type is its row type.
+    const loose = rowType.type === "Variant";
+    const groupType = loose ? (rowType as SheetEntryVariant).cases.group : rowType as StructType;
+    const shape = groupInput !== undefined ? sheetLinesOf(groupType, groupInput.linesField) : undefined;
+    const lineType = shape?.lineType ?? groupType;
     const lineIdField = shape === undefined ? idField : undefined;
     const ctxType = (groupInput !== undefined
-        ? SheetGroupContextTypeFor(rowType, groupInput.linesField as never, driverType)
+        ? SheetGroupContextTypeFor(groupType, groupInput.linesField as never, driverType)
         : SheetContextTypeFor(lineType, driverType)) as unknown as StructType;
     const checkCtxType = (groupInput !== undefined
-        ? SheetGroupCheckContextTypeFor(rowType, groupInput.linesField as never)
+        ? SheetGroupCheckContextTypeFor(groupType, groupInput.linesField as never)
         : SheetCheckContextTypeFor(lineType)) as unknown as StructType;
     const patchType = SheetPatchTypeFor(lineType) as unknown as StructType;
     const proposalType = SheetProposalTypeFor(lineType) as unknown as StructType;
@@ -607,7 +637,7 @@ export function buildBridge(input: SheetBridgeInput): SheetBridge {
     // stale offset still finds the row.
     const rowById = source.kind === "inline"
         ? East.function([StringType, IntegerType], OptionType(rowType), ($, id, offset) => {
-            const rows = $.const(source.rows, ArrayType(rowType));
+            const rows = $.const(source.rows as ExprType<ArrayType<EastType>>, ArrayType(rowType));
             const size = $.let(rows.size());
             const start = $.let(offset.less(0n).ifElse(() => 0n, () => offset.greaterEqual(size).ifElse(() => size.subtract(1n), () => offset)));
             const step = $.let(0n);
@@ -632,8 +662,8 @@ export function buildBridge(input: SheetBridgeInput): SheetBridge {
             return src.page(offset, 1n).match({
                 none: (_$) => noRow,
                 some: (_$, win) => source.keyed
-                    ? (win as unknown as ExprType<DictType<StringType, StructType>>).tryGet(id)
-                    : (win as unknown as ExprType<ArrayType<StructType>>).firstMap((_$2, r) => idOf(r, idField).equal(id).ifElse(
+                    ? (win as unknown as ExprType<DictType<StringType, EastType>>).tryGet(id)
+                    : (win as unknown as ExprType<ArrayType<EastType>>).firstMap((_$2, r) => idOf(r, idField).equal(id).ifElse(
                         (_$3) => East.value(some(r), OptionType(rowType)),
                         (_$3) => East.value(none, OptionType(rowType)),
                     )),
@@ -652,24 +682,33 @@ export function buildBridge(input: SheetBridgeInput): SheetBridge {
         })
         : East.function([StringType], OptionType(driverType), ($, _k) => $.const(none, OptionType(driverType)));
 
-    // The group half (#740) — built before the context bridge, which decodes groups.
-    const group = groupInput !== undefined && shape !== undefined
-        ? buildGroupBridge(rowType, groupInput, projectRow, projectSubRows)
-        : undefined;
-
+    // The drafts: a line's cells over its draft (no id — a line's identity is
+    // its place), and on a source with loose rows (#846) a loose row's, whose
+    // id field is its own.
     const draftRow = buildDraftRowDecoder(lineType, metas, registers, lineIdField);
-    const flatDraft = SheetDraftTypeFor(rowType) as StructType;
-    const draftDecode = groupInput !== undefined
-        ? buildDraftGroupDecoder(rowType, groupInput.linesField, groupInput.cellMetas, draftRow, registers, idField)
-        : East.function([SheetRowType, OptionType(flatDraft), OptionType(SheetRowType)], flatDraft, ($, row, base, _previous) => {
+    const looseRow = loose ? buildDraftRowDecoder(lineType, metas, registers, idField) : undefined;
+    const decodeGroup = groupInput !== undefined
+        ? buildDraftGroupDecoder(groupType, groupInput.linesField, groupInput.cellMetas, draftRow, registers, idField)
+        : undefined;
+    const flatDraft = SheetDraftTypeFor(groupType) as StructType;
+    const draftDecode = (decodeGroup === undefined
+        ? East.function([SheetRowType, OptionType(flatDraft), OptionType(SheetRowType)], flatDraft, ($, row, base, _previous) => {
             const decode = $.const(draftRow);
             return decode(row.id, row.cells, base);
-        });
+        })
+        : looseRow !== undefined && groupInput !== undefined
+            ? buildDraftEntryDecoder(rowType as SheetEntryVariant, groupInput.linesField, decodeGroup, looseRow)
+            : decodeGroup) as unknown as SheetBridge["draftDecode"];
+
+    // The group half (#740).
+    const group = groupInput !== undefined && shape !== undefined && decodeGroup !== undefined
+        ? { ...buildGroupBridge(groupType, groupInput, projectRow, projectSubRows), groupType, loose, decodeGroup, decodeLoose: looseRow }
+        : undefined;
 
     const bridgeCtx = buildDraftContextBridge(rowType, lineType, groupInput?.linesField, ctxType, driverType,
-        rowById as SheetBridge["rowById"], draftDecode, draftRow, lookupDriver);
+        rowById as SheetBridge["rowById"], draftDecode, draftRow, lookupDriver, looseRow);
     const bridgeReady = buildReadyContexts(rowType, groupInput?.linesField, ctxType, driverType,
-        rowById as SheetBridge["rowById"], draftDecode, lookupDriver);
+        rowById as SheetBridge["rowById"], draftDecode, lookupDriver, loose);
 
     const encodePatch = buildPatchCells(lineType, metas, registers);
 
@@ -785,7 +824,7 @@ function buildGroupBridge(
     input: SheetBridgeGroupInput,
     projectRow: SheetBridge["projectRow"],
     projectSubRows: SheetBridge["projectSubRows"],
-): SheetGroupBridge {
+): Pick<SheetGroupBridge, "linesField" | "keyed" | "cellMetas" | "projectGroupCells" | "projectLines"> {
     const { linesField, cellMetas } = input;
     const linesType = rowType.fields[linesField] as ArrayType<StructType>;
     const projectGroupCells = East.function([rowType], SheetCellsType, ($, p) => {
@@ -925,33 +964,55 @@ export function wrapCheck(bridge: SheetBridge, meta: SheetColumnMeta, fn: unknow
         const spelt = bridge.group !== undefined ? `Sheet.Types.CheckContext(GroupType, "${bridge.group.linesField}")` : "Sheet.Types.CheckContext(RowType)";
         throw new Error(`Sheet: column "${meta.key}" check #${index + 1} must be an East.function over ${spelt} returning Option<String>`);
     }
-    const field = bridge.group?.linesField;
-    const draftType = (field === undefined ? SheetDraftTypeFor(bridge.rowType) : SheetDraftGroupTypeFor(bridge.rowType, field)) as StructType;
+    const groupHalf = bridge.group;
+    const field = groupHalf?.linesField;
+    const entryDraft = SheetDraftEntryTypeFor(bridge.rowType, field) as EastType;
+    const draftType = (groupHalf === undefined ? entryDraft : SheetDraftGroupTypeFor(groupHalf.groupType, groupHalf.linesField)) as StructType;
     const rowDraft = SheetDraftTypeFor(bridge.lineType) as StructType;
     const base = buildDraftBase(bridge.rowType, field, bridge.rowById);
     const wire = East.function([SheetCheckContextType], OptionType(StringType), ($, c) => {
         const a = $.const(expr as ExprType<FunctionType<[StructType], OptionType<StringType>>>);
         const read = $.const(base);
         const dec = $.const(bridge.draftRow);
-        const decGroup = $.const(bridge.draftDecode);
-        const original = $.const(read(c.drafts, c.rowId, c.offset));
-        if (field === undefined) {
-            const row = $.const(dec(c.rowId, c.row, original));
+        const original = $.const(read(c.drafts, c.rowId, c.offset), OptionType(entryDraft));
+        if (field === undefined || groupHalf === undefined) {
+            const row = $.const(dec(c.rowId, c.row, original as ExprType<OptionType<StructType>>));
             return a($.const({ rowIndex: c.rowIndex, row, group: none, half: c.half, member: c.member } as SubtypeExprOrValue<StructType>, bridge.checkCtxType));
         }
-        const group = $.const(c.group.match({
-            none: () => original,
-            some: (_$, wire) => some(decGroup(wire, original, some(wire))),
-        }), OptionType(draftType));
-        const prior = $.const(group.match({
-            none: () => none,
-            some: (_$, value) => {
-                const children = value[field] as ExprType<ArrayType<StructType>>;
-                return c.rowIndex.greaterEqual(0n).and(() => c.rowIndex.less(children.size())).ifElse(() => some(children.get(c.rowIndex)), () => none);
+        const decGroup = $.const(groupHalf.decodeGroup);
+        /** A line's check: the line over its prior draft in its group, the group decoded over the wire group row. */
+        const lineCheck = ($2: BlockBuilder<EastType>, own: ExprType<OptionType<StructType>>) => {
+            const group = $2.const(c.group.match({
+                none: () => own,
+                some: (_$, wire) => some(decGroup(wire, own, some(wire))),
+            }), OptionType(draftType));
+            const prior = $2.const(group.match({
+                none: () => none,
+                some: (_$, value) => {
+                    const children = value[field] as ExprType<ArrayType<StructType>>;
+                    return c.rowIndex.greaterEqual(0n).and(() => c.rowIndex.less(children.size())).ifElse(() => some(children.get(c.rowIndex)), () => none);
+                },
+            }), OptionType(rowDraft));
+            const row = $2.const(dec("", c.row, prior));
+            return a($2.const({ rowIndex: c.rowIndex, row, group, half: c.half, member: c.member } as SubtypeExprOrValue<StructType>, bridge.checkCtxType));
+        };
+        const decLoose = groupHalf.decodeLoose;
+        if (decLoose === undefined) return lineCheck($ as unknown as BlockBuilder<EastType>, original as ExprType<OptionType<StructType>>);
+        // A source with loose rows (#846): the entry's arms. A loose row has
+        // no line address — its own cells over its own draft, and no group.
+        const entry = original as unknown as ExprType<OptionType<SheetEntryVariant>>;
+        const decodeLoose = $.const(decLoose);
+        return c.line.match({
+            some: ($2) => {
+                const own = $2.const(entry.match({ none: () => none, some: (_$, e) => e.match({ group: (_$3, g) => some(g), row: () => none }) }), OptionType(draftType));
+                return lineCheck($2 as unknown as BlockBuilder<EastType>, own);
             },
-        }), OptionType(rowDraft));
-        const row = $.const(dec("", c.row, prior));
-        return a($.const({ rowIndex: c.rowIndex, row, group, half: c.half, member: c.member } as SubtypeExprOrValue<StructType>, bridge.checkCtxType));
+            none: ($2) => {
+                const own = $2.const(entry.match({ none: () => none, some: (_$, e) => e.match({ row: (_$3, r) => some(r), group: () => none }) }), OptionType(rowDraft));
+                const row = $2.const(decodeLoose(c.rowId, c.row, own));
+                return a($2.const({ rowIndex: c.rowIndex, row, group: none, half: c.half, member: c.member } as SubtypeExprOrValue<StructType>, bridge.checkCtxType));
+            },
+        });
     });
     return East.value(variant("custom", wire) as unknown as SubtypeExprOrValue<SheetCheckType>, SheetCheckType);
 }

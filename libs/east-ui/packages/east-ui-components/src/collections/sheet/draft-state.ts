@@ -4,7 +4,7 @@
  */
 
 /** Presentation and local discard of schema-checked drafts. @packageDocumentation */
-import { OptionType, equalFor, none, some, type EastType } from "@elaraai/east";
+import { OptionType, equalFor, none, some, variant, type EastType } from "@elaraai/east";
 import { normalizeDraft, type BatchReadiness } from "./draft-values.js";
 import type { EntryVersion, SheetTransactions } from "./transactions.js";
 import { SHEET_WORDS, issueText, type SheetWords } from "./words.js";
@@ -18,11 +18,21 @@ export interface DraftPresentation {
 }
 const CLEAN: DraftPresentation = { pending: false, invalid: false, incomplete: false, issues: new Map(), discardable: false };
 
+/**
+ * A group's own draft: the entry's — or, on a sheet with loose rows between
+ * its groups (#846), whose drafts are entry variants, the group arm's.
+ */
+function groupDraftOf(type: EastType, draft: unknown): Record<string, unknown> | undefined {
+    if (draft === undefined) return undefined;
+    return (type.type === "Variant" ? (draft as { value: unknown }).value : draft) as Record<string, unknown>;
+}
+
 /** Read a child by its internal wire identity, never its current screen position. */
-function childOf(entry: EntryVersion | undefined, field: string, key: string): unknown {
+function childOf(type: EastType, entry: EntryVersion | undefined, field: string, key: string): unknown {
     const index = entry?.wire?.lines.findIndex(line => line.key === key) ?? -1;
-    if (index < 0 || entry?.draft === undefined) return undefined;
-    return ((entry.draft as Record<string, unknown>)[field] as unknown[])[index];
+    const group = groupDraftOf(type, entry?.draft);
+    if (index < 0 || group === undefined) return undefined;
+    return (group[field] as unknown[])[index];
 }
 
 /**
@@ -31,7 +41,7 @@ function childOf(entry: EntryVersion | undefined, field: string, key: string): u
  * back from their canonical English, an author's as written.
  *
  * @param session - The editing session
- * @param type - The draft type
+ * @param type - The entry's draft type — on a sheet with loose rows (#846), the variant of a group and a row
  * @param field - A group's children field
  * @param id - The entry
  * @param child - A line's key
@@ -46,10 +56,11 @@ export function draftPresentation(session: SheetTransactions, type: EastType, fi
     let current: unknown = entry.draft;
     let before = original?.draft;
     if (child !== undefined) {
-        if (field === undefined || type.type !== "Struct" || type.fields[field]?.type !== "Array") return CLEAN;
-        current = childOf(entry, field, child);
-        before = childOf(original, field, child);
-        type = type.fields[field].value;
+        const groupType = type.type === "Variant" ? type.cases["group"] : type;
+        if (field === undefined || groupType?.type !== "Struct" || groupType.fields[field]?.type !== "Array") return CLEAN;
+        current = childOf(type, entry, field, child);
+        before = childOf(type, original, field, child);
+        type = groupType.fields[field].value;
         if (current === undefined) return CLEAN;
     }
     const checked = normalizeDraft(type, current, id).readiness;
@@ -71,8 +82,17 @@ export function draftPresentation(session: SheetTransactions, type: EastType, fi
     };
 }
 
-/** Discard only a never-applied row/group or child, as one ordinary undoable gesture. */
-export function discardDraft(session: SheetTransactions, field: string | undefined, id: string, child?: string): boolean {
+/**
+ * Discard only a never-applied row/group or child, as one ordinary undoable gesture.
+ *
+ * @param session - The editing session
+ * @param type - The entry's draft type — on a sheet with loose rows (#846), the variant of a group and a row
+ * @param field - A group's children field
+ * @param id - The entry
+ * @param child - A line's key
+ * @returns Whether the draft was discarded
+ */
+export function discardDraft(session: SheetTransactions, type: EastType, field: string | undefined, id: string, child?: string): boolean {
     if (!session.writable) return false;
     const before = session.entries.get(id);
     if (before?.draft === undefined || before.wire === undefined) return false;
@@ -81,14 +101,15 @@ export function discardDraft(session: SheetTransactions, field: string | undefin
         if (baseline?.draft !== undefined) return false;
         return session.record([{ id, before, after: { draft: undefined, wire: undefined, place: none } }], "discard", "Discard new row");
     }
-    if (field === undefined || childOf(baseline, field, child) !== undefined) return false;
+    if (field === undefined || childOf(type, baseline, field, child) !== undefined) return false;
     const index = before.wire.lines.findIndex(line => line.key === child);
     if (index < 0) return false;
-    const group = before.draft as Record<string, unknown>;
+    const group = groupDraftOf(type, before.draft)!;
     const children = group[field] as unknown[];
+    const kept = { ...group, [field]: children.filter((_, i) => i !== index) };
     const after: EntryVersion = {
         ...before,
-        draft: { ...group, [field]: children.filter((_, i) => i !== index) },
+        draft: type.type === "Variant" ? variant("group", kept) : kept,
         wire: { ...before.wire, lines: before.wire.lines.filter((_, i) => i !== index) },
     };
     return session.record([{ id, before, after }], "discard", "Discard new row");

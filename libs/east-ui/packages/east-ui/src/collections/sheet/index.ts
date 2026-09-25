@@ -190,6 +190,7 @@ export {
     type SheetAnyCheckContextOf,
     type SheetLinesField,
     type SheetLineOf,
+    type SheetEntryOf,
     type SheetLineAddress,
     type SheetPatchInput,
     type SheetFieldsOf,
@@ -238,6 +239,7 @@ export {
     type SheetOptions,
     type SheetReadyInput,
     type SheetGroupedOptions,
+    type SheetEntriesOptions,
     type SheetSuggestInput,
     type SheetProposerInput,
     type SheetStringField,
@@ -390,7 +392,8 @@ export interface SheetNamespace {
      * Grouped rows (#740) — `Sheet.group(P, "lines", { title, sub?, cells?, folded?, noun? })`
      * declares the group's lines field (an `Array` of line structs) and its
      * band; `Sheet.group.cell.*` builds the band's cells over the group's
-     * fields.
+     * fields. Over `Types.Entry(P, "lines")` entries, rows of the line type
+     * stand between the groups as loose rows (#846).
      */
     group: typeof createGroup & {
         /** The band cell builders — each takes the group's row type first. */
@@ -413,7 +416,7 @@ export interface SheetNamespace {
     };
     /** The Sheet East types — the closed wire types and the typed constructors. */
     Types: {
-        /** `Entry(G, "rows")` — the group-or-row union of a source holding groups beside ungrouped rows ({@link SheetEntryTypeFor}). */
+        /** `Entry(G, "rows")` — the group-or-row union of a source holding groups beside ungrouped rows: as a sheet's `data`, loose rows between the groups (#846) ({@link SheetEntryTypeFor}). */
         Entry: typeof SheetEntryTypeFor;
         /** DraftGroup type for source-bound editing. */
         DraftGroup: typeof SheetDraftGroupTypeFor;

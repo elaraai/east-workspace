@@ -858,6 +858,24 @@ describe("grouped rows", () => {
         expect(said(opened.state.msg)).toBe("Opened 2 orders");
     });
 
+    test("fold-all passes a loose row by (#846): a ring on one is re-found as itself, never as the group above it", () => {
+        // p1 at 0 with lines 1–2 and its blank line 3; a loose row at 4; folded p2 at 5.
+        const kinds = ["group", "row", "row", "blank", "row", "group"] as const;
+        const ctx = groupedCtxOf({
+            rowCount: 6,
+            rowKindAt: (r) => kinds[r],
+            groupAt: (r) => (r === 0 ? { id: "p1", folded: false, lines: { r0: 1, r1: 2 } } : r === 5 ? { id: "p2", folded: true, lines: undefined } : undefined),
+            groupIds: ["p1", "p2"],
+            looseAt: (r) => r === 4,
+            idAt: (r) => ["p1", "p1\u001f0", "p1\u001f1", " blank:g:p1", "loose", "p2"][r],
+        });
+        const folded = run(initialSheetState({ r: 4, c: 1 }), [{ t: "fold.all", folded: true }], ctx);
+        expect(folded.state.lens.folds).toEqual(new Map([["p1", true], ["p2", true]]));
+        expect(folded.effects).toContainEqual({ t: "select.id", id: "loose", c: 1 });
+        // A line still goes with its group.
+        expect(run(initialSheetState({ r: 2, c: 1 }), [{ t: "fold.all", folded: true }], ctx).effects).toContainEqual({ t: "select.id", id: "p1", c: 1 });
+    });
+
     test("the machine's messages are data — an id, raw counts, the host's noun or none — worded where they show, in the table in effect (#861)", () => {
         const ctx = groupedCtxOf({ groupIds: ["p1", "p2"], groupNoun: { singular: "order", plural: "orders" } });
         const folded = run(initialSheetState({ r: 2, c: 1 }), [{ t: "fold.all", folded: true }], ctx);

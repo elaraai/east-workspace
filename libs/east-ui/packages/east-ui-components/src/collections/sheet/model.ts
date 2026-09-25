@@ -273,6 +273,8 @@ export interface SheetGroupIndex {
     titleSpan: number;
     /** The host's word for a group (#844); `undefined` when it names none — the sheet's words say their own (#861). */
     noun: SheetNounValue | undefined;
+    /** Whether rows of the line type stand between the groups (#846) — a LOOSE row: a wire row with no band. */
+    loose: boolean;
 }
 
 /**
@@ -294,7 +296,18 @@ export function indexGroup(group: SheetGroupValue, columns: SheetColumnIndex, ti
     }
     let firstCell = columns.list.length;
     columns.list.forEach((c, i) => { if (i < firstCell && cells.has(c.key)) firstCell = i; });
-    return { linesField: group.lines, keyed: group.keyed, cells, titleSpan: Math.max(1, Math.min(3, columns.list.length, firstCell)), noun: getSomeorUndefined(group.noun) };
+    return { linesField: group.lines, keyed: group.keyed, cells, titleSpan: Math.max(1, Math.min(3, columns.list.length, firstCell)), noun: getSomeorUndefined(group.noun), loose: group.loose };
+}
+
+/**
+ * Whether a grouped sheet's row is a LOOSE row between the groups (#846): a
+ * row of the line type, with its own cells and no band.
+ *
+ * @param row - A grouped sheet's wire row
+ * @returns `true` for a loose row, `false` for a group
+ */
+export function isLooseRow(row: SheetRowValue): boolean {
+    return row.band.type === "none";
 }
 
 /**
@@ -657,6 +670,8 @@ export type SheetBodyItem =
         hit: boolean;
         /** A line's group (#740). */
         group?: LineGroup | undefined;
+        /** A LOOSE row's index among the resident loose rows (#846) — a grouped sheet's row that belongs to no group. */
+        loose?: number | undefined;
     }
     /** A run of rows the lens hides (B§8) — 22 px, a dashed rule, the `n hidden` pill with its controls. */
     | { kind: "gap"; gap: LensGap }
@@ -787,21 +802,25 @@ export function buildBody(input: SheetBodyInput): SheetBodyItem[] {
 
 /**
  * A grouped sheet's body (#740): for each resident group its band, then —
- * unless folded — its lines, each open line's sub rows, and one blank line.
- * Under a lens the groups the narrowing hides collapse into gaps (as flat
- * rows do); inside a shown group the lens works on its LINES: a hit keeps
- * its number, its context and anything revealed show, and the rest collapse
- * into gaps with the controls a flat sheet has. The blank line is not shown
- * under a lens (a lens never invites the next row).
+ * unless folded — its lines, each open line's sub rows, and one blank line;
+ * a LOOSE row between the groups (#846) is a plain row of its own. Under a
+ * lens the groups and loose rows the narrowing hides collapse into gaps (as
+ * flat rows do); inside a shown group the lens works on its LINES: a hit
+ * keeps its number, its context and anything revealed show, and the rest
+ * collapse into gaps with the controls a flat sheet has. The blank line is
+ * not shown under a lens (a lens never invites the next row).
  */
 function buildGroupedBody(input: SheetBodyInput, grouped: NonNullable<SheetBodyInput["grouped"]>): SheetBodyItem[] {
     const out: SheetBodyItem[] = [];
     if (input.head !== undefined) out.push({ kind: "band", band: input.head });
     const lens = input.lens;
     let inGap = false;
+    // Each loose row's index among the resident loose rows, the hidden ones counted.
+    let looseAt = 0;
     input.rows.forEach((row, i) => {
         failuresAt(input, i, out);
         const position = input.positions?.[i] ?? input.rowsOffset + i;
+        const loose = isLooseRow(row) ? looseAt++ : undefined;
         if (lens !== undefined && !lens.visible[i]) {
             if (!inGap) {
                 const gap = lens.gaps.find((g) => g.from === position);
@@ -811,7 +830,7 @@ function buildGroupedBody(input: SheetBodyInput, grouped: NonNullable<SheetBodyI
             return;
         }
         inGap = false;
-        groupItems(row, i, position, lens, grouped, input.blanks, out);
+        groupItems(row, i, position, lens, grouped, input.blanks, out, loose);
     });
     failuresAt(input, input.rows.length, out);
     if (input.tail !== undefined) out.push({ kind: "band", band: input.tail });
@@ -820,8 +839,9 @@ function buildGroupedBody(input: SheetBodyInput, grouped: NonNullable<SheetBodyI
 
 /**
  * One shown group's items: its band, then — unless folded — its lines, each
- * open line's sub rows, and its blank line (not under a lens). The body and
- * the paged driver's window heights both come from here (#855).
+ * open line's sub rows, and its blank line (not under a lens); a loose row
+ * (#846) is one plain row. The body and the paged driver's window heights
+ * both come from here (#855).
  */
 function groupItems(
     row: SheetRowValue,
@@ -831,7 +851,12 @@ function groupItems(
     grouped: NonNullable<SheetBodyInput["grouped"]>,
     blanks: number,
     out: SheetBodyItem[],
+    loose?: number,
 ): void {
+    if (isLooseRow(row)) {
+        out.push({ kind: "real", position, residentIndex: i, row, hit: lens !== undefined && lens.hits[i] === true, loose: loose ?? 0 });
+        return;
+    }
     const folded = grouped.foldedOf(row);
     out.push({ kind: "group", position, residentIndex: i, row, folded, count: row.lines.length });
     if (folded) return;
@@ -894,10 +919,11 @@ export function itemPx(item: SheetBodyItem, g: SheetGeometry): number {
 
 /**
  * What one source row draws, in px (#855): the least height of the items the
- * body builds for it, with no lens. A flat row is one row; a group is its band
- * and, unless folded, its lines, their open sub rows and its blank line when
- * the sheet draws one. The paged driver sizes a window by it, so an unloaded
- * band is as tall as its rows will be.
+ * body builds for it, with no lens. A flat row — or a loose row between the
+ * groups (#846) — is one row; a group is its band and, unless folded, its
+ * lines, their open sub rows and its blank line when the sheet draws one. The
+ * paged driver sizes a window by it, so an unloaded band is as tall as its
+ * rows will be.
  *
  * @param row - A source row
  * @param g - The sheet's geometry
@@ -981,7 +1007,8 @@ export interface ItemBox {
  *
  * - the BAND of the group the row under the header belongs to, once that band
  *   has scrolled under the header (#740, G1) — never a folded group's, which
- *   has no lines under the header to stand for;
+ *   has no lines under the header to stand for, nor over a loose row (#846),
+ *   which belongs to no group;
  * - under that band, the open LINE the row under the band belongs to, once
  *   the line's own row has scrolled under the band — its sub rows scroll
  *   under it, and as its last sub row leaves, the line is pushed up with it.
@@ -1016,6 +1043,7 @@ export function stickyRows(
             break;
         }
         if (it.kind === "band" || it.kind === "failed") break;
+        if (it.kind === "real" && it.loose !== undefined) break;
     }
     const group = band !== undefined ? body[band] : undefined;
     if (group?.kind !== "group") return { band, line: undefined };

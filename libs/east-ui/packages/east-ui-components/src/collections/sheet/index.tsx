@@ -56,7 +56,7 @@ import { railAffordanceKinds } from "../../slice/rail-kinds.js";
 import { VirtualRows, VIRTUALIZE_UNBOUNDED_AT, type RowsViewport } from "../virtual-rows.js";
 import {
     BOTTOM_PAD_PX, DEFAULT_BLANKS, DEFAULT_GUTTER_PX, NEW_LINE_KEY, NULL_CELL, TITLE_KEY,
-    blankIdOf, bodyIndexOfId, buildBody, cellIsBlank, cellText, countNoun, densityOf, drawnPx, driverKeyOf, groupBandPx, indexColumns, indexGroup, indexRegisters, isRowSpace, itemPx,
+    blankIdOf, bodyIndexOfId, buildBody, cellIsBlank, cellText, countNoun, densityOf, drawnPx, driverKeyOf, groupBandPx, indexColumns, indexGroup, indexRegisters, isLooseRow, isRowSpace, itemPx,
     latencyOf, layoutRun, lineAddress, lineId, linePosition, lineRowsOf, parseWidth, resolveMember as resolveRegisterMember, rowIsBlank, segmentOf, stickyRows, withLine, withProposals, withoutLines,
     type LineGroup, type SheetBodyItem, type SheetColumnMeta, type SheetGeometry,
 } from "./model.js";
@@ -84,7 +84,7 @@ import { noticeText, useSheetWords, type SheetWords } from "./words.js";
 import { runSuggest, SuggestMemo, LATENCY_MS, type FillColumn } from "./suggest.js";
 import { InFlight, trackWork } from "./suggest-async.js";
 import { SheetInsertLayer, SheetInsertStrip, type InsertionActions, type InsertSeam } from "./Insertion.js";
-import { insertionGesture, groupInsertionSide, type InsertRequest, type InsertionAnchor } from "./insertion-gesture.js";
+import { insertionGesture, insertsLoose, groupInsertionSide, type InsertRequest, type InsertionAnchor } from "./insertion-gesture.js";
 import { membershipAt } from "./membership.js";
 import { SheetHeader } from "./Header.js";
 import { SheetRow, SheetBandRow, SheetFailedBandRow, SheetGapRow, SheetProposalRow, SheetGroupRow, SheetRowBoundary, SheetSubRow, SheetRetry } from "./Rows.js";
@@ -310,7 +310,7 @@ function anchorBodyIndex(body: readonly SheetBodyItem[], anchorId: string): numb
     return body.findIndex((it) => it.kind === "blank" && blankIdOf(it) === anchorId);
 }
 
-/** One cell write the component turns into a wire event; `extra` names the k-th NEW line a write past a group's blank line lands on (a paste, #740 G9). */
+/** One cell write the component turns into a wire event; `extra` names the k-th NEW row a write lands on past a group's blank line (a paste, #740 G9), or past a loose row (#846 — a paste, a proposal). */
 interface CellWrite {
     r: number;
     c: number;
@@ -356,6 +356,8 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
         return g !== undefined ? indexGroup(g, columns, titleColumn) : undefined;
     }, [value.group, columns, titleColumn]);
     const titleMeta = group?.cells.get(TITLE_KEY);
+    // Rows of the line type may stand between the groups (#846): a LOOSE row.
+    const loose = group?.loose === true;
     const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);
     const size = densityOf(value);
     const coarse = useCoarsePointer();
@@ -468,11 +470,12 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
         const restoredFolds = restored.view === opening && restored.folds.length > 0 ? new Map(restored.folds) : undefined;
         // The ring opens on the first blank row's driver column (else its first
         // column) — the prototype's "type an activity on the empty row"; a
-        // grouped sheet: the first group's blank line.
+        // grouped sheet: the first group's blank line — or a first loose row
+        // itself (#846).
         const c = Math.max(0, driverColumn !== undefined ? columns.list.findIndex((col) => col.key === driverColumn) : 0);
         const first = decodedRows?.[0];
         const firstFolded = first !== undefined && (restoredFolds?.get(first.id) ?? getSomeorUndefined(first.band)?.folded === true);
-        const r = group !== undefined ? (first !== undefined && !firstFolded ? 1 + first.lines.length : 0) : decodedRows?.length ?? 0;
+        const r = group !== undefined ? (first !== undefined && !isLooseRow(first) && !firstFolded ? 1 + first.lines.length : 0) : decodedRows?.length ?? 0;
         return initialSheetStore({ r, c }, opening, restoredFolds);
     });
     const ui = store.ui;
@@ -495,7 +498,9 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
     const inlinePositions = useMemo(() => decodedRows?.map((_r, i) => i), [decodedRows]);
     const sourcePositions: readonly number[] = inlinePositions ?? paging.positions;
     const exhausted = decodedRows !== undefined || paging.exhausted;
-    const editingState = useSheetEditing(value.editing, pagedSource, sourceRows, sourcePositions, storageKey);
+    // A new line beside loose rows (#846) takes a minted id: the field a loose row is identified by.
+    const mintLineId = useCallback(() => newRowIdFn?.() ?? mintId((id) => sourceRows.some((row) => row.id === id)), [newRowIdFn, sourceRows]);
+    const editingState = useSheetEditing(value.editing, pagedSource, sourceRows, sourcePositions, storageKey, loose ? mintLineId : undefined);
     const session = editingState.session;
     // The session's readiness, held by value: what keys on it — the rows'
     // draft presentations — moves only when it does (#858).
@@ -640,7 +645,9 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
     // ── What a transition may ask ─────────────────────────────────────────
     // A column's options rule (#844) reads the row's wire context; the context builder is declared below, so it is reached through a ref.
     const wireContextForRef = useRef<((r: number) => SheetContextValue) | undefined>(undefined);
-    // A line's candidates rank against ITS GROUP's lines (the row above is the line above).
+    // The loose rows between the groups (#846), in order: what a loose row's candidates rank against.
+    const looseRows = useMemo(() => (loose ? rows.filter(isLooseRow) : []), [loose, rows]);
+    // A line's candidates rank against ITS GROUP's lines (the row above is the line above); a loose row's, against the loose rows.
     const candidateCtxFor = useCallback((r: number): CandidateContext => {
         const allowed = (meta: SheetColumnMeta): ReadonlySet<string> | undefined => {
             const rule = meta.options;
@@ -657,8 +664,9 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
         const it = rowAt(r);
         const lg = it !== undefined && (it.kind === "real" || it.kind === "blank") ? it.group : undefined;
         if (lg !== undefined) return { registers, rows: lineRowsOf(lg.row), rowIndex: lg.index, driverColumn, allowed };
+        if (it !== undefined && it.kind === "real" && it.loose !== undefined) return { registers, rows: looseRows, rowIndex: it.loose, driverColumn, allowed };
         return { registers, rows, rowIndex: it !== undefined && it.kind === "real" ? it.residentIndex : -1, driverColumn, allowed };
-    }, [rowAt, registers, rows, driverColumn]);
+    }, [rowAt, registers, rows, looseRows, driverColumn]);
     /** The wire context over a row — the copilot's, a check's, a custom parse's (§4.4); a line's names its group and its key (#740). */
     const wireContextOf = useCallback((row: SheetRowValue | undefined, residentIndex: number, position: number, rowsNow: SheetRowValue[], lg?: LineGroup): SheetContextValue => {
         const driverKey = driverKeyOf(row, driverColumn);
@@ -831,8 +839,9 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
             const k = rowAt(r)?.kind;
             return k === "group" && c < group.titleSpan ? { c0: 0, c1: group.titleSpan - 1 } : undefined;
         },
-        // Every group, the ones a lens hides included: what fold-all folds.
-        groupIds: group !== undefined ? rows.map((row) => row.id) : undefined,
+        // Every group, the ones a lens hides included: what fold-all folds — never a loose row (#846).
+        groupIds: group !== undefined ? rows.filter((row) => !isLooseRow(row)).map((row) => row.id) : undefined,
+        looseAt: (r) => { const it = rowAt(r); return it !== undefined && it.kind === "real" && it.loose !== undefined; },
         // The host's word only: a message words a missing one when it shows (#861).
         groupNoun: declaredNoun,
         // A line's sub rows: whether they show is read off the body (the lens may have opened them).
@@ -916,10 +925,11 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
     /**
      * Write cells: a real row's commits land in the layer's edits (one
      * `commit` event per changed cell, each carrying the row AFTER it); a
-     * blank row's cells become one inserted row (one `insert` event). Returns
-     * the row-space index the FIRST inserted row landed on, so the ring can
-     * follow a blank row that just became real, and the ids of the rows
-     * written, in order.
+     * blank row's cells become one inserted row (one `insert` event), and so
+     * do the k-th rows past a loose row (#846), each placed after the one
+     * before. Returns the row-space index the FIRST inserted row landed on, so
+     * the ring can follow a blank row that just became real, and the ids of
+     * the rows written, in order.
      */
     const writeCells = useCallback((writes: readonly CellWrite[], source: EditSource): { firstInserted: number | undefined; ids: string[] } => {
         if (readOnly || !editingState.available) return { firstInserted: undefined, ids: [] };
@@ -948,6 +958,8 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
         for (const x of rowsNow) takenIds.add(x.id);
         for (const x of appended) takenIds.add(x.id);
         const taken = (id: string) => takenIds.has(id);
+        // The last new loose row placed after each loose row (#846): the next lands after it.
+        const chained = new Map<string, string>();
         // A group's latest row through the layer (#740), and how a rewritten group lands back in it.
         const currentGroup = (g: SheetRowValue): SheetRowValue => edits.get(g.id) ?? appended.find((x) => x.id === g.id) ?? g;
         const setGroup = (g: SheetRowValue) => {
@@ -1000,6 +1012,25 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
                     }));
                     setGroup(g);
                     ids.push(lineId(g.id, key));
+                    if (firstInserted === undefined) firstInserted = r + extra;
+                    continue;
+                }
+                // Past a loose row (#846) — a paste's rows beyond the run, a
+                // proposal under it: the k-th new loose row, after the one before.
+                if (it.kind === "real" && it.loose !== undefined && extra > 0) {
+                    if (!canInsertRows) continue;
+                    let row = blankRow(newRowIdFn !== undefined ? newRowIdFn() : mintId(taken), columns.list);
+                    for (const w of list) {
+                        const meta = columns.list[w.c];
+                        if (meta !== undefined) row = withCell(row, meta.key, w.cell);
+                    }
+                    if (columns.list.every((c) => cellIsBlank(row.cells.get(c.key)))) continue;
+                    const after = chained.get(it.row.id) ?? it.row.id;
+                    appended.push(row);
+                    takenIds.add(row.id);
+                    events.push(variant("insert", { afterRowId: some(after), row, source: src }));
+                    chained.set(it.row.id, row.id);
+                    ids.push(row.id);
                     if (firstInserted === undefined) firstInserted = r + extra;
                     continue;
                 }
@@ -1060,9 +1091,10 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
     }, [sourceRows, rowAt, columns, group, metaAt, newRowIdFn, newLineKeyFn, setLayer, emitEdit, readOnly, canInsertRows, value.editing.keyed, editingState.available]);
     /**
      * Delete whole rows. On a grouped sheet (#740, G7) lines in the range
-     * leave their groups (`lineRemove`); with no line in the range, the
-     * empty groups whose bands are in it leave the sheet (`remove`) — the
-     * two-step ladder: the lines, then the group.
+     * leave their groups (`lineRemove`) and loose rows in it leave the sheet
+     * (#846, `remove`); with neither in the range, the empty groups whose
+     * bands are in it leave the sheet (`remove`) — the two-step ladder: the
+     * rows, then the group.
      */
     const deleteRows = useCallback((r0: number, r1: number): { n: number; what: "rows" | "lines" | "groups"; emptiedBandR: number | undefined } => {
         if (readOnly || !editingState.available) return { n: 0, what: "rows", emptiedBandR: undefined };
@@ -1071,6 +1103,9 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
             const currentGroup = (g: SheetRowValue): SheetRowValue => base.edits.get(g.id) ?? base.appended.find((x) => x.id === g.id) ?? g;
             const byGroup = new Map<string, { row: SheetRowValue; position: number; keys: string[]; addresses: string[] }>();
             const bands: { row: SheetRowValue }[] = [];
+            const looseIds: string[] = [];
+            // The row-space rows this step removes, to find where an emptied band lands once they have gone.
+            const removedRs: number[] = [];
             for (let r = r0; r <= r1; r++) {
                 const it = rowAt(r);
                 if (it === undefined) continue;
@@ -1079,16 +1114,22 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
                     entry.keys.push(it.group.key);
                     entry.addresses.push(lineAddress(group.keyed, it.group.key, it.group.index));
                     byGroup.set(it.group.row.id, entry);
+                    removedRs.push(r);
+                } else if (it.kind === "real" && it.loose !== undefined) {
+                    looseIds.push(it.row.id);
+                    removedRs.push(r);
                 } else if (it.kind === "group") {
                     bands.push({ row: it.row });
                 }
             }
-            if (byGroup.size > 0) {
-                if (!capabilities.removeRows) return { n: 0, what: "lines", emptiedBandR: undefined };
+            if (byGroup.size > 0 || looseIds.length > 0) {
+                const what = looseIds.length === 0 ? "lines" : "rows";
+                if (!capabilities.removeRows) return { n: 0, what, emptiedBandR: undefined };
                 const edits = new Map(base.edits);
                 const appended = [...base.appended];
                 let n = 0;
-                // The first group left empty: the ring selects its band, so ⌫ again removes the group (G7). Bands sit above their lines, so its row index survives the removal.
+                // The first group left empty: the ring selects its band, so ⌫ again removes the group (G7) —
+                // where the band lands once the rows above it in the range have gone.
                 let emptiedBandR: number | undefined;
                 for (const { row, position, keys, addresses } of byGroup.values()) {
                     const g = withoutLines(currentGroup(row), new Set(keys));
@@ -1099,13 +1140,17 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
                     if (emptiedBandR === undefined && g.lines.length === 0) {
                         const bandBi = bodyIndexOfId(body, g.id);
                         const bandR = bandBi >= 0 ? rowSpace.rowOf[bandBi] : undefined;
-                        if (bandR !== undefined && bandR >= 0) emptiedBandR = bandR;
+                        if (bandR !== undefined && bandR >= 0) emptiedBandR = bandR - removedRs.filter((r) => r < bandR).length;
                     }
                 }
-                const next: LocalLayer = { edits, appended, removed: base.removed, placements: base.placements };
+                // Loose rows leave the sheet as entries of their own (#846).
+                if (looseIds.length > 0) emitEdit(variant("remove", { rowIds: looseIds }));
+                n += looseIds.length;
+                const removed = looseIds.length > 0 ? new Set([...base.removed, ...looseIds]) : base.removed;
+                const next: LocalLayer = { edits, appended, removed, placements: base.placements };
                 layerRef.current = next;
                 setLayer(() => next);
-                return { n, what: "lines", emptiedBandR };
+                return { n, what, emptiedBandR };
             }
             if (!capabilities.removeGroups) return { n: 0, what: "groups", emptiedBandR: undefined };
             const ids = bands.filter((b) => currentGroup(b.row).lines.length === 0).map((b) => b.row.id);
@@ -1129,15 +1174,20 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
         emitEdit(variant("remove", { rowIds: ids }));
         return { n: ids.length, what: "rows", emptiedBandR: undefined };
     }, [group, rowAt, body, rowSpace, setLayer, emitEdit, readOnly, capabilities, editingState.available]);
-    /** Insert one proposed row after a row: into the blank slot below it (B§5.2), else appended; on a grouped sheet into the anchor's group (#740, G11). */
-    const insertProposal = useCallback((afterR: number, cells: ReadonlyMap<string, SheetCellValue>, extra = 0): { id: string; r: number } | undefined => {
-        if (!canInsertRows) return undefined;
+    /** What a proposed row writes: its set cells under the editable columns. */
+    const proposalWrites = useCallback((cells: ReadonlyMap<string, SheetCellValue>): { c: number; cell: SheetCellValue }[] => {
         const writes: { c: number; cell: SheetCellValue }[] = [];
         columns.list.forEach((meta, c) => {
             if (!meta.editable || meta.kind === "stamped") return;
             const cell = cells.get(meta.key);
             if (cell !== undefined && !cellIsBlank(cell)) writes.push({ c, cell });
         });
+        return writes;
+    }, [columns]);
+    /** Insert one proposed row after a row: into the blank slot below it (B§5.2), else appended; on a grouped sheet into the anchor's group (#740, G11). */
+    const insertProposal = useCallback((afterR: number, cells: ReadonlyMap<string, SheetCellValue>, extra = 0): { id: string; r: number } | undefined => {
+        if (!canInsertRows) return undefined;
+        const writes = proposalWrites(cells);
         if (writes.length === 0) return undefined;
         if (group !== undefined) {
             const anchor = rowAt(afterR);
@@ -1160,7 +1210,13 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
         const id = res.ids[0];
         if (id === undefined) return undefined;
         return { id, r: res.firstInserted ?? target };
-    }, [columns, group, rowAt, blankLineRowOf, rowSpace, body, rowCount, writeCells, canInsertRows]);
+    }, [proposalWrites, columns, group, rowAt, blankLineRowOf, rowSpace, body, rowCount, writeCells, canInsertRows]);
+    /** Insert proposed rows under a loose row (#846): new loose rows after it, in order — one write, so each lands after the one before. Returns their ids. */
+    const insertLooseProposals = useCallback((afterR: number, proposals: readonly { cells: ReadonlyMap<string, SheetCellValue> }[]): string[] => {
+        if (!canInsertRows) return [];
+        const writes = proposals.flatMap((p, i) => proposalWrites(p.cells).map((w) => ({ r: afterR, c: w.c, cell: w.cell, extra: i + 1 })));
+        return writes.length === 0 ? [] : writeCells(writes, "pattern").ids;
+    }, [canInsertRows, proposalWrites, writeCells]);
 
     // ── The copilot runner (§6.2) ─────────────────────────────────────────
     const [suggestReq, setSuggestReq] = useState<SuggestRequest | null>(null);
@@ -1286,11 +1342,17 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
                 case "insert.rows": {
                     let afterR = eff.anchorR;
                     let lastId: string | undefined;
-                    for (const [i, p] of eff.rows.entries()) {
-                        const landed = insertProposal(afterR, p.cells, group !== undefined ? i : 0);
-                        if (landed === undefined) break;
-                        lastId = landed.id;
-                        if (group === undefined) afterR = landed.r;
+                    const anchorItem = rowAt(eff.anchorR);
+                    if (anchorItem !== undefined && anchorItem.kind === "real" && anchorItem.loose !== undefined) {
+                        // Under a loose row (#846): new loose rows after it.
+                        lastId = insertLooseProposals(eff.anchorR, eff.rows).at(-1);
+                    } else {
+                        for (const [i, p] of eff.rows.entries()) {
+                            const landed = insertProposal(afterR, p.cells, group !== undefined ? i : 0);
+                            if (landed === undefined) break;
+                            lastId = landed.id;
+                            if (group === undefined) afterR = landed.r;
+                        }
                     }
                     if (lastId === undefined) break;
                     // Re-anchor on the row just taken: the rest are already waiting, else look forward again.
@@ -1348,14 +1410,22 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
                     // On a grouped sheet a paste lands on the anchor's group — its lines from the ring, its blank line, then new lines past it — never across a band (G9).
                     const anchor = rowAt(eff.r);
                     const gid = group !== undefined && anchor !== undefined && (anchor.kind === "real" || anchor.kind === "blank") ? anchor.group?.row.id : undefined;
-                    if (group !== undefined && gid === undefined) break;
-                    const blankR = gid !== undefined ? blankLineRowOf(gid) : undefined;
+                    // On a loose row (#846): the loose rows from the ring down, then new loose rows after the last of them — never across a band.
+                    const isLoose = (it: SheetBodyItem | undefined): boolean => it !== undefined && it.kind === "real" && it.loose !== undefined;
+                    let looseEnd: number | undefined;
+                    if (isLoose(anchor)) for (looseEnd = eff.r; isLoose(rowAt(looseEnd + 1)); looseEnd++);
+                    if (group !== undefined && gid === undefined && looseEnd === undefined) break;
+                    const blankR = gid !== undefined ? blankLineRowOf(gid) : looseEnd;
                     for (const p of laid.cells) {
                         const meta = columns.list[p.c];
                         if (meta === undefined) continue;
                         const r = eff.r + p.dr;
                         const outcome = parseCell(meta, p.text, parseCtxFor(Math.min(r, blankR ?? r), meta));
                         const cell = outcome.kind === "unrecognised" ? variant("Invalid", p.text) : outcome.kind === "cell" ? outcome.cell : NULL_CELL;
+                        if (looseEnd !== undefined) {
+                            writes.push(r <= looseEnd ? { r, c: p.c, cell } : { r: looseEnd, c: p.c, cell, extra: r - looseEnd });
+                            continue;
+                        }
                         if (gid !== undefined) {
                             const target = rowAt(r);
                             const inPlan = target !== undefined && (target.kind === "real" || target.kind === "blank") && target.group?.row.id === gid;
@@ -1457,7 +1527,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
         try { recordGesture(gestureEvents.current); }
         catch (error) { console.error("Sheet transaction failure", error); dispatchStore({ t: "patch", patch: { msg: { id: "text", text: error instanceof Error ? error.message : String(error) } } }); }
         finally { gestureEvents.current = []; }
-    }, [recordGesture, writeCells, deleteRows, insertProposal, columns, group, declaredNoun, words, metaAt, blankLineRowOf, readOnly, cellAt, colCount, parseCtxFor, onSelectFn, rowAt, rowOf, rowSpace, store.ui.sel, store.ui.edit, idAt, copilotOn, triggers, requestRun, requestReady, dispatch, value.views, onViewsChangeFn, slice, paging.head, paging.tail, paging.total, jumpToElement]);
+    }, [recordGesture, writeCells, deleteRows, insertProposal, insertLooseProposals, columns, group, declaredNoun, words, metaAt, blankLineRowOf, readOnly, cellAt, colCount, parseCtxFor, onSelectFn, rowAt, rowOf, rowSpace, store.ui.sel, store.ui.edit, idAt, copilotOn, triggers, requestRun, requestReady, dispatch, value.views, onViewsChangeFn, slice, paging.head, paging.tail, paging.total, jumpToElement]);
     const drainedFx = useRef(0);
     useLayoutEffect(() => {
         if (store.fxSeq === drainedFx.current) return;
@@ -1486,11 +1556,11 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
 
     const pendingDiscard = useRef<{ id: string; child: string | undefined } | undefined>(undefined);
     const executeDiscard = useCallback((id: string, child?: string) => {
-        if (discardDraft(session, childField, id, child)) {
+        if (discardDraft(session, draftType, childField, id, child)) {
             dispatchStore({ t: "patch", patch: { sugg: null, msg: { id: "discarded" } } });
             cardRef.current?.focus({ preventScroll: true });
         }
-    }, [session, childField]);
+    }, [session, draftType, childField]);
     const onDiscardDraft = useCallback((id: string, child?: string) => {
         const open = uiRef.current.edit;
         if (open !== null) {
@@ -1534,12 +1604,12 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
     const executeInsertion = useCallback((request: InsertRequest) => {
         if (!editingState.available || (request.kind === "row" ? !canInsertRows : !canInsertGroups)) return;
         const gesture = insertionGesture(request, rows, (i) => runLayout.positions[i] ?? endPosition, group !== undefined, value.editing.keyed,
-            () => newRowIdFn?.() ?? mintId(id => rows.some(row => row.id === id)), mintLineKey);
+            () => newRowIdFn?.() ?? mintId(id => rows.some(row => row.id === id)), mintLineKey, loose);
         if (gesture === undefined) return;
         recordGesture([gesture.event], gesture.placement === undefined ? undefined : new Map([[gesture.id, gesture.placement]]), "insert");
         pendingInsertFocus.current = { id: gesture.id, ...(gesture.child === undefined ? {} : { child: gesture.child }) };
         dispatchStore({ t: "patch", patch: { sugg: null, selEnd: null, msg: request.kind === "group" ? { id: "newGroup", noun: declaredNoun?.singular } : { id: "newRow" } } });
-    }, [editingState.available, canInsertRows, canInsertGroups, rows, runLayout, endPosition, group, declaredNoun, value.editing.keyed, newRowIdFn, recordGesture]);
+    }, [editingState.available, canInsertRows, canInsertGroups, rows, runLayout, endPosition, group, loose, declaredNoun, value.editing.keyed, newRowIdFn, recordGesture]);
     const onInsert = useCallback((kind: "row" | "group", r: number, side: "before" | "after") => {
         const request: InsertRequest = { kind, anchor: anchorFor(r, side) };
         if (uiRef.current.edit !== null) { pendingInsertion.current = request; dispatch({ t: "editor.blur" }); }
@@ -1809,9 +1879,9 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
         const target = seek.target;
         if (target === undefined || jumpInFlight) return;
         seek.clearTarget();
-        // A sought element is a row, or on a grouped sheet a group — the ring lands on its band.
+        // A sought element is a row, or on a grouped sheet a group — the ring lands on its band — or a loose row (#846).
         const bi = body.findIndex((it) => {
-            if (group !== undefined) return it.kind === "group" && it.position === target;
+            if (group !== undefined) return (it.kind === "group" || (it.kind === "real" && it.loose !== undefined)) && it.position === target;
             return it.kind === "real" && it.position === target;
         });
         const r = bi >= 0 ? rowSpace.rowOf[bi] : undefined;
@@ -1948,15 +2018,17 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
     }, [pendingIssue, body, rowSpace, columns, dispatch]);
 
     // ── The view tabs and the lens's chrome (B§8) ─────────────────────────
-    // A grouped sheet counts LINES (#740).
-    const countedRows = useMemo(() => (group !== undefined ? rows.flatMap((g) => lineRowsOf(g)) : rows), [group, rows]);
+    // A grouped sheet counts LINES (#740) — and its loose rows, each a row of its own (#846).
+    const countedRows = useMemo(() => (group !== undefined ? rows.flatMap((g) => (isLooseRow(g) ? [g] : lineRowsOf(g))) : rows), [group, rows]);
     const wholeCount = useMemo(() => countedRows.filter((row) => !rowIsBlank(row, columns)).length, [countedRows, columns]);
     const tabViews = useMemo<SheetTabView[]>(() => {
         if (slice === undefined) return [];
         return views.map((v) => {
-            // A grouped sheet counts a view's LINES the way the lens matches them: with their group's facts and their sub rows.
+            // A grouped sheet counts a view's LINES the way the lens matches them: with their group's facts and their
+            // sub rows — and its loose rows, each by its own cells (#846).
             if (group !== undefined && sliceConfig !== undefined) {
                 const count = rows.reduce((n, g) => {
+                    if (isLooseRow(g)) return n + (lensHits(v.narrowing, sliceConfig, [g], columns.list)[0] === true && !rowIsBlank(g, columns) ? 1 : 0);
                     const hits = lensLineHits(v.narrowing, sliceConfig, g, columns.list);
                     return n + lineRowsOf(g).filter((row, j) => hits[j] === true && !rowIsBlank(row, columns)).length;
                 }, 0);
@@ -1969,11 +2041,16 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
     }, [slice, views, sliceConfig, countedRows, columns, group, rows, words]);
     const summary = useMemo(() => {
         if (group === undefined) return undefined;
-        // The sub rows under the lines count too.
-        const lines = countedRows.length;
-        const subRows = rows.reduce((n, g) => n + g.lines.reduce((m, l) => m + l.subRows.length, 0), 0);
-        return words.m.summary({ groups: countNoun(rows.length, noun, words), n: lines, lines: words.number(lines), nSub: subRows, subRows: words.number(subRows) });
-    }, [group, noun, rows, countedRows.length, words]);
+        // The groups, their lines and the sub rows under them — and the loose rows between the groups (#846).
+        const groups = rows.filter((g) => !isLooseRow(g));
+        const lines = groups.reduce((n, g) => n + g.lines.length, 0);
+        const looseCount = rows.length - groups.length;
+        const subRows = groups.reduce((n, g) => n + g.lines.reduce((m, l) => m + l.subRows.length, 0), 0);
+        return words.m.summary({
+            groups: countNoun(groups.length, noun, words), n: lines, lines: words.number(lines),
+            nLoose: looseCount, loose: words.number(looseCount), nSub: subRows, subRows: words.number(subRows),
+        });
+    }, [group, noun, rows, words]);
     const onTabSwitch = useCallback((id: string | null) => dispatch({ t: "tab.switch", id }), [dispatch]);
     const onTabCreate = useCallback(() => dispatch({ t: "tab.create" }), [dispatch]);
     const onTabClose = useCallback((id: string) => dispatch({ t: "tab.close", id }), [dispatch]);
@@ -1992,7 +2069,9 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
     const onFoldAll = useCallback((folded: boolean) => dispatch({ t: "fold.all", folded }), [dispatch]);
     const foldAll = useMemo(() => {
         if (group === undefined) return undefined;
-        return { folded: rows.length > 0 && rows.every((row) => foldedOf(row)), count: rows.length, noun, onFoldAll };
+        // Loose rows have nothing to fold (#846): fold-all passes them by.
+        const groups = rows.filter((row) => !isLooseRow(row));
+        return { folded: groups.length > 0 && groups.every((row) => foldedOf(row)), count: groups.length, noun, onFoldAll };
     }, [group, noun, rows, foldedOf, onFoldAll]);
     const hasQuery = sliceState !== undefined && sliceState.search.type === "some" && sliceState.search.value.trim() !== "";
     const tabsNode = slice !== undefined
@@ -2018,10 +2097,14 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
             />
         )
         : undefined;
-    // A grouped sheet counts LINES: the matches, and the context shown around them in the groups that show.
+    // A grouped sheet counts LINES: the matches, and the context shown around them in the groups that show — and
+    // each loose row (#846) as a row of its own.
     const count = lens === undefined ? ""
         : lens.lineHits !== undefined && lens.lineVisible !== undefined
-            ? lensCount(lens.lineHits.flat(), lens.lineVisible.map((v, i) => (lens.visible[i] ? v : v.map(() => false))).flat(), words)
+            ? lensCount(
+                rows.flatMap((g, i) => (isLooseRow(g) ? [lens.hits[i] === true] : lens.lineHits![i] ?? [])),
+                rows.flatMap((g, i) => (isLooseRow(g) ? [lens.visible[i] === true] : (lens.lineVisible![i] ?? []).map((v) => lens.visible[i] === true && v))),
+                words)
             : lensCount(lens.hits, lens.visible, words);
 
     // ── The copilot's surfaces: the anchor's fills, the next target, the proposal rows ──
@@ -2375,10 +2458,12 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
     const insertActions = useCallback((r: number, side: "gutter" | "body"): InsertionActions => {
         const anchor = anchorFor(r, "before");
         const ordered = anchor.child !== undefined || anchor.tail === true || !value.editing.keyed;
+        // Above a band, or beside a loose row, the row chip inserts a loose row (#846) — a row, not a line.
+        const looseRow = loose && insertsLoose(anchor, rows);
         return {
             ordered, groupOrdered: !value.editing.keyed,
-            line: group !== undefined, noun: noun.singular,
-            row: canInsertRows && (group === undefined || anchor.entry !== undefined) ? () => onInsert("row", r, "before") : undefined,
+            line: group !== undefined && !looseRow, noun: noun.singular,
+            row: canInsertRows && (group === undefined || anchor.entry !== undefined || looseRow) ? () => onInsert("row", r, "before") : undefined,
             group: canInsertGroups ? () => onInsert("group", r, "before") : undefined,
             preview: kind => {
                 if (kind === undefined || (kind === "row" ? !ordered : value.editing.keyed)) { setInsertPreview(undefined); return; }
@@ -2391,7 +2476,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
                 setInsertPreview(target === undefined ? undefined : { r: target, kind, side });
             },
         };
-    }, [canInsertRows, canInsertGroups, anchorFor, value.editing.keyed, group, noun, onInsert, rows, rowOf, blankLineRowOf]);
+    }, [canInsertRows, canInsertGroups, anchorFor, value.editing.keyed, group, loose, noun, onInsert, rows, rowOf, blankLineRowOf]);
     // The hovered seam. Its chips are drawn once, in the card's insertion
     // layer, placed from the seam's and the gutter's boxes on the screen: the
     // layer sits over every row and under the pinned header, so nothing a row
@@ -2783,7 +2868,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
             {(wr !== null && edit === null || rows.length === 0) && editingState.available && <SheetInsertStrip styles={styles}
                 ordered={!value.editing.keyed || anchorFor(ui.sel.r, "before").child !== undefined}
                 above={canInsertRows ? () => onInsert("row", wr?.r0 ?? ui.sel.r, "before") : undefined}
-                below={canInsertRows && (group === undefined || rows.length > 0) ? () => onInsert("row", wr?.r1 ?? ui.sel.r, "after") : undefined}
+                below={canInsertRows && (group === undefined || loose || rows.length > 0) ? () => onInsert("row", wr?.r1 ?? ui.sel.r, "after") : undefined}
                 group={canInsertGroups ? () => onInsert("group", wr?.r1 ?? ui.sel.r, "after") : undefined}
                 noun={noun.singular} />}
             <SheetStrip styles={styles} model={strip} onAction={onStripAction} />

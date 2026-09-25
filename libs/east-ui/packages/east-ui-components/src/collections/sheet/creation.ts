@@ -12,6 +12,8 @@ import type { SheetCellValue, SheetRowValue } from "./values.js";
 const decodeWire = decodeBeast2For(Sheet.Types.Row);
 const sameCell = equalFor(Sheet.Types.Cell);
 type Cells = SheetRowValue["cells"];
+type Editing = ValueTypeOf<typeof SheetEditingType>;
+type Prepared = { row: SheetRowValue; draft: unknown; previous: SheetRowValue | undefined };
 
 /** Omitted fields remain missing, including hidden required fields. */
 function emptyDraft(type: EastType): unknown {
@@ -36,17 +38,55 @@ function cellsAfter(input: Cells, defaults: Cells | undefined, previousInput?: C
  * Invoke constructors only for newly materialized values. The returned base
  * maps child drafts by internal key before the typed decoder consumes cells.
  * Undo/redo replay the saved value and never run a constructor again.
+ *
+ * On a source with LOOSE rows between its groups (#846) the draft is the
+ * entry's — a variant: a wire row with no band is a loose row, seeded by
+ * `newRow` at its entry placement; one with a band is a group. A new line
+ * there gets its id field minted by `mint` unless `newRow` supplied one: it is
+ * the same domain field a loose row is identified by, never the line's
+ * identity.
+ *
+ * @param input - The gesture's wire row
+ * @param current - The entry's version before this event
+ * @param previousInput - The wire row an earlier event of the gesture left
+ * @param place - The entry's placement
+ * @param editing - The decoded editing declaration
+ * @param draftType - The entry's draft type
+ * @param mint - Mints a new line's id on a source with loose rows
+ * @returns The wire row, its draft and the wire row the decoder reads child drafts by
  */
 export function prepareCreation(
     input: SheetRowValue,
     current: EntryVersion,
     previousInput: SheetRowValue | undefined,
     place: Placement,
-    editing: ValueTypeOf<typeof SheetEditingType>,
+    editing: Editing,
     draftType: EastType,
-): { row: SheetRowValue; draft: unknown; previous: SheetRowValue | undefined } {
+    mint?: () => string,
+): Prepared {
     const field = editing.children.type === "some" ? editing.children.value : undefined;
-    const decodeDraft = decodeBeast2For(editing.draftType);
+    if (draftType.type !== "Variant") return prepareOf(input, current, previousInput, place, editing, draftType, field, undefined);
+    // An entry of groups and loose rows: prepare its arm, then wrap it.
+    const arm = input.band.type === "none" ? "row" : "group";
+    const armType = draftType.cases[arm];
+    if (armType === undefined) throw new Error("Expected an entry draft of a group or a row");
+    const inner = current.draft === undefined ? undefined : (current.draft as { type: string; value: unknown }).value;
+    const prepared = prepareOf(input, { ...current, draft: inner }, previousInput, place, editing, armType, arm === "group" ? field : undefined, mint);
+    return { ...prepared, draft: prepared.draft === undefined ? undefined : variant(arm, prepared.draft) };
+}
+
+/** {@link prepareCreation} for one struct draft: a flat row, a loose row, or a group with its children. */
+function prepareOf(
+    input: SheetRowValue,
+    current: EntryVersion,
+    previousInput: SheetRowValue | undefined,
+    place: Placement,
+    editing: Editing,
+    draftType: EastType,
+    field: string | undefined,
+    mint: (() => string) | undefined,
+): Prepared {
+    const decodeDraft = decodeBeast2For(draftType);
     let draft = current.draft;
     let baseWire = current.wire;
     let seeded = false;
@@ -66,6 +106,8 @@ export function prepareCreation(
     if (childrenType?.type !== "Array") throw new Error("Expected child drafts");
     const childDraftType = childrenType.value;
     const decodeChild = decodeBeast2For(childDraftType);
+    const idField = editing.idField.type === "some" ? editing.idField.value : undefined;
+    const mintsId = mint !== undefined && idField !== undefined && childDraftType.type === "Struct" && childDraftType.fields[idField] !== undefined;
     const group = (draft ?? emptyDraft(draftType)) as Record<string, unknown>;
     const oldChildren = group[field] as unknown[];
     const byKey = new Map(baseWire?.lines.map((line, index) => [line.key, { line, draft: oldChildren[index] }]));
@@ -85,7 +127,12 @@ export function prepareCreation(
             childDraft = decodeChild(seed.draft);
             defaults = decodeWire(seed.row).cells;
         }
-        children.push(childDraft ?? emptyDraft(childDraftType));
+        let child = childDraft ?? emptyDraft(childDraftType);
+        // A new line beside loose rows (#846): its id field — a loose row's identity — minted unless supplied.
+        if (previous === undefined && mintsId && (child as Record<string, { type: string }>)[idField!]?.type === "missing") {
+            child = { ...(child as Record<string, unknown>), [idField!]: variant("value", mint!()) };
+        }
+        children.push(child);
         const cells = defaults !== undefined || previousInput !== undefined
             ? cellsAfter(line.cells, defaults ?? previous?.line.cells, oldInput.get(line.key)?.cells) : line.cells;
         return { ...line, cells };

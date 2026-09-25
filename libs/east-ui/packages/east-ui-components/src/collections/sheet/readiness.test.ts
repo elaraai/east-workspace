@@ -185,6 +185,51 @@ describe("the author's row check, one batch per evaluation (#882)", () => {
         ]);
     });
 
+    test("with loose rows between the groups (#846) a loose row is checked as a row of its own — no line — and the group check runs for the groups alone", () => {
+        const Line = StructType({ id: StringType, activity: StringType });
+        const Group = StructType({ id: StringType, lines: ArrayType(Line) });
+        const Entry = Sheet.Types.Entry(Group, "lines");
+        const DraftEntry = Sheet.Types.DraftEntry(Entry);
+        const sent: unknown[] = [];
+        const groupChecked: string[] = [];
+        const decodeEntryDraft = decodeBeast2For(DraftEntry);
+        const editing = {
+            readyRow: some((blob: Uint8Array) => {
+                const batch = decodeBatch(blob);
+                sent.push(batch.checks);
+                return batch.checks.map(() => READY);
+            }),
+            readyGroup: some((blob: Uint8Array) => {
+                const draft = decodeEntryDraft(blob);
+                groupChecked.push(draft.type);
+                return READY;
+            }),
+            draftType: toEastTypeValue(DraftEntry), entryType: toEastTypeValue(Entry),
+            children: some("lines"), driverColumn: some("activity"), keyed: false,
+            readEntry: () => none,
+        } as unknown as Editing;
+        const cells = (activity: string) => new Map([["activity", variant("String", activity)]]);
+        const rows = [
+            { ...WIRE, id: "l1", cells: cells("Brief") },
+            { ...WIRE, id: "g", band: some({ sub: "", folded: false }), lines: [{ key: "0", cells: cells("Weld"), subRows: [] }, { key: "1", cells: cells("Paint"), subRows: [] }] },
+            { ...WIRE, id: "l2", cells: cells("Hand over") },
+        ] as unknown as SheetRowValue[];
+        const version = (i: number, entry: unknown): EntryVersion => ({ draft: liftDraft(DraftEntry, entry), wire: rows[i]!, place: none });
+        const drafts = new Map<string, EntryVersion>([
+            ["l2", version(2, variant("row", { id: "l2", activity: "Hand over" }))],
+            ["g", version(1, variant("group", { id: "g", lines: [{ id: "a", activity: "Weld" }, { id: "b", activity: "Paint" }] }))],
+            ["l1", version(0, variant("row", { id: "l1", activity: "Brief" }))],
+        ]);
+        expect(authorReadiness(editing, rows, [0, 1, 2], false)!(drafts)).toEqual(READY);
+        expect(sent.pop()).toEqual([
+            { index: 2n, line: none, driver: some("Hand over") },
+            { index: 1n, line: some(0n), driver: some("Weld") },
+            { index: 1n, line: some(1n), driver: some("Paint") },
+            { index: 0n, line: none, driver: some("Brief") },
+        ]);
+        expect(groupChecked).toEqual(["group"]);
+    });
+
     test("a batch whose rows cannot be built marks every check invalid with the reason", () => {
         const resident = ["a", "b"].map((id) => ({ ...WIRE, id }) as unknown as SheetRowValue);
         const editing = {

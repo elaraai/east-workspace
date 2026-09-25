@@ -258,3 +258,123 @@ test("a check that throws fails its own row alone — the batch's other checks s
         variant("incomplete", [{ field: "qty", message: "Checked" }]),
     ]);
 });
+
+// Loose rows between the groups (#846): entries of a group or a row of the
+// line type. A loose row's context has no group — its rows are the loose rows
+// and its index is its place among them; a line's names its group; `groups`
+// holds the groups alone.
+const Task = StructType({ id: StringType, task: StringType, hidden: StringType });
+const Pkg = StructType({ id: StringType, name: StringType, tasks: ArrayType(Task) });
+const Entry = Sheet.Types.Entry(Pkg, "tasks");
+const EntryContext = Sheet.Types.DraftContext(Pkg, "tasks");
+const printEntry = East.function([EntryContext], Fill, ($, ctx) => $.const(some({ value: East.print(ctx), meta: "" }), Fill));
+const readyEntry = East.function([Sheet.Types.Draft(Task), EntryContext], Ready, ($, _row, ctx) => $.const(variant("incomplete", [{ field: "", message: East.print(ctx) }]), Ready));
+const looseSheet = East.function([], UIComponentType, () => Sheet.Root(East.value([
+    variant("row", { id: "a", task: "Brief", hidden: "a source" }),
+    variant("group", { id: "p", name: "Package", tasks: [{ id: "p1", task: "Cut", hidden: "cut source" }] }),
+    variant("row", { id: "b", task: "Handover", hidden: "b source" }),
+], ArrayType(Entry)), { task: Sheet.column.text(Task, { fill: [printEntry] }) }, {
+    id: "id", group: Sheet.group(Pkg, "tasks", { title: "name" }), ready: { row: readyEntry },
+})).toIR().compile([])();
+if (looseSheet.type !== "Sheet" || looseSheet.value.editing.readyRow.type !== "some") throw new Error("Expected a Sheet with loose rows and a row check");
+const looseReady = looseSheet.value.editing.readyRow.value;
+const looseFill = looseSheet.value.columns[0]!.fill[0]!;
+if (looseFill.type !== "sync") throw new Error("Expected synchronous fill");
+const looseRows: ValueTypeOf<typeof Sheet.Types.Row>[] = [
+    { id: "a", owned: false, cells: new Map([["task", variant("String", "Brief")]]), lines: [], band: none, subRows: [] },
+    { id: "p", owned: false, cells: new Map([["$title", variant("String", "Package")]]), band: some({ sub: "", folded: false }), subRows: [],
+        lines: [{ key: "0", cells: new Map([["task", variant("String", "Cut")]]), subRows: [] }] },
+    { id: "b", owned: false, cells: new Map([["task", variant("String", "Handover edited")]]), lines: [], band: none, subRows: [] },
+];
+const printed = (fill: ReturnType<typeof looseFill.value>): string => {
+    if (fill.type !== "some" || fill.value.value.type !== "String") throw new Error("Expected a printed context");
+    return fill.value.value.value;
+};
+
+test("a loose row's context has no group: its rows are the loose rows, its index is its place among them, beside every group", () => {
+    const message = printed(looseFill.value({
+        drafts: new Map(), rowIndex: 2n, rowId: "b", offset: 2n, line: none, row: looseRows[2]!.cells,
+        rows: looseRows, rowsOffset: 0n, partial: false, driver: none, today: now,
+    }));
+    // The second loose row: its own cells over its source draft (the hidden field kept), after the first loose row.
+    for (const part of ['rowIndex=1', 'id=.value "b"', 'task=.value "Handover edited"', 'hidden=.value "b source"', 'hidden=.value "a source"', 'group=.none']) {
+        assert.ok(message.includes(part), `${part} in ${message}`);
+    }
+    // The rows are the two loose rows; the groups the one group — never a loose row.
+    assert.ok(/rows=\[\(id=\.value "a"[^\]]*\), \(id=\.value "b"/.test(message), message);
+    assert.ok(/groups=\[\(id=\.value "p", name=\.value "Package", tasks=\[\(id=\.value "p1"/.test(message), message);
+    assert.ok(!/groups=\[[^\]]*id=\.value "a"/.test(message), message);
+});
+
+test("a line's context on a sheet with loose rows names its group, and its groups are the groups alone", () => {
+    const message = printed(looseFill.value({
+        drafts: new Map(), rowIndex: 0n, rowId: "p", offset: 1n, line: some("0"), row: new Map([["task", variant("String", "Cut edited")]]),
+        rows: looseRows, rowsOffset: 0n, partial: false, driver: none, today: now,
+    }));
+    for (const part of ['rowIndex=0', 'task=.value "Cut edited"', 'hidden=.value "cut source"', 'group=.some (id=.value "p"']) {
+        assert.ok(message.includes(part), `${part} in ${message}`);
+    }
+    // One group — the line's, with the edited line in place (printed as a reference to `rows`) — and no loose row.
+    assert.ok(/groups=\[\(id=\.value "p", name=\.value "Package", tasks=[^()]*\)\], partial/.test(message), message);
+});
+
+test("a readiness batch hands a loose row and a line the contexts a wire context builds for them", () => {
+    const results = looseReady(encodeBatch({
+        drafts: new Map(), rows: looseRows, rowsOffset: 0n, partial: false, today: now,
+        checks: [{ index: 2n, line: none, driver: none }, { index: 1n, line: some(0n), driver: none }, { index: 0n, line: none, driver: none }],
+    }));
+    const wireFor = (index: number, line: string | undefined) => printed(looseFill.value({
+        drafts: new Map(), rowIndex: line === undefined ? BigInt(index) : 0n, rowId: looseRows[index]!.id, offset: BigInt(index),
+        line: line === undefined ? none : some(line), row: line === undefined ? looseRows[index]!.cells : looseRows[index]!.lines[0]!.cells,
+        rows: looseRows, rowsOffset: 0n, partial: false, driver: none, today: now,
+    }));
+    assert.deepEqual(results, [wireFor(2, undefined), wireFor(1, "0"), wireFor(0, undefined)].map((message) => variant("incomplete", [{ field: "", message }])));
+    const message = (results[0]! as { value: { message: string }[] }).value[0]!.message;
+    for (const part of ['rowIndex=1', 'task=.value "Handover edited"', 'group=.none']) assert.ok(message.includes(part), `${part} in ${message}`);
+});
+
+// A member check on a sheet with loose rows (#846): a loose row's check sees
+// its own draft and no group; a line's, its group.
+const Act = StructType({ name: StringType });
+const Job = StructType({ id: StringType, activity: StringType, stations: Sheet.Types.Link, hidden: StringType });
+const Crew = StructType({ id: StringType, name: StringType, jobs: ArrayType(Job) });
+const JobEntry = Sheet.Types.Entry(Crew, "jobs");
+const printCheck = East.function([Sheet.Types.CheckContext(Crew, "jobs")], OptionType(StringType), ($, c) => $.const(some(East.print(c)), OptionType(StringType)));
+const checkedSheet = East.function([], UIComponentType, () => Sheet.Root(East.value([
+    variant("row", { id: "a", activity: "Weld", stations: { from: [], to: [] }, hidden: "a source" }),
+    variant("group", { id: "c", name: "Crew", jobs: [{ id: "c1", activity: "Weld", stations: { from: [], to: [] }, hidden: "c1 source" }] }),
+], ArrayType(JobEntry)), {
+    activity: Sheet.column.lookup(Job),
+    stations: Sheet.column.link(Job, Act, "stations", { check: [printCheck] }),
+}, {
+    id: "id",
+    group: Sheet.group(Crew, "jobs", { title: "name" }),
+    driver: Sheet.driver("activity", East.value([{ name: "Weld" }], ArrayType(Act)), { key: a => a.name, label: a => a.name }),
+    registers: { stations: Sheet.register.members(East.value(["M1"], ArrayType(StringType)), { kind: "machine", key: s => s, label: s => s }) },
+})).toIR().compile([])();
+if (checkedSheet.type !== "Sheet") throw new Error("Expected a Sheet");
+const stationsKind = checkedSheet.value.columns[1]!.kind;
+if (stationsKind.type !== "link") throw new Error("Expected a link column");
+const memberCheck = stationsKind.value.check[0]!;
+if (memberCheck.type !== "custom") throw new Error("Expected an author check");
+
+test("a member check on a loose row sees its own draft and no group; on a line, its group", () => {
+    const half = variant("to", null);
+    const member = variant("identified", { key: "M1" });
+    const loose = memberCheck.value({
+        drafts: new Map(), group: none, rowIndex: 0n, rowId: "a", offset: 0n, line: none,
+        row: new Map([["activity", variant("String", "Weld")]]), half, member,
+    });
+    if (loose.type !== "some") throw new Error("Expected the printed context");
+    for (const part of ['id=.value "a"', 'hidden=.value "a source"', 'group=.none']) assert.ok(loose.value.includes(part), `${part} in ${loose.value}`);
+    const groupWire: ValueTypeOf<typeof Sheet.Types.Row> = {
+        id: "c", owned: false, cells: new Map([["$title", variant("String", "Crew")]]), band: some({ sub: "", folded: false }), subRows: [],
+        lines: [{ key: "0", cells: new Map([["activity", variant("String", "Weld")]]), subRows: [] }],
+    };
+    const line = memberCheck.value({
+        drafts: new Map(), group: some(groupWire), rowIndex: 0n, rowId: "c", offset: 1n, line: some("0"),
+        row: new Map([["activity", variant("String", "Weld")]]), half, member,
+    });
+    if (line.type !== "some") throw new Error("Expected the printed context");
+    for (const part of ['id=.value "c1"', 'hidden=.value "c1 source"', 'group=.some (id=.value "c", name=.value "Crew"']) assert.ok(line.value.includes(part), `${part} in ${line.value}`);
+});

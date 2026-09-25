@@ -253,10 +253,15 @@ function toggleFold(s: SheetUiState, r: number, ctx: SheetMachineCtx): Transitio
     return { state: { ...moved, lens: { ...moved.lens, folds }, msg: { id: g.folded ? "groupOpened" : "groupFolded", noun: ctx.groupNoun?.singular } }, effects };
 }
 
-/** The group the ring is on: its band's row when the ring is on the band, else the nearest band above (a line's group). */
-function groupOfRing(r: number, ctx: SheetMachineCtx): { id: string; folded: boolean } | undefined {
+/**
+ * What the ring re-finds once the body has re-formed: its group — the band
+ * it is on, else the nearest band above (a line's) — or a loose row itself
+ * (#846), which belongs to no group and stays where it is.
+ */
+function refindOfRing(r: number, ctx: SheetMachineCtx): string | undefined {
+    if (ctx.looseAt?.(r) === true) return ctx.idAt?.(r);
     for (let k = r; k >= 0; k--) {
-        if (ctx.rowKindAt?.(k) === "group") return ctx.groupAt?.(k);
+        if (ctx.rowKindAt?.(k) === "group") return ctx.groupAt?.(k)?.id;
     }
     return undefined;
 }
@@ -264,8 +269,9 @@ function groupOfRing(r: number, ctx: SheetMachineCtx): { id: string; folded: boo
 /**
  * Fold or open EVERY group (the header's corner, ⌥ on a chevron, ⇧Space on a
  * band). The groups a lens hides fold too, so the state means the same once
- * the search clears. The ring stays with its group: the body re-forms
- * under it, so it is re-found by id once the rows have settled.
+ * the search clears. The ring stays with its group — or its loose row
+ * (#846): the body re-forms under it, so it is re-found by id once the rows
+ * have settled.
  */
 function foldAll(s: SheetUiState, folded: boolean, ctx: SheetMachineCtx): Transition {
     const ids = ctx.groupIds ?? [];
@@ -273,8 +279,8 @@ function foldAll(s: SheetUiState, folded: boolean, ctx: SheetMachineCtx): Transi
     const folds = new Map(s.lens.folds);
     for (const id of ids) folds.set(id, folded);
     const effects: SheetEffect[] = [];
-    const group = groupOfRing(s.sel.r, ctx);
-    if (group !== undefined) effects.push({ t: "select.id", id: group.id, c: s.sel.c });
+    const refind = refindOfRing(s.sel.r, ctx);
+    if (refind !== undefined) effects.push({ t: "select.id", id: refind, c: s.sel.c });
     const msg: SheetNotice = { id: folded ? "groupsFolded" : "groupsOpened", n: ids.length, noun: ctx.groupNoun?.singular, nouns: ctx.groupNoun?.plural };
     return { state: { ...s, selEnd: null, gsel: null, lens: { ...s.lens, folds }, msg }, effects };
 }

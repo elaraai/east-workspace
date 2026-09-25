@@ -107,10 +107,11 @@ export function useSheetLinks({ drafts, columns, registers, driver, driverColumn
         if (byKey === undefined) { byKey = new Map(); flagCache.set(item.row, byKey); }
         const known = byKey.get(meta.key);
         if (known !== undefined) return known;
-        // A line's check context names its GROUP and its line key (#740).
+        // A line's check context names its GROUP and its line key (#740); a
+        // loose row's (#846) its place among the loose rows.
         const flags = checkLink(cell.value, lc.checks, lc.vocab, (half, member) => ({
             drafts, group: item.group !== undefined ? some(item.group.row) : none,
-            rowIndex: BigInt(item.group !== undefined ? item.group.index : item.residentIndex),
+            rowIndex: BigInt(item.group !== undefined ? item.group.index : item.loose ?? item.residentIndex),
             rowId: item.group !== undefined ? item.group.row.id : item.row.id,
             offset: BigInt(item.position),
             line: item.group !== undefined ? some(item.group.key) : none,

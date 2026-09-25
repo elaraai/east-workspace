@@ -266,8 +266,8 @@ export interface SheetMessages {
     insertNewGroup: (p: { noun: string }) => string;
 
     // ── The footer (B§9) ───────────────────────────────────────────────────
-    /** A grouped sheet's count line — `3 plans · 14 lines`. */
-    summary: (p: { groups: string; n: number; lines: string; nSub: number; subRows: string }) => string;
+    /** A grouped sheet's count line — `3 plans · 14 lines`, and `· 2 loose rows` when rows stand between the groups (#846). */
+    summary: (p: { groups: string; n: number; lines: string; nLoose: number; loose: string; nSub: number; subRows: string }) => string;
     /** The transport line — `600 loaded of 1,000`. */
     transport: (p: { loaded: string; total: string | undefined }) => string;
     /** The same line while a window is on its way. */
@@ -618,8 +618,8 @@ export const sheetMessages: SheetMessages = {
     insertBelow: ({ ordered }) => (ordered ? "Insert below" : "Add row"),
     insertNewGroup: ({ noun }) => `New ${noun}`,
 
-    summary: ({ groups, n, lines, nSub, subRows }) =>
-        `${groups} · ${lines} ${plural(n, "line", "lines")}${nSub > 0 ? ` · ${subRows} sub ${plural(nSub, "row", "rows")}` : ""}`,
+    summary: ({ groups, n, lines, nLoose, loose, nSub, subRows }) =>
+        `${groups} · ${lines} ${plural(n, "line", "lines")}${nLoose > 0 ? ` · ${loose} loose ${plural(nLoose, "row", "rows")}` : ""}${nSub > 0 ? ` · ${subRows} sub ${plural(nSub, "row", "rows")}` : ""}`,
     transport: ({ loaded, total }) => (total !== undefined ? `${loaded} loaded of ${total}` : `${loaded} loaded`),
     transportLoading: ({ line }) => `${line} · Loading…`,
     transportFailed: ({ reason }) => ` · could not be read — ${reason} `,

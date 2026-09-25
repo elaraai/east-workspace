@@ -398,6 +398,8 @@ export interface SheetMachineCtx {
     spanAt?: (r: number, c: number) => { c0: number; c1: number } | undefined;
     /** Every group's id in sheet order, the ones a lens hides included: what fold-all folds. */
     groupIds?: readonly string[] | undefined;
+    /** Whether a row-space row is a LOOSE row between the groups (#846) — a grouped sheet's row that belongs to no group. */
+    looseAt?: ((r: number) => boolean) | undefined;
     /** The word the messages use for a group (#844) — the host's. */
     groupNoun?: SheetNounValue | undefined;
     /** A line's SUB ROWS at a row-space index (#844): the line's id (the key they open under), how many, whether they show, and every line of its group that has sub rows. `undefined` = not a line, or a line with none. */

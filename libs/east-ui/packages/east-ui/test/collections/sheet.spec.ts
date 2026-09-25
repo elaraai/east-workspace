@@ -74,6 +74,26 @@ const P2_ROW = { id: "p2", owned: false, cells: new Map<string, unknown>([["$tit
 const P3_ROW = { id: "p3", owned: false, cells: new Map<string, unknown>([["$title", variant("String", "New plan")]]) as never, lines: [], band: BAND, subRows: [] };
 const EDITING_CELLS = new Map<string, unknown>([["task", variant("String", "Painting")]]) as never;
 
+// ── Loose rows between the groups (#846): entries of a group, or a row of the line type.
+const TaskType = StructType({ id: StringType, task: StringType, note: StringType });
+const PackageType = StructType({ id: StringType, name: StringType, tasks: ArrayType(TaskType) });
+const EntryType = Sheet.Types.Entry(PackageType, "tasks");
+const ENTRIES = [
+    variant("row", { id: "brief", task: "Review", note: "first" }),
+    variant("group", { id: "p1", name: "Roughing", tasks: [{ id: "t1", task: "Machine", note: "" }, { id: "t2", task: "Inspect", note: "hidden" }] }),
+    variant("row", { id: "handover", task: "Hand over", note: "" }),
+];
+// A loose row's wire row: the line columns' cells, no lines, no band.
+const LOOSE_NEW = { id: "new", owned: false, cells: new Map<string, unknown>([["task", variant("String", "Deburr")]]) as never, lines: [], band: none, subRows: [] };
+const LOOSE_BRIEF = { id: "brief", owned: false, cells: new Map<string, unknown>([["task", variant("String", "Review again")]]) as never, lines: [], band: none, subRows: [] };
+const PACKAGE_P1 = {
+    id: "p1", owned: false, cells: new Map<string, unknown>([["$title", variant("String", "Roughing")]]) as never, band: BAND, subRows: [],
+    lines: [
+        { key: "0", cells: new Map<string, unknown>([["task", variant("String", "Machine")]]) as never, subRows: [] },
+        { key: "1", cells: new Map<string, unknown>([["task", variant("String", "Inspect")]]) as never, subRows: [] },
+    ],
+};
+
 // ── Sub rows and column rules (#844).
 const OpType = StructType({ id: StringType, code: StringType, name: StringType, materials: ArrayType(StringType), station: OptionType(StringType) });
 const BookingType = VariantType({ labour: StructType({ team: StringType, people: IntegerType }), equipment: StructType({ resource: StringType }) });
@@ -113,6 +133,7 @@ describeEast("Sheet", (test) => {
         sheetSubRows: ex.sheetSubRows,
         sheetRules: ex.sheetRules,
         sheetRegisters: ex.sheetRegisters,
+        sheetLoose: ex.sheetLoose,
         sheetStress: ex.sheetStress,
     });
 
@@ -654,6 +675,80 @@ describeEast("Sheet", (test) => {
     });
 
     // =========================================================================
+    // Loose rows between the groups (#846) — entries of a group or a row
+    // =========================================================================
+
+    test("loose rows: a group entry is its band and lines, a loose row its own cells with no lines and no band; owned reads the entry; the declaration says loose", $ => {
+        const entries = $.const(ENTRIES, ArrayType(EntryType));
+        const root = $.let(Sheet.Root(entries, { task: Sheet.column.text(TaskType), note: Sheet.column.text(TaskType) }, {
+            id: "id",
+            group: Sheet.group(PackageType, "tasks", { title: "name" }),
+            owned: e => e.match({ group: (_$, g) => g.name.equal("Roughing"), row: (_$, r) => r.note.equal("first") }),
+        }).unwrap().unwrap("Sheet"));
+        const rows = $.let(root.rows.unwrap("inline"));
+        $(Assert.equal(rows.size(), 3n));
+        // A loose row: its id, the line columns' cells, no lines, no band.
+        $(Assert.equal(rows.get(0n).id, "brief"));
+        $(Assert.equal(rows.get(0n).band.hasTag("none"), true));
+        $(Assert.equal(rows.get(0n).lines.size(), 0n));
+        $(Assert.equal(rows.get(0n).cells.get("task").unwrap("String"), "Review"));
+        $(Assert.equal(rows.get(0n).cells.get("note").unwrap("String"), "first"));
+        $(Assert.equal(rows.get(0n).cells.has("$title"), false));
+        $(Assert.equal(rows.get(0n).owned, true));
+        // A group: its band's title, its lines.
+        $(Assert.equal(rows.get(1n).id, "p1"));
+        $(Assert.equal(rows.get(1n).band.hasTag("some"), true));
+        $(Assert.equal(rows.get(1n).cells.get("$title").unwrap("String"), "Roughing"));
+        $(Assert.equal(rows.get(1n).lines.size(), 2n));
+        $(Assert.equal(rows.get(1n).lines.get(1n).cells.get("note").unwrap("String"), "hidden"));
+        $(Assert.equal(rows.get(1n).owned, true));
+        $(Assert.equal(rows.get(2n).id, "handover"));
+        $(Assert.equal(rows.get(2n).owned, false));
+        $(Assert.equal(root.group.unwrap("some").loose, true));
+        // A source of groups alone holds no loose rows.
+        const plans = $.const(PLANS, ArrayType(PlanType));
+        const grouped = $.let(Sheet.Root(plans, { task: Sheet.column.text(LineType) }, { id: "id", group: Sheet.group(PlanType, "lines", { title: "name" }) }).unwrap().unwrap("Sheet"));
+        $(Assert.equal(grouped.group.unwrap("some").loose, false));
+    });
+
+    test("an entry decodes by its band: a loose row over its own draft, its id its own; a group over its group arm", $ => {
+        const entries = $.const(ENTRIES, ArrayType(EntryType));
+        const root = $.const(Sheet.Root(entries, { task: Sheet.column.text(TaskType) }, { id: "id", group: Sheet.group(PackageType, "tasks", { title: "name" }) }).unwrap().unwrap("Sheet"));
+        const Draft = Sheet.Types.DraftEntry(EntryType);
+        // A new loose row, from its wire row alone: the id from the row, the task typed, the note (no column) missing.
+        const freshWire = $.const(LOOSE_NEW, Sheet.Types.Row);
+        const fresh = $.const(root.editing.decode(East.Blob.encodeBeast(freshWire, "v2"), none, none).decodeBeast(Draft, "v2"));
+        $(Assert.equal(fresh.hasTag("row"), true));
+        $(Assert.equal(fresh.unwrap("row").id.unwrap("value"), "new"));
+        $(Assert.equal(fresh.unwrap("row").task.unwrap("value"), "Deburr"));
+        $(Assert.equal(fresh.unwrap("row").note.hasTag("missing"), true));
+        // An existing loose row edited over its draft keeps its hidden note.
+        const briefDraft = $.const(variant("row", { id: variant("value", "brief"), task: variant("value", "Review"), note: variant("value", "first") }), Draft);
+        const briefBytes = $.const(some(East.Blob.encodeBeast(briefDraft, "v2")));
+        const briefWire = $.const(LOOSE_BRIEF, Sheet.Types.Row);
+        const edited = $.const(root.editing.decode(East.Blob.encodeBeast(briefWire, "v2"), briefBytes, none).decodeBeast(Draft, "v2"));
+        $(Assert.equal(edited.unwrap("row").task.unwrap("value"), "Review again"));
+        $(Assert.equal(edited.unwrap("row").note.unwrap("value"), "first"));
+        // A group's wire row decodes into the group arm, its lines' hidden fields from their drafts.
+        const packageWire = $.const(PACKAGE_P1, Sheet.Types.Row);
+        const packageDraft = $.const(variant("group", { id: variant("value", "p1"), name: variant("value", "Roughing"), tasks: [
+            { id: variant("value", "t1"), task: variant("value", "Machine"), note: variant("value", "") },
+            { id: variant("value", "t2"), task: variant("value", "Inspect"), note: variant("value", "hidden") },
+        ] }), Draft);
+        const packageBytes = $.const(some(East.Blob.encodeBeast(packageDraft, "v2")));
+        const previousBytes = $.const(some(East.Blob.encodeBeast(packageWire, "v2")));
+        const group = $.const(root.editing.decode(East.Blob.encodeBeast(packageWire, "v2"), packageBytes, previousBytes).decodeBeast(Draft, "v2"));
+        $(Assert.equal(group.hasTag("group"), true));
+        $(Assert.equal(group.unwrap("group").name.unwrap("value"), "Roughing"));
+        $(Assert.equal(group.unwrap("group").tasks.get(1n).note.unwrap("value"), "hidden"));
+        $(Assert.equal(group.unwrap("group").tasks.get(1n).id.unwrap("value"), "t2"));
+        // The source's entries read back whole, through either arm's id.
+        $(Assert.equal(root.editing.readEntry("handover", 2n).hasTag("some"), true));
+        $(Assert.equal(root.editing.readEntry("p1", 1n).unwrap("some").decodeBeast(EntryType, "v2").unwrap("group").name, "Roughing"));
+        $(Assert.equal(root.editing.readEntry("gone", 0n).hasTag("none"), true));
+    });
+
+    // =========================================================================
     // Sub rows and column rules (#844)
     // =========================================================================
 
@@ -869,6 +964,34 @@ describe("Sheet refusals", () => {
         const asyncKeys = East.asyncFunction([Sheet.Types.DraftContext(RuleRowType)], OptionType(ArrayType(StringType)), () => East.value(none, OptionType(ArrayType(StringType))));
         assert.throws(() => Sheet.Root(ruleRows, { status: Sheet.column.enum(RuleRowType, "s", { options: asyncKeys as never }) }, { id: "id", registers: { s: East.value(MEMBERS, Sheet.Types.RegisterMembers) } }), /options rule must be synchronous/);
         assert.throws(() => Sheet.Root(ruleRows, { start: Sheet.column.date(RuleRowType, { actual: ((r: ExprType<typeof RuleRowType>) => r.code) as never }) }, { id: "id" }), /`actual` rule returning String/);
+    });
+    // Loose rows between the groups (#846).
+    const entries = East.value(ENTRIES, ArrayType(EntryType));
+    const taskColumns = { task: Sheet.column.text(TaskType) };
+    const packages = Sheet.group(PackageType, "tasks", { title: "name" });
+    hostTest("entries of groups and loose rows need their group declared", () => {
+        assert.throws(() => Sheet.Root(entries as never, taskColumns as never, { id: "id" } as never), /entries of groups and loose rows need their group declared/);
+    });
+    hostTest("a group declared over another type than the entries' groups is refused", () => {
+        const Other = StructType({ id: StringType, title: StringType, tasks: ArrayType(TaskType) });
+        assert.throws(() => Sheet.Root(entries as never, taskColumns as never, { id: "id", group: Sheet.group(Other, "tasks", { title: "title" }) } as never), /different type than the entries' groups/);
+    });
+    hostTest("an entry whose loose row is not of the line type is refused", () => {
+        const Odd = VariantType({ group: PackageType, row: StructType({ id: StringType, other: StringType }) });
+        assert.throws(() => Sheet.Root(East.value([], ArrayType(Odd)) as never, taskColumns as never, { id: "id", group: packages } as never), /loose row must be of the line type `tasks` holds/);
+    });
+    hostTest("a variant other than a group or a row is refused", () => {
+        const Other = VariantType({ first: TaskType, second: TaskType });
+        assert.throws(() => Sheet.Root(East.value([], ArrayType(Other)) as never, taskColumns as never, { id: "id" } as never), /entries of a group or a row/);
+    });
+    hostTest("id must name a String field of the line type too — a loose row is an entry", () => {
+        const Bare = StructType({ task: StringType });
+        const BarePackage = StructType({ id: StringType, name: StringType, tasks: ArrayType(Bare) });
+        const bare = East.value([], ArrayType(Sheet.Types.Entry(BarePackage, "tasks")));
+        assert.throws(() => Sheet.Root(bare as never, { task: Sheet.column.text(Bare) } as never, { id: "id", group: Sheet.group(BarePackage, "tasks", { title: "name" }) } as never), /String field of both the group type and the line type/);
+    });
+    hostTest("a loose row's id is its identity — never a column", () => {
+        assert.throws(() => Sheet.Root(entries, { id: Sheet.column.text(TaskType), task: Sheet.column.text(TaskType) }, { id: "id", group: packages }), /the id field "id" cannot also be a column/);
     });
     hostTest("a grouped provider must take the grouped context", () => {
         const flat = East.function([Sheet.Types.DraftContext(LineType)], OptionType(Sheet.Types.Fill(StringType)), (_$, _ctx) => East.value(none, OptionType(Sheet.Types.Fill(StringType))));

@@ -235,4 +235,49 @@ describe("grouped rows (#740)", () => {
         // A line brought to sit exactly under the band is in view — it does not stick.
         expect(stickyRows(body, boxes(36), 0, 40, 36)).toEqual({ band: 0, line: undefined });
     });
+
+    describe("loose rows between the groups (#846)", () => {
+        const brief = row("brief", { task: cell("String", "Review") });
+        const handover = row("handover", { task: cell("String", "Hand over") });
+
+        test("a loose row is one plain row — no band, no lines, no blank line — numbered in the groups' sequence and counted among the loose rows, the ones a lens hides included", () => {
+            const body = buildBody({ rows: [brief, p1, handover], rowsOffset: 0, blanks: 1, exhausted: true, total: undefined, head: undefined, tail: undefined, grouped: { foldedOf } });
+            expect(body.map((it) => it.kind)).toEqual(["real", "group", "real", "real", "blank", "real"]);
+            expect(body[0]).toMatchObject({ kind: "real", position: 0, residentIndex: 0, loose: 0, row: brief });
+            expect(body[5]).toMatchObject({ kind: "real", position: 2, residentIndex: 2, loose: 1, row: handover });
+            expect(body[0]!.kind === "real" && body[0]!.group).toBeUndefined();
+            // A line belongs to its group: it is no loose row.
+            expect(body[2]!.kind === "real" && body[2]!.loose).toBeUndefined();
+            // A lens: the first loose row hidden in a gap, the second a hit — still the second loose row.
+            const lensed = buildBody({
+                rows: [brief, p1, handover], rowsOffset: 0, blanks: 1, exhausted: true, total: undefined, head: undefined, tail: undefined,
+                lens: {
+                    hits: [false, true, true], visible: [false, true, true], gaps: [{ key: "-1_1", from: 0, to: 0, hidden: 1, first: true, last: false }],
+                    lineHits: [[], [true, true], []], lineVisible: [[], [true, true], []], lineGaps: [[], [], []],
+                },
+                grouped: { foldedOf },
+            });
+            expect(lensed.map((it) => it.kind)).toEqual(["gap", "group", "real", "real", "real"]);
+            expect(lensed[4]).toMatchObject({ kind: "real", loose: 1, hit: true });
+            // It draws one row, whatever the groups keep below their lines.
+            expect(drawnPx(brief, { rowPx: 36, bandPx: 42, subRowPx: 30 }, { foldedOf }, 1)).toBe(36);
+        });
+
+        test("no band sticks over a loose row — the walk up to a band stops at it", () => {
+            const body = buildBody({ rows: [p1, handover], rowsOffset: 0, blanks: 0, exhausted: true, total: undefined, head: undefined, tail: undefined, grouped: { foldedOf: () => false } });
+            expect(body.map((it) => it.kind)).toEqual(["group", "real", "real", "real"]);
+            // band 40 · line 36 · line 36 · the loose row 36, scrolled by `s` under a header whose bottom is at 0.
+            const heights = [40, 36, 36, 36];
+            const boxes = (s: number): Map<number, ItemBox> => {
+                const out = new Map<number, ItemBox>();
+                let y = -s;
+                heights.forEach((h, i) => { out.set(i, { top: y, bottom: y + h }); y += h; });
+                return out;
+            };
+            // A line of p1 under the header: its band sticks.
+            expect(stickyRows(body, boxes(50), 0, 40, 36)).toEqual({ band: 0, line: undefined });
+            // The loose row under the header: no band stands for it.
+            expect(stickyRows(body, boxes(113), 0, 40, 36)).toEqual({ band: undefined, line: undefined });
+        });
+    });
 });

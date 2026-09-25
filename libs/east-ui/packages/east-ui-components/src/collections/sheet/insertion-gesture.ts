@@ -19,6 +19,24 @@ export interface InsertionAnchor {
 }
 export interface InsertRequest { kind: "row" | "group"; anchor: InsertionAnchor }
 
+/**
+ * Whether a row inserted at an anchor is a LOOSE row between the groups
+ * (#846) rather than a line: beside a loose row, at the seam above a group's
+ * band, or on a sheet with no rows yet. Below a band is the group's first
+ * line; a line's seam and a group's blank line insert lines.
+ *
+ * @param anchor - Where the row goes
+ * @param rows - The rows on screen, in order
+ * @returns `true` when the new row stands on its own between the groups
+ */
+export function insertsLoose(anchor: InsertionAnchor, rows: readonly SheetRowValue[]): boolean {
+    if (anchor.child !== undefined || anchor.tail === true) return false;
+    if (anchor.entry === undefined) return true;
+    const parent = rows.find(row => row.id === anchor.entry);
+    if (parent === undefined) return false;
+    return parent.band.type === "none" || anchor.side === "before";
+}
+
 /** Group insertions snap around whole groups, never split a child array. */
 export function groupInsertionSide(row: SheetRowValue, anchor: InsertionAnchor): "before" | "after" {
     if (anchor.tail) return "after";
@@ -39,16 +57,17 @@ export function groupInsertionSide(row: SheetRowValue, anchor: InsertionAnchor):
  * @param keyed - Whether the source is keyed
  * @param makeEntry - Mints a new entry's id
  * @param makeChild - Mints a new line's key in a group
+ * @param loose - Whether rows may stand between the groups (#846): a row inserted where {@link insertsLoose} says is a loose row, not a line
  * @returns The gesture, or `undefined` when its anchor is gone
  */
 export function insertionGesture(request: InsertRequest, rows: readonly SheetRowValue[], positionOf: (index: number) => number, grouped: boolean, keyed: boolean,
-    makeEntry: () => string, makeChild: (group: SheetRowValue) => string,
+    makeEntry: () => string, makeChild: (group: SheetRowValue) => string, loose = false,
 ): { event: SheetEditValue; placement?: Placement; id: string; child?: string } | undefined {
     const { kind, anchor } = request;
     const at = anchor.entry === undefined ? -1 : rows.findIndex(row => row.id === anchor.entry);
     if (anchor.entry !== undefined && at < 0) return undefined;
     const parent = rows[at];
-    if (kind === "row" && grouped) {
+    if (kind === "row" && grouped && !(loose && insertsLoose(anchor, rows))) {
         if (parent === undefined) return undefined;
         const childAt = anchor.child === undefined ? -1 : parent.lines.findIndex(line => line.key === anchor.child);
         if (anchor.child !== undefined && childAt < 0) return undefined;

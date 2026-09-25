@@ -16,7 +16,7 @@ import {
 // `sheetBasic` · `sheetVariants` (THE configurator) · `sheetPlan` (the flagship)
 // · the behavioural isolates `sheetCopilot` / `sheetLens` / `sheetWriteBack` /
 // `sheetGrouped` / `sheetPaged` / `sheetReadiness` / `sheetInsertion` /
-// `sheetSubRows` / `sheetRules` / `sheetRegisters` · `sheetStress`. Every example is self-contained — types,
+// `sheetSubRows` / `sheetRules` / `sheetRegisters` / `sheetLoose` · `sheetStress`. Every example is self-contained — types,
 // fixtures and constructors inside the body, bulk data derived East-side —
 // and the fixtures are the prototype's synthetic registers and rows: a
 // discrete manufacturing plant (machines on lines, work orders moving parts
@@ -1304,6 +1304,62 @@ export const sheetRegisters = example({
                     newRow={newJob}
                     onUpdate={jobs.write}
                 />
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+/**
+ * Loose rows between the groups (#846) — the source holds entries
+ * `Sheet.Types.Entry(PackageType, "tasks")`: a work package with its tasks,
+ * or a task that belongs to no package. A loose task draws as a plain row,
+ * numbered in the packages' sequence; the seam above a package's band, or
+ * beside a loose task, inserts a loose task, and a task's seam inserts a task
+ * into its package. `id` names a field of both types: a loose task is an
+ * entry, identified like a package.
+ */
+export const sheetLoose = example({
+    keywords: ["Sheet", "group", "grouped", "loose", "ungrouped", "Entry", "Types.Entry", "variant", "entries", "insert", "newRow", "newGroup", "noun", "onUpdate", "Reactive", "State"],
+    description: "Loose rows between the groups — entries of work packages and loose tasks: a loose task is a plain row numbered in the packages' sequence, inserted at the seam above a package or beside another loose task",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const TaskType = StructType({ id: StringType, task: StringType, qty: OptionType(FloatType), notes: StringType });
+            const PackageType = StructType({ id: StringType, name: StringType, tasks: ArrayType(TaskType) });
+            const Entry = Sheet.Types.Entry(PackageType, "tasks");
+            const entries = $.let(State.bind([ArrayType(Entry)], "sheet_loose_entries", [
+                variant("row", { id: "brief", task: "Review the drawings", qty: none, notes: "Before any machining" }),
+                variant("group", { id: "roughing", name: "P-40 · Roughing", tasks: [
+                    { id: "rough-1", task: "Machine blanks", qty: some(1200.0), notes: "Four CNC lathes" },
+                    { id: "rough-2", task: "Inspect lots", qty: some(4.0), notes: "Check before finishing" },
+                ] }),
+                variant("row", { id: "handover", task: "Hand over to finishing", qty: none, notes: "" }),
+                variant("group", { id: "finishing", name: "P-40 · Finishing", tasks: [
+                    { id: "finish-1", task: "Finish housings", qty: some(1200.0), notes: "After inspection" },
+                ] }),
+            ]));
+            const saved = $.let(entries.read());
+            const newTask = $.const(East.function([Sheet.Types.NewRow], Sheet.Types.Patch(TaskType), () => Sheet.patch(TaskType, { notes: "" })));
+            const newPackage = $.const(East.function([Sheet.Types.NewGroup], Sheet.Types.Patch(PackageType), () => Sheet.patch(PackageType, { tasks: [] })));
+            return (
+                <VStack gap="3" align="stretch">
+                    <Text textStyle="caption" color="fg.muted">Hover the seam above a package, or beside a loose task, to insert a loose task; a task's seam inserts a task into its package. Apply changes saves the batch.</Text>
+                    <Sheet
+                        data={entries}
+                        id="id"
+                        group={Sheet.group(PackageType, "tasks", { title: "name", noun: { singular: "package", plural: "packages" } })}
+                        columns={{
+                            task:  Sheet.column.text(TaskType, { header: "Task", width: "240px" }),
+                            qty:   Sheet.column.quantity(TaskType, { header: "Qty", width: "112px" }),
+                            notes: Sheet.column.text(TaskType, { header: "Notes", width: "280px" }),
+                        }}
+                        newRow={newTask}
+                        newGroup={newPackage}
+                        onUpdate={entries.write}
+                        style={{ height: "420px" }}
+                    />
+                    <Text.MonoLabel>{East.str`SAVED · ${saved.filter((_$, e) => e.hasTag("group")).length()} packages · ${saved.filter((_$, e) => e.hasTag("row")).length()} loose tasks`}</Text.MonoLabel>
+                </VStack>
             );
         }}</Reactive>
     )),

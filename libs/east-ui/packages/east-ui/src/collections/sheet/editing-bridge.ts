@@ -7,13 +7,13 @@
 import {
     ArrayType, AsyncFunctionType, BlobType, East, Expr, FunctionType, IntegerType,
     NullType, OptionType, StringType, StructType, none, some, toEastTypeValue, variant,
-    type EastType, type ExprType, type SubtypeExprOrValue,
+    type EastType, type ExprType, type SubtypeExprOrValue, type VariantType,
 } from "@elaraai/east";
 import type { ResolvedRowSource } from "../../contracts/source.js";
 import { SheetRowType, SheetPatchTypeFor, SheetReadyBatchType } from "./types.js";
 import { buildPatchCells, type SheetBridge } from "./bridge.js";
 import { SheetApplyResultType, SheetChangeSetTypeFor, SheetNewRowType, SheetNewGroupType, SheetReadinessType, SheetDraftTypeFor } from "./transactions.js";
-import { SheetDraftEntryTypeFor, SheetPatchEventTypeFor } from "./drafts.js";
+import { SheetDraftEntryTypeFor, SheetDraftGroupTypeFor, SheetPatchEventTypeFor } from "./drafts.js";
 import { SheetEditingType, SheetWireApplyType } from "./editing-types.js";
 import { buildSheetSeed } from "./seed-bridge.js";
 import { resolveSheetEdits, type SheetEditsInput } from "./edits.js";
@@ -54,9 +54,13 @@ function callback(value: unknown, input: EastType, output: EastType, name: strin
  */
 export function buildSheetEditing(source: ResolvedRowSource, bridge: SheetBridge, idField: string | undefined, input: SheetEditingInput, driverColumn?: string): ExprType<typeof SheetEditingType> {
     const edits = resolveSheetEdits(input.edits, bridge.group !== undefined, source.kind === "paged" && source.collectionType.type === "Dict");
+    // The entry: a row, a group — or, with loose rows between the groups
+    // (#846), `Sheet.Types.Entry(P, "lines")`. The algorithm treats it
+    // opaquely; its runtime East type is exact.
     const rowType = bridge.rowType as StructType<Record<never, never>>;
     const rowsType = ArrayType(rowType);
     const field = bridge.group?.linesField;
+    const groupType = bridge.group?.groupType ?? rowType;
     const draftType = SheetDraftEntryTypeFor(rowType, field);
     const eventType = SheetPatchEventTypeFor(rowType, field);
     const batchType = SheetChangeSetTypeFor(rowType as StructType<Record<never, never>>);
@@ -119,18 +123,23 @@ export function buildSheetEditing(source: ResolvedRowSource, bridge: SheetBridge
     }) : undefined;
     if (input.newGroup !== undefined && bridge.group === undefined) throw new Error("Sheet: newGroup requires a group declaration");
     const rowConstructor = input.newRow === undefined ? undefined : callback(input.newRow, SheetNewRowType, bridge.patchType, "newRow", false);
-    const groupConstructor = input.newGroup === undefined ? undefined : callback(input.newGroup, SheetNewGroupType, SheetPatchTypeFor(rowType), "newGroup", false);
+    const groupConstructor = input.newGroup === undefined ? undefined : callback(input.newGroup, SheetNewGroupType, SheetPatchTypeFor(groupType), "newGroup", false);
     const newRow = rowConstructor === undefined ? undefined : buildSheetSeed(SheetNewRowType, bridge.lineType,
         rowConstructor as ExprType<FunctionType<[StructType], StructType>>, bridge.seedCells);
-    const newGroup = groupConstructor === undefined || bridge.group === undefined ? undefined : buildSheetSeed(SheetNewGroupType, rowType,
-        groupConstructor as ExprType<FunctionType<[StructType], StructType>>, buildPatchCells(rowType, bridge.group.cellMetas, {}, false),
+    const newGroup = groupConstructor === undefined || bridge.group === undefined ? undefined : buildSheetSeed(SheetNewGroupType, groupType,
+        groupConstructor as ExprType<FunctionType<[StructType], StructType>>, buildPatchCells(groupType, bridge.group.cellMetas, {}, false),
         { field: bridge.group.linesField, project: bridge.projectRow });
     const readyGroupExpr = input.ready?.group;
     if (readyGroupExpr !== undefined && field === undefined) throw new Error("Sheet: ready.group requires a group declaration");
-    const authorGroup = readyGroupExpr === undefined ? undefined : callback(readyGroupExpr, draftType, SheetReadinessType, "ready.group", false);
+    // A group's check takes its DraftGroup; the renderer sends the entry's
+    // draft — on a source with loose rows (#846), the group arm of it.
+    const groupDraft = bridge.group?.loose === true && field !== undefined ? SheetDraftGroupTypeFor(groupType, field as never) : draftType;
+    const authorGroup = readyGroupExpr === undefined ? undefined : callback(readyGroupExpr, groupDraft, SheetReadinessType, "ready.group", false);
     const readyGroup = authorGroup === undefined ? undefined : East.function([BlobType], SheetReadinessType, ($, blob) => {
         const check = $.const(authorGroup as ExprType<FunctionType<[EastType], typeof SheetReadinessType>>);
-        return check(blob.decodeBeast(draftType, "v2"));
+        if (groupDraft === draftType) return check(blob.decodeBeast(draftType, "v2"));
+        const entry = $.const(blob.decodeBeast(draftType, "v2") as unknown as ExprType<VariantType<{ group: StructType; row: StructType }>>);
+        return check(entry.unwrap("group"));
     });
     let readyRow: ExprType<FunctionType<[BlobType], ArrayType<typeof SheetReadinessType>>> | undefined;
     if (input.ready?.row !== undefined) {

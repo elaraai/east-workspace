@@ -45,6 +45,10 @@ export function authorReadiness(editing: Editing, resident: readonly SheetRowVal
     const encodeDraft = encodeBeast2For(editing.draftType);
     const decodeEntry = decodeBeast2For(editing.entryType);
     const childField = editing.children.type === "some" ? editing.children.value : undefined;
+    // With loose rows between the groups (#846) an entry is a group or a row of
+    // its own: a wire row with no band is checked as a row, never as lines.
+    const looseSheet = draftType.type === "Variant";
+    const rowOnly = (wire: SheetRowValue): boolean => childField === undefined || (looseSheet && wire.band.type === "none");
     const driverColumn = editing.driverColumn.type === "some" ? editing.driverColumn.value : undefined;
     // The source rows' drafts, read at their source offsets — once for this
     // generation of the source, however many evaluations follow (#859). No
@@ -103,16 +107,17 @@ export function authorReadiness(editing: Editing, resident: readonly SheetRowVal
             placedAt.push(sourceAt.get(row.id) ?? (i > 0 ? placedAt[i - 1]! + 1 : positions[0] ?? 0));
             if (!indexOf.has(row.id)) indexOf.set(row.id, i);
         });
-        // The row checks, one batch for the evaluation (#882): a draft's row,
-        // or each line of a draft's group. The rows cross the wire once and the
-        // bridge builds them once; the results return in the checks' order.
+        // The row checks, one batch for the evaluation (#882): a draft's row —
+        // a flat row, or a loose row (#846) — or each line of a draft's group.
+        // The rows cross the wire once and the bridge builds them once; the
+        // results return in the checks' order.
         const checks: ReadyCheck[] = [];
         let results: readonly Readiness[] = [];
         if (rowCheck !== undefined) {
             for (const [id, entry] of entries) {
                 if (entry.draft === undefined || entry.wire === undefined) continue;
                 const index = BigInt(indexOf.get(id)!);
-                if (childField === undefined) checks.push({ index, line: none, driver: driverOf(entry.wire.cells) });
+                if (rowOnly(entry.wire)) checks.push({ index, line: none, driver: driverOf(entry.wire.cells) });
                 else entry.wire.lines.forEach((line, at) => checks.push({ index, line: some(BigInt(at)), driver: driverOf(line.cells) }));
             }
             if (checks.length > 0) {
@@ -130,7 +135,7 @@ export function authorReadiness(editing: Editing, resident: readonly SheetRowVal
         let next = 0;
         for (const [id, entry] of entries) {
             if (entry.draft === undefined || entry.wire === undefined) continue;
-            if (childField === undefined) {
+            if (rowOnly(entry.wire)) {
                 if (rowCheck !== undefined) report(results[next++]!, id);
                 continue;
             }
