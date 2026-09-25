@@ -10,6 +10,7 @@ import { EastError } from "../error.js";
 import type { BreakIR, ContinueIR, ErrorIR, ForArrayIR, ForDictIR, ForSetIR, IfElseIR, IR, MatchIR, ReturnIR, TryCatchIR, WhileIR } from "../ir.js";
 import type { Location, SourceMap } from "../location.js";
 import type { PlatformFunction } from "../platform.js";
+import { loopWalk } from "../serialization/beast2/v5/lazy.js";
 import { type ArrayTypeValue, type DictTypeValue, type EastTypeValue, expandTypeValue, type SetTypeValue } from "../type_of_type.js";
 
 /** Compiles the errors, try/catch, branches, loops, and early exits. */
@@ -316,7 +317,7 @@ export function compile_control(ir: AnalyzedIR<ErrorIR | TryCatchIR | IfElseIR |
         const set = await compiled_set(ctx);
         lockForIteration(set);
         try {
-          for (const key of set) {
+          for (const key of loopWalk(set)) {
             const ctx2: RuntimeContext = Object.create(ctx);
             ctx2[key_name] = variant("value", key);
             try {
@@ -343,7 +344,7 @@ export function compile_control(ir: AnalyzedIR<ErrorIR | TryCatchIR | IfElseIR |
         const set = compiled_set(ctx);
         lockForIteration(set);
         try {
-          for (const key of set) {
+          for (const key of loopWalk(set)) {
             const ctx2: RuntimeContext = Object.create(ctx);
             ctx2[key_name] = variant("value", key);
             try {
@@ -384,7 +385,7 @@ export function compile_control(ir: AnalyzedIR<ErrorIR | TryCatchIR | IfElseIR |
         const dict = await compiled_dict(ctx);
         lockForIteration(dict);
         try {
-          for (const [key, value] of dict) {
+          for (const [key, value] of loopWalk<[unknown, unknown]>(dict)) {
             const ctx2: RuntimeContext = Object.create(ctx);
             ctx2[key_name] = variant("value", key);
             ctx2[value_name] = variant("value", value);
@@ -412,7 +413,7 @@ export function compile_control(ir: AnalyzedIR<ErrorIR | TryCatchIR | IfElseIR |
         const dict = compiled_dict(ctx);
         lockForIteration(dict);
         try {
-          for (const [key, value] of dict) {
+          for (const [key, value] of loopWalk<[unknown, unknown]>(dict)) {
             const ctx2: RuntimeContext = Object.create(ctx);
             ctx2[key_name] = variant("value", key);
             ctx2[value_name] = variant("value", value);

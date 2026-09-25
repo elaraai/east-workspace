@@ -24,6 +24,12 @@
  * across hydration, so host-side iteration locks and freezes keyed on the
  * value keep working.
  *
+ * Compiled East code meets a lazy value where east-c meets a paged one: a
+ * loop walks a Set or Dict as east-c's paged loop does ({@link loopWalk}), and
+ * a container a lazy value goes into reads it whole
+ * ({@link readLazyWhole}), so a corrupt input fails at the same node in every
+ * runtime.
+ *
  * This is what lets a task runner open a huge collection input lazily: a
  * body that only iterates it once, or reads a few keys, never pays the whole
  * decode — while a body that does anything else gets the eager value's exact
@@ -102,6 +108,20 @@ function* lazySetKeys<K>(pages: Beast2Pages, cmp: (a: K, b: K) => number, from?:
   }
 }
 
+/** The key of a lazy value's method that reads it whole — one property
+ *  lookup, cheap on the eager values a constructor is given far more
+ *  often. */
+const READ_WHOLE = Symbol("east.lazy.readWhole");
+
+/** Streams a Set or Dict blob's elements — pairs, for a Dict — as east-c's
+ *  paged loop walks them: every segment fence verified before the first
+ *  element, and each segment checked against the next fence as it is read. */
+function* walkDisjoint<E>(pages: Beast2Pages): Generator<E> {
+  for (let i = 0; i < pages.segmentCount; i++) {
+    yield* served(() => pages.segmentDisjoint(i)) as Iterable<E>;
+  }
+}
+
 /**
  * A {@link SortedMap} served lazily from an indexed blob.
  *
@@ -133,6 +153,16 @@ class LazySortedMap<K, V> extends SortedMap<K, V> {
       throw err;
     }
     this.hydrated = true;
+  }
+
+  /** What {@link readLazyWhole} runs. */
+  [READ_WHOLE](): void {
+    this.hydrate();
+  }
+
+  /** The entries a compiled loop walks ({@link loopWalk}). */
+  loopWalk(): Iterable<[K, V]> {
+    return this.hydrated ? super.entries() : walkDisjoint<[K, V]>(this.pages);
   }
 
   override get size(): number {
@@ -267,6 +297,16 @@ class LazySortedSet<K> extends SortedSet<K> {
       throw err;
     }
     this.hydrated = true;
+  }
+
+  /** What {@link readLazyWhole} runs. */
+  [READ_WHOLE](): void {
+    this.hydrate();
+  }
+
+  /** The elements a compiled loop walks ({@link loopWalk}). */
+  loopWalk(): Iterable<K> {
+    return this.hydrated ? super.keys() : walkDisjoint<K>(this.pages);
   }
 
   override get size(): number {
@@ -443,6 +483,7 @@ function lazyArray(pages: Beast2Pages, frozen: boolean = false): unknown[] {
   };
   const proxy: unknown[] = new Proxy(target, {
     get(t, prop, receiver) {
+      if (prop === READ_WHOLE) return hydrate;
       if (!hydrated) {
         if (prop === "length") return pages.elementCount;
         if (LAZY_ARRAY_READS.has(prop)) return lazyReads[prop];
@@ -497,6 +538,45 @@ function lazyArray(pages: Beast2Pages, frozen: boolean = false): unknown[] {
     },
   });
   return proxy;
+}
+
+/**
+ * What a compiled loop over a Set or Dict walks: a Set's elements, a Dict's
+ * entries. A lazy one not yet read whole is walked as east-c's paged loop
+ * walks one — every segment fence verified before the first element, each
+ * segment checked against the next fence as it is read — so over a blob whose
+ * fences descend the loop fails before its first iteration, and over segments
+ * that overlap before the elements of the first that overlaps the next, where
+ * east-c's fails and in its words. Anything else is walked as it iterates.
+ *
+ * @param collection - the Set or Dict the loop walks
+ * @returns what the loop walks
+ * @internal
+ */
+export function loopWalk<E>(collection: Iterable<E>): Iterable<E> {
+  return collection instanceof LazySortedMap || collection instanceof LazySortedSet
+    ? collection.loopWalk() as Iterable<E>
+    : collection;
+}
+
+/**
+ * Reads a lazy collection value whole, if `value` is one not yet read: from
+ * then on it holds its elements, as the eager value does, and keeps its
+ * identity. A read that fails throws a {@link LazyReadError} and leaves the
+ * value unread. Any other value is left as it is.
+ *
+ * East-c reads a lazy value whole the moment it goes into a container — a
+ * struct, an array, a variant or a ref, or a dict literal as a value — so a
+ * corrupt input fails at that constructor. The compiled constructors read the
+ * values they are given through this, to fail at the same node.
+ *
+ * @param value - an East value
+ * @internal
+ */
+export function readLazyWhole(value: unknown): void {
+  if (typeof value === "object" && value !== null) {
+    (value as { [READ_WHOLE]?: () => void })[READ_WHOLE]?.();
+  }
 }
 
 /**

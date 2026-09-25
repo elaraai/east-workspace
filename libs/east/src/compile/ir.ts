@@ -174,7 +174,7 @@ export function compile_internal(ir: AnalyzedIR, ctx: Record<string, EastTypeVal
   } else if (ir.type === "Function" || ir.type === "AsyncFunction" || ir.type === "Call" || ir.type === "CallAsync" || ir.type === "Builtin" || ir.type === "Platform") {
     return compile_functions(ir, ctx, platform, asyncPlatformFns, platformDef, compilingNodes, source_map);
   } else if (ir.type === "Struct" || ir.type === "Variant" || ir.type === "NewRef" || ir.type === "NewArray" || ir.type === "NewSet" || ir.type === "NewDict" || ir.type === "NewVector" || ir.type === "NewMatrix") {
-    return compile_constructors(ir, ctx, platform, asyncPlatformFns, platformDef, compilingNodes);
+    return compile_constructors(ir, ctx, platform, asyncPlatformFns, platformDef, compilingNodes, source_map);
   } else {
     throw new Error(`Unhandled IR type ${(ir satisfies never as IR).type} at loc_id ${(ir as IR).value.loc_id}`); // The `satisfies never` here ensures that this branch is unreachable if all IR types are handled
   }

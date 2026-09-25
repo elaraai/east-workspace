@@ -114,6 +114,16 @@ function errorOf(program: Program, inputs: unknown[]): EastError {
     throw new Error("the program did not fail");
 }
 
+/** The corrupt input's type. */
+const CorruptInputType = DictType(IntegerType, StringType);
+
+/** A corrupt input: a high key range spliced before a low one, so the
+ *  segments' first keys do not ascend. */
+function corruptInput(): Uint8Array {
+    return spliceBeast2([1000, 0].map((from) => encodeBeast2PagedFor(CorruptInputType)(
+        new SortedMap(Array.from({ length: 6 }, (_, i) => [BigInt(from + i), `row-${from + i}`] as [bigint, string]), compareFor(IntegerType)))));
+}
+
 const EmitInteger = FunctionType([IntegerType], NullType);
 const EmitString = FunctionType([StringType], NullType);
 const EmitFloat = FunctionType([FloatType], NullType);
@@ -537,13 +547,11 @@ describe("runner protocol corpus", () => {
         });
 
         test("a keyed read of a corrupt input opened lazily fails at the read, naming the segments", () => {
-            // A high key range spliced before a low one: the segments' first
-            // keys do not ascend, which the read checks before it looks.
-            const type = DictType(IntegerType, StringType);
-            const program = East.function([type], BooleanType, (_$, d) => d.has(5n)).toIR();
-            const blob = spliceBeast2([1000, 0].map((from) => encodeBeast2PagedFor(type)(
-                new SortedMap(Array.from({ length: 6 }, (_, i) => [BigInt(from + i), `row-${from + i}`] as [bigint, string]), compareFor(IntegerType)))));
-            const err = errorOf(program, [openBeast2LazyFor(type, { frozen: true })(blob)]);
+            // The segments' first keys do not ascend, which the read checks
+            // before it looks.
+            const program = East.function([CorruptInputType], BooleanType, (_$, d) => d.has(5n)).toIR();
+            const blob = corruptInput();
+            const err = errorOf(program, [openBeast2LazyFor(CorruptInputType, { frozen: true })(blob)]);
             assert.equal(err.eastMessage, "beast2 v5: segments 0 and 1 are not disjoint ascending key ranges — the wire must hold the canonical value (corrupt or pre-contract blob)");
             assert.ok(err.location.length > 0, "the error is at the read");
             cases.push({
@@ -560,6 +568,69 @@ describe("runner protocol corpus", () => {
                 ]),
                 expected: { name: "a keyed read of a corrupt input opened lazily fails at the read, naming the segments", lazy: true, outcome: variant("failed", { message: err.eastMessage, locations: err.location }), outputs: [], absent: [] },
             });
+        });
+
+        test("a loop over a corrupt input opened lazily fails before its first iteration, naming the segments", () => {
+            // The loop checks every segment's first key before it runs an
+            // iteration; a body that ran would fail with its own message.
+            const program = East.function([CorruptInputType], IntegerType, ($, d) => {
+                $.for(d, ($, _value, _key) => {
+                    $.error("an iteration ran");
+                });
+                return 0n;
+            }).toIR();
+            const blob = corruptInput();
+            const err = errorOf(program, [openBeast2LazyFor(CorruptInputType, { frozen: true })(blob)]);
+            assert.equal(err.eastMessage, "beast2 v5: segments 0 and 1 are not disjoint ascending key ranges — the wire must hold the canonical value (corrupt or pre-contract blob)");
+            cases.push({
+                dir: "failed-corrupt-loop",
+                files: new Map([
+                    ["program.beast2", encodeEastIR(program)],
+                    ["input-0.beast2", blob],
+                    ["unit.beast2", encodeBeast2For(UnitType)({
+                        work: variant("run", { program: "program.beast2", inputs: ["input-0.beast2"], output: variant("value", "output.beast2") }),
+                        platforms: [],
+                        threads: 1n,
+                        result: "result.beast2",
+                    })],
+                ]),
+                expected: { name: "a loop over a corrupt input opened lazily fails before its first iteration, naming the segments", lazy: true, outcome: variant("failed", { message: err.eastMessage, locations: err.location }), outputs: [], absent: [] },
+            });
+        });
+
+        test("a struct and an array holding a corrupt input opened lazily fail where they are built", () => {
+            // Each reads the input whole as it goes in, in the whole decoder's
+            // words.
+            const programs = [
+                ["struct", "a struct", East.function([CorruptInputType], IntegerType, ($, d) => {
+                    const held = $.let({ rows: d });
+                    return held.rows.size();
+                }).toIR()],
+                ["array", "an array", East.function([CorruptInputType], IntegerType, ($, d) => {
+                    const held = $.let([d]);
+                    return held.size();
+                }).toIR()],
+            ] as const;
+            for (const [holder, named, program] of programs) {
+                const blob = corruptInput();
+                const err = errorOf(program, [openBeast2LazyFor(CorruptInputType, { frozen: true })(blob)]);
+                assert.equal(err.eastMessage, "beast2 v5: Dict keys are not strictly ascending in East order — the wire must hold the canonical value (corrupt or pre-contract blob)");
+                assert.ok(err.location.length > 0, "the error is where the container is built");
+                cases.push({
+                    dir: `failed-corrupt-${holder}`,
+                    files: new Map([
+                        ["program.beast2", encodeEastIR(program)],
+                        ["input-0.beast2", blob],
+                        ["unit.beast2", encodeBeast2For(UnitType)({
+                            work: variant("run", { program: "program.beast2", inputs: ["input-0.beast2"], output: variant("value", "output.beast2") }),
+                            platforms: [],
+                            threads: 1n,
+                            result: "result.beast2",
+                        })],
+                    ]),
+                    expected: { name: `${named} holding a corrupt input opened lazily fails where it is built`, lazy: true, outcome: variant("failed", { message: err.eastMessage, locations: err.location }), outputs: [], absent: [] },
+                });
+            }
         });
     });
 

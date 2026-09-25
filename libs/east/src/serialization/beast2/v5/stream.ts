@@ -1544,6 +1544,29 @@ export class Beast2Pages<T extends EastType = EastType> {
   }
 
   /**
+   * Decodes one segment of a Set or Dict for a walk in canonical order
+   * (Set/Dict roots only), as east-c's paged loops read one: the fences are
+   * probed and verified to ascend strictly first, once per reader, and the
+   * segment's last key is checked to fall below the next segment's fence. A
+   * walk from segment 0 over a blob that violates the canonical-order contract
+   * therefore fails at the first segment it reads: before any element when the
+   * fences are out of order, and before the elements of the first segment
+   * that overlaps the next.
+   *
+   * @param i - zero-based segment index
+   * @returns the segment's decoded collection
+   * @throws {Error} When the root is an Array, `i` is out of range, the blob
+   *   is not self-contained, or the blob violates the canonical-order
+   *   contract.
+   */
+  segmentDisjoint(i: number): ValueTypeOf<T> {
+    if (this.kind === "Array") {
+      throw new Error(`beast2 v5: segmentDisjoint() addresses Set and Dict roots; this blob holds Array — use segment()`);
+    }
+    return this.decodeDisjoint(i, { prev: undefined, has: false }, this.verifyFences());
+  }
+
+  /**
    * Looks up one Set element or Dict value by key (Set/Dict roots only):
    * binary-searches the verified segment fences for the only segment whose
    * range can hold the key, decodes it, and scans for an East-equal match.

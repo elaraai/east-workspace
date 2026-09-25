@@ -28,7 +28,7 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  East, EastError, Expr, equalFor, compareFor, IRType, toJSONFor, some, none, get_location,
+  East, EastError, Expr, equalFor, compareFor, IRType, toJSONFor, some, none, ref, variant, get_location,
   encodeBeast2SegmentsFor, decodeBeast2For, openBeast2LazyFor, isBeast2LazySafe, spliceBeast2,
   ArrayType, SetType, DictType, IntegerType, FloatType, StringType, NullType, StructType, OptionType,
   type EastType, type Location,
@@ -633,27 +633,94 @@ describe("lazy inputs — a read that fails", () => {
     assert.deepEqual(failedLater.location, missingLater.location);
   });
 
-  test("a loop raises it at the loop, in a function or an async one", async () => {
+  test("a loop fails before its first iteration, at the loop, in a function or an async one", async () => {
+    // As east-c's paged loop does, the loop checks every segment's first key
+    // before it runs an iteration, so it fails on the fences, not partway.
+    let iterations = 0;
+    const saw = East.platform("saw_row", [], NullType);
     let at: Location[] = [];
-    const walk = East.function([Table], IntegerType, ($, d) => {
-      const n = $.let(0n);
-      at = get_location(); $.for(d, ($, _value, _key) => { $.assign(n, n.add(1n)); });
-      return n;
-    }).toIR().compile([]);
+    const walk = East.function([Table], NullType, ($, d) => {
+      at = get_location(); $.for(d, ($, _value, _key) => { $(saw()); });
+      return null;
+    }).toIR().compile([saw.implement(() => { iterations++; return null; })]);
     const failed = await eastErrorOf(() => walk(open()));
-    assert.equal(failed.message, orderMessage);
+    assert.equal(failed.message, fenceMessage);
     assertSameLine(failed.location, at);
+    assert.equal(iterations, 0, "no iteration ran");
 
     const tick = East.asyncPlatform("tick", [], NullType);
     let atLater: Location[] = [];
-    const walkLater = East.asyncFunction([Table], IntegerType, ($, d) => {
-      const n = $.let(0n);
-      atLater = get_location(); $.for(d, ($, _value, _key) => { $(tick()); $.assign(n, n.add(1n)); });
-      return n;
-    }).toIR().compile([tick.implement(() => Promise.resolve(null))]);
+    const walkLater = East.asyncFunction([Table], NullType, ($, d) => {
+      atLater = get_location(); $.for(d, ($, _value, _key) => { $(tick()); });
+      return null;
+    }).toIR().compile([tick.implement(() => { iterations++; return Promise.resolve(null); })]);
     const failedLater = await eastErrorOf(() => walkLater(open()));
-    assert.equal(failedLater.message, orderMessage);
+    assert.equal(failedLater.message, fenceMessage);
     assertSameLine(failedLater.location, atLater);
+    assert.equal(iterations, 0, "no iteration ran");
+  });
+
+  test("a loop over segments that overlap runs the rows before them, and fails before the first that overlaps the next", async () => {
+    // Segments [0, 1], [2, 10] and [5, 20]: the first keys ascend, but the
+    // second segment's last key passes the third's first.
+    const seen: bigint[] = [];
+    const saw = East.platform("saw_key", [IntegerType], NullType);
+    const platform = [saw.implement((key: bigint) => { seen.push(key); return null; })];
+
+    const dict = spliceBeast2([
+      sweepBlob(Table, new Map([[0n, "a"], [1n, "b"], [2n, "c"], [10n, "d"]])),
+      sweepBlob(Table, new Map([[5n, "e"], [20n, "f"]])),
+    ]);
+    const walkDict = East.function([Table], NullType, ($, d) => {
+      $.for(d, ($, _value, key) => { $(saw(key)); });
+      return null;
+    }).toIR().compile(platform);
+    const failed = await eastErrorOf(() => walkDict(openBeast2LazyFor(Table, { frozen: true })(dict)));
+    assert.equal(failed.message, "beast2 v5: segments 1 and 2 are not disjoint ascending key ranges — the wire must hold the canonical value (corrupt or pre-contract blob)");
+    assert.deepEqual(seen, [0n, 1n]);
+
+    seen.length = 0;
+    const set = spliceBeast2([
+      sweepBlob(Keys, new Set([0n, 1n, 2n, 10n])),
+      sweepBlob(Keys, new Set([5n, 20n])),
+    ]);
+    const walkSet = East.function([Keys], NullType, ($, s) => {
+      $.for(s, ($, key) => { $(saw(key)); });
+      return null;
+    }).toIR().compile(platform);
+    const failedSet = await eastErrorOf(() => walkSet(openBeast2LazyFor(Keys, { frozen: true })(set)));
+    assert.equal(failedSet.message, "beast2 v5: segments 1 and 2 are not disjoint ascending element ranges — the wire must hold the canonical value (corrupt or pre-contract blob)");
+    assert.deepEqual(seen, [0n, 1n]);
+  });
+
+  test("a container reads a lazy value whole where it is built, and a read that fails fails there", async () => {
+    // As east-c does: a struct, array, variant or ref, or a dict literal as
+    // a value, reads a lazy input whole when the input goes into it. (A set
+    // element or dict key is never a collection: its type must be immutable.)
+    const holders: [string, (d: Expr) => unknown][] = [
+      ["a struct", (d) => ({ rows: d })],
+      ["an array", (d) => [d]],
+      ["a variant", (d) => variant("held", d)],
+      ["a ref", (d) => ref(d)],
+      ["a dict literal", (d) => new Map([[1n, d]])],
+    ];
+    for (const [holder, hold] of holders) {
+      let at: Location[] = [];
+      const build = East.function([Table], IntegerType, ($, d) => {
+        at = get_location(); $.let(hold(d) as never);
+        return 0n;
+      }).toIR().compile([]);
+      const failed = await eastErrorOf(() => build(open()));
+      assert.equal(failed.message, orderMessage, holder);
+      assertSameLine(failed.location, at);
+    }
+
+    // A valid input, held, is the input.
+    const Held = StructType({ rows: Table });
+    const held = East.function([Table], Held, (_$, d) => ({ rows: d })).toIR().compile([]);
+    const table = new Map(Array.from({ length: 6 }, (_, i) => [BigInt(i), `row-${i}`] as [bigint, string]));
+    const value = held(openBeast2LazyFor(Table, { frozen: true })(rows(0)));
+    assert.ok(equalFor(Held)(value, { rows: decodeBeast2For(Table)(sweepBlob(Table, table)) }));
   });
 
   test("a platform function that reads the input raises it at its call, sync or async", async () => {
