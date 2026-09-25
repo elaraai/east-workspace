@@ -30,8 +30,22 @@ import type { PendingFill } from "./sheet-types.js";
 import type { SheetCellValue, SheetNounValue, SheetRowValue, SheetSubRowValue } from "./values.js";
 import type { DraftPresentation } from "./draft-state.js";
 import type { SheetMembership } from "./membership.js";
+import { SheetInsertPoint } from "./Insertion.js";
 
 type Styles = Record<string, Record<string, unknown>>;
+
+/**
+ * Test-only render probe (#858) — lets "a gesture re-renders only the rows it
+ * touches" be asserted as WHICH rows rendered, deterministically: a line or a
+ * band reports its row-space index as it renders, and a copy that sticks under
+ * the header says it is one. `undefined` outside tests; the call is a single
+ * optional invocation. The Plan's `setBodyRowRenderProbe` (#815).
+ */
+let sheetRowRenderProbe: ((r: number, copy: boolean) => void) | undefined;
+/** Install (or clear) the test render probe. Test use only. */
+export function setSheetRowRenderProbe(fn: ((r: number, copy: boolean) => void) | undefined): void {
+    sheetRowRenderProbe = fn;
+}
 
 // The gutter is three columns with three jobs — RAIL (select: a 14 px
 // checkbox on a 1 px connector) · NUMBER · ACTIONS (decide: 24 px ghost
@@ -96,10 +110,18 @@ function Rail({ styles, membership, picked, mixed, label, selectable, onPick }: 
     </Box>;
 }
 
-/** The per-row facts the row renderer is handed — primitives, so the memo can skip. */
+/**
+ * The per-row facts the row renderer is handed — primitives and references
+ * that hold still, so the memo skips every row a gesture does not touch (#858).
+ */
 export interface SheetRowProps {
     styles: Styles;
-    insertion?: ReactNode;
+    /** The insertion seam above the row, by the side of the gutter its chips take — `undefined` where nothing inserts. */
+    seam?: "gutter" | "body" | undefined;
+    /** The seam is hovered: the sheet's one insertion layer shows its chips. */
+    onSeamEnter?: ((r: number, side: "gutter" | "body", hit: HTMLElement) => void) | undefined;
+    /** The pointer left the seam. */
+    onSeamLeave?: ((to: EventTarget | null) => void) | undefined;
     insertPreview?: "row" | "group" | undefined;
     /** Where the previewing seam's chips sit; the insertion line starts at them. */
     insertSide?: "gutter" | "body" | undefined;
@@ -147,10 +169,11 @@ export interface SheetRowProps {
     onFillRow: () => void;
     /** Schema-derived state of the current unapplied row. */
     draft?: DraftPresentation | undefined;
-    /** Discard a never-applied row as an undoable gesture. */
-    onDiscard?: (() => void) | undefined;
-    /** The sub rows under this line: how many, and whether they show. */
-    subRows?: { count: number; open: boolean } | undefined;
+    /** Discard a never-applied row as an undoable gesture — the row's id, or a line's group and its key. */
+    onDiscard?: ((id: string, child?: string) => void) | undefined;
+    /** How many sub rows sit under this line (none: `undefined`), and whether they show. */
+    subRowCount?: number | undefined;
+    subRowsOpen?: boolean | undefined;
     /** The chevron: show or hide them; `all` (⌥) takes every line of the group the same way. */
     onSubRows?: ((r: number, all: boolean) => void) | undefined;
     /** The host's word for a group (#844) — the chevron's title names it. */
@@ -163,7 +186,9 @@ export interface SheetRowProps {
 
 /** Renders one row. */
 export const SheetRow = memo(function SheetRow(props: SheetRowProps) {
-    const { styles, columns, registers, driverColumn, gridTemplate, rowPx, r, number, row, group, linkCtx, selC, range, picked, hit, editor, fills, nextTargetC, hoverC, first } = props;
+    const { styles, columns, registers, driverColumn, gridTemplate, rowPx, r, number, row, group, linkCtx, selC, range, picked, hit, editor, fills, nextTargetC, hoverC, first, seam, subRowCount } = props;
+    sheetRowRenderProbe?.(r, props.sticky === true);
+    const subRowsOpen = props.subRowsOpen === true;
     // The sub-row count in the chevron's name, in the app's locale (#850).
     const words = useFormatters();
     const issuePrefix = useId();
@@ -195,7 +220,7 @@ export const SheetRow = memo(function SheetRow(props: SheetRowProps) {
             data-group-id={group?.row.id}
             data-line={group !== undefined ? group.key : undefined}
             data-picked={picked ? "" : undefined}
-            data-sub-rows-open={props.subRows?.open === true ? "" : undefined}
+            data-sub-rows-open={subRowsOpen ? "" : undefined}
             role="row"
         >
             <Box
@@ -204,23 +229,25 @@ export const SheetRow = memo(function SheetRow(props: SheetRowProps) {
                 onMouseDown={(e) => props.onRowPick(r, e)}
                 title={hasFills ? "Click the number to select the row · the button fills it" : "Select whole row — delete removes it"}
             >
-                {props.insertion}
+                {seam !== undefined && props.onSeamEnter !== undefined && props.onSeamLeave !== undefined && (
+                    <SheetInsertPoint styles={styles} side={seam} onEnter={(hit) => props.onSeamEnter?.(r, seam, hit)} onLeave={props.onSeamLeave} />
+                )}
                 <Rail styles={styles} membership={rowBlank ? undefined : props.membership} picked={picked} mixed={false} selectable={!rowBlank}
                     label={group !== undefined ? `Select row ${number} in ${groupName}` : `Select row ${number}`}
                     onPick={(event) => props.onRowPick(r, event)} />
                 <Box as="span" css={styles.gutterNumber} data-slot="gutterNumber" data-hit={hit ? "" : undefined} data-blank={rowBlank ? "" : undefined}>
                     {/* A line with sub rows: the chevron before its number shows or hides them (⌥ every line of the group); open, the tree's stem starts just under it. */}
-                    {props.subRows !== undefined && (
-                        <chakra.button type="button" css={styles.subRowChevron} data-slot="subRowChevron" data-open={props.subRows.open ? "" : undefined}
-                            aria-expanded={props.subRows.open}
-                            aria-label={`${props.subRows.open ? "Hide" : "Show"} the ${words.number(props.subRows.count)} row${props.subRows.count === 1 ? "" : "s"} under line ${number}`}
-                            title={`${props.subRows.open ? "Hide" : "Show"} the ${words.number(props.subRows.count)} row${props.subRows.count === 1 ? "" : "s"} under this line — Space · ⌥ every line in the ${props.noun?.singular ?? "group"}`}
+                    {subRowCount !== undefined && (
+                        <chakra.button type="button" css={styles.subRowChevron} data-slot="subRowChevron" data-open={subRowsOpen ? "" : undefined}
+                            aria-expanded={subRowsOpen}
+                            aria-label={`${subRowsOpen ? "Hide" : "Show"} the ${words.number(subRowCount)} row${subRowCount === 1 ? "" : "s"} under line ${number}`}
+                            title={`${subRowsOpen ? "Hide" : "Show"} the ${words.number(subRowCount)} row${subRowCount === 1 ? "" : "s"} under this line — Space · ⌥ every line in the ${props.noun?.singular ?? "group"}`}
                             onMouseDown={(event) => { event.preventDefault(); event.stopPropagation(); props.onSubRows?.(r, event.altKey); }}
                             onClick={(event) => { if (event.detail === 0) props.onSubRows?.(r, event.altKey); }}>
                             <Chevron />
                         </chakra.button>
                     )}
-                    {props.subRows?.open === true && <Box as="span" css={styles.subRowStem} data-slot="subRowStem" aria-hidden="true" />}
+                    {subRowsOpen && <Box as="span" css={styles.subRowStem} data-slot="subRowStem" aria-hidden="true" />}
                     {number}
                 </Box>
                 <Box css={styles.gutterAction} data-slot="fillSlot">
@@ -242,7 +269,11 @@ export const SheetRow = memo(function SheetRow(props: SheetRowProps) {
                         type="button" css={styles.gutterButton}
                         data-slot="discardDraft" data-kind="discard" aria-label="Discard new row" title="Discard new row"
                         onMouseDown={(event) => { event.preventDefault(); event.stopPropagation(); }}
-                        onClick={(event) => { event.stopPropagation(); props.onDiscard?.(); }}
+                        onClick={(event) => {
+                            event.stopPropagation();
+                            if (group !== undefined) props.onDiscard?.(group.row.id, group.key);
+                            else if (row !== undefined) props.onDiscard?.(row.id);
+                        }}
                     ><FontAwesomeIcon icon={faXmark} /></chakra.button>}
                 </Box>
             </Box>
@@ -681,7 +712,10 @@ export const SheetGapRow = memo(function SheetGapRow({ styles, gap, reach, onRev
 
 export interface SheetGroupRowProps {
     styles: Styles;
-    insertion?: ReactNode;
+    /** The insertion seam above the band, by the side of the gutter its chips take — `undefined` where nothing inserts. */
+    seam?: "gutter" | "body" | undefined;
+    onSeamEnter?: ((r: number, side: "gutter" | "body", hit: HTMLElement) => void) | undefined;
+    onSeamLeave?: ((to: EventTarget | null) => void) | undefined;
     insertPreview?: "row" | "group" | undefined;
     insertSide?: "gutter" | "body" | undefined;
     columns: SheetColumnIndex;
@@ -722,12 +756,14 @@ export interface SheetGroupRowProps {
     /** The chevron; `all` (⌥ held) applies the band's new state to every group. */
     onFold: (r: number, all?: boolean) => void;
     draft?: DraftPresentation | undefined;
-    onDiscard?: (() => void) | undefined;
+    /** Discard a never-applied group as an undoable gesture — the group's id. */
+    onDiscard?: ((id: string) => void) | undefined;
 }
 
 /** Renders one full-width summary with a fold control and independent metadata. */
 export const SheetGroupRow = memo(function SheetGroupRow(props: SheetGroupRowProps) {
-    const { styles, columns, registers, gridTemplate, bandPx, r, row, group, folded, count, first, sticky, selC, range, picked, editor } = props;
+    const { styles, columns, registers, gridTemplate, bandPx, r, row, group, folded, count, first, sticky, selC, range, picked, editor, seam } = props;
+    sheetRowRenderProbe?.(r, sticky === true);
     const titleCell = row.cells.get(TITLE_KEY);
     const title = titleCell !== undefined && titleCell.type === "String" ? titleCell.value : "";
     const sub = getSomeorUndefined(row.band)?.sub ?? "";
@@ -759,7 +795,9 @@ export const SheetGroupRow = memo(function SheetGroupRow(props: SheetGroupRowPro
             aria-expanded={!folded}
         >
             <Box css={styles.gutter} data-slot="gutter" onMouseDown={(e) => props.onRowPick(r, e)} title={`Select the ${word}'s lines — delete removes them`}>
-                {props.insertion}
+                {seam !== undefined && props.onSeamEnter !== undefined && props.onSeamLeave !== undefined && (
+                    <SheetInsertPoint styles={styles} side={seam} onEnter={(hit) => props.onSeamEnter?.(r, seam, hit)} onLeave={props.onSeamLeave} />
+                )}
                 <Rail styles={styles} membership={props.membership} picked={picked} mixed={props.mixed === true} selectable
                     label={`Select ${word} ${title}`} onPick={(event) => props.onRowPick(r, event)} />
                 <Box as="span" css={styles.gutterNumber} data-slot="gutterNumber">{props.number}</Box>
@@ -768,7 +806,7 @@ export const SheetGroupRow = memo(function SheetGroupRow(props: SheetGroupRowPro
                         type="button" css={styles.gutterButton}
                         data-slot="discardDraft" data-kind="discard" aria-label={`Discard new ${word}`} title={`Discard new ${word}`}
                         onMouseDown={(event) => { event.preventDefault(); event.stopPropagation(); }}
-                        onClick={(event) => { event.stopPropagation(); props.onDiscard?.(); }}
+                        onClick={(event) => { event.stopPropagation(); props.onDiscard?.(row.id); }}
                     ><FontAwesomeIcon icon={faXmark} /></chakra.button>}
                 </Box>
             </Box>

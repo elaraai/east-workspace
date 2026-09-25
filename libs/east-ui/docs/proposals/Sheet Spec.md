@@ -1314,6 +1314,7 @@ sheet/
   Tabs.tsx               ~200   the view tabs
   Footer.tsx             ~100   counts · key hint · live message · transport line
   sheet.dom.test.tsx            per-behaviour DOM tests (§5)
+  sheet-render.dom.test.tsx     the rows each gesture renders (#858)
   frame.test-utils.ts           the DOM tests' stand-ins for layout jsdom lacks: rows measured as they draw, a page that scrolls (#856)
 theme/slot-recipes/sheet.ts ~300 the B§11 vocabulary as recipe slots, light + dark via semantic tokens
 ```
@@ -1622,6 +1623,21 @@ sheet a restore whose item is not resident jumps first (`jumpToElement`), owning
 viewport until the frame has scrolled there, then hands it back (`clearJump`). The
 element is clamped to `total()` first: a jump past the end pins a window no demand
 makes resident, so it would never settle, and a pending jump owns the viewport.
+
+**Rows that hold still (#858).** A gesture re-renders only the rows it touches:
+moving the ring or the hover renders the rows it leaves and enters, and typing
+renders the edited row. The row memo compares its props by identity, so every prop
+is a primitive or a reference that holds still:
+- each item's rail membership is computed once per body;
+- a row's draft presentation is derived once per session change (the session's
+  readiness is held by value, since it derives a fresh one on every read);
+- the insertion seam arrives as the side its chips take, and the row draws it;
+- discard is one stable callback that takes the row's id (and a line's key);
+- a line's sub rows arrive as their count and whether they show;
+- the range's columns and the editor are memoized.
+
+A test-only render probe (`setSheetRowRenderProbe`, the Plan's #815) lets the DOM
+tests assert which rows rendered.
 
 **The fields (review, 2026-09-12).** The ring is the field chrome; what sits
 inside it is the COMMON control for the column's kind, never a bespoke input:

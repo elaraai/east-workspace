@@ -42,7 +42,7 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type MouseEvent, type KeyboardEvent, type ClipboardEvent, type ReactNode } from "react";
 import { Box, useSlotRecipe } from "@chakra-ui/react";
 import { ArrayType, StringType, compareFor, equalFor, equivalentFor, fromEastTypeValue, none, some, variant, type ValueTypeOf } from "@elaraai/east";
-import { Sheet, Slice } from "@elaraai/east-ui/internal";
+import { Sheet, SheetBatchReadinessType, Slice } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils.js";
 import { boundSliceConfig } from "../../platform/slice/index.js";
 import { parseCssSize } from "../../style/parse-size.js";
@@ -81,7 +81,7 @@ import {
 } from "./sheet-state.js";
 import { runSuggest, SuggestMemo, LATENCY_MS, type FillColumn } from "./suggest.js";
 import { InFlight, trackWork } from "./suggest-async.js";
-import { SheetInsertLayer, SheetInsertPoint, SheetInsertStrip, type InsertionActions, type InsertSeam } from "./Insertion.js";
+import { SheetInsertLayer, SheetInsertStrip, type InsertionActions, type InsertSeam } from "./Insertion.js";
 import { insertionGesture, groupInsertionSide, type InsertRequest, type InsertionAnchor } from "./insertion-gesture.js";
 import { membershipAt } from "./membership.js";
 import { SheetHeader } from "./Header.js";
@@ -92,7 +92,7 @@ import { SheetStrip, buildStrip, type StripAction, type StripLinkInput, type Str
 import { SheetFooter, type SheetTransport } from "./Footer.js";
 import { useSheetEditing, type LocalLayer } from "./use-editing.js";
 import { SheetHistory, type HistoryAction } from "./History.js";
-import { draftPresentation, discardDraft } from "./draft-state.js";
+import { draftPresentation, discardDraft, type DraftPresentation } from "./draft-state.js";
 import { SheetToolbar } from "./Toolbar.js";
 import type { SheetCellValue, SheetContextValue, SheetEditValue, SheetLinkValue, SheetMemberValue, SheetNounValue, SheetProposerValue, SheetRootValue, SheetRowValue, SheetSelectionValue, SheetViewValue } from "./values.js";
 
@@ -118,6 +118,7 @@ const stringCompare = compareFor(StringType);
 const cellEqual = equalFor(Sheet.Types.Cell);
 const sliceStateEqual = equalFor(Slice.Types.State) as (a: SliceStateValue, b: SliceStateValue) => boolean;
 const viewsEqual = equalFor(ArrayType(Sheet.Types.View)) as (a: readonly SheetViewValue[], b: readonly SheetViewValue[]) => boolean;
+const readinessEqual = equalFor(SheetBatchReadinessType);
 
 /** The narrowing with nothing active — what the whole-sheet tab writes; the presentation fields (cohort registry, breakdown, visibility, resolution) stay. */
 function clearNarrowing(state: SliceStateValue): SliceStateValue {
@@ -475,13 +476,30 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
     const exhausted = decodedRows !== undefined || paging.exhausted;
     const editingState = useSheetEditing(value.editing, pagedSource, sourceRows, sourcePositions, storageKey);
     const session = editingState.session;
-    const readiness = session.readiness;
+    // The session derives its readiness afresh on every read; held by value,
+    // what keys on it — the rows' draft presentations — moves only when it
+    // does (#858).
+    const readiness = useDataStable(session.readiness, readinessEqual);
     const draftType = useMemo(() => fromEastTypeValue(value.editing.draftType), [value.editing.draftType]);
     const childField = getSomeorUndefined(value.editing.children);
     const draftVersion = editingState.version;
     const recordGesture = editingState.record;
     const drafts = editingState.drafts;
     const layer = editingState.layer;
+    // A row's draft presentation, derived once per session change (#858): the
+    // gutter's decisions and the row read the same one, and between changes a
+    // row keeps it by identity, so its memo holds.
+    const draftOf = useMemo(() => {
+        const byEntry = new Map<string, Map<string | undefined, DraftPresentation>>();
+        return (id: string, child?: string): DraftPresentation => {
+            let byChild = byEntry.get(id);
+            if (byChild === undefined) { byChild = new Map(); byEntry.set(id, byChild); }
+            let found = byChild.get(child);
+            if (found === undefined) { found = draftPresentation(session, draftType, childField, id, child, readiness); byChild.set(child, found); }
+            return found;
+        };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- draftVersion tracks changes within the stable transaction session.
+    }, [session, draftType, childField, readiness, draftVersion]);
     // Temporary writes within one reducer effect batch; the transaction session
     // publishes the completed gesture and owns the rendered layer thereafter.
     const layerRef = useRef(layer);
@@ -548,6 +566,9 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
     }, [body]);
     const rowCount = rowSpace.bodyIndexOf.length;
     const colCount = columns.list.length;
+    // Each body item's place in its group's rail, once per body (#858): a
+    // row is handed its own entry, which holds still until the body moves.
+    const memberships = useMemo(() => body.map((_it, i) => membershipAt(body, i)), [body]);
     const rowAt = useCallback((r: number): SheetBodyItem | undefined => {
         const bi = rowSpace.bodyIndexOf[r];
         return bi === undefined ? undefined : body[bi];
@@ -1406,6 +1427,10 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
         }
         executeDiscard(id, child);
     }, [rowAt, dispatch, executeDiscard]);
+    // The rows' one discard: stable, so no row's memo sees it change (#858).
+    const discardRef = useRef(onDiscardDraft);
+    discardRef.current = onDiscardDraft;
+    const onRowDiscard = useCallback((id: string, child?: string) => discardRef.current(id, child), []);
     useLayoutEffect(() => {
         const target = pendingDiscard.current;
         if (target === undefined || ui.edit !== null) return;
@@ -2027,6 +2052,11 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
             />
         )
         : null, [edit, editMeta, editDate, styles, editGhost, editResolve, editBadge, editorFocus, onEditorChange, onEditorKey, onEditorBlur, linkView, linkGhostText, onHalfDown, editCombobox, onEditorPick, editWhenLevel]);
+    // What a row in the range and the edited row are handed, held still while
+    // they are the same — a hover elsewhere renders neither (#858).
+    const rangeCols = useMemo(() => ({ c0: rect.c0, c1: rect.c1 }), [rect.c0, rect.c1]);
+    const editC = edit !== null ? edit.c : undefined;
+    const editorAt = useMemo(() => (editC !== undefined ? { c: editC, node: editorNode } : undefined), [editC, editorNode]);
     // ── The sticky band (#740, G1) — which band sits under the header at the scroll offset ──
     // The same heights the paged driver measures windows by (#855).
     const sizeOf = useCallback((i: number): number => {
@@ -2222,10 +2252,12 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
         for (const t of targets) t.addEventListener("scroll", hide, { passive: true });
         return () => { for (const t of targets) t.removeEventListener("scroll", hide); };
     }, [viewport]);
-    const insertionFor = useCallback((r: number, side: "gutter" | "body"): ReactNode => {
-        if (!canInsert) return undefined;
-        return <SheetInsertPoint styles={styles} side={side} onEnter={hit => onSeamEnter(r, side, hit)} onLeave={onSeamLeave} />;
-    }, [canInsert, styles, onSeamEnter, onSeamLeave]);
+    // A row draws its own seam from primitives and this one stable handler,
+    // so hovering a seam, or a gesture anywhere, never hands every row a new
+    // element (#858).
+    const seamEnterRef = useRef(onSeamEnter);
+    seamEnterRef.current = onSeamEnter;
+    const onRowSeamEnter = useCallback((r: number, side: "gutter" | "body", hit: HTMLElement) => seamEnterRef.current(r, side, hit), []);
     // Whether a body item shows an action button in the gutter's actions column: a proposal's ✓ ×, an anchor's → fill, a draft's × discard.
     const hasDecisions = useCallback((i: number): boolean => {
         const it = body[i];
@@ -2234,13 +2266,10 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
         const r = rowSpace.rowOf[i] ?? -1;
         // The copilot's → sits on its anchor — a real row, or the blank line being typed on.
         if ((it.kind === "real" || it.kind === "blank") && anchorR === r && ui.sugg !== null && ui.sugg.fill.size > 0) return true;
-        if (it.kind === "real") {
-            return draftPresentation(session, draftType, childField, it.group?.row.id ?? it.row.id, it.group?.key, readiness).discardable;
-        }
-        if (it.kind === "group") return draftPresentation(session, draftType, childField, it.row.id, undefined, readiness).discardable;
+        if (it.kind === "real") return draftOf(it.group?.row.id ?? it.row.id, it.group?.key).discardable;
+        if (it.kind === "group") return draftOf(it.row.id).discardable;
         return false;
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- draftVersion tracks changes within the stable transaction session.
-    }, [body, rowSpace, anchorR, ui.sugg, session, draftType, childField, readiness, draftVersion]);
+    }, [body, rowSpace, anchorR, ui.sugg, draftOf]);
     /** The seam above body item `i` takes the gutter unless an action sits in the actions column on either side of it. */
     const seamSide = useCallback((i: number): "gutter" | "body" => (hasDecisions(i) || hasDecisions(i - 1) ? "body" : "gutter"), [hasDecisions]);
 
@@ -2267,7 +2296,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
                     hit={item.hit}
                     gutterPx={gutterPx}
                     viewPx={viewPx}
-                    membership={membershipAt(body, i)}
+                    membership={memberships[i]}
                     entering={arriving.has(`line:${item.lineId}`) ? Math.min(item.index, 8) : undefined}
                 />
             );
@@ -2318,24 +2347,26 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
                     registers={registers}
                     gridTemplate={gridTemplate}
                     bandPx={bandPx}
-                    insertion={insertionFor(r, seamSide(i))}
+                    seam={canInsert ? seamSide(i) : undefined}
+                    onSeamEnter={onRowSeamEnter}
+                    onSeamLeave={onSeamLeave}
                     insertPreview={insertPreview?.r === r ? insertPreview.kind : undefined}
                     insertSide={insertPreview?.r === r ? insertPreview.side : undefined}
                     r={r}
                     row={item.row}
                     number={item.position + 1}
-                    membership={membershipAt(body, i)}
-                    draft={draftPresentation(session, draftType, childField, item.row.id, undefined, readiness)}
-                    onDiscard={() => onDiscardDraft(item.row.id)}
+                    membership={memberships[i]}
+                    draft={draftOf(item.row.id)}
+                    onDiscard={onRowDiscard}
                     group={group}
                     folded={item.folded}
                     count={item.count}
                     first={i === 0}
                     selC={ui.sel.r === r ? ui.sel.c : undefined}
-                    range={inRangeRow ? { c0: rect.c0, c1: rect.c1 } : undefined}
+                    range={inRangeRow ? rangeCols : undefined}
                     picked={wr !== null && r >= wr.r0 && r <= wr.r1}
                     mixed={bandMixed(r, wr !== null && r >= wr.r0 && r <= wr.r1)}
-                    editor={edit !== null && edit.r === r ? { c: edit.c, node: editorNode } : undefined}
+                    editor={edit !== null && edit.r === r ? editorAt : undefined}
                     onCellDown={onCellDown}
                     onCellDouble={onCellDouble}
                     onCellEnter={onCellEnter}
@@ -2349,7 +2380,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
         // A line with sub rows: how many, and whether they hang under it now.
         const subRowCount = item.kind === "real" && lg !== undefined ? lg.row.lines[lg.index]?.subRows.length ?? 0 : 0;
         const nextItem = body[i + 1];
-        const subRows = subRowCount > 0 ? { count: subRowCount, open: nextItem !== undefined && nextItem.kind === "subRow" && item.kind === "real" && nextItem.lineId === item.row.id } : undefined;
+        const subRowsOpen = subRowCount > 0 && nextItem !== undefined && nextItem.kind === "subRow" && item.kind === "real" && nextItem.lineId === item.row.id;
         return (
             <SheetRowBoundary styles={styles} rowPx={rowPx} number={lg !== undefined ? lg.number : item.position + 1} resetKey={item.kind === "real" ? item.row : undefined}>
             <SheetRow
@@ -2359,7 +2390,9 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
                 driverColumn={driverColumn}
                 gridTemplate={gridTemplate}
                 rowPx={rowPx}
-                insertion={insertionFor(r, seamSide(i))}
+                seam={canInsert ? seamSide(i) : undefined}
+                onSeamEnter={onRowSeamEnter}
+                onSeamLeave={onSeamLeave}
                 insertPreview={insertPreview?.r === r ? insertPreview.kind : undefined}
                 insertSide={insertPreview?.r === r ? insertPreview.side : undefined}
                 r={r}
@@ -2367,15 +2400,15 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
                 first={i === 0}
                 row={item.kind === "real" ? item.row : undefined}
                 group={lg}
-                membership={membershipAt(body, i)}
-                draft={item.kind === "real" ? draftPresentation(session, draftType, childField, lg?.row.id ?? item.row.id, lg?.key, readiness) : undefined}
-                onDiscard={item.kind === "real" ? () => onDiscardDraft(lg?.row.id ?? item.row.id, lg?.key) : undefined}
+                membership={memberships[i]}
+                draft={item.kind === "real" ? draftOf(lg?.row.id ?? item.row.id, lg?.key) : undefined}
+                onDiscard={item.kind === "real" ? onRowDiscard : undefined}
                 linkCtx={linkCellCtx}
                 selC={ui.sel.r === r ? ui.sel.c : undefined}
-                range={inRangeRow ? { c0: rect.c0, c1: rect.c1 } : undefined}
+                range={inRangeRow ? rangeCols : undefined}
                 picked={wr !== null && r >= wr.r0 && r <= wr.r1}
                 hit={item.kind === "real" && item.hit}
-                editor={edit !== null && edit.r === r ? { c: edit.c, node: editorNode } : undefined}
+                editor={edit !== null && edit.r === r ? editorAt : undefined}
                 fills={anchorR === r && ui.sugg !== null ? ui.sugg.fill : undefined}
                 nextTargetC={nextTarget !== null && nextTarget.r === r ? nextTarget.c : undefined}
                 hoverC={ui.hover !== null && ui.hover.r === r ? ui.hover.c : undefined}
@@ -2385,15 +2418,15 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
                 onRowPick={onRowPick}
                 onTake={onTake}
                 onFillRow={onFillRow}
-                subRows={subRows}
+                subRowCount={subRowCount > 0 ? subRowCount : undefined}
+                subRowsOpen={subRowsOpen}
                 onSubRows={onSubRows}
                 noun={noun}
                 entering={lg !== undefined && arriving.has(`group:${lg.row.id}`) ? Math.min(lg.index, 8) : undefined}
             />
             </SheetRowBoundary>
         );
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- draftVersion tracks changes within the stable transaction session.
-    }, [session, draftType, childField, draftVersion, readiness, insertionFor, seamSide, insertPreview, onDiscardDraft, body, styles, paging.loading, rowSpace, ui.selEnd, ui.sel, ui.sugg, ui.gsel, ui.hover, ui.lens.steps, rect, columns, registers, driverColumn, gridTemplate, rowPx, bandPx, subRowPx, gutterPx, viewPx, group, noun, colCount, wr, bandMixed, edit, editorNode, anchorR, nextTarget, onCellDown, onCellDouble, onCellEnter, onRowPick, onTake, onFillRow, onProposalPick, onProposalAccept, onProposalReject, onReveal, onFold, onSubRows, linkCellCtx, arriving]);
+    }, [draftOf, memberships, canInsert, seamSide, onRowSeamEnter, onSeamLeave, insertPreview, onRowDiscard, body, styles, paging.loading, paging.retry, rowSpace, ui.selEnd, ui.sel, ui.sugg, ui.gsel, ui.hover, ui.lens.steps, rect, rangeCols, columns, registers, driverColumn, gridTemplate, rowPx, bandPx, subRowPx, gutterPx, viewPx, group, noun, wr, bandMixed, edit, editorAt, anchorR, nextTarget, onCellDown, onCellDouble, onCellEnter, onRowPick, onTake, onFillRow, onProposalPick, onProposalAccept, onProposalReject, onReveal, onFold, onSubRows, linkCellCtx, arriving]);
 
     // A source that failed before anything landed: nothing else to show (#853).
     if (paging.error !== undefined) {
@@ -2426,9 +2459,9 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
                         r={rowSpace.rowOf[stickyAt] ?? -1}
                         row={stickyItem.row}
                         number={stickyItem.position + 1}
-                        membership={membershipAt(body, stickyAt)}
-                        draft={draftPresentation(session, draftType, childField, stickyItem.row.id, undefined, readiness)}
-                        onDiscard={() => onDiscardDraft(stickyItem.row.id)}
+                        membership={memberships[stickyAt]}
+                        draft={draftOf(stickyItem.row.id)}
+                        onDiscard={onRowDiscard}
                         group={group}
                         folded={stickyItem.folded}
                         count={stickyItem.count}
@@ -2462,9 +2495,9 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
                         number={stuckLine.lg.number}
                         row={stuckLine.row}
                         group={stuckLine.lg}
-                        membership={membershipAt(body, stuckLine.at)}
-                        draft={draftPresentation(session, draftType, childField, stuckLine.lg.row.id, stuckLine.lg.key, readiness)}
-                        onDiscard={() => onDiscardDraft(stuckLine.lg.row.id, stuckLine.lg.key)}
+                        membership={memberships[stuckLine.at]}
+                        draft={draftOf(stuckLine.lg.row.id, stuckLine.lg.key)}
+                        onDiscard={onRowDiscard}
                         linkCtx={linkCellCtx}
                         selC={undefined}
                         range={undefined}
@@ -2480,7 +2513,8 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
                         onRowPick={(r, e) => { if (e.button === 0) revealLine(stuckLine.at, false); onRowPick(r, e); }}
                         onTake={onTake}
                         onFillRow={onFillRow}
-                        subRows={{ count: stuckLine.lg.row.lines[stuckLine.lg.index]?.subRows.length ?? 0, open: true }}
+                        subRowCount={stuckLine.lg.row.lines[stuckLine.lg.index]?.subRows.length ?? 0}
+                        subRowsOpen
                         onSubRows={(r, all) => { revealLine(stuckLine.at, all); onSubRows(r, all); }}
                         noun={noun}
                         sticky
