@@ -28,7 +28,7 @@ Conventions used below:
 5. User message
 6. Assistant message
 7. Markdown
-8. Tool-result widgets (frame, chart, table, stats, proposal, tool call)
+8. Tool-result widgets (frame, chart, table, stats, proposal, tool call; query-backed widgets)
 9. Composer
 10. Delete dialog
 11. Streaming, scrolling and timing
@@ -461,6 +461,9 @@ The header then ends with two icon buttons:
 - **Copy data.** Icon button 28, 11px `fa-copy`, which becomes `fa-check` in `--pos` for 1 400 ms.
   `aria-label="Copy data"`. It copies CSV (§8.6).
 
+A query-backed widget also fills the status cell and adds a Refresh button before these two. The
+value widget has its own header row. Both are product additions, specified in §8.7.
+
 ### 8.2 Chart
 
 - **Body.** Padding `12 12 10`, column, gap 8. The plot is 168 high (the spec may override). Below it
@@ -654,7 +657,16 @@ therefore shows it applied or overridden.
 - **Body.** A `<pre>` with max-height 220, scrolling, padding `0 12 12`, mono 11/1.6 `--ink-2`,
   `white-space: pre`.
 - **Contents.** The mock prints the call's input as JSON. In product it is the East text rendering
-  of the typed input (see the issue).
+  of the typed input (issue Decision 9).
+- **Query** (query-backed widgets only, §8.7). A second head and body follow, styled like the
+  first:
+  - the head holds `fa-filter` (9px) and "QUERY", then, on the right, the datasets the query read,
+    joined with " · ", in `--ink-3` at 0.02em, not uppercased;
+  - the body is the jq program (`source.program`), verbatim.
+
+  Each body scrolls on its own, at max-height 220. The query shows even when the call's input
+  already carries it (a render call made with `query`), so every query-backed widget reads the same
+  way.
 
 **Copy data (CSV)**
 
@@ -664,6 +676,87 @@ therefore shows it applied or overridden.
 | Table | The column labels, then rows. A cell object contributes its value, or its status word |
 | Stats | `label,value+unit,delta` |
 | Proposal | `id,summary,status` |
+| Value | Not CSV: the value as East text (§8.7) |
+
+A refreshed widget copies the data it currently shows (§8.7).
+
+### 8.7 Product additions: query-backed widgets
+
+None of this is in the mock. Issue #883 specifies the behaviour (Decision 21, rules W12, W14 and
+W15); this section fixes the anatomy.
+
+**Which widgets.** A chart, table, stats or value widget is *query-backed* when its spec carries a
+`source`: the jq program, the datasets it read, and the pinned hash of each input
+(`QuerySourceType`). An input's `name` is its dataset path as `workspaceStatus` reports it, for
+example `.inputs.demand`. Proposals are never query-backed.
+
+**Value widget.** The mock has no value widget. It uses the §8.1 frame:
+
+- the icon is `fa-folder-tree`, the eyebrow "VALUE", and the title the spec title;
+- the body is the production `<ValueTree>`, read-only, over the result handle, and paged;
+- Copy data copies the value as East text, fetched through the handle.
+
+**Refresh status.** It fills the header's status cell, styled as in §8.1 (label style at 0.14em, a
+6px dot in the tone, right padding 4):
+
+| State | When | Text · tone | Dot |
+|---|---|---|---|
+| none | Every pinned hash matches the workspace | — (the header is the mock's) | — |
+| stale | Any input's current hash differs from its pinned hash | "STALE" · `--warn` | static |
+| refreshing | A refresh is in flight | "REFRESHING" · `--brand-d` | the pulse (§11.4) |
+| live | The last refresh succeeded | "LIVE · UPDATED {HH:mm}" · `--pos` | static |
+| failed | The last refresh failed | "REFRESH FAILED" · `--neg`, with the error message as the `title` | static |
+
+| From | Event | To |
+|---|---|---|
+| none or live | An input's hash moves | stale |
+| stale or failed | Refresh | refreshing |
+| refreshing | The route returns a spec | live |
+| refreshing | The route fails | failed |
+
+**Current hashes.** They come from the page's dataset cache (`ReactiveDatasetCache`), which already
+polls `workspaceStatus` for hash-gated change detection. While mounted, the widget adds a hash-only
+watch on each input (issue W14): the poll reads the hash and never downloads the dataset. After a
+refresh, the widget compares against the refreshed spec's pinned hashes. With no dataset cache in
+the tree, the status never shows.
+
+**Refresh button.**
+
+- Icon button 28, radius 6, 11px `fa-rotate-right`, `--ink-4`.
+- `aria-label="Refresh from current data"`, title "Refresh".
+- It sits before the Tool call button, and shows only in the stale and failed states.
+- Clicking it posts `…/messages/:m/components/:c/refresh`. On success the widget redraws from the
+  returned spec:
+  - series hidden in the legend stay hidden, matched by name;
+  - a table keeps its sort and clears its selection;
+  - Copy data copies the redrawn data;
+  - the tool call panel is unchanged.
+- The stored message is unchanged. After a reload the widget shows the answer's own data again,
+  and is stale if the inputs still differ.
+
+**Drag source.** Chart, table, stats and value widgets, query-backed or not, are drag sources on
+the shared grammar. They use `useDragSourceItem` from `east-ui-components/src/dnd/drag-layer.tsx`,
+and are draggable only when the page mounts a drag layer.
+
+- **Identity.** The library id is `chat-results:{surface id}`, for example
+  `chat-results:brisbane`. The item key is `{message id}:{component id}`, for example `m12:c1`.
+  The drag label is the widget title.
+- **Handle.** The header's icon, eyebrow and title, marked `data-drag-handle`, with
+  `cursor: grab` while draggable. The status and the buttons are not part of it.
+  - The frame takes the pointer-down and starts a drag only when it lands inside the handle. The
+    drag layer marks the element that took the pointer-down, so `data-dragging` lands on the frame.
+  - The handle is not a `data-drag-grip`: grips set `touch-action: none`, which would stop a
+    finger on a widget header from scrolling the thread.
+  - A mouse drag starts on pointer-down.
+  - A touch drag starts after the drag layer's 300 ms long-press.
+  - Esc cancels.
+- **While dragging.** The frame, marked `data-dragging`, drops to opacity 0.4, as a Library card
+  does.
+- **Ghost.** The Library recipe's `ghost` slot (`theme/slot-recipes/library.ts`), holding the
+  widget title.
+- **Drop.** A host target that lists `chat-results:{surface id}` in its `sources` receives an
+  `add`. It reads the widget with `handle.component(key)`: the spec, including `source` when the
+  widget is query-backed.
 
 ## 9. Composer
 
@@ -847,10 +940,15 @@ The mock reveals the reply's full text at a fixed pace, ticking every **24 ms**:
 - **Placeholders.** When the revealed prefix ends inside `[[…`, the reveal jumps to the closing `]]`
   and pauses **420 ms**, so a component appears as a unit.
 
-In product the text arrives in bursts from the server, so the reveal keeps the mock's look with a
-catch-up rule: per 24 ms tick it reveals `max(4, ceil(backlog / 12))` characters. The placeholder
-jump and 420 ms pause are unchanged. The caret shows while the reveal is behind the received text,
-or while the reply is still writing.
+In product the text streams from the server in bursts. The engine flushes a `text` event every
+50 ms or 256 characters, and the turn stream delivers each one as it is appended. On the polling
+fallback, a poll's events arrive together. So the reveal keeps the mock's look with a catch-up
+rule:
+
+- per 24 ms tick it reveals `max(4, ceil(backlog / 12))` characters;
+- the placeholder jump and the 420 ms pause are unchanged;
+- the caret shows while the reveal is behind the received text, or while the reply is still
+  writing.
 
 ### 11.2 Following the bottom
 
