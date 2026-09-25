@@ -57,8 +57,9 @@ export interface NarrowRowCardProps {
 /**
  * Whether a card's facts are unchanged. The derivations are rebuilt whole on
  * every data change and every paged window landing, but a card reads only
- * its own row's entries from them — the ones `KindPlot` draws (bands, derived
- * heat cells, derived table series) and the diagnostic that replaces it. So a
+ * its own row's entries from them — the ones `KindPlot` draws (bands, the
+ * heat arm, table series and chart it draws, #824) and the diagnostic that
+ * replaces it. So a
  * reveal that adds cards below, or a window landing elsewhere, re-renders none
  * of the cards already shown (#812): a tap costs the cards it adds.
  */
@@ -70,8 +71,9 @@ function sameCard(a: NarrowRowCardProps, b: NarrowRowCardProps): boolean {
     }
     const k = a.row.key;
     return a.derived.bands.get(k) === b.derived.bands.get(k)
-        && a.derived.heatCells.get(k) === b.derived.heatCells.get(k)
+        && a.derived.heatArms.get(k) === b.derived.heatArms.get(k)
         && a.derived.tableSeries.get(k) === b.derived.tableSeries.get(k)
+        && a.derived.charts.get(k) === b.derived.charts.get(k)
         && a.derived.diagnostics.get(k) === b.derived.diagnostics.get(k);
 }
 
@@ -90,7 +92,7 @@ export const NarrowRowCard = memo(function NarrowRowCard({
         : undefined;
     const renderPx = declaredPx ?? NARROW_RENDER_PX;
     const gutter = row.gutter;
-    const isId = gutter.id.type === "some" && gutter.id.value;
+    const isId = gutter.id;
     const sub = gutter.sub.type === "some" ? gutter.sub.value : undefined;
     const value = gutter.value.type === "some" ? gutter.value.value : undefined;
     const meta = gutter.meta.type === "some" ? gutter.meta.value : undefined;
@@ -137,7 +139,7 @@ export const NarrowRowCard = memo(function NarrowRowCard({
                             ctx={false} plotHeight={h} chartExpanded={chartExpanded} />
                         {row.kind.type === "chart" && (
                             <Box css={styles.narrowTicks}>
-                                <ChartLeftTicks kind={row.kind.value} styles={styles} height={h} />
+                                <ChartLeftTicks kind={derived.charts.get(row.key) ?? row.kind.value} styles={styles} height={h} />
                             </Box>
                         )}
                     </PlanPartBoundary>

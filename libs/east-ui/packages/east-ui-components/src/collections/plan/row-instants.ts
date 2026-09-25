@@ -51,12 +51,10 @@ export function forEachInstant(row: PlanRowValue, visit: (t: PlanInstantValue, e
                 }
             }
             break;
-        case "heat": {
-            const cells = kind.value.cells;
-            if (cells.type === "heat") for (const c of cells.value.cells) visit(c.at, false);
-            else for (const c of cells.value) visit(c.at, false);
+        case "heat":
+            // Every arm is `{ cells, … }` (#824), so one walk reads them all.
+            for (const c of kind.value.cells.value.cells) visit(c.at, false);
             break;
-        }
         case "table":
             for (const s of kind.value.series) for (const c of s.cells) visit(c.at, false);
             break;
@@ -67,12 +65,10 @@ export function forEachInstant(row: PlanRowValue, visit: (t: PlanInstantValue, e
             for (const m of kind.value.marks) visit(m.at, false);
             break;
         case "group": {
+            // Only declared strip cells carry instants — an aggregate's are
+            // derived from members that are rows of their own.
             const summary = kind.value.summary;
-            if (summary.type === "some") {
-                const cells = summary.value;
-                if (cells.type === "heat") for (const c of cells.value.cells) visit(c.at, false);
-                else for (const c of cells.value) visit(c.at, false);
-            }
+            if (summary.type === "cells") for (const c of summary.value.value.cells) visit(c.at, false);
             break;
         }
     }

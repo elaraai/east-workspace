@@ -266,7 +266,8 @@ export interface PlanStore {
     seeded: ReadonlySet<RowKey>;
     /**
      * The collapse of every row the USER toggled (`true` = collapsed) — what
-     * a remount restores (#813). The declaration only seeds rows the user
+     * a remount restores (#813), and what a bound `ui` state's `collapsed` and
+     * `expanded` lists hold (#824). The declaration only seeds rows the user
      * never touched; a toggle outranks it from then on, for rows resident or
      * not. Kept apart from `collapsed` because a restored toggle must outlive
      * the rows being absent (a paged window not yet landed).
@@ -318,7 +319,23 @@ export type PlanAction =
      * never-seen declared collapse and drop nothing — eviction must not
      * erase state the user still owns.
      */
-    | { t: "seed"; declaredCollapsed: ReadonlySet<RowKey> };
+    | { t: "seed"; declaredCollapsed: ReadonlySet<RowKey> }
+    /**
+     * The host wrote the canvas's bound `ui` state (#824): its selection, the
+     * rows it folds or opens against their declaration, and its expanded
+     * charts replace the canvas's own. A row in neither fold list follows its
+     * declaration again. No callback fires — the host made the change, and
+     * echoing it back to the host would loop.
+     */
+    | {
+        t: "external";
+        /** The selected row, if any. */
+        selected: RowKey | null;
+        /** Each overridden row's collapse (`true` = folded, `false` = opened). */
+        collapse: ReadonlyMap<RowKey, boolean>;
+        /** The expanded chart rows. */
+        charts: ReadonlySet<RowKey>;
+    };
 
 /** What a remount restores (#813) — the user's own toggles, nothing else. */
 export interface PlanRestored {
@@ -464,5 +481,40 @@ export function planStoreReducer(store: PlanStore, a: PlanAction): PlanStoreStep
                 effects: NO_EFFECTS,
             };
         }
+        case "external": {
+            const overrides = sameToggles(store.overrides, a.collapse) ? store.overrides : a.collapse;
+            // Every row whose collapse could have moved: the ones overridden
+            // before or now, and the declared ones (a row no longer overridden
+            // falls back to its declaration — `seeded` holds the declared
+            // collapse already applied).
+            const candidates = new Set<RowKey>([...store.ui.collapsed, ...store.seeded, ...overrides.keys()]);
+            const nextCollapsed = new Set<RowKey>();
+            for (const key of candidates) if (collapsedBy(overrides, key, store.seeded.has(key))) nextCollapsed.add(key);
+            const collapsed = sameKeys(store.ui.collapsed, nextCollapsed) ? store.ui.collapsed : nextCollapsed;
+            const chartsExpanded = sameKeys(store.ui.chartsExpanded, a.charts) ? store.ui.chartsExpanded : a.charts;
+            const selected = a.selected;
+            if (overrides === store.overrides && collapsed === store.ui.collapsed
+                && chartsExpanded === store.ui.chartsExpanded && selected === store.ui.selected) {
+                return { store, effects: NO_EFFECTS };
+            }
+            return {
+                store: { ...store, overrides, ui: { ...store.ui, collapsed, chartsExpanded, selected } },
+                effects: NO_EFFECTS,
+            };
+        }
     }
+}
+
+/** Whether two sets hold the same keys. */
+function sameKeys(a: ReadonlySet<RowKey>, b: ReadonlySet<RowKey>): boolean {
+    if (a.size !== b.size) return false;
+    for (const key of a) if (!b.has(key)) return false;
+    return true;
+}
+
+/** Whether two toggle maps say the same of the same rows (in any order). */
+function sameToggles(a: ReadonlyMap<RowKey, boolean>, b: ReadonlyMap<RowKey, boolean>): boolean {
+    if (a.size !== b.size) return false;
+    for (const [key, v] of a) if (b.get(key) !== v) return false;
+    return true;
 }

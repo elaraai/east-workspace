@@ -18,7 +18,7 @@ import {
     none,
 } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
-import { Paged, Plan, Table, Text } from "@elaraai/east-ui";
+import { Format, Paged, Plan, Table, Text } from "@elaraai/east-ui";
 
 // The row-source contract (#567/#574). A component's `data` takes the whole
 // collection or a WINDOWED source of it, and `Paged.of` is the in-memory
@@ -58,8 +58,8 @@ export const pagedSourceCanvas = example({
                 runs: (r, k) => [Plan.run({
                     key: "run", start: r.start, end: r.end,
                     label: East.str`RUN · ${k}`,
-                    quantity: East.str`${East.Float.printFixed(r.tonnes, 0n)} t`,
-                    qty: r.tonnes, state: "actual",
+                    quantity: Plan.quantity(r.tonnes, { unit: "t", format: Format.Number({ maximumFractionDigits: 0n }) }),
+                    state: "actual",
                 })],
             }),
         ], ArrayType(Plan.Types.Series(UnitRow)));
@@ -163,8 +163,7 @@ export const pagedSourceWindows = example({
                 value: r => some(East.str`${East.Float.printFixed(r.tonnes, 0n)} t`),
                 runs: (r, k) => [Plan.run({
                     key: "run", start: r.start, end: r.end,
-                    label: East.str`RUN · ${k}`,
-                    qty: r.tonnes, state: "actual",
+                    label: East.str`RUN · ${k}`, state: "actual",
                 })],
             }),
         ], ArrayType(Plan.Types.Series(UnitRow)));
@@ -220,7 +219,7 @@ export const pagedSourceBlocks = example({
                 key: "loads", title: "Loads",
                 label: (_r, k) => East.str`${k} · load`,
                 runs: (r) => [Plan.run({
-                    key: "run", start: r.start, end: r.end, label: "LOAD", qty: r.tonnes, state: "confirmed",
+                    key: "run", start: r.start, end: r.end, label: "LOAD", state: "confirmed",
                 })],
             }),
         ], ArrayType(Plan.Types.Series(UnitRow)));

@@ -16,7 +16,6 @@
  * Group bands are not a plot: they have their own band component.
  */
 
-import { variant } from "@elaraai/east";
 import { SpanRow } from "./SpanRow.js";
 import { ChartRowPlot } from "./ChartRow.js";
 import { HeatCells } from "./HeatRow.js";
@@ -61,36 +60,33 @@ export function KindPlot({ v, styles, derived, hasChildren, ctx, plotHeight, cha
                     barHeight={v.collapsed && hasChildren ? geometry.rollBar : geometry.bar} />
             );
         case "chart":
+            // What the row DRAWS (#824) — its layers folded to the period
+            // where a bucket holds several of their points.
             return (
-                <ChartRowPlot kind={kind.value} styles={styles} height={plotHeight}
+                <ChartRowPlot kind={derived.charts.get(rowKey) ?? kind.value} styles={styles} height={plotHeight}
                     expanded={chartExpanded} rowKey={rowKey} ctx={ctx} />
             );
-        case "heat": {
-            // A declared-aggregate parent renders its derived cells inside
-            // the empty scale-bearing heat arm — rebuilt with `variant`, so
-            // the wrap is a real East value like the arm it replaces (#617).
-            const derivedCells = derived.heatCells.get(rowKey);
-            const cells = derivedCells !== undefined && kind.value.cells.type === "heat"
-                ? variant("heat", { ...kind.value.cells.value, cells: derivedCells })
-                : kind.value.cells;
-            return <HeatCells rowKey={rowKey} rowId={rowId} cells={cells} styles={styles} ctx={ctx} />;
-        }
+        case "heat":
+            // A declared-aggregate parent draws its derived cells, and any row
+            // its cells folded to the period (#824); else its own arm.
+            return (
+                <HeatCells rowKey={rowKey} rowId={rowId} cells={derived.heatArms.get(rowKey) ?? kind.value.cells}
+                    styles={styles} ctx={ctx} />
+            );
         case "buckets":
             return (
                 <BucketsRow rowKey={rowKey} rowId={rowId} kind={kind.value} styles={styles} ctx={ctx} />
             );
-        case "table": {
-            // A declared-aggregate parent renders its derived subtotal
-            // cells as ONE plain series; leaf rows render their declared
-            // series (per-position style, raw cells).
-            const derivedSeries = derived.tableSeries.get(rowKey);
+        case "table":
+            // A declared-aggregate parent draws its derived subtotal
+            // positions, and any row its series folded to the period (#824);
+            // else its declared series (per-position style, raw cells).
             return (
                 <TableRowCells rowKey={rowKey} rowId={rowId}
-                    series={derivedSeries ?? kind.value.series}
+                    series={derived.tableSeries.get(rowKey) ?? kind.value.series}
                     split={kind.value.split.type} ctx={ctx}
                     format={getSomeorUndefined(kind.value.format)} styles={styles} />
             );
-        }
         case "cards":
             return (
                 <CardsRow rowKey={rowKey} rowId={rowId} kind={kind.value} styles={styles} ctx={ctx} />

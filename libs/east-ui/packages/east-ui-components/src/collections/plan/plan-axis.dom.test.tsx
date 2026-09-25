@@ -44,11 +44,12 @@ const t = (d: Date): PlanInstantValue => variant("time", d) as PlanInstantValue;
 const n = (v: number): PlanInstantValue => variant("number", v) as PlanInstantValue;
 const o = (v: string): PlanInstantValue => variant("ordinal", v) as PlanInstantValue;
 
-function run(key: string, start: Date, end: Date, state: unknown, opts?: { quantity?: string; stuck?: boolean; qty?: number }) {
+function run(key: string, start: Date, end: Date, state: unknown, opts?: { quantity?: number; unit?: string; text?: string; stuck?: boolean }) {
     return {
         key, start: t(start), end: t(end), label: key.toUpperCase(),
-        quantity: opts?.quantity !== undefined ? some(opts.quantity) : none,
-        qty: opts?.qty !== undefined ? some(opts.qty) : none,
+        quantity: opts?.quantity !== undefined
+            ? some({ value: opts.quantity, unit: opts.unit !== undefined ? some(opts.unit) : none, format: none, text: opts.text !== undefined ? some(opts.text) : none })
+            : none,
         state,
         status: opts?.stuck === true ? some(variant("warning", null)) : none,
         moved: none, icon: none,
@@ -58,11 +59,11 @@ function run(key: string, start: Date, end: Date, state: unknown, opts?: { quant
 function gutter(label: string, opts?: { sub?: string; value?: string; meta?: string; id?: boolean }) {
     return {
         label,
-        id: opts?.id === true ? some(true) : none,
+        id: opts?.id === true,
         sub: opts?.sub !== undefined ? some(opts.sub) : none,
         value: opts?.value !== undefined ? some(opts.value) : none,
         meta: opts?.meta !== undefined ? some(opts.meta) : none,
-        stacked: none,
+        stacked: false,
         swatches: [],
     };
 }
@@ -74,21 +75,20 @@ function planRow(key: string, kind: unknown, opts?: { parent?: string; gutter?: 
         parent: opts?.parent !== undefined ? some(rowId(opts.parent)) : none,
         gutter: opts?.gutter ?? gutter(key),
         kind,
-        collapsed: opts?.collapsed !== undefined ? some(opts.collapsed) : none,
-        pinned: none, height: none, status: none, approval: none,
+        collapsed: opts?.collapsed === true,
+        pinned: false, height: none, status: none, approval: none,
         expand: opts?.expand !== undefined ? some(opts.expand) : none,
     } as unknown as PlanWireRow;
 }
 
-function spanKind(runs: unknown[], opts?: { rollup?: string; unit?: string }) {
+function spanKind(runs: unknown[], opts?: { rollup?: string }) {
     return variant("span", {
         runs, decisions: [], ports: [],
         rollup: opts?.rollup !== undefined ? some(variant(opts.rollup, null)) : none,
-        unit: opts?.unit !== undefined ? some(opts.unit) : none,
     });
 }
 
-function planRoot(rows: PlanWireRow[], opts?: { footer?: unknown[]; now?: Date | undefined; slice?: unknown; resolutions?: unknown[]; links?: unknown[]; popover?: unknown; hover?: unknown; expandRender?: unknown; source?: unknown; pick?: unknown; axis?: unknown; style?: { height?: string; maxHeight?: string }; clicks?: { onRunClick?: unknown; onEventClick?: unknown; onMarkClick?: unknown; onChipClick?: unknown; onCellClick?: unknown } }): PlanRootValue {
+function planRoot(rows: PlanWireRow[], opts?: { footer?: unknown[]; now?: Date | undefined; slice?: unknown; resolutions?: unknown[]; links?: unknown[]; popover?: unknown; hover?: unknown; expandRender?: unknown; source?: unknown; pick?: unknown; axis?: unknown; style?: { height?: string; maxHeight?: string }; onElementClick?: unknown; ui?: unknown }): PlanRootValue {
     return {
         rows: opts?.source !== undefined ? variant("paged", blocksSource(opts.source)) : variant("inline", oneBlock(rows)),
         links: opts?.links ?? [],
@@ -109,14 +109,10 @@ function planRoot(rows: PlanWireRow[], opts?: { footer?: unknown[]; now?: Date |
         pick: opts?.pick !== undefined ? some(opts.pick) : none,
         slice: opts?.slice ?? none,
         footer: opts?.footer ?? [],
-        id: "", sources: [], onDrag: none, canDrop: none,
+        id: none, sources: [], onDrag: none, canDrop: none,
         onSelect: none,
-        onRunClick: opts?.clicks?.onRunClick !== undefined ? some(opts.clicks.onRunClick) : none,
-        onEventClick: opts?.clicks?.onEventClick !== undefined ? some(opts.clicks.onEventClick) : none,
-        onMarkClick: opts?.clicks?.onMarkClick !== undefined ? some(opts.clicks.onMarkClick) : none,
-        onChipClick: opts?.clicks?.onChipClick !== undefined ? some(opts.clicks.onChipClick) : none,
-        onCellClick: opts?.clicks?.onCellClick !== undefined ? some(opts.clicks.onCellClick) : none,
-        onGroupToggle: none, onGrainChange: none,
+        onElementClick: opts?.onElementClick !== undefined ? some(opts.onElementClick) : none,
+        onGroupToggle: none, onGrainChange: none, ui: opts?.ui !== undefined ? some(opts.ui) : none,
         style: opts?.style !== undefined
             ? some({
                 height: opts.style.height !== undefined ? some(opts.style.height) : none,
@@ -141,7 +137,7 @@ function renderPlan(value: PlanRootValue, key = "plan") {
 function tableKindOf(cells: unknown[], opts?: { aggregate?: boolean; emphasis?: string }) {
     return variant("table", {
         series: cells.length > 0
-            ? [{ cells, format: none, tone: none, strong: none, rollup: none }]
+            ? [{ cells, format: none, tone: none, strong: false, rollup: false, fold: variant("sum", null) }]
             : [],
         split: variant("horizontal", null),
         aggregate: opts?.aggregate === true ? some(variant("sum", null)) : none,
@@ -171,7 +167,7 @@ describe("Plan typed axis (#631) — every row kind on every axis kind", () => {
     } as const;
     const rowsFor = (a: { at2: PlanInstantValue; at5: PlanInstantValue }) => [
         planRow("span", spanKind([{
-            key: "r", start: a.at2, end: a.at5, label: "R", quantity: none, qty: none,
+            key: "r", start: a.at2, end: a.at5, label: "R", quantity: none,
             state: variant("actual", null), status: none, moved: none, icon: none,
         }])),
         planRow("buckets", variant("buckets", {
@@ -181,12 +177,15 @@ describe("Plan typed axis (#631) — every row kind on every axis kind", () => {
             markers: [],
         })),
         planRow("chart", variant("chart", {
-            layers: [variant("column", { points: [{ t: a.at2, y: 5 }], axis: variant("left", null), series: none, breach: none })],
-            left: none, right: none, height: variant("spark", null), expandedHeight: none, expandable: none,
+            layers: [variant("column", { points: [{ t: a.at2, y: 5 }], axis: variant("left", null), series: none, breach: none, fold: variant("sum", null) })],
+            left: none, right: none, height: variant("spark", null), expandedHeight: none, expandable: false,
         })),
         planRow("heat", variant("heat", {
-            cells: variant("heat", { cells: [{ at: a.at2, value: some(50), label: some("50") }], min: some(0), max: some(100), warnAt: none }),
-            aggregate: none,
+            cells: variant("heat", {
+                cells: [{ at: a.at2, value: some(50), label: some("50") }],
+                scale: { min: some(0), max: some(100), warnAt: none }, fold: variant("mean", null), format: none,
+            }),
+            aggregate: none, scale: none,
         })),
         planRow("table", tableKindOf([{ at: a.at2, value: some(7), text: none, tone: none }])),
         planRow("cards", variant("cards", {
@@ -196,8 +195,10 @@ describe("Plan typed axis (#631) — every row kind on every axis kind", () => {
             marks: [{ key: "m", at: a.at2, kind: variant("milestone", null), icon: none, label: none }],
         })),
         planRow("group", variant("group", {
-            summary: some(variant("heat", { cells: [{ at: a.at2, value: some(80), label: some("80") }], min: some(0), max: some(100), warnAt: none })),
-            summaryAggregate: none,
+            summary: variant("cells", variant("heat", {
+                cells: [{ at: a.at2, value: some(80), label: some("80") }],
+                scale: { min: some(0), max: some(100), warnAt: none }, fold: variant("mean", null), format: none,
+            })),
         }), { collapsed: true }),
     ];
 
@@ -225,7 +226,7 @@ describe("Plan typed axis (#631) — every row kind on every axis kind", () => {
     test("a row whose instants ride another arm renders IN PLACE as a diagnostic naming the arm — the canvas draws on (#631, #811)", () => {
         const { container } = renderPlan(planRoot([
             planRow("ok", spanKind([{
-                key: "r", start: n(3), end: n(6), label: "R", quantity: none, qty: none,
+                key: "r", start: n(3), end: n(6), label: "R", quantity: none,
                 state: variant("actual", null), status: none, moved: none, icon: none,
             }])),
             // Time instants on a number axis — the Planner's single-axis-kind rule.

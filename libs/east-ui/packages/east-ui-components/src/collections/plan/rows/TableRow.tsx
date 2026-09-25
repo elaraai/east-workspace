@@ -63,7 +63,7 @@ export function TableRowCells({ rowKey, rowId, series, split, format, styles, ct
     // a multi-value row shows the shape of its primary series, not an
     // arbitrary overlay of all of them.
     if (ctx === true) {
-        const primary = series.find((x) => x.rollup.type === "some" && x.rollup.value) ?? series[0];
+        const primary = series.find((x) => x.rollup) ?? series[0];
         const data: ToneDatum[] = (primary?.cells ?? []).map((c) => ({
             at: c.at,
             value: c.value.type === "some" ? c.value.value : undefined,
@@ -107,7 +107,7 @@ export function TableRowCells({ rowKey, rowId, series, split, format, styles, ct
                         : value < 0 ? "neg"
                         : s.tone.type === "some" ? s.tone.value.type
                         : undefined;
-                    return { text, tone, strong: s.strong.type === "some" && s.strong.value };
+                    return { text, tone, strong: s.strong };
                 });
                 return (
                     <Box key={bi} css={styles.tableCellText}

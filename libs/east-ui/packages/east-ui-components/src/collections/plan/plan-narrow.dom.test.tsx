@@ -48,11 +48,12 @@ const NOW = new Date("2026-08-12T00:00:00Z");
 /** Instants on each arm — REAL East variant values, as the decoder yields them (#631). */
 const t = (d: Date): PlanInstantValue => variant("time", d) as PlanInstantValue;
 
-function run(key: string, start: Date, end: Date, state: unknown, opts?: { quantity?: string; stuck?: boolean; qty?: number }) {
+function run(key: string, start: Date, end: Date, state: unknown, opts?: { quantity?: number; unit?: string; text?: string; stuck?: boolean }) {
     return {
         key, start: t(start), end: t(end), label: key.toUpperCase(),
-        quantity: opts?.quantity !== undefined ? some(opts.quantity) : none,
-        qty: opts?.qty !== undefined ? some(opts.qty) : none,
+        quantity: opts?.quantity !== undefined
+            ? some({ value: opts.quantity, unit: opts.unit !== undefined ? some(opts.unit) : none, format: none, text: opts.text !== undefined ? some(opts.text) : none })
+            : none,
         state,
         status: opts?.stuck === true ? some(variant("warning", null)) : none,
         moved: none, icon: none,
@@ -62,11 +63,11 @@ function run(key: string, start: Date, end: Date, state: unknown, opts?: { quant
 function gutter(label: string, opts?: { sub?: string; value?: string; meta?: string; id?: boolean }) {
     return {
         label,
-        id: opts?.id === true ? some(true) : none,
+        id: opts?.id === true,
         sub: opts?.sub !== undefined ? some(opts.sub) : none,
         value: opts?.value !== undefined ? some(opts.value) : none,
         meta: opts?.meta !== undefined ? some(opts.meta) : none,
-        stacked: none,
+        stacked: false,
         swatches: [],
     };
 }
@@ -81,21 +82,20 @@ function planRow(key: string, kind: unknown, opts?: { id?: PlanRowId; parent?: s
             : opts?.parent !== undefined ? some(rowId(opts.parent)) : none,
         gutter: opts?.gutter ?? gutter(key),
         kind,
-        collapsed: opts?.collapsed !== undefined ? some(opts.collapsed) : none,
-        pinned: none, height: none, status: none, approval: none,
+        collapsed: opts?.collapsed === true,
+        pinned: false, height: none, status: none, approval: none,
         expand: opts?.expand !== undefined ? some(opts.expand) : none,
     } as unknown as PlanWireRow;
 }
 
-function spanKind(runs: unknown[], opts?: { rollup?: string; unit?: string }) {
+function spanKind(runs: unknown[], opts?: { rollup?: string }) {
     return variant("span", {
         runs, decisions: [], ports: [],
         rollup: opts?.rollup !== undefined ? some(variant(opts.rollup, null)) : none,
-        unit: opts?.unit !== undefined ? some(opts.unit) : none,
     });
 }
 
-function planRoot(rows: PlanWireRow[], opts?: { footer?: unknown[]; now?: Date | undefined; slice?: unknown; resolutions?: unknown[]; links?: unknown[]; popover?: unknown; hover?: unknown; expandRender?: unknown; source?: unknown; pick?: unknown; axis?: unknown; style?: { height?: string; maxHeight?: string }; clicks?: { onRunClick?: unknown; onEventClick?: unknown; onMarkClick?: unknown; onChipClick?: unknown; onCellClick?: unknown } }): PlanRootValue {
+function planRoot(rows: PlanWireRow[], opts?: { footer?: unknown[]; now?: Date | undefined; slice?: unknown; resolutions?: unknown[]; links?: unknown[]; popover?: unknown; hover?: unknown; expandRender?: unknown; source?: unknown; pick?: unknown; axis?: unknown; style?: { height?: string; maxHeight?: string }; onElementClick?: unknown; ui?: unknown }): PlanRootValue {
     return {
         rows: opts?.source !== undefined ? variant("paged", blocksSource(opts.source)) : variant("inline", oneBlock(rows)),
         links: opts?.links ?? [],
@@ -116,14 +116,10 @@ function planRoot(rows: PlanWireRow[], opts?: { footer?: unknown[]; now?: Date |
         pick: opts?.pick !== undefined ? some(opts.pick) : none,
         slice: opts?.slice ?? none,
         footer: opts?.footer ?? [],
-        id: "", sources: [], onDrag: none, canDrop: none,
+        id: none, sources: [], onDrag: none, canDrop: none,
         onSelect: none,
-        onRunClick: opts?.clicks?.onRunClick !== undefined ? some(opts.clicks.onRunClick) : none,
-        onEventClick: opts?.clicks?.onEventClick !== undefined ? some(opts.clicks.onEventClick) : none,
-        onMarkClick: opts?.clicks?.onMarkClick !== undefined ? some(opts.clicks.onMarkClick) : none,
-        onChipClick: opts?.clicks?.onChipClick !== undefined ? some(opts.clicks.onChipClick) : none,
-        onCellClick: opts?.clicks?.onCellClick !== undefined ? some(opts.clicks.onCellClick) : none,
-        onGroupToggle: none, onGrainChange: none,
+        onElementClick: opts?.onElementClick !== undefined ? some(opts.onElementClick) : none,
+        onGroupToggle: none, onGrainChange: none, ui: opts?.ui !== undefined ? some(opts.ui) : none,
         style: opts?.style !== undefined
             ? some({
                 height: opts.style.height !== undefined ? some(opts.style.height) : none,
@@ -160,25 +156,25 @@ describe("Plan narrow layout (§10 / #570)", () => {
     const heatKind = (vals: number[]) => variant("heat", {
         cells: variant("heat", {
             cells: vals.map((v, i) => ({ at: t(new Date(W27.getTime() + i * 7 * 86_400_000)), value: some(v), label: some(String(v)) })),
-            min: some(0), max: some(100), warnAt: none,
+            scale: { min: some(0), max: some(100), warnAt: none }, fold: variant("mean", null), format: none,
         }),
-        aggregate: none,
+        aggregate: none, scale: none,
     });
     const chartKind = variant("chart", {
         layers: [variant("line", {
             points: [{ t: t(W27), y: 94 }, { t: t(new Date("2026-08-31Z")), y: 101 }],
-            axis: variant("left", null), breach: none,
+            axis: variant("left", null), breach: none, fold: variant("mean", null),
         })],
         left: some({ domain: some(variant("number", { min: 80, max: 110 })), tickValues: some(variant("number", [80, 100])), format: none }),
-        right: none, height: variant("spark", null), expandedHeight: none, expandable: none,
+        right: none, height: variant("spark", null), expandedHeight: none, expandable: false,
     });
     const fixture = (opts?: Parameters<typeof planRoot>[1]) => planRoot([
-        planRow("line1", variant("group", { summary: none, summaryAggregate: some(variant("mean", null)) }),
+        planRow("line1", variant("group", { summary: variant("aggregate", variant("mean", null)) }),
             { gutter: gutter("Line 1", { value: "82%" }) }),
         planRow("m1", spanKind([run("r1", W27, new Date("2026-07-13Z"), variant("actual", null))]),
             { parent: "line1", gutter: gutter("L1-M03", { id: true, value: "120 t" }), expand: { height: some("120px"), axis: variant("keep", null) } }),
         planRow("l1h", heatKind([40, 60]), { parent: "line1" }),
-        planRow("line2", variant("group", { summary: none, summaryAggregate: some(variant("max", null)) }),
+        planRow("line2", variant("group", { summary: variant("aggregate", variant("max", null)) }),
             { gutter: gutter("Line 2", { value: "98%" }) }),
         planRow("l2h", heatKind([70, 98]), { parent: "line2" }),
         planRow("cov", chartKind, { gutter: gutter("COVERAGE", { id: true }) }),
@@ -308,7 +304,7 @@ describe("Plan narrow layout (§10 / #570)", () => {
         // (three groups, or a strip); otherwise Rows opens, and the grouping
         // survives as SECTIONS rather than flattening into one list.
         const { container } = renderPlan(planRoot([
-            planRow("line1", variant("group", { summary: none, summaryAggregate: none }),
+            planRow("line1", variant("group", { summary: variant("none", null) }),
                 { gutter: gutter("Line 1") }),
             planRow("m1", spanKind([]), { parent: "line1" }),
             planRow("m2", spanKind([]), { parent: "line1" }),
@@ -397,7 +393,7 @@ describe("Plan narrow layout (§10 / #570)", () => {
         // its series' entries, which the windows share out, so its count is an
         // understatement until the source is exhausted; a group strip's
         // members ride in its own entry, which its window holds whole.
-        const groupKind = variant("group", { summary: none, summaryAggregate: some(variant("mean", null)) });
+        const groupKind = variant("group", { summary: variant("aggregate", variant("mean", null)) });
         const sec = sectionId("sec");
         // The canvas as the IR derives it (#823): the section's header is a
         // FIXED block, its member series a block under it, and the group

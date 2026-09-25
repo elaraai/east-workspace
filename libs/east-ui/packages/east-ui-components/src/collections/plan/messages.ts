@@ -178,6 +178,11 @@ export interface PlanMessages {
     /** A rollup band's caption — `×2 · 208 t`. Always exact: a span parent
      *  rolls up one entry's subtree, which a window holds whole (#822). */
     rollupCaption: (p: { count: string | undefined; quantity: string | undefined }) => string;
+    /** A quantity's caption — `96 t` (#824): `value` is already formatted,
+     *  through the quantity's own format; `unit` is the author's, when declared. */
+    quantity: (p: { value: string; unit: string | undefined }) => string;
+    /** Totals in several units, read together — a rollup band's `208 t · 12 h`. */
+    quantities: (p: { parts: readonly string[] }) => string;
     /** The resting chip of a proposed bucket tile. */
     planChip: () => string;
 
@@ -399,6 +404,8 @@ export const planMessages: PlanMessages = {
     rollupCaption: ({ count, quantity }) =>
         [count !== undefined ? `×${count}` : undefined, quantity]
             .filter((p): p is string => p !== undefined && p !== "").join(" · "),
+    quantity: ({ value, unit }) => (unit !== undefined && unit !== "" ? `${value} ${unit}` : value),
+    quantities: ({ parts }) => parts.join(" · "),
     planChip: () => "plan",
 
     approve: () => "Approve",

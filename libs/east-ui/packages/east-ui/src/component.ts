@@ -219,14 +219,10 @@ import {
     PlanRowsType,
     PlanElementRefType,
     PlanRowIdType,
-    PlanRunClickEventType,
-    PlanEventClickEventType,
-    PlanMarkClickEventType,
-    PlanChipClickEventType,
-    PlanCellClickEventType,
     PlanGroupToggleEventType,
     PlanFooterItemType,
     PlanStyleType,
+    PlanUiBindType,
 } from "./collections/plan/types.js";
 import {
     TableRowClickEventType,
@@ -1002,20 +998,19 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         pick: OptionType(PickBindType),
         slice: OptionType(SliceChromeType),
         footer: ArrayType(PlanFooterItemType),
-        // DnD target role — the shared grammar (`contracts/drag.ts`).
-        id: StringType,
+        // DnD target role — the shared grammar (`contracts/drag.ts`); no id,
+        // no drop target (#824).
+        id: OptionType(StringType),
         sources: ArrayType(StringType),
         onDrag: OptionType(FunctionType([DragEventType], NullType)),
         canDrop: OptionType(FunctionType([DragEventType], BooleanType)),
-        // Selection + per-element clicks.
+        // Selection + the one element click (#824).
         onSelect: OptionType(FunctionType([PlanRowIdType], NullType)),
-        onRunClick: OptionType(FunctionType([PlanRunClickEventType], NullType)),
-        onEventClick: OptionType(FunctionType([PlanEventClickEventType], NullType)),
-        onMarkClick: OptionType(FunctionType([PlanMarkClickEventType], NullType)),
-        onChipClick: OptionType(FunctionType([PlanChipClickEventType], NullType)),
-        onCellClick: OptionType(FunctionType([PlanCellClickEventType], NullType)),
+        onElementClick: OptionType(FunctionType([PlanElementRefType], NullType)),
         onGroupToggle: OptionType(FunctionType([PlanGroupToggleEventType], NullType)),
         onGrainChange: OptionType(FunctionType([PlanGrainType], NullType)),
+        // The bound interaction state (#824) — `State.bind`'s handle.
+        ui: OptionType(PlanUiBindType),
         style: OptionType(PlanStyleType),
     }),
 

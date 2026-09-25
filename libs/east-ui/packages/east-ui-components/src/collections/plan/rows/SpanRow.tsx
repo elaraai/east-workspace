@@ -26,6 +26,7 @@ import { variant, type ValueTypeOf } from "@elaraai/east";
 import { Plan } from "@elaraai/east-ui/internal";
 import { usePlanDispatch, usePlanResolvers, usePlanScale, type PlanElementRefValue } from "../context.js";
 import { decisionName, runName } from "../a11y.js";
+import { quantityText } from "../quantity.js";
 import { usePlanWords } from "../words.js";
 import type { DerivedBand, PlanRowId } from "../model.js";
 
@@ -96,7 +97,9 @@ export function SpanRow({ rowKey, rowId, kind, bands: rollBands, styles, barHeig
             {bars.map(({ run, left, width, runoff }) => {
                 const stateKey = runStateKey(run.state);
                 const stuck = run.status.type === "some" && run.status.value.type === "warning";
-                const qty = run.quantity.type === "some" ? run.quantity.value : undefined;
+                // ONE quantity (#824): its caption is its text, else its value
+                // through its format, then its unit.
+                const qty = run.quantity.type === "some" ? quantityText(run.quantity.value, words) : undefined;
                 const moved = run.moved.type === "some" ? Number(run.moved.value) : undefined;
                 const ref = variant("run", { row: rowId, run: run.key }) as PlanElementRefValue;
                 return (

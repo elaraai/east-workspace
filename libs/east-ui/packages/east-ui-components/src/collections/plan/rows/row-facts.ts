@@ -64,8 +64,7 @@ export function rowToggle(v: VisibleRow, hasChildren: boolean, chartExpanded: bo
         case "span": case "heat": case "buckets": case "table":
             return hasChildren ? section : undefined;
         case "chart": {
-            const expandable = kind.value.expandable.type === "some" && kind.value.expandable.value;
-            if (!expandable) return undefined;
+            if (!kind.value.expandable) return undefined;
             return {
                 event: { t: "chart.toggle", key: v.row.key },
                 open: kind.value.height.type === "expanded" || chartExpanded,

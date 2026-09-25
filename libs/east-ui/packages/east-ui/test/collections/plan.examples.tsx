@@ -24,7 +24,7 @@ import {
     variant,
 } from "@elaraai/east";
 import { DragEventType, EventStateType, State, StatusValueType, Style, UIComponentType } from "@elaraai/east-ui";
-import { Badge, Box, Chart, Configurator, Format, Library, Plan, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Text, VStack, deriveApproval } from "@elaraai/east-ui";
+import { Badge, Box, Button, Chart, Configurator, Format, HStack, Library, Plan, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Text, VStack, deriveApproval } from "@elaraai/east-ui";
 
 // The corpus — every canvas is DEFINED the one way (`Plan Data Interface.md`
 // §3.5): `data` (RAW domain rows — batches, tonnes, lifecycle states; row
@@ -59,7 +59,7 @@ export const planTargetState = example({
         "decision", "exception", "pinned", "port", "hovercard", "popover",
         "slice", "brush", "horizon", "toolbar", "affordances", "expand",
         "expandRender", "resolver", "data-driven", "accessor", "raw", "target state",
-        "layout", "row id", "Plan.ref", "links",
+        "layout", "row id", "Plan.ref", "links", "quantity", "Plan.quantity", "onElementClick",
     ],
     description: "Every row kind on one axis from a single raw ops source, with slice chrome, expand, review and a status footer",
     fn: East.function([], UIComponentType, (_$) => {
@@ -147,25 +147,27 @@ export const planTargetState = example({
                     () => i.multiply(11n).remainder(40n).toFloat().add(20.0)),
             })));
             // Raw jobs → runs: ONE bound mapping function — the bar label and
-            // the quantity display/number pair derive CLIENT-SIDE from the
-            // raw phase/batch/tonnes fields (the series-make application). The
-            // run is written as a RECORD, so its instants are spelled with
-            // `Plan.at.time` — the `Plan.run` builder would wrap a DateTime
-            // field by itself.
+            // the quantity derive CLIENT-SIDE from the raw phase/batch/tonnes
+            // fields (the series-make application). A quantity is ONE value —
+            // the number, its unit and how it prints (#824) — so the bar's
+            // caption and a rollup's sum can never disagree. The run is written
+            // as a RECORD, so its instants are spelled with `Plan.at.time` —
+            // the `Plan.run` builder would wrap a DateTime field by itself.
+            const tonnesFormat = $.const(Format.Number({ maximumFractionDigits: 0n }));
             const jobRuns = $.const(East.function([ArrayType(JobRow)], ArrayType(Plan.Types.Run), (_$, jobs) =>
                 jobs.map(($, j) => {
-                    const noQuantity = $.const(none, OptionType(StringType));
+                    const noQuantity = $.const(none, OptionType(Plan.Types.Quantity));
                     const quantity = $.let(j.tonnes.match({
-                        some: (_$, t) => East.value(some(East.str`${East.Float.printFixed(t, 0n)} t`), OptionType(StringType)),
+                        some: (_$, t) => East.value(some(Plan.quantity(t, { unit: "t", format: tonnesFormat })), OptionType(Plan.Types.Quantity)),
                         none: (_$) => noQuantity,
-                    }), OptionType(StringType));
+                    }), OptionType(Plan.Types.Quantity));
                     const label = $.let(j.batch.match({
                         some: (_$, b) => East.str`${j.phase} · ${b}`,
                         none: (_$) => j.phase,
                     }), StringType);
                     const run = $.let({
                         key: j.key, start: Plan.at.time(j.start), end: Plan.at.time(j.end), label,
-                        quantity, qty: j.tonnes, state: j.state, status: j.alert,
+                        quantity, state: j.state, status: j.alert,
                         moved: none, icon: none,
                     }, Plan.Types.Run);
                     return run;
@@ -363,7 +365,9 @@ export const planTargetState = example({
             }));
             // Behavior props — bound once so memoized renderers keep identity.
             const onRow = $.const(East.function([Plan.Types.RowId], NullType, (_$, _id) => null));
-            const onRunClick = $.const(East.function([Plan.Types.RunClickEvent], NullType, (_$, _e) => null));
+            // ONE element callback (#824) — a run, tile, mark, chip, cell or
+            // link ribbon, by the same ref the popover resolver receives.
+            const onElementClick = $.const(East.function([Plan.Types.ElementRef], NullType, (_$, _ref) => null));
             const onGroupToggle = $.const(East.function([Plan.Types.GroupToggleEvent], NullType, (_$, _e) => null));
             const onBatch = $.const(East.function([], NullType, (_$) => null));
             return (
@@ -372,12 +376,14 @@ export const planTargetState = example({
                     axis={axis}
                     // The link graph (R1) — the W31 −24 t transfer, its ends
                     // named by row id: hover a linked machine for the
-                    // links-focus control.
+                    // links-focus control. Its quantity weighs the ribbon, and
+                    // `text` says it the author's way.
                     links={[
                         Plan.link({
+                            key: "t-w31",
                             from: Plan.ref("machines", "L1-M03"), fromRun: "b214",
                             to: Plan.ref("machines", "L1-M04"), toRun: "qc",
-                            quantity: 24, label: "−24 t",
+                            quantity: Plan.quantity(24, { unit: "t", text: "−24 t" }),
                         }),
                     ]}
                     data={ops}
@@ -394,7 +400,7 @@ export const planTargetState = example({
                     popover={popover}
                     hover={hover}
                     onSelect={onRow}
-                    onRunClick={onRunClick}
+                    onElementClick={onElementClick}
                     onGroupToggle={onGroupToggle}
                     footer={[
                         { text: "512 RESOURCES · 12 GROUPS · 3 IN VIEW" },
@@ -422,8 +428,8 @@ export const planTargetState = example({
  * (the #309 pinned-day-columns contract the Planner's `day` preset and the
  * AlignedStack date-axis panel guarded). The style sweeps ride `style` —
  * density rhythm and gutter width — over a canvas holding every row kind, so
- * one click re-rhythms them all; every callback (select / run click / group
- * toggle / grain change) logs to the aside, the retired configurators'
+ * one click re-rhythms them all; every callback (select / element click /
+ * group toggle / grain change) logs to the aside, the retired configurators'
  * pattern. Fill sizing stays `planFill`'s; the per-kind visual grammars stay
  * the static per-kind panels.
  */
@@ -432,7 +438,7 @@ export const planVariants = example({
         "Plan", "configurator", "Configurator", "variants", "preset", "axis", "window",
         "resolution", "month", "week", "day", "roadmap", "sprint", "ops", "format",
         "ddd", "#309", "density", "condensed", "compact", "comfortable", "gutterWidth",
-        "gutter", "style", "onSelect", "onRunClick", "onGroupToggle", "onGrainChange",
+        "gutter", "style", "onSelect", "onElementClick", "ElementRef", "onGroupToggle", "onGrainChange",
         "callback", "aside", "Reactive", "State", "SegmentGroup", "Select", "getTag",
         "every row kind", "span", "chart", "expandable", "heat", "buckets", "table",
         "tableSeries", "vertical", "cards", "events", "group", "section", "row id", "print",
@@ -646,8 +652,10 @@ export const planVariants = example({
             const onSelect = $.const(East.function([Plan.Types.RowId], NullType, ($, id) => {
                 $(lastEventBind.write(East.str`onSelect · ${East.print(id)}`));
             }));
-            const onRunClick = $.const(East.function([Plan.Types.RunClickEvent], NullType, ($, ev) => {
-                $(lastEventBind.write(East.str`onRunClick · ${East.print(ev.row)} / ${ev.run}`));
+            // ONE callback for every element (#824) — the ref's arm says which
+            // kind was clicked, and each arm names its row and element.
+            const onElementClick = $.const(East.function([Plan.Types.ElementRef], NullType, ($, ref) => {
+                $(lastEventBind.write(East.str`onElementClick · ${ref.getTag()} · ${East.print(ref)}`));
             }));
             const onGroupToggle = $.const(East.function([Plan.Types.GroupToggleEvent], NullType, ($, ev) => {
                 const state = $.let(ev.expanded.ifElse(() => "expanded", () => "collapsed"), StringType);
@@ -678,7 +686,7 @@ export const planVariants = example({
                             data={ops}
                             series={series}
                             onSelect={onSelect}
-                            onRunClick={onRunClick}
+                            onElementClick={onElementClick}
                             onGroupToggle={onGroupToggle}
                             onGrainChange={onGrainChange}
                             style={{ density: densitySel, gutterWidth: gKey }}
@@ -709,7 +717,7 @@ export const planVariants = example({
 // ============================================================================
 
 export const planSpanRows = example({
-    keywords: ["Plan", "data", "series", "span", "run", "state", "estimated", "removed", "rejected", "decision", "port", "rollup", "union", "byStatus", "children", "nested", "recursive", "RecursiveType", "bands", "section", "stacked", "gutter", "links", "link", "Plan.ref", "row id", "focus", "expand", "expandRender", "match", "raw"],
+    keywords: ["Plan", "data", "series", "span", "run", "state", "estimated", "removed", "rejected", "decision", "port", "rollup", "union", "byStatus", "children", "nested", "recursive", "RecursiveType", "bands", "section", "stacked", "gutter", "links", "link", "Plan.ref", "row id", "focus", "expand", "expandRender", "match", "raw", "quantity", "Plan.quantity", "unit", "sum per unit"],
     description: "Span rows over one raw machine source — proposal flavours, decision diamonds and ports, programs rolling their machines up into bands, and a link graph",
     fn: East.function([], UIComponentType, ($) => {
         // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
@@ -786,21 +794,24 @@ export const planSpanRows = example({
                     ], decisions: [], ports: [], machines: noMachines }],
               ]) }],
         ]), DictType(StringType, MachineRow));
-        // Raw jobs → runs, once — every span series shares the mapping.
+        // Raw jobs → runs, once — every span series shares the mapping. A
+        // job's tonnage is its run's QUANTITY: the bar prints it, and a
+        // program's bands sum its machines' tonnes unit by unit (#824).
+        const tonnesFormat = $.const(Format.Number({ maximumFractionDigits: 0n }));
         const jobRuns = $.const(East.function([ArrayType(JobRow)], ArrayType(Plan.Types.Run), (_$, jobs) =>
             jobs.map(($, j) => {
-                const noQuantity = $.const(none, OptionType(StringType));
+                const noQuantity = $.const(none, OptionType(Plan.Types.Quantity));
                 const quantity = $.let(j.tonnes.match({
-                    some: (_$, t) => East.value(some(East.str`${East.Float.printFixed(t, 0n)} t`), OptionType(StringType)),
+                    some: (_$, t) => East.value(some(Plan.quantity(t, { unit: "t", format: tonnesFormat })), OptionType(Plan.Types.Quantity)),
                     none: (_$) => noQuantity,
-                }), OptionType(StringType));
+                }), OptionType(Plan.Types.Quantity));
                 const label = $.let(j.batch.match({
                     some: (_$, b) => East.str`${j.phase} · ${b}`,
                     none: (_$) => j.phase,
                 }), StringType);
                 const run = $.let({
                     key: j.key, start: Plan.at.time(j.start), end: Plan.at.time(j.end), label,
-                    quantity, qty: j.tonnes, state: j.state,
+                    quantity, state: j.state,
                     status: none, moved: none, icon: none,
                 }, Plan.Types.Run);
                 return run;
@@ -827,7 +838,7 @@ export const planSpanRows = example({
                 match: r => r.series.equal("rollup"),
                 label: (_r, k) => k, id: true,
                 runs: r => jobRuns(r.jobs),
-                children: r => r.machines, rollup: "union", unit: "t",
+                children: r => r.machines, rollup: "union",
             }),
             Plan.series.span(MachineRow, {
                 key: "despatch", title: "Despatch",
@@ -841,7 +852,7 @@ export const planSpanRows = example({
                     match: r => r.series.equal("line2"),
                     label: (_r, k) => k, id: true,
                     runs: r => jobRuns(r.jobs),
-                    children: r => r.machines, rollup: "byStatus", unit: "t",
+                    children: r => r.machines, rollup: "byStatus",
                 }),
             ]),
         ], ArrayType(Plan.Types.Series(MachineRow)));
@@ -881,14 +892,15 @@ export const planSpanRows = example({
                 // The link graph (R1) — hover a linked row for the ⌁ control.
                 // The edges deliberately cover the routing permutations:
                 // forward, a same-row seam feed, loopbacks, a rising loop,
-                // and an off-window landing.
+                // and an off-window landing. Each moves a QUANTITY (#824):
+                // its value weighs the ribbon and its caption prints on it.
                 links={[
-                    Plan.link({ from: m07, fromRun: "run", to: m09, toRun: "a", quantity: 24, label: "24 t" }),
-                    Plan.link({ from: m09, fromRun: "a", to: m09, toRun: "b", quantity: 40, label: "40 t" }),
-                    Plan.link({ from: m09, fromRun: "b", to: m03, toRun: "b221", quantity: 88, label: "88 t" }),
-                    Plan.link({ from: m03, fromRun: "b214", to: m11, toRun: "b241", quantity: 32, label: "32 t" }),
-                    Plan.link({ from: m11, fromRun: "b241", to: m09, toRun: "b", quantity: 18, label: "18 t" }),
-                    Plan.link({ from: m09, fromRun: "b", to: dsp, toRun: "d1", quantity: 91, label: "91 t" }),
+                    Plan.link({ key: "l1", from: m07, fromRun: "run", to: m09, toRun: "a", quantity: Plan.quantity(24, { unit: "t" }) }),
+                    Plan.link({ key: "l2", from: m09, fromRun: "a", to: m09, toRun: "b", quantity: Plan.quantity(40, { unit: "t" }) }),
+                    Plan.link({ key: "l3", from: m09, fromRun: "b", to: m03, toRun: "b221", quantity: Plan.quantity(88, { unit: "t" }) }),
+                    Plan.link({ key: "l4", from: m03, fromRun: "b214", to: m11, toRun: "b241", quantity: Plan.quantity(32, { unit: "t" }) }),
+                    Plan.link({ key: "l5", from: m11, fromRun: "b241", to: m09, toRun: "b", quantity: Plan.quantity(18, { unit: "t" }) }),
+                    Plan.link({ key: "l6", from: m09, fromRun: "b", to: dsp, toRun: "d1", quantity: Plan.quantity(91, { unit: "t" }) }),
                 ]}
                 data={machines}
                 series={series}
@@ -1193,13 +1205,15 @@ export const planHeatRows = example({
         ]), DictType(StringType, HeatRow));
         const series = $.const([
             // A line's machines nest under it, and its row is their per-bucket
-            // mean — on the same scale, which its own (empty) cells carry.
+            // mean — painted on `scale`, the scale a parent's DERIVED cells
+            // take (#824; a mean of rows on 0–100 would inherit it anyway).
             Plan.series.heat(HeatRow, {
                 key: "depth", title: "Depth",
                 match: r => r.series.equal("depth"),
                 label: r => r.label, id: true,
                 cells: r => Plan.heatCells(r.cells, { min: 0, max: 100, warnAt: 95 }),
                 children: r => r.children, aggregate: "mean",
+                scale: { min: 0, max: 100, warnAt: 95 },
             }),
             Plan.series.heat(HeatRow, {
                 key: "booked", title: "Booked",
@@ -1441,6 +1455,149 @@ export const planTableRows = example({
             />
         );
     }),
+    inputs: [],
+});
+
+// ============================================================================
+// planFold — a coarser resolution FOLDS each bucket's values (#824)
+// ============================================================================
+
+/**
+ * Temporal fold (#824). The data is weekly; the canvas shows it at whatever
+ * resolution the axis states, and at MONTH every row shows ONE value per
+ * month — the fold of its weeks there — where it used to stack four or five
+ * on top of each other. Each cell builder and chart layer declares its fold,
+ * defaulting to what its values mean: a heat level and a line fold by `mean`,
+ * a table numeral and a column by `sum`, a weight fraction by `mean`. A row
+ * overrides it where the meaning differs — peak load by `max`, closing stock
+ * by `last`. The switch is the resolution; nothing in the data changes, and a
+ * row whose weeks were never folded (WEEK) shows them as they are.
+ */
+export const planFold = example({
+    keywords: [
+        "Plan", "fold", "temporal fold", "resolution", "week", "month", "rebucket", "bucket",
+        "sum", "mean", "max", "last", "count", "default", "override", "heatCells", "weightCells",
+        "tableCells", "tableSeries", "layer", "Plan.layer", "column", "line", "format",
+        "Reactive", "State", "SegmentGroup", "#824",
+    ],
+    description: "Temporal fold — weekly data at MONTH resolution shows one folded cell per month per row: heat and lines by mean, tables and columns by sum, with per-row overrides (peak load by max, closing stock by last)",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            // Monday of ISO week n, 2026 — twelve weeks, W27–W38.
+            const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
+                const w1 = $.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
+                return w1.addWeeks(n.subtract(1n));
+            }));
+            const Weekly = StructType({ at: DateTimeType, value: OptionType(FloatType) });
+            const MeasureRow = StructType({ week: DateTimeType, v: FloatType });
+            // ONE flat weekly source; `series` picks the row's series.
+            const OpsRow = StructType({
+                series: StringType, label: StringType,
+                heat: ArrayType(Plan.Types.HeatCell),
+                weights: ArrayType(Plan.Types.WeightCell),
+                weekly: ArrayType(Weekly),
+                points: ArrayType(MeasureRow),
+            });
+            const noHeat = $.const([], ArrayType(Plan.Types.HeatCell));
+            const noWeights = $.const([], ArrayType(Plan.Types.WeightCell));
+            const noWeekly = $.const([], ArrayType(Weekly));
+            const noPoints = $.const([], ArrayType(MeasureRow));
+            // Twelve weeks of each measure, derived — never hand-written.
+            const load = $.let(East.Array.generate(12n, Plan.Types.HeatCell, (_$, i) => ({
+                at: Plan.at.time(week(i.add(27n))),
+                value: some(i.multiply(17n).remainder(50n).toFloat().add(45.0)),
+                label: none,
+            })));
+            const booked = $.let(East.Array.generate(12n, Plan.Types.WeightCell, (_$, i) => ({
+                at: Plan.at.time(week(i.add(27n))),
+                fraction: i.multiply(7n).remainder(10n).toFloat().multiply(0.06).add(0.4),
+                planned: i.greaterEqual(5n),
+            })));
+            const tonnes = $.let(East.Array.generate(12n, Weekly, (_$, i) => ({
+                at: week(i.add(27n)), value: some(i.multiply(29n).remainder(60n).toFloat().add(80.0)),
+            })));
+            const stock = $.let(East.Array.generate(12n, Weekly, (_$, i) => ({
+                at: week(i.add(27n)), value: some(i.toFloat().multiply(-22.0).add(420.0)),
+            })));
+            const output = $.let(East.Array.generate(12n, MeasureRow, (_$, i) => ({
+                week: week(i.add(27n)), v: i.multiply(23n).remainder(40n).toFloat().add(60.0),
+            })));
+            const coverage = $.let(East.Array.generate(12n, MeasureRow, (_$, i) => ({
+                week: week(i.add(27n)), v: i.multiply(13n).remainder(9n).toFloat().add(88.0),
+            })));
+            const base = { heat: noHeat, weights: noWeights, weekly: noWeekly, points: noPoints };
+            const ops = $.const(new Map([
+                ["load",  { ...base, series: "load",  label: "Line load %", heat: load }],
+                ["peak",  { ...base, series: "peak",  label: "Peak load %", heat: load }],
+                ["book",  { ...base, series: "book",  label: "Booked", weights: booked }],
+                ["desp",  { ...base, series: "desp",  label: "Despatch t", weekly: tonnes }],
+                ["stock", { ...base, series: "stock", label: "Closing stock t", weekly: stock }],
+                ["out",   { ...base, series: "out",   label: "OUTPUT · t", points: output }],
+                ["cov",   { ...base, series: "cov",   label: "COVERAGE %", points: coverage }],
+            ]), DictType(StringType, OpsRow));
+            const whole = $.const(Format.Number({ maximumFractionDigits: 0n }));
+            const series = $.const([
+                // A level — a month shows its weeks' MEAN (the default). The
+                // declared format prints the folded values.
+                Plan.series.heat(OpsRow, {
+                    key: "load", title: "Line load",
+                    match: r => r.series.equal("load"), label: r => r.label,
+                    cells: r => Plan.heatCells(r.heat, { min: 0, max: 100, format: whole }),
+                }),
+                // The same weeks, folded by their MAX — the peak a month hit.
+                Plan.series.heat(OpsRow, {
+                    key: "peak", title: "Peak load",
+                    match: r => r.series.equal("peak"), label: r => r.label,
+                    cells: r => Plan.heatCells(r.heat, { min: 0, max: 100, fold: "max", format: whole }),
+                }),
+                // A fraction of each bucket booked — a month's is its weeks' mean.
+                Plan.series.heat(OpsRow, {
+                    key: "book", title: "Booked",
+                    match: r => r.series.equal("book"), label: r => r.label,
+                    cells: r => Plan.weightCells(r.weights),
+                }),
+                // An amount — a month shows its weeks' SUM (the default).
+                Plan.series.table(OpsRow, {
+                    key: "desp", title: "Despatch",
+                    match: r => r.series.equal("desp"), label: r => r.label,
+                    cells: r => Plan.tableCells(r.weekly), format: whole,
+                }),
+                // A balance — a month shows where it CLOSED, its last week.
+                Plan.series.table(OpsRow, {
+                    key: "stock", title: "Closing stock",
+                    match: r => r.series.equal("stock"), label: r => r.label,
+                    cells: r => Plan.tableCells(r.weekly), fold: "last", format: whole,
+                }),
+                // Columns sum; a line averages.
+                Plan.series.chart(OpsRow, {
+                    key: "out", title: "Output",
+                    match: r => r.series.equal("out"), label: r => r.label, id: true,
+                    layers: r => [Chart.Column(r.points, { x: p => p.week, y: p => p.v })],
+                }),
+                Plan.series.chart(OpsRow, {
+                    key: "cov", title: "Coverage",
+                    match: r => r.series.equal("cov"), label: r => r.label, id: true,
+                    layers: r => [Plan.layer(Chart.Line(r.points, { x: p => p.week, y: p => p.v }), { fold: "mean" })],
+                }),
+            ], ArrayType(Plan.Types.Series(OpsRow)));
+            // The resolution is the switch — two whole axis values, picked by key.
+            const axes = $.const([
+                { key: "month", axis: Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "month", now: week(31n) }) },
+                { key: "week", axis: Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n) }) },
+            ], ArrayType(StructType({ key: StringType, axis: Plan.Types.Axis })));
+            const resBind = $.let(State.bind([StringType], "plan_fold_resolution", "month"));
+            const resKey = $.let(resBind.read());
+            const onRes = $.const(East.function([StringType], NullType, ($, next) => { $(resBind.write(next)); }));
+            const sel = $.let(axes.filter((_$, a) => a.key.equal(resKey)).get(0n, _$ => axes.get(0n)));
+            return (
+                <VStack gap="2" align="stretch">
+                    <SegmentGroup value={resKey} onChange={onRes} size="sm"
+                        items={[SegmentGroup.Item("month", <Text>MONTH</Text>), SegmentGroup.Item("week", <Text>WEEK</Text>)]} />
+                    <Plan axis={sel.axis} data={ops} series={series} />
+                </VStack>
+            );
+        }}</Reactive>
+    )),
     inputs: [],
 });
 
@@ -1744,13 +1901,14 @@ export const planSeriesData = example({
         // inside each series' `derive`.
         const series = $.const([
             // One row per line, its machines stepped down into
-            // (`Plan.children`) and their runs rolled up into its bands.
+            // (`Plan.children`) and their runs rolled up into its bands —
+            // which sum the runs' quantities, unit by unit.
             Plan.series.span(Block, {
                 key: "lines", title: "Lines",
                 match: (_b, name) => name.equal("Crews").not(),
                 label: (_b, name) => name,
                 runs: _b => [],
-                rollup: "union", unit: "t",
+                rollup: "union",
                 children: Plan.children((b) => b, [
                     Plan.series.span(OpsRow, {
                         key: "machines", title: "Machines",
@@ -1759,8 +1917,10 @@ export const planSeriesData = example({
                         runs: r => r.kind.unwrap("machine").jobs.map((_$, j) => Plan.run({
                             key: j.batch, start: j.start, end: j.end,
                             label: East.str`RUN · ${j.batch}`,
-                            quantity: East.str`${East.Float.printFixed(j.tonnes, 0n)} t`,
-                            qty: j.tonnes, state: j.state,
+                            // A quantity is one value: the bar prints `96 t`,
+                            // and the line's band sums the tonnes.
+                            quantity: Plan.quantity(j.tonnes, { unit: "t", format: Format.Number({ maximumFractionDigits: 0n }) }),
+                            state: j.state,
                         })),
                     }),
                 ]),
@@ -2697,8 +2857,8 @@ export const planFill = example({
                             runs: (r, k) => [Plan.run({
                                 key: k, start: r.start, end: r.end,
                                 label: East.str`RUN · ${k}`,
-                                quantity: East.str`${East.Float.printFixed(r.tonnes, 0n)} t`,
-                                qty: r.tonnes, state: variant("confirmed", null),
+                                quantity: Plan.quantity(r.tonnes, { unit: "t", format: Format.Number({ maximumFractionDigits: 0n }) }),
+                                state: variant("confirmed", null),
                             })],
                         }),
                         // Heat rows are 28px — shorter than everything around them.
@@ -2842,8 +3002,7 @@ export const planReview = example({
                     runs: (r, k) => [Plan.run({
                         key: k, start: r.start, end: r.end,
                         label: East.str`RUN · ${k}`,
-                        quantity: East.str`${East.Float.printFixed(r.tonnes, 0n)} t`,
-                        qty: r.tonnes,
+                        quantity: Plan.quantity(r.tonnes, { unit: "t", format: Format.Number({ maximumFractionDigits: 0n }) }),
                         state: live.get(k).equal("approved").ifElse(
                             () => variant("confirmed", null),
                             () => live.get(k).equal("rejected").ifElse(
@@ -2867,6 +3026,138 @@ export const planReview = example({
                         onApprove, onReject, onApproveAll, onRejectAll, onRerun,
                     }}
                 />
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+// ============================================================================
+// planUiState — the interaction state, held by the host (#824)
+// ============================================================================
+
+/**
+ * A bound `ui` state (#824): the canvas's selection, the rows folded or opened
+ * against what they declare, the expanded charts, and a row to bring into
+ * view — held by the HOST, in `State.bind` at `Plan.Types.UiState`, seeded by
+ * `Plan.uiState(…)`. The canvas reads it and writes the user's actions back;
+ * anything else may write it too. Here a picker beside the canvas brings a
+ * machine into view (`focus` — the canvas opens the line it sits in, scrolls
+ * to it and spends the request) and selects it, three buttons fold, open and
+ * expand from outside, and a readout says what the state holds — including
+ * whatever the user clicked on the canvas itself.
+ */
+export const planUiState = example({
+    keywords: [
+        "Plan", "ui", "UiState", "Plan.uiState", "state", "bound", "State", "bind", "controlled",
+        "selected", "selection", "collapsed", "expanded", "fold", "open", "charts", "focus",
+        "scroll to row", "deep link", "external", "write back", "Reactive", "Select", "Button", "#824",
+    ],
+    description: "A bound ui state — the host selects a machine and brings it into view, folds and opens lines and expands a chart from outside, and reads back what the user did on the canvas",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
+            const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
+                const w1 = $.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
+                return w1.addWeeks(n.subtract(1n));
+            }));
+            const JobRow = StructType({
+                key: StringType, start: DateTimeType, end: DateTimeType, state: EventStateType,
+            });
+            const MachineRow = StructType({ line: StringType, jobs: ArrayType(JobRow) });
+            const MeasureRow = StructType({ week: DateTimeType, pct: FloatType });
+            const machines = $.const(new Map([
+                ["L1-M03", { line: "Line 1", jobs: [{ key: "b214", start: week(28n), end: week(31n), state: variant("in-progress", null) }] }],
+                ["L1-M04", { line: "Line 1", jobs: [{ key: "b208", start: week(27n), end: week(30n), state: variant("actual", null) }] }],
+                ["L2-M11", { line: "Line 2", jobs: [{ key: "b241", start: week(29n), end: week(33n), state: variant("confirmed", null) }] }],
+                ["L2-M12", { line: "Line 2", jobs: [{ key: "b198", start: week(30n), end: week(34n), state: variant("proposed", variant("recommended", null)) }] }],
+                ["L3-M21", { line: "Line 3", jobs: [{ key: "b301", start: week(31n), end: week(35n), state: variant("confirmed", null) }] }],
+                ["L3-M22", { line: "Line 3", jobs: [{ key: "b302", start: week(33n), end: week(37n), state: variant("proposed", variant("recommended", null)) }] }],
+            ]), DictType(StringType, MachineRow));
+            const lines = $.let(machines.groupToDicts(($, m) => m.line, ($, _m, k) => k));
+            const LineGroup = DictType(StringType, MachineRow);
+            const coverage = $.let(East.Array.generate(12n, MeasureRow, (_$, i) => ({
+                week: week(i.add(27n)), pct: i.multiply(13n).remainder(9n).toFloat().add(88.0),
+            })));
+            const series = $.const([
+                Plan.series.rows(LineGroup, { key: "kpi", title: "Coverage" }, [
+                    Plan.chart({
+                        key: "coverage", label: "COVERAGE", id: true, height: "spark", expandable: true,
+                        layers: [Chart.Line(coverage, { x: p => p.week, y: p => p.pct })],
+                    }),
+                ]),
+                Plan.series.group(LineGroup, {
+                    key: "lines", title: "Lines",
+                    label: (_g, line) => line,
+                    children: Plan.children((g) => g, [
+                        Plan.series.span(MachineRow, {
+                            key: "machines", title: "Machines",
+                            label: (_m, k) => k, id: true,
+                            runs: m => m.jobs.map((_$, j) => Plan.run({
+                                key: j.key, start: j.start, end: j.end, label: East.str`RUN · ${j.key}`, state: j.state,
+                            })),
+                        }),
+                    ]),
+                }),
+            ], ArrayType(Plan.Types.Series(LineGroup)));
+            // The STATE — Line 3 starts folded. Every row is named by its id:
+            // a line is `Plan.ref("lines", line)`, a machine
+            // `Plan.ref("machines", line, machine)`.
+            const ui = $.let(State.bind([Plan.Types.UiState], "ex.plan.ui",
+                Plan.uiState({ collapsed: [Plan.ref("lines", "Line 3")] })));
+            const now = $.let(ui.read());
+            const lineIds = $.const([Plan.ref("lines", "Line 1"), Plan.ref("lines", "Line 2"), Plan.ref("lines", "Line 3")],
+                ArrayType(Plan.Types.RowId));
+            const kpi = $.const(Plan.ref("kpi", "coverage"));
+            // Bring a machine into view: select it, and REQUEST its focus — the
+            // canvas opens its line if it is folded, scrolls to it, and clears
+            // the request once it has.
+            const goTo = $.const(East.function([StringType], NullType, ($, key) => {
+                const s = $.let(ui.read());
+                const id = $.let(Plan.ref("machines", machines.get(key).line, key));
+                $(ui.write(East.value({
+                    selected: some(id), collapsed: s.collapsed, expanded: s.expanded, charts: s.charts, focus: some(id),
+                }, Plan.Types.UiState)));
+            }));
+            const foldAll = $.const(East.function([], NullType, ($) => {
+                const s = $.let(ui.read());
+                $(ui.write(East.value({
+                    selected: s.selected, collapsed: lineIds, expanded: [], charts: s.charts, focus: s.focus,
+                }, Plan.Types.UiState)));
+            }));
+            const openAll = $.const(East.function([], NullType, ($) => {
+                const s = $.let(ui.read());
+                $(ui.write(East.value({
+                    selected: s.selected, collapsed: [], expanded: lineIds, charts: s.charts, focus: s.focus,
+                }, Plan.Types.UiState)));
+            }));
+            const chart = $.const(East.function([], NullType, ($) => {
+                const s = $.let(ui.read());
+                const charts = $.let(s.charts.size().greater(0n).ifElse(
+                    () => East.value([], ArrayType(Plan.Types.RowId)),
+                    () => East.value([kpi], ArrayType(Plan.Types.RowId))), ArrayType(Plan.Types.RowId));
+                $(ui.write(East.value({
+                    selected: s.selected, collapsed: s.collapsed, expanded: s.expanded, charts, focus: s.focus,
+                }, Plan.Types.UiState)));
+            }));
+            const keys = $.const(["L1-M03", "L1-M04", "L2-M11", "L2-M12", "L3-M21", "L3-M22"], ArrayType(StringType));
+            const picked = $.let(now.selected.match({
+                some: (_$, id) => East.print(id),
+                none: (_$) => "nothing",
+            }), StringType);
+            const axis = $.const(Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n) }));
+            return (
+                <VStack gap="2" align="stretch">
+                    <HStack gap="2">
+                        <Select value="L3-M22" onChange={goTo} size="sm"
+                            items={keys.map((_$, k) => Select.Item(k, East.str`Go to ${k}`))} />
+                        <Button size="xs" onClick={foldAll}>Fold lines</Button>
+                        <Button size="xs" onClick={openAll}>Open lines</Button>
+                        <Button size="xs" onClick={chart}>Coverage chart</Button>
+                    </HStack>
+                    <Plan axis={axis} data={lines} series={series} ui={ui} style={{ height: "300px" }} />
+                    <Text.MonoLabel>{East.str`SELECTED · ${picked} · ${East.print(now.collapsed.size())} FOLDED · ${East.print(now.expanded.size())} OPENED`}</Text.MonoLabel>
+                </VStack>
             );
         }}</Reactive>
     )),

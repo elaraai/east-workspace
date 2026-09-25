@@ -18,6 +18,8 @@ import {
     type PlanWireRow, type VisibleRow,
 } from "./model.js";
 import type { PlanInstantValue } from "./instant.js";
+import { planScale } from "./scale.js";
+import { PLAN_WORDS } from "./words.js";
 import { rowId, rowKey } from "./plan.test-utils.js";
 
 /** Instants on each arm — REAL East variant values, as the decoder yields them (#631). */
@@ -28,7 +30,22 @@ const o = (v: string): PlanInstantValue => variant("ordinal", v) as PlanInstantV
 function visible(r: PlanRowValue, opts?: { collapsed?: boolean }): VisibleRow {
     return { row: r, depth: 0, collapsed: opts?.collapsed === true };
 }
-const spanKind = variant("span", { runs: [], decisions: [], ports: [], rollup: none, unit: none });
+const spanKind = variant("span", { runs: [], decisions: [], ports: [], rollup: none });
+
+/** A decoded quantity — a value in a unit, printed plainly (#824). */
+const qty = (value: number, unit: string = "t") => ({ value, unit: some(unit), format: none, text: none });
+/** A heat scale value — every bound `none` unless given. */
+const hscale = (min?: number, max?: number, warnAt?: number) => ({
+    min: min !== undefined ? some(min) : none,
+    max: max !== undefined ? some(max) : none,
+    warnAt: warnAt !== undefined ? some(warnAt) : none,
+});
+/** A heat cells arm — its cells on a scale, folding by `fold` (#824). */
+const heatArm = (cells: unknown[], scale = hscale(), fold = "mean") =>
+    variant("heat", { cells, scale, fold: variant(fold, null), format: none });
+/** A plain table series — no style, folding by `fold`. */
+const series = (cells: unknown[], fold = "sum") =>
+    ({ cells, format: none, tone: none, strong: false, rollup: false, fold: variant(fold, null) });
 
 // ── Derivations (§4.2 — the semantics the IR used to precompute) ────────────
 
@@ -39,11 +56,11 @@ const W30 = new Date("2026-07-20T00:00:00Z");
 const W31 = new Date("2026-07-27T00:00:00Z");
 const W32 = new Date("2026-08-03T00:00:00Z");
 
-function mkRun(key: string, start: Date, end: Date, state: unknown, qty?: number) {
+function mkRun(key: string, start: Date, end: Date, state: unknown, amount?: number, unit: string = "t") {
     return {
         key, start: t(start), end: t(end), label: key,
-        quantity: none, qty: qty !== undefined ? some(qty) : none,
-        state, status: none, moved: none, icon: none, popover: none, hovercard: none,
+        quantity: amount !== undefined ? some(qty(amount, unit)) : none,
+        state, status: none, moved: none, icon: none,
     } as unknown as Parameters<typeof deriveBands>[0][number];
 }
 
@@ -53,18 +70,18 @@ describe("Plan derived bands (§4·K1 rollups)", () => {
             mkRun("ra", W27, W29, variant("actual", null), 96),
             mkRun("rb", W28, W30, variant("confirmed", null), 50),
             mkRun("rc", W31, W32, variant("proposed", variant("recommended", null)), 88),
-        ], "union", "t");
+        ], "union");
         expect(bands).toHaveLength(2);
         expect(bands[0]).toMatchObject({ from: t(W27), to: t(W30), count: 2, quantity: "146 t" });
         expect((bands[0]!.state as { type: string }).type).toBe("confirmed");   // rank 2 < actual 3
         expect(bands[1]).toMatchObject({ from: t(W31), to: t(W32), count: 1, quantity: "88 t" });
     });
 
-    test("rejected runs are excluded; a missing qty suppresses the sum", () => {
+    test("rejected runs are excluded; a member with no quantity suppresses the total", () => {
         const bands = deriveBands([
             mkRun("r1", W27, W28, variant("actual", null)),
             mkRun("r2", W29, W30, variant("rejected", null), 10),
-        ], "union", "t");
+        ], "union");
         expect(bands).toHaveLength(1);
         expect(bands[0]!.from).toEqual(t(W27));
         expect(bands[0]!.quantity).toBeUndefined();
@@ -74,10 +91,30 @@ describe("Plan derived bands (§4·K1 rollups)", () => {
         const bands = deriveBands([
             mkRun("r1", W27, W29, variant("actual", null)),
             mkRun("r2", W28, W30, variant("confirmed", null)),
-        ], "byStatus", undefined);
+        ], "byStatus");
         expect(bands).toHaveLength(2);
         expect((bands[0]!.state as { type: string }).type).toBe("actual");
         expect((bands[1]!.state as { type: string }).type).toBe("confirmed");
+    });
+
+    test("quantities total UNIT BY UNIT — tonnes never add to hours; each total prints through its first member's format (#824)", () => {
+        const pct = variant("number", { minimumFractionDigits: some(1n), maximumFractionDigits: some(1n), signDisplay: none });
+        const bands = deriveBands([
+            mkRun("ra", W27, W29, variant("confirmed", null), 96),
+            mkRun("rb", W28, W30, variant("confirmed", null), 12, "h"),
+            mkRun("rc", W28, W29, variant("confirmed", null), 112),
+            { ...mkRun("rd", W28, W29, variant("confirmed", null)), quantity: some({ value: 4.25, unit: some("m"), format: some(pct), text: none }) },
+        ], "union");
+        expect(bands).toHaveLength(1);
+        // One total per unit, in the order the units first appear; `m` prints
+        // through its member's one-decimal format, the rest plainly.
+        expect(bands[0]!.quantity).toBe("208 t · 12 h · 4.3 m");
+        // A member's caption override is a caption — its value still totals.
+        const told = deriveBands([
+            { ...mkRun("x", W27, W28, variant("confirmed", null)), quantity: some({ value: 24, unit: some("t"), format: none, text: some("−24 t") }) },
+            mkRun("y", W27, W28, variant("confirmed", null), 6),
+        ], "union");
+        expect(told[0]!.quantity).toBe("30 t");
     });
 });
 
@@ -91,10 +128,10 @@ function trow(key: string, parent: string | undefined, kind: unknown, opts?: { c
         id: rowId(key),
         key,
         parent: parent !== undefined ? some(parent) : none,
-        gutter: { label: key, id: none, sub: none, value: none, meta: none, stacked: none, swatches: [] },
+        gutter: { label: key, id: false, sub: none, value: none, meta: none, stacked: false, swatches: [] },
         kind,
-        collapsed: opts?.collapsed !== undefined ? some(opts.collapsed) : none,
-        pinned: none, height: none, status: none, approval: none, expand: none,
+        collapsed: opts?.collapsed === true,
+        pinned: false, height: none, status: none, approval: none, expand: none,
         duplicateOf: undefined,
     } as unknown as PlanRowValue;
 }
@@ -104,18 +141,16 @@ function wire(key: string, parent: string | undefined, kind: unknown): PlanWireR
     return {
         id: rowId(key),
         parent: parent !== undefined ? some(rowId(parent)) : none,
-        gutter: { label: key, id: none, sub: none, value: none, meta: none, stacked: none, swatches: [] },
+        gutter: { label: key, id: false, sub: none, value: none, meta: none, stacked: false, swatches: [] },
         kind,
-        collapsed: none, pinned: none, height: none, status: none, approval: none, expand: none,
+        collapsed: false, pinned: false, height: none, status: none, approval: none, expand: none,
     } as unknown as PlanWireRow;
 }
 
 /** `gp → (mid → a, b), leaf` — two declared-subtotal levels over raw cells. */
 function nestedTableRows(): PlanRowValue[] {
     const tableKind = (cells: unknown[], aggregate: boolean) => variant("table", {
-        series: cells.length > 0
-            ? [{ cells, format: none, tone: none, strong: none, rollup: none }]
-            : [],
+        series: cells.length > 0 ? [series(cells)] : [],
         split: variant("horizontal", null),
         aggregate: aggregate ? some(variant("sum", null)) : none,
         format: none,
@@ -178,10 +213,8 @@ describe("Plan derived heat / table aggregates", () => {
         // than no subtotal.
         const multi = (a: number, b: number) => variant("table", {
             series: [
-                { cells: [{ at: t(W27), value: some(a), text: none, tone: none }],
-                  format: none, tone: none, strong: some(true), rollup: none },
-                { cells: [{ at: t(W27), value: some(b), text: none, tone: none }],
-                  format: none, tone: some(variant("muted", null)), strong: none, rollup: none },
+                { ...series([{ at: t(W27), value: some(a), text: none, tone: none }]), strong: true },
+                { ...series([{ at: t(W27), value: some(b), text: none, tone: none }]), tone: some(variant("muted", null)) },
             ],
             split: variant("horizontal", null), aggregate: none, format: none,
             emphasis: variant("body", null),
@@ -201,17 +234,15 @@ describe("Plan derived heat / table aggregates", () => {
         expect(positions[1]!.cells[0]).toMatchObject({ value: { type: "some", value: -10 } });
         // ...and each derived position wears its members' declarations, so the
         // subtotal is styled like the numbers it totals.
-        expect(positions[0]!.strong).toMatchObject({ type: "some", value: true });
+        expect(positions[0]!.strong).toBe(true);
         expect(positions[1]!.tone).toMatchObject({ type: "some", value: { type: "muted" } });
     });
 
     test("`rollup: true` still NARROWS — an author can say which position is the number", () => {
         const flagged = (a: number, b: number) => variant("table", {
             series: [
-                { cells: [{ at: t(W27), value: some(a), text: none, tone: none }],
-                  format: none, tone: none, strong: none, rollup: some(true) },
-                { cells: [{ at: t(W27), value: some(b), text: none, tone: none }],
-                  format: none, tone: none, strong: none, rollup: none },
+                { ...series([{ at: t(W27), value: some(a), text: none, tone: none }]), rollup: true },
+                series([{ at: t(W27), value: some(b), text: none, tone: none }]),
             ],
             split: variant("horizontal", null), aggregate: none, format: none,
             emphasis: variant("body", null),
@@ -238,9 +269,9 @@ describe("Plan derived heat / table aggregates", () => {
         // derived width is observable as a height difference.
         const vmulti = (a: number, b: number, c: number) => variant("table", {
             series: [
-                { cells: [{ at: t(W27), value: some(a), text: none, tone: none }], format: none, tone: none, strong: none, rollup: none },
-                { cells: [{ at: t(W27), value: some(b), text: none, tone: none }], format: none, tone: none, strong: none, rollup: none },
-                { cells: [{ at: t(W27), value: some(c), text: none, tone: none }], format: none, tone: none, strong: none, rollup: none },
+                series([{ at: t(W27), value: some(a), text: none, tone: none }]),
+                series([{ at: t(W27), value: some(b), text: none, tone: none }]),
+                series([{ at: t(W27), value: some(c), text: none, tone: none }]),
             ],
             split: variant("vertical", null), aggregate: none, format: none, emphasis: variant("body", null),
         });
@@ -262,7 +293,7 @@ describe("Plan derived heat / table aggregates", () => {
         // A count is an aggregate like any other: the renderer counts the
         // members the group actually has.
         const group = (key: string, parent?: string) => trow(key, parent,
-            variant("group", { summary: none, summaryAggregate: none }));
+            variant("group", { summary: variant("none", null) }));
         const rows = [
             group("g"),
             trow("m1", "g", spanKind),
@@ -302,24 +333,24 @@ describe("Plan derived heat / table aggregates", () => {
         const PH = new Map([["INTAKE", 0], ["PREP", 1], ["BUILD", 2], ["QC", 3], ["PACK", 4]]);
         const run = (key: string, start: string, end: string) => ({
             key, start: o(start), end: o(end), label: key,
-            quantity: none, qty: none, state: variant("confirmed", null), status: none, moved: none, icon: none,
+            quantity: none, state: variant("confirmed", null), status: none, moved: none, icon: none,
         }) as unknown as Parameters<typeof deriveBands>[0][number];
         // [INTAKE, PREP] and [BUILD, QC] touch at the PREP|BUILD edge — on a
         // half-open axis they would merge; with inclusive ends PREP is covered
         // by the first run, so BUILD starts a NEW band.
-        const bands = deriveBands([run("a", "INTAKE", "PREP"), run("b", "BUILD", "QC")], "union", undefined, PH);
+        const bands = deriveBands([run("a", "INTAKE", "PREP"), run("b", "BUILD", "QC")], "union", PH);
         expect(bands).toHaveLength(2);
         expect(bands[0]).toMatchObject({ from: o("INTAKE"), to: o("PREP") });
         // [INTAKE, BUILD] and [BUILD, QC] share BUILD — one band, ×2.
-        const merged = deriveBands([run("a", "INTAKE", "BUILD"), run("b", "BUILD", "QC")], "union", undefined, PH);
+        const merged = deriveBands([run("a", "INTAKE", "BUILD"), run("b", "BUILD", "QC")], "union", PH);
         expect(merged).toHaveLength(1);
         expect(merged[0]).toMatchObject({ from: o("INTAKE"), to: o("QC"), count: 2 });
     });
 
     test("axisKindMismatches names every row whose instants ride another arm (#631)", () => {
         const heat = (at: PlanInstantValue) => variant("heat", {
-            cells: variant("heat", { cells: [{ at, value: some(1), label: none }], min: none, max: none, warnAt: none }),
-            aggregate: none,
+            cells: heatArm([{ at, value: some(1), label: none }]),
+            aggregate: none, scale: none,
         });
         const rows = [
             trow("ok", undefined, heat(n(2))),
@@ -341,10 +372,7 @@ describe("Plan derived heat / table aggregates", () => {
         // A recursive table's parent is the same series as its children, so
         // it declares `aggregate` whether or not the data gave it numbers.
         const tableKind = (v: number | undefined) => variant("table", {
-            series: [{
-                cells: v !== undefined ? [{ at: t(W27), value: some(v), text: none, tone: none }] : [],
-                format: none, tone: none, strong: none, rollup: none,
-            }],
+            series: [series(v !== undefined ? [{ at: t(W27), value: some(v), text: none, tone: none }] : [])],
             split: variant("horizontal", null),
             aggregate: some(variant("sum", null)), format: none, emphasis: variant("body", null),
         });
@@ -387,12 +415,11 @@ describe("Plan derivations at scale (#810)", () => {
     const confirmed = variant("confirmed", null);
     const numRun = (key: string, start: number, end: number) => ({
         key, start: n(start), end: n(end), label: key,
-        quantity: none, qty: none, state: confirmed, status: none, moved: none, icon: none, popover: none, hovercard: none,
+        quantity: none, state: confirmed, status: none, moved: none, icon: none,
     }) as unknown as Parameters<typeof deriveBands>[0][number];
     const span = (runs: unknown[], rollup: boolean) => variant("span", {
         runs, decisions: [], ports: [],
         rollup: rollup ? some(variant("union", null)) : none,
-        unit: none, bands: [],
     });
 
     test("band counts: touching runs are sequential, identical and nested ones stack, a lone empty run counts 1", () => {
@@ -403,7 +430,7 @@ describe("Plan derivations at scale (#810)", () => {
             numRun("d", 10, 12),    // touches a / b — a NEW band on a half-open axis
             numRun("e", 11, 11),    // zero-length, inside d's band
             numRun("f", 20, 20),    // zero-length, alone
-        ], "union", undefined);
+        ], "union");
         expect(bands.map((b) => ({ from: b.from.value, to: b.to.value, count: b.count }))).toEqual([
             { from: 0, to: 10, count: 3 },
             { from: 10, to: 12, count: 1 },
@@ -438,20 +465,22 @@ describe("Plan derivations at scale (#810)", () => {
 
     test("a group strip over 250,000 heat members inherits their widest scale", () => {
         const heatOn = (min: number, max: number, warnAt: number) => variant("heat", {
-            cells: variant("heat", { cells: [{ at: n(1), value: some(50), label: none }], min: some(min), max: some(max), warnAt: some(warnAt) }),
-            aggregate: none,
+            cells: heatArm([{ at: n(1), value: some(50), label: none }], hscale(min, max, warnAt)),
+            aggregate: none, scale: none,
         });
         const kinds = [heatOn(0, 100, 90), heatOn(-5, 100, 80), heatOn(0, 120, 95)];
         const member = trow("m", "g", kinds[0]);
         const rows: PlanRowValue[] = [
-            trow("g", undefined, variant("group", { summary: none, summaryAggregate: some(variant("max", null)) })),
+            trow("g", undefined, variant("group", { summary: variant("aggregate", variant("max", null)) })),
         ];
         // One shared kind object per scale — 250,000 rows, not 250,000 kinds.
         for (let i = 0; i < N; i++) rows.push({ ...member, key: `m${i}`, kind: kinds[i % kinds.length] } as unknown as PlanRowValue);
         const derived = derivePlan(indexRows(rows));
         expect(derived.groupMembers.get("g")).toBe(N);
-        expect(derived.groupSummaryScale.get("g")).toEqual({ min: -5, max: 120, warnAt: 80 });
-        expect(derived.groupSummary.get("g")).toEqual([expect.objectContaining({ value: some(50) })]);
+        const strip = derived.groupStrips.get("g")!;
+        expect(strip.type).toBe("heat");
+        expect(strip.type === "heat" ? strip.value.scale : undefined).toEqual(hscale(-5, 120, 80));
+        expect(strip.value.cells).toEqual([expect.objectContaining({ value: some(50) })]);
     });
 
     test("derived numbers print through the shared formatter (en-US): a heat mean labels 0.787, a band total captions 1,234.5 t", () => {
@@ -460,7 +489,7 @@ describe("Plan derivations at scale (#810)", () => {
         const bands = deriveBands([
             mkRun("ra", W27, W29, variant("confirmed", null), 1000),
             mkRun("rb", W28, W30, variant("confirmed", null), 234.5),
-        ], "union", "t");
+        ], "union");
         expect(bands[0]!.quantity).toBe("1,234.5 t");       // was "1235 t"
     });
 });
@@ -468,23 +497,17 @@ describe("Plan derivations at scale (#810)", () => {
 // ── Failure is local (#811) ─────────────────────────────────────────────────
 
 describe("Plan diagnostic rows (#811)", () => {
-    const numRun = (key: string, start: PlanInstantValue, end: PlanInstantValue, qty: number) => ({
-        key, start, end, label: key, quantity: none, qty: some(qty),
+    const numRun = (key: string, start: PlanInstantValue, end: PlanInstantValue, amount: number) => ({
+        key, start, end, label: key, quantity: some(qty(amount)),
         state: variant("confirmed", null), status: none, moved: none, icon: none,
     });
     const span = (runs: unknown[], rollup?: boolean) => variant("span", {
         runs, decisions: [], ports: [],
         rollup: rollup === true ? some(variant("union", null)) : none,
-        unit: rollup === true ? some("t") : none,
     });
     const heatAt = (at: PlanInstantValue, v: number, scale?: [number, number]) => variant("heat", {
-        cells: variant("heat", {
-            cells: [{ at, value: some(v), label: none }],
-            min: scale !== undefined ? some(scale[0]) : none,
-            max: scale !== undefined ? some(scale[1]) : none,
-            warnAt: none,
-        }),
-        aggregate: none,
+        cells: heatArm([{ at, value: some(v), label: none }], hscale(scale?.[0], scale?.[1])),
+        aggregate: none, scale: none,
     });
     /** A number-axis canvas where every declared parent has one child on
      *  the axis's arm and one on ANOTHER (time) arm. */
@@ -493,12 +516,12 @@ describe("Plan diagnostic rows (#811)", () => {
         trow("ok", "p", span([numRun("r", n(1), n(3), 5)])),
         trow("bad", "p", span([numRun("x", t(W27), t(W29), 7)])),
         trow("hp", undefined, variant("heat", {
-            cells: variant("heat", { cells: [], min: none, max: none, warnAt: none }),
-            aggregate: some(variant("mean", null)),
+            cells: heatArm([]),
+            aggregate: some(variant("mean", null)), scale: none,
         })),
         trow("h1", "hp", heatAt(n(1), 10)),
         trow("h2", "hp", heatAt(t(W27), 90)),
-        trow("g", undefined, variant("group", { summary: none, summaryAggregate: some(variant("max", null)) })),
+        trow("g", undefined, variant("group", { summary: variant("aggregate", variant("max", null)) })),
         trow("h3", "g", heatAt(n(1), 20, [0, 100])),
         trow("h4", "g", heatAt(t(W27), 99, [-50, 500])),
     ];
@@ -513,10 +536,11 @@ describe("Plan diagnostic rows (#811)", () => {
         // The rollup band is the placeable child's alone — not "12 t".
         expect(derived.bands.get("p")).toEqual([expect.objectContaining({ from: n(1), to: n(3), count: 1, quantity: "5 t" })]);
         // The aggregate has one bucket on the axis, not a second at a time instant.
-        expect(derived.heatCells.get("hp")).toEqual([expect.objectContaining({ at: n(1), value: some(10) })]);
+        expect(derived.heatArms.get("hp")!.value.cells).toEqual([expect.objectContaining({ at: n(1), value: some(10) })]);
         // The strip and its inherited scale come from the placeable member only.
-        expect(derived.groupSummary.get("g")).toEqual([expect.objectContaining({ at: n(1), value: some(20) })]);
-        expect(derived.groupSummaryScale.get("g")).toEqual({ min: 0, max: 100, warnAt: undefined });
+        const strip = derived.groupStrips.get("g")!;
+        expect(strip.value.cells).toEqual([expect.objectContaining({ at: n(1), value: some(20) })]);
+        expect(strip.type === "heat" ? strip.value.scale : undefined).toEqual(hscale(0, 100));
         // ...while the band still counts both members: the skipped one renders.
         expect(derived.groupMembers.get("g")).toBe(2);
     });
@@ -529,8 +553,7 @@ describe("Plan diagnostic rows (#811)", () => {
         const rows = [
             trow("heatbad", undefined, heatAt(t(W27), 1)),
             trow("grp", undefined, variant("group", {
-                summary: some(variant("heat", { cells: [{ at: t(W27), value: some(1), label: none }], min: none, max: none, warnAt: none })),
-                summaryAggregate: none,
+                summary: variant("cells", heatArm([{ at: t(W27), value: some(1), label: none }])),
             }), { collapsed: true }),
         ];
         const index = indexRows(rows);
@@ -570,6 +593,112 @@ describe("Plan diagnostic rows (#811)", () => {
     });
 });
 
+// ── Fold first (#824) ───────────────────────────────────────────────────────
+
+describe("Plan derivations fold to the scale's period FIRST (#824)", () => {
+    // Weekly cells on a MONTH scale: W27 (Jun 29) is June's, W28–W31 July's.
+    const month = planScale({ kind: "time", window: { min: new Date("2026-06-01T00:00:00Z"), max: new Date("2026-10-01T00:00:00Z") }, resolution: "month" })!.period;
+    const week = planScale({ kind: "time", window: { min: W27, max: W32 }, resolution: "week" })!.period;
+    const JUL = t(new Date("2026-07-01T00:00:00Z"));
+    const weekly = (vals: readonly number[]) => [W28, W29, W30, W31].map((at, i) => ({ at: t(at), value: some(vals[i]!), label: some(String(vals[i])) }));
+
+    test("a heat leaf shows ONE cell per month — its weeks' mean, at the month's start; a lone week keeps its own cell", () => {
+        const lone = { at: t(W27), value: some(7), label: some("7") };
+        const rows = [trow("h", undefined, variant("heat", { cells: heatArm([lone, ...weekly([40, 60, 80, 100])]), aggregate: none, scale: none }))];
+        const derived = derivePlan(indexRows(rows), undefined, "time", PLAN_WORDS, month);
+        const cells = derived.heatArms.get("h")!.value.cells;
+        // June's one week is its own cell, as the author wrote it — untouched.
+        expect(cells[0]).toBe(lone);
+        // July's four weeks are one cell at July 1: their mean, labelled (the
+        // members were), through the arm's (plain) format.
+        expect(cells[1]).toEqual({ at: JUL, value: some(70), label: some("70") });
+        expect(cells).toHaveLength(2);
+        // At the data's own resolution nothing folds — and nothing is derived:
+        // the row draws its own arm, the very object it declared.
+        expect(derivePlan(indexRows(rows), undefined, "time", PLAN_WORDS, week).heatArms.has("h")).toBe(false);
+    });
+
+    test("a declared fold is honoured — max, last and count; a table series sums by default", () => {
+        const heat = (fold: string) => trow(`h-${fold}`, undefined, variant("heat", {
+            cells: heatArm(weekly([40, 90, 80, 60]), hscale(), fold), aggregate: none, scale: none,
+        }));
+        const derived = derivePlan(indexRows([heat("max"), heat("last"), heat("count"), heat("min"), heat("sum")]), undefined, "time", PLAN_WORDS, month);
+        const at = (fold: string) => derived.heatArms.get(`h-${fold}`)!.value.cells[0];
+        expect(at("max")).toMatchObject({ value: some(90) });
+        expect(at("last")).toMatchObject({ value: some(60) });    // the LATEST week, not the last written
+        expect(at("count")).toMatchObject({ value: some(4) });
+        expect(at("min")).toMatchObject({ value: some(40) });
+        expect(at("sum")).toMatchObject({ value: some(270) });
+        const table = trow("t", undefined, variant("table", {
+            series: [series(weekly([40, 90, 80, 60]).map((c) => ({ at: c.at, value: c.value, text: none, tone: none })))],
+            split: variant("horizontal", null), aggregate: none, format: none, emphasis: variant("body", null),
+        }));
+        const folded = derivePlan(indexRows([table]), undefined, "time", PLAN_WORDS, month).tableSeries.get("t")!;
+        expect(folded[0]!.cells).toEqual([{ at: JUL, value: some(270), text: none, tone: none }]);
+    });
+
+    test("a parent summarises what its children SHOW — the mean of their monthly means, not of every week", () => {
+        const child = (key: string, vals: readonly number[]) => trow(key, "p", variant("heat", {
+            cells: heatArm(weekly(vals), hscale(0, 100)), aggregate: none, scale: none,
+        }));
+        const rows = [
+            trow("p", undefined, variant("heat", { cells: heatArm([]), aggregate: some(variant("mean", null)), scale: none })),
+            child("a", [10, 10, 10, 10]),
+            // Only one week — a lone member keeps its own instant (W29), yet
+            // it is July's, so it meets `a`'s fold in July's bucket.
+            trow("b", "p", variant("heat", { cells: heatArm([{ at: t(W29), value: some(50), label: none }], hscale(0, 100)), aggregate: none, scale: none })),
+        ];
+        const derived = derivePlan(indexRows(rows), undefined, "time", PLAN_WORDS, month);
+        const parent = derived.heatArms.get("p")!;
+        expect(parent.value.cells).toEqual([expect.objectContaining({ at: JUL, value: some(30) })]);    // (10 + 50) / 2
+        // Declaring no scale, the parent paints on the one its members share.
+        expect(parent.type === "heat" ? parent.value.scale : undefined).toEqual(hscale(0, 100));
+        // A declared parent scale wins over theirs.
+        const declared = derivePlan(indexRows([{ ...rows[0]!, kind: variant("heat", {
+            cells: heatArm([]), aggregate: some(variant("mean", null)), scale: some(hscale(0, 50, 45)),
+        }) } as unknown as PlanRowValue, ...rows.slice(1)]), undefined, "time", PLAN_WORDS, month).heatArms.get("p")!;
+        expect(declared.type === "heat" ? declared.value.scale : undefined).toEqual(hscale(0, 50, 45));
+    });
+
+    test("a group strip folds too: its aggregate over the members' folded cells, and declared cells by their own fold", () => {
+        const member = (key: string, vals: readonly number[]) => trow(key, "g", variant("heat", {
+            cells: heatArm(weekly(vals)), aggregate: none, scale: none,
+        }));
+        const aggregated = derivePlan(indexRows([
+            trow("g", undefined, variant("group", { summary: variant("aggregate", variant("max", null)) })),
+            member("a", [10, 20, 30, 40]), member("b", [5, 5, 5, 5]),
+        ]), undefined, "time", PLAN_WORDS, month).groupStrips.get("g")!;
+        expect(aggregated.value.cells).toEqual([expect.objectContaining({ at: JUL, value: some(25) })]);   // max(25, 5)
+        const declared = derivePlan(indexRows([
+            trow("g", undefined, variant("group", { summary: variant("cells", heatArm(weekly([1, 2, 3, 6]))) })),
+        ]), undefined, "time", PLAN_WORDS, month).groupStrips.get("g")!;
+        expect(declared.value.cells).toEqual([expect.objectContaining({ at: JUL, value: some(3) })]);
+    });
+
+    test("chart layers fold — a column by its sum, a line by its mean, a scatter not at all", () => {
+        const pts = (vals: readonly number[]) => [W28, W29, W30, W31].map((at, i) => ({ t: t(at), y: vals[i]! }));
+        const chart = trow("c", undefined, variant("chart", {
+            layers: [
+                variant("column", { points: pts([1, 2, 3, 4]), axis: variant("left", null), series: none, breach: none, fold: variant("sum", null) }),
+                variant("line", { points: pts([10, 20, 30, 40]), axis: variant("left", null), breach: none, fold: variant("mean", null) }),
+                variant("scatter", { points: pts([5, 6, 7, 8]), axis: variant("left", null) }),
+            ],
+            left: none, right: none, height: variant("spark", null), expandedHeight: none, expandable: false,
+        }));
+        const derived = derivePlan(indexRows([chart]), undefined, "time", PLAN_WORDS, month);
+        const layers = derived.charts.get("c")!.layers;
+        /** A folding layer's points — `undefined` for any other kind. */
+        const pointsOf = (i: number) => {
+            const layer = layers[i];
+            return layer !== undefined && (layer.type === "column" || layer.type === "line") ? layer.value.points : undefined;
+        };
+        expect(pointsOf(0)).toEqual([{ t: JUL, y: 10 }]);
+        expect(pointsOf(1)).toEqual([{ t: JUL, y: 25 }]);
+        const scatter = chart.kind.type === "chart" ? chart.kind.value.layers[2] : undefined;
+        expect(layers[2]).toBe(scatter);
+    });
+});
+
 // A timing budget is opt-in, never a CI gate: a shared runner's CPU is not a
 // deterministic signal (the e3-ui-cli perf.spec precedent). CI keeps the
 // deterministic proof above — 250,000 members, a count linear in them.
@@ -581,11 +710,11 @@ describe.skipIf(process.env["E3_UI_PERF"] !== "1")("Plan derivations — timing 
         const t0 = W27.getTime();
         const runs = Array.from({ length: 4_000 }, (_, i) =>
             mkRun(`r${i}`, new Date(t0 + i * HOUR), new Date(t0 + (i + 48) * HOUR), variant("confirmed", null), 10));
-        expect(deriveBands(runs, "union", "t")).toEqual([expect.objectContaining({ count: 48 })]);
+        expect(deriveBands(runs, "union")).toEqual([expect.objectContaining({ count: 48 })]);
         const samples: number[] = [];
         for (let i = 0; i < 7; i++) {
             const start = performance.now();
-            deriveBands(runs, "union", "t");
+            deriveBands(runs, "union");
             samples.push(performance.now() - start);
         }
         samples.sort((a, b) => a - b);

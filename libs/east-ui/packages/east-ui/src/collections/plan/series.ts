@@ -70,6 +70,7 @@ import {
     PlanAggregateType,
     type PlanAggregateLiteral,
     PlanExpandType,
+    PlanGroupSummaryType,
     PlanHeatCellsType,
     PlanLaneType,
     PlanBucketEventType,
@@ -100,7 +101,7 @@ import {
     type PlanHeatCellsInput,
     type PlanTableCellsInput,
 } from "./types.js";
-import { resolveTag, resolveIcon, type PlanIconInput } from "./builders.js";
+import { resolveTag, resolveIcon, type PlanIconInput, type PlanFoldInput, type PlanHeatScaleInput } from "./builders.js";
 import { planRow, planGutter, normalizeRows, REBASE_ROWS, type PlanRowsInput, type PlanGutterFields } from "./assemble.js";
 import {
     spanKind,
@@ -111,6 +112,7 @@ import {
     cardsKind,
     eventsKind,
     groupKind,
+    groupSummary,
     type PlanChartLayerInput,
     type PlanChartAxisInput,
     type PlanChartParts,
@@ -390,7 +392,8 @@ export interface PlanSeriesRowConfig<R extends EastType, KT extends EastType = S
     collapsed?: boolean | PlanAccessor<R, BooleanType, KT>;
 }
 
-/** Config for {@link Plan.series.span} — state-run rows; a parent shows its own runs plus bands over its subtree's. */
+/** Config for {@link Plan.series.span} — state-run rows; a parent shows its own runs plus bands over its subtree's
+ *  (each band sums its runs' quantities unit by unit — a quantity carries its unit, #824). */
 export interface PlanSpanSeriesConfig<R extends EastType, K extends PlanAxisKindLiteral = never, KT extends EastType = StringType> extends PlanSeriesRowConfig<R, KT> {
     /** Per-row runs accessor — the runs' axis kind brands the series. */
     runs: PlanElementsAccessor<R, PlanRunType, K, KT>;
@@ -400,22 +403,26 @@ export interface PlanSpanSeriesConfig<R extends EastType, K extends PlanAxisKind
     ports?: PlanElementsAccessor<R, typeof PlanPortType, K, KT>;
     /** How a row with children rolls its subtree's runs into its bands (default `"union"`). */
     rollup?: SubtypeExprOrValue<PlanRollupType> | PlanRollupLiteral;
-    /** Quantity unit for band sums (`"t"`). */
-    unit?: SubtypeExprOrValue<StringType>;
 }
 
 /** Config for {@link Plan.series.heat} — per-bucket cell rows; a parent shows its own cells, or its children's per-bucket `aggregate`. */
 export interface PlanHeatSeriesConfig<R extends EastType, K extends PlanAxisKindLiteral = never, KT extends EastType = StringType> extends PlanSeriesRowConfig<R, KT> {
-    /** Per-row cells accessor (`Plan.heatCells` / `Plan.weightCells` / `Plan.segmentCells`) — its kind brands the series. A parent may return no cells, and then shows its children's aggregate on the scale its (empty) cells carry. */
+    /** Per-row cells accessor (`Plan.heatCells` / `Plan.weightCells` / `Plan.segmentCells`) — its kind brands the series. A parent may return no cells, and then shows its children's aggregate on `scale`. */
     cells: PlanKindedAccessor<R, PlanHeatCellsInput<K>, KT>;
     /** How a parent with no cells of its own derives them from its children (default `"mean"`). */
     aggregate?: SubtypeExprOrValue<PlanAggregateType> | PlanAggregateLiteral;
+    /** The scale a parent's derived cells paint on (min / max / warn threshold, #824); omit ⇒ the extent
+     *  they span. A row's own cells paint on their arm's scale. */
+    scale?: PlanHeatScaleInput;
 }
 
 /** Config for {@link Plan.series.table} — bucketed numerals; a parent shows its own values, or per-position subtotals. */
 export interface PlanTableSeriesOfConfig<R extends EastType, K extends PlanAxisKindLiteral = never, KT extends EastType = StringType> extends PlanSeriesRowConfig<R, KT> {
     /** Per-row cells accessor (`Plan.tableCells`) — sugar for one unstyled value series; its kind brands the series. A parent may return no cells, and then shows its children's subtotal. */
     cells?: PlanKindedAccessor<R, PlanTableCellsInput<K>, KT>;
+    /** How a bucket folds the `cells` at a coarser resolution than theirs (default `"sum"`, #824) — a
+     *  `series` entry declares its own (`Plan.tableSeries({ fold })`). */
+    fold?: PlanFoldInput;
     /** Per-row MULTI-SERIES accessor (`Plan.tableSeries` results); exclusive with `cells`. */
     series?: PlanElementsAccessor<R, PlanTableSeriesType, K, KT>;
     /** Part layout when several value series render — `"horizontal"` (default) / `"vertical"`. */
@@ -452,7 +459,7 @@ export interface PlanEventsSeriesConfig<R extends EastType, K extends PlanAxisKi
 
 /** Config for {@link Plan.series.chart} — one chart row per entry, layers built from the entry's own data. */
 export interface PlanChartSeriesConfig<R extends EastType, KT extends EastType = StringType> extends PlanSeriesRowConfig<R, KT> {
-    /** Per-row pinned accessor (`true` ⇒ above the virtualised body). */
+    /** Per-row pinned accessor (`true` ⇒ above the virtualised body; `false` when omitted). */
     pinned?: PlanAccessor<R, BooleanType, KT>;
     /** Per-row Chart layers accessor (`Chart.*` builders, bare or `Plan.layer`-wrapped). */
     layers: (row: PlanEntryExpr<R>, key: ExprType<KT>) => PlanChartLayerInput | PlanChartLayerInput[];
@@ -481,9 +488,9 @@ export interface PlanChartSeriesConfig<R extends EastType, KT extends EastType =
 export interface PlanGroupSeriesConfig<R extends EastType, K extends PlanAxisKindLiteral = never, KT extends EastType = StringType> extends PlanSeriesRowConfig<R, KT> {
     /** The strip's members — the entry's children (required: a group without members is a plain band). Not an inference site for the key type. */
     children: PlanChildrenInput<R, NoInfer<KT>>;
-    /** Explicit collapsed-strip cells per entry; omit to derive them with `summaryAggregate`. */
+    /** Explicit collapsed-strip cells per entry; exclusive with `summaryAggregate`. */
     summary?: PlanKindedAccessor<R, PlanHeatCellsInput<K>, KT>;
-    /** DECLARED strip aggregation over the members' heat cells — `"mean"` / `"max"` / `"sum"`. */
+    /** DECLARED strip aggregation over the members' heat cells — `"mean"` / `"max"` / `"sum"`; exclusive with `summary`. */
     summaryAggregate?: SubtypeExprOrValue<PlanAggregateType> | PlanAggregateLiteral;
 }
 
@@ -495,7 +502,7 @@ export interface PlanGroupSeriesConfig<R extends EastType, K extends PlanAxisKin
  * @property meta - A constant gutter meta line on the header
  * @property value - A constant value slot on the header
  * @property status - A status dot on the header
- * @property summary - Explicit collapsed-strip cells
+ * @property summary - Explicit collapsed-strip cells (exclusive with `summaryAggregate`)
  * @property summaryAggregate - Strip aggregation over the members' heat cells
  */
 export interface PlanSectionSeriesConfig<K extends PlanAxisKindLiteral = never> extends PlanSeriesIdentity {
@@ -544,11 +551,11 @@ type EmitFn = ExprType<FunctionType<[EastType, ArrayType<StringType>, OptionType
 /** A series' BLOCKS for entries of a collection (#823): `(collection, prefix path, parent id) → blocks`. */
 type BlocksFn = ExprType<FunctionType<[EastType, ArrayType<StringType>, OptionType<PlanRowIdType>], PlanBlocksType>>;
 /** One entry's row: `(value, key, id, parent, hasChildren, collapsed) → row`. */
-type EntryRowFn = ExprType<FunctionType<[EastType, EastType, PlanRowIdType, OptionType<PlanRowIdType>, BooleanType, OptionType<BooleanType>], PlanRowType>>;
+type EntryRowFn = ExprType<FunctionType<[EastType, EastType, PlanRowIdType, OptionType<PlanRowIdType>, BooleanType, BooleanType], PlanRowType>>;
 /** An entry's membership: `(value, key) → Boolean`. */
 type MatchFn = ExprType<FunctionType<[EastType, EastType], BooleanType>>;
-/** An entry's collapse: `(value, key) → Option<Boolean>`. */
-type CollapsedFn = ExprType<FunctionType<[EastType, EastType], OptionType<BooleanType>>>;
+/** An entry's collapse: `(value, key) → Boolean`. */
+type CollapsedFn = ExprType<FunctionType<[EastType, EastType], BooleanType>>;
 /** An entry's children rows: `(value, key, id, path) → rows`. */
 type ChildrenFn = ExprType<FunctionType<[EastType, EastType, PlanRowIdType, ArrayType<StringType>], PlanRowsCollectionType>>;
 
@@ -688,7 +695,7 @@ interface KindRecipe {
     /** The row's kind, from the entry and whether it has child rows. */
     kind(value: ExprType<EastType>, key: ExprType<EastType>, hasChildren: ExprType<BooleanType>): ExprType<PlanRowKindType>;
     /** The row's `pinned`, when the kind reads one (chart). */
-    pinned?(value: ExprType<EastType>, key: ExprType<EastType>): SubtypeExprOrValue<OptionType<BooleanType>>;
+    pinned?(value: ExprType<EastType>, key: ExprType<EastType>): SubtypeExprOrValue<BooleanType>;
     /** Gutter legend chips (chart). */
     swatches?: PlanGutterFields["swatches"];
 }
@@ -739,7 +746,7 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
     const blockLists = new ByType<BlocksFn>();
 
     const rowFor =(kt: EastType): EntryRowFn => rows.get(kt, () => building(where, kt, () => East.function(
-        [rowType, kt, PlanRowIdType, IdOptType, BooleanType, OptionType(BooleanType)], PlanRowType,
+        [rowType, kt, PlanRowIdType, IdOptType, BooleanType, BooleanType], PlanRowType,
         ($, value, key, id, parent, hasChildren, collapsed) => {
             // The node every accessor reads, unwrapped once.
             const entry = recursive ? $.let(nodeOf(value)) : value;
@@ -773,10 +780,10 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
     const collapsedFor = (kt: EastType): CollapsedFn | undefined => collapses.get(kt, () => {
         const collapsed = cfg.collapsed;
         if (collapsed === undefined) return undefined;
-        return building(where, kt, () => East.function([rowType, kt], OptionType(BooleanType), (_$, value, key) =>
+        return building(where, kt, () => East.function([rowType, kt], BooleanType, (_$, value, key) =>
             typeof collapsed === "boolean"
-                ? East.value(some(collapsed), OptionType(BooleanType))
-                : East.value(some(collapsed(nodeOf(value), key)), OptionType(BooleanType))) as unknown as CollapsedFn);
+                ? East.value(collapsed, BooleanType)
+                : East.value(collapsed(nodeOf(value), key), BooleanType)) as unknown as CollapsedFn);
     });
 
     /** A bare `children` accessor, built for entries keyed by `kt` — the child collection's type is its output. */
@@ -832,8 +839,8 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
                     const below = $2.let(frames(childrenOf(f.value, f.key), f.path, id), Frames);
                     const parent = $2.let(East.value(some(f.parent), IdOptType), IdOptType);
                     const fold = $2.let(collapse === undefined
-                        ? East.value(none, OptionType(BooleanType))
-                        : collapse(f.value, f.key), OptionType(BooleanType));
+                        ? East.value(false, BooleanType)
+                        : collapse(f.value, f.key), BooleanType);
                     $2(out.pushLast(entryRow(f.value, f.key, id, parent, below.size().greater(0n), fold)));
                     $2(stack.append(below));
                 });
@@ -897,8 +904,8 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
                             const path = $3.let(prefix.concat(segs), PathType);
                             const id = $3.let(East.value(variant("entry", { series: cfg.key, path }), PlanRowIdType), PlanRowIdType);
                             const fold = $3.let(collapse === undefined
-                                ? East.value(none, OptionType(BooleanType))
-                                : collapse(value, key), OptionType(BooleanType));
+                                ? East.value(false, BooleanType)
+                                : collapse(value, key), BooleanType);
                             if (childRows === undefined) {
                                 $3(out.pushLast(entryRow(value, key, id, parent, false, fold)));
                                 return;
@@ -953,7 +960,7 @@ function viewsSpec(rowType: EastType, cfg: PlanViewsSeriesConfig<EastType, EastT
         ...(cfg.match !== undefined ? { match: cfg.match } : {}),
         ...(cfg.children !== undefined ? { children: cfg.children } : {}),
         ...(cfg.collapsed !== undefined ? { collapsed: cfg.collapsed } : {}),
-    }, { arm: "views", kind: () => groupKind(none, none) });
+    }, { arm: "views", kind: () => groupKind(East.value(variant("none", null), PlanGroupSummaryType)) });
     const emitters = new ByType<EmitFn>();
     const blockLists = new ByType<BlocksFn>();
     const spec: PlanSeriesSpec = {
@@ -1007,9 +1014,9 @@ function viewsSpec(rowType: EastType, cfg: PlanViewsSeriesConfig<EastType, EastT
                                     () => East.value([], PlanRowsCollectionType)), PlanRowsCollectionType);
                             }
                             const fold = $3.let(collapse === undefined
-                                ? East.value(none, OptionType(BooleanType))
-                                : collapse(value, key), OptionType(BooleanType));
-                            const noFold = $3.let(East.value(none, OptionType(BooleanType)), OptionType(BooleanType));
+                                ? East.value(false, BooleanType)
+                                : collapse(value, key), BooleanType);
+                            const noFold = $3.let(East.value(false, BooleanType), BooleanType);
                             parts.forEach((_p, i) => {
                                 const isFirst = $3.let(first.equal(BigInt(i)), BooleanType);
                                 const kids = sub;
@@ -1046,12 +1053,8 @@ function viewsSpec(rowType: EastType, cfg: PlanViewsSeriesConfig<EastType, EastT
 function sectionSpec(cfg: PlanSectionSeriesConfig<PlanAxisKindLiteral>, members: PlanSeriesValue<PlanAxisKindLiteral>[]): PlanSeriesSpec {
     const where = `Plan.series.section "${cfg.key}"`;
     const memberSpecs = members.map((m, i) => nestedSpec(m, `${where}[${i}]`));
-    const summary = cfg.summary !== undefined
-        ? East.value(some(East.value(cfg.summary as SubtypeExprOrValue<PlanHeatCellsType>, PlanHeatCellsType)), OptionType(PlanHeatCellsType))
-        : East.value(none, OptionType(PlanHeatCellsType));
-    const summaryAggregate = cfg.summaryAggregate !== undefined
-        ? East.value(some(resolveTag(cfg.summaryAggregate, PlanAggregateType)), OptionType(PlanAggregateType))
-        : East.value(none, OptionType(PlanAggregateType));
+    const summary = groupSummary(
+        cfg.summary as SubtypeExprOrValue<PlanHeatCellsType> | undefined, cfg.summaryAggregate, where);
     /** The header row — at `id`, nested under `parent`. */
     const header = (id: ExprType<PlanRowIdType>, parent: ExprType<OptionType<PlanRowIdType>>) => planRow({
         id, parent,
@@ -1060,8 +1063,8 @@ function sectionSpec(cfg: PlanSectionSeriesConfig<PlanAxisKindLiteral>, members:
             ...(cfg.meta !== undefined ? { meta: some(cfg.meta) } : {}),
             ...(cfg.value !== undefined ? { value: some(cfg.value) } : {}),
         }),
-        kind:   groupKind(summary, summaryAggregate),
-        collapsed: cfg.collapsed !== undefined ? some(cfg.collapsed) : none,
+        kind:   groupKind(summary),
+        collapsed: cfg.collapsed ?? false,
         ...(cfg.status !== undefined ? { status: some(resolveTag(cfg.status, StatusValueType)) } : {}),
     });
     const emitters = new ByType<EmitFn>();
@@ -1267,7 +1270,8 @@ export function applySeries(series: PlanSeriesInput, data: ExprType<EastType>): 
 
 /**
  * A span series — one state-run row per entry; a row with children shows its
- * own runs plus bands over its subtree's runs (`rollup`, `unit`).
+ * own runs plus bands over its subtree's runs (`rollup`) — each band sums its
+ * runs' quantities unit by unit (#824).
  *
  * @typeParam R - The entry type
  * @typeParam K - The axis kind the runs imply (inferred from `runs`; `never` when erased)
@@ -1287,7 +1291,6 @@ export function createSeriesSpan<R extends EastType, K extends PlanAxisKindLiter
             runs: cfg.runs(value, key),
             ...(cfg.decisions !== undefined ? { decisions: cfg.decisions(value, key) } : {}),
             ...(cfg.ports !== undefined ? { ports: cfg.ports(value, key) } : {}),
-            ...(cfg.unit !== undefined ? { unit: cfg.unit } : {}),
         }, rollup === undefined
             ? East.value(none, OptionType(PlanRollupType))
             // A row rolls up only when it HAS child rows — a leaf's bands
@@ -1319,7 +1322,10 @@ export function createSeriesHeat<R extends EastType, K extends PlanAxisKindLiter
         : East.value(none, OptionType(PlanAggregateType));
     const spec = dataSpec(rowType, cfg, {
         arm: "heat",
-        kind: (value, key) => heatKind({ cells: cfg.cells(value, key) }, aggregate),
+        kind: (value, key) => heatKind({
+            cells: cfg.cells(value, key),
+            ...(cfg.scale !== undefined ? { scale: cfg.scale } : {}),
+        }, aggregate),
     });
     return seriesValue(rowType, cfg.keyType, spec, cfg) as PlanSeriesValue<K>;
 }
@@ -1349,6 +1355,7 @@ export function createSeriesTable<R extends EastType, K extends PlanAxisKindLite
         arm: "table",
         kind: (value, key) => tableKind({
             ...(cfg.cells !== undefined ? { cells: cfg.cells(value, key) } : {}),
+            ...(cfg.fold !== undefined ? { fold: cfg.fold } : {}),
             ...(cfg.series !== undefined ? { series: cfg.series(value, key) } : {}),
             ...(cfg.split !== undefined ? { split: cfg.split } : {}),
             ...(cfg.format !== undefined ? { format: cfg.format } : {}),
@@ -1446,7 +1453,7 @@ export function createSeriesChart<R extends EastType, KT extends EastType = Stri
             ...(cfg.expandable !== undefined ? { expandable: cfg.expandable } : {}),
         }),
         ...(cfg.pinned !== undefined
-            ? { pinned: (value: ExprType<EastType>, key: ExprType<EastType>) => East.value(some(cfg.pinned!(value, key)), OptionType(BooleanType)) }
+            ? { pinned: (value: ExprType<EastType>, key: ExprType<EastType>) => East.value(cfg.pinned!(value, key), BooleanType) }
             : {}),
         ...(cfg.swatches !== undefined ? { swatches: cfg.swatches } : {}),
     });
@@ -1487,20 +1494,24 @@ export function createSeriesGroup<R extends EastType, K extends PlanAxisKindLite
             "with `groupToDicts` first, and use `Plan.series.section(R, { key, title }, [series…])` for a fixed block");
     }
     const cfg = config as unknown as PlanGroupSeriesConfig<EastType, PlanAxisKindLiteral, EastType>;
+    const where = `Plan.series.group "${cfg.key}"`;
     if (cfg.children === undefined) {
-        throw new Error(`Plan.series.group "${cfg.key}": a group strip needs its members — declare \`children\``);
+        throw new Error(`${where}: a group strip needs its members — declare \`children\``);
     }
-    const summaryAggregate = cfg.summaryAggregate !== undefined
-        ? East.value(some(resolveTag(cfg.summaryAggregate, PlanAggregateType)), OptionType(PlanAggregateType))
-        : East.value(none, OptionType(PlanAggregateType));
     const summary = cfg.summary;
+    // The strip's ONE summary (#824): the per-entry cells, the declared
+    // aggregate, or a plain band — both at once is refused here.
+    const declared = summary === undefined ? groupSummary(undefined, cfg.summaryAggregate, where) : undefined;
+    if (summary !== undefined && cfg.summaryAggregate !== undefined) {
+        throw new Error(
+            `${where}: give \`summary\` (explicit strip cells) OR \`summaryAggregate\` (cells derived from the ` +
+            "members) — a collapsed strip shows one or the other");
+    }
     const spec = dataSpec(rowType, cfg, {
         arm: "group",
-        kind: (value, key) => groupKind(
-            summary !== undefined
-                ? East.value(some(East.value(summary(value, key) as SubtypeExprOrValue<PlanHeatCellsType>, PlanHeatCellsType)), OptionType(PlanHeatCellsType))
-                : East.value(none, OptionType(PlanHeatCellsType)),
-            summaryAggregate),
+        kind: (value, key) => groupKind(declared ?? East.value(
+            variant("cells", East.value(summary!(value, key) as SubtypeExprOrValue<PlanHeatCellsType>, PlanHeatCellsType)),
+            PlanGroupSummaryType)),
     });
     return seriesValue(rowType, cfg.keyType, spec, cfg) as PlanSeriesValue<K>;
 }

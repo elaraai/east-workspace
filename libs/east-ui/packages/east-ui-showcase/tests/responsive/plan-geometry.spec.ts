@@ -35,11 +35,12 @@ const rowSel = (series: string, ...path: string[]) =>
     `[data-plan-row=${JSON.stringify(printId(variant("entry", { series, path }) as Parameters<typeof printId>[0]))}]`;
 
 /** The Plan examples, between them every row kind, group strips, pinned
- *  rows, number and ordinal axes. */
+ *  rows, number and ordinal axes, rows folded to a coarser resolution and a
+ *  bound ui state (#824). */
 const EXAMPLES = [
     "planTargetState", "planSpanRows", "planBucketRows", "planChartRows", "planHeatRows", "planTableRows",
     "planCardRows", "planEventRows", "planGroupedRows", "planSeriesData", "planLiteralRows", "planReview",
-    "planExpand", "planNumberAxis", "planOrdinalAxis",
+    "planExpand", "planNumberAxis", "planOrdinalAxis", "planFold", "planUiState",
 ];
 
 /** Open one example's page and return its entry (the virtualized doc row
@@ -289,6 +290,63 @@ test.describe("Plan link ribbons (#818)", () => {
         // Off the band: it dims again.
         await page.mouse.move(at.x, at.y + 40);
         await expect(g).not.toHaveAttribute("data-lit", "");
+    });
+});
+
+/**
+ * A bound ui state (#824), in a real layout: `planUiState`'s host folds and
+ * opens its lines and expands its chart from outside, its picker brings a
+ * machine into view — opening the line the machine sits in, selecting it and
+ * scrolling to it — and the host's readout follows what the user does on the
+ * canvas.
+ */
+test.describe("Plan bound ui state (#824)", () => {
+    test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "measured once, at the desktop width");
+
+    /** A line's group band. */
+    const band = (entry: Locator, line: string) =>
+        entry.locator(`[data-plan-group=${JSON.stringify(printId(variant("entry", { series: "lines", path: [line] }) as Parameters<typeof printId>[0]))}]`);
+
+    test("outside writes fold, open and expand; the picker brings a folded machine into view; the user's own actions come back", async ({ page }) => {
+        const entry = await openExample(page, "planUiState");
+        const readout = entry.getByText(/^SELECTED · /);
+        // Line 3 starts folded — the host's seed.
+        await expect(band(entry, "Line 3")).toHaveAttribute("aria-expanded", "false");
+        await expect(entry.locator(rowSel("machines", "Line 3", "L3-M21"))).toHaveCount(0);
+        await expect(readout).toHaveText("SELECTED · nothing · 1 FOLDED · 0 OPENED");
+
+        // The host opens every line, then folds them all.
+        await entry.getByRole("button", { name: "Open lines" }).click();
+        await expect(band(entry, "Line 3")).toHaveAttribute("aria-expanded", "true");
+        await expect(readout).toHaveText("SELECTED · nothing · 0 FOLDED · 3 OPENED");
+        await entry.getByRole("button", { name: "Fold lines" }).click();
+        await expect(entry.locator("[data-plan-group][aria-expanded='true']")).toHaveCount(0);
+        await expect(readout).toHaveText("SELECTED · nothing · 3 FOLDED · 0 OPENED");
+
+        // The host expands the chart: the spark grows, at its model height.
+        const chart = entry.locator(rowSel("kpi", "coverage"));
+        const rest = await chart.getAttribute("data-plan-h") ?? "";
+        await entry.getByRole("button", { name: "Coverage chart" }).click();
+        await expect(chart).not.toHaveAttribute("data-plan-h", rest);
+        await expect.poll(() => mismatches(entry), "chart expanded").toEqual([]);
+
+        // The user opens Line 2 on the canvas: the host reads it back.
+        await band(entry, "Line 2").click();
+        await expect(readout).toHaveText("SELECTED · nothing · 2 FOLDED · 1 OPENED");
+
+        // The picker: Line 3's machine is selected, its line opened, and it is in view.
+        await entry.getByRole("combobox").click();
+        await page.getByRole("option", { name: "Go to L3-M21" }).click();
+        const target = entry.locator(rowSel("machines", "Line 3", "L3-M21"));
+        await expect(target).toHaveAttribute("data-selected", "");
+        await expect(readout).toHaveText(/ · 1 FOLDED · 2 OPENED$/);
+        const inView = () => entry.evaluate((root, sel) => {
+            const frame = root.querySelector('[data-virtual-rows="bounded"]')!.getBoundingClientRect();
+            const row = root.querySelector(sel)!.getBoundingClientRect();
+            return row.top >= frame.top && row.bottom <= frame.bottom;
+        }, rowSel("machines", "Line 3", "L3-M21"));
+        await expect.poll(inView).toBe(true);
+        await expect.poll(() => mismatches(entry), "after the focus").toEqual([]);
     });
 });
 

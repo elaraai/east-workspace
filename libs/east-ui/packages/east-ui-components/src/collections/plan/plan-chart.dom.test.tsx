@@ -35,6 +35,9 @@ afterEach(() => {
 const pt = (t: number, y: number) => ({ t: numberInstant(t), y });
 const left = variant("left", null);
 const right = variant("right", null);
+/** How a layer folds a bucket's points (#824) — a line's and an area's mean, a column's sum. */
+const MEAN = variant("mean", null);
+const SUM = variant("sum", null);
 const valueAxis = (opts: { min?: number; max?: number; ticks?: number[] }) => some({
     domain: opts.min !== undefined && opts.max !== undefined ? some(variant("number", { min: opts.min, max: opts.max })) : none,
     tickValues: opts.ticks !== undefined ? some(variant("number", opts.ticks)) : none,
@@ -46,16 +49,16 @@ const chartKind = (layers: unknown[], opts: { left?: unknown; right?: unknown } 
     right: opts.right ?? none,
     height: variant("expanded", null),
     expandedHeight: none,
-    expandable: none,
+    expandable: false,
 });
 
 /** One WIRE row, as the source serves it — named by its test key (#822). */
 function planRow(key: string, kind: unknown): PlanWireRow {
     return {
         id: rowId(key), parent: none,
-        gutter: { label: key, id: none, sub: none, value: none, meta: none, stacked: none, swatches: [] },
+        gutter: { label: key, id: false, sub: none, value: none, meta: none, stacked: false, swatches: [] },
         kind,
-        collapsed: none, pinned: none, height: none, status: none, approval: none, expand: none,
+        collapsed: false, pinned: false, height: none, status: none, approval: none, expand: none,
     } as unknown as PlanWireRow;
 }
 
@@ -66,9 +69,8 @@ function planRoot(rows: PlanWireRow[], n: number): PlanRootValue {
         links: [],
         axis: variant("number", { window: some({ min: 0, max: n }), step: 1, now: none, format: none }),
         grain: none, popover: none, hover: none, expandRender: none, review: none, pick: none,
-        slice: none, footer: [], id: "", sources: [], onDrag: none, canDrop: none,
-        onSelect: none, onRunClick: none, onEventClick: none, onMarkClick: none, onChipClick: none, onCellClick: none,
-        onGroupToggle: none, onGrainChange: none, style: none,
+        slice: none, footer: [], id: none, sources: [], onDrag: none, canDrop: none,
+        onSelect: none, onElementClick: none, onGroupToggle: none, onGrainChange: none, ui: none, style: none,
     } as unknown as PlanRootValue;
 }
 
@@ -92,7 +94,7 @@ describe("chart marks at their true positions (#743 item 3)", () => {
     test("a line's vertices beyond the window keep their x — the plot clips the segment, nothing piles on the edge", () => {
         // The review's second probe: (-1, 0), (0.5, 10), (2, 0) over [0, 1).
         const { container } = renderPlan(planRoot([planRow("c", chartKind([
-            variant("line", { points: [pt(-1, 0), pt(0.5, 10), pt(2, 0)], axis: left, breach: none }),
+            variant("line", { points: [pt(-1, 0), pt(0.5, 10), pt(2, 0)], axis: left, breach: none, fold: MEAN }),
         ]))], 1), "chart-743-offwindow");
         const d = container.querySelector(`${rowSel("c")} [data-plan-mark="line"]`)!.getAttribute("d")!;
         // In the 1000-unit viewBox: x = -1000 and 2000, not clamped to 0 and
@@ -103,7 +105,7 @@ describe("chart marks at their true positions (#743 item 3)", () => {
 
     test("an area and a band keep their off-window vertices too", () => {
         const { container } = renderPlan(planRoot([planRow("c", chartKind([
-            variant("area", { points: [pt(-1, 2), pt(1.5, 4)], axis: left }),
+            variant("area", { points: [pt(-1, 2), pt(1.5, 4)], axis: left, fold: MEAN }),
             variant("band", { points: [{ t: numberInstant(-1), lo: 1, hi: 3 }, { t: numberInstant(1.5), lo: 2, hi: 4 }], axis: left }),
         ]))], 1), "chart-743-area");
         const xs = (sel: string) => subpaths(container.querySelector(`${rowSel("c")} ${sel}`)!.getAttribute("d")!)
@@ -116,7 +118,7 @@ describe("chart marks at their true positions (#743 item 3)", () => {
 
     test("reference dots and breach markers sit at their instants; beyond the render bounds they are not drawn", () => {
         const { container } = renderPlan(planRoot([planRow("c", chartKind([
-            variant("line", { points: [pt(0.5, 1), pt(1.5, 9)], axis: left, breach: some(variant("above", 5)) }),
+            variant("line", { points: [pt(0.5, 1), pt(1.5, 9)], axis: left, breach: some(variant("above", 5)), fold: MEAN }),
             variant("refDot", { t: numberInstant(-0.5), y: 2, axis: left, label: none }),
             variant("refDot", { t: numberInstant(10), y: 2, axis: left, label: none }),
         ]))], 1), "chart-743-annotations");
@@ -146,8 +148,8 @@ describe("columns fit the plot and keep to their axis (#743 items 2, 4)", () => 
     test("stacked columns fit inside the plot — the derived domain holds the baseline and the stack's top", () => {
         // The review's first probe: two series at one bucket, no declared domain.
         const { container } = renderPlan(planRoot([planRow("c", chartKind([
-            variant("column", { points: [pt(0.5, 20)], axis: left, series: some("a"), breach: none }),
-            variant("column", { points: [pt(0.5, 30)], axis: left, series: some("b"), breach: none }),
+            variant("column", { points: [pt(0.5, 20)], axis: left, series: some("a"), breach: none, fold: SUM }),
+            variant("column", { points: [pt(0.5, 30)], axis: left, series: some("b"), breach: none, fold: SUM }),
         ]))], 1), "chart-743-stack");
         const row = container.querySelector(rowSel("c"))!;
         // Domain [0, 50] over an 88px plot (4px air): 20 → 32px, 30 → 48px.
@@ -160,8 +162,8 @@ describe("columns fit the plot and keep to their axis (#743 items 2, 4)", () => 
 
     test("the gutter ticks print on the scale the marks use", () => {
         const { container } = renderPlan(planRoot([planRow("c", chartKind([
-            variant("column", { points: [pt(0.5, 20)], axis: left, series: some("a"), breach: none }),
-            variant("column", { points: [pt(0.5, 30)], axis: left, series: some("b"), breach: none }),
+            variant("column", { points: [pt(0.5, 20)], axis: left, series: some("a"), breach: none, fold: SUM }),
+            variant("column", { points: [pt(0.5, 30)], axis: left, series: some("b"), breach: none, fold: SUM }),
         ], { left: valueAxis({ ticks: [0, 20] }) }))], 1), "chart-743-ticks");
         const row = container.querySelector(rowSel("c"))!;
         const ticks = [...row.querySelectorAll("[data-plan-tickpx]")].map((t) => Number(t.getAttribute("data-plan-tickpx")));
@@ -174,8 +176,8 @@ describe("columns fit the plot and keep to their axis (#743 items 2, 4)", () => 
 
     test("a dual-axis bucket stacks each column on its own axis — distinct units, distinct baselines", () => {
         const { container } = renderPlan(planRoot([planRow("c", chartKind([
-            variant("column", { points: [pt(0.5, 20)], axis: left, series: some("s"), breach: none }),
-            variant("column", { points: [pt(0.5, 300)], axis: right, series: some("s"), breach: none }),
+            variant("column", { points: [pt(0.5, 20)], axis: left, series: some("s"), breach: none, fold: SUM }),
+            variant("column", { points: [pt(0.5, 300)], axis: right, series: some("s"), breach: none, fold: SUM }),
         ], { left: valueAxis({ min: 0, max: 100 }), right: valueAxis({ min: 0, max: 1000 }) }))], 1), "chart-743-dual");
         const row = container.querySelector(rowSel("c"))!;
         // Left 20 of 100 → 16px from the baseline; right 300 of 1000 → 24px,
@@ -186,8 +188,8 @@ describe("columns fit the plot and keep to their axis (#743 items 2, 4)", () => 
 
     test("a mixed-sign stack draws its negative part below the baseline", () => {
         const { container } = renderPlan(planRoot([planRow("c", chartKind([
-            variant("column", { points: [pt(0.5, 30)], axis: left, series: some("a"), breach: none }),
-            variant("column", { points: [pt(0.5, -10)], axis: left, series: some("b"), breach: none }),
+            variant("column", { points: [pt(0.5, 30)], axis: left, series: some("a"), breach: none, fold: SUM }),
+            variant("column", { points: [pt(0.5, -10)], axis: left, series: some("b"), breach: none, fold: SUM }),
         ]))], 1), "chart-743-mixed");
         // Domain [-10, 30] over 80px: 0 sits at 64; +30 climbs to 4, −10 descends to 84.
         expect(rects(container.querySelector(rowSel("c"))!)).toEqual([[4, 60], [64, 20]]);
@@ -197,8 +199,8 @@ describe("columns fit the plot and keep to their axis (#743 items 2, 4)", () => 
 describe("gaps (#743)", () => {
     test("a missing point breaks a line and an area — nothing is interpolated across it", () => {
         const { container } = renderPlan(planRoot([planRow("c", chartKind([
-            variant("line", { points: [pt(0.5, 1), pt(1.5, 2), pt(2.5, Number.NaN), pt(3.5, 3)], axis: left, breach: none }),
-            variant("area", { points: [pt(0.5, 1), pt(1.5, Number.NaN), pt(2.5, 2), pt(3.5, 3)], axis: left }),
+            variant("line", { points: [pt(0.5, 1), pt(1.5, 2), pt(2.5, Number.NaN), pt(3.5, 3)], axis: left, breach: none, fold: MEAN }),
+            variant("area", { points: [pt(0.5, 1), pt(1.5, Number.NaN), pt(2.5, 2), pt(3.5, 3)], axis: left, fold: MEAN }),
         ]))], 4), "chart-743-gaps");
         const row = container.querySelector(rowSel("c"))!;
         const line = subpaths(row.querySelector('[data-plan-mark="line"]')!.getAttribute("d")!);
@@ -209,12 +211,12 @@ describe("gaps (#743)", () => {
 
     test("in a context strip a gap is no-data — the hatch, never a NaN depth", () => {
         const focal = {
-            ...planRow("focal", variant("span", { runs: [], decisions: [], ports: [], rollup: none, unit: none })),
+            ...planRow("focal", variant("span", { runs: [], decisions: [], ports: [], rollup: none })),
             expand: some({ height: none, axis: variant("keep", null) }),
         } as PlanWireRow;
         const value = {
             ...planRoot([focal, planRow("c", chartKind([
-                variant("line", { points: [pt(0.5, 1), pt(1.5, Number.NaN), pt(2.5, 3)], axis: left, breach: none }),
+                variant("line", { points: [pt(0.5, 1), pt(1.5, Number.NaN), pt(2.5, 3)], axis: left, breach: none, fold: MEAN }),
             ]))], 3),
             expandRender: some(() => variant("Text", { value: "R", style: none })),
         } as unknown as PlanRootValue;
@@ -239,8 +241,8 @@ describe("the crosshair readout (#743)", () => {
             <ChakraProvider value={system}>
                 <Profiler id="chart-743-readout" onRender={(_id, phase) => { commits.push(phase); }}>
                     <EastChakraPlan storageKey="chart-743-readout" value={planRoot([planRow("c", chartKind([
-                        variant("line", { points: [pt(0.5, 1.5), pt(1.5, 2), pt(2.5, 4)], axis: left, breach: none }),
-                        variant("column", { points: [pt(0.5, 12), pt(2.5, 30)], axis: left, series: none, breach: none }),
+                        variant("line", { points: [pt(0.5, 1.5), pt(1.5, 2), pt(2.5, 4)], axis: left, breach: none, fold: MEAN }),
+                        variant("column", { points: [pt(0.5, 12), pt(2.5, 30)], axis: left, series: none, breach: none, fold: SUM }),
                         variant("refLine", { y: 10, axis: left, label: none }),
                     ]))], 4)} />
                 </Profiler>

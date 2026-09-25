@@ -51,34 +51,35 @@ function row(key: string, kind: PlanWireRow["kind"]): PlanWireRow {
     return {
         id: rowId(key),
         parent: none,
-        gutter: { label: key, id: none, sub: none, value: none, meta: none, stacked: none, swatches: [] },
+        gutter: { label: key, id: false, sub: none, value: none, meta: none, stacked: false, swatches: [] },
         kind,
-        collapsed: none, pinned: none, height: none, status: none, approval: none, expand: none,
+        collapsed: false, pinned: false, height: none, status: none, approval: none, expand: none,
     } as unknown as PlanWireRow;
 }
 
 const KINDS = {
-    span:    variant("span", { runs: [], decisions: [], ports: [], rollup: none, unit: none }),
+    span:    variant("span", { runs: [], decisions: [], ports: [], rollup: none }),
     buckets: variant("buckets", { lanes: [], events: [], markers: [] }),
     cards:   variant("cards", { chips: [] }),
     events:  variant("events", { marks: [] }),
     chart:   variant("chart", {
         layers: [], left: none, right: none,
-        height: variant("spark", null), expandedHeight: none, expandable: none,
+        height: variant("spark", null), expandedHeight: none, expandable: false,
     }),
     heat:    variant("heat", {
-        cells: variant("heat", { cells: [], min: none, max: none, warnAt: none }),
-        aggregate: none,
+        cells: variant("heat", { cells: [], scale: { min: none, max: none, warnAt: none }, fold: variant("mean", null), format: none }),
+        aggregate: none, scale: none,
     }),
     table:   variant("table", {
         series: [], split: variant("horizontal", null),
         aggregate: none, format: none, emphasis: variant("body", null),
     }),
-    group:   variant("group", { summary: none, summaryAggregate: none }),
+    group:   variant("group", { summary: variant("none", null) }),
 } as unknown as Record<string, PlanWireRow["kind"]>;
 
 interface PlanOpts {
-    id?: string;
+    /** The surface's DnD id — `null` for none (#824: an Option, never an empty-string sentinel). */
+    id?: string | null;
     sources?: string[];
     onDrag?: (e: DragEventValue) => void;
     canDrop?: (e: DragEventValue) => boolean;
@@ -110,14 +111,12 @@ function planRoot(rows: PlanWireRow[], opts: PlanOpts = {}): PlanRootValue {
         grain: none, popover: none, hover: none,
         expandRender: none, expandGutter: none,
         review: none, pick: none, slice: none, footer: [],
-        id: opts.id ?? "ops-plan",
+        id: opts.id === null ? none : some(opts.id ?? "ops-plan"),
         sources: opts.sources ?? ["cards"],
         onDrag: opts.onDrag !== undefined ? some(opts.onDrag) : none,
         canDrop: opts.canDrop !== undefined ? some(opts.canDrop) : none,
-        onSelect: none,
-        onRunClick: none, onEventClick: none, onMarkClick: none, onChipClick: none,
-        onCellClick: none, onGroupToggle: none, onGrainChange: none,
-        style: none,
+        onSelect: none, onElementClick: none, onGroupToggle: none, onGrainChange: none,
+        ui: none, style: none,
     } as unknown as PlanRootValue;
 }
 
@@ -302,7 +301,7 @@ describe("Plan drop target", () => {
     test("no `id` registers no target — an unnamed surface cannot be addressed", () => {
         // Cells are addressed `surface × row × slot`; without a surface name
         // the delivered ref would name nothing the host could act on.
-        const { container } = renderPlan(planRoot(ALL_KINDS, { id: "", onDrag: () => {} }));
+        const { container } = renderPlan(planRoot(ALL_KINDS, { id: null, onDrag: () => {} }));
         expect(dropRows(container)).toEqual([]);
     });
 

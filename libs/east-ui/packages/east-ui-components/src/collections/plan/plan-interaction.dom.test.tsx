@@ -46,11 +46,12 @@ const NOW = new Date("2026-08-12T00:00:00Z");
 /** Instants on each arm — REAL East variant values, as the decoder yields them (#631). */
 const t = (d: Date): PlanInstantValue => variant("time", d) as PlanInstantValue;
 
-function run(key: string, start: Date, end: Date, state: unknown, opts?: { quantity?: string; stuck?: boolean; qty?: number }) {
+function run(key: string, start: Date, end: Date, state: unknown, opts?: { quantity?: number; unit?: string; text?: string; stuck?: boolean }) {
     return {
         key, start: t(start), end: t(end), label: key.toUpperCase(),
-        quantity: opts?.quantity !== undefined ? some(opts.quantity) : none,
-        qty: opts?.qty !== undefined ? some(opts.qty) : none,
+        quantity: opts?.quantity !== undefined
+            ? some({ value: opts.quantity, unit: opts.unit !== undefined ? some(opts.unit) : none, format: none, text: opts.text !== undefined ? some(opts.text) : none })
+            : none,
         state,
         status: opts?.stuck === true ? some(variant("warning", null)) : none,
         moved: none, icon: none,
@@ -60,11 +61,11 @@ function run(key: string, start: Date, end: Date, state: unknown, opts?: { quant
 function gutter(label: string, opts?: { sub?: string; value?: string; meta?: string; id?: boolean }) {
     return {
         label,
-        id: opts?.id === true ? some(true) : none,
+        id: opts?.id === true,
         sub: opts?.sub !== undefined ? some(opts.sub) : none,
         value: opts?.value !== undefined ? some(opts.value) : none,
         meta: opts?.meta !== undefined ? some(opts.meta) : none,
-        stacked: none,
+        stacked: false,
         swatches: [],
     };
 }
@@ -76,21 +77,20 @@ function planRow(key: string, kind: unknown, opts?: { parent?: string; gutter?: 
         parent: opts?.parent !== undefined ? some(rowId(opts.parent)) : none,
         gutter: opts?.gutter ?? gutter(key),
         kind,
-        collapsed: opts?.collapsed !== undefined ? some(opts.collapsed) : none,
-        pinned: none, height: none, status: none, approval: none,
+        collapsed: opts?.collapsed === true,
+        pinned: false, height: none, status: none, approval: none,
         expand: opts?.expand !== undefined ? some(opts.expand) : none,
     } as unknown as PlanWireRow;
 }
 
-function spanKind(runs: unknown[], opts?: { rollup?: string; unit?: string }) {
+function spanKind(runs: unknown[], opts?: { rollup?: string }) {
     return variant("span", {
         runs, decisions: [], ports: [],
         rollup: opts?.rollup !== undefined ? some(variant(opts.rollup, null)) : none,
-        unit: opts?.unit !== undefined ? some(opts.unit) : none,
     });
 }
 
-function planRoot(rows: PlanWireRow[], opts?: { footer?: unknown[]; now?: Date | undefined; slice?: unknown; resolutions?: unknown[]; links?: unknown[]; popover?: unknown; hover?: unknown; expandRender?: unknown; source?: unknown; pick?: unknown; axis?: unknown; style?: { height?: string; maxHeight?: string }; clicks?: { onRunClick?: unknown; onEventClick?: unknown; onMarkClick?: unknown; onChipClick?: unknown; onCellClick?: unknown }; onGrainChange?: unknown }): PlanRootValue {
+function planRoot(rows: PlanWireRow[], opts?: { footer?: unknown[]; now?: Date | undefined; slice?: unknown; resolutions?: unknown[]; links?: unknown[]; popover?: unknown; hover?: unknown; expandRender?: unknown; source?: unknown; pick?: unknown; axis?: unknown; style?: { height?: string; maxHeight?: string }; onElementClick?: unknown; ui?: unknown; onGrainChange?: unknown }): PlanRootValue {
     return {
         rows: opts?.source !== undefined ? variant("paged", blocksSource(opts.source)) : variant("inline", oneBlock(rows)),
         links: opts?.links ?? [],
@@ -111,15 +111,12 @@ function planRoot(rows: PlanWireRow[], opts?: { footer?: unknown[]; now?: Date |
         pick: opts?.pick !== undefined ? some(opts.pick) : none,
         slice: opts?.slice ?? none,
         footer: opts?.footer ?? [],
-        id: "", sources: [], onDrag: none, canDrop: none,
+        id: none, sources: [], onDrag: none, canDrop: none,
         onSelect: none,
-        onRunClick: opts?.clicks?.onRunClick !== undefined ? some(opts.clicks.onRunClick) : none,
-        onEventClick: opts?.clicks?.onEventClick !== undefined ? some(opts.clicks.onEventClick) : none,
-        onMarkClick: opts?.clicks?.onMarkClick !== undefined ? some(opts.clicks.onMarkClick) : none,
-        onChipClick: opts?.clicks?.onChipClick !== undefined ? some(opts.clicks.onChipClick) : none,
-        onCellClick: opts?.clicks?.onCellClick !== undefined ? some(opts.clicks.onCellClick) : none,
+        onElementClick: opts?.onElementClick !== undefined ? some(opts.onElementClick) : none,
         onGroupToggle: none,
         onGrainChange: opts?.onGrainChange !== undefined ? some(opts.onGrainChange) : none,
+        ui: opts?.ui !== undefined ? some(opts.ui) : none,
         style: opts?.style !== undefined
             ? some({
                 height: opts.style.height !== undefined ? some(opts.style.height) : none,
@@ -230,16 +227,17 @@ function bucketEvent(key: string, at: Date, state: unknown, opts?: { lane?: stri
     };
 }
 
-describe("Plan element clicks (#569)", () => {
-    /** Click payloads with each row id named by its path — the row is the
-     *  row's typed id (#822). */
-    const named = (payloads: readonly unknown[]) => payloads.map((p) => {
-        const { row, ...rest } = p as { row: PlanRowId };
-        return { row: row.value.path.join("/"), ...rest };
+describe("Plan element clicks (#569, #824)", () => {
+    /** Click refs with each row id named by its path — the row is the row's
+     *  typed id (#822); the ref's tag says which element (#824). */
+    const named = (refs: readonly unknown[]) => refs.map((r) => {
+        const { type, value } = r as { type: string; value: { row: PlanRowId } };
+        const { row, ...rest } = value;
+        return { type, row: row.value.path.join("/"), ...rest };
     });
 
-    test("each element kind reports its click ref to the right callback — and still selects", async () => {
-        const seen: Record<string, unknown[]> = { run: [], event: [], mark: [], chip: [], cell: [] };
+    test("every element kind reports its ref to the ONE onElementClick — and still selects", async () => {
+        const seen: unknown[] = [];
         const at = new Date("2026-06-29Z");
         const { container } = renderPlan(planRoot([
             planRow("s", spanKind([run("r1", W27, new Date("2026-07-13Z"), variant("actual", null))])),
@@ -256,18 +254,12 @@ describe("Plan element clicks (#569)", () => {
             planRow("h", variant("heat", {
                 cells: variant("heat", {
                     cells: [{ at: t(at), value: some(80), label: some("80") }],
-                    min: some(0), max: some(100), warnAt: none,
+                    scale: { min: some(0), max: some(100), warnAt: none }, fold: variant("mean", null), format: none,
                 }),
-                aggregate: none,
+                aggregate: none, scale: none,
             })),
         ], {
-            clicks: {
-                onRunClick: (e: unknown) => { seen["run"]!.push(e); },
-                onEventClick: (e: unknown) => { seen["event"]!.push(e); },
-                onMarkClick: (e: unknown) => { seen["mark"]!.push(e); },
-                onChipClick: (e: unknown) => { seen["chip"]!.push(e); },
-                onCellClick: (e: unknown) => { seen["cell"]!.push(e); },
-            },
+            onElementClick: (ref: unknown) => { seen.push(ref); },
         }), "plan-clicks-569");
 
         fireEvent.click(container.querySelector('[data-run="r1"]')!);
@@ -275,13 +267,16 @@ describe("Plan element clicks (#569)", () => {
         fireEvent.click(container.querySelector('[data-mark="k1"]')!);
         fireEvent.click(container.querySelector('[data-chip="c1"]')!);
         fireEvent.click(screen.getByText("80"));
-        await waitFor(() => expect(seen["cell"]!.length).toBe(1));
+        await waitFor(() => expect(seen.length).toBe(5));
 
-        expect(named(seen["run"]!)).toEqual([{ row: "s", run: "r1" }]);
-        expect(named(seen["event"]!)).toEqual([{ row: "b", event: "e1" }]);
-        expect(named(seen["mark"]!)).toEqual([{ row: "e", mark: "k1" }]);
-        expect(named(seen["chip"]!)).toEqual([{ row: "c", chip: "c1" }]);
-        expect(named(seen["cell"]!)).toEqual([{ row: "h", at: t(at) }]);
+        // One callback, one variant: the ref's own tag names the element kind.
+        expect(named(seen)).toEqual([
+            { type: "run", row: "s", run: "r1" },
+            { type: "event", row: "b", event: "e1" },
+            { type: "mark", row: "e", mark: "k1" },
+            { type: "chip", row: "c", chip: "c1" },
+            { type: "cell", row: "h", at: t(at) },
+        ]);
         // The canvas behaviour is unchanged: the click also selected the row.
         expect(container.querySelector(rowSel("h"))!.hasAttribute("data-selected")).toBe(true);
     });
@@ -346,7 +341,7 @@ describe("Plan keyboard rungs (#569)", () => {
 });
 
 describe("The toolbar's grain segment (#632)", () => {
-    const group = () => variant("group", { summary: none, summaryAggregate: none });
+    const group = () => variant("group", { summary: variant("none", null) });
     /** Two root groups, a row in each. */
     const grouped = () => [
         planRow("line1", group(), { gutter: gutter("Line 1") }),

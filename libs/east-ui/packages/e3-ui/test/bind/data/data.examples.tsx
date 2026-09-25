@@ -4,7 +4,7 @@
  */
 /** @jsxImportSource @elaraai/e3-ui */
 import { ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, StringType, PatchType, StructType, some, variant, example } from "@elaraai/east";
-import { Button, EventStateType, Input, Plan, Reactive, Separator, Slider, Stat, Text, UIComponentType, VStack } from "@elaraai/east-ui";
+import { Button, EventStateType, Format, Input, Plan, Reactive, Separator, Slider, Stat, Text, UIComponentType, VStack } from "@elaraai/east-ui";
 import { Data } from "@elaraai/e3-ui";
 import * as e3 from "@elaraai/e3";
 
@@ -293,11 +293,12 @@ export const dataBindPagedPlan = example({
                     match: (_l, line) => line.equal("Docks").not(),
                     label: (_l, line) => line,
                     runs: _l => [],
-                    rollup: "union", unit: "t",
+                    rollup: "union",
                     children: Plan.children((l) => l, [
                         // Machines — each flat row becomes TWO bars: a one-week
                         // setup ahead of the job, then the run itself, with its
-                        // label and quantity built from the batch code and tonnage.
+                        // label and quantity built from the batch code and tonnage
+                        // (a quantity carries its unit — the line's bands sum by it).
                         Plan.series.span(OpsRow, {
                             key: "machines", title: "Machines",
                             label: (_r, k) => k, id: true,
@@ -312,8 +313,8 @@ export const dataBindPagedPlan = example({
                                     key: r.batch,
                                     start: week(r.startWeek), end: week(r.startWeek.add(r.weeks)),
                                     label: East.str`RUN · ${r.batch}`,
-                                    quantity: East.str`${East.Float.printFixed(r.tonnes, 0n)} t`,
-                                    qty: r.tonnes, state: r.state,
+                                    quantity: Plan.quantity(r.tonnes, { unit: "t", format: Format.Number({ maximumFractionDigits: 0n }) }),
+                                    state: r.state,
                                 }),
                             ],
                         }),

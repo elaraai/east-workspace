@@ -26,18 +26,24 @@
  *
  * Each ribbon is hit-testable along its centerline (a wide transparent
  * stroke): hovering one lights it and rings the two runs it joins, and the
- * canvas's one tooltip shows its label (`root/overlays.tsx`, the labelled-mark
- * path). A click reports nothing yet — the element ref gains a `link` arm with
- * the values child (#824).
+ * canvas's one tooltip shows its quantity caption (`root/overlays.tsx`, the
+ * labelled-mark path) — a link with no quantity has no caption and no tooltip.
+ * A click reports the link's element ref (`{ key, from, to }`, #824) to the
+ * root's `onElementClick`, and the one overlay layer opens the root's popover
+ * for it, reading the ref back from the hit path's attributes like any
+ * element's.
  */
 
 import { useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, useCallback, type RefObject } from "react";
 import { Box } from "@chakra-ui/react";
+import { variant } from "@elaraai/east";
 import { RIBBON_FADE_W, layoutRibbons, type RibbonBeyond, type RibbonBody } from "./ribbon-layout.js";
 import type { RibbonEnd } from "./ribbon-geometry.js";
-import type { PlanLinkValue } from "../model.js";
+import { rowKeyOf, type PlanLinkValue } from "../model.js";
 import type { PlanScale } from "../scale.js";
 import type { PlanInstantValue } from "../instant.js";
+import { usePlanResolvers, type PlanElementRefValue } from "../context.js";
+import { usePlanWords } from "../words.js";
 import { useElementHeight, useElementWidth } from "../use-element-height.js";
 
 type Styles = Record<string, Record<string, unknown>>;
@@ -106,6 +112,8 @@ export function LinksOverlay({
     styles, links, visibleKeys, body, beyond, scale, runDates, gutterPx, trailingPx, frame,
 }: LinksOverlayProps) {
     const uid = useId();
+    const words = usePlanWords();
+    const { onElementClick } = usePlanResolvers();
     const layerRef = useRef<HTMLDivElement | null>(null);
     // The plot's px are the layer's width less the grid's fixed tracks.
     const width = useElementWidth(layerRef, true);
@@ -127,8 +135,9 @@ export function LinksOverlay({
             links, visibleKeys, body, beyond, runDates, scale,
             plot: { left: gutterPx, width: plotWidth },
             viewport: viewTop !== undefined && viewBottom !== undefined ? { top: viewTop, bottom: viewBottom } : undefined,
+            words,
         })
-        : NO_LAYOUT), [links, visibleKeys, body, beyond, runDates, scale, gutterPx, plotWidth, viewTop, viewBottom]);
+        : NO_LAYOUT), [links, visibleKeys, body, beyond, runDates, scale, gutterPx, plotWidth, viewTop, viewBottom, words]);
     // The ribbon under the pointer — lit, with its runs ringed.
     const [lit, setLit] = useState<number | null>(null);
     // A lit ribbon that is gone (the focus moved on) lights nothing.
@@ -163,28 +172,41 @@ export function LinksOverlay({
                             x={b.x} y={b.y} width={RIBBON_FADE_W} height={b.h}
                             fill={`url(#${uid}-fade-${b.side})`} />
                     ))}
-                    {ribbons.map((r) => (
-                        <g key={r.link} data-plan-link={r.link} data-lit={lit === r.link ? "" : undefined}>
-                            <g data-plan-ribbon-ink opacity={r.opacity}>
-                                <path data-plan-ribbon-band d={r.stroke} strokeWidth={r.width} />
-                                <path data-plan-ribbon-head d={r.head} data-plan-stub={r.to.off} />
-                                {r.tail !== "" && <path data-plan-ribbon-head d={r.tail} data-plan-stub={r.from.off} />}
+                    {ribbons.map((r) => {
+                        const l = links[r.link]!;
+                        return (
+                            <g key={r.link} data-plan-link={r.link} data-lit={lit === r.link ? "" : undefined}>
+                                <g data-plan-ribbon-ink opacity={r.opacity}>
+                                    <path data-plan-ribbon-band d={r.stroke} strokeWidth={r.width} />
+                                    <path data-plan-ribbon-head d={r.head} data-plan-stub={r.to.off} />
+                                    {r.tail !== "" && <path data-plan-ribbon-head d={r.tail} data-plan-stub={r.from.off} />}
+                                </g>
+                                {lit === r.link && (
+                                    <>
+                                        <RunRing end={r.from} side="from" />
+                                        <RunRing end={r.to} side="to" />
+                                    </>
+                                )}
+                                {r.label !== undefined && (
+                                    <text data-plan-ribbon-caption x={r.lx} y={r.ly} textAnchor={r.anchor}>{r.label}</text>
+                                )}
+                                {/* The hit area — a wide transparent stroke
+                                    along the centerline. Its caption is the
+                                    canvas's tooltip; it names the link's ref,
+                                    so a click opens the root's popover for it
+                                    (`refOfElement`) and reports it. */}
+                                <path data-link={r.link} aria-label={r.label}
+                                    data-link-key={l.key}
+                                    data-link-from={rowKeyOf(l.from.row)} data-link-from-run={l.from.run}
+                                    data-link-to={rowKeyOf(l.to.row)} data-link-to-run={l.to.run}
+                                    d={r.stroke} strokeWidth={r.width + 2 * HIT_REACH}
+                                    onClick={() => onElementClick?.(
+                                        variant("link", { key: l.key, from: l.from, to: l.to }) as PlanElementRefValue)}
+                                    onPointerEnter={() => setLit(r.link)}
+                                    onPointerLeave={() => setLit((now) => (now === r.link ? null : now))} />
                             </g>
-                            {lit === r.link && (
-                                <>
-                                    <RunRing end={r.from} side="from" />
-                                    <RunRing end={r.to} side="to" />
-                                </>
-                            )}
-                            <text data-plan-ribbon-caption x={r.lx} y={r.ly} textAnchor={r.anchor}>{r.label}</text>
-                            {/* The hit area — a wide transparent stroke along
-                                the centerline. Its label is the canvas's
-                                tooltip. */}
-                            <path data-link={r.link} aria-label={r.label} d={r.stroke} strokeWidth={r.width + 2 * HIT_REACH}
-                                onPointerEnter={() => setLit(r.link)}
-                                onPointerLeave={() => setLit((now) => (now === r.link ? null : now))} />
-                        </g>
-                    ))}
+                        );
+                    })}
                 </svg>
             )}
         </Box>

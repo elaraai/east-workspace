@@ -414,4 +414,47 @@ describe('planStoreReducer (#610)', () => {
             expect(pruned.ui.selected).toBeNull();
         });
     });
+
+    describe('external (the host wrote a bound ui state, #824)', () => {
+        const external = (selected: string | null, collapse: [string, boolean][], charts: string[]): PlanAction =>
+            ({ t: "external", selected, collapse: new Map(collapse), charts: new Set(charts) });
+
+        it('replaces the selection, the overrides and the charts — and fires no callback', () => {
+            const out = planStoreReducer(store0(), external("r1", [["g2", true]], ["c1"]));
+            expect(out.store.ui.selected).toBe("r1");
+            expect([...out.store.overrides]).toEqual([["g2", true]]);
+            expect(out.store.ui.collapsed.has("g2")).toBe(true);
+            expect(out.store.ui.chartsExpanded.has("c1")).toBe(true);
+            // The host made the change: nothing is echoed back to it.
+            expect(out.effects).toEqual([]);
+        });
+
+        it('a row in neither list follows its declaration — an opened declared fold closes again', () => {
+            const opened = act(store0(), external(null, [["g1", false]], []));   // g1 is declared collapsed
+            expect(opened.ui.collapsed.has("g1")).toBe(false);
+            const back = act(opened, external(null, [], []));
+            expect(back.ui.collapsed.has("g1")).toBe(true);
+            // A row the user folded that is not declared opens when the host drops it.
+            const folded = act(store0(), external(null, [["g2", true]], []));
+            expect(act(folded, external(null, [], [])).ui.collapsed.has("g2")).toBe(false);
+        });
+
+        it('the same state again is the store identity — the canvas renders nothing for a write that moved nothing', () => {
+            const s = act(store0(), external("r1", [["g2", true]], ["c1"]));
+            expect(act(s, external("r1", [["g2", true]], ["c1"]))).toBe(s);
+            // Order does not matter to a set.
+            const two = act(store0(), external(null, [["a", true], ["b", false]], ["x", "y"]));
+            expect(act(two, external(null, [["b", false], ["a", true]], ["y", "x"]))).toBe(two);
+        });
+
+        it('keeps the row focus, the grain and the brush — the bound state names none of them', () => {
+            let s = store0();
+            s = event(s, { t: "focus.links", key: "r1" });
+            s = event(s, { t: "grain.set", grain: "group" });
+            s = event(s, { t: "focus.expand", key: "r2" });
+            const out = act(s, external("r3", [], []));
+            expect(out.ui.focus).toEqual({ kind: "expand", key: "r2" });
+            expect(out.ui.grain).toBe("group");
+        });
+    });
 });

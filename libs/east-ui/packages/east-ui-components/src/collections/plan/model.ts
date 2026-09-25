@@ -244,7 +244,7 @@ export function indexRows(rows: ReadonlyArray<PlanRowValue>): PlanRowIndex {
     for (const root of roots) walk(root, 0);
     const initiallyCollapsed = new Set<RowKey>();
     for (const row of rows) {
-        if (row.collapsed.type === "some" && row.collapsed.value) initiallyCollapsed.add(row.key);
+        if (row.collapsed) initiallyCollapsed.add(row.key);
     }
     return { rows, byKey, children, roots, depth, initiallyCollapsed };
 }
@@ -287,7 +287,7 @@ export function visibleRows(
 ): VisibleRow[] {
     const out: VisibleRow[] = [];
     const grain: PlanGrain = ui.grain;
-    const isPinned = (row: PlanRowValue) => row.pinned.type === "some" && row.pinned.value;
+    const isPinned = (row: PlanRowValue) => row.pinned;
     // "Must this subtree stay open for the focus?" answered ONCE: the set of
     // strict ANCESTORS of every revealed key, built by walking `parent`
     // pointers upward — O(reveal × depth) (#616).
@@ -317,7 +317,7 @@ export function visibleRows(
 
 /** The pinned rows (IR order) — rendered above the virtualised body. */
 export function pinnedRows(index: PlanRowIndex): PlanRowValue[] {
-    return index.rows.filter((row) => row.pinned.type === "some" && row.pinned.value);
+    return index.rows.filter((row) => row.pinned);
 }
 
 // ── Row heights (the §8 sheet; px) ─────────────────────────────────────────
@@ -434,13 +434,13 @@ export interface RowHeightFacts {
  */
 export function heightFactsOf(row: PlanRowValue, derived?: PlanDerived): RowHeightFacts {
     const explicit = row.height.type === "some" ? pxOf(row.height.value) : undefined;
-    const twoLine = (row.gutter.stacked.type === "some" && row.gutter.stacked.value) || row.gutter.sub.type === "some";
+    const twoLine = row.gutter.stacked || row.gutter.sub.type === "some";
     const diagnostic = derived?.diagnostics.has(row.key) === true;
     const k = row.kind;
     let kind: RowKindHeight;
     switch (k.type) {
         case "group":
-            kind = { t: "group", strip: k.value.summary.type === "some" || k.value.summaryAggregate.type === "some" };
+            kind = { t: "group", strip: k.value.summary.type !== "none" };
             break;
         case "chart": {
             const h = k.value.height;
@@ -622,8 +622,8 @@ export function windowSkeleton(rows: readonly PlanRowValue[], axisKind?: PlanAxi
         keys: rows.map((r) => r.key),
         parents: rows.map((r) => (r.parent.type === "some" ? at.get(r.parent.value) ?? -1 : -1)),
         top: rows.map((r) => r.parent.type === "none"),
-        pinned: rows.map((r) => r.pinned.type === "some" && r.pinned.value),
-        declared: rows.map((r) => r.collapsed.type === "some" && r.collapsed.value),
+        pinned: rows.map((r) => r.pinned),
+        declared: rows.map((r) => r.collapsed),
         facts: rows.map((r) => heightFactsOf(r, derived)),
     };
 }

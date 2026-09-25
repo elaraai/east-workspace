@@ -35,10 +35,9 @@ export type PlanElementResolver =
  */
 export interface PlanResolvers {
     /**
-     * The element-click funnel (#569) — routes a clicked element's ref to the
-     * root's `onRunClick` / `onEventClick` / `onMarkClick` / `onChipClick` /
-     * `onCellClick` by the ref's own tag (the click payloads ARE the ref
-     * arms). `undefined` when the root declares none of the five.
+     * The element-click funnel — the root's ONE `onElementClick` (#824), called
+     * with the clicked element's ref: a run, a tile, a mark, a chip, a cell or
+     * a link ribbon. `undefined` when the root declares none.
      */
     onElementClick?: ((ref: PlanElementRefValue) => void) | undefined;
 }
@@ -81,7 +80,7 @@ export const PlanCursorContext = createContext<PlanCursor>({
     subscribe: () => () => undefined,
 });
 
-/** The element-click channel (no funnel when the root declares none of the callbacks). */
+/** The element-click channel (no funnel when the root declares no `onElementClick`). */
 export const PlanResolversContext = createContext<PlanResolvers>({});
 
 /** The canvas's geometry — the one height table for its density (#817). */
@@ -129,7 +128,7 @@ export function usePlanCursor(): PlanCursor {
 /**
  * What an element reports its clicks to.
  *
- * @returns The click funnel, when the root declares a callback
+ * @returns The click funnel, when the root declares `onElementClick`
  */
 export function usePlanResolvers(): PlanResolvers {
     return useContext(PlanResolversContext);

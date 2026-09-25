@@ -37,14 +37,10 @@ import {
     PlanRowsType,
     PlanElementRefType,
     PlanRowIdType,
-    PlanRunClickEventType,
-    PlanEventClickEventType,
-    PlanMarkClickEventType,
-    PlanChipClickEventType,
-    PlanCellClickEventType,
     PlanGroupToggleEventType,
     PlanFooterItemType,
     PlanStyleType,
+    PlanUiBindType,
 } from "./types.js";
 
 // ============================================================================
@@ -69,7 +65,10 @@ export type PlanReviewType = typeof PlanReviewType;
  * RESOLVERS: `popover` / `hover` over {@link PlanElementRefType} (a `none`
  * result opens nothing) and `expandRender` over the row ref (the R2
  * developer render for rows declaring `expand`, over the row's id) — one stored function per
- * surface instead of UI embedded per element.
+ * surface instead of UI embedded per element. A click on any element reports
+ * to ONE callback over the same ref (`onElementClick`, #824), and the
+ * interaction state a host wants to hold — selection, collapse, charts, a row
+ * to bring into view — rides a bound `ui` state.
  */
 export const PlanRootType = StructType({
     rows: PlanRowsType,
@@ -94,20 +93,19 @@ export const PlanRootType = StructType({
     pick: OptionType(PickBindType),
     slice: OptionType(SliceChromeType),
     footer: ArrayType(PlanFooterItemType),
-    // DnD target role — the shared grammar verbatim (contracts/drag.ts).
-    id: StringType,
+    // DnD target role — the shared grammar verbatim (contracts/drag.ts); no
+    // id, no drop target (#824 — it used to be `""`).
+    id: OptionType(StringType),
     sources: ArrayType(StringType),
     onDrag: OptionType(FunctionType([DragEventType], NullType)),
     canDrop: OptionType(CanDropFnType),
-    // Selection + per-element clicks.
+    // Selection + the one element click (#824).
     onSelect: OptionType(FunctionType([PlanRowIdType], NullType)),
-    onRunClick: OptionType(FunctionType([PlanRunClickEventType], NullType)),
-    onEventClick: OptionType(FunctionType([PlanEventClickEventType], NullType)),
-    onMarkClick: OptionType(FunctionType([PlanMarkClickEventType], NullType)),
-    onChipClick: OptionType(FunctionType([PlanChipClickEventType], NullType)),
-    onCellClick: OptionType(FunctionType([PlanCellClickEventType], NullType)),
+    onElementClick: OptionType(FunctionType([PlanElementRefType], NullType)),
     onGroupToggle: OptionType(FunctionType([PlanGroupToggleEventType], NullType)),
     onGrainChange: OptionType(FunctionType([PlanGrainType], NullType)),
+    // The interaction state a host holds — a bound `State.bind` handle (#824).
+    ui: OptionType(PlanUiBindType),
     style: OptionType(PlanStyleType),
 });
 /** Type alias for {@link PlanRootType}. */

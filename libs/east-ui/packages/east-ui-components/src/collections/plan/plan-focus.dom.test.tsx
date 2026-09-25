@@ -20,7 +20,7 @@ import { system } from "../../theme/index.js";
 import { EastChakraPlan, type PlanRootValue } from "./index.js";
 import type { PlanRowId, PlanWireRow } from "./model.js";
 import type { PlanInstantValue } from "./instant.js";
-import { blocksSource, oneBlock, rowId, rowSel, testKeyOf } from "./plan.test-utils.js";
+import { blocksSource, oneBlock, rowId, rowIdEqual, rowSel, testKeyOf } from "./plan.test-utils.js";
 import { PLAN_GEOMETRY } from "./geometry.js";
 import { setBodyRowMountProbe } from "./rows/BodyRow.js";
 
@@ -43,11 +43,12 @@ const NOW = new Date("2026-08-12T00:00:00Z");
 /** Instants on each arm — REAL East variant values, as the decoder yields them (#631). */
 const t = (d: Date): PlanInstantValue => variant("time", d) as PlanInstantValue;
 
-function run(key: string, start: Date, end: Date, state: unknown, opts?: { quantity?: string; stuck?: boolean; qty?: number }) {
+function run(key: string, start: Date, end: Date, state: unknown, opts?: { quantity?: number; unit?: string; text?: string; stuck?: boolean }) {
     return {
         key, start: t(start), end: t(end), label: key.toUpperCase(),
-        quantity: opts?.quantity !== undefined ? some(opts.quantity) : none,
-        qty: opts?.qty !== undefined ? some(opts.qty) : none,
+        quantity: opts?.quantity !== undefined
+            ? some({ value: opts.quantity, unit: opts.unit !== undefined ? some(opts.unit) : none, format: none, text: opts.text !== undefined ? some(opts.text) : none })
+            : none,
         state,
         status: opts?.stuck === true ? some(variant("warning", null)) : none,
         moved: none, icon: none,
@@ -57,11 +58,11 @@ function run(key: string, start: Date, end: Date, state: unknown, opts?: { quant
 function gutter(label: string, opts?: { sub?: string; value?: string; meta?: string; id?: boolean }) {
     return {
         label,
-        id: opts?.id === true ? some(true) : none,
+        id: opts?.id === true,
         sub: opts?.sub !== undefined ? some(opts.sub) : none,
         value: opts?.value !== undefined ? some(opts.value) : none,
         meta: opts?.meta !== undefined ? some(opts.meta) : none,
-        stacked: none,
+        stacked: false,
         swatches: [],
     };
 }
@@ -73,21 +74,20 @@ function planRow(key: string, kind: unknown, opts?: { parent?: string; gutter?: 
         parent: opts?.parent !== undefined ? some(rowId(opts.parent)) : none,
         gutter: opts?.gutter ?? gutter(key),
         kind,
-        collapsed: opts?.collapsed !== undefined ? some(opts.collapsed) : none,
-        pinned: none, height: none, status: none, approval: none,
+        collapsed: opts?.collapsed === true,
+        pinned: false, height: none, status: none, approval: none,
         expand: opts?.expand !== undefined ? some(opts.expand) : none,
     } as unknown as PlanWireRow;
 }
 
-function spanKind(runs: unknown[], opts?: { rollup?: string; unit?: string }) {
+function spanKind(runs: unknown[], opts?: { rollup?: string }) {
     return variant("span", {
         runs, decisions: [], ports: [],
         rollup: opts?.rollup !== undefined ? some(variant(opts.rollup, null)) : none,
-        unit: opts?.unit !== undefined ? some(opts.unit) : none,
     });
 }
 
-function planRoot(rows: PlanWireRow[], opts?: { footer?: unknown[]; now?: Date | undefined; slice?: unknown; resolutions?: unknown[]; links?: unknown[]; popover?: unknown; hover?: unknown; expandRender?: unknown; source?: unknown; pick?: unknown; axis?: unknown; style?: { height?: string; maxHeight?: string }; clicks?: { onRunClick?: unknown; onEventClick?: unknown; onMarkClick?: unknown; onChipClick?: unknown; onCellClick?: unknown } }): PlanRootValue {
+function planRoot(rows: PlanWireRow[], opts?: { footer?: unknown[]; now?: Date | undefined; slice?: unknown; resolutions?: unknown[]; links?: unknown[]; popover?: unknown; hover?: unknown; expandRender?: unknown; source?: unknown; pick?: unknown; axis?: unknown; style?: { height?: string; maxHeight?: string }; onElementClick?: unknown; ui?: unknown }): PlanRootValue {
     return {
         rows: opts?.source !== undefined ? variant("paged", blocksSource(opts.source)) : variant("inline", oneBlock(rows)),
         links: opts?.links ?? [],
@@ -108,14 +108,10 @@ function planRoot(rows: PlanWireRow[], opts?: { footer?: unknown[]; now?: Date |
         pick: opts?.pick !== undefined ? some(opts.pick) : none,
         slice: opts?.slice ?? none,
         footer: opts?.footer ?? [],
-        id: "", sources: [], onDrag: none, canDrop: none,
+        id: none, sources: [], onDrag: none, canDrop: none,
         onSelect: none,
-        onRunClick: opts?.clicks?.onRunClick !== undefined ? some(opts.clicks.onRunClick) : none,
-        onEventClick: opts?.clicks?.onEventClick !== undefined ? some(opts.clicks.onEventClick) : none,
-        onMarkClick: opts?.clicks?.onMarkClick !== undefined ? some(opts.clicks.onMarkClick) : none,
-        onChipClick: opts?.clicks?.onChipClick !== undefined ? some(opts.clicks.onChipClick) : none,
-        onCellClick: opts?.clicks?.onCellClick !== undefined ? some(opts.clicks.onCellClick) : none,
-        onGroupToggle: none, onGrainChange: none,
+        onElementClick: opts?.onElementClick !== undefined ? some(opts.onElementClick) : none,
+        onGroupToggle: none, onGrainChange: none, ui: opts?.ui !== undefined ? some(opts.ui) : none,
         style: opts?.style !== undefined
             ? some({
                 height: opts.style.height !== undefined ? some(opts.style.height) : none,
@@ -136,8 +132,10 @@ function renderPlan(value: PlanRootValue, key = "plan") {
 }
 
 describe("Plan links focus (R1)", () => {
+    /** A link keyed by the runs it joins, moving 34 t (#824: one quantity). */
     const link = (from: string, fromRun: string, to: string, toRun: string) => ({
-        fromRow: rowId(from), fromRun, toRow: rowId(to), toRun, quantity: 34, label: "34 t",
+        key: `${fromRun}>${toRun}`, from: { row: rowId(from), run: fromRun }, to: { row: rowId(to), run: toRun },
+        quantity: some({ value: 34, unit: some("t"), format: none, text: none }),
     });
 
     test("the control gathers the TRANSITIVE family; unrelated rows rail; ← ALL ROWS returns", () => {
@@ -209,8 +207,10 @@ describe("Plan links focus (R1)", () => {
 });
 
 describe("Plan link ribbons (#818)", () => {
+    /** A link keyed by the runs it joins, moving 34 t (#824: one quantity). */
     const link = (from: string, fromRun: string, to: string, toRun: string) => ({
-        fromRow: rowId(from), fromRun, toRow: rowId(to), toRun, quantity: 34, label: "34 t",
+        key: `${fromRun}>${toRun}`, from: { row: rowId(from), run: fromRun }, to: { row: rowId(to), run: toRun },
+        quantity: some({ value: 34, unit: some("t"), format: none, text: none }),
     });
     const confirmed = variant("confirmed", null);
     const JUL13 = new Date("2026-07-13Z");
@@ -418,11 +418,71 @@ describe("Plan link ribbons (#818)", () => {
             ], { links: [link("a", "ra", "b", "rb")] }), "plan-818-tip");
             focusLinks(container, "a");
             const hit = container.querySelector('[data-link="0"]')!;
+            expect(container.querySelector('[data-plan-link="0"] [data-plan-ribbon-caption]')!.textContent).toBe("34 t");
             expect(hit.getAttribute("aria-label")).toBe("34 t");
             fireEvent.pointerOver(hit);
             await waitFor(() => expect(document.querySelector('[data-plan-overlay="tooltip"]')?.textContent).toBe("34 t"));
             fireEvent.pointerOut(hit);
             await waitFor(() => expect(document.querySelector('[data-plan-overlay="tooltip"]')).toBeNull());
+        } finally {
+            restore();
+        }
+    });
+
+    test("a link with no quantity still draws, but prints no caption and has no tooltip (#824)", async () => {
+        const restore = stubLayout();
+        try {
+            const { container } = renderPlan(planRoot([
+                planRow("a", spanKind([run("ra", W27, JUL13, confirmed)])),
+                planRow("b", spanKind([run("rb", JUL13, JUL27, confirmed)])),
+            ], { links: [{ ...link("a", "ra", "b", "rb"), quantity: none }] }), "plan-824-bare");
+            focusLinks(container, "a");
+            expect(container.querySelector('[data-plan-link="0"] [data-plan-ribbon-band]')).toBeTruthy();
+            expect(container.querySelector("[data-plan-ribbon-caption]")).toBeNull();
+            const hit = container.querySelector('[data-link="0"]')!;
+            expect(hit.hasAttribute("aria-label")).toBe(false);
+            // Past the tooltip's open delay: nothing opened.
+            fireEvent.pointerOver(hit);
+            await act(async () => { await new Promise((r) => setTimeout(r, 300)); });
+            expect(document.querySelector('[data-plan-overlay="tooltip"]')).toBeNull();
+        } finally {
+            restore();
+        }
+    });
+
+    test("a ribbon click reports the link's ref to onElementClick and opens the root's popover for it (#824)", async () => {
+        const restore = stubLayout();
+        try {
+            const seen: unknown[] = [];
+            const popover = (ref: { type: string; value: { key?: string } }) => (ref.type === "link"
+                ? some(variant("Text", { value: `LINK · ${ref.value.key}`, style: none }))
+                : none);
+            const { container } = renderPlan(planRoot([
+                planRow("a", spanKind([run("ra", W27, JUL13, confirmed)])),
+                planRow("b", spanKind([run("rb", JUL13, JUL27, confirmed)])),
+            ], {
+                links: [link("a", "ra", "b", "rb")],
+                popover,
+                onElementClick: (ref: unknown) => { seen.push(ref); },
+            }), "plan-824-link-click");
+            focusLinks(container, "a");
+            const selected = () => [...container.querySelectorAll("[data-plan-row][data-selected]")]
+                .map((el) => testKeyOf(el.getAttribute("data-plan-row")!));
+            const before = selected();
+            fireEvent.click(container.querySelector('[data-link="0"]')!);
+            // The popover resolves the ref the hit path names...
+            expect(await screen.findByText("LINK · ra>rb")).toBeTruthy();
+            // ...and the click reports the same ref: the link's key and its two runs.
+            await waitFor(() => expect(seen).toHaveLength(1));
+            const ref = seen[0] as { type: string; value: { key: string; from: { row: PlanRowId; run: string }; to: { row: PlanRowId; run: string } } };
+            expect(ref.type).toBe("link");
+            expect(ref.value.key).toBe("ra>rb");
+            expect(rowIdEqual(ref.value.from.row, rowId("a"))).toBe(true);
+            expect(ref.value.from.run).toBe("ra");
+            expect(rowIdEqual(ref.value.to.row, rowId("b"))).toBe(true);
+            expect(ref.value.to.run).toBe("rb");
+            // A ribbon belongs to no row: the click leaves the selection as it was.
+            expect(selected()).toEqual(before);
         } finally {
             restore();
         }
@@ -504,10 +564,10 @@ describe("Plan expand-in-place (R2)", () => {
             planRow("cov", variant("chart", {
                 layers: [variant("line", {
                     points: [{ t: t(W27), y: 94 }, { t: t(new Date("2026-08-31Z")), y: 101 }],
-                    axis: variant("left", null), breach: none,
+                    axis: variant("left", null), breach: none, fold: variant("mean", null),
                 })],
                 left: some({ domain: none, tickValues: some(variant("number", [80])), format: none }),
-                right: none, height: variant("spark", null), expandedHeight: none, expandable: none,
+                right: none, height: variant("spark", null), expandedHeight: none, expandable: false,
             })),
         ], {
             expandRender: (id: PlanRowId) =>
@@ -544,7 +604,7 @@ describe("Plan expand-in-place (R2)", () => {
                 layers: [
                     variant("line", {
                         points: [{ t: t(W27), y: 94 }, { t: t(new Date("2026-08-31Z")), y: 101 }],
-                        axis: variant("left", null), breach: none,
+                        axis: variant("left", null), breach: none, fold: variant("mean", null),
                     }),
                     variant("refLine", { y: 100, axis: variant("left", null), label: some("TARGET 100") }),
                 ],
@@ -554,7 +614,7 @@ describe("Plan expand-in-place (R2)", () => {
                     format: none,
                 }),
                 right: none,
-                height: variant("spark", null), expandedHeight: none, expandable: none,
+                height: variant("spark", null), expandedHeight: none, expandable: false,
             }), { expand: { height: some("240px"), axis: variant("keep", null) } }),
             planRow("other", spanKind([])),
         ], {

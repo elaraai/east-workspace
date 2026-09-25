@@ -39,17 +39,17 @@ function row(key: string, opts?: { approval?: "approved" | "pending" | "rejected
     return {
         id: rowId(key),
         parent: opts?.parent !== undefined ? some(rowId(opts.parent)) : none,
-        gutter: { label: key, id: none, sub: none, value: none, meta: none, stacked: none, swatches: [] },
+        gutter: { label: key, id: false, sub: none, value: none, meta: none, stacked: false, swatches: [] },
         kind: variant("span", {
             runs: [{
                 key: "r1", start: variant("time", W27), end: variant("time", W31), label: key.toUpperCase(),
-                quantity: none, qty: none,
+                quantity: none,
                 state: variant(opts?.state ?? "proposed", opts?.state === undefined ? variant("recommended", null) : null),
                 status: none, moved: none, icon: none,
             }],
-            decisions: [], ports: [], rollup: none, unit: none,
+            decisions: [], ports: [], rollup: none,
         }),
-        collapsed: none, pinned: none, height: none, status: none,
+        collapsed: false, pinned: false, height: none, status: none,
         approval: opts?.approval !== undefined ? some(variant(opts.approval, null)) : none,
         expand: none,
     } as unknown as PlanWireRow;
@@ -60,9 +60,9 @@ function groupRow(key: string): PlanWireRow {
     return {
         id: rowId(key),
         parent: none,
-        gutter: { label: key, id: none, sub: none, value: none, meta: none, stacked: none, swatches: [] },
-        kind: variant("group", { summary: none, summaryAggregate: none }),
-        collapsed: some(true), pinned: none, height: none, status: none, approval: none, expand: none,
+        gutter: { label: key, id: false, sub: none, value: none, meta: none, stacked: false, swatches: [] },
+        kind: variant("group", { summary: variant("none", null) }),
+        collapsed: true, pinned: false, height: none, status: none, approval: none, expand: none,
     } as unknown as PlanWireRow;
 }
 
@@ -82,10 +82,9 @@ function planRoot(rows: PlanWireRow[], review: unknown): PlanRootValue {
         expandRender: none,
         review: review === undefined ? none : some(review),
         slice: none, footer: [],
-        id: "", sources: [], onDrag: none, canDrop: none,
+        id: none, sources: [], onDrag: none, canDrop: none,
         onSelect: none,
-        onRunClick: none, onEventClick: none, onMarkClick: none, onChipClick: none,
-        onCellClick: none, onGroupToggle: none, onGrainChange: none,
+        onElementClick: none, onGroupToggle: none, onGrainChange: none, ui: none,
         style: none,
     } as unknown as PlanRootValue;
 }

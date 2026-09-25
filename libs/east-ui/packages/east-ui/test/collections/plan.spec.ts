@@ -30,6 +30,7 @@ describeEast("Plan", (test) => {
         planChartRows: ex.planChartRows,
         planHeatRows: ex.planHeatRows,
         planTableRows: ex.planTableRows,
+        planFold: ex.planFold,
         planCardRows: ex.planCardRows,
         planEventRows: ex.planEventRows,
         planGroupedRows: ex.planGroupedRows,
@@ -40,6 +41,7 @@ describeEast("Plan", (test) => {
         planRowDrop: ex.planRowDrop,
         planFill: ex.planFill,
         planReview: ex.planReview,
+        planUiState: ex.planUiState,
         // Was never wired — the example shipped without ever being executed.
         planExpand: ex.planExpand,
         planNarrow: ex.planNarrow,
@@ -75,15 +77,33 @@ describeEast("Plan", (test) => {
         $(Assert.equal(axis.now.unwrap("some"), W31));
         $(Assert.equal(axis.format.unwrap("some"), "W"));
         $(Assert.equal(root.grain.unwrap("some").hasTag("group"), true));
-        $(Assert.equal(root.id, "plan"));
+        $(Assert.equal(root.id.unwrap("some"), "plan"));
         $(Assert.equal(root.sources.get(0n), "lib"));
         $(Assert.equal(root.footer.get(0n).tone.unwrap("some").hasTag("warning"), true));
-        $(Assert.equal(root.footer.get(0n).end.unwrap("some"), true));
+        $(Assert.equal(root.footer.get(0n).end, true));
         $(Assert.equal(root.style.unwrap("some").height.unwrap("some"), "fill"));
         $(Assert.equal(root.style.unwrap("some").density.unwrap("some").hasTag("compact"), true));
         $(Assert.equal(root.style.unwrap("some").gutterWidth.unwrap("some"), "168px"));
         // Empty data × no series ⇒ an empty inline canvas: no blocks (#823).
         $(Assert.equal(root.rows.unwrap("inline").size(), 0n));
+        // Nothing declared, nothing carried: no element callback, no bound state.
+        $(Assert.equal(root.onElementClick.hasTag("none"), true));
+        $(Assert.equal(root.ui.hasTag("none"), true));
+    });
+
+    test("a root with no `id` is no drop target — `none`, not an empty-string sentinel (#824)", $ => {
+        const Row = StructType({ id: StringType });
+        const data = $.const(new Map(), DictType(StringType, Row));
+        const p = $.let(Plan.Root({
+            axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }),
+            data,
+            series: [],
+            footer: [{ text: "RUN 412" }],
+        }));
+        const root = $.let(p.unwrap().unwrap("Plan"));
+        $(Assert.equal(root.id.hasTag("none"), true));
+        // A footer item not pushed to the end is `false`, never `none`.
+        $(Assert.equal(root.footer.get(0n).end, false));
     });
 
     test("the component.ts Plan arm and PlanRootType are one East type (#814)", $ => {
@@ -147,12 +167,12 @@ describeEast("Plan", (test) => {
         $(Assert.equal(review.onRerun.hasTag("none"), true));
     });
 
-    test("the root carries the link graph (R1); Plan.link maps over data, its ends row ids", $ => {
+    test("the root carries the link graph (R1); Plan.link maps over data — a key, two run refs and a quantity (#824)", $ => {
         const Row = StructType({ id: StringType });
-        const TransferRow = StructType({ src: StringType, srcRun: StringType, dst: StringType, dstRun: StringType, t: FloatType });
+        const TransferRow = StructType({ id: StringType, src: StringType, srcRun: StringType, dst: StringType, dstRun: StringType, t: FloatType });
         const transfers = $.const([
-            { src: "m03", srcRun: "b214", dst: "m04", dstRun: "b208", t: 24.0 },
-            { src: "m04", srcRun: "b208", dst: "dock2", dstRun: "d1", t: 18.0 },
+            { id: "t1", src: "m03", srcRun: "b214", dst: "m04", dstRun: "b208", t: 24.0 },
+            { id: "t2", src: "m04", srcRun: "b208", dst: "dock2", dstRun: "d1", t: 18.0 },
         ], ArrayType(TransferRow));
         const data = $.const(new Map(), DictType(StringType, Row));
         const p = $.let(Plan.Root({
@@ -160,18 +180,30 @@ describeEast("Plan", (test) => {
             data,
             series: [],
             links: transfers.map((_$, tr) => Plan.link({
+                key: tr.id,
                 from: Plan.ref("machines", tr.src), fromRun: tr.srcRun,
                 to: Plan.ref("machines", tr.dst), toRun: tr.dstRun,
-                quantity: tr.t, label: East.str`${East.Float.printFixed(tr.t, 0n)} t`,
+                quantity: Plan.quantity(tr.t, { unit: "t", format: Format.Number({ maximumFractionDigits: 0n }) }),
             })),
         }));
         const links = $.let(p.unwrap().unwrap("Plan").links);
         $(Assert.equal(links.length(), 2n));
-        $(Assert.equal(links.get(0n).fromRow, Plan.ref("machines", "m03")));
-        $(Assert.equal(links.get(0n).fromRun, "b214"));
-        $(Assert.equal(links.get(0n).toRow, Plan.ref("machines", "m04")));
-        $(Assert.equal(links.get(0n).quantity, 24.0));
-        $(Assert.equal(links.get(0n).label, "24 t"));
+        $(Assert.equal(links.get(0n).key, "t1"));
+        // The ends are RUN refs — a row's id and a run's key.
+        $(Assert.equal(links.get(0n).from.row, Plan.ref("machines", "m03")));
+        $(Assert.equal(links.get(0n).from.run, "b214"));
+        $(Assert.equal(links.get(0n).to.row, Plan.ref("machines", "m04")));
+        $(Assert.equal(links.get(0n).to.run, "b208"));
+        // ONE quantity: the value weighs the ribbon, the unit and format print
+        // its caption — there is no second, display-only string to disagree.
+        const q = $.let(links.get(0n).quantity.unwrap("some"));
+        $(Assert.equal(q.value, 24.0));
+        $(Assert.equal(q.unit.unwrap("some"), "t"));
+        $(Assert.equal(q.format.unwrap("some").unwrap("number").maximumFractionDigits.unwrap("some"), 0n));
+        $(Assert.equal(q.text.hasTag("none"), true));
+        // A link may carry no quantity at all — it then draws at the faintest share.
+        const bare = $.let(Plan.link({ key: "x", from: Plan.ref("a", "1"), fromRun: "r", to: Plan.ref("a", "2"), toRun: "r" }));
+        $(Assert.equal(bare.quantity.hasTag("none"), true));
     });
 
     test("rows DECLARE expand-in-place as pure data (R2); the render is the root's expandRender resolver", $ => {
@@ -247,21 +279,93 @@ describeEast("Plan", (test) => {
         $(Assert.equal(East.value(isTypeEqual(Plan.Types.Root.fields.onSelect.cases.some.inputs[0], Plan.Types.RowId)), true));
     });
 
-    test("element clicks and element refs carry the row id", $ => {
+    test("ONE element callback over the element ref, whose every row-bound arm carries the row id (#824)", $ => {
         const Id = Plan.Types.RowId;
-        $(Assert.equal(East.value(isTypeEqual(Plan.Types.RunClickEvent.fields.row, Id)), true));
-        $(Assert.equal(East.value(isTypeEqual(Plan.Types.EventClickEvent.fields.row, Id)), true));
-        $(Assert.equal(East.value(isTypeEqual(Plan.Types.MarkClickEvent.fields.row, Id)), true));
-        $(Assert.equal(East.value(isTypeEqual(Plan.Types.ChipClickEvent.fields.row, Id)), true));
-        $(Assert.equal(East.value(isTypeEqual(Plan.Types.CellClickEvent.fields.row, Id)), true));
+        const cases = Plan.Types.ElementRef.cases;
+        // `onElementClick` takes the SAME ref the popover / hover resolvers do.
+        $(Assert.equal(East.value(isTypeEqual(Plan.Types.Root.fields.onElementClick.cases.some.inputs[0], Plan.Types.ElementRef)), true));
+        $(Assert.equal(East.value(isTypeEqual(Plan.Types.Root.fields.popover.cases.some.inputs[0], Plan.Types.ElementRef)), true));
+        // The five per-kind callbacks are gone — one function, one variant.
+        $(Assert.equal(East.value(["onRunClick", "onEventClick", "onMarkClick", "onChipClick", "onCellClick"]
+            .some((f) => f in Plan.Types.Root.fields)), false));
+        for (const arm of ["run", "event", "chip", "mark", "cell"] as const) {
+            $(Assert.equal(East.value(isTypeEqual(cases[arm].fields.row, Id)), true));
+        }
+        // A link belongs to no one row: it names itself by key, and its two
+        // ends are run refs.
+        $(Assert.equal(East.value(isTypeEqual(cases.link.fields.key, StringType)), true));
+        $(Assert.equal(East.value(isTypeEqual(cases.link.fields.from, Plan.Types.RunRef)), true));
+        $(Assert.equal(East.value(isTypeEqual(cases.link.fields.to, Plan.Types.RunRef)), true));
+        $(Assert.equal(East.value(isTypeEqual(cases.run, Plan.Types.RunRef)), true));
         $(Assert.equal(East.value(isTypeEqual(Plan.Types.GroupToggleEvent.fields.row, Id)), true));
-        // Every arm of the resolvers' element ref IS a click payload.
-        $(Assert.equal(East.value(Object.values(Plan.Types.ElementRef.cases).every((c) => isTypeEqual(c.fields.row, Id))), true));
+        // The root carries it, and it runs over any arm.
+        const Row = StructType({ id: StringType });
+        const data = $.const(new Map(), DictType(StringType, Row));
+        const onElementClick = $.const(East.function([Plan.Types.ElementRef], NullType, (_$, _ref) => null));
+        const p = $.let(Plan.Root({
+            axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }),
+            data, series: [], onElementClick,
+        }));
+        const link = $.const(variant("link", {
+            key: "t1",
+            from: { row: Plan.ref("machines", "m03"), run: "b214" },
+            to: { row: Plan.ref("machines", "m04"), run: "b208" },
+        }), Plan.Types.ElementRef);
+        $(Assert.equal(p.unwrap().unwrap("Plan").onElementClick.unwrap("some")(link), null));
     });
 
-    test("links name their ends by row id", $ => {
-        $(Assert.equal(East.value(isTypeEqual(Plan.Types.Link.fields.fromRow, Plan.Types.RowId)), true));
-        $(Assert.equal(East.value(isTypeEqual(Plan.Types.Link.fields.toRow, Plan.Types.RowId)), true));
+    test("links name their ends by run ref — a row id and a run key", $ => {
+        $(Assert.equal(East.value(isTypeEqual(Plan.Types.Link.fields.from, Plan.Types.RunRef)), true));
+        $(Assert.equal(East.value(isTypeEqual(Plan.Types.Link.fields.to, Plan.Types.RunRef)), true));
+        $(Assert.equal(East.value(isTypeEqual(Plan.Types.RunRef.fields.row, Plan.Types.RowId)), true));
+    });
+
+    test("Plan.uiState seeds a bound interaction state; the root carries the host's handle as is (#824)", $ => {
+        // Omitted, every field is empty: nothing selected, every row as it
+        // declares, no chart expanded, nothing to bring into view.
+        const empty = $.let(Plan.uiState());
+        $(Assert.equal(empty.selected.hasTag("none"), true));
+        $(Assert.equal(empty.collapsed.size(), 0n));
+        $(Assert.equal(empty.expanded.size(), 0n));
+        $(Assert.equal(empty.charts.size(), 0n));
+        $(Assert.equal(empty.focus.hasTag("none"), true));
+        const seeded = $.let(Plan.uiState({
+            selected: Plan.ref("machines", "L1", "m03"),
+            collapsed: [Plan.ref("lines", "L2")],
+            expanded: [Plan.ref("lines", "L3")],
+            charts: [Plan.ref("kpi", "cov")],
+            focus: Plan.ref("machines", "L3", "m07"),
+        }));
+        $(Assert.equal(seeded.selected.unwrap("some"), Plan.ref("machines", "L1", "m03")));
+        $(Assert.equal(seeded.collapsed, [Plan.ref("lines", "L2")]));
+        $(Assert.equal(seeded.expanded, [Plan.ref("lines", "L3")]));
+        $(Assert.equal(seeded.charts, [Plan.ref("kpi", "cov")]));
+        $(Assert.equal(seeded.focus.unwrap("some"), Plan.ref("machines", "L3", "m07")));
+        // The lists hold the canvas's typed ids; an id's path is an Array, so
+        // they are Arrays — an East Set's element must be immutable.
+        $(Assert.equal(East.value(isTypeEqual(Plan.Types.UiState.fields.collapsed, ArrayType(Plan.Types.RowId))), true));
+        // Folded AND opened are both overrides of the declaration — a row in
+        // neither follows what it declares.
+        $(Assert.equal(East.value(isTypeEqual(Plan.Types.UiState.fields.expanded, ArrayType(Plan.Types.RowId))), true));
+        // A handle of State.bind's shape — here a hermetic one over a captured
+        // store — rides the root unchanged: what the canvas writes through it,
+        // it reads back through it.
+        const store = $.let(new Map([["ui", Plan.uiState()]]), DictType(StringType, Plan.Types.UiState));
+        const handle = $.const({
+            read: East.function([], Plan.Types.UiState, (_$) => store.get("ui")),
+            write: East.function([Plan.Types.UiState], NullType, ($, s) => { $(store.update("ui", s)); }),
+            has: East.function([], BooleanType, (_$) => true),
+        }, Plan.Types.UiBind);
+        const Row = StructType({ id: StringType });
+        const data = $.const(new Map(), DictType(StringType, Row));
+        const p = $.let(Plan.Root({
+            axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }),
+            data, series: [], ui: handle,
+        }));
+        const ui = $.let(p.unwrap().unwrap("Plan").ui.unwrap("some"));
+        $(ui.write(seeded));
+        $(Assert.equal(ui.read(), seeded));
+        $(Assert.equal(ui.has(), true));
     });
 
     test("review callbacks receive the row id", $ => {
@@ -308,17 +412,33 @@ describeEast("Plan", (test) => {
         $(Assert.equal(runs.get(7n).state.hasTag("rejected"), true));
     });
 
-    test("run carries display quantity, numeric qty, status ring, moved and a bare-name icon", $ => {
+    test("run carries ONE quantity (value, unit, format, caption override), status ring, moved and a bare-name icon (#824)", $ => {
         const r = $.let(Plan.run({
-            key: "r", start: W27, end: W28, label: "RUN", quantity: "96 t", qty: 96,
+            key: "r", start: W27, end: W28, label: "RUN",
+            quantity: Plan.quantity(96, { unit: "t", format: Format.Number({ maximumFractionDigits: 0n }) }),
             state: "actual", status: "warning", moved: 3, icon: "truck",
         }));
-        $(Assert.equal(r.quantity.unwrap("some"), "96 t"));
-        $(Assert.equal(r.qty.unwrap("some"), 96.0));
+        const q = $.let(r.quantity.unwrap("some"));
+        $(Assert.equal(q.value, 96.0));
+        $(Assert.equal(q.unit.unwrap("some"), "t"));
+        $(Assert.equal(q.format.unwrap("some").hasTag("number"), true));
+        $(Assert.equal(q.text.hasTag("none"), true));
         $(Assert.equal(r.status.unwrap("some").hasTag("warning"), true));
         $(Assert.equal(r.moved.unwrap("some"), 3n));
         $(Assert.equal(r.icon.unwrap("some").prefix, "fas"));
         $(Assert.equal(r.icon.unwrap("some").name, "truck"));
+        // The display string and its numeric twin are gone — one value.
+        $(Assert.equal(East.value("qty" in Plan.Types.Run.fields), false));
+        // A caption override keeps the number: it still sums and weighs.
+        const told = $.let(Plan.quantity(24, { unit: "t", text: "−24 t" }));
+        $(Assert.equal(told.value, 24.0));
+        $(Assert.equal(told.text.unwrap("some"), "−24 t"));
+        // A bare quantity is a number with nothing else declared.
+        const bare = $.let(Plan.quantity(3.5));
+        $(Assert.equal(bare.unit.hasTag("none"), true));
+        $(Assert.equal(bare.format.hasTag("none"), true));
+        // A run without one carries none.
+        $(Assert.equal(Plan.run({ key: "n", start: W27, end: W28, label: "N", state: "actual" }).quantity.hasTag("none"), true));
     });
 
     // =========================================================================
@@ -381,39 +501,48 @@ describeEast("Plan", (test) => {
         }));
         const row = $.let(rows.get(0n));
         $(Assert.equal(row.gutter.label, "COVERAGE"));
-        $(Assert.equal(row.gutter.id.unwrap("some"), true));
+        $(Assert.equal(row.gutter.id, true));
         $(Assert.equal(row.gutter.sub.unwrap("some"), "demand"));
         $(Assert.equal(row.gutter.value.unwrap("some"), "94.2%"));
         $(Assert.equal(row.gutter.meta.unwrap("some"), "8 rs"));
-        $(Assert.equal(row.gutter.stacked.unwrap("some"), true));
+        $(Assert.equal(row.gutter.stacked, true));
         $(Assert.equal(row.gutter.swatches.get(0n).color, "teal.solid"));
-        $(Assert.equal(row.pinned.unwrap("some"), true));
+        $(Assert.equal(row.pinned, true));
         $(Assert.equal(row.status.unwrap("some").hasTag("warning"), true));
         $(Assert.equal(row.approval.unwrap("some").hasTag("pending"), true));
         const expand = $.let(row.expand.unwrap("some"));
         $(Assert.equal(expand.height.unwrap("some"), "152px"));
         $(Assert.equal(expand.axis.hasTag("dim"), true));
+        // The flags are Booleans (#824): an undeclared one is `false` — `none`
+        // used to mean false too, a third state nothing distinguished.
+        const plain = $.let(Plan.span({ key: "p", label: "P" }).get(0n));
+        $(Assert.equal(plain.gutter.id, false));
+        $(Assert.equal(plain.gutter.stacked, false));
+        $(Assert.equal(plain.pinned, false));
+        $(Assert.equal(plain.collapsed, false));
     });
 
     // =========================================================================
     // Rollup band math
     // =========================================================================
 
-    test("nesting parents DECLARE their rollup + unit; bands are renderer-derived", $ => {
+    test("nesting parents DECLARE their rollup; bands are renderer-derived, their sums per the runs' units", $ => {
         // The IR carries the declaration (Table's column-aggregate idiom on
         // the span channel); the renderer derives the ×k band values from the
-        // subtree's runs — never precomputed expressions.
+        // subtree's runs — never precomputed expressions. A quantity carries
+        // its own unit (#824), so the parent declares none.
         const rows = $.let(Plan.span({
-            key: "p", label: "P", rollup: "union", unit: "t", rows: [
+            key: "p", label: "P", rollup: "union", rows: [
                 Plan.span({ key: "a", label: "A", runs: [
-                    Plan.run({ key: "ra", start: W27, end: W29, label: "RA", qty: 96, state: "actual" }),
+                    Plan.run({ key: "ra", start: W27, end: W29, label: "RA", quantity: Plan.quantity(96, { unit: "t" }), state: "actual" }),
                 ] }),
             ],
         }));
         const kind = $.let(rows.get(0n).kind.unwrap("span"));
         $(Assert.equal(kind.rollup.unwrap("some").hasTag("union"), true));
-        $(Assert.equal(kind.unit.unwrap("some"), "t"));
+        $(Assert.equal(East.value("unit" in Plan.Types.RowKind.cases.span.fields), false));
         $(Assert.equal(kind.runs.length(), 0n));
+        $(Assert.equal(rows.get(1n).kind.unwrap("span").runs.get(0n).quantity.unwrap("some").unit.unwrap("some"), "t"));
         // Leaves declare no rollup.
         $(Assert.equal(rows.get(1n).kind.unwrap("span").rollup.hasTag("none"), true));
         const byStatus = $.let(Plan.span({
@@ -430,24 +559,31 @@ describeEast("Plan", (test) => {
     // Heat aggregation + table subtotals
     // =========================================================================
 
-    test("heat parents DECLARE their aggregate; scale rides the empty cells arm", $ => {
+    test("heat parents DECLARE their aggregate and the scale their derived cells paint on — the ROW's (#824)", $ => {
         // The renderer derives the per-bucket values from the children — the
-        // parent's IR carries the mode + the scale on an empty heat arm.
+        // parent's IR carries the mode and, on the KIND, the scale; its cells
+        // arm is empty and carries none (it used to carry the scale).
         const rows = $.let(Plan.heat({
             key: "line", label: "Line", aggregate: "mean", scale: { min: 0, max: 100 }, rows: [
                 Plan.heat({ key: "a", label: "A", cells: Plan.heatCells([
                     { at: Plan.at.time(W27), value: some(40.0), label: none }, { at: Plan.at.time(W28), value: some(60.0), label: none },
-                ]) }),
+                ], { min: 0, max: 100, warnAt: 90 }) }),
             ],
         }));
         const kind = $.let(rows.get(0n).kind.unwrap("heat"));
         $(Assert.equal(kind.aggregate.unwrap("some").hasTag("mean"), true));
+        $(Assert.equal(kind.scale.unwrap("some").min.unwrap("some"), 0.0));
+        $(Assert.equal(kind.scale.unwrap("some").max.unwrap("some"), 100.0));
+        $(Assert.equal(kind.scale.unwrap("some").warnAt.hasTag("none"), true));
         const cells = $.let(kind.cells.unwrap("heat"));
         $(Assert.equal(cells.cells.length(), 0n));
-        $(Assert.equal(cells.min.unwrap("some"), 0.0));
-        $(Assert.equal(cells.max.unwrap("some"), 100.0));
-        // The child keeps its real cells.
-        $(Assert.equal(rows.get(1n).kind.unwrap("heat").cells.unwrap("heat").cells.length(), 2n));
+        $(Assert.equal(cells.scale.min.hasTag("none"), true));
+        // The child keeps its real cells, on the scale its arm declares.
+        const child = $.let(rows.get(1n).kind.unwrap("heat"));
+        $(Assert.equal(child.cells.unwrap("heat").cells.length(), 2n));
+        $(Assert.equal(child.cells.unwrap("heat").scale.warnAt.unwrap("some"), 90.0));
+        // A leaf declares no parent scale.
+        $(Assert.equal(child.scale.hasTag("none"), true));
     });
 
     test("table parents DECLARE their subtotal mode + shared Format spec; cells carry raw values", $ => {
@@ -499,14 +635,18 @@ describeEast("Plan", (test) => {
         $(Assert.equal(kind.split.hasTag("vertical"), true));
         $(Assert.equal(kind.series.length(), 2n));
         const s0 = $.let(kind.series.get(0n));
-        $(Assert.equal(s0.strong.unwrap("some"), true));
-        $(Assert.equal(s0.rollup.unwrap("some"), true));
+        $(Assert.equal(s0.strong, true));
+        $(Assert.equal(s0.rollup, true));
         $(Assert.equal(s0.format.hasTag("none"), true));
         $(Assert.equal(s0.cells.get(0n).value.unwrap("some"), 96.0));
         const s1 = $.let(kind.series.get(1n));
         $(Assert.equal(s1.tone.unwrap("some").hasTag("muted"), true));
         $(Assert.equal(s1.format.unwrap("some").unwrap("number").signDisplay.unwrap("some").hasTag("always"), true));
         $(Assert.equal(s1.cells.get(0n).value.unwrap("some"), -8.0));
+        // Undeclared flags are `false` (#824), and a numeral folds by `sum`.
+        $(Assert.equal(s1.strong, false));
+        $(Assert.equal(s1.rollup, false));
+        $(Assert.equal(s1.fold.hasTag("sum"), true));
     });
 
     test("tableCells carries raw values with renderer-owned text and tone", $ => {
@@ -602,7 +742,7 @@ describeEast("Plan", (test) => {
         $(Assert.equal(chart.height.unwrap("fixed"), "120px"));
         // The expanded state's pixel override (default 88 when `none`).
         $(Assert.equal(chart.expandedHeight.unwrap("some"), "96px"));
-        $(Assert.equal(chart.expandable.unwrap("some"), true));
+        $(Assert.equal(chart.expandable, true));
         // The IR carries the Chart axis types — ChartTickValuesType /
         // ChartDomainType number arms — never a hand-rolled twin.
         $(Assert.equal(chart.left.unwrap("some").tickValues.unwrap("some").unwrap("number").length(), 3n));
@@ -618,6 +758,8 @@ describeEast("Plan", (test) => {
         $(Assert.equal(line.points.get(0n).y, 10.0));
         $(Assert.equal(line.axis.hasTag("left"), true));
         $(Assert.equal(line.breach.unwrap("some").unwrap("below"), 15.0));
+        // A line is a level: a bucket folds its points by their mean (#824).
+        $(Assert.equal(line.fold.hasTag("mean"), true));
         const scatter = $.let(chart.layers.get(1n).unwrap("scatter"));
         $(Assert.equal(scatter.axis.hasTag("right"), true));
         const refLine = $.let(chart.layers.get(2n).unwrap("refLine"));
@@ -647,9 +789,60 @@ describeEast("Plan", (test) => {
         const chart = $.let(rows.get(0n).kind.unwrap("chart"));
         $(Assert.equal(chart.height.hasTag("spark"), true));
         $(Assert.equal(chart.expandedHeight.hasTag("none"), true));
+        // No toggle unless declared (#824 — a Boolean, `false` by default).
+        $(Assert.equal(chart.expandable, false));
         $(Assert.equal(chart.layers.get(0n).unwrap("column").series.unwrap("some"), "L1"));
         $(Assert.equal(chart.layers.get(1n).unwrap("column").series.unwrap("some"), "L2"));
         $(Assert.equal(chart.layers.get(2n).unwrap("column").series.hasTag("none"), true));
+        // A column is an amount: a bucket folds its points by their sum.
+        $(Assert.equal(chart.layers.get(0n).unwrap("column").fold.hasTag("sum"), true));
+    });
+
+    test("temporal fold: every cell builder and data layer declares how a bucket folds — defaults by meaning, overrides honoured (#824)", $ => {
+        const MeasureRow = StructType({ week: DateTimeType, pct: FloatType });
+        const points = $.const([{ week: W27, pct: 10.0 }, { week: W28, pct: 20.0 }], ArrayType(MeasureRow));
+        // Heat is a level (mean), weight a fraction (mean), segments amounts (sum).
+        $(Assert.equal(Plan.heatCells([]).unwrap("heat").fold.hasTag("mean"), true));
+        $(Assert.equal(Plan.weightCells([]).unwrap("weight").fold.hasTag("mean"), true));
+        $(Assert.equal(Plan.segmentCells([]).unwrap("segments").fold.hasTag("sum"), true));
+        // A table numeral is an amount (sum) — on the series, the `cells`
+        // sugar's included.
+        $(Assert.equal(Plan.tableSeries({ cells: Plan.tableCells([]) }).fold.hasTag("sum"), true));
+        const sugar = $.let(Plan.table({ key: "t", label: "T", cells: Plan.tableCells([]) }).get(0n).kind.unwrap("table"));
+        $(Assert.equal(sugar.series.get(0n).fold.hasTag("sum"), true));
+        // Overrides — every builder takes one, as a literal or a value.
+        $(Assert.equal(Plan.heatCells([], { fold: "max" }).unwrap("heat").fold.hasTag("max"), true));
+        $(Assert.equal(Plan.weightCells([], { fold: "last" }).unwrap("weight").fold.hasTag("last"), true));
+        $(Assert.equal(Plan.segmentCells([], { fold: variant("mean", null) }).unwrap("segments").fold.hasTag("mean"), true));
+        $(Assert.equal(Plan.tableSeries({ cells: Plan.tableCells([]), fold: "count" }).fold.hasTag("count"), true));
+        const lastStock = $.let(Plan.table({ key: "s", label: "S", cells: Plan.tableCells([]), fold: "last" }).get(0n).kind.unwrap("table"));
+        $(Assert.equal(lastStock.series.get(0n).fold.hasTag("last"), true));
+        // The cell arms' `format` prints their values.
+        const fmt = $.let(Plan.heatCells([], { format: Format.Number({ maximumFractionDigits: 0n }) }).unwrap("heat").format);
+        $(Assert.equal(fmt.unwrap("some").hasTag("number"), true));
+        $(Assert.equal(Plan.weightCells([]).unwrap("weight").format.hasTag("none"), true));
+        // Data layers — a line and an area are levels (mean), a column an amount (sum).
+        const layers = $.let(Plan.chart({ key: "c", label: "C", layers: [
+            Chart.Line(points, { x: r => r.week, y: r => r.pct }),
+            Chart.Area(points, { x: r => r.week, y: r => r.pct }),
+            Chart.Column(points, { x: r => r.week, y: r => r.pct }),
+            Plan.layer(Chart.Column(points, { x: r => r.week, y: r => r.pct }), { fold: "max" }),
+            Plan.layer(Chart.Line(points, { x: r => r.week, y: r => r.pct }), { fold: "last" }),
+        ] }).get(0n).kind.unwrap("chart").layers);
+        $(Assert.equal(layers.get(0n).unwrap("line").fold.hasTag("mean"), true));
+        $(Assert.equal(layers.get(1n).unwrap("area").fold.hasTag("mean"), true));
+        $(Assert.equal(layers.get(2n).unwrap("column").fold.hasTag("sum"), true));
+        $(Assert.equal(layers.get(3n).unwrap("column").fold.hasTag("max"), true));
+        $(Assert.equal(layers.get(4n).unwrap("line").fold.hasTag("last"), true));
+        // A `fold` beside `series` would be a second word on the same
+        // positions — each `Plan.tableSeries` says its own.
+        const both = (() => {
+            try {
+                Plan.table({ key: "x", label: "X", fold: "sum", series: [Plan.tableSeries({ cells: Plan.tableCells([]) })] });
+                return "";
+            } catch (e) { return e instanceof Error ? e.message : String(e); }
+        })();
+        $(Assert.equal(East.value(both.includes("each `Plan.tableSeries` declares its own fold")), true));
     });
 
     test("Chart.Bar and temporal value-axis domains are build-time errors; a numeric x is a number-arm layer", $ => {
@@ -701,11 +894,25 @@ describeEast("Plan", (test) => {
         $(Assert.equal(rows.size(), 3n));
         const g = $.let(rows.get(0n).kind.unwrap("group"));
         // Collapse is the ROW's — every kind may have children.
-        $(Assert.equal(rows.get(0n).collapsed.unwrap("some"), true));
-        // The declaration; the renderer derives the strip cells.
-        $(Assert.equal(g.summaryAggregate.unwrap("some").hasTag("mean"), true));
-        $(Assert.equal(g.summary.hasTag("none"), true));
+        $(Assert.equal(rows.get(0n).collapsed, true));
+        // ONE summary declaration (#824) — here the aggregate; the renderer
+        // derives the strip cells.
+        $(Assert.equal(g.summary.unwrap("aggregate").hasTag("mean"), true));
         $(Assert.equal(rows.get(1n).parent.unwrap("some"), rows.get(0n).id));
+        // Explicit strip cells are the other arm; neither is a plain band.
+        const cells = $.let(Plan.group({ key: "c", label: "C", summary: Plan.heatCells([
+            { at: Plan.at.time(W27), value: some(50.0), label: none },
+        ]) }).get(0n).kind.unwrap("group").summary);
+        $(Assert.equal(cells.unwrap("cells").unwrap("heat").cells.length(), 1n));
+        $(Assert.equal(Plan.group({ key: "p", label: "P" }).get(0n).kind.unwrap("group").summary.hasTag("none"), true));
+        // Both at once is refused — a strip shows one or the other.
+        const both = (() => {
+            try {
+                Plan.group({ key: "b", label: "B", summary: Plan.heatCells([]), summaryAggregate: "mean" });
+                return "";
+            } catch (e) { return e instanceof Error ? e.message : String(e); }
+        })();
+        $(Assert.equal(East.value(both.includes("a collapsed strip shows one or the other")), true));
     });
 
     test("series.group — one strip PER ENTRY, its members stepped down into from the entry", $ => {
@@ -741,8 +948,8 @@ describeEast("Plan", (test) => {
         // L1's strip + 2 members, then L2's strip + 1 member — pre-order.
         $(Assert.equal(rows.map((_$, r) => r.gutter.label), ["L1", "a", "b", "L2", "c"]));
         $(Assert.equal(rows.get(0n).id, Plan.ref("lines", "L1")));
-        $(Assert.equal(rows.get(0n).kind.unwrap("group").summaryAggregate.unwrap("some").hasTag("mean"), true));
-        $(Assert.equal(rows.get(0n).collapsed.unwrap("some"), true));
+        $(Assert.equal(rows.get(0n).kind.unwrap("group").summary.unwrap("aggregate").hasTag("mean"), true));
+        $(Assert.equal(rows.get(0n).collapsed, true));
         // The member count is NOT baked in — it is derived renderer-side.
         $(Assert.equal(rows.get(0n).gutter.meta.hasTag("none"), true));
         // A member's path is its group's key, then its own.
@@ -820,7 +1027,7 @@ describeEast("Plan", (test) => {
                 key: "machines", title: "Machines",
                 label: (_r, k) => k,
                 runs: (r, k) => [Plan.run({ key: k, start: r.start, end: r.end, label: k, state: variant("confirmed", null) })],
-                children: (r) => r.machines, rollup: "union", unit: "t",
+                children: (r) => r.machines, rollup: "union",
             })],
         }));
         const rows = $.let(p.unwrap().unwrap("Plan").rows.unwrap("inline").flatMap((_$, b) => b.rows));
@@ -830,7 +1037,6 @@ describeEast("Plan", (test) => {
         $(Assert.equal(rows.get(0n).kind.unwrap("span").rollup.unwrap("some").hasTag("union"), true));
         $(Assert.equal(rows.get(1n).kind.unwrap("span").rollup.hasTag("none"), true));
         $(Assert.equal(rows.get(3n).kind.unwrap("span").rollup.hasTag("none"), true));
-        $(Assert.equal(rows.get(0n).kind.unwrap("span").unit.unwrap("some"), "t"));
         // Dict children keep String keys, so `label: (_r, k) => k` reads at every depth.
         $(Assert.equal(rows.get(1n).id, Plan.ref("machines", "A", "m1")));
     });
@@ -987,7 +1193,9 @@ describeEast("Plan", (test) => {
         $(Assert.equal(rows.get(1n).gutter.meta.unwrap("some"), "1 rs"));
         $(Assert.equal(rows.get(1n).gutter.value.unwrap("some"), "80h"));
         $(Assert.equal(rows.get(1n).status.unwrap("some").hasTag("warning"), true));
-        $(Assert.equal(rows.get(1n).collapsed.unwrap("some"), true));
+        $(Assert.equal(rows.get(1n).collapsed, true));
+        // A section with no strip declared is a plain band.
+        $(Assert.equal(rows.get(1n).kind.unwrap("group").summary.hasTag("none"), true));
         // A section adds no path segment — its member keeps its own.
         $(Assert.equal(rows.get(2n).id, Plan.ref("crew-shifts", "crewA")));
         $(Assert.equal(rows.get(2n).parent.unwrap("some"), Plan.sectionRef("crews")));
@@ -1729,11 +1937,11 @@ describeEast("Plan", (test) => {
         $(Assert.equal(ok.layers.get(1n).unwrap("refDot").t.unwrap("ordinal"), "QC"));
     });
 
-    test("every element instant is the shared variant — cell clicks report it, and a data-driven series carries the arm through", $ => {
-        // The click payload's `at` is an instant, so a number-axis cell reports
-        // a number and an ordinal-axis cell a value — never an index.
-        const ev = $.const({ row: Plan.ref("span", "m1"), at: Plan.at.number(3) }, Plan.Types.CellClickEvent);
-        $(Assert.equal(ev.at.unwrap("number"), 3.0));
+    test("every element instant is the shared variant — cell refs report it, and a data-driven series carries the arm through", $ => {
+        // A cell ref's `at` is an instant, so a number-axis cell reports a
+        // number and an ordinal-axis cell a value — never an index.
+        const ev = $.const(variant("cell", { row: Plan.ref("span", "m1"), at: Plan.at.number(3) }), Plan.Types.ElementRef);
+        $(Assert.equal(ev.unwrap("cell").at.unwrap("number"), 3.0));
         // A series over numeric raw rows: the FloatType `start` / `end` fields
         // wrap through `Plan.run` with nothing else written.
         const JobRow = StructType({ start: FloatType, end: FloatType, state: EventStateType });

@@ -23,17 +23,16 @@ function row(key: string, kind: unknown, parent?: string): PlanRowValue {
         id: rowId(key),
         key,
         parent: parent !== undefined ? some(parent) : none,
-        gutter: { label: key, id: none, sub: none, value: none, meta: none, stacked: none, swatches: [] },
+        gutter: { label: key, id: false, sub: none, value: none, meta: none, stacked: false, swatches: [] },
         kind,
-        collapsed: none, pinned: none, height: none, status: none, approval: none, expand: none,
+        collapsed: false, pinned: false, height: none, status: none, approval: none, expand: none,
         duplicateOf: undefined,
     } as unknown as PlanRowValue;
 }
-const span = () => variant("span", { runs: [], decisions: [], ports: [], rollup: none, unit: none });
-const group = () => variant("group", { summary: none, summaryAggregate: none });
+const span = () => variant("span", { runs: [], decisions: [], ports: [], rollup: none });
+const group = () => variant("group", { summary: variant("none", null) });
 const chart = (expandable: boolean) => variant("chart", {
-    layers: [], left: none, right: none, height: variant("spark", null), expandedHeight: none,
-    expandable: expandable ? some(true) : none,
+    layers: [], left: none, right: none, height: variant("spark", null), expandedHeight: none, expandable,
 });
 
 const G = row("G", group());

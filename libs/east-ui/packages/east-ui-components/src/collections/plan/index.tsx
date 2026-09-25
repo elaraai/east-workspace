@@ -117,6 +117,7 @@ import {
 import { PlanAnnouncer } from "./root/announce.js";
 import { PlanWordsContext, useResolvedPlanWords } from "./words.js";
 import type { PlanSearch } from "./use-seek.js";
+import { getStore } from "../../platform/state-runtime.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
@@ -200,6 +201,10 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
         collapsed: value.rows.type === "inline" ? declaredCollapsedOf(canvasRowsOf(value.rows.value)) : [],
         restored: persistedOf(stored),
         persist: (next) => persistTo.current(next),
+        // A bound interaction state (#824) — the host's from the first frame,
+        // and written from outside through the state store.
+        ui: getSomeorUndefined(value.ui),
+        subscribeUi: (listener) => getStore().subscribe(listener),
     }));
     // What the live region speaks in (#820) — handed over before anything can
     // be said.
@@ -250,14 +255,20 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     const axisKind = data.axis.type;
     // An ordinal axis orders its instants by the declared list.
     const ordinalIndex = useMemo(() => ordinalIndexOf(data.axis), [data.axis]);
+    // The slice, the scale and the toolbar chrome — the scale's period is what
+    // the derivations fold to.
+    const { chrome, slice, affordances, scale } = usePlanWindow(value, data, words);
+    const period = scale?.period;
     // Renderer-side derivations (§4.2 — the Table idiom): the IR declares
-    // rollups / aggregates / summaries; the numbers are computed here, each
-    // row's entries kept by identity while they hold (#815). A row whose
-    // instants ride another arm renders in place as a DIAGNOSTIC row and
-    // derives nothing (#811). A derived number prints in the locale (#820).
+    // rollups / aggregates / summaries / folds; the numbers are computed here,
+    // each row's entries kept by identity while they hold (#815). Every row's
+    // values fold to the scale's period first (#824) — a resolution change
+    // re-derives, a pan does not. A row whose instants ride another arm
+    // renders in place as a DIAGNOSTIC row and derives nothing (#811). A
+    // derived number prints in the locale (#820).
     const fresh = useMemo(
-        () => derivePlan(index, ordinalIndex, axisKind, words.number),
-        [index, ordinalIndex, axisKind, words]);
+        () => derivePlan(index, ordinalIndex, axisKind, words, period),
+        [index, ordinalIndex, axisKind, words, period]);
     const derived = useStableDerived(fresh);
     // The R1 link graph — rows an edge touches grow the `links` control.
     const linkedKeys = useMemo(() => linkedRowKeys(data.links), [data.links]);
@@ -269,8 +280,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
         return r !== undefined ? { start: r.start, end: r.end } : undefined;
     }, [index]);
 
-    // ── Chrome: slice, scale, series library, review, transport, search ──
-    const { chrome, slice, affordances, scale } = usePlanWindow(value, data, words);
+    // ── Chrome: series library, review, transport, search ─────────────────
     // The series library (#590) — chrome, like the slice rail: the Plan feeds
     // ITSELF the picked series, so all that is left here is the panel.
     const pick = useMemo(() => getSomeorUndefined(value.pick), [value.pick]);
@@ -491,13 +501,12 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
         truncatedAt: scale?.truncated?.shown,
     }), [derived.diagnostics, target.firstSkipped, controller, paging.sourceError, seek.searchError, scale]);
 
-    // The element-click funnel, when the root declares any of the five
-    // callbacks — the controller routes a click to the LATEST root's.
-    const anyClick = data.onRunClick.type === "some" || data.onEventClick.type === "some"
-        || data.onMarkClick.type === "some" || data.onChipClick.type === "some" || data.onCellClick.type === "some";
+    // The element-click funnel, when the root declares `onElementClick` (#824)
+    // — the controller reports a click to the LATEST root's.
+    const clickable = data.onElementClick.type === "some";
     const resolvers = useMemo<PlanResolvers>(
-        () => ({ onElementClick: anyClick ? controller.elementClick : undefined }),
-        [anyClick, controller]);
+        () => ({ onElementClick: clickable ? controller.elementClick : undefined }),
+        [clickable, controller]);
     // What every row of this render shares (#616: per-row facts are computed
     // from it, and each row's memo skips unless ITS facts moved).
     const rowCtx = useMemo<PlanRowContext>(() => ({
@@ -664,7 +673,8 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
         const ref = refOfElement(el);
         if (ref === undefined) return;
         overlayHandlers.openAt(el);
-        controller.dispatch({ t: "row.select", key: rowKeyOf(ref.value.row) });
+        // A link belongs to no one row — it selects none.
+        if (ref.type !== "link") controller.dispatch({ t: "row.select", key: rowKeyOf(ref.value.row) });
         controller.elementClick(ref);
     };
     /** A key in the grid — `true` when it was the grid's. */

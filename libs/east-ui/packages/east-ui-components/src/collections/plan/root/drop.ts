@@ -8,10 +8,10 @@
  * reports it to the host.
  *
  * A target needs BOTH an `id` (cells are addressed `surface × row × slot`, and
- * an unnamed surface cannot be addressed) and an `onDrag` (a drop with nowhere
- * to report is a gesture that silently loses work). Missing either ⇒ no
- * registration at all, so no row lights up and no drag can complete against a
- * canvas that cannot act on it.
+ * an unnamed surface cannot be addressed — the root's `id` is `none` then,
+ * #824) and an `onDrag` (a drop with nowhere to report is a gesture that
+ * silently loses work). Missing either ⇒ no registration at all, so no row
+ * lights up and no drag can complete against a canvas that cannot act on it.
  *
  * @packageDocumentation
  */
@@ -38,25 +38,25 @@ export function usePlanDropTarget(
     sources: readonly string[],
     controller: PlanController,
 ): PlanRowDrop | undefined {
-    const dropEligible = value.onDrag.type === "some" && value.id !== "";
+    const id = value.onDrag.type === "some" ? getSomeorUndefined(value.id) : undefined;
     const canDropFn = useMemo(
         () => getSomeorUndefined(value.canDrop) as CanDropFn | undefined,
         [value.canDrop],
     );
-    const targetConfig = useMemo(() => (dropEligible ? {
-        id: value.id,
+    const targetConfig = useMemo(() => (id !== undefined ? {
+        id,
         sources: [...sources],
         // `add` only. `move` / `resize` need a drag to START on the canvas — a
         // draggable run bar or chip — and nothing here begins one, so declaring
         // them would advertise a capability with no gesture behind it.
         kinds: { add: true },
         onDrag: controller.drop,
-    } : null), [dropEligible, value.id, sources, controller]);
+    } : null), [id, sources, controller]);
     useDragTarget(targetConfig);
     // One registration shared by every droppable row — the per-row part of
     // the coordinate is the row itself, which `RowShell` already knows.
     return useMemo<PlanRowDrop | undefined>(
-        () => (dropEligible ? { surface: value.id, canDrop: canDropFn } : undefined),
-        [dropEligible, value.id, canDropFn],
+        () => (id !== undefined ? { surface: id, canDrop: canDropFn } : undefined),
+        [id, canDropFn],
     );
 }

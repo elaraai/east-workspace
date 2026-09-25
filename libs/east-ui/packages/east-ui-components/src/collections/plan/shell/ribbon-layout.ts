@@ -33,9 +33,12 @@ import type { PlanScale } from "../scale.js";
 import type { PlanInstantValue } from "../instant.js";
 import type { PlanGeometry } from "../geometry.js";
 import type { RowKey } from "../plan-state.js";
+import { quantityText } from "../quantity.js";
+import type { PlanWords } from "../words.js";
 import { routeRibbon, type RibbonEnd, type RibbonOff, type RibbonPath } from "./ribbon-geometry.js";
 
-/** Ribbon fill opacity bounds — share of the largest family quantity. */
+/** Ribbon fill opacity bounds — share of the largest family quantity; a link
+ *  with no quantity draws at the faintest. */
 export const RIBBON_OPACITY_MIN = 0.16;
 export const RIBBON_OPACITY_MAX = 0.38;
 /** Width of the off-window fade band (px). */
@@ -128,7 +131,9 @@ export interface LaidRibbon extends RibbonPath {
     from: RibbonEnd;
     to: RibbonEnd;
     opacity: number;
-    label: string;
+    /** The link's quantity caption (#824) — `undefined` for a link with no
+     *  quantity, which then shows no caption and no tooltip. */
+    label: string | undefined;
 }
 
 /** What {@link layoutRibbons} lays out from. */
@@ -149,6 +154,8 @@ export interface RibbonLayoutInput {
     plot: { left: number; width: number };
     /** What a bounded frame shows; `undefined` — the frame shows every row. */
     viewport: RibbonViewport | undefined;
+    /** The canvas's words — a caption prints the link's quantity in them (#824). */
+    words: PlanWords;
 }
 
 /** One endpoint, and the fade its off-window run lands behind. */
@@ -239,39 +246,44 @@ function endpointOf(input: RibbonLayoutInput, rowKey: RowKey, runKey: string): E
  * @returns The routed ribbons (in `links` order) and the off-window fades
  */
 export function layoutRibbons(input: RibbonLayoutInput): { ribbons: LaidRibbon[]; fades: RibbonFade[] } {
-    const { links, visibleKeys } = input;
-    // A link names its ends by row id (#822); the body keys its rows by the
-    // ids' text.
+    const { links, visibleKeys, words } = input;
+    // A link names its ends by run ref — a row id (#822) and a run key (#824);
+    // the body keys its rows by the ids' text.
     const edges: { link: number; l: PlanLinkValue; fromKey: RowKey; toKey: RowKey }[] = [];
     links.forEach((l, link) => {
-        const fromKey = rowKeyOf(l.fromRow);
-        const toKey = rowKeyOf(l.toRow);
+        const fromKey = rowKeyOf(l.from.row);
+        const toKey = rowKeyOf(l.to.row);
         if (visibleKeys.has(fromKey) && visibleKeys.has(toKey)) edges.push({ link, l, fromKey, toKey });
     });
     // Opacity is a share of the FAMILY's largest quantity — over every edge
     // the focus gathers, so a ribbon does not brighten as others scroll away.
-    const maxQty = edges.reduce((m, { l }) => Math.max(m, Math.abs(l.quantity)), 0);
+    // A link's weight is its quantity's value (#824); one with none weighs 0.
+    const weight = (l: PlanLinkValue): number => (l.quantity.type === "some" ? Math.abs(l.quantity.value.value) : 0);
+    const maxQty = edges.reduce((m, { l }) => Math.max(m, weight(l)), 0);
     const ribbons: LaidRibbon[] = [];
     const fades: RibbonFade[] = [];
     for (const { link, l, fromKey, toKey } of edges) {
-        const from = endpointOf(input, fromKey, l.fromRun);
-        const to = endpointOf(input, toKey, l.toRun);
+        const from = endpointOf(input, fromKey, l.from.run);
+        const to = endpointOf(input, toKey, l.to.run);
         if (from === undefined || to === undefined) continue;
         // Both ends past the same edge: nothing of it is in view.
         if (from.end.off !== undefined && from.end.off === to.end.off) continue;
         if (from.fade !== undefined) fades.push(from.fade);
         if (to.fade !== undefined) fades.push(to.fade);
         const opacity = maxQty > 0
-            ? RIBBON_OPACITY_MIN + (Math.abs(l.quantity) / maxQty) * (RIBBON_OPACITY_MAX - RIBBON_OPACITY_MIN)
+            ? RIBBON_OPACITY_MIN + (weight(l) / maxQty) * (RIBBON_OPACITY_MAX - RIBBON_OPACITY_MIN)
             : RIBBON_OPACITY_MIN;
+        const label = l.quantity.type === "some" ? quantityText(l.quantity.value, words) : undefined;
         // Semantic routing (`routeRibbon`): the ribbon exits the source run's
         // END and enters the destination's BEGINNING in every arrangement.
-        ribbons.push({ ...routeRibbon(from.end, to.end), link, from: from.end, to: to.end, opacity, label: l.label });
+        ribbons.push({ ...routeRibbon(from.end, to.end), link, from: from.end, to: to.end, opacity, label });
     }
     // Greedy caption de-overlap — bands sharing a source edge can land their
-    // captions on one another; nudge later ones down a line at a time.
+    // captions on one another; nudge later ones down a line at a time. A
+    // ribbon with no caption takes no line.
     const placed: { x: number; y: number }[] = [];
     for (const r of ribbons) {
+        if (r.label === undefined) continue;
         while (placed.some((p) => Math.abs(p.x - r.lx) < 60 && Math.abs(p.y - r.ly) < 12)) r.ly += 12;
         placed.push({ x: r.lx, y: r.ly });
     }

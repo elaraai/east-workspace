@@ -123,20 +123,20 @@ function planRow(key: string, kind: unknown, opts?: { parent?: string; expand?: 
         id: rowId(key),
         parent: opts?.parent !== undefined ? some(rowId(opts.parent)) : none,
         gutter: {
-            label: key, id: none, sub: opts?.sub !== undefined ? some(opts.sub) : none,
-            value: none, meta: none, stacked: none, swatches: [],
+            label: key, id: false, sub: opts?.sub !== undefined ? some(opts.sub) : none,
+            value: none, meta: none, stacked: false, swatches: [],
         },
         kind,
-        collapsed: none, pinned: none, height: none, status: none, approval: none,
+        collapsed: false, pinned: false, height: none, status: none, approval: none,
         expand: opts?.expand !== undefined ? some(opts.expand) : none,
     } as unknown as PlanWireRow;
 }
-const span = () => variant("span", { runs: [], decisions: [], ports: [], rollup: none, unit: none });
-const group = () => variant("group", { summary: none, summaryAggregate: none });
+const span = () => variant("span", { runs: [], decisions: [], ports: [], rollup: none });
+const group = () => variant("group", { summary: variant("none", null) });
 /** A spark chart the gutter toggles to expanded (32px ↔ 88px). */
 const chart = () => variant("chart", {
     layers: [], left: none, right: none,
-    height: variant("spark", null), expandedHeight: none, expandable: some(true),
+    height: variant("spark", null), expandedHeight: none, expandable: true,
 });
 const expandable = (px: string) => ({ height: some(px), axis: variant("keep", null) });
 const pad = (i: number, width: number) => String(i).padStart(width, "0");
@@ -155,9 +155,9 @@ function planRoot(rows: PlanWireRow[], opts?: { height?: string; source?: unknow
             ? some((id: PlanRowId) => variant("Text", { value: `R · ${id.value.path.join("/")}`, style: none }))
             : none,
         review: none, pick: none, slice: none, footer: [],
-        id: "", sources: [], onDrag: none, canDrop: none,
-        onSelect: none, onRunClick: none, onEventClick: none, onMarkClick: none, onChipClick: none, onCellClick: none,
-        onGroupToggle: none, onGrainChange: none,
+        id: none, sources: [], onDrag: none, canDrop: none,
+        onSelect: none, onElementClick: none,
+        onGroupToggle: none, onGrainChange: none, ui: none,
         style: opts?.height !== undefined
             ? some({ height: some(opts.height), maxHeight: none, density: none, gutterWidth: none })
             : none,
@@ -605,9 +605,9 @@ describe("a link into an evicted window (#823, #818)", () => {
     const bar = variant("span", {
         runs: [{
             key: "x", start: t(W27), end: t(new Date("2026-07-13T00:00:00Z")), label: "X",
-            quantity: none, qty: none, state: variant("actual", null), status: none, moved: none, icon: none,
+            quantity: none, state: variant("actual", null), status: none, moved: none, icon: none,
         }],
-        decisions: [], ports: [], rollup: none, unit: none,
+        decisions: [], ports: [], rollup: none,
     });
     const source = {
         id: "dom-823-links",
@@ -618,7 +618,10 @@ describe("a link into an evicted window (#823, #818)", () => {
         total: () => some(2_000n), seek: none, revision: () => none, refresh: () => null,
     };
     // A row of window 7 feeds a row of window 1.
-    const links = [{ fromRow: rowId("w0007r000"), fromRun: "x", toRow: rowId("w0001r000"), toRun: "x", quantity: 5, label: "5 t" }];
+    const links = [{
+        key: "w7>w1", from: { row: rowId("w0007r000"), run: "x" }, to: { row: rowId("w0001r000"), run: "x" },
+        quantity: some({ value: 5, unit: some("t"), format: none, text: none }),
+    }];
     /** A triangle's tip — its second vertex. */
     const tipOf = (d: string): [number, number] => {
         const nums = d.trim().split(/[\sMLZ]+/).filter((x) => x !== "").map(Number);

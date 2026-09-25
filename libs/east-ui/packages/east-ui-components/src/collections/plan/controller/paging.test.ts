@@ -810,6 +810,16 @@ describe("paging driver — blocks page apart (#823)", () => {
         expect(d.placeOf(snap().rows[0]!.key)).toBeUndefined();
         expect(d.placeOf(rowKey("w0049r000"))).toBeUndefined();
     });
+
+    test("seenAt names the block and window a row was last seen in — resident or evicted; never seen, none (#824)", () => {
+        const { d, snap, report } = drive(source(50, 20).value);
+        report(band("tail", 17 * 640 + 10));
+        // Evicted: where to reopen it.
+        expect(d.seenAt(rowKey("w0001r000"))).toEqual({ block: 0, w: 1 });
+        // Resident: where it is.
+        expect(d.seenAt(snap().rows[0]!.key)).toEqual(snap().origin.get(snap().rows[0]!.key));
+        expect(d.seenAt(rowKey("w0049r000"))).toBeUndefined();
+    });
 });
 
 describe("the probe, inverted — a window holds its entries whole (#823)", () => {
@@ -818,14 +828,14 @@ describe("the probe, inverted — a window holds its entries whole (#823)", () =
     // 1's band from window 1 among window 0's machines, and its ledger counted
     // each 26px band once per window — 360px against 308 rendered. Nesting from
     // the data makes a line ONE entry, and its window holds it whole.
-    const groupKind = variant("group", { summary: none, summaryAggregate: none });
-    const spanKind = variant("span", { runs: [], decisions: [], ports: [], rollup: none, unit: none });
+    const groupKind = variant("group", { summary: variant("none", null) });
+    const spanKind = variant("span", { runs: [], decisions: [], ports: [], rollup: none });
     /** A wire row with every field the model reads. */
     const full = (key: string, kind: unknown, parent?: string): PlanWireRow => ({
         id: rowId(key),
         parent: parent !== undefined ? some(rowId(parent)) : none,
-        gutter: { label: key, id: none, sub: none, value: none, meta: none, stacked: none, swatches: [] },
-        kind, collapsed: none, pinned: none, height: none, status: none, approval: none, expand: none,
+        gutter: { label: key, id: false, sub: none, value: none, meta: none, stacked: false, swatches: [] },
+        kind, collapsed: false, pinned: false, height: none, status: none, approval: none, expand: none,
     }) as unknown as PlanWireRow;
     /** Window w serves line `L{w+1}` with its machines: m001 m003 m005 m007 in
      *  window 0, m002 … m008 in window 1. */

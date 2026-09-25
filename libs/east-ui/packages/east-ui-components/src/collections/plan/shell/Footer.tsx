@@ -40,9 +40,8 @@ export function PlanFooter({ styles, items, transport }: PlanFooterProps) {
         <Box css={styles.footer} data-slot="footer">
             {items.map((item, i) => {
                 const tone = item.tone.type === "some" ? item.tone.value.type : undefined;
-                const end = item.end.type === "some" && item.end.value;
                 return (
-                    <Box key={i} css={styles.footerItem} data-tone={tone} data-end={end ? "" : undefined}>
+                    <Box key={i} css={styles.footerItem} data-tone={tone} data-end={item.end ? "" : undefined}>
                         {item.text}
                     </Box>
                 );

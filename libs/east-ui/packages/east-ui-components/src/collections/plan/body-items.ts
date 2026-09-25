@@ -21,10 +21,11 @@ import { rowKeyOf } from "./row-key.js";
 // ── The R1 link graph (renderer-derived over the decoded `links` edges) ─────
 
 /** Every row key any link edge touches — the rows that grow the `links` control.
- *  A link names its ends by row id (#822); the graph keys by their text. */
+ *  A link names its ends by run ref (#824), each carrying its row's id (#822);
+ *  the graph keys by the ids' text. */
 export function linkedRowKeys(links: readonly PlanLinkValue[]): ReadonlySet<RowKey> {
     const out = new Set<RowKey>();
-    for (const l of links) { out.add(rowKeyOf(l.fromRow)); out.add(rowKeyOf(l.toRow)); }
+    for (const l of links) { out.add(rowKeyOf(l.from.row)); out.add(rowKeyOf(l.to.row)); }
     return out;
 }
 
@@ -285,8 +286,8 @@ export function deriveLinkFamily(links: readonly PlanLinkValue[], key: RowKey): 
     const fwd = new Map<RowKey, RowKey[]>();
     const rev = new Map<RowKey, RowKey[]>();
     for (const l of links) {
-        const from = rowKeyOf(l.fromRow);
-        const to = rowKeyOf(l.toRow);
+        const from = rowKeyOf(l.from.row);
+        const to = rowKeyOf(l.to.row);
         (fwd.get(from) ?? fwd.set(from, []).get(from)!).push(to);
         (rev.get(to) ?? rev.set(to, []).get(to)!).push(from);
     }

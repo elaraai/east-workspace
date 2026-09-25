@@ -34,6 +34,7 @@ import { maxOf, minOf } from "../reductions.js";
 import { cellName, heatValueText, segmentsText, weightValueText } from "../a11y.js";
 import type { PlanRowId } from "../model.js";
 import { usePlanWords } from "../words.js";
+import { getSomeorUndefined } from "../../../utils.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 type HeatCellsValue = ValueTypeOf<typeof Plan.Types.HeatCells>;
@@ -122,7 +123,8 @@ export function HeatCells({ rowKey, rowId, cells, styles, ctx, onCellClick }: He
     };
 
     if (cells.type === "heat") {
-        const { cells: hc, min, max, warnAt } = cells.value;
+        const { cells: hc, scale: { min, max, warnAt } } = cells.value;
+        const format = getSomeorUndefined(cells.value.format);
         const values = hc.map((c) => (c.value.type === "some" ? c.value.value : undefined));
         const present = values.filter((v): v is number => v !== undefined);
         const lo = min.type === "some" ? min.value : (present.length > 0 ? minOf(present) : 0);
@@ -136,7 +138,11 @@ export function HeatCells({ rowKey, rowId, cells, styles, ctx, onCellClick }: He
                     if (box === undefined) return null;
                     const v = values[i];
                     const depth = v === undefined || span <= 0 ? 0 : Math.max(0, Math.min(1, (v - lo) / span));
-                    const label = c.label.type === "some" ? c.label.value : undefined;
+                    // A cell prints its label; one without prints its value
+                    // only through a declared format (#824) — a row painted by
+                    // depth alone stays unprinted.
+                    const label = c.label.type === "some" ? c.label.value
+                        : v !== undefined && format !== undefined ? w.value(v, format) : undefined;
                     const warned = v !== undefined && warn !== undefined && v >= warn;
                     const words = heatValueText(v, label, warned, w);
                     return (
@@ -165,13 +171,14 @@ export function HeatCells({ rowKey, rowId, cells, styles, ctx, onCellClick }: He
     if (cells.type === "weight") {
         // The Matrix `.wbar`: a single left-anchored bar, its width the
         // booked fraction of the cell — no background track.
+        const format = getSomeorUndefined(cells.value.format);
         return (
             <>
-                {cells.value.map((c, i) => {
+                {cells.value.cells.map((c, i) => {
                     const b = scale.renderBucketOf(c.at);
                     if (b === undefined) return null;
                     const frac = Math.max(0, Math.min(1, c.fraction));
-                    const words = weightValueText(c.fraction, c.planned, w);
+                    const words = weightValueText(c.fraction, c.planned, w, format);
                     return (
                         <Box key={i} css={styles.weightBar}
                             data-plan-bucket={b.index}
@@ -188,13 +195,14 @@ export function HeatCells({ rowKey, rowId, cells, styles, ctx, onCellClick }: He
         );
     }
 
+    const segmentFormat = getSomeorUndefined(cells.value.format);
     return (
         <>
-            {cells.value.map((c, i) => {
+            {cells.value.cells.map((c, i) => {
                 const b = scale.renderBucketOf(c.at);
                 if (b === undefined) return null;
                 const total = c.segments.reduce((acc, s) => acc + Math.max(0, s.weight), 0);
-                const words = segmentsText(c.segments, w);
+                const words = segmentsText(c.segments, w, segmentFormat);
                 return (
                     <Box key={i} css={styles.segmentTrack}
                         data-plan-bucket={b.index}

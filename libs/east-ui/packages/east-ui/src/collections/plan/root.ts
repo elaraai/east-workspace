@@ -43,17 +43,13 @@ import {
     type PlanGrainLiteral,
     PlanLinkType,
     PlanRowIdType,
-    PlanRunClickEventType,
-    PlanEventClickEventType,
-    PlanMarkClickEventType,
-    PlanChipClickEventType,
-    PlanCellClickEventType,
     PlanGroupToggleEventType,
     PlanFooterItemType,
     PlanStyleType,
     PlanElementRefType,
     PlanBlocksType,
     PlanRowsType,
+    PlanUiBindType,
     type PlanAxisKindLiteral,
     type PlanAxisInput,
 } from "./types.js";
@@ -104,18 +100,15 @@ export type PlanReviewConfig = ReviewConfig<PlanRowIdType>;
  * @property review - The shared review chrome (decision column + batch foot)
  * @property slice - Bound slice chrome (toolbar affordances)
  * @property footer - Status-footer items
- * @property id - DnD target identity
+ * @property id - DnD target identity (omit ⇒ the canvas is no drop target)
  * @property sources - Library ids accepted for `add` drags
  * @property onDrag - The shared drag funnel — a library card dropped on a row reports an `add`
  * @property canDrop - IR-level drop veto (the ⊘ stage)
  * @property onSelect - Row click (selection)
- * @property onRunClick - Span bar click
- * @property onEventClick - Bucket tile click
- * @property onMarkClick - Event mark / decision diamond click
- * @property onChipClick - Cards chip click
- * @property onCellClick - Heat / table / weight / segment cell click
+ * @property onElementClick - A click on any element — run, tile, mark, chip, cell or link ribbon — by its ref (#824)
  * @property onGroupToggle - A row with children expanded or collapsed
  * @property onGrainChange - Grain segment change
+ * @property ui - A bound interaction state (`State.bind` at `Plan.Types.UiState`, #824)
  * @property style - Sizing, density and gutter width
  */
 export interface PlanConfig<K extends PlanAxisKindLiteral = PlanAxisKindLiteral> {
@@ -172,7 +165,7 @@ export interface PlanConfig<K extends PlanAxisKindLiteral = PlanAxisKindLiteral>
     grain?: PlanGrainLiteral | SubtypeExprOrValue<PlanGrainType>;
     /** Generalized click-popover resolver — called with the clicked element's
      *  ref (`run` / `event` / `chip` / `mark` / `cell` arm, each carrying the
-     *  row's id); returning `none` opens no surface. */
+     *  row's id, or a ribbon's `link` arm); returning `none` opens no surface. */
     popover?: SubtypeExprOrValue<FunctionType<[PlanElementRefType], OptionType<UIComponentType>>>;
     /** Generalized hovercard resolver — the hover twin of `popover`. */
     hover?: SubtypeExprOrValue<FunctionType<[PlanElementRefType], OptionType<UIComponentType>>>;
@@ -204,7 +197,7 @@ export interface PlanConfig<K extends PlanAxisKindLiteral = PlanAxisKindLiteral>
         /** Right-align the item. */
         end?: boolean;
     }[];
-    /** DnD target identity — names the Plan in drag-grammar cell refs. */
+    /** DnD target identity — names the Plan in drag-grammar cell refs. Omit ⇒ the canvas is no drop target. */
     id?: string;
     /** Library ids accepted for `add` drags (omit = no adds). */
     sources?: string[];
@@ -216,20 +209,32 @@ export interface PlanConfig<K extends PlanAxisKindLiteral = PlanAxisKindLiteral>
     canDrop?: SubtypeExprOrValue<FunctionType<[DragEventType], BooleanType>>;
     /** Row click (selection) — the row's id. */
     onSelect?: SubtypeExprOrValue<FunctionType<[PlanRowIdType], NullType>>;
-    /** Span bar click (`{ row, run }`). */
-    onRunClick?: SubtypeExprOrValue<FunctionType<[PlanRunClickEventType], NullType>>;
-    /** Bucket tile click (`{ row, event }`). */
-    onEventClick?: SubtypeExprOrValue<FunctionType<[PlanEventClickEventType], NullType>>;
-    /** Event mark / span decision-diamond click (`{ row, mark }`). */
-    onMarkClick?: SubtypeExprOrValue<FunctionType<[PlanMarkClickEventType], NullType>>;
-    /** Cards chip click (`{ row, chip }`). */
-    onChipClick?: SubtypeExprOrValue<FunctionType<[PlanChipClickEventType], NullType>>;
-    /** Bucket-cell click (`{ row, at }` — the bucket instant, not an index). */
-    onCellClick?: SubtypeExprOrValue<FunctionType<[PlanCellClickEventType], NullType>>;
+    /** A click on any element, by its ref (#824) — `run` (`{ row, run }`), `event` (`{ row, event }`),
+     *  `mark` (an event mark or a decision diamond, `{ row, mark }`), `chip` (`{ row, chip }`), `cell`
+     *  (`{ row, at }` — the bucket's instant, not an index) or a link ribbon's `link` (`{ key, from, to }`).
+     *  One function over one variant, as the `popover` / `hover` resolvers are: `ref.match({ … })`. */
+    onElementClick?: SubtypeExprOrValue<FunctionType<[PlanElementRefType], NullType>>;
     /** A row with children expanded or collapsed (fires after the in-place swap). */
     onGroupToggle?: SubtypeExprOrValue<FunctionType<[PlanGroupToggleEventType], NullType>>;
     /** Grain segment change (grain is Plan-local state; initial via `grain`). */
     onGrainChange?: SubtypeExprOrValue<FunctionType<[PlanGrainType], NullType>>;
+    /**
+     * The canvas's interaction state, held by the host (#824) — a
+     * `State.bind([Plan.Types.UiState], key, Plan.uiState())` handle.
+     *
+     * @remarks
+     * Bound, the canvas reads it and writes the user's actions back: the
+     * selection, the rows folded or opened against what they declare, the
+     * charts expanded. Write it from outside to select a row, fold or open one,
+     * expand a chart, or — through `focus` — bring a row into view (a deep
+     * link, a list beside the canvas); the canvas spends a `focus` request
+     * once it has. Unbound, the canvas keeps the state itself and persists the
+     * user's folds and charts under its storage key (#813).
+     *
+     * A write re-renders whatever reads the state, like any `State.bind`: read
+     * it in the `Reactive` that renders the canvas only for what depends on it.
+     */
+    ui?: SubtypeExprOrValue<PlanUiBindType>;
     /** Sizing (#320), density, gutter width. */
     style?: {
         /** Definite height (`"fill"` fills the parent). */
@@ -378,20 +383,19 @@ export function createPlanRoot<K extends PlanAxisKindLiteral = PlanAxisKindLiter
         footer:   (config.footer ?? []).map(f => East.value({
             text: f.text,
             tone: f.tone !== undefined ? some(resolveTag(f.tone, StatusValueType)) : none,
-            end:  f.end !== undefined ? some(f.end) : none,
+            end:  f.end ?? false,
         }, PlanFooterItemType)),
-        id:       config.id ?? "",
+        id:       config.id !== undefined ? some(config.id) : none,
         sources:  East.value(config.sources ?? [], ArrayType(StringType)),
         onDrag:   config.onDrag !== undefined ? some(config.onDrag) : none,
         canDrop:  config.canDrop !== undefined ? some(config.canDrop) : none,
         onSelect: config.onSelect !== undefined ? some(config.onSelect) : none,
-        onRunClick:    config.onRunClick !== undefined ? some(config.onRunClick) : none,
-        onEventClick:  config.onEventClick !== undefined ? some(config.onEventClick) : none,
-        onMarkClick:   config.onMarkClick !== undefined ? some(config.onMarkClick) : none,
-        onChipClick:   config.onChipClick !== undefined ? some(config.onChipClick) : none,
-        onCellClick:   config.onCellClick !== undefined ? some(config.onCellClick) : none,
+        onElementClick: config.onElementClick !== undefined
+            ? some(East.value(config.onElementClick, FunctionType([PlanElementRefType], NullType)))
+            : none,
         onGroupToggle: config.onGroupToggle !== undefined ? some(config.onGroupToggle) : none,
         onGrainChange: config.onGrainChange !== undefined ? some(config.onGrainChange) : none,
+        ui:       config.ui !== undefined ? some(East.value(config.ui, PlanUiBindType)) : none,
         style:    styleValue,
     }), UIComponentType);
 }

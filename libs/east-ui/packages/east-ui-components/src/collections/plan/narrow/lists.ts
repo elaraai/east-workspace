@@ -12,7 +12,7 @@
 
 import { type ValueTypeOf } from "@elaraai/east";
 import { Plan } from "@elaraai/east-ui/internal";
-import { derivedSummaryArm } from "../rows/GroupRow.js";
+import { groupStrip } from "../rows/GroupRow.js";
 import type { PlanDerived, PlanRowIndex, PlanRowValue } from "../model.js";
 import { appendAll } from "../reductions.js";
 import type { RowKey } from "../plan-state.js";
@@ -42,15 +42,12 @@ export function allDataRows(index: PlanRowIndex): PlanRowValue[] {
     return out;
 }
 
-/** A group's strip cells as a heat arm — its explicit `summary`, else the
- *  derived `summaryAggregate` cells on the scale they inherit (the desktop
- *  band's own builder, so both strips read the same way). */
+/** A group's strip as the band draws it collapsed — its derived strip, else
+ *  its declared cells (`groupStrip`, the desktop band's own reading, so both
+ *  strips show the same folded cells, #824). */
 export function summaryArm(row: PlanRowValue, derived: PlanDerived): HeatCellsValue | undefined {
     if (row.kind.type !== "group") return undefined;
-    if (row.kind.value.summary.type === "some") return row.kind.value.summary.value;
-    const cells = derived.groupSummary.get(row.key);
-    if (cells === undefined || cells.length === 0) return undefined;
-    return derivedSummaryArm(cells, derived.groupSummaryScale.get(row.key));
+    return groupStrip(row.kind.value, derived.groupStrips.get(row.key));
 }
 
 /** The hottest value on a strip — what "hottest first" sorts by. */
@@ -60,7 +57,7 @@ export function peakOf(arm: HeatCellsValue | undefined): number {
     if (arm.type === "heat") {
         for (const c of arm.value.cells) if (c.value.type === "some" && c.value.value > peak) peak = c.value.value;
     } else if (arm.type === "weight") {
-        for (const c of arm.value) if (c.fraction > peak) peak = c.fraction;
+        for (const c of arm.value.cells) if (c.fraction > peak) peak = c.fraction;
     }
     return peak;
 }

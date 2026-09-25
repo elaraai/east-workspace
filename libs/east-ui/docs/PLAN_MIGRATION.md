@@ -50,6 +50,14 @@ them, so the inline arm, every paged window and every `derive` are
 for a paged canvas are in [Blocks (#823)](#blocks-823) below. Authoring is
 unaffected. Stored `UIComponentType` values re-emit.
 
+**#824 breaks it again**, with its authoring API: a run's and a link's
+numbers are one `PlanQuantityType`, cells, table series and chart layers
+declare how a coarser bucket folds them, the five element callbacks are one
+`onElementClick`, the root gains a bound `ui` state, and the `Option<Boolean>`
+flags are Booleans. The wire and every removal are in
+[Values, folds, one element callback and a bound ui (#824)](#values-folds-one-element-callback-and-a-bound-ui-824)
+below. Stored `UIComponentType` values re-emit.
+
 The public API break alongside it: the `Gantt` / `Planner` / `AlignedStack`
 exports (tags, factories, `*.Types`) are gone from `@elaraai/east-ui` and
 `@elaraai/east-ui/internal`, as are `EastChakraGantt` / `EastChakraPlanner`
@@ -78,9 +86,9 @@ same rows whether its data is inline or paged.
 | `PlanRowType.parent` | `Option<String>` | `Option<PlanRowIdType>` |
 | `PlanRowType.collapsed` | on the `group` kind only | on the row — any row with children may start collapsed; the `group` kind is `{ summary, summaryAggregate }` |
 | `PlanRowIdType` | — | `Variant { entry: { series, path: Array<String> }, section: { series, path } }` |
-| click payloads (`Run` / `Event` / `Mark` / `Chip` / `Cell`), `ElementRef` arms, `GroupToggleEvent` | `row: String` | `row: PlanRowIdType` |
+| click payloads (`Run` / `Event` / `Mark` / `Chip` / `Cell` — since #824 the arms of `ElementRef`), `GroupToggleEvent` | `row: String` | `row: PlanRowIdType` |
 | `onSelect`, review `onApprove` / `onReject`, `expandRender`, `expandGutter` | `PlanRowRefType` (`{ key }`) | `PlanRowIdType` — `PlanRowRefType` / `Plan.Types.RowRef` are removed |
-| `PlanLinkType.fromRow` / `toRow` | `String` | `PlanRowIdType` |
+| `PlanLinkType.fromRow` / `toRow` | `String` | `PlanRowIdType` — since #824 the `row` of the link's `from` / `to` (`PlanRunRefType`) |
 | `Plan.Types.Series(R)` | 9 arms; `derive: Fn(Dict<String, R>) → Dict<String, PlanRow>` | 11 arms (`+ section`, `views`); `derive: Fn(Dict<K, R>) → Array<PlanRow>`; `Plan.Types.Series(R, K)` for a key type other than String |
 | drag `CellRef.row` | the row key | still a `String` — the row id's canonical `.east` text (`East.print(Plan.ref(…))`), so the shared drag grammar is unchanged in shape |
 
@@ -94,7 +102,7 @@ path.
 
 | Removed | Replacement | Example |
 |---|---|---|
-| `groupBy: [r => r.top, r => r.program]` on span / heat / table | reshape first — `rows.groupToDicts(($, r) => r.top, ($, _r, k) => k)` — and nest: `children: Plan.children((g) => g, [series…])`; a recursive entry nests with `children: (r) => r.children`, to any depth. A parent declares `rollup` / `unit` (span), `aggregate` (heat, default `"mean"`; table, default `"sum"`) and `format` as before, and derives exactly, since its whole subtree rides in its entry. A paged source is grouped in its dataflow. | `planGroupedRows`, `planSeriesData`, `planTableRows` |
+| `groupBy: [r => r.top, r => r.program]` on span / heat / table | reshape first — `rows.groupToDicts(($, r) => r.top, ($, _r, k) => k)` — and nest: `children: Plan.children((g) => g, [series…])`; a recursive entry nests with `children: (r) => r.children`, to any depth. A parent declares `rollup` (span), `aggregate` (heat, default `"mean"`; table, default `"sum"`) and `format` as before, and derives exactly, since its whole subtree rides in its entry. A paged source is grouped in its dataflow. | `planGroupedRows`, `planSeriesData`, `planTableRows` |
 | `Plan.series.group(R, { by, keyPrefix?, collapsed?, summaryAggregate? })` | `Plan.series.group(G, { key, title, label, children, summaryAggregate?, summary?, collapsed? })` over grouped entries — one strip PER ENTRY, its members the entry's children. The old form throws, naming this replacement. | `planGroupedRows`, `planNarrow` |
 | `Plan.series.group(R, chrome, children)` — a static group over series | `Plan.series.section(R, { key, title, collapsed?, meta?, value?, status?, summary?, summaryAggregate? }, [series…])` | `planTargetState`, `planLibraryDnd` |
 | `keySuffix` (`"m03"` → `"m03/chart"`) and `keyPrefix` | `Plan.series.views(R, { key, title, match?, children?, collapsed? }, [series…])` — one row per member per entry, adjacent and in order; each row's id is its MEMBER's key and the entry's path, and a seek on the entry lands on its first view row | `planLibraryDnd`, `planFill` |
@@ -104,7 +112,6 @@ path.
 | a drop's `into.row` equal to the data key | the id's text — key host tables by `East.print(Plan.ref(series, …path))` (an id is a variant, so it cannot be a `Dict` key itself), or read it back with `row.parse(Plan.Types.RowId)` | `planRowDrop` |
 | `Plan.pick(key, all, { data, hidden })` — per-series row counts | `Plan.pick(key, all, { hidden })` — the library lists series by title, subtitle and kind icon; a count means something only with every entry in hand | `planPick`, `planLibraryDnd` |
 | fit-to-data — an axis with no `window` and no bound slice fitted itself to the rows (inline only) | state `axis.window`, or bind a slice whose range supplies it. Written in place, the canvas is refused at build; a bound or stored axis draws the `NO WINDOW` diagnostic. A slice-bound canvas with no stated window takes its window from the slice's range — the Plan's own brush then cannot clear it (other slice chrome still can). | `planTargetState`, `planNumberAxis` |
-| heat series `scale` — the derived parent cells' scale | the parent's own (possibly empty) cells carry it: `cells: r => Plan.heatCells(r.cells, { min, max, warnAt })` | `planHeatRows` |
 | series keys unique per source; a repeat silently replaced rows (`LAST_WINS`) | series keys unique across the WHOLE series tree — a repeat is a build-time error naming both sites; a repeated run-time id (hand-built rows sharing a key) draws a `DUPLICATE ID` row diagnostic | — |
 | `data: Dict<String, R>` only | `Dict<K, R>` for any `K`; accessors receive `(entry, key: K)`; a series whose accessors read a non-String key declares `keyType` (and a bound list types itself `Plan.Types.Series(R, K)`) | — |
 | `seriesSignature` and the derived `#signature` paged id | the derived source keeps the handle's id — equivalence (#809) and revisions (#821) cover what the signature tried to | — |
@@ -205,6 +212,91 @@ does inline.
 - `buildRowSource` (east-ui `contracts/source.ts`) loses its `idSuffix`
   parameter: a derived source keeps the handle's id.
 
+## Values, folds, one element callback and a bound ui (#824)
+
+Before #824 a number on the canvas was a Float beside a display String — a
+run's `qty` and `quantity`, a link's `quantity` and `label` — so a caption
+could say something its sum did not. A coarser resolution stacked cells
+instead of folding them: switch WEEK → MONTH over weekly cells and four heat
+cells overlapped, a table cell printed four numerals and four columns
+overdrew. Five callbacks reported five element kinds, a link reported
+nothing, and selection, folds and focus lived only in the renderer. Now a
+quantity is one value, every value folds to the axis's resolution, one
+callback reports every element, and the interaction state can live with the
+host.
+
+### The wire
+
+| Type | Before | After |
+|---|---|---|
+| `PlanQuantityType` (`Plan.Types.Quantity`) | — | `{ value: Float, unit: Option<String>, format: Option<TickFormat>, text: Option<String> }` |
+| `PlanRunType` | `quantity: Option<String>`, `qty: Option<Float>` | `quantity: Option<PlanQuantity>` |
+| `PlanLinkType` | `{ fromRow, fromRun, toRow, toRun, quantity: Float, label: String }` | `{ key: String, from: PlanRunRef, to: PlanRunRef, quantity: Option<PlanQuantity> }` |
+| `PlanRunRefType` (`Plan.Types.RunRef`) | — | `{ row: PlanRowId, run: String }` — a run ref, and each end of a link |
+| `PlanElementRefType` | five arms, one `Plan*ClickEventType` each | six arms: `run` (a `PlanRunRef`), `event`, `chip`, `mark`, `cell`, and `link { key, from, to }`. The five `*ClickEvent` types are removed |
+| `PlanFoldType` (`Plan.Types.Fold`) | — | `sum \| mean \| min \| max \| last \| count` |
+| `PlanHeatCellsType` | `heat { cells, min, max, warnAt }` \| `weight: Array<…>` \| `segments: Array<…>` | `heat { cells, scale: PlanHeatScale, fold, format }` \| `weight { cells, fold, format }` \| `segments { cells, fold, format }` |
+| `PlanHeatScaleType` (`Plan.Types.HeatScale`) | — | `{ min, max, warnAt: Option<Float> }` |
+| the `heat` row kind | `{ cells, aggregate }` — a parent's scale rode its empty cells | `{ cells, aggregate, scale: Option<PlanHeatScale> }` — the scale a parent's derived cells paint on |
+| the `span` row kind | `unit: Option<String>` | removed — each quantity carries its unit |
+| the `group` row kind | `summary: Option<PlanHeatCells>`, `summaryAggregate: Option<PlanAggregate>` | `summary: PlanGroupSummaryType` = `none \| cells(PlanHeatCells) \| aggregate(PlanAggregate)` (`Plan.Types.GroupSummary`) |
+| `PlanTableSeriesType` | `strong`, `rollup: Option<Boolean>` | `strong`, `rollup: Boolean`, `fold: PlanFold` |
+| chart layers `line` / `area` / `column` | — | `fold: PlanFold` |
+| gutter `id` / `stacked`, row `collapsed` / `pinned`, chart `expandable`, footer `end` | `Option<Boolean>` (`none` meant `false`) | `Boolean` |
+| root `onRunClick` / `onEventClick` / `onMarkClick` / `onChipClick` / `onCellClick` | five `Option<Fn>` | one `onElementClick: Option<Fn(PlanElementRef) → Null>` |
+| root `ui` | — | `Option<PlanUiBindType>` — a `State.bind` handle `{ read, write, has }` (`Plan.Types.UiBind`) |
+| `PlanUiStateType` (`Plan.Types.UiState`) | — | `{ selected: Option<RowId>, collapsed: Array<RowId>, expanded: Array<RowId>, charts: Array<RowId>, focus: Option<RowId> }` |
+| root `id` | `String`, `""` for no drop target | `Option<String>` — `none` is no drop target |
+
+### Removals and their replacements
+
+| Removed | Replacement | Example |
+|---|---|---|
+| `Plan.run({ qty: 12, quantity: "12 t" })` | `Plan.run({ quantity: Plan.quantity(12, { unit: "t", format?, text? }) })`. The caption is `text`, or else the value printed through `format`, then the unit | `planSeriesData`, `planSpanRows` |
+| `Plan.link({ from, fromRun, to, toRun, quantity: 34, label: "34 t" })` | `Plan.link({ key: "l1", from, fromRun, to, toRun, quantity: Plan.quantity(34, { unit: "t" }) })`. The `key` names the ribbon in its click ref. A ribbon with no quantity draws at the faintest weight, with no caption | `planSpanRows`, `planTargetState` |
+| `Plan.series.span(R, { unit })` / `Plan.span({ unit })` | each run's `Plan.quantity(v, { unit })` — a band sums unit by unit (`208 t · 12 h`) | `planSpanRows` |
+| `onRunClick` / `onEventClick` / `onMarkClick` / `onChipClick` / `onCellClick` | `onElementClick` over `Plan.Types.ElementRef`: `$.match(ref, { run: …, cell: … })` answers only the arms it names, and a ribbon click is the `link` arm | `planVariants` |
+| `Plan.Types.RunClickEvent` … `CellClickEvent` | the arms of `Plan.Types.ElementRef`; a run's is `Plan.Types.RunRef` | — |
+| a group given both `summary` and `summaryAggregate` | one or the other; both is refused at build | `planGroupedRows` |
+| cells stacking at a coarser resolution | `fold`: `Plan.heatCells(c, { min, max, warnAt, fold, format })`, `Plan.weightCells(c, { fold, format })`, `Plan.segmentCells(c, { fold, format })`, `Plan.table({ cells, fold })`, `Plan.tableSeries({ fold })`, `Plan.series.table(R, { fold })`, `Plan.layer(layer, { fold })` | `planFold` |
+
+A heat parent's `scale` (`Plan.series.heat(R, { scale })`,
+`Plan.heat({ rows, scale })`) is written as before; it is now the parent's own
+scale on the wire, not its empty cells'.
+
+### Behaviour
+
+- **Folds.** A row's values in one bucket fold to one value. The defaults
+  are: heat and weight `mean`; segments, table numerals and columns `sum`;
+  lines and areas `mean`. A bucket holding one value keeps it whole, with its
+  instant, label and text. A folded cell sits at the bucket's start, and its
+  click ref names that instant. A parent derives from its children's folded
+  cells, so it summarises what they show. Tone strips and the narrow cards
+  read the same folded cells. Scatter and band layers draw every point.
+- **Quantities.** A caption prints in the viewer's language. A rollup band
+  sums its runs' quantities unit by unit, and only when every run carries one.
+  A ribbon's weight is its quantity's value.
+- **A bound `ui`.** The canvas draws the host's state from the first frame and
+  writes the user's selection, folds, opens and chart toggles back. It
+  writes in a microtask after the gesture, never when nothing changed, and
+  never echoes a host write back.
+  - `collapsed` and `expanded` override what a row declares. A row in
+    neither list follows its declaration; a row in both is collapsed.
+  - `focus` is a request. The canvas opens the row's folded ancestors, and
+    switches the GROUP grain to RESOURCE if that grain folds the row (the
+    host's selection is kept). It scrolls the row to the top of the view and
+    makes it the tab stop without moving DOM focus, then writes
+    `focus: none`. On a paged canvas it first opens a window the row was
+    seen in, or seeks its entry.
+  - A bound canvas keeps folds and charts out of `storageKey`; the scroll
+    anchor is still kept.
+  - Unbound, the canvas owns this state as before (#813).
+
+### Renderer (`@elaraai/east-ui-components`)
+
+- The message table gains `quantity({ value, unit })` (a value and its unit)
+  and `quantities({ parts })` (a band's per-unit sums, joined ` · `).
+
 ## Extracted contracts (do this first when migrating imports)
 
 The shared audit vocabulary outlived the Planner and moved to `contracts/`:
@@ -256,7 +348,8 @@ domain id, never an index.
   Plan equivalent by design — put extra measures in a `Plan.series.table`
   row series or a paired `<Table>`.
 - **Progress fills**: `Plan.run` has no progress fraction — carry it in
-  `quantity` ("62%") or a paired heat/table series.
+  its `quantity` (`Plan.quantity(62, { unit: "%" })`) or a paired heat/table
+  series.
 - **axis.tier / striped / showToday**: resolution ≙ tier; `now` draws the
   divider (omit for none); striping is not part of the Plan language.
 - **Task move/resize drags**: not in Plan R1. The DnD target role covers

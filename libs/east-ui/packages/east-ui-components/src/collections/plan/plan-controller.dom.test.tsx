@@ -47,16 +47,16 @@ afterEach(() => {
 const W27 = new Date("2026-06-29T00:00:00Z");
 const W39 = new Date("2026-09-21T00:00:00Z");
 
-const span = () => variant("span", { runs: [], decisions: [], ports: [], rollup: none, unit: none });
+const span = () => variant("span", { runs: [], decisions: [], ports: [], rollup: none });
 
 /** One WIRE row, as the source serves it — named by its test key (#822). */
 function planRow(key: string, kind: unknown = span()): PlanWireRow {
     return {
         id: rowId(key),
         parent: none,
-        gutter: { label: key, id: none, sub: none, value: none, meta: none, stacked: none, swatches: [] },
+        gutter: { label: key, id: false, sub: none, value: none, meta: none, stacked: false, swatches: [] },
         kind,
-        collapsed: none, pinned: none, height: none, status: none, approval: none, expand: none,
+        collapsed: false, pinned: false, height: none, status: none, approval: none, expand: none,
     } as unknown as PlanWireRow;
 }
 /** A stream without one row. */
@@ -72,9 +72,8 @@ function planRoot(rows: PlanWireRow[], opts: { source?: unknown; links?: unknown
         }),
         grain: none, popover: opts.popover !== undefined ? some(opts.popover) : none,
         hover: none, expandRender: none, expandGutter: none, review: none, pick: none,
-        slice: none, footer: [], id: "", sources: [], onDrag: none, canDrop: none,
-        onSelect: none, onRunClick: none, onEventClick: none, onMarkClick: none, onChipClick: none, onCellClick: none,
-        onGroupToggle: none, onGrainChange: none, style: none,
+        slice: none, footer: [], id: none, sources: [], onDrag: none, canDrop: none,
+        onSelect: none, onElementClick: none, onGroupToggle: none, onGrainChange: none, ui: none, style: none,
     } as unknown as PlanRootValue;
 }
 
@@ -195,7 +194,10 @@ describe("the canvas over its controller (#815)", () => {
     test("a value without the FOCUSED row commits once with no focus — no frame of rails around a row that is gone", () => {
         initializeStore(new UIStore());
         const all = ["r1", "r2", "r3", "r4"].map((k) => planRow(k));
-        const links = [{ fromRow: rowId("r2"), fromRun: "x", toRow: rowId("r3"), toRun: "y", quantity: 1, label: "L" }];
+        const links = [{
+            key: "r2-r3", from: { row: rowId("r2"), run: "x" }, to: { row: rowId("r3"), run: "y" },
+            quantity: some({ value: 1, unit: none, format: none, text: some("L") }),
+        }];
         // What EVERY commit put on screen — read as the commit lands.
         const frames: { rails: number; bar: boolean }[] = [];
         let container: HTMLElement | undefined;
@@ -227,10 +229,10 @@ describe("the canvas over its controller (#815)", () => {
         const bar = variant("span", {
             runs: [{
                 key: "b214", start: variant("time", W27), end: variant("time", new Date("2026-07-27T00:00:00Z")),
-                label: "B-214", quantity: none, qty: none, state: variant("actual", null),
+                label: "B-214", quantity: none, state: variant("actual", null),
                 status: none, moved: none, icon: none,
             }],
-            decisions: [], ports: [], rollup: none, unit: none,
+            decisions: [], ports: [], rollup: none,
         });
         const popover = () => some(variant("Text", { value: "RUN DETAIL · B-214", style: none }));
         const all = [planRow("m1", bar), planRow("m2")];

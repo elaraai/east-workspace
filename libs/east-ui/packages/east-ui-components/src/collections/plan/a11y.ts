@@ -27,6 +27,8 @@ import { Plan } from "@elaraai/east-ui/internal";
 import type { PlanScale, PlanBucket } from "./scale.js";
 import type { PlanEvent, PlanUiState, RowKey } from "./plan-state.js";
 import type { PlanWords } from "./words.js";
+import type { TickFormatOpt } from "../../format/index.js";
+import { quantityText } from "./quantity.js";
 import { axisFormatter, breached, readoutLayers, type ChartKindValue } from "./rows/chart-geometry.js";
 
 type RunValue = ValueTypeOf<typeof Plan.Types.Run>;
@@ -69,8 +71,8 @@ function spanText(scale: PlanScale, from: RunValue["start"], to: RunValue["end"]
 
 /**
  * A run bar's accessible name — its label, its span, its state, and what its
- * look adds: the quantity suffix, the `moved ×k` counter, the stuck ring's
- * status.
+ * look adds: the quantity caption (#824), the `moved ×k` counter, the stuck
+ * ring's status.
  *
  * @param run - The run
  * @param scale - The shared scale
@@ -83,7 +85,7 @@ export function runName(run: RunValue, scale: PlanScale, w: PlanWords): string {
         label: run.label,
         span: spanText(scale, run.start, run.end, w),
         state: stateText(run.state, w),
-        quantity: run.quantity.type === "some" ? run.quantity.value : undefined,
+        quantity: run.quantity.type === "some" ? quantityText(run.quantity.value, w) : undefined,
         moved: moved > 0 ? w.m.movedTimes({ n: moved, count: w.number(moved) }) : undefined,
         status: run.status.type === "some" ? w.m.tone({ tone: run.status.value.type }) : undefined,
     });
@@ -176,10 +178,12 @@ export function heatValueText(value: number | undefined, label: string | undefin
  * @param fraction - The booked fraction (0–1)
  * @param planned - Whether the bucket is planned
  * @param w - The canvas's words
+ * @param format - How the fraction prints — the arm's declared `format` (#824); a percent without one
  * @returns `60% booked, planned`
  */
-export function weightValueText(fraction: number, planned: boolean, w: PlanWords): string {
-    return w.m.weightValue({ percent: w.percent(Math.max(0, Math.min(1, fraction))), planned });
+export function weightValueText(fraction: number, planned: boolean, w: PlanWords, format?: TickFormatOpt): string {
+    const clamped = Math.max(0, Math.min(1, fraction));
+    return w.m.weightValue({ percent: format !== undefined ? w.value(clamped, format) : w.percent(clamped), planned });
 }
 
 /**
@@ -188,16 +192,21 @@ export function weightValueText(fraction: number, planned: boolean, w: PlanWords
  *
  * @param segments - The cell's segments, in order
  * @param w - The canvas's words
+ * @param format - How a share prints — the arm's declared `format` (#824); a percent without one
  * @returns `booked 60%, slack 25%, free 15%`
  */
-export function segmentsText(segments: readonly SegmentValue[], w: PlanWords): string {
+export function segmentsText(segments: readonly SegmentValue[], w: PlanWords, format?: TickFormatOpt): string {
     const total = segments.reduce((acc, s) => acc + Math.max(0, s.weight), 0);
     if (segments.length === 0 || total <= 0) return w.m.noData();
     return w.m.list({
-        parts: segments.map((s) => w.m.segmentPart({
-            fill: s.fill.type,
-            share: s.label.type === "some" ? s.label.value : w.percent(Math.max(0, s.weight) / total),
-        })),
+        parts: segments.map((s) => {
+            const share = Math.max(0, s.weight) / total;
+            return w.m.segmentPart({
+                fill: s.fill.type,
+                share: s.label.type === "some" ? s.label.value
+                    : format !== undefined ? w.value(share, format) : w.percent(share),
+            });
+        }),
     });
 }
 

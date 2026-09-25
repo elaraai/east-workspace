@@ -23,9 +23,9 @@ function wire(key: string, kind: unknown, opts?: { parent?: string; status?: str
     return {
         id: rowId(key),
         parent: opts?.parent !== undefined ? some(rowId(opts.parent)) : none,
-        gutter: { label: key, id: none, sub: none, value: none, meta: none, stacked: none, swatches: [] },
+        gutter: { label: key, id: false, sub: none, value: none, meta: none, stacked: false, swatches: [] },
         kind,
-        collapsed: none, pinned: none, height: none,
+        collapsed: false, pinned: false, height: none,
         status: opts?.status !== undefined ? some(variant(opts.status, null)) : none,
         approval: none, expand: none,
     } as unknown as PlanWireRow;
@@ -34,8 +34,8 @@ function wire(key: string, kind: unknown, opts?: { parent?: string; status?: str
 function visible(r: PlanRowValue, opts?: { collapsed?: boolean }): VisibleRow {
     return { row: r, depth: 0, collapsed: opts?.collapsed === true };
 }
-const spanKind = variant("span", { runs: [], decisions: [], ports: [], rollup: none, unit: none });
-const groupKind = variant("group", { summary: none, summaryAggregate: none });
+const spanKind = variant("span", { runs: [], decisions: [], ports: [], rollup: none });
+const groupKind = variant("group", { summary: variant("none", null) });
 
 describe("Plan links-focus elision (R1 at scale)", () => {
     const focusOn = (key: string, family: string[]) =>
@@ -84,9 +84,11 @@ describe("Plan links-focus elision (R1 at scale)", () => {
 });
 
 describe("Plan link graph (R1)", () => {
-    // A link names its ends by row id (#822); the graph keys by their text.
+    // A link names its ends by run ref — a row id (#822) and a run key (#824);
+    // the graph keys by the ids' text.
     const link = (from: string, to: string): PlanLinkValue => ({
-        fromRow: rowId(from), fromRun: "a", toRow: rowId(to), toRun: "b", quantity: 10, label: "10 t",
+        key: `${from}-${to}`, from: { row: rowId(from), run: "a" }, to: { row: rowId(to), run: "b" },
+        quantity: some({ value: 10, unit: some("t"), format: none, text: none }),
     } as unknown as PlanLinkValue);
     const sorted = (keys: Iterable<string>) => [...keys].map(testKeyOf).sort();
 
@@ -113,8 +115,8 @@ describe("Plan link graph (R1)", () => {
         // `views` puts one entry on several rows; a link to its chart row is
         // not a link to its span row.
         const links = [{
-            fromRow: rowId("m03", "machine-jobs"), fromRun: "a", toRow: rowId("m04", "machine-jobs"), toRun: "b",
-            quantity: 1, label: "",
+            key: "l", from: { row: rowId("m03", "machine-jobs"), run: "a" }, to: { row: rowId("m04", "machine-jobs"), run: "b" },
+            quantity: none,
         } as unknown as PlanLinkValue];
         const fam = deriveLinkFamily(links, rowKey("m03", "machine-jobs"));
         expect([...fam.downstream]).toEqual([rowKey("m04", "machine-jobs")]);

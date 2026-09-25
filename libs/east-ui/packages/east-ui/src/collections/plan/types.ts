@@ -52,6 +52,7 @@ import {
     BooleanType,
     DateTimeType,
     FloatType,
+    FunctionType,
     IntegerType,
     NullType,
     OptionType,
@@ -274,6 +275,89 @@ export type PlanGrainType = typeof PlanGrainType;
 export type PlanGrainLiteral = "group" | "resource";
 
 // ============================================================================
+// Values — quantities, and how a bucket folds what falls in it (#824)
+// ============================================================================
+
+/**
+ * How the values that fall in one bucket fold into the one value it shows
+ * (#824). A canvas re-buckets every cell and chart point at the scale's
+ * resolution: switch WEEK → MONTH over weekly cells and each month shows ONE
+ * cell, the fold of its weeks, where it used to stack four.
+ *
+ * @remarks
+ * A bucket holding one value shows it as it is — its label, its text, its own
+ * instant — for every fold but `count`. A bucket holding several shows their
+ * fold at the bucket's start. Values with nothing in them (a `none` cell, a
+ * gap in a chart) are skipped; a bucket with no values left shows none.
+ *
+ * The defaults follow what the values mean: a heat cell is a level (`mean`),
+ * a weight cell the FRACTION of its bucket booked (`mean` — a month's fraction
+ * is its weeks' mean, where a sum would fill every bar), a segment the amount
+ * each fill holds (`sum`), a table numeral and a chart column an amount
+ * (`sum`), and a line or an area a level (`mean`).
+ *
+ * @property sum - The values added up
+ * @property mean - Their mean
+ * @property min - The least of them
+ * @property max - The greatest of them
+ * @property last - The one at the latest instant
+ * @property count - How many there are
+ */
+export const PlanFoldType = VariantType({
+    sum:   NullType,
+    mean:  NullType,
+    min:   NullType,
+    max:   NullType,
+    last:  NullType,
+    count: NullType,
+});
+export type PlanFoldType = typeof PlanFoldType;
+
+/** String-literal shorthand for {@link PlanFoldType}. */
+export type PlanFoldLiteral = "sum" | "mean" | "min" | "max" | "last" | "count";
+
+/**
+ * A quantity — a number, its unit, and how it prints (#824). Runs and links
+ * carry one: a run's bar prints it after its label, a link's ribbon prints it
+ * as its caption and takes its share from it, and a parent's rollup band sums
+ * its runs' quantities unit by unit.
+ *
+ * @remarks
+ * The number is the value the canvas computes with, and the words are derived
+ * from it: `format` (the shared `Format.*` vocabulary, in the viewer's locale)
+ * prints `value`, followed by `unit`. `text` overrides the printed caption
+ * where the author wants their own words — the value still sums and weighs.
+ *
+ * @property value - The amount — what sums, weighs and compares
+ * @property unit - The unit it is in (`"t"`); quantities in different units never sum together
+ * @property format - How `value` prints (`Format.*`); `none` ⇒ the canvas's plain number
+ * @property text - The caption to print instead of the formatted value and unit
+ */
+export const PlanQuantityType = StructType({
+    value:  FloatType,
+    unit:   OptionType(StringType),
+    format: OptionType(TickFormatType),
+    text:   OptionType(StringType),
+});
+export type PlanQuantityType = typeof PlanQuantityType;
+
+/**
+ * The scale heat cells paint on — the value at no depth, the value at full
+ * depth, and the threshold at or above which a cell wears the warn ring
+ * (#824 names it; it used to be three loose options on the heat arm).
+ *
+ * @property min - The value painted at no depth; `none` ⇒ the least value shown
+ * @property max - The value painted at full depth; `none` ⇒ the greatest value shown
+ * @property warnAt - The warn-ring threshold (a cell at or above it rings); `none` ⇒ no ring
+ */
+export const PlanHeatScaleType = StructType({
+    min:    OptionType(FloatType),
+    max:    OptionType(FloatType),
+    warnAt: OptionType(FloatType),
+});
+export type PlanHeatScaleType = typeof PlanHeatScaleType;
+
+// ============================================================================
 // Gutter — the left cell's identity vocabulary
 // ============================================================================
 
@@ -297,20 +381,20 @@ export type PlanGutterSwatchType = typeof PlanGutterSwatchType;
  * `sub`, `value`, `meta`, `stacked`, `swatches` ride on every row factory).
  *
  * @property label - The row name (12.5/500; groups and names)
- * @property id - `true` ⇒ the label renders as a mono row id (11.5/600 — `L1-M03`, `COVERAGE`)
+ * @property id - `true` ⇒ the label renders as a mono row id (11.5/600 — `L1-M03`, `COVERAGE`); `false` by default
  * @property sub - The muted mono sub line (`"120 t"`, `"week · 1 lane"`)
  * @property value - The right-aligned mono value slot (`"94.2%"`, `"82"`) — the same aggregate slot a table group header uses
  * @property meta - The group meta line (`"8 rs · 82%"`)
- * @property stacked - `true` ⇒ two-line layout (label over sub; row min-height 42px)
+ * @property stacked - `true` ⇒ two-line layout (label over sub; row min-height 42px); `false` by default
  * @property swatches - Chart-series legend chips printed under the label
  */
 export const PlanGutterType = StructType({
     label:    StringType,
-    id:       OptionType(BooleanType),
+    id:       BooleanType,
     sub:      OptionType(StringType),
     value:    OptionType(StringType),
     meta:     OptionType(StringType),
-    stacked:  OptionType(BooleanType),
+    stacked:  BooleanType,
     swatches: ArrayType(PlanGutterSwatchType),
 });
 export type PlanGutterType = typeof PlanGutterType;
@@ -510,9 +594,15 @@ export type PlanChartAxisType = typeof PlanChartAxisType;
  * `Chart.Bar` (horizontal) is a build-time error on every axis kind —
  * horizontal bars flip the frame the shared axis owns.
  *
- * @property line - A continuous line series (optional breach threshold)
- * @property area - A filled area series
- * @property column - Per-bucket columns (optional stack `series` id + breach)
+ * A line, an area and a column series FOLD what falls in one bucket (#824):
+ * at a coarser resolution than its points, a column series draws one column
+ * per bucket — the `sum` of its points there by default — and a line or an
+ * area one vertex — their `mean` ({@link PlanFoldType}). Scatter points and
+ * bands draw every point where it is.
+ *
+ * @property line - A continuous line series (optional breach threshold; folds by `mean`)
+ * @property area - A filled area series (folds by `mean`)
+ * @property column - Per-bucket columns (optional stack `series` id + breach; folds by `sum`)
  * @property scatter - Point markers
  * @property band - A filled range (lo/hi per instant)
  * @property refLine - A horizontal reference line at a y value (dotted, mono label)
@@ -521,10 +611,10 @@ export type PlanChartAxisType = typeof PlanChartAxisType;
  */
 export const PlanChartLayerType = VariantType({
     line:    StructType({ points: ArrayType(PlanChartPointType), axis: PlanAxisSideType,
-                          breach: OptionType(PlanBreachType) }),
-    area:    StructType({ points: ArrayType(PlanChartPointType), axis: PlanAxisSideType }),
+                          breach: OptionType(PlanBreachType), fold: PlanFoldType }),
+    area:    StructType({ points: ArrayType(PlanChartPointType), axis: PlanAxisSideType, fold: PlanFoldType }),
     column:  StructType({ points: ArrayType(PlanChartPointType), axis: PlanAxisSideType,
-                          series: OptionType(StringType), breach: OptionType(PlanBreachType) }),
+                          series: OptionType(StringType), breach: OptionType(PlanBreachType), fold: PlanFoldType }),
     scatter: StructType({ points: ArrayType(PlanChartPointType), axis: PlanAxisSideType }),
     band:    StructType({ points: ArrayType(PlanChartBandPointType), axis: PlanAxisSideType }),
     refLine: StructType({ y: FloatType, axis: PlanAxisSideType, label: OptionType(StringType) }),
@@ -558,7 +648,8 @@ export type PlanChartHeightLiteral = "spark" | "expanded";
  *
  * @property at - The bucket instant
  * @property value - The scalar (`none` ⇒ the 45° no-data hatch + `–`)
- * @property label - Optional printed value text (shown when the cell is ≥ 12px tall)
+ * @property label - Optional printed value text (shown when the cell is ≥ 12px tall); without one, a cell prints
+ *   its value only when its arm declares a `format` (#824)
  */
 export const PlanHeatCellType = StructType({
     at:    PlanInstantType,
@@ -609,23 +700,33 @@ export const PlanSegmentCellType = StructType({
 export type PlanSegmentCellType = typeof PlanSegmentCellType;
 
 /**
- * A heat row's cells — one of the three Matrix-borrowed cell recipes.
+ * A heat row's cells — one of the three Matrix-borrowed cell recipes, each
+ * declaring how a bucket folds the cells that fall in it and how their values
+ * print (#824).
  *
  * @remarks
- * `heat` carries its own scale (`min`/`max`, defaulting to the observed
- * extent) and an optional `warnAt` threshold (≥ it ⇒ the warn ring). Group
+ * `heat` carries the scale its own cells paint on ({@link PlanHeatScaleType}:
+ * `min`/`max`, defaulting to the extent shown, and the `warnAt` ring). Group
  * summary strips (§5) are exactly the `heat` arm computed over descendants.
  *
- * @property heat - Colour-depth cells + scale + warn threshold
- * @property weight - Booked-vs-free weight bars
- * @property segments - Weighted segment compositions
+ * `fold` ({@link PlanFoldType}) is how a coarser resolution than the cells'
+ * shows them — one cell per bucket: heat `mean` and weight `mean` by default
+ * (a level and a fraction), segments `sum` (each fill's weight adds up, then
+ * normalises). `format` prints the arm's values where the canvas prints one:
+ * a heat cell without a `label` of its own, a folded or derived heat cell, and
+ * the words a reader hears for a weight or a segment share.
+ *
+ * @property heat - Colour-depth cells, their scale, fold (`mean`) and format
+ * @property weight - Booked-vs-free weight bars, their fold (`mean`) and format
+ * @property segments - Weighted segment compositions, their fold (`sum`) and format
  */
 export const PlanHeatCellsType = VariantType({
-    heat:     StructType({ cells: ArrayType(PlanHeatCellType),
-                           min: OptionType(FloatType), max: OptionType(FloatType),
-                           warnAt: OptionType(FloatType) }),
-    weight:   ArrayType(PlanWeightCellType),
-    segments: ArrayType(PlanSegmentCellType),
+    heat:     StructType({ cells: ArrayType(PlanHeatCellType), scale: PlanHeatScaleType,
+                           fold: PlanFoldType, format: OptionType(TickFormatType) }),
+    weight:   StructType({ cells: ArrayType(PlanWeightCellType),
+                           fold: PlanFoldType, format: OptionType(TickFormatType) }),
+    segments: StructType({ cells: ArrayType(PlanSegmentCellType),
+                           fold: PlanFoldType, format: OptionType(TickFormatType) }),
 });
 export type PlanHeatCellsType = typeof PlanHeatCellsType;
 
@@ -641,6 +742,22 @@ export type PlanAggregateType = typeof PlanAggregateType;
 
 /** String-literal shorthand for {@link PlanAggregateType}. */
 export type PlanAggregateLiteral = "mean" | "max" | "sum";
+
+/**
+ * What a collapsed group strip shows (#824) — ONE declaration, where there
+ * used to be two independent options (explicit cells, and an aggregate) that
+ * could both be set.
+ *
+ * @property none - A plain band
+ * @property cells - Explicit strip cells
+ * @property aggregate - Cells the canvas derives from the members' heat cells, per bucket
+ */
+export const PlanGroupSummaryType = VariantType({
+    none:      NullType,
+    cells:     PlanHeatCellsType,
+    aggregate: PlanAggregateType,
+});
+export type PlanGroupSummaryType = typeof PlanGroupSummaryType;
 
 // ============================================================================
 // Table-row leaf data — bucketed numerals
@@ -703,15 +820,17 @@ export type PlanTableSplitLiteral = "horizontal" | "vertical";
  * @property cells - The series' per-bucket cells (raw values)
  * @property format - Numeral format override for this series (`none` ⇒ the row's `format`)
  * @property tone - Default tone for the series' values (per-cell tones and derived neg/muted win)
- * @property strong - Semibold emphasis for this series' values
- * @property rollup - `true` ⇒ this series feeds declared parent aggregation (default: the first series)
+ * @property strong - Semibold emphasis for this series' values (`false` by default)
+ * @property rollup - `true` ⇒ this series feeds declared parent aggregation — flag none and every series does (`false` by default)
+ * @property fold - How a bucket folds the cells that fall in it at a coarser resolution ({@link PlanFoldType}; `sum` by default, #824)
  */
 export const PlanTableSeriesType = StructType({
     cells:  ArrayType(PlanTableCellType),
     format: OptionType(TickFormatType),
     tone:   OptionType(PlanTableToneType),
-    strong: OptionType(BooleanType),
-    rollup: OptionType(BooleanType),
+    strong: BooleanType,
+    rollup: BooleanType,
+    fold:   PlanFoldType,
 });
 export type PlanTableSeriesType = typeof PlanTableSeriesType;
 
@@ -780,76 +899,44 @@ export const PlanRowIdType = VariantType({
 export type PlanRowIdType = typeof PlanRowIdType;
 
 /**
- * The `onRunClick` payload — a span bar was clicked.
+ * One run, by reference — its row's id and its key. What a `run` element ref
+ * carries, and what a link's two ends are.
  *
  * @property row - The row's id
  * @property run - The run key
  */
-export const PlanRunClickEventType = StructType({ row: PlanRowIdType, run: StringType });
-export type PlanRunClickEventType = typeof PlanRunClickEventType;
+export const PlanRunRefType = StructType({ row: PlanRowIdType, run: StringType });
+export type PlanRunRefType = typeof PlanRunRefType;
 
 /**
- * The `onEventClick` payload — a bucket-event tile was clicked.
- *
- * @property row - The row's id
- * @property event - The event key
- */
-export const PlanEventClickEventType = StructType({ row: PlanRowIdType, event: StringType });
-export type PlanEventClickEventType = typeof PlanEventClickEventType;
-
-/**
- * The `onMarkClick` payload — an event-row mark or a span row's decision
- * diamond was clicked (mark keys are unique per row).
- *
- * @property row - The row's id
- * @property mark - The mark / decision key
- */
-export const PlanMarkClickEventType = StructType({ row: PlanRowIdType, mark: StringType });
-export type PlanMarkClickEventType = typeof PlanMarkClickEventType;
-
-/**
- * The `onChipClick` payload — a cards-row chip was clicked.
- *
- * @property row - The row's id
- * @property chip - The chip key
- */
-export const PlanChipClickEventType = StructType({ row: PlanRowIdType, chip: StringType });
-export type PlanChipClickEventType = typeof PlanChipClickEventType;
-
-/**
- * The `onCellClick` payload — a heat / table / weight / segment bucket cell
- * was clicked. Carries the bucket instant (on the axis's arm), never an
- * index.
- *
- * @property row - The row's id
- * @property at - The clicked bucket's instant
- */
-export const PlanCellClickEventType = StructType({ row: PlanRowIdType, at: PlanInstantType });
-export type PlanCellClickEventType = typeof PlanCellClickEventType;
-
-/**
- * One canvas element, by reference — the subject of the root's generalized
- * `popover` / `hover` resolvers (`Plan Data Interface.md` §3.3). Every arm
- * reuses its click-event payload, so each ref carries the row's id plus the
- * element key; one resolver function covers every element kind.
+ * One canvas element, by reference — what the root's ONE element callback
+ * (`onElementClick`, #824) and its generalized `popover` / `hover` resolvers
+ * (`Plan Data Interface.md` §3.3) are called with. Each ref carries the row's
+ * id plus the element's key, so one function covers every element kind.
  *
  * @remarks
  * Span decision diamonds ride the `mark` arm (mark keys are unique per row).
- * A resolver returning `none` for a ref opens no surface — per-element
- * presence is the author's decision, made lazily at interaction time.
+ * A cell names its bucket by its instant (on the axis's arm), never an index:
+ * the cell's own instant, or — for a bucket that folds several cells — the
+ * bucket's start. A link names itself by its key and its two ends; it belongs
+ * to no one row. A resolver returning `none` for a ref opens no surface —
+ * per-element presence is the author's decision, made lazily at interaction
+ * time.
  *
  * @property run - A span run bar (`{ row, run }`)
  * @property event - A bucket-event tile (`{ row, event }`)
  * @property chip - A cards chip (`{ row, chip }`)
  * @property mark - An event-row mark or span decision diamond (`{ row, mark }`)
  * @property cell - A heat / table / weight / segment bucket cell (`{ row, at }`)
+ * @property link - A link ribbon (`{ key, from, to }` — the runs it joins)
  */
 export const PlanElementRefType = VariantType({
-    run:   PlanRunClickEventType,
-    event: PlanEventClickEventType,
-    chip:  PlanChipClickEventType,
-    mark:  PlanMarkClickEventType,
-    cell:  PlanCellClickEventType,
+    run:   PlanRunRefType,
+    event: StructType({ row: PlanRowIdType, event: StringType }),
+    chip:  StructType({ row: PlanRowIdType, chip: StringType }),
+    mark:  StructType({ row: PlanRowIdType, mark: StringType }),
+    cell:  StructType({ row: PlanRowIdType, at: PlanInstantType }),
+    link:  StructType({ key: StringType, from: PlanRunRefType, to: PlanRunRefType }),
 });
 export type PlanElementRefType = typeof PlanElementRefType;
 
@@ -864,6 +951,72 @@ export const PlanGroupToggleEventType = StructType({ row: PlanRowIdType, expande
 export type PlanGroupToggleEventType = typeof PlanGroupToggleEventType;
 
 // ============================================================================
+// The bound UI state (#824)
+// ============================================================================
+
+/**
+ * The canvas's interaction state, as a host holds it — the value behind a
+ * root's bound `ui` ({@link PlanUiBindType}). Bound, the canvas reads it and
+ * writes the user's actions back to it: a host selects a row, opens or folds
+ * one, expands a chart or brings a row into view from outside (a deep link, a
+ * list beside the canvas), and reads what the user did.
+ *
+ * @remarks
+ * Rows are named by their typed ids ({@link PlanRowIdType}) in lists — an
+ * East `Set` needs an immutable element type, and an id's path is an `Array`.
+ * The canvas treats each list as a set, keeps the order of what it finds there
+ * and adds what is new at the end.
+ *
+ * A row's collapse is the one it DECLARES (`collapsed`, per row) until
+ * someone decides otherwise: `collapsed` lists the rows folded against it
+ * or by the user, `expanded` the rows opened, and a row in neither follows its
+ * declaration — so binding `ui` changes nothing about a canvas until someone
+ * acts, and a row a paged window has not landed yet still folds as it
+ * declares. A row in both lists is collapsed.
+ *
+ * `focus` is a REQUEST, not a state: write a row's id and the canvas brings
+ * that row into view (opening the rows it nests under, and on a paged canvas
+ * loading its window — through the source's `seek` for a row it has not
+ * loaded yet), makes it the row the keyboard starts from, and clears the
+ * request (`none`). A row it cannot find clears it too.
+ *
+ * @property selected - The selected row (`none` ⇒ no selection)
+ * @property collapsed - Rows folded — overriding what they declare
+ * @property expanded - Rows opened — overriding what they declare
+ * @property charts - Chart rows expanded from spark to full height
+ * @property focus - A row to bring into view — spent (`none`) once the canvas has
+ */
+export const PlanUiStateType = StructType({
+    selected:  OptionType(PlanRowIdType),
+    collapsed: ArrayType(PlanRowIdType),
+    expanded:  ArrayType(PlanRowIdType),
+    charts:    ArrayType(PlanRowIdType),
+    focus:     OptionType(PlanRowIdType),
+});
+export type PlanUiStateType = typeof PlanUiStateType;
+
+/**
+ * A bound {@link PlanUiStateType} — EXACTLY `State.bind`'s handle at it, so
+ * `State.bind([Plan.Types.UiState], key, Plan.uiState())` passes straight
+ * through as a root's `ui` (#824).
+ *
+ * @remarks
+ * Field order is `read` / `write` / `has`: East struct subtyping is exact, so
+ * declaring the shape here means a change to `State.bind`'s fails this file's
+ * build rather than a canvas's.
+ *
+ * @property read - The current state
+ * @property write - Replace it
+ * @property has - Whether the key is set
+ */
+export const PlanUiBindType = StructType({
+    read:  FunctionType([], PlanUiStateType),
+    write: FunctionType([PlanUiStateType], NullType),
+    has:   FunctionType([], BooleanType),
+});
+export type PlanUiBindType = typeof PlanUiBindType;
+
+// ============================================================================
 // Footer + style
 // ============================================================================
 
@@ -872,12 +1025,12 @@ export type PlanGroupToggleEventType = typeof PlanGroupToggleEventType;
  *
  * @property text - The footer text (`"512 RESOURCES · 12 GROUPS · 3 IN VIEW"`)
  * @property tone - Optional status tint (`warning` for the exceptions count)
- * @property end - `true` ⇒ pushed to the right edge
+ * @property end - `true` ⇒ pushed to the right edge (`false` by default)
  */
 export const PlanFooterItemType = StructType({
     text: StringType,
     tone: OptionType(StatusValueType),
-    end:  OptionType(BooleanType),
+    end:  BooleanType,
 });
 export type PlanFooterItemType = typeof PlanFooterItemType;
 
@@ -909,20 +1062,23 @@ export type PlanStyleType = typeof PlanStyleType;
  * a quantity-weighted ribbon between the run edges it names; geometry is fixed
  * by the spec and lives in the renderer.
  *
- * @property fromRow - The source row's id ({@link PlanRowIdType} — `Plan.ref(series, …path)`)
- * @property fromRun - The source run key
- * @property toRow - The destination row's id
- * @property toRun - The destination run key
- * @property quantity - The moved quantity (drives edge share + opacity)
- * @property label - The printed quantity caption (`"34 t"`)
+ * @remarks
+ * The quantity is a number with its unit and format (#824): its value weighs
+ * the ribbon's share of the family's largest, and its caption — `text`, else
+ * the value formatted with its unit — prints on the ribbon. A link without one
+ * draws at the faintest share and prints nothing. A click on a ribbon reports
+ * the `link` arm of the element ref, which names the link by its `key`.
+ *
+ * @property key - The link's identity (what a `link` element ref names it by)
+ * @property from - The source run (`{ row, run }` — the ribbon leaves its end)
+ * @property to - The destination run (the ribbon lands on its start)
+ * @property quantity - The moved quantity (share, opacity and caption)
  */
 export const PlanLinkType = StructType({
-    fromRow:  PlanRowIdType,
-    fromRun:  StringType,
-    toRow:    PlanRowIdType,
-    toRun:    StringType,
-    quantity: FloatType,
-    label:    StringType,
+    key:      StringType,
+    from:     PlanRunRefType,
+    to:       PlanRunRefType,
+    quantity: OptionType(PlanQuantityType),
 });
 export type PlanLinkType = typeof PlanLinkType;
 
@@ -951,21 +1107,20 @@ export type PlanExpandAxisLiteral = "keep" | "dim" | "off";
  * dependency arrows, no critical path.
  *
  * @remarks
- * `quantity` is the displayed `.q` suffix (`"96 t"`); `qty` is the optional
- * numeric twin the renderer sums into parent rollup bands — display and
- * arithmetic deliberately separate. `state` is the shared `EventStateType`
- * lifecycle driving the bar recipe; `status: warning` adds the `.stuck`
- * warn ring; `moved` collapses same-status churn to a `moved ×k` counter.
- * Rich click/hover surfaces resolve through the ROOT's `popover` / `hover`
- * functions with the `run` arm of {@link PlanElementRefType}.
+ * `quantity` is ONE value (#824, {@link PlanQuantityType}): the bar prints its
+ * caption after the label (the muted `.q` suffix, `"96 t"`), and a parent's
+ * rollup band sums its runs' values unit by unit. `state` is the shared
+ * `EventStateType` lifecycle driving the bar recipe; `status: warning` adds
+ * the `.stuck` warn ring; `moved` collapses same-status churn to a `moved ×k`
+ * counter. Rich click/hover surfaces resolve through the ROOT's `popover` /
+ * `hover` functions with the `run` arm of {@link PlanElementRefType}.
  */
 export const PlanRunType = StructType({
     key: StringType,
     start: PlanInstantType,
     end: PlanInstantType,
     label: StringType,
-    quantity: OptionType(StringType),
-    qty: OptionType(FloatType),
+    quantity: OptionType(PlanQuantityType),
     state: EventStateType,
     status: OptionType(StatusValueType),
     moved: OptionType(IntegerType),
@@ -1089,18 +1244,22 @@ export type PlanExpandType = typeof PlanExpandType;
  * marks; `group` is the heterogeneous container whose collapsed form is
  * its `summary` heat strip. Whether a row with children starts collapsed is
  * the ROW's `collapsed` (every kind may have children, #822).
+ *
+ * A span parent's rollup bands sum its runs' quantities unit by unit — the
+ * unit rides each quantity (#824). A heat parent's derived cells paint on the
+ * kind's `scale` (#824 — it used to ride an empty cells arm). A chart row's
+ * height is its `height` mode (`fixed` is its px), `expandedHeight` what the
+ * expanded state opens to, and `expandable` whether the user may toggle it.
  */
 export const PlanRowKindType = VariantType({
     group: StructType({
-        summary: OptionType(PlanHeatCellsType),
-        summaryAggregate: OptionType(PlanAggregateType),
+        summary: PlanGroupSummaryType,
     }),
     span: StructType({
         runs: ArrayType(PlanRunType),
         decisions: ArrayType(PlanDecisionMarkType),
         ports: ArrayType(PlanPortType),
         rollup: OptionType(PlanRollupType),
-        unit: OptionType(StringType),
     }),
     buckets: StructType({
         lanes: ArrayType(PlanLaneType),
@@ -1115,11 +1274,13 @@ export const PlanRowKindType = VariantType({
         /** Height the EXPANDED state opens to, a CSS px size like every
          *  component height (`"120px"`; `none` ⇒ the 88px default). */
         expandedHeight: OptionType(StringType),
-        expandable: OptionType(BooleanType),
+        expandable: BooleanType,
     }),
     heat: StructType({
         cells: PlanHeatCellsType,
         aggregate: OptionType(PlanAggregateType),
+        /** The scale a parent's DERIVED cells paint on (#824); `none` ⇒ the extent they span. */
+        scale: OptionType(PlanHeatScaleType),
     }),
     table: StructType({
         series: ArrayType(PlanTableSeriesType),
@@ -1150,18 +1311,19 @@ export type PlanRowKindType = typeof PlanRowKindType;
  * directly: an entry's children under `Plan.series.views` come after ALL of
  * that entry's view rows while nesting under the first of them. `collapsed` is
  * the initial state of a row that has children; `pinned` rows render above
- * the virtualised body under the ruler; `height` is a fixed CSS-px override;
- * `status` the quiet gutter dot; `approval` the review verdict (rendered only
- * with the root's review chrome); `expand` the R2 declaration (the render
- * itself is the root's `expandRender` resolver).
+ * the virtualised body under the ruler (both `false` unless declared, #824);
+ * `height` is a fixed CSS-px override; `status` the quiet gutter dot;
+ * `approval` the review verdict (rendered only with the root's review
+ * chrome); `expand` the R2 declaration (the render itself is the root's
+ * `expandRender` resolver).
  */
 export const PlanRowType = StructType({
     id: PlanRowIdType,
     parent: OptionType(PlanRowIdType),
     gutter: PlanGutterType,
     kind: PlanRowKindType,
-    collapsed: OptionType(BooleanType),
-    pinned: OptionType(BooleanType),
+    collapsed: BooleanType,
+    pinned: BooleanType,
     height: OptionType(StringType),
     status: OptionType(StatusValueType),
     approval: OptionType(ApprovalStateType),

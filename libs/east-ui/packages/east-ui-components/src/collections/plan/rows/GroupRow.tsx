@@ -17,7 +17,7 @@
 import { Box } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCaretDown } from "@fortawesome/free-solid-svg-icons";
-import { none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { type ValueTypeOf } from "@elaraai/east";
 import { Plan } from "@elaraai/east-ui/internal";
 import { usePlanDispatch, usePlanScale } from "../context.js";
 import { HeatCells } from "./HeatRow.js";
@@ -26,29 +26,31 @@ import { PlanPartBoundary } from "./PartBoundary.js";
 import { RowDiagnostic } from "./RowDiagnostic.js";
 import { statusText } from "../a11y.js";
 import { usePlanWords } from "../words.js";
-import { rowItemKey, type HeatScale, type PlanRowDiagnostic, type PlanRowValue } from "../model.js";
+import { rowItemKey, type PlanRowDiagnostic, type PlanRowValue } from "../model.js";
 import type { PlanGridRow } from "../root/grid.js";
 
 type HeatCellsValue = ValueTypeOf<typeof Plan.Types.HeatCells>;
-type HeatCellValue = ValueTypeOf<typeof Plan.Types.HeatCell>;
-
-/** Wrap derived strip cells in a heat arm for {@link HeatCells} — built with
- *  `variant`/`some`/`none` so it is a REAL East value like the arm it stands
- *  in for, never a hand-rolled `{ type, value }` literal (#617). The scale is
- *  the one the strip INHERITS from its members (`derived.groupSummaryScale`);
- *  without one the arm paints on its own extent. Shared with the narrow
- *  layout's group cards, so both strips read the same way. */
-export function derivedSummaryArm(cells: readonly HeatCellValue[], scale: HeatScale | undefined): HeatCellsValue {
-    return variant("heat", {
-        cells: [...cells],
-        min: scale?.min !== undefined ? some(scale.min) : none,
-        max: scale?.max !== undefined ? some(scale.max) : none,
-        warnAt: scale?.warnAt !== undefined ? some(scale.warnAt) : none,
-    });
-}
-
 type Styles = Record<string, Record<string, unknown>>;
 type GroupKindValue = Extract<ValueTypeOf<typeof Plan.Types.Row>["kind"], { type: "group" }>["value"];
+
+/**
+ * The strip a group band draws collapsed (#824) — its derived strip (the
+ * declared aggregate over its members' drawn heat cells, on the scale they
+ * share, or its declared cells folded to the period), else its declared cells
+ * as they are. `undefined` for a plain band, and for an aggregate with no
+ * member cells to show. Shared with the narrow layout's group cards, so both
+ * strips read the same way.
+ *
+ * @param kind - The group's kind
+ * @param derived - Its derived strip (`PlanDerived.groupStrips`), if any
+ * @returns The heat arm to draw, if any
+ */
+export function groupStrip(kind: GroupKindValue, derived: HeatCellsValue | undefined): HeatCellsValue | undefined {
+    const arm = derived ?? (kind.summary.type === "cells" ? kind.summary.value : undefined);
+    if (arm === undefined) return undefined;
+    if (kind.summary.type === "aggregate" && arm.type === "heat" && arm.value.cells.length === 0) return undefined;
+    return arm;
+}
 
 export interface GroupRowProps {
     row: PlanRowValue;
@@ -58,10 +60,8 @@ export interface GroupRowProps {
     height: number;
     depth: number;
     collapsed: boolean;
-    /** Renderer-derived strip cells (`summaryAggregate` declared in the IR). */
-    summaryCells?: readonly HeatCellValue[] | undefined;
-    /** The scale those cells inherit from the members (see `model.ts`). */
-    summaryScale?: HeatScale | undefined;
+    /** The renderer-derived strip (`PlanDerived.groupStrips`) — see {@link groupStrip}. */
+    strip?: HeatCellsValue | undefined;
     /** Renderer-derived direct-member count — printed as the `"8 rs"` meta
      *  (the `groupMeta` message, #820) when the IR declares none (#568: the
      *  count is an aggregate like any other, so it is derived here rather than
@@ -83,7 +83,7 @@ export interface GroupRowProps {
 }
 
 /** One group band — full-width strip on the shared template. */
-export function GroupRow({ row, kind, styles, gridTemplate, height, depth, collapsed, summaryCells, summaryScale, memberCount, partial, diagnostic, grid }: GroupRowProps) {
+export function GroupRow({ row, kind, styles, gridTemplate, height, depth, collapsed, strip, memberCount, partial, diagnostic, grid }: GroupRowProps) {
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
     const words = usePlanWords();
@@ -95,11 +95,7 @@ export function GroupRow({ row, kind, styles, gridTemplate, height, depth, colla
             : undefined);
     const value = row.gutter.value.type === "some" ? row.gutter.value.value : undefined;
     const statusTone = row.status.type === "some" ? row.status.value.type : undefined;
-    const summary = collapsed && diagnostic === undefined
-        ? (kind.summary.type === "some"
-            ? kind.summary.value
-            : (summaryCells !== undefined && summaryCells.length > 0 ? derivedSummaryArm(summaryCells, summaryScale) : undefined))
-        : undefined;
+    const summary = collapsed && diagnostic === undefined ? groupStrip(kind, strip) : undefined;
 
     return (
         <Box

@@ -43,11 +43,12 @@ const NOW = new Date("2026-08-12T00:00:00Z");
 const t = (d: Date): PlanInstantValue => variant("time", d) as PlanInstantValue;
 const n = (v: number): PlanInstantValue => variant("number", v) as PlanInstantValue;
 
-function run(key: string, start: Date, end: Date, state: unknown, opts?: { quantity?: string; stuck?: boolean; qty?: number }) {
+function run(key: string, start: Date, end: Date, state: unknown, opts?: { quantity?: number; unit?: string; text?: string; stuck?: boolean }) {
     return {
         key, start: t(start), end: t(end), label: key.toUpperCase(),
-        quantity: opts?.quantity !== undefined ? some(opts.quantity) : none,
-        qty: opts?.qty !== undefined ? some(opts.qty) : none,
+        quantity: opts?.quantity !== undefined
+            ? some({ value: opts.quantity, unit: opts.unit !== undefined ? some(opts.unit) : none, format: none, text: opts.text !== undefined ? some(opts.text) : none })
+            : none,
         state,
         status: opts?.stuck === true ? some(variant("warning", null)) : none,
         moved: none, icon: none,
@@ -57,11 +58,11 @@ function run(key: string, start: Date, end: Date, state: unknown, opts?: { quant
 function gutter(label: string, opts?: { sub?: string; value?: string; meta?: string; id?: boolean }) {
     return {
         label,
-        id: opts?.id === true ? some(true) : none,
+        id: opts?.id === true,
         sub: opts?.sub !== undefined ? some(opts.sub) : none,
         value: opts?.value !== undefined ? some(opts.value) : none,
         meta: opts?.meta !== undefined ? some(opts.meta) : none,
-        stacked: none,
+        stacked: false,
         swatches: [],
     };
 }
@@ -73,21 +74,20 @@ function planRow(key: string, kind: unknown, opts?: { parent?: string; gutter?: 
         parent: opts?.parent !== undefined ? some(rowId(opts.parent)) : none,
         gutter: opts?.gutter ?? gutter(key),
         kind,
-        collapsed: opts?.collapsed !== undefined ? some(opts.collapsed) : none,
-        pinned: none, height: none, status: none, approval: none,
+        collapsed: opts?.collapsed === true,
+        pinned: false, height: none, status: none, approval: none,
         expand: opts?.expand !== undefined ? some(opts.expand) : none,
     } as unknown as PlanWireRow;
 }
 
-function spanKind(runs: unknown[], opts?: { rollup?: string; unit?: string }) {
+function spanKind(runs: unknown[], opts?: { rollup?: string }) {
     return variant("span", {
         runs, decisions: [], ports: [],
         rollup: opts?.rollup !== undefined ? some(variant(opts.rollup, null)) : none,
-        unit: opts?.unit !== undefined ? some(opts.unit) : none,
     });
 }
 
-function planRoot(rows: PlanWireRow[], opts?: { footer?: unknown[]; now?: Date | undefined; slice?: unknown; resolutions?: unknown[]; links?: unknown[]; popover?: unknown; hover?: unknown; expandRender?: unknown; source?: unknown; pick?: unknown; axis?: unknown; style?: { height?: string; maxHeight?: string }; clicks?: { onRunClick?: unknown; onEventClick?: unknown; onMarkClick?: unknown; onChipClick?: unknown; onCellClick?: unknown } }): PlanRootValue {
+function planRoot(rows: PlanWireRow[], opts?: { footer?: unknown[]; now?: Date | undefined; slice?: unknown; resolutions?: unknown[]; links?: unknown[]; popover?: unknown; hover?: unknown; expandRender?: unknown; source?: unknown; pick?: unknown; axis?: unknown; style?: { height?: string; maxHeight?: string }; onElementClick?: unknown; ui?: unknown }): PlanRootValue {
     return {
         rows: opts?.source !== undefined ? variant("paged", blocksSource(opts.source)) : variant("inline", oneBlock(rows)),
         links: opts?.links ?? [],
@@ -108,14 +108,10 @@ function planRoot(rows: PlanWireRow[], opts?: { footer?: unknown[]; now?: Date |
         pick: opts?.pick !== undefined ? some(opts.pick) : none,
         slice: opts?.slice ?? none,
         footer: opts?.footer ?? [],
-        id: "", sources: [], onDrag: none, canDrop: none,
+        id: none, sources: [], onDrag: none, canDrop: none,
         onSelect: none,
-        onRunClick: opts?.clicks?.onRunClick !== undefined ? some(opts.clicks.onRunClick) : none,
-        onEventClick: opts?.clicks?.onEventClick !== undefined ? some(opts.clicks.onEventClick) : none,
-        onMarkClick: opts?.clicks?.onMarkClick !== undefined ? some(opts.clicks.onMarkClick) : none,
-        onChipClick: opts?.clicks?.onChipClick !== undefined ? some(opts.clicks.onChipClick) : none,
-        onCellClick: opts?.clicks?.onCellClick !== undefined ? some(opts.clicks.onCellClick) : none,
-        onGroupToggle: none, onGrainChange: none,
+        onElementClick: opts?.onElementClick !== undefined ? some(opts.onElementClick) : none,
+        onGroupToggle: none, onGrainChange: none, ui: opts?.ui !== undefined ? some(opts.ui) : none,
         style: opts?.style !== undefined
             ? some({
                 height: opts.style.height !== undefined ? some(opts.style.height) : none,
@@ -142,7 +138,7 @@ describe("Plan failure is local (#811)", () => {
     const windowRows = (w: number, offAxis: ReadonlySet<string> = new Set(), perWindow = 2): PlanWireRow[] => Array.from({ length: perWindow }, (_u, i) => {
         const key = `w${w}r${i}`;
         return planRow(key, spanKind([offAxis.has(key)
-            ? { key: `x${key}`, start: n(3), end: n(6), label: key, quantity: none, qty: none,
+            ? { key: `x${key}`, start: n(3), end: n(6), label: key, quantity: none,
                 state: variant("actual", null), status: none, moved: none, icon: none }
             : run(`x${key}`, W27, new Date("2026-07-13Z"), variant("actual", null))]));
     });

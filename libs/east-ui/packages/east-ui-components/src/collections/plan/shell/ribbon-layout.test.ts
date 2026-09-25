@@ -20,6 +20,7 @@ import { rowId, rowKey, testKeyOf } from "../plan.test-utils.js";
 import { planScale, type PlanScale } from "../scale.js";
 import type { PlanInstantValue } from "../instant.js";
 import { PLAN_GEOMETRY } from "../geometry.js";
+import { PLAN_WORDS } from "../words.js";
 import {
     RIBBON_FADE_W, RIBBON_OPACITY_MAX, RIBBON_OPACITY_MIN, layoutRibbons, ribbonBody,
     type RibbonLayoutInput, type RibbonViewport,
@@ -41,20 +42,26 @@ function spanRow(key: string, opts?: { parent?: string; sub?: boolean }): PlanRo
         id: rowId(key),
         parent: opts?.parent !== undefined ? some(rowId(opts.parent)) : none,
         gutter: {
-            label: key, id: none, sub: opts?.sub === true ? some("sub") : none,
-            value: none, meta: none, stacked: none, swatches: [],
+            label: key, id: false, sub: opts?.sub === true ? some("sub") : none,
+            value: none, meta: none, stacked: false, swatches: [],
         },
-        kind: variant("span", { runs: [], decisions: [], ports: [], rollup: none, unit: none }),
-        collapsed: none, pinned: none, height: none, status: none, approval: none, expand: none,
+        kind: variant("span", { runs: [], decisions: [], ports: [], rollup: none }),
+        collapsed: false, pinned: false, height: none, status: none, approval: none, expand: none,
     } as unknown as PlanWireRow])[0]!;
 }
 const rowItem = (r: PlanRowValue, collapsed = false): PlanBodyItem =>
     ({ kind: "row", row: { row: r, depth: 0, collapsed } as VisibleRow });
 const gapItem = (key: string): PlanBodyItem =>
     ({ kind: "gap", gap: { key, first: key, rows: 3, groups: 0, tone: undefined } });
-/** A link names its ends by row id (#822). */
-const link = (from: string, fromRun: string, to: string, toRun: string, quantity = 10, label = "10 t"): PlanLinkValue =>
-    ({ fromRow: rowId(from), fromRun, toRow: rowId(to), toRun, quantity, label }) as PlanLinkValue;
+/** A link names its ends by run ref — a row id (#822) and a run key — and
+ *  carries its quantity in tonnes (#824); `null` carries none. (Not
+ *  `undefined`: passed explicitly, it would take the default.) */
+const link = (from: string, fromRun: string, to: string, toRun: string, quantity: number | null = 10): PlanLinkValue =>
+    ({
+        key: `${from}.${fromRun}>${to}.${toRun}`,
+        from: { row: rowId(from), run: fromRun }, to: { row: rowId(to), run: toRun },
+        quantity: quantity !== null ? some({ value: quantity, unit: some("t"), format: none, text: none }) : none,
+    }) as PlanLinkValue;
 
 /** Runs by `row|run` (the row's test key): [start, end]. */
 function runDatesOf(runs: Record<string, [Date, Date]>): RibbonLayoutInput["runDates"] {
@@ -69,9 +76,9 @@ const xOf = (d: Date) => PLOT.left + scale.fracOf(t(d)) * PLOT.width;
 
 function input(over: Partial<RibbonLayoutInput> & Pick<RibbonLayoutInput, "links" | "body" | "runDates">): RibbonLayoutInput {
     return {
-        visibleKeys: new Set(over.links.flatMap((l) => [rowKeyOf(l.fromRow), rowKeyOf(l.toRow)])),
+        visibleKeys: new Set(over.links.flatMap((l) => [rowKeyOf(l.from.row), rowKeyOf(l.to.row)])),
         beyond: () => undefined,
-        scale, plot: PLOT, viewport: undefined,
+        scale, plot: PLOT, viewport: undefined, words: PLAN_WORDS,
         ...over,
     };
 }
@@ -306,6 +313,31 @@ describe("ribbon ink and captions (#818)", () => {
         }));
         expect(ribbons[0]!.opacity).toBeCloseTo(RIBBON_OPACITY_MAX);
         expect(ribbons[1]!.opacity).toBeCloseTo(RIBBON_OPACITY_MIN + 0.25 * (RIBBON_OPACITY_MAX - RIBBON_OPACITY_MIN));
+    });
+
+    test("a link with no quantity draws at the faintest, and says nothing — no caption, no tooltip (#824)", () => {
+        const { ribbons } = layoutRibbons(input({
+            links: [link("a", "x", "b", "x", 40), link("a", "x", "c", "x", null)], body, runDates,
+        }));
+        expect(ribbons[0]!.opacity).toBeCloseTo(RIBBON_OPACITY_MAX);
+        expect(ribbons[1]!.opacity).toBeCloseTo(RIBBON_OPACITY_MIN);
+        expect(ribbons[1]!.label).toBeUndefined();
+    });
+
+    test("a caption is the quantity's — its text, else its value through its format, then its unit (#824)", () => {
+        const with_ = (quantity: unknown) => ({ ...link("a", "x", "b", "x"), quantity: some(quantity) }) as PlanLinkValue;
+        const oneDp = variant("number", { minimumFractionDigits: some(1n), maximumFractionDigits: some(1n), signDisplay: none });
+        const [told, formatted] = layoutRibbons(input({
+            links: [
+                with_({ value: 24, unit: some("t"), format: none, text: some("−24 t") }),
+                with_({ value: 1234.25, unit: some("t"), format: some(oneDp), text: none }),
+            ],
+            body, runDates,
+        })).ribbons;
+        expect(told!.label).toBe("−24 t");
+        expect(formatted!.label).toBe("1,234.3 t");
+        // Weighed by value, whatever the caption says.
+        expect(told!.opacity).toBeCloseTo(RIBBON_OPACITY_MIN + (24 / 1234.25) * (RIBBON_OPACITY_MAX - RIBBON_OPACITY_MIN));
     });
 
     test("captions that would land on one another are nudged apart a line at a time", () => {

@@ -5,27 +5,38 @@
 
 /**
  * The Plan's renderer-side derivations (§4.2 — the Table idiom): the IR
- * DECLARES rollups, aggregates, subtotals and summaries, and the numbers are
- * computed here over the decoded rows (split out of `model.ts`, #815).
+ * DECLARES rollups, aggregates, subtotals, summaries and folds, and the numbers
+ * are computed here over the decoded rows (split out of `model.ts`, #815).
  *
  * @packageDocumentation
  */
 
-import { ArrayType, equalFor, none, some, type ValueTypeOf } from "@elaraai/east";
+import { ArrayType, equalFor, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Plan } from "@elaraai/east-ui/internal";
-import { instantKey, instantOrder, type PlanAxisKind, type PlanInstantValue } from "./instant.js";
+import { getSomeorUndefined } from "../../utils.js";
+import type { TickFormatOpt } from "../../format/index.js";
+import { instantOrder, type PlanAxisKind, type PlanInstantValue } from "./instant.js";
 import { appendAll, maxOf, minOf, peakConcurrency } from "./reductions.js";
-import { PLAN_WORDS } from "./words.js";
+import { PLAN_WORDS, type PlanWords } from "./words.js";
+import { bucketGroups, foldChartLayers, foldHeatArm, foldTableSeries, type PlanPeriod } from "./fold.js";
+import { totalsByUnit, totalsText, type PlanQuantityValue } from "./quantity.js";
 import type { PlanRowIndex, PlanRowValue } from "./model.js";
 import type { RowKey } from "./plan-state.js";
+import type { ChartKindValue } from "./rows/chart-geometry.js";
 import { axisKindMismatches } from "./row-instants.js";
 
 // ── Renderer-side derivations (§4.2 — the Table idiom) ─────────────────────
 //
-// The IR carries DECLARATIONS (`rollup` + `unit`, `aggregate` + scale,
-// `summaryAggregate`, `format`); the numbers — rollup bands, per-bucket
-// aggregates, subtotal cells, strip summaries — are derived here over the
-// decoded values, exactly as Table's renderer computes its group subtotals.
+// The IR carries DECLARATIONS (`rollup`, `aggregate` + scale, the group's
+// `summary`, `format`, `fold`); the numbers — rollup bands, per-bucket
+// aggregates, subtotal cells, strip summaries, folded cells — are derived here
+// over the decoded values, exactly as Table's renderer computes its group
+// subtotals.
+//
+// FOLD FIRST (#824): every row's values are folded to the canvas's period
+// before anything aggregates them, so a parent summarises what its children
+// SHOW — a month's mean of four weekly heat cells, not four overlapping cells.
+// Without a period (the ledger's height measure) nothing folds.
 //
 // Instants are ordered on their own arm (`instantOrder`): epoch ms, the
 // value, or — for an ordinal axis — the declared index, which the caller
@@ -33,15 +44,17 @@ import { axisKindMismatches } from "./row-instants.js";
 // order, which is what the ledger's height measure needs and all it needs.
 
 type RunValue = ValueTypeOf<typeof Plan.Types.Run>;
+type HeatCellsValue = ValueTypeOf<typeof Plan.Types.HeatCells>;
 type HeatCellValue = ValueTypeOf<typeof Plan.Types.HeatCell>;
+type HeatScaleValue = ValueTypeOf<typeof Plan.Types.HeatScale>;
 type TableCellValue = ValueTypeOf<typeof Plan.Types.TableCell>;
 type TableSeriesValue = ValueTypeOf<typeof Plan.Types.TableSeries>;
 
 /**
  * A table row's AGGREGABLE positions — the ones a parent subtotals.
  *
- * `rollup: some(true)` NARROWS: flag a position and only the flagged ones roll
- * up, which is how a row says "the actual is the number, the Δ beside it is
+ * `rollup: true` NARROWS: flag a position and only the flagged ones roll up,
+ * which is how a row says "the actual is the number, the Δ beside it is
  * commentary". Flag nothing and EVERY position rolls up, so a subtotal mirrors
  * the shape of the rows it totals — a parent over `act`/`Δ` children shows an
  * act subtotal beside a Δ subtotal rather than silently dropping one.
@@ -51,7 +64,7 @@ type TableSeriesValue = ValueTypeOf<typeof Plan.Types.TableSeries>;
  * into a parent that looked complete.)
  */
 export function tableRollupSeries(series: readonly TableSeriesValue[]): readonly TableSeriesValue[] {
-    const flagged = series.filter((x) => x.rollup.type === "some" && x.rollup.value);
+    const flagged = series.filter((x) => x.rollup);
     return flagged.length > 0 ? flagged : series;
 }
 
@@ -62,7 +75,8 @@ export interface DerivedBand {
     to: PlanInstantValue;
     /** Peak concurrency inside the band. */
     count: number;
-    /** Summed quantity caption (`"1,234.5 t"`, the total in the canvas's locale — #820) — absent unless a unit is declared and every member carries `qty`. */
+    /** The members' quantities summed unit by unit, as a caption (`"208 t · 12 h"`, in the
+     *  canvas's locale — #820, #824) — absent unless every member carries a quantity. */
     quantity: string | undefined;
     /** The least-certain member's lifecycle state. */
     state: RunValue["state"];
@@ -83,9 +97,8 @@ function endOrder(t: PlanInstantValue, ordinal: ReadonlyMap<string, number> | un
 /** Union-merge one run set into bands (rejected runs excluded). */
 function mergeBands(
     runs: readonly RunValue[],
-    unit: string | undefined,
     ordinal: ReadonlyMap<string, number> | undefined,
-    number: (n: number) => string,
+    w: PlanWords,
 ): DerivedBand[] {
     const startOf = (r: RunValue) => instantOrder(r.start, ordinal);
     const endOf = (r: RunValue) => endOrder(r.end, ordinal);
@@ -109,9 +122,11 @@ function mergeBands(
         // #810). Never below 1: a band holds at least its own member, even
         // one whose interval covers no instant.
         const count = Math.max(1, peakConcurrency(g.members.map((m) => ({ start: startOf(m), end: endOf(m) }))));
-        const missing = g.members.some((m) => m.qty.type === "none");
-        const total = g.members.reduce((acc, m) => acc + (m.qty.type === "some" ? m.qty.value : 0), 0);
-        const quantity = unit !== undefined && !missing ? `${number(total)} ${unit}` : undefined;
+        // Each member's quantity carries its own unit (#824): tonnes sum with
+        // tonnes and hours with hours, and a band says each total. A member
+        // without one would make any total a silent undercount — so none.
+        const quantities = g.members.flatMap((m): PlanQuantityValue[] => (m.quantity.type === "some" ? [m.quantity.value] : []));
+        const quantity = quantities.length === g.members.length ? totalsText(totalsByUnit(quantities), w) : undefined;
         let state = g.members[0]!.state;
         for (const m of g.members) {
             if ((STATE_RANK[m.state.type] ?? 3) < (STATE_RANK[state.type] ?? 3)) state = m.state;
@@ -125,17 +140,15 @@ function mergeBands(
  *
  * @param runs - The subtree's runs
  * @param rollup - The declared mode
- * @param unit - The declared quantity unit
  * @param ordinal - The ordinal axis's value → index map, when the axis is ordinal
- * @param number - How a total prints — the canvas's locale (#820); `en-US` by default
+ * @param w - The canvas's words — how a total prints (#820); English in `en-US` by default
  * @returns The bands, in start order
  */
 export function deriveBands(
     runs: readonly RunValue[],
     rollup: "union" | "byStatus" | "sum",
-    unit: string | undefined,
     ordinal?: ReadonlyMap<string, number>,
-    number: (n: number) => string = PLAN_WORDS.number,
+    w: PlanWords = PLAN_WORDS,
 ): DerivedBand[] {
     if (rollup === "byStatus") {
         const order: string[] = [];
@@ -147,56 +160,38 @@ export function deriveBands(
             if (list !== undefined) list.push(r);
             else { byTag.set(tag, [r]); order.push(tag); }
         }
-        return order.flatMap((tag) => mergeBands(byTag.get(tag)!, unit, ordinal, number));
+        return order.flatMap((tag) => mergeBands(byTag.get(tag)!, ordinal, w));
     }
-    return mergeBands(runs, unit, ordinal, number);
-}
-
-/**
- * Group cells by the INSTANT they name, in axis order — instants with a
- * comparable order sort; an ordinal set without its index map (the ledger's
- * height measure) keeps insertion order, which is all a height needs.
- */
-function groupByInstant<C extends { at: PlanInstantValue }>(
-    cells: readonly C[],
-    ordinal: ReadonlyMap<string, number> | undefined,
-): { at: PlanInstantValue; members: C[] }[] {
-    const groups = new Map<string, { at: PlanInstantValue; members: C[] }>();
-    for (const c of cells) {
-        const k = instantKey(c.at);
-        const g = groups.get(k);
-        if (g !== undefined) g.members.push(c);
-        else groups.set(k, { at: c.at, members: [c] });
-    }
-    const out = [...groups.values()];
-    const orders = out.map((g) => instantOrder(g.at, ordinal));
-    if (orders.every((n) => Number.isFinite(n))) {
-        const rank = new Map(out.map((g, i) => [g, orders[i]!]));
-        out.sort((a, b) => rank.get(a)! - rank.get(b)!);
-    }
-    return out;
+    return mergeBands(runs, ordinal, w);
 }
 
 /**
  * Derive per-bucket aggregated heat cells (mean / max / sum; no-data skipped),
- * each labelled with its value in the canvas's locale.
+ * each labelled with its value — through `format` when one is given, else the
+ * canvas's plain number.
  *
- * @param cells - The children's cells
+ * @param cells - The children's cells — already folded to the period, so each
+ *   child contributes at most one value per bucket
  * @param mode - The declared aggregate
  * @param ordinal - The ordinal axis's value → index map, when the axis is ordinal
- * @param number - How a value prints — the canvas's locale (#820); `en-US` by default
- * @returns One cell per distinct instant, in axis order
+ * @param w - The canvas's words (#820); English in `en-US` by default
+ * @param period - The canvas's period — cells group by the bucket that holds
+ *   them; without one, by instant
+ * @param format - How a derived value prints
+ * @returns One cell per bucket, in axis order
  */
 export function deriveHeatCells(
     cells: readonly HeatCellValue[],
     mode: "mean" | "max" | "sum",
     ordinal?: ReadonlyMap<string, number>,
-    number: (n: number) => string = PLAN_WORDS.number,
+    w: PlanWords = PLAN_WORDS,
+    period?: PlanPeriod,
+    format?: TickFormatOpt,
 ): HeatCellValue[] {
     // Derived cells are REAL East option values (`some`/`none` — never a
     // hand-rolled `{ type, value }` literal, which lacks the encoder symbol
     // and breaks the day one is encoded or symbol-compared; #617).
-    return groupByInstant(cells, ordinal).map((g): HeatCellValue => {
+    return bucketGroups(cells, (c) => c.at, period, ordinal).map((g): HeatCellValue => {
         const vals = g.members.flatMap((c) => (c.value.type === "some" ? [c.value.value] : []));
         let v: number | undefined;
         if (vals.length > 0) {
@@ -206,7 +201,7 @@ export function deriveHeatCells(
         return {
             at: g.at,
             value: v !== undefined ? some(v) : none,
-            label: v !== undefined ? some(number(v)) : none,
+            label: v !== undefined ? some(w.value(v, format)) : none,
         };
     });
 }
@@ -216,17 +211,19 @@ export function deriveHeatCells(
  * values only; text and tone are renderer-derived through the row's shared
  * `TickFormatType` format.
  *
- * @param cells - The children's cells
+ * @param cells - The children's cells, already folded to the period
  * @param mode - The declared aggregate
  * @param ordinal - The ordinal axis's value → index map, when the axis is ordinal
- * @returns One cell per distinct instant, in axis order
+ * @param period - The canvas's period — cells group by the bucket that holds them
+ * @returns One cell per bucket, in axis order
  */
 export function deriveTableCells(
     cells: readonly TableCellValue[],
     mode: "sum" | "mean" | "min" | "max" | "count",
     ordinal?: ReadonlyMap<string, number>,
+    period?: PlanPeriod,
 ): TableCellValue[] {
-    return groupByInstant(cells, ordinal).map((g): TableCellValue => {
+    return bucketGroups(cells, (c) => c.at, period, ordinal).map((g): TableCellValue => {
         const vals = g.members.flatMap((c) => (c.value.type === "some" ? [c.value.value] : []));
         let v: number | undefined;
         if (mode === "count") v = vals.length;
@@ -251,18 +248,20 @@ export function deriveTableCells(
  *
  * Position `i` of the parent aggregates position `i` of every child that has
  * one, and inherits that position's declarations (format / tone / strong /
- * rollup) from the first child carrying it, so the subtotal is styled like the
- * numbers it totals rather than as anonymous plain text.
+ * rollup / fold) from the first child carrying it, so the subtotal is styled
+ * like the numbers it totals rather than as anonymous plain text.
  *
- * @param positions - Each child's aggregable positions (see {@link tableRollupSeries})
+ * @param positions - Each child's aggregable positions (see {@link tableRollupSeries}), folded
  * @param mode - The declared aggregate
  * @param ordinal - The ordinal axis's value → index map, when the axis is ordinal
+ * @param period - The canvas's period
  * @returns One derived series per position
  */
 export function deriveTableSeries(
     positions: ReadonlyArray<readonly TableSeriesValue[]>,
     mode: "sum" | "mean" | "min" | "max" | "count",
     ordinal?: ReadonlyMap<string, number>,
+    period?: PlanPeriod,
 ): TableSeriesValue[] {
     const width = positions.reduce((m, p) => Math.max(m, p.length), 0);
     const out: TableSeriesValue[] = [];
@@ -271,30 +270,11 @@ export function deriveTableSeries(
         if (at.length === 0) continue;
         const style = at[0]!;
         out.push({
-            cells: deriveTableCells(at.flatMap((s) => s.cells), mode, ordinal),
-            format: style.format, tone: style.tone, strong: style.strong, rollup: style.rollup,
+            cells: deriveTableCells(at.flatMap((s) => s.cells), mode, ordinal, period),
+            format: style.format, tone: style.tone, strong: style.strong, rollup: style.rollup, fold: style.fold,
         });
     }
     return out;
-}
-
-/** The heat-arm cells of a row (empty for other kinds / arms). */
-function heatCellsOf(row: PlanRowValue): readonly HeatCellValue[] {
-    if (row.kind.type !== "heat") return [];
-    const cells = row.kind.value.cells;
-    return cells.type === "heat" ? cells.value.cells : [];
-}
-
-/** A heat row's DECLARED scale (`min` / `max` / `warnAt`), when its cells
- *  ride the heat arm. */
-function heatScaleOf(row: PlanRowValue): HeatScale | undefined {
-    if (row.kind.type !== "heat" || row.kind.value.cells.type !== "heat") return undefined;
-    const { min, max, warnAt } = row.kind.value.cells.value;
-    return {
-        min: min.type === "some" ? min.value : undefined,
-        max: max.type === "some" ? max.value : undefined,
-        warnAt: warnAt.type === "some" ? warnAt.value : undefined,
-    };
 }
 
 /** A heat scale as plain numbers — `undefined` where nothing is declared. */
@@ -304,19 +284,33 @@ export interface HeatScale {
     warnAt: number | undefined;
 }
 
+/** A heat scale value as plain numbers. */
+function scaleNumbers(s: HeatScaleValue): HeatScale {
+    return { min: getSomeorUndefined(s.min), max: getSomeorUndefined(s.max), warnAt: getSomeorUndefined(s.warnAt) };
+}
+
+/** Plain numbers as a heat scale value — built with `some`/`none`, a real East value (#617). */
+function scaleValue(s: HeatScale | undefined): HeatScaleValue {
+    return {
+        min: s?.min !== undefined ? some(s.min) : none,
+        max: s?.max !== undefined ? some(s.max) : none,
+        warnAt: s?.warnAt !== undefined ? some(s.warnAt) : none,
+    };
+}
+
 /**
- * The scale a derived group strip INHERITS from the heat rows it summarises.
+ * The scale derived cells INHERIT from the heat rows they summarise.
  *
  * A strip painted on its own extent puts the coolest bucket at zero depth —
  * a blank tile with a number floating in it — which reads as no data, not as
  * the minimum. A `mean` or `max` of rows declared on 0–100 is itself on
- * 0–100, so the strip takes the children's scale: the widest declared span
- * (every child must declare the bound for it to hold), and the tightest
+ * 0–100, so the derived cells take the members' scale: the widest declared
+ * span (every member must declare the bound for it to hold), and the tightest
  * warn threshold. A `sum` outgrows its members' scale and keeps the extent.
  */
-function inheritedScale(children: readonly PlanRowValue[], mode: string): HeatScale | undefined {
+function inheritedScale(arms: readonly HeatCellsValue[], mode: string): HeatScale | undefined {
     if (mode === "sum") return undefined;
-    const scales = children.map(heatScaleOf).filter((s): s is HeatScale => s !== undefined);
+    const scales = arms.flatMap((a) => (a.type === "heat" ? [scaleNumbers(a.value.scale)] : []));
     if (scales.length === 0) return undefined;
     const mins = scales.map((s) => s.min);
     const maxs = scales.map((s) => s.max);
@@ -326,6 +320,12 @@ function inheritedScale(children: readonly PlanRowValue[], mode: string): HeatSc
     const warnAt = warns.length > 0 ? minOf(warns) : undefined;
     if (min === undefined && max === undefined && warnAt === undefined) return undefined;
     return { min, max, warnAt };
+}
+
+/** The first format a heat arm among `arms` declares — what cells derived from them print through. */
+function inheritedFormat(arms: readonly HeatCellsValue[]): HeatCellsValue["value"]["format"] {
+    for (const a of arms) if (a.value.format.type === "some") return a.value.format;
+    return none;
 }
 
 /** Every span run across a subtree (any depth), skipping the runs of
@@ -362,21 +362,29 @@ function hasOwnValues(series: readonly TableSeriesValue[]): boolean {
     return series.some((s) => s.cells.length > 0);
 }
 
-/** The per-value derived numbers, computed once per decoded root. */
+/**
+ * The per-value derived numbers, computed once per decoded root and period.
+ *
+ * Each `…` map says what a row DRAWS where that is not its own declaration —
+ * a parent's derived values, or its own folded to the period (#824). A row
+ * absent from a map draws what it declares, as it is.
+ */
 export interface PlanDerived {
     /** Rollup bands by span-parent row key. */
     bands: ReadonlyMap<RowKey, DerivedBand[]>;
-    /** Aggregated cells by heat-parent row key. */
-    heatCells: ReadonlyMap<RowKey, HeatCellValue[]>;
-    /** Subtotal SERIES by table-parent row key — one derived position per
-     *  aggregable position of the children, so a parent renders the same
-     *  shape its members do. */
+    /** The heat arm each heat row draws: a declared-aggregate parent's derived
+     *  cells — on its declared scale, else the one its members share — or a
+     *  row's own cells folded to the period. */
+    heatArms: ReadonlyMap<RowKey, HeatCellsValue>;
+    /** The value series each table row draws: a parent's subtotal positions —
+     *  the same shape its members have — or a row's own series folded. */
     tableSeries: ReadonlyMap<RowKey, TableSeriesValue[]>;
-    /** Strip summary cells by group row key. */
-    groupSummary: ReadonlyMap<RowKey, HeatCellValue[]>;
-    /** The scale a derived strip inherits from its heat members (see
-     *  `inheritedScale`) — absent when it paints on its own extent. */
-    groupSummaryScale: ReadonlyMap<RowKey, HeatScale>;
+    /** The chart each chart row draws — its line, area and column layers folded. */
+    charts: ReadonlyMap<RowKey, ChartKindValue>;
+    /** The strip each group band draws collapsed: its declared aggregate over
+     *  its members' drawn heat cells (on the scale they share), or its declared
+     *  cells folded. Absent for a plain band, or declared cells as they are. */
+    groupStrips: ReadonlyMap<RowKey, HeatCellsValue>;
     /** Direct-member count by group row key — the `"8 rs"` gutter meta.
      *  Derived here like every other aggregate: the IR declares no count, so
      *  the meta is always the members the group has (#568). */
@@ -387,7 +395,8 @@ export interface PlanDerived {
 }
 
 /**
- * Derive every declared rollup / aggregate / summary over the decoded rows.
+ * Derive every declared rollup / aggregate / summary / fold over the decoded
+ * rows.
  *
  * @remarks
  * The walk is an explicit POST-ORDER traversal from the roots: a declared
@@ -399,6 +408,9 @@ export interface PlanDerived {
  * array in reverse, which was only right while that array happened to be
  * depth-first; feeding a bottom-up aggregation the wrong order yields wrong
  * numbers, not an error — #568.)
+ *
+ * Each row's values fold to the period FIRST (#824), so a parent aggregates
+ * what its children draw.
  *
  * Rows outside the tree — a `parent` naming a key that does not exist — are
  * unreachable from the roots and derive nothing, exactly as they render
@@ -412,21 +424,23 @@ export interface PlanDerived {
  * @param index - The row-tree index
  * @param ordinal - The ordinal axis's value → index map (orders ordinal cells; omit on other axes)
  * @param axisKind - The axis kind; omit to diagnose nothing
- * @param number - How a derived number prints — the canvas's locale (`PlanWords.number`,
- *   #820); `en-US` by default (a height measure prints nothing it reads)
+ * @param w - The canvas's words — how a derived number prints (#820); English in
+ *   `en-US` by default (a height measure prints nothing it reads)
+ * @param period - The canvas's period (`PlanScale.period`); omit to fold nothing
  * @returns Every derived number, keyed by row
  */
 export function derivePlan(
     index: PlanRowIndex,
     ordinal?: ReadonlyMap<string, number>,
     axisKind?: PlanAxisKind,
-    number: (n: number) => string = PLAN_WORDS.number,
+    w: PlanWords = PLAN_WORDS,
+    period?: PlanPeriod,
 ): PlanDerived {
     const bands = new Map<RowKey, DerivedBand[]>();
-    const heatCells = new Map<RowKey, HeatCellValue[]>();
+    const heatArms = new Map<RowKey, HeatCellsValue>();
     const tableSeries = new Map<RowKey, TableSeriesValue[]>();
-    const groupSummary = new Map<RowKey, HeatCellValue[]>();
-    const groupSummaryScale = new Map<RowKey, HeatScale>();
+    const charts = new Map<RowKey, ChartKindValue>();
+    const groupStrips = new Map<RowKey, HeatCellsValue>();
     const groupMembers = new Map<RowKey, number>();
     const diagnostics = new Map<RowKey, PlanRowDiagnostic>();
     if (axisKind !== undefined) {
@@ -439,17 +453,26 @@ export function derivePlan(
         if (row.duplicateOf !== undefined) diagnostics.set(row.key, { kind: "duplicate", of: row.duplicateOf });
     }
     const placeable = (row: PlanRowValue): boolean => !diagnostics.has(row.key);
-    // A row's effective cells — its own, or (for declared parents) its
-    // already-derived cells from the bottom-up walk. A diagnostic row has none.
-    const resolvedHeatCells = (row: PlanRowValue): readonly HeatCellValue[] => {
-        if (!placeable(row)) return [];
-        const own = heatCellsOf(row);
-        if (own.length > 0) return own;
-        return heatCells.get(row.key) ?? [];
+    // What a heat row draws — its derived or folded arm, else its own. The
+    // walk is bottom-up, so a child's entry is in the map before its parent
+    // reads it. A diagnostic row draws none.
+    const drawnHeatArm = (row: PlanRowValue): HeatCellsValue | undefined => {
+        if (row.kind.type !== "heat" || !placeable(row)) return undefined;
+        return heatArms.get(row.key) ?? row.kind.value.cells;
     };
+    const drawnHeatCells = (row: PlanRowValue): readonly HeatCellValue[] => {
+        const arm = drawnHeatArm(row);
+        return arm !== undefined && arm.type === "heat" ? arm.value.cells : [];
+    };
+    const drawnHeatArms = (rows: readonly PlanRowValue[]): HeatCellsValue[] =>
+        rows.flatMap((r) => {
+            const arm = drawnHeatArm(r);
+            return arm !== undefined ? [arm] : [];
+        });
+    // A table row's aggregable positions as it draws them.
     const resolvedTableSeries = (row: PlanRowValue): readonly TableSeriesValue[] => {
         if (row.kind.type !== "table" || !placeable(row)) return [];
-        if (hasOwnValues(row.kind.value.series)) return tableRollupSeries(row.kind.value.series);
+        if (hasOwnValues(row.kind.value.series)) return tableRollupSeries(tableSeries.get(row.key) ?? row.kind.value.series);
         return tableSeries.get(row.key) ?? [];
     };
     const visit = (row: PlanRowValue): void => {
@@ -462,42 +485,86 @@ export function derivePlan(
         // A diagnostic row draws its message, not its marks — nothing of its
         // own to derive.
         if (!placeable(row)) return;
-        if (kind.type === "span" && kind.value.rollup.type === "some") {
-            const unit = kind.value.unit.type === "some" ? kind.value.unit.value : undefined;
-            const runs = [...kind.value.runs, ...subtreeRuns(index, row.key, diagnostics)];
-            bands.set(row.key, deriveBands(runs, kind.value.rollup.value.type, unit, ordinal, number));
-        }
-        if (kind.type === "heat" && kind.value.aggregate.type === "some"
-            && heatCellsOf(row).length === 0 && children.length > 0) {
-            heatCells.set(row.key, deriveHeatCells(
-                children.flatMap(resolvedHeatCells), kind.value.aggregate.value.type, ordinal, number));
-        }
-        // A table parent with no values of its own — a series parent declares
-        // its positions with empty cells — shows its children's subtotals.
-        if (kind.type === "table" && kind.value.aggregate.type === "some"
-            && !hasOwnValues(kind.value.series) && children.length > 0) {
-            const positions = children.map(resolvedTableSeries).filter((p) => p.length > 0);
-            if (positions.length > 0) {
-                tableSeries.set(row.key, deriveTableSeries(positions, kind.value.aggregate.value.type, ordinal));
+        switch (kind.type) {
+            case "span":
+                if (kind.value.rollup.type === "some") {
+                    const runs = [...kind.value.runs, ...subtreeRuns(index, row.key, diagnostics)];
+                    bands.set(row.key, deriveBands(runs, kind.value.rollup.value.type, ordinal, w));
+                }
+                return;
+            case "heat": {
+                const own = kind.value.cells;
+                const ownCells = own.type === "heat" ? own.value.cells : [];
+                if (kind.value.aggregate.type === "some" && ownCells.length === 0 && children.length > 0) {
+                    const mode = kind.value.aggregate.value.type;
+                    const arms = drawnHeatArms(children);
+                    const format = own.type === "heat" && own.value.format.type === "some" ? own.value.format : inheritedFormat(arms);
+                    const cells = deriveHeatCells(children.flatMap(drawnHeatCells), mode, ordinal, w, period, getSomeorUndefined(format));
+                    // The parent's declared scale, else the one its members share (#824).
+                    const scale = kind.value.scale.type === "some" ? kind.value.scale.value : scaleValue(inheritedScale(arms, mode));
+                    heatArms.set(row.key, variant("heat", {
+                        cells, scale, fold: own.type === "heat" ? own.value.fold : variant("mean", null), format,
+                    }));
+                    return;
+                }
+                const folded = foldHeatArm(own, period, ordinal, w);
+                if (folded !== own) heatArms.set(row.key, folded);
+                return;
             }
-        }
-        if (kind.type === "group" && kind.value.summaryAggregate.type === "some") {
-            const mode = kind.value.summaryAggregate.value.type;
-            groupSummary.set(row.key, deriveHeatCells(children.flatMap(resolvedHeatCells), mode, ordinal, number));
-            const scale = inheritedScale(children.filter(placeable), mode);
-            if (scale !== undefined) groupSummaryScale.set(row.key, scale);
+            case "table": {
+                // A table parent with no values of its own — a series parent
+                // declares its positions with empty cells — shows its
+                // children's subtotals.
+                if (kind.value.aggregate.type === "some" && !hasOwnValues(kind.value.series) && children.length > 0) {
+                    const positions = children.map(resolvedTableSeries).filter((p) => p.length > 0);
+                    if (positions.length > 0) {
+                        tableSeries.set(row.key, deriveTableSeries(positions, kind.value.aggregate.value.type, ordinal, period));
+                    }
+                    return;
+                }
+                const folded = foldTableSeries(kind.value.series, period, ordinal);
+                if (folded !== kind.value.series) tableSeries.set(row.key, folded);
+                return;
+            }
+            case "chart": {
+                const layers = foldChartLayers(kind.value.layers, period, ordinal);
+                if (layers !== kind.value.layers) charts.set(row.key, { ...kind.value, layers });
+                return;
+            }
+            case "group": {
+                const summary = kind.value.summary;
+                if (summary.type === "aggregate") {
+                    const mode = summary.value.type;
+                    const members = children.filter(placeable);
+                    const arms = drawnHeatArms(members);
+                    const format = inheritedFormat(arms);
+                    groupStrips.set(row.key, variant("heat", {
+                        cells: deriveHeatCells(children.flatMap(drawnHeatCells), mode, ordinal, w, period, getSomeorUndefined(format)),
+                        scale: scaleValue(inheritedScale(arms, mode)),
+                        fold: variant("mean", null),
+                        format,
+                    }));
+                } else if (summary.type === "cells") {
+                    const folded = foldHeatArm(summary.value, period, ordinal, w);
+                    if (folded !== summary.value) groupStrips.set(row.key, folded);
+                }
+                return;
+            }
+            case "buckets": case "cards": case "events":
+                return;
         }
     };
     for (const root of index.roots) visit(root);
-    return { bands, heatCells, tableSeries, groupSummary, groupSummaryScale, groupMembers, diagnostics };
+    return { bands, heatArms, tableSeries, charts, groupStrips, groupMembers, diagnostics };
 }
 
 // ── Keeping identities across re-derivations (#815) ────────────────────────
 
 const instantEqual = equalFor(Plan.Types.Instant);
 const runStateEqual = equalFor(Plan.Types.Run.fields.state);
-const heatCellsEqual = equalFor(ArrayType(Plan.Types.HeatCell));
+const heatArmEqual = equalFor(Plan.Types.HeatCells);
 const tableSeriesEqual = equalFor(ArrayType(Plan.Types.TableSeries));
+const chartKindEqual = equalFor(Plan.Types.RowKind.cases.chart);
 
 function sameBands(a: readonly DerivedBand[], b: readonly DerivedBand[]): boolean {
     return a.length === b.length && a.every((x, i) => {
@@ -505,10 +572,6 @@ function sameBands(a: readonly DerivedBand[], b: readonly DerivedBand[]): boolea
         return x.count === y.count && x.quantity === y.quantity && instantEqual(x.from, y.from)
             && instantEqual(x.to, y.to) && runStateEqual(x.state, y.state);
     });
-}
-
-function sameScale(a: HeatScale, b: HeatScale): boolean {
-    return a.min === b.min && a.max === b.max && a.warnAt === b.warnAt;
 }
 
 function sameDiagnostic(a: PlanRowDiagnostic, b: PlanRowDiagnostic): boolean {
@@ -545,12 +608,13 @@ function keptEntries<V>(
  * content did not move.
  *
  * @remarks
- * {@link derivePlan} rebuilds every map from scratch — on a data change, and
- * on every paged window landing, since a landing re-indexes the resident
- * rows. A row reads only its own entries, so a row memo can skip exactly when
- * those entries are the objects it rendered with. This hands back the old
- * object wherever the new one says the same thing, which is what lets a
- * landing render the rows whose numbers it moved and none of the others.
+ * {@link derivePlan} rebuilds every map from scratch — on a data change, on
+ * every paged window landing, since a landing re-indexes the resident rows,
+ * and on a resolution change, which re-folds. A row reads only its own
+ * entries, so a row memo can skip exactly when those entries are the objects
+ * it rendered with. This hands back the old object wherever the new one says
+ * the same thing, which is what lets a landing render the rows whose numbers
+ * it moved and none of the others.
  *
  * @param prev - The previous derivation, if any
  * @param next - The new derivation
@@ -560,10 +624,10 @@ export function stableDerived(prev: PlanDerived | undefined, next: PlanDerived):
     if (prev === undefined || prev === next) return next;
     return {
         bands: keptEntries(prev.bands, next.bands, sameBands),
-        heatCells: keptEntries(prev.heatCells, next.heatCells, heatCellsEqual),
+        heatArms: keptEntries(prev.heatArms, next.heatArms, heatArmEqual),
         tableSeries: keptEntries(prev.tableSeries, next.tableSeries, tableSeriesEqual),
-        groupSummary: keptEntries(prev.groupSummary, next.groupSummary, heatCellsEqual),
-        groupSummaryScale: keptEntries(prev.groupSummaryScale, next.groupSummaryScale, sameScale),
+        charts: keptEntries(prev.charts, next.charts, chartKindEqual),
+        groupStrips: keptEntries(prev.groupStrips, next.groupStrips, heatArmEqual),
         groupMembers: next.groupMembers,
         diagnostics: keptEntries(prev.diagnostics, next.diagnostics, sameDiagnostic),
     };

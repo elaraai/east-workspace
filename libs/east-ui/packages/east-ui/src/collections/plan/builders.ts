@@ -93,6 +93,11 @@ import {
     PlanEventMarkType,
     PlanLaneType,
     PlanRowIdType,
+    PlanFoldType,
+    type PlanFoldLiteral,
+    PlanQuantityType,
+    PlanHeatScaleType,
+    PlanUiStateType,
 } from "./types.js";
 
 // ============================================================================
@@ -128,6 +133,20 @@ export function resolvePlanEventState(
 export function resolveTag<T extends EastType>(v: SubtypeExprOrValue<NoInfer<T>> | string, type: T): ExprType<T> {
     const value = typeof v === "string" ? (variant(v, null) as unknown) : (v as unknown);
     return East.value(value as SubtypeExprOrValue<T>, type) as ExprType<T>;
+}
+
+/** A fold input — a {@link PlanFoldLiteral} or a `PlanFoldType` value / expression (#824). */
+export type PlanFoldInput = PlanFoldLiteral | SubtypeExprOrValue<PlanFoldType>;
+
+/**
+ * Resolve a fold input, falling back to the default of what it folds.
+ *
+ * @param fold - The declared fold, if any
+ * @param fallback - The default for the values being folded (`mean` for levels, `sum` for amounts)
+ * @returns The fold
+ */
+export function resolveFold(fold: PlanFoldInput | undefined, fallback: PlanFoldLiteral): ExprType<PlanFoldType> {
+    return resolveTag(fold ?? fallback, PlanFoldType);
 }
 
 /**
@@ -356,6 +375,47 @@ export const createAxis: PlanAxisBuilder = Object.assign(
 );
 
 // ============================================================================
+// Quantities (#824)
+// ============================================================================
+
+/**
+ * How a quantity prints — see {@link Plan.quantity}.
+ *
+ * @property unit - The unit it is in (`"t"`); quantities in different units never sum together
+ * @property format - How the value prints (a `Format.*` spec); omit ⇒ the canvas's plain number
+ * @property text - The caption to print instead of the formatted value and unit
+ */
+export interface PlanQuantityOptions {
+    /** The unit the value is in (`"t"`) — printed after it, and what a rollup sums by. */
+    unit?: SubtypeExprOrValue<StringType>;
+    /** How the value prints — a `Format.*` spec (the shared `TickFormatType`), in the viewer's locale. */
+    format?: SubtypeExprOrValue<TickFormatType>;
+    /** The caption to print instead of the formatted value and unit — the value still sums and weighs. */
+    text?: SubtypeExprOrValue<StringType>;
+}
+
+/**
+ * Builds a quantity — a number with its unit and how it prints (#824). A run
+ * carries one as its `quantity` (its bar prints it; a parent's rollup band sums
+ * its runs' per unit), and so does a link (its ribbon's share and caption).
+ *
+ * @param value - The amount (a number or `FloatType` expression)
+ * @param options - Its unit, format and caption override ({@link PlanQuantityOptions})
+ * @returns An East expression of {@link PlanQuantityType}
+ */
+export function createQuantity(
+    value: SubtypeExprOrValue<FloatType> | number,
+    options?: PlanQuantityOptions,
+): ExprType<PlanQuantityType> {
+    return East.value({
+        value,
+        unit:   options?.unit !== undefined ? some(options.unit) : none,
+        format: options?.format !== undefined ? some(East.value(options.format, TickFormatType)) : none,
+        text:   options?.text !== undefined ? some(options.text) : none,
+    }, PlanQuantityType);
+}
+
+// ============================================================================
 // Value builders — runs, decisions, ports, events, markers, chips, marks
 // ============================================================================
 
@@ -368,8 +428,7 @@ export const createAxis: PlanAxisBuilder = Object.assign(
  * @property start - Run start (inclusive) — an instant input (a Date / number / string, or a typed expression)
  * @property end - Run end (exclusive)
  * @property label - The bar text (`"RUN · B-214"`)
- * @property quantity - Optional displayed quantity suffix (`"96 t"`)
- * @property qty - Optional numeric quantity (summed into rollup bands)
+ * @property quantity - Optional quantity (`Plan.quantity(96, { unit: "t" })`) — printed after the label, summed into rollup bands per unit
  * @property state - The lifecycle state (string shorthand or `EventStateType`)
  * @property status - Optional status tint (`"warning"` ⇒ the over-dwell ring)
  * @property moved - Optional same-status churn counter (`moved ×k`)
@@ -384,10 +443,9 @@ export interface PlanRunInput<S extends PlanInstantInput = PlanInstantInput, E e
     end: E;
     /** The bar text (`"RUN · B-214"`). */
     label: SubtypeExprOrValue<StringType>;
-    /** Optional displayed quantity suffix (`"96 t"` — the muted `.q` text). */
-    quantity?: SubtypeExprOrValue<StringType>;
-    /** Optional numeric quantity — summed into parent rollup bands (pair with the span factory's `unit`). */
-    qty?: SubtypeExprOrValue<FloatType>;
+    /** Optional quantity — `Plan.quantity(96, { unit: "t" })`: the bar prints its caption after the label
+     *  (the muted `.q` text), and a parent's rollup band sums it with its siblings' in the same unit. */
+    quantity?: SubtypeExprOrValue<PlanQuantityType>;
     /** The lifecycle state — a string shorthand or an `EventStateType` value. */
     state: SubtypeExprOrValue<EventStateType> | EventStateLiteral;
     /** Optional status tint — `"warning"` draws the `.stuck` over-dwell ring. */
@@ -418,8 +476,7 @@ export function createRun<S extends PlanInstantInput, E extends PlanInstantInput
         start:     resolveInstant(input.start, "run start"),
         end:       resolveInstant(input.end, "run end"),
         label:     input.label,
-        quantity:  input.quantity !== undefined ? some(input.quantity) : none,
-        qty:       input.qty !== undefined ? some(input.qty) : none,
+        quantity:  input.quantity !== undefined ? some(East.value(input.quantity, PlanQuantityType)) : none,
         state:     resolvePlanEventState(input.state),
         status:    input.status !== undefined ? some(resolveTag(input.status, StatusValueType)) : none,
         moved:     input.moved !== undefined ? some(typeof input.moved === "number" ? BigInt(input.moved) : input.moved) : none,
@@ -631,17 +688,62 @@ export function createSectionRef(
 }
 
 /**
+ * What a bound `ui` state starts as — see {@link Plan.uiState}.
+ *
+ * @property selected - The selected row
+ * @property collapsed - Rows folded against what they declare
+ * @property expanded - Rows opened against what they declare
+ * @property charts - Chart rows expanded from spark
+ * @property focus - A row to bring into view (a request the canvas spends)
+ */
+export interface PlanUiStateInput {
+    /** The selected row. */
+    selected?: SubtypeExprOrValue<PlanRowIdType>;
+    /** Rows folded — overriding what they declare. */
+    collapsed?: SubtypeExprOrValue<PlanRowIdType>[] | SubtypeExprOrValue<ArrayType<PlanRowIdType>>;
+    /** Rows opened — overriding what they declare. */
+    expanded?: SubtypeExprOrValue<PlanRowIdType>[] | SubtypeExprOrValue<ArrayType<PlanRowIdType>>;
+    /** Chart rows expanded from spark to full height. */
+    charts?: SubtypeExprOrValue<PlanRowIdType>[] | SubtypeExprOrValue<ArrayType<PlanRowIdType>>;
+    /** A row to bring into view — the canvas spends the request (`none`) once it has. */
+    focus?: SubtypeExprOrValue<PlanRowIdType>;
+}
+
+/**
+ * Builds a {@link PlanUiStateType} value — the seed of a bound `ui` state
+ * (`State.bind([Plan.Types.UiState], key, Plan.uiState())`, #824). Omitted
+ * fields are empty: nothing selected, every row as it declares, no chart
+ * expanded, nothing to bring into view.
+ *
+ * @param init - What the state starts as ({@link PlanUiStateInput})
+ * @returns An East expression of {@link PlanUiStateType}
+ */
+export function createUiState(init?: PlanUiStateInput): ExprType<PlanUiStateType> {
+    const ids = (list: PlanUiStateInput["collapsed"]) =>
+        East.value((list ?? []) as SubtypeExprOrValue<ArrayType<PlanRowIdType>>, ArrayType(PlanRowIdType));
+    return East.value({
+        selected:  init?.selected !== undefined ? some(East.value(init.selected, PlanRowIdType)) : none,
+        collapsed: ids(init?.collapsed),
+        expanded:  ids(init?.expanded),
+        charts:    ids(init?.charts),
+        focus:     init?.focus !== undefined ? some(East.value(init.focus, PlanRowIdType)) : none,
+    }, PlanUiStateType);
+}
+
+/**
  * Flat input for {@link Plan.link} — one run-edge quantity link of the
  * canvas's link graph (`Plan.Root`'s `links`).
  *
+ * @property key - The link's identity — what a click on its ribbon names it by (#824)
  * @property from - The source row's id (`Plan.ref(series, …path)`)
  * @property fromRun - The source run key (the ribbon leaves this run's end edge)
  * @property to - The destination row's id
  * @property toRun - The destination run key (the ribbon lands on this run's start edge)
- * @property quantity - The moved quantity (drives ribbon share + opacity)
- * @property label - The printed quantity caption (`"34 t"`)
+ * @property quantity - The moved quantity (`Plan.quantity(34, { unit: "t" })`) — the ribbon's share, opacity and caption
  */
 export interface PlanLinkInput {
+    /** The link's identity — what the `link` element ref a ribbon click reports names it by (#824). */
+    key: SubtypeExprOrValue<StringType>;
     /** The source row's id (`Plan.ref(series, …path)`). */
     from: SubtypeExprOrValue<PlanRowIdType>;
     /** The source run key (the ribbon leaves this run's end edge). */
@@ -650,10 +752,9 @@ export interface PlanLinkInput {
     to: SubtypeExprOrValue<PlanRowIdType>;
     /** The destination run key (the ribbon lands on this run's start edge). */
     toRun: SubtypeExprOrValue<StringType>;
-    /** The moved quantity (drives ribbon share + opacity). */
-    quantity: SubtypeExprOrValue<FloatType> | number;
-    /** The printed quantity caption (`"34 t"`). */
-    label: SubtypeExprOrValue<StringType>;
+    /** The moved quantity — `Plan.quantity(34, { unit: "t" })`: its value weighs the ribbon's share of the
+     *  family's largest, and its caption prints on the ribbon. Omit ⇒ the faintest ribbon, no caption. */
+    quantity?: SubtypeExprOrValue<PlanQuantityType>;
 }
 
 /**
@@ -666,12 +767,10 @@ export interface PlanLinkInput {
  */
 export function createLink(input: PlanLinkInput): ExprType<PlanLinkType> {
     return East.value({
-        fromRow:  input.from,
-        fromRun:  input.fromRun,
-        toRow:    input.to,
-        toRun:    input.toRun,
-        quantity: input.quantity,
-        label:    input.label,
+        key:      input.key,
+        from:     { row: input.from, run: input.fromRun },
+        to:       { row: input.to, run: input.toRun },
+        quantity: input.quantity !== undefined ? some(East.value(input.quantity, PlanQuantityType)) : none,
     }, PlanLinkType);
 }
 
@@ -817,19 +916,68 @@ export const markKind = {
 // ============================================================================
 
 /**
- * Options for {@link Plan.heatCells} — the heat scale + warn threshold.
+ * A heat scale — the value at no depth, the value at full depth, and the warn
+ * threshold ({@link PlanHeatScaleType}).
  *
- * @property min - Scale minimum (default: observed)
- * @property max - Scale maximum (default: observed)
+ * @property min - The value painted at no depth (default: the least shown)
+ * @property max - The value painted at full depth (default: the greatest shown)
  * @property warnAt - Warn-ring threshold (≥ it rings the cell)
  */
-export interface PlanHeatCellsOptions {
-    /** Scale minimum (default: the observed extent). */
+export interface PlanHeatScaleInput {
+    /** The value painted at no depth (default: the least value shown). */
     min?: SubtypeExprOrValue<FloatType> | number;
-    /** Scale maximum (default: the observed extent). */
+    /** The value painted at full depth (default: the greatest value shown). */
     max?: SubtypeExprOrValue<FloatType> | number;
     /** Warn-ring threshold (≥ it rings the cell). */
     warnAt?: SubtypeExprOrValue<FloatType> | number;
+}
+
+/**
+ * Build a heat scale value from its input.
+ *
+ * @param input - The scale ({@link PlanHeatScaleInput}); omit ⇒ every bound from the values shown
+ * @returns An East expression of {@link PlanHeatScaleType}
+ */
+export function createHeatScale(input?: PlanHeatScaleInput): ExprType<PlanHeatScaleType> {
+    return East.value({
+        min:    input?.min !== undefined ? some(input.min) : none,
+        max:    input?.max !== undefined ? some(input.max) : none,
+        warnAt: input?.warnAt !== undefined ? some(input.warnAt) : none,
+    }, PlanHeatScaleType);
+}
+
+/**
+ * How a cells arm folds and prints (#824) — the options every cell builder
+ * takes.
+ *
+ * @property fold - How a bucket folds the cells that fall in it at a coarser resolution than theirs
+ * @property format - How the arm's values print (a `Format.*` spec)
+ */
+export interface PlanCellsFoldOptions {
+    /** How a bucket folds the cells that fall in it at a coarser resolution than theirs
+     *  (`"sum"` / `"mean"` / `"min"` / `"max"` / `"last"` / `"count"`; each builder says its default). */
+    fold?: PlanFoldInput;
+    /** How the arm's values print — a `Format.*` spec (the shared `TickFormatType`), in the viewer's locale. */
+    format?: SubtypeExprOrValue<TickFormatType>;
+}
+
+/**
+ * Options for {@link Plan.heatCells} — the heat scale, the warn threshold, and
+ * how the cells fold and print.
+ *
+ * @property min - Scale minimum (default: the least shown)
+ * @property max - Scale maximum (default: the greatest shown)
+ * @property warnAt - Warn-ring threshold (≥ it rings the cell)
+ * @property fold - How a bucket folds its cells (default `"mean"`)
+ * @property format - How a value prints — a cell without a `label` prints its value only when one is declared
+ */
+export interface PlanHeatCellsOptions extends PlanHeatScaleInput, PlanCellsFoldOptions {}
+
+/** The declared `format`, as the arm's option. */
+function formatOpt(format: SubtypeExprOrValue<TickFormatType> | undefined): ExprType<OptionType<TickFormatType>> {
+    return format !== undefined
+        ? East.value(some(East.value(format, TickFormatType)), OptionType(TickFormatType))
+        : East.value(none, OptionType(TickFormatType));
 }
 
 /**
@@ -837,9 +985,15 @@ export interface PlanHeatCellsOptions {
  * Literal records whose `at` is a `Plan.at.*` value brand the result with
  * that kind ({@link PlanCellsInput}); an East array is kind-erased.
  *
+ * @remarks
+ * At a coarser resolution than the cells', a bucket shows ONE cell — the
+ * `fold` of the cells in it (`"mean"` by default: a heat cell is a level).
+ * A cell prints its `label`; one without prints its value only through a
+ * declared `format` (#824).
+ *
  * @typeParam K - The kind inferred from the literal records' `at`
  * @param cells - The cells (`{ at, value, label }` structs; `value: none` ⇒ the no-data hatch)
- * @param options - Scale + warn threshold ({@link PlanHeatCellsOptions})
+ * @param options - Scale, warn threshold, fold and format ({@link PlanHeatCellsOptions})
  * @returns A `PlanHeatCellsType` expression, branded with the cells' kind
  */
 export function createHeatCells<K extends PlanAxisKindLiteral = never>(
@@ -848,9 +1002,9 @@ export function createHeatCells<K extends PlanAxisKindLiteral = never>(
 ): PlanHeatCellsExpr<K> {
     return East.value(variant("heat", {
         cells:  East.value(cells as SubtypeExprOrValue<ArrayType<PlanHeatCellType>>, ArrayType(PlanHeatCellType)),
-        min:    options?.min !== undefined ? some(options.min) : none,
-        max:    options?.max !== undefined ? some(options.max) : none,
-        warnAt: options?.warnAt !== undefined ? some(options.warnAt) : none,
+        scale:  createHeatScale(options),
+        fold:   resolveFold(options?.fold, "mean"),
+        format: formatOpt(options?.format),
     }), PlanHeatCellsType) as PlanHeatCellsExpr<K>;
 }
 
@@ -859,14 +1013,27 @@ export function createHeatCells<K extends PlanAxisKindLiteral = never>(
  * {@link PlanHeatCellsType} (booked-vs-free bars; planned ⇒ pale). Literal
  * records with `Plan.at.*` instants brand the result with their kind.
  *
+ * @remarks
+ * At a coarser resolution, a bucket shows ONE bar — the `fold` of its cells'
+ * fractions (`"mean"` by default: a cell is the fraction of its bucket booked,
+ * and a month's fraction is its weeks' mean), pale only when every cell in it
+ * is planned. `format` prints the fraction in the words a reader hears
+ * (default: a percent).
+ *
  * @typeParam K - The kind inferred from the literal records' `at`
  * @param cells - The cells (`{ at, fraction, planned }` structs)
+ * @param options - Fold and format ({@link PlanCellsFoldOptions})
  * @returns A `PlanHeatCellsType` expression, branded with the cells' kind
  */
 export function createWeightCells<K extends PlanAxisKindLiteral = never>(
     cells: PlanCellsInput<PlanWeightCellType, K>,
+    options?: PlanCellsFoldOptions,
 ): PlanHeatCellsExpr<K> {
-    return East.value(variant("weight", East.value(cells as SubtypeExprOrValue<ArrayType<PlanWeightCellType>>, ArrayType(PlanWeightCellType))), PlanHeatCellsType) as PlanHeatCellsExpr<K>;
+    return East.value(variant("weight", {
+        cells:  East.value(cells as SubtypeExprOrValue<ArrayType<PlanWeightCellType>>, ArrayType(PlanWeightCellType)),
+        fold:   resolveFold(options?.fold, "mean"),
+        format: formatOpt(options?.format),
+    }), PlanHeatCellsType) as PlanHeatCellsExpr<K>;
 }
 
 /**
@@ -874,14 +1041,26 @@ export function createWeightCells<K extends PlanAxisKindLiteral = never>(
  * {@link PlanHeatCellsType} (committed / pending / slack compositions).
  * Literal records with `Plan.at.*` instants brand the result with their kind.
  *
+ * @remarks
+ * At a coarser resolution, a bucket shows ONE composition — each fill's
+ * weights folded across the cells in it (`"sum"` by default: the weights are
+ * amounts, and the bar normalises them). `format` prints a segment's share in
+ * the words a reader hears (default: a percent).
+ *
  * @typeParam K - The kind inferred from the literal records' `at`
  * @param cells - The cells (`{ at, segments }` structs — build segments with `Plan.segment`)
+ * @param options - Fold and format ({@link PlanCellsFoldOptions})
  * @returns A `PlanHeatCellsType` expression, branded with the cells' kind
  */
 export function createSegmentCells<K extends PlanAxisKindLiteral = never>(
     cells: PlanCellsInput<PlanSegmentCellType, K>,
+    options?: PlanCellsFoldOptions,
 ): PlanHeatCellsExpr<K> {
-    return East.value(variant("segments", East.value(cells as SubtypeExprOrValue<ArrayType<PlanSegmentCellType>>, ArrayType(PlanSegmentCellType))), PlanHeatCellsType) as PlanHeatCellsExpr<K>;
+    return East.value(variant("segments", {
+        cells:  East.value(cells as SubtypeExprOrValue<ArrayType<PlanSegmentCellType>>, ArrayType(PlanSegmentCellType)),
+        fold:   resolveFold(options?.fold, "sum"),
+        format: formatOpt(options?.format),
+    }), PlanHeatCellsType) as PlanHeatCellsExpr<K>;
 }
 
 /**
@@ -924,7 +1103,8 @@ export function createSegment(input: PlanSegmentInput): ExprType<typeof PlanSegm
  * @property format - Numeral format override for this series (else the row's `format`)
  * @property tone - Default tone for the series' values (`"muted"` de-emphasises a plan column)
  * @property strong - Semibold emphasis for this series' values
- * @property rollup - `true` ⇒ this series feeds declared parent aggregation (default: the first)
+ * @property rollup - `true` ⇒ this series feeds declared parent aggregation (flag none ⇒ every series does)
+ * @property fold - How a bucket folds this series' cells at a coarser resolution (default `"sum"`)
  */
 export interface PlanTableSeriesInput<K extends PlanAxisKindLiteral = never> {
     /** The series' cells (a `Plan.tableCells` result / `PlanTableCellType` values). */
@@ -933,10 +1113,12 @@ export interface PlanTableSeriesInput<K extends PlanAxisKindLiteral = never> {
     format?: SubtypeExprOrValue<TickFormatType>;
     /** Default tone for the series' values; per-cell tones and the derived neg/em-dash win. */
     tone?: SubtypeExprOrValue<PlanTableToneType> | PlanTableToneLiteral;
-    /** Semibold emphasis for this series' values. */
+    /** Semibold emphasis for this series' values (default `false`). */
     strong?: SubtypeExprOrValue<BooleanType> | boolean;
-    /** `true` ⇒ this series feeds declared parent aggregation (default: the first series). */
+    /** `true` ⇒ this series feeds declared parent aggregation (default `false` — flag none and every series does). */
     rollup?: SubtypeExprOrValue<BooleanType> | boolean;
+    /** How a bucket folds this series' cells at a coarser resolution than theirs (default `"sum"`, #824). */
+    fold?: PlanFoldInput;
 }
 
 /**
@@ -953,8 +1135,9 @@ export function createTableSeries<K extends PlanAxisKindLiteral = never>(input: 
         cells:  East.value(input.cells as SubtypeExprOrValue<ArrayType<PlanTableCellType>>, ArrayType(PlanTableCellType)),
         format: input.format !== undefined ? some(East.value(input.format, TickFormatType)) : none,
         tone:   input.tone !== undefined ? some(resolveTag(input.tone, PlanTableToneType)) : none,
-        strong: input.strong !== undefined ? some(input.strong) : none,
-        rollup: input.rollup !== undefined ? some(input.rollup) : none,
+        strong: input.strong ?? false,
+        rollup: input.rollup ?? false,
+        fold:   resolveFold(input.fold, "sum"),
     }, PlanTableSeriesType) as PlanTableSeriesExpr<K>;
 }
 

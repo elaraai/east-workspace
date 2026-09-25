@@ -40,15 +40,15 @@ function wire(key: string, kind: unknown, opts?: RowOpts): PlanWireRow {
         id: rowId(key),
         parent: opts?.parent !== undefined ? some(rowId(opts.parent)) : none,
         gutter: {
-            label: key.toUpperCase(), id: none,
+            label: key.toUpperCase(), id: false,
             sub: opts?.sub !== undefined ? some(opts.sub) : none,
             value: none, meta: none,
-            stacked: opts?.stacked === true ? some(true) : none,
+            stacked: opts?.stacked === true,
             swatches: [],
         },
         kind,
-        collapsed: opts?.collapsed !== undefined ? some(opts.collapsed) : none,
-        pinned: opts?.pinned === true ? some(true) : none,
+        collapsed: opts?.collapsed === true,
+        pinned: opts?.pinned === true,
         height: opts?.height !== undefined ? some(opts.height) : none,
         status: none, approval: none,
         expand: opts?.expand !== undefined ? some(opts.expand) : none,
@@ -69,9 +69,12 @@ function visible(r: PlanRowValue, opts?: { collapsed?: boolean }): VisibleRow {
     return { row: r, depth: 0, collapsed: opts?.collapsed === true };
 }
 
-const heatKind = variant("heat", { cells: variant("heat", { cells: [], min: none, max: none, warnAt: none }), aggregate: none });
-const spanKind = variant("span", { runs: [], decisions: [], ports: [], rollup: none, unit: none });
-const groupKind = (summary?: unknown) => variant("group", { summary: summary !== undefined ? some(summary) : none, summaryAggregate: none });
+/** An empty heat cells arm — no scale, folding by its mean (#824). */
+const heatArm = () => variant("heat", { cells: [], scale: { min: none, max: none, warnAt: none }, fold: variant("mean", null), format: none });
+const heatKind = variant("heat", { cells: heatArm(), aggregate: none, scale: none });
+const spanKind = variant("span", { runs: [], decisions: [], ports: [], rollup: none });
+/** A group band — its strip's declared cells, or a plain band (#824). */
+const groupKind = (summary?: unknown) => variant("group", { summary: summary !== undefined ? variant("cells", summary) : variant("none", null) });
 
 describe("Plan rowHeight (§8)", () => {
     test("heat rows fit a one-line gutter and floor at 42px with a sub line", () => {
@@ -87,7 +90,7 @@ describe("Plan rowHeight (§8)", () => {
 
     test("chart rows: spark 32; expanded uses expandedHeight over the 88 default; fixed wins outright", () => {
         const chart = (height: unknown, expandedHeight: unknown) => variant("chart", {
-            layers: [], left: none, right: none, height, expandedHeight, expandable: some(true),
+            layers: [], left: none, right: none, height, expandedHeight, expandable: true,
         });
         const spark = row(chart(variant("spark", null), none));
         expect(rowHeight(visible(spark), false, new Set())).toBe(32);
@@ -102,7 +105,7 @@ describe("Plan rowHeight (§8)", () => {
 
     test("a two-line gutter floors a chart SPARK row too — the sub-line has to fit", () => {
         const chart = (height: unknown, expandedHeight: unknown) => variant("chart", {
-            layers: [], left: none, right: none, height, expandedHeight, expandable: none,
+            layers: [], left: none, right: none, height, expandedHeight, expandable: false,
         });
         // Every other kind ran through the two-line `floor()`; chart returned
         // its spark height directly, so a chart row carrying a sub-line clipped
@@ -119,8 +122,8 @@ describe("Plan rowHeight (§8)", () => {
     test("vertical multi-series table rows grow per stacked line", () => {
         const two = variant("table", {
             series: [
-                { cells: [], format: none, tone: none, strong: none, rollup: none },
-                { cells: [], format: none, tone: none, strong: none, rollup: none },
+                { cells: [], format: none, tone: none, strong: false, rollup: false, fold: variant("sum", null) },
+                { cells: [], format: none, tone: none, strong: false, rollup: false, fold: variant("sum", null) },
             ],
             split: variant("vertical", null),
             aggregate: none, format: none, emphasis: variant("body", null),
@@ -130,16 +133,16 @@ describe("Plan rowHeight (§8)", () => {
         expect(rowHeight(visible(row(two)), false, new Set())).toBe(ROW_H);
         const three = variant("table", {
             series: [
-                { cells: [], format: none, tone: none, strong: none, rollup: none },
-                { cells: [], format: none, tone: none, strong: none, rollup: none },
-                { cells: [], format: none, tone: none, strong: none, rollup: none },
+                { cells: [], format: none, tone: none, strong: false, rollup: false, fold: variant("sum", null) },
+                { cells: [], format: none, tone: none, strong: false, rollup: false, fold: variant("sum", null) },
+                { cells: [], format: none, tone: none, strong: false, rollup: false, fold: variant("sum", null) },
             ],
             split: variant("vertical", null),
             aggregate: none, format: none, emphasis: variant("body", null),
         });
         expect(rowHeight(visible(row(three)), false, new Set())).toBe(39);     // 6 + 3×11
         const flat = variant("table", {
-            series: [{ cells: [], format: none, tone: none, strong: none, rollup: none }],
+            series: [{ cells: [], format: none, tone: none, strong: false, rollup: false, fold: variant("sum", null) }],
             split: variant("vertical", null),
             aggregate: none, format: none, emphasis: variant("body", null),
         });
@@ -157,7 +160,7 @@ describe("Plan rowHeight (§8)", () => {
     });
 
     test("group bands: 26 expanded, 28 as a collapsed summary strip", () => {
-        const strip = groupKind(variant("heat", { cells: [], min: none, max: none, warnAt: none }));
+        const strip = groupKind(heatArm());
         expect(rowHeight(visible(row(strip, { collapsed: true }), { collapsed: true }), false, new Set())).toBe(GROUP_STRIP_H);
         expect(rowHeight(visible(row(groupKind())), false, new Set())).toBe(GROUP_H);
     });
@@ -242,7 +245,7 @@ describe("Plan windowRestHeight (#613)", () => {
 
     test("chart expansion measures at its DECLARED state, never a toggle's", () => {
         const chart = (height: unknown) => variant("chart", {
-            layers: [], left: none, right: none, height, expandedHeight: none, expandable: some(true),
+            layers: [], left: none, right: none, height, expandedHeight: none, expandable: true,
         });
         expect(windowRestHeight(toCanvasRows([wire("s", chart(variant("spark", null)))]), "resource", false)).toBe(32);
         expect(windowRestHeight(toCanvasRows([wire("e", chart(variant("expanded", null)))]), "resource", false)).toBe(88);
@@ -260,9 +263,9 @@ describe("Plan windowRestHeight (#613)", () => {
     test("a vertical subtotal parent measures with its window-local DERIVED width", () => {
         const vmulti = variant("table", {
             series: [
-                { cells: [{ at: t(W27), value: some(1), text: none, tone: none }], format: none, tone: none, strong: none, rollup: none },
-                { cells: [{ at: t(W27), value: some(2), text: none, tone: none }], format: none, tone: none, strong: none, rollup: none },
-                { cells: [{ at: t(W27), value: some(3), text: none, tone: none }], format: none, tone: none, strong: none, rollup: none },
+                { cells: [{ at: t(W27), value: some(1), text: none, tone: none }], format: none, tone: none, strong: false, rollup: false, fold: variant("sum", null) },
+                { cells: [{ at: t(W27), value: some(2), text: none, tone: none }], format: none, tone: none, strong: false, rollup: false, fold: variant("sum", null) },
+                { cells: [{ at: t(W27), value: some(3), text: none, tone: none }], format: none, tone: none, strong: false, rollup: false, fold: variant("sum", null) },
             ],
             split: variant("vertical", null), aggregate: none, format: none, emphasis: variant("body", null),
         });
@@ -282,9 +285,9 @@ describe("Plan windowRestHeight (#613)", () => {
 
 describe("win skeletons — the heights of evicted rows (#823)", () => {
     const chart = variant("chart", {
-        layers: [], left: none, right: none, height: variant("spark", null), expandedHeight: none, expandable: some(true),
+        layers: [], left: none, right: none, height: variant("spark", null), expandedHeight: none, expandable: true,
     });
-    const strip = groupKind(variant("heat", { cells: [], min: none, max: none, warnAt: none }));
+    const strip = groupKind(heatArm());
     const win = toCanvasRows([
         wire("g", strip),
         wire("a", spanKind, { parent: "g" }),
@@ -343,9 +346,9 @@ describe("win skeletons — the heights of evicted rows (#823)", () => {
     test("a block's top rows under a header no win holds stay open, and derive as the win's roots", () => {
         const vmulti = variant("table", {
             series: [
-                { cells: [{ at: t(W27), value: some(1), text: none, tone: none }], format: none, tone: none, strong: none, rollup: none },
-                { cells: [{ at: t(W27), value: some(2), text: none, tone: none }], format: none, tone: none, strong: none, rollup: none },
-                { cells: [{ at: t(W27), value: some(3), text: none, tone: none }], format: none, tone: none, strong: none, rollup: none },
+                { cells: [{ at: t(W27), value: some(1), text: none, tone: none }], format: none, tone: none, strong: false, rollup: false, fold: variant("sum", null) },
+                { cells: [{ at: t(W27), value: some(2), text: none, tone: none }], format: none, tone: none, strong: false, rollup: false, fold: variant("sum", null) },
+                { cells: [{ at: t(W27), value: some(3), text: none, tone: none }], format: none, tone: none, strong: false, rollup: false, fold: variant("sum", null) },
             ],
             split: variant("vertical", null), aggregate: none, format: none, emphasis: variant("body", null),
         });

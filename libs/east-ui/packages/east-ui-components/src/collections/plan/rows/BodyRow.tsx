@@ -151,10 +151,10 @@ function sameBodyRow(a: PlanBodyRowProps, b: PlanBodyRowProps): boolean {
     const da = a.derived;
     const db = b.derived;
     return da === db || (da.bands.get(k) === db.bands.get(k)
-        && da.heatCells.get(k) === db.heatCells.get(k)
+        && da.heatArms.get(k) === db.heatArms.get(k)
         && da.tableSeries.get(k) === db.tableSeries.get(k)
-        && da.groupSummary.get(k) === db.groupSummary.get(k)
-        && da.groupSummaryScale.get(k) === db.groupSummaryScale.get(k)
+        && da.charts.get(k) === db.charts.get(k)
+        && da.groupStrips.get(k) === db.groupStrips.get(k)
         && da.groupMembers.get(k) === db.groupMembers.get(k)
         && da.diagnostics.get(k) === db.diagnostics.get(k));
 }
@@ -212,8 +212,7 @@ export const PlanBodyRow = memo(function PlanBodyRow({
         return (
             <GroupRow row={v.row} kind={kind.value} styles={styles} gridTemplate={gridTemplate}
                 height={h} depth={v.depth} collapsed={v.collapsed}
-                summaryCells={derived.groupSummary.get(v.row.key)}
-                summaryScale={derived.groupSummaryScale.get(v.row.key)}
+                strip={derived.groupStrips.get(v.row.key)}
                 memberCount={derived.groupMembers.get(v.row.key)}
                 partial={partial === true && spansWindows(v.row)} diagnostic={diagnostic} grid={grid} />
         );
@@ -303,7 +302,8 @@ export const PlanBodyRow = memo(function PlanBodyRow({
                 // draws no marks, so it has no value axis either.
                 gutterOverlay: isCtx || diagnostic !== undefined
                     ? undefined
-                    : <ChartLeftTicks kind={kind.value} styles={styles} height={plotH} />,
+                    // The chart the plot DRAWS (#824) — the ticks label its scale.
+                    : <ChartLeftTicks kind={derived.charts.get(v.row.key) ?? kind.value} styles={styles} height={plotH} />,
             };
             break;
         }

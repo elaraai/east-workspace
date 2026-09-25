@@ -77,11 +77,7 @@ import {
     PlanTableEmphasisType,
     PlanEventMarkKindType,
     PlanRowIdType,
-    PlanRunClickEventType,
-    PlanEventClickEventType,
-    PlanMarkClickEventType,
-    PlanChipClickEventType,
-    PlanCellClickEventType,
+    PlanRunRefType,
     PlanGroupToggleEventType,
     PlanFooterItemType,
     PlanStyleType,
@@ -100,11 +96,19 @@ import {
     PlanRowsCollectionType,
     PlanBlockType,
     PlanBlocksType,
+    PlanFoldType,
+    PlanQuantityType,
+    PlanHeatScaleType,
+    PlanGroupSummaryType,
+    PlanUiStateType,
+    PlanUiBindType,
 } from "./types.js";
 import { PlanReviewType, PlanRootType } from "./ir.js";
 import {
     createAxis,
     at,
+    createQuantity,
+    createUiState,
     createRun,
     createDecision,
     createPort,
@@ -231,11 +235,7 @@ export {
     type PlanTableEmphasisLiteral,
     PlanEventMarkKindType,
     PlanRowIdType,
-    PlanRunClickEventType,
-    PlanEventClickEventType,
-    PlanMarkClickEventType,
-    PlanChipClickEventType,
-    PlanCellClickEventType,
+    PlanRunRefType,
     PlanGroupToggleEventType,
     PlanFooterItemType,
     PlanStyleType,
@@ -257,6 +257,13 @@ export {
     PlanBlockType,
     PlanBlocksType,
     type PlanBlocksValue,
+    PlanFoldType,
+    type PlanFoldLiteral,
+    PlanQuantityType,
+    PlanHeatScaleType,
+    PlanGroupSummaryType,
+    PlanUiStateType,
+    PlanUiBindType,
 } from "./types.js";
 
 // ── Public surface — re-exported from the split modules ─────────────────────
@@ -268,6 +275,11 @@ export {
     type PlanAxisBuilder,
     type PlanRawTableCellType,
     type PlanIconInput,
+    type PlanFoldInput,
+    type PlanQuantityOptions,
+    type PlanHeatScaleInput,
+    type PlanCellsFoldOptions,
+    type PlanUiStateInput,
     type PlanRunInput,
     type PlanDecisionInput,
     type PlanPortInput,
@@ -347,6 +359,11 @@ export interface PlanNamespace {
      *  `.ordinal(s)` (element builders wrap by type; these are for records
      *  written as data and for reading as a declaration). */
     at: typeof at;
+    /** Builds a quantity — a number with its unit and format (#824) — for a
+     *  run's or a link's `quantity`. */
+    quantity: typeof createQuantity;
+    /** Builds a bound `ui` state's seed (#824) — `State.bind([Plan.Types.UiState], key, Plan.uiState())`. */
+    uiState: typeof createUiState;
     /** Span-row stream builder (`series.rows` chrome + nested `rows:` input). */
     span: typeof createSpan;
     /** Bucket-row subtree builder. */
@@ -541,18 +558,22 @@ export interface PlanNamespace {
          *  concrete variant type of one series over `Dict<String, RowType>`
          *  entries; `Plan.Types.Series(RowType, KeyType)` over another key type. */
         Series: typeof PlanSeriesType;
-        /** The `onRunClick` payload. */
-        RunClickEvent: typeof PlanRunClickEventType;
-        /** The `onEventClick` payload. */
-        EventClickEvent: typeof PlanEventClickEventType;
-        /** The `onMarkClick` payload. */
-        MarkClickEvent: typeof PlanMarkClickEventType;
-        /** The `onChipClick` payload. */
-        ChipClickEvent: typeof PlanChipClickEventType;
-        /** The `onCellClick` payload. */
-        CellClickEvent: typeof PlanCellClickEventType;
-        /** One canvas element by reference — the `popover` / `hover` resolvers' subject. */
+        /** One run by reference — a `run` element ref, and a link's two ends. */
+        RunRef: typeof PlanRunRefType;
+        /** One canvas element by reference — what `onElementClick` and the `popover` / `hover` resolvers receive. */
         ElementRef: typeof PlanElementRefType;
+        /** How a bucket folds the values that fall in it (#824). */
+        Fold: typeof PlanFoldType;
+        /** A quantity — a number, its unit and format (#824). */
+        Quantity: typeof PlanQuantityType;
+        /** A heat scale — min, max and the warn threshold. */
+        HeatScale: typeof PlanHeatScaleType;
+        /** What a collapsed group strip shows (#824). */
+        GroupSummary: typeof PlanGroupSummaryType;
+        /** The interaction state a bound `ui` holds (#824). */
+        UiState: typeof PlanUiStateType;
+        /** A bound `ui` — `State.bind`'s handle at {@link PlanUiStateType}. */
+        UiBind: typeof PlanUiBindType;
         /** The `onGroupToggle` payload. */
         GroupToggleEvent: typeof PlanGroupToggleEventType;
         /** One status-footer item. */
@@ -577,6 +598,8 @@ export const Plan: PlanNamespace = {
     Root: createPlanRoot,
     axis: createAxis,
     at,
+    quantity: createQuantity,
+    uiState: createUiState,
     span: createSpan,
     buckets: createBuckets,
     chart: createChart,
@@ -671,12 +694,14 @@ export const Plan: PlanNamespace = {
         ExpandAxis: PlanExpandAxisType,
         Review: PlanReviewType,
         Series: PlanSeriesType,
-        RunClickEvent: PlanRunClickEventType,
-        EventClickEvent: PlanEventClickEventType,
-        MarkClickEvent: PlanMarkClickEventType,
-        ChipClickEvent: PlanChipClickEventType,
-        CellClickEvent: PlanCellClickEventType,
+        RunRef: PlanRunRefType,
         ElementRef: PlanElementRefType,
+        Fold: PlanFoldType,
+        Quantity: PlanQuantityType,
+        HeatScale: PlanHeatScaleType,
+        GroupSummary: PlanGroupSummaryType,
+        UiState: PlanUiStateType,
+        UiBind: PlanUiBindType,
         GroupToggleEvent: PlanGroupToggleEventType,
         FooterItem: PlanFooterItemType,
         Style: PlanStyleType,

@@ -110,15 +110,15 @@ function rowOf(key: string, label: string): ValueTypeOf<typeof Plan.Types.Row> {
     return {
         id: machineId(key),
         parent: none,
-        gutter: { label: key, id: none, sub: none, value: none, meta: none, stacked: none, swatches: [] },
+        gutter: { label: key, id: false, sub: none, value: none, meta: none, stacked: false, swatches: [] },
         kind: variant("span", {
             runs: [{
                 key: `${key}-run`, start: variant("time", W27), end: variant("time", new Date("2026-07-13T00:00:00Z")),
-                label, quantity: none, qty: none, state: variant("actual", null), status: none, moved: none, icon: none,
+                label, quantity: none, state: variant("actual", null), status: none, moved: none, icon: none,
             }],
-            decisions: [], ports: [], rollup: none, unit: none,
+            decisions: [], ports: [], rollup: none,
         }),
-        collapsed: none, pinned: none, height: none, status: none, approval: none, expand: none,
+        collapsed: false, pinned: false, height: none, status: none, approval: none, expand: none,
     } as unknown as ValueTypeOf<typeof Plan.Types.Row>;
 }
 
@@ -153,9 +153,9 @@ function planOver(handle: Record<string, unknown>): PlanRootValue {
             resolutions: [], now: none, format: none,
         }),
         grain: none, popover: none, hover: none, expandRender: none, expandGutter: none, review: none, pick: none,
-        slice: none, footer: [], id: "", sources: [], onDrag: none, canDrop: none,
-        onSelect: none, onRunClick: none, onEventClick: none, onMarkClick: none, onChipClick: none, onCellClick: none,
-        onGroupToggle: none, onGrainChange: none, style: none,
+        slice: none, footer: [], id: none, sources: [], onDrag: none, canDrop: none,
+        onSelect: none, onElementClick: none,
+        onGroupToggle: none, onGrainChange: none, ui: none, style: none,
     } as unknown as PlanRootValue;
 }
 

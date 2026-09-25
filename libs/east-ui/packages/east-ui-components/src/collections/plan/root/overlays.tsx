@@ -15,7 +15,10 @@
  *
  * - a click opens the popover (and a second click on the same element closes
  *   it) — in the CAPTURE phase, because the elements stop their clicks from
- *   reaching the row, and selection and `on*Click` keep working as before;
+ *   reaching the row, and selection and `onElementClick` keep working as
+ *   before. A link ribbon (#824) names its ref in its hit path's attributes
+ *   (`data-link-key` and its two run refs) — a ribbon belongs to no row — and
+ *   opens the popover the same way;
  * - Enter on a focused element opens the popover, and Esc closes it and hands
  *   focus back to the element — that Esc is the popover's, never also a rung
  *   of the canvas's esc ladder (the popover's layer takes it first and
@@ -24,7 +27,8 @@
  *   that can hover; leaving it closes the card unless the pointer moved into
  *   the card;
  * - hovering a labelled port, cell marker or link ribbon (#818) shows its
- *   `aria-label` as a tooltip.
+ *   `aria-label` as a tooltip — a ribbon opens no hover card: its caption is
+ *   what hovering it says.
  *
  * The open element and its resolved body live in the controller; the DOM node
  * a surface anchors to lives here, out of the store. A surface anchors with
@@ -51,6 +55,9 @@ type Styles = Record<string, Record<string, unknown>>;
 
 /** The elements a popover or hover card opens from — every element kind's own attribute. */
 export const PLAN_ELEMENT_SELECTOR = "[data-run],[data-event],[data-chip],[data-mark],[data-cell]";
+/** A link ribbon's hit path (#824) — a click opens its popover; hovering it
+ *  shows its caption as a tooltip, never a hover card. */
+export const PLAN_LINK_SELECTOR = "[data-link-key]";
 /** The labelled marks a tooltip reads — their `aria-label` is its text: ports,
  *  cell markers, and link ribbons (#818). */
 export const PLAN_TIP_SELECTOR = "[data-port][aria-label],[data-marker][aria-label],[data-link][aria-label]";
@@ -97,12 +104,22 @@ function elementIn(body: HTMLElement | null, target: EventTarget | null, selecto
 }
 
 /**
- * The element ref a DOM element names — its kind attribute and its row.
+ * The element ref a DOM element names — its kind attribute and its row, or a
+ * link ribbon's key and its two run refs.
  *
- * @param el - An element matching {@link PLAN_ELEMENT_SELECTOR}
+ * @param el - An element matching {@link PLAN_ELEMENT_SELECTOR} or {@link PLAN_LINK_SELECTOR}
  * @returns The ref, or `undefined` when the element names none
  */
 export function refOfElement(el: Element): PlanElementRefValue | undefined {
+    const linkKey = el.getAttribute("data-link-key");
+    if (linkKey !== null) {
+        const from = rowIdOfKey(el.getAttribute("data-link-from") ?? "");
+        const to = rowIdOfKey(el.getAttribute("data-link-to") ?? "");
+        const fromRun = el.getAttribute("data-link-from-run");
+        const toRun = el.getAttribute("data-link-to-run");
+        if (from === undefined || to === undefined || fromRun === null || toRun === null) return undefined;
+        return variant("link", { key: linkKey, from: { row: from, run: fromRun }, to: { row: to, run: toRun } }) as PlanElementRefValue;
+    }
     const holder = el.closest("[data-plan-row],[data-plan-card]");
     const key = holder?.getAttribute("data-plan-row") ?? holder?.getAttribute("data-plan-card");
     const row = key !== null && key !== undefined ? rowIdOfKey(key) : undefined;
@@ -135,15 +152,16 @@ function tipOf(el: Element): { key: string; text: string } | undefined {
     return { key: port !== null ? `${row}|port|${port}` : `${row}|marker|${el.getAttribute("data-marker") ?? ""}`, text };
 }
 
-/** A stable identity for an open surface — its element's kind, row and key. */
+/** A stable identity for an open surface — its element's kind, row and key
+ *  (a link's, its own key: it belongs to no row). */
 function refKey(ref: PlanElementRefValue): string {
-    const row = rowKeyOf(ref.value.row);
     switch (ref.type) {
-        case "run": return `run|${row}|${ref.value.run}`;
-        case "event": return `event|${row}|${ref.value.event}`;
-        case "chip": return `chip|${row}|${ref.value.chip}`;
-        case "mark": return `mark|${row}|${ref.value.mark}`;
-        case "cell": return `cell|${row}|${instantKey(ref.value.at)}`;
+        case "run": return `run|${rowKeyOf(ref.value.row)}|${ref.value.run}`;
+        case "event": return `event|${rowKeyOf(ref.value.row)}|${ref.value.event}`;
+        case "chip": return `chip|${rowKeyOf(ref.value.row)}|${ref.value.chip}`;
+        case "mark": return `mark|${rowKeyOf(ref.value.row)}|${ref.value.mark}`;
+        case "cell": return `cell|${rowKeyOf(ref.value.row)}|${instantKey(ref.value.at)}`;
+        case "link": return `link|${ref.value.key}`;
     }
 }
 
@@ -208,7 +226,8 @@ export function usePlanOverlayHandlers(
         return {
             onClickCapture: (e) => {
                 if (!hasPopover) return;
-                const el = elementIn(bodyRef.current, e.target, PLAN_ELEMENT_SELECTOR);
+                const el = elementIn(bodyRef.current, e.target, PLAN_ELEMENT_SELECTOR)
+                    ?? elementIn(bodyRef.current, e.target, PLAN_LINK_SELECTOR);
                 if (el !== null) openPopover(el, true);
             },
             onKeyDown: (e) => {

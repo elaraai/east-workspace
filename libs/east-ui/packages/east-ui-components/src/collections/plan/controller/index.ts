@@ -34,17 +34,36 @@
  * value renders once. The one exception is a changed DECLARED grain, which
  * clears the selection and focus of rows that are still there.
  *
+ * # A bound `ui` state (#824)
+ *
+ * A root may bind the canvas's interaction state to the host (`ui`, a
+ * `State.bind` handle). The controller reads it before the first render, then
+ * again whenever the state store says something was written and on every
+ * `setValue`: a state it has not seen is the host's write, and replaces the
+ * selection, the rows folded or opened against their declaration, and the
+ * expanded charts. The user's own actions are written back, once per action
+ * and only when they moved it. Bound, the canvas persists no toggles of its
+ * own under its storage key — the host holds them — though its scroll anchor
+ * still is.
+ *
+ * `focus` in the state is a REQUEST — bring this row into view — which the
+ * canvas spends at once (it writes `focus: none` back) and then serves: a row
+ * on the canvas has its folded ancestors opened and is scrolled to the top
+ * and made the tab stop; a paged row seen before has its window opened
+ * first; one never seen is sought by its element's key, when the source can
+ * seek. A request that cannot be served is dropped.
+ *
  * @packageDocumentation
  */
 
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { StringType, equalFor, none, printFor, some, type ValueTypeOf } from "@elaraai/east";
 import { Plan } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../../utils.js";
 import type { DragEventValue } from "../../../dnd/drag-layer";
 import type { PlanElementRefValue, PlanElementResolver } from "../context.js";
 import {
-    bodyItemKey, canvasRowsOf, restUi, rowIdOfKey, rowKeyWords, skeletonHeight, windowSkeleton,
-    type PlanBodyItem, type PlanFocusCtx, type PlanRootValue, type PlanRowValue, type SkeletonUi,
+    bodyItemKey, canvasRowsOf, restUi, rowIdOfKey, rowItemKey, rowKeyOf, rowKeyWords, skeletonHeight, windowSkeleton,
+    type PlanBodyItem, type PlanFocusCtx, type PlanRootValue, type PlanRowId, type PlanRowValue, type SkeletonUi,
 } from "../model.js";
 import {
     initialPlanStore, planStoreReducer,
@@ -65,6 +84,11 @@ import { PLAN_WORDS, type PlanWords } from "../words.js";
 
 /** A resolved overlay body (a resolver's some-value). */
 export type PlanOverlayBody = Extract<ReturnType<PlanElementResolver>, { type: "some" }>["value"];
+
+/** A decoded bound `ui` handle — the root's `ui` some-value (#824). */
+export type PlanUiBindValue = ValueTypeOf<typeof Plan.Types.UiBind>;
+/** A decoded bound `ui` state. */
+export type PlanUiStateValue = ValueTypeOf<typeof Plan.Types.UiState>;
 
 /** One open element overlay — the element it belongs to, and its body. */
 export interface PlanOverlay {
@@ -166,6 +190,14 @@ export interface PlanControllerOptions {
     persist?: ((next: PlanPersisted) => void) | undefined;
     /** Residency policy for a paged source (tests tune it). */
     policy?: ResidencyOptions | undefined;
+    /** The root's bound `ui` handle at mount (#824) — read before the first
+     *  render, so a bound canvas draws the host's state from its first frame. */
+    ui?: PlanUiBindValue | undefined;
+    /** Listen for writes to the state a bound `ui` handle reads. The canvas
+     *  passes the state store's own subscribe: a handle names no key to
+     *  listen to, so every write is looked at, and one that did not move the
+     *  canvas's state does nothing. */
+    subscribeUi?: ((listener: () => void) => () => void) | undefined;
 }
 
 /** The canvas controller's handle. */
@@ -181,7 +213,7 @@ export interface PlanController {
     setWords(words: PlanWords): void;
     /** An interaction — the transition, then its effects. */
     dispatch(e: PlanEvent): void;
-    /** An element click — routed to the root's callback for its kind. */
+    /** An element click — reported to the root's `onElementClick` (#824). */
     elementClick(ref: PlanElementRefValue): void;
     /** An element's popover / hover card wants to open or close. Opening runs
      *  the root's resolver first, and only a `some` body opens; an element whose
@@ -250,6 +282,9 @@ const NO_OVERLAYS: PlanOverlays = { popover: null, hover: null, tooltip: null };
 const NO_NAV: PlanNav = { active: null, request: null };
 const NO_ROWS: readonly PlanRowValue[] = [];
 const refEqual = equalFor(Plan.Types.ElementRef);
+const uiStateEqual = equalFor(Plan.Types.UiState);
+/** A String key's `.east` literal — how an exact key search names it. */
+const printString = printFor(StringType);
 
 type PlanReviewValue = ValueTypeOf<typeof Plan.Types.Review>;
 
@@ -263,7 +298,7 @@ type PlanReviewValue = ValueTypeOf<typeof Plan.Types.Review>;
 export function declaredCollapsedOf(rows: readonly PlanRowValue[]): ReadonlySet<RowKey> {
     const out = new Set<RowKey>();
     for (const row of rows) {
-        if (row.collapsed.type === "some" && row.collapsed.value) out.add(row.key);
+        if (row.collapsed) out.add(row.key);
     }
     return out;
 }
@@ -313,7 +348,20 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
     const restored = options.restored ?? NOT_PERSISTED;
     let value: PlanRootValue | undefined;
     let data: PlanRootValue | undefined;
-    let store = initialPlanStore(options.grain, options.collapsed, restored);
+    // The host's interaction state, when the root binds one (#824). Bound, the
+    // host holds the toggles: none are restored from storage, or persisted.
+    let bound = options.ui;
+    // What the canvas last read from, or wrote to, the bound handle — an
+    // outside write is a state it has not seen.
+    let boundSeen: PlanUiStateValue | undefined;
+    // A write-back queued for the end of the turn.
+    let writing = false;
+    // A `focus` request — bring the row into view — until it is served or
+    // given up: `resolve` looks for it, `seeking` waits for the key search,
+    // `opening` for its window.
+    let focusRequest: { key: RowKey; id: PlanRowId; phase: "resolve" | "seeking" | "opening" } | undefined;
+    let store = initialPlanStore(options.grain, options.collapsed,
+        bound !== undefined ? { collapse: [], charts: [] } : restored);
     let overlay = NO_OVERLAYS;
     // Nothing saved is nothing to restore: settled from the start, so a canvas
     // with no anchor never re-renders to say so.
@@ -386,6 +434,8 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
                 if (pagingRevision !== undefined) seek.reset();
                 pagingRevision = landed.revision;
             }
+            // A row a `focus` request waits for may have landed (#824).
+            serveFocus();
         }),
     });
     const seek = createSeekDriver({
@@ -393,6 +443,16 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
         clearJump: () => paging.clearJump(),
         onChange: () => batch(() => undefined),
     });
+
+    // A bound state is the host's from the first frame (#824) — read before
+    // the first snapshot, so the canvas never draws its own first.
+    if (bound !== undefined) {
+        const read = readBound(bound);
+        if (read !== undefined) {
+            boundSeen = read;
+            adopt(read);
+        }
+    }
 
     let snapshot: PlanSnapshot = {
         store, paging: paging.getSnapshot(), seek: seek.getSnapshot(), overlay, anchor, scroll, nav, announce,
@@ -482,8 +542,10 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
         return data.rows.type === "inline" ? canvasRowsOf(data.rows.value) : paging.getSnapshot().rows;
     }
 
-    /** Write the user's toggles when they differ from what storage holds (#813). */
+    /** Write the user's toggles when they differ from what storage holds (#813)
+     *  — unless the root binds a `ui` state, which holds them instead (#824). */
     function persistToggles(): void {
+        if (bound !== undefined) return;
         const collapse = [...store.overrides];
         const charts = [...store.ui.chartsExpanded];
         if (sameList(persisted.collapse, collapse, sameToggle) && sameList(persisted.charts, charts, sameKey)) return;
@@ -521,6 +583,211 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
         if (fn !== undefined) queueMicrotask(() => fn());
     }
 
+    /** One interaction's transition and its effects — the core of `dispatch`,
+     *  for the canvas's own moves too (a focus request opening a section). */
+    function step(e: PlanEvent): void {
+        const next = planStoreReducer(store, { t: "event", e });
+        store = next.store;
+        if (value !== undefined && next.effects.length > 0) runPlanEffects(next.effects, value);
+    }
+
+    // ── The bound `ui` state (#824) ────────────────────────────────────────
+
+    /** The bound handle's state — `undefined` when reading it throws. */
+    function readBound(handle: PlanUiBindValue): PlanUiStateValue | undefined {
+        try {
+            return handle.read();
+        } catch (err) {
+            console.error("[Plan] ui state read failed:", err);
+            return undefined;
+        }
+    }
+
+    /** The ids of `keys`, in the order `before` lists them, the rest after —
+     *  so a write-back moves no id the host placed. */
+    function idsOf(keys: Iterable<RowKey>, before: readonly PlanRowId[]): PlanRowId[] {
+        const wanted = new Map<RowKey, PlanRowId>();
+        for (const key of keys) {
+            // A repeated row names its original's id (`rowIdOfKey`) — once.
+            const id = rowIdOfKey(key);
+            if (id !== undefined && !wanted.has(rowKeyOf(id))) wanted.set(rowKeyOf(id), id);
+        }
+        const out: PlanRowId[] = [];
+        for (const id of before) {
+            const text = rowKeyOf(id);
+            if (wanted.has(text)) {
+                out.push(id);
+                wanted.delete(text);
+            }
+        }
+        for (const id of wanted.values()) out.push(id);
+        return out;
+    }
+
+    /** The canvas's interaction state as a bound state — a request spent. */
+    function boundStateOf(): PlanUiStateValue {
+        const folded: RowKey[] = [];
+        const opened: RowKey[] = [];
+        for (const [key, collapsed] of store.overrides) (collapsed ? folded : opened).push(key);
+        const selected = store.ui.selected !== null ? rowIdOfKey(store.ui.selected) : undefined;
+        return {
+            selected: selected !== undefined ? some(selected) : none,
+            collapsed: idsOf(folded, boundSeen?.collapsed ?? []),
+            expanded: idsOf(opened, boundSeen?.expanded ?? []),
+            charts: idsOf(store.ui.chartsExpanded, boundSeen?.charts ?? []),
+            focus: none,
+        };
+    }
+
+    /** Write the canvas's state back to the host, when it moved — at the end
+     *  of the turn, the latest state once. */
+    function writeBound(): void {
+        if (bound === undefined) return;
+        const next = boundStateOf();
+        if (boundSeen !== undefined && uiStateEqual(next, boundSeen)) return;
+        boundSeen = next;
+        if (writing) return;
+        writing = true;
+        queueMicrotask(() => {
+            writing = false;
+            const handle = bound;
+            const state = boundSeen;
+            if (handle === undefined || state === undefined) return;
+            try {
+                handle.write(state);
+            } catch (err) {
+                console.error("[Plan] ui state write failed:", err);
+            }
+        });
+    }
+
+    /** Take the host's state: its selection, folds and charts replace the
+     *  canvas's, and a `focus` request is spent and queued. */
+    function adopt(s: PlanUiStateValue): void {
+        const collapse = new Map<RowKey, boolean>();
+        for (const id of s.expanded) collapse.set(rowKeyOf(id), false);
+        // A row both folded and opened is folded.
+        for (const id of s.collapsed) collapse.set(rowKeyOf(id), true);
+        store = planStoreReducer(store, {
+            t: "external",
+            selected: s.selected.type === "some" ? rowKeyOf(s.selected.value) : null,
+            collapse,
+            charts: new Set(s.charts.map(rowKeyOf)),
+        }).store;
+        if (s.focus.type === "some") {
+            focusRequest = { key: rowKeyOf(s.focus.value), id: s.focus.value, phase: "resolve" };
+            // Spent at once: the state says so whatever serving it takes.
+            writeBound();
+        }
+    }
+
+    /** Look at the bound state — a state the canvas has not seen is the
+     *  host's write, and is taken. */
+    function syncBound(): void {
+        // Bound no more: the next binding is read afresh.
+        if (bound === undefined) {
+            boundSeen = undefined;
+            return;
+        }
+        // The canvas's own write is on its way: what the handle holds is older.
+        if (writing) return;
+        const read = readBound(bound);
+        if (read === undefined || (boundSeen !== undefined && uiStateEqual(read, boundSeen))) return;
+        boundSeen = read;
+        adopt(read);
+        serveFocus();
+        syncHeights();
+    }
+
+    /** Open a row's folded ancestors — and the group grain, when it folds the
+     *  top group the row sits under — as the user would to see it. */
+    function reveal(row: PlanRowValue, byKey: ReadonlyMap<RowKey, PlanRowValue>): void {
+        let top = row;
+        for (let up = row.parent; up.type === "some";) {
+            const parent = byKey.get(up.value);
+            if (parent === undefined) break;
+            if (store.ui.collapsed.has(parent.key)) step({ t: "group.toggle", key: parent.key });
+            top = parent;
+            up = parent.parent;
+        }
+        if (top !== row && top.kind.type === "group" && store.ui.grain === "group") {
+            // A grain change clears the selection — the user's rule when they
+            // switch; the host's request keeps what the host selected.
+            const selected = store.ui.selected;
+            step({ t: "grain.set", grain: "resource" });
+            if (selected !== null && store.ui.selected !== selected) store = { ...store, ui: { ...store.ui, selected } };
+        }
+    }
+
+    /** Serve a `focus` request as far as it can go now. */
+    function serveFocus(): void {
+        const req = focusRequest;
+        if (req === undefined || value === undefined) return;
+        const current = rows();
+        const row = current.find((r) => r.key === req.key);
+        if (row !== undefined) {
+            focusRequest = undefined;
+            reveal(row, new Map(current.map((r) => [r.key, r])));
+            // To the top of the view, and the tab stop — DOM focus stays where
+            // it is: the host asked for the row to be shown, not the keyboard.
+            const item = rowItemKey(row.key);
+            navSeq += 1;
+            nav = { ...nav, active: item };
+            scroll = { ...scroll, owner: "nav", nav: { key: item, align: "start", seq: navSeq } };
+            persistToggles();
+            syncHeights();
+            writeBound();
+            return;
+        }
+        // Not on the canvas: a paged row may yet land; an inline one will not.
+        if (value.rows.type !== "paged") {
+            focusRequest = undefined;
+            return;
+        }
+        switch (req.phase) {
+            case "resolve": {
+                // Seen before — its window, opened.
+                const seen = paging.seenAt(req.key);
+                if (seen !== undefined) {
+                    focusRequest = { ...req, phase: "opening" };
+                    paging.openAt(seen.w * PLAN_PAGE_SIZE, seen.block);
+                    return;
+                }
+                // Never seen — sought by the key of the element it comes from.
+                const element = req.id.type === "entry" ? req.id.value.path[0] : undefined;
+                if (element === undefined || value.rows.value.seek.type !== "some") {
+                    focusRequest = undefined;
+                    return;
+                }
+                const waiting = { ...req, phase: "seeking" as const };
+                focusRequest = waiting;
+                seek.find({ key: printString(element) }).then(
+                    (range) => batch(() => {
+                        if (focusRequest !== waiting) return;
+                        // The request's search, not the toolbar's: it leaves
+                        // no query behind to take the scroll back.
+                        seek.clear();
+                        if (!range.found) {
+                            focusRequest = undefined;
+                            return;
+                        }
+                        focusRequest = { ...req, phase: "opening" };
+                        paging.jumpToElement(range.row);
+                        serveFocus();
+                    }),
+                    () => batch(() => { if (focusRequest === waiting) focusRequest = undefined; }),
+                );
+                return;
+            }
+            case "seeking":
+                return;
+            case "opening":
+                // Its window settled without the row: nowhere left to look.
+                if (!paging.jumping()) focusRequest = undefined;
+                return;
+        }
+    }
+
     const search: Omit<PlanSearch, "resetKey"> = {
         keyType: CANVAS_KEY_TYPE,
         find: (q) => {
@@ -547,6 +814,7 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
                 const dataChanged = nextData !== data;
                 value = next;
                 data = nextData;
+                bound = getSomeorUndefined(next.ui);
                 const src = next.rows.type === "paged" ? next.rows.value : undefined;
                 seek.setSeek(src !== undefined && src.seek.type === "some" ? src.seek.value : undefined);
                 paging.setSource(src);
@@ -556,12 +824,21 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
                 if (dataChanged) {
                     const grain = store.declaredGrain;
                     reconcile(next);
+                    const reconciled = store;
+                    // Bound, the host's word outranks what the reconcile
+                    // pruned: a row it names that only now arrives follows it.
+                    if (bound !== undefined && boundSeen !== undefined) adopt(boundSeen);
                     // The canvas drew this value's reconciled view, so the
                     // commit moves nothing a reader shows — unless the declared
                     // grain changed, which clears the selection and focus of
-                    // rows that are still there (and read the store itself).
-                    if (store.declaredGrain === grain) quietStore = store;
+                    // rows that are still there (and read the store itself),
+                    // or the host's state put back what the reconcile pruned.
+                    if (store.declaredGrain === grain && store === reconciled) quietStore = store;
                 }
+                // The host's write — its Reactive rendered this value (#824).
+                syncBound();
+                // A row a `focus` request waits for may have arrived.
+                serveFocus();
                 // A new density, or a grain the declaration changed, redraws
                 // the paged windows' rows at other heights.
                 syncHeights();
@@ -577,10 +854,10 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
                 // A resolution lives in the slice: what it was, to say what it became.
                 const resolutionBefore = e.t === "resolution.set" && value !== undefined
                     ? currentScale(value)?.resolution : undefined;
-                const step = planStoreReducer(store, { t: "event", e });
-                store = step.store;
-                if (value !== undefined && step.effects.length > 0) runPlanEffects(step.effects, value);
+                step(e);
                 persistToggles();
+                // Bound, what the user did is the host's to hold (#824).
+                writeBound();
                 // A collapse, the grain, a chart or an expand focus redraws the
                 // paged windows' rows at other heights (#823).
                 syncHeights();
@@ -610,16 +887,9 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
             batch(() => { nav = { ...nav, request: null }; });
         },
         elementClick(ref) {
-            if (value === undefined) return;
-            // One funnel, routed by the clicked ref's own tag — the click
-            // payloads ARE the element-ref arms, so nothing is re-encoded.
-            switch (ref.type) {
-                case "run": { const fn = getSomeorUndefined(value.onRunClick); if (fn) queueMicrotask(() => fn(ref.value)); break; }
-                case "event": { const fn = getSomeorUndefined(value.onEventClick); if (fn) queueMicrotask(() => fn(ref.value)); break; }
-                case "mark": { const fn = getSomeorUndefined(value.onMarkClick); if (fn) queueMicrotask(() => fn(ref.value)); break; }
-                case "chip": { const fn = getSomeorUndefined(value.onChipClick); if (fn) queueMicrotask(() => fn(ref.value)); break; }
-                case "cell": { const fn = getSomeorUndefined(value.onCellClick); if (fn) queueMicrotask(() => fn(ref.value)); break; }
-            }
+            // ONE callback over the element ref (#824) — the LATEST root's.
+            const fn = value !== undefined ? getSomeorUndefined(value.onElementClick) : undefined;
+            if (fn !== undefined) queueMicrotask(() => fn(ref));
         },
         overlayIntent(kind, ref, open) {
             batch(() => {
@@ -680,7 +950,11 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
             batch(() => paging.reportViewport(at, scrolling));
         },
         committed(rendered) {
-            batch(() => paging.committed(rendered));
+            batch(() => {
+                paging.committed(rendered);
+                // A `focus` request's window settled — with its row, or not.
+                serveFocus();
+            });
         },
         retry(w) {
             batch(() => paging.retry(w));
@@ -753,8 +1027,13 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
                     seek.refresh();
                 });
             }
+            // A bound state is written from outside while the canvas listens
+            // (#824) — and may have been while it did not.
+            const stopUi = options.subscribeUi?.(() => batch(() => syncBound()));
+            batch(() => syncBound());
             return () => {
                 connected = false;
+                stopUi?.();
                 paging.disconnect();
                 seek.disconnect();
             };

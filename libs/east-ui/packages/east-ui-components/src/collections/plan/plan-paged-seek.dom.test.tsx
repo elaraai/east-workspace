@@ -91,7 +91,7 @@ function buildPagedPlan(): PlanRootValue {
                 runs: (r, k) => [Plan.run({
                     key: "run", start: r.start, end: r.end,
                     label: East.str`RUN · ${k}`,
-                    qty: r.tonnes, state: "actual",
+                    quantity: Plan.quantity(r.tonnes, { unit: "t" }), state: "actual",
                 })],
             }),
         ], ArrayType(Plan.Types.Series(UnitRow)));
@@ -275,7 +275,7 @@ describe("the same canvas inline and paged (#822)", () => {
             });
             const loads = Plan.series.span(UnitRow, {
                 key: "loads", title: "Loads", label: (_r, k) => East.str`${k} · load`,
-                runs: (r) => [Plan.run({ key: "run", start: r.start, end: r.end, label: "LOAD", qty: r.tonnes, state: "confirmed" })],
+                runs: (r) => [Plan.run({ key: "run", start: r.start, end: r.end, label: "LOAD", quantity: Plan.quantity(r.tonnes, { unit: "t" }), state: "confirmed" })],
             });
             const axis = $.const(Plan.axis({ window: { min: W27, max: W39 }, resolution: "week", now: NOW }));
             const series = twoSeries ? [jobs, loads] : [jobs];
@@ -395,15 +395,16 @@ describe("a parent sits whole in its window (#823)", () => {
                         }),
                     ]),
                 }),
-                // One row per line, rolling its machines' runs into bands.
+                // One row per line, rolling its machines' runs into bands —
+                // each band sums their tonnes, the unit riding each quantity.
                 Plan.series.span(Machines, {
                     key: "line-jobs", title: "Jobs", label: (_g, line) => line,
                     match: (g) => g.size().greater(1n),
-                    runs: () => [], unit: "t", collapsed: true,
+                    runs: () => [], collapsed: true,
                     children: Plan.children((g) => g, [
                         Plan.series.span(MachineRow, {
                             key: "machine-jobs", title: "Machine jobs", label: (_m, k) => k,
-                            runs: (m, k) => [Plan.run({ key: "run", start: m.start, end: m.end, label: k, qty: m.tonnes, state: "actual" })],
+                            runs: (m, k) => [Plan.run({ key: "run", start: m.start, end: m.end, label: k, quantity: Plan.quantity(m.tonnes, { unit: "t" }), state: "actual" })],
                         }),
                     ]),
                 }),

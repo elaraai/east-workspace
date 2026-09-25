@@ -274,6 +274,10 @@ export interface PagingDriver {
      *  band, and how far down it (#823: a link into an evicted window).
      *  `undefined` for a row never seen, or one whose window is resident. */
     placeOf(key: RowKey): PlanRowPlace | undefined;
+    /** Which block and window a row was last seen in, resident or evicted —
+     *  what a request to bring it into view opens (#824). `undefined` for a
+     *  row no window has shown. */
+    seenAt(key: RowKey): PlanRowOrigin | undefined;
     /** Whether a jump is pending (its window pinned). */
     jumping(): boolean;
     /** Stop listening to the source's channels until the next settle — a
@@ -961,6 +965,7 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
             }
             return undefined;
         },
+        seenAt: (key) => located.get(key),
         jumping: () => pinnedWindows().length > 0,
         disconnect() {
             tracked.release();

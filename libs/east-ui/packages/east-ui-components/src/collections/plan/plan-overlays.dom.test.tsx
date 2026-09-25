@@ -65,11 +65,11 @@ const t = (d: Date): PlanInstantValue => variant("time", d) as PlanInstantValue;
 function run(key: string, from: number, to: number) {
     return {
         key, start: t(week(from)), end: t(week(to)), label: key.toUpperCase(),
-        quantity: none, qty: none, state: variant("actual", null), status: none, moved: none, icon: none,
+        quantity: none, state: variant("actual", null), status: none, moved: none, icon: none,
     };
 }
 const spanKind = (runs: unknown[], ports: unknown[] = []) =>
-    variant("span", { runs, decisions: [], ports, rollup: none, unit: none });
+    variant("span", { runs, decisions: [], ports, rollup: none });
 const port = (at: number, label?: string) =>
     ({ at: t(week(at)), label: label !== undefined ? some(label) : none });
 
@@ -78,14 +78,14 @@ function planRow(key: string, kind: unknown, parent?: string, collapsed?: boolea
     return {
         id: rowId(key),
         parent: parent !== undefined ? some(rowId(parent)) : none,
-        gutter: { label: key, id: none, sub: none, value: none, meta: none, stacked: none, swatches: [] },
+        gutter: { label: key, id: false, sub: none, value: none, meta: none, stacked: false, swatches: [] },
         kind,
-        collapsed: collapsed === true ? some(true) : none,
-        pinned: none, height: none, status: none, approval: none, expand: none,
+        collapsed: collapsed === true,
+        pinned: false, height: none, status: none, approval: none, expand: none,
     } as unknown as PlanWireRow;
 }
 
-function planRoot(rows: PlanWireRow[], opts: { popover?: unknown; hover?: unknown; onRunClick?: unknown } = {}): PlanRootValue {
+function planRoot(rows: PlanWireRow[], opts: { popover?: unknown; hover?: unknown; onElementClick?: unknown } = {}): PlanRootValue {
     return {
         rows: variant("inline", oneBlock(rows)),
         links: [],
@@ -97,10 +97,9 @@ function planRoot(rows: PlanWireRow[], opts: { popover?: unknown; hover?: unknow
         popover: opts.popover !== undefined ? some(opts.popover) : none,
         hover: opts.hover !== undefined ? some(opts.hover) : none,
         expandRender: none, expandGutter: none, review: none, pick: none,
-        slice: none, footer: [], id: "", sources: [], onDrag: none, canDrop: none,
-        onSelect: none, onRunClick: opts.onRunClick !== undefined ? some(opts.onRunClick) : none,
-        onEventClick: none, onMarkClick: none, onChipClick: none, onCellClick: none,
-        onGroupToggle: none, onGrainChange: none, style: none,
+        slice: none, footer: [], id: none, sources: [], onDrag: none, canDrop: none,
+        onSelect: none, onElementClick: opts.onElementClick !== undefined ? some(opts.onElementClick) : none,
+        onGroupToggle: none, onGrainChange: none, ui: none, style: none,
     } as unknown as PlanRootValue;
 }
 
@@ -187,25 +186,30 @@ describe("one overlay layer (#816)", () => {
         const heat = planRow("heat", variant("heat", {
             cells: variant("heat", {
                 cells: [{ at: t(week(1)), value: some(40), label: some("40") }],
-                min: some(0), max: some(100), warnAt: none,
+                scale: { min: some(0), max: some(100), warnAt: none }, fold: variant("mean", null), format: none,
             }),
-            aggregate: none,
+            aggregate: none, scale: none,
         }));
         const weight = planRow("weight", variant("heat", {
-            cells: variant("weight", [{ at: t(week(2)), fraction: 0.5, planned: false }]),
-            aggregate: none,
+            cells: variant("weight", {
+                cells: [{ at: t(week(2)), fraction: 0.5, planned: false }], fold: variant("mean", null), format: none,
+            }),
+            aggregate: none, scale: none,
         }));
         const segments = planRow("seg", variant("heat", {
-            cells: variant("segments", [{
-                at: t(week(3)),
-                segments: [{ fill: variant("brand", null), weight: 1, label: some("all") }],
-            }]),
-            aggregate: none,
+            cells: variant("segments", {
+                cells: [{
+                    at: t(week(3)),
+                    segments: [{ fill: variant("brand", null), weight: 1, label: some("all") }],
+                }],
+                fold: variant("sum", null), format: none,
+            }),
+            aggregate: none, scale: none,
         }));
         const table = planRow("tbl", variant("table", {
             series: [{
                 cells: [{ at: t(week(4)), value: some(12), text: none, tone: none }],
-                format: none, tone: none, strong: none, rollup: none,
+                format: none, tone: none, strong: false, rollup: false, fold: variant("sum", null),
             }],
             split: variant("horizontal", null), aggregate: none, format: none, emphasis: variant("body", null),
         }));
@@ -242,9 +246,9 @@ describe("one overlay layer (#816)", () => {
             const heat = planRow("heat", variant("heat", {
                 cells: variant("heat", {
                     cells: [{ at: t(week(1)), value: some(40), label: some("40") }],
-                    min: some(0), max: some(100), warnAt: none,
+                    scale: { min: some(0), max: some(100), warnAt: none }, fold: variant("mean", null), format: none,
                 }),
-                aggregate: none,
+                aggregate: none, scale: none,
             }));
             const pop = recording("POP");
             const { container } = renderPlan(planRoot([heat], { popover: pop.fn }), "plan-816-narrow");
@@ -382,25 +386,25 @@ describe("one overlay layer (#816)", () => {
         const clicks: unknown[] = [];
         const pop = recording("POP");
         const group = planRow("line", variant("group", {
-            summary: some(variant("heat", {
+            summary: variant("cells", variant("heat", {
                 cells: [{ at: t(week(0)), value: some(80), label: some("80") }],
-                min: some(0), max: some(100), warnAt: none,
+                scale: { min: some(0), max: some(100), warnAt: none }, fold: variant("mean", null), format: none,
             })),
-            summaryAggregate: none,
         }), undefined, true);
         const { container } = renderPlan(planRoot([
             group,
             planRow("m1", spanKind([run("b214", 1, 4)]), "line"),
             planRow("m2", spanKind([run("c7", 1, 4)])),
-        ], { popover: pop.fn, onRunClick: (e: unknown) => { clicks.push(e); } }), "plan-816-semantics");
+        ], { popover: pop.fn, onElementClick: (e: unknown) => { clicks.push(e); } }), "plan-816-semantics");
         const user = userEvent.setup();
         await user.click(container.querySelector('[data-run="c7"]')!);
         expect(await screen.findByText("POP · run:m2/c7")).toBeTruthy();
         expect(container.querySelector(rowSel("m2"))!.hasAttribute("data-selected")).toBe(true);
         await waitFor(() => expect(clicks).toHaveLength(1));
-        const click = clicks[0] as { row: PlanRowId; run: string };
-        expect(rowIdEqual(click.row, rowId("m2"))).toBe(true);
-        expect(click.run).toBe("c7");
+        const click = clicks[0] as { type: string; value: { row: PlanRowId; run: string } };
+        expect(click.type).toBe("run");
+        expect(rowIdEqual(click.value.row, rowId("m2"))).toBe(true);
+        expect(click.value.run).toBe("c7");
         // The strip's cell is the band's toggle, not an element.
         expect(container.querySelector(`${rowSel("line", "data-plan-group")} [data-cell]`)).toBeNull();
         await user.click(screen.getByText("80"));

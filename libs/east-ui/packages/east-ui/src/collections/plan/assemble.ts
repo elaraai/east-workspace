@@ -56,8 +56,9 @@ import { resolveTag } from "./builders.js";
  * Every field of a row, each given ONCE — the input of {@link planRow}.
  *
  * @remarks
- * The optional fields are the row's `Option`s themselves (an accessor's result
- * is a per-row data fact, so presence is too); omitted ⇒ `none`.
+ * The optional `Option` fields are the row's `Option`s themselves (an
+ * accessor's result is a per-row data fact, so presence is too); omitted ⇒
+ * `none`. The two flags default to `false` (#824).
  */
 export interface PlanRowFields {
     /** The row's id. */
@@ -68,10 +69,10 @@ export interface PlanRowFields {
     gutter: SubtypeExprOrValue<PlanGutterType>;
     /** The row kind. */
     kind: SubtypeExprOrValue<PlanRowKindType>;
-    /** Initial collapse of a row with children. */
-    collapsed?: SubtypeExprOrValue<OptionType<BooleanType>>;
-    /** Pin above the virtualised body. */
-    pinned?: SubtypeExprOrValue<OptionType<BooleanType>>;
+    /** Initial collapse of a row with children (default `false`). */
+    collapsed?: SubtypeExprOrValue<BooleanType>;
+    /** Pin above the virtualised body (default `false`). */
+    pinned?: SubtypeExprOrValue<BooleanType>;
     /** Fixed row-height override (CSS px). */
     height?: SubtypeExprOrValue<OptionType<StringType>>;
     /** The gutter status dot. */
@@ -102,8 +103,8 @@ export function planRow(f: PlanRowFields): ExprType<PlanRowType> {
         parent:    f.parent,
         gutter:    f.gutter,
         kind:      f.kind,
-        collapsed: f.collapsed ?? none,
-        pinned:    f.pinned ?? none,
+        collapsed: f.collapsed ?? false,
+        pinned:    f.pinned ?? false,
         height:    f.height ?? none,
         status:    f.status ?? none,
         approval:  f.approval ?? none,
@@ -148,11 +149,11 @@ export interface PlanGutterFields {
 export function planGutter(f: PlanGutterFields): ExprType<PlanGutterType> {
     return East.value({
         label:    f.label,
-        id:       f.id !== undefined ? some(f.id) : none,
+        id:       f.id ?? false,
         sub:      f.sub ?? none,
         value:    f.value ?? none,
         meta:     f.meta ?? none,
-        stacked:  f.stacked !== undefined ? some(f.stacked) : none,
+        stacked:  f.stacked ?? false,
         swatches: (f.swatches ?? []).map(s => East.value({ color: s.color, label: s.label }, PlanGutterSwatchType)),
     }, PlanGutterType);
 }
@@ -263,8 +264,8 @@ function literalRow(base: PlanRowBaseInput, kind: ExprType<PlanRowKindType>): Ex
         parent:    none,
         gutter:    baseGutter(base),
         kind,
-        collapsed: base.collapsed !== undefined ? some(base.collapsed) : none,
-        pinned:    base.pinned !== undefined ? some(base.pinned) : none,
+        collapsed: base.collapsed ?? false,
+        pinned:    base.pinned ?? false,
         height:    base.height !== undefined ? some(base.height) : none,
         status:    base.status !== undefined ? some(resolveTag(base.status, StatusValueType)) : none,
         approval:  base.approval !== undefined ? some(resolveTag(base.approval, ApprovalStateType)) : none,

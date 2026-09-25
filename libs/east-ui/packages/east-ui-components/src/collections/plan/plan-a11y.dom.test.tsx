@@ -78,10 +78,10 @@ function planRow(key: string, kind: unknown, opts?: { parent?: string; label?: s
     return {
         id: rowId(key),
         parent: opts?.parent !== undefined ? some(rowId(opts.parent)) : none,
-        gutter: { label: opts?.label ?? key, id: none, sub: none, value: none, meta: none, stacked: none, swatches: [] },
+        gutter: { label: opts?.label ?? key, id: false, sub: none, value: none, meta: none, stacked: false, swatches: [] },
         kind,
-        collapsed: opts?.collapsed !== undefined ? some(opts.collapsed) : none,
-        pinned: opts?.pinned === true ? some(true) : none,
+        collapsed: opts?.collapsed === true,
+        pinned: opts?.pinned === true,
         height: none,
         status: opts?.status !== undefined ? some(variant(opts.status, null)) : none,
         approval: none,
@@ -89,28 +89,30 @@ function planRow(key: string, kind: unknown, opts?: { parent?: string; label?: s
     } as unknown as PlanWireRow;
 }
 const group = (summary?: unknown) => variant("group", {
-    summary: summary !== undefined ? some(summary) : none, summaryAggregate: none,
+    summary: summary !== undefined ? variant("cells", summary) : variant("none", null),
 });
 function run(key: string, start: Date, end: Date, state: unknown = variant("actual", null), status?: string) {
     return {
-        key, start: t(start), end: t(end), label: key.toUpperCase(), quantity: none, qty: none, state,
+        key, start: t(start), end: t(end), label: key.toUpperCase(), quantity: none, state,
         status: status !== undefined ? some(variant(status, null)) : none, moved: none, icon: none,
     };
 }
 const span = (runs: unknown[] = [], decisions: unknown[] = [], ports: unknown[] = []) =>
-    variant("span", { runs, decisions, ports, rollup: none, unit: none });
+    variant("span", { runs, decisions, ports, rollup: none });
 const chart = (points: [Date, number][], expandable = true) => variant("chart", {
-    layers: [variant("line", { points: points.map(([d, y]) => ({ t: t(d), y })), axis: variant("left", null), breach: none })],
-    left: none, right: none, height: variant("spark", null), expandedHeight: none,
-    expandable: expandable ? some(true) : none,
+    layers: [variant("line", {
+        points: points.map(([d, y]) => ({ t: t(d), y })), axis: variant("left", null), breach: none, fold: variant("mean", null),
+    })],
+    left: none, right: none, height: variant("spark", null), expandedHeight: none, expandable,
 });
 const heatCells = (cells: [Date, number | undefined][], warnAt?: number) => variant("heat", {
     cells: cells.map(([d, v]) => ({ at: t(d), value: v !== undefined ? some(v) : none, label: none })),
-    min: some(0), max: some(100), warnAt: warnAt !== undefined ? some(warnAt) : none,
+    scale: { min: some(0), max: some(100), warnAt: warnAt !== undefined ? some(warnAt) : none },
+    fold: variant("mean", null), format: none,
 });
 
 function planRoot(rows: PlanWireRow[], opts: {
-    source?: unknown; popover?: unknown; onRunClick?: unknown; links?: unknown[];
+    source?: unknown; popover?: unknown; onElementClick?: unknown; links?: unknown[];
     height?: string; expandRender?: boolean;
 } = {}): PlanRootValue {
     return {
@@ -127,11 +129,10 @@ function planRoot(rows: PlanWireRow[], opts: {
             ? some((id: PlanRowId) => variant("Text", { value: `R · ${id.value.path.join("/")}`, style: none }))
             : none,
         expandGutter: none, review: none, pick: none, slice: none, footer: [],
-        id: "", sources: [], onDrag: none, canDrop: none,
+        id: none, sources: [], onDrag: none, canDrop: none,
         onSelect: none,
-        onRunClick: opts.onRunClick !== undefined ? some(opts.onRunClick) : none,
-        onEventClick: none, onMarkClick: none, onChipClick: none, onCellClick: none,
-        onGroupToggle: none, onGrainChange: none,
+        onElementClick: opts.onElementClick !== undefined ? some(opts.onElementClick) : none,
+        onGroupToggle: none, onGrainChange: none, ui: none,
         style: opts.height !== undefined
             ? some({ height: some(opts.height), maxHeight: none, density: none, gutterWidth: none })
             : none,
@@ -164,9 +165,9 @@ const EVERY_KIND = () => [
         markers: [{ at: t(W27), lane: some("am"), status: variant("danger", null), message: "Crew short" }],
     }), { parent: "G" }),
     planRow("k", chart([[W27, 94], [day("2026-08-31"), 101]]), { parent: "G" }),
-    planRow("h", variant("heat", { cells: heatCells([[W27, 80], [day("2026-07-06"), undefined]], 75), aggregate: none }), { parent: "G" }),
+    planRow("h", variant("heat", { cells: heatCells([[W27, 80], [day("2026-07-06"), undefined]], 75), aggregate: none, scale: none }), { parent: "G" }),
     planRow("t", variant("table", {
-        series: [{ cells: [{ at: t(W27), value: some(1204), text: none, tone: none }], format: none, tone: none, strong: none, rollup: none }],
+        series: [{ cells: [{ at: t(W27), value: some(1204), text: none, tone: none }], format: none, tone: none, strong: false, rollup: false, fold: variant("sum", null) }],
         split: variant("horizontal", null), aggregate: none, format: none, emphasis: variant("body", null),
     }), { parent: "G" }),
     planRow("c", variant("cards", {
@@ -454,7 +455,10 @@ describe("one tab stop, and the keyboard map (#819)", () => {
     });
 
     test("Tab walks into a row's widgets; ← → step its elements in time order; Esc returns to the row", () => {
-        const links = [{ fromRow: rowId("m"), fromRun: "b", toRow: rowId("n"), toRun: "x", quantity: 1, label: "1 t" }];
+        const links = [{
+            key: "m-n", from: { row: rowId("m"), run: "b" }, to: { row: rowId("n"), run: "x" },
+            quantity: some({ value: 1, unit: some("t"), format: none, text: none }),
+        }];
         const { container } = renderPlan(planRoot([
             // Data order is not time order: the August run comes first.
             planRow("m", span(
@@ -498,7 +502,7 @@ describe("one tab stop, and the keyboard map (#819)", () => {
         const clicks: unknown[] = [];
         const popover = () => some(variant("Text", { value: "RUN DETAIL", style: none }));
         const { container } = renderPlan(planRoot([planRow("m", span([run("b214", W27, day("2026-07-27"))]))],
-            { popover, onRunClick: (e: unknown) => { clicks.push(e); } }), "plan-819-activate");
+            { popover, onElementClick: (e: unknown) => { clicks.push(e); } }), "plan-819-activate");
         act(() => gridOf(container).focus());
         const row = item(container, "r:m");
         press("Tab");
@@ -508,9 +512,9 @@ describe("one tab stop, and the keyboard map (#819)", () => {
         expect(screen.getByText("RUN DETAIL")).toBeTruthy();
         expect(row.getAttribute("aria-selected")).toBe("true");
         await waitFor(() => expect(clicks).toHaveLength(1));
-        // The click names its row by the row's typed id (#822).
-        const click = clicks[0] as { row: PlanRowId; run: string };
-        expect([click.row.value.path.join("/"), click.run]).toEqual(["m", "b214"]);
+        // The click is the bar's run ref, its row named by the typed id (#822, #824).
+        const click = clicks[0] as { type: string; value: { row: PlanRowId; run: string } };
+        expect([click.type, click.value.row.value.path.join("/"), click.value.run]).toEqual(["run", "m", "b214"]);
         // The popover's Esc first — met, as a user's always is, by its armed
         // layer: the surface closes and focus is back on the bar… (An Esc
         // inside the first frame, before the layer listens, is the canvas's
@@ -603,17 +607,23 @@ describe("the live region (#819)", () => {
 describe("every colour-only cell says its value (#819)", () => {
     test("heat, weight and segment cells of a data row are buttons named by their value", () => {
         const { container } = renderPlan(planRoot([
-            planRow("h", variant("heat", { cells: heatCells([[W27, 80], [day("2026-07-06"), 40], [day("2026-07-13"), undefined]], 75), aggregate: none })),
-            planRow("w", variant("heat", { cells: variant("weight", [{ at: t(W27), fraction: 0.6, planned: true }]), aggregate: none })),
+            planRow("h", variant("heat", { cells: heatCells([[W27, 80], [day("2026-07-06"), 40], [day("2026-07-13"), undefined]], 75), aggregate: none, scale: none })),
+            planRow("w", variant("heat", {
+                cells: variant("weight", { cells: [{ at: t(W27), fraction: 0.6, planned: true }], fold: variant("mean", null), format: none }),
+                aggregate: none, scale: none,
+            })),
             planRow("g", variant("heat", {
-                cells: variant("segments", [{
-                    at: t(W27),
-                    segments: [
-                        { fill: variant("brand", null), weight: 3, label: none },
-                        { fill: variant("slack", null), weight: 1, label: none },
-                    ],
-                }]),
-                aggregate: none,
+                cells: variant("segments", {
+                    cells: [{
+                        at: t(W27),
+                        segments: [
+                            { fill: variant("brand", null), weight: 3, label: none },
+                            { fill: variant("slack", null), weight: 1, label: none },
+                        ],
+                    }],
+                    fold: variant("sum", null), format: none,
+                }),
+                aggregate: none, scale: none,
             })),
         ]), "plan-819-cells");
         const names = (key: string) => [...container.querySelectorAll(`${itemSel(key)} [data-cell]`)]

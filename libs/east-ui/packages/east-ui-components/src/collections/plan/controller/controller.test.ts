@@ -17,25 +17,25 @@ import { registerReactiveTracker, type ReactiveTracker } from "../../../reactive
 import type { PlanRootValue, PlanRowId, PlanWireRow } from "../model.js";
 import type { PlanPersisted } from "../persisted.js";
 import { PLAN_PAGE_SIZE } from "../use-plan-paging.js";
-import { createPlanController, reconciledUi, type PlanController } from "./index.js";
-import { blocksSource, oneBlock, rowId, rowIdEqual, rowKey } from "../plan.test-utils.js";
+import { createPlanController, reconciledUi, type PlanController, type PlanUiBindValue, type PlanUiStateValue } from "./index.js";
+import { blocksSource, oneBlock, rowId, rowIdEqual, rowItem, rowKey } from "../plan.test-utils.js";
 
 const W27 = new Date("2026-06-29T00:00:00Z");           // Monday, ISO week 27
 const W39 = new Date("2026-09-21T00:00:00Z");           // exclusive max → 12 weeks
 const DAY = 86_400_000;
 const WEEK = 7 * DAY;
 
-const span = () => variant("span", { runs: [], decisions: [], ports: [], rollup: none, unit: none });
-const group = () => variant("group", { summary: none, summaryAggregate: none });
+const span = () => variant("span", { runs: [], decisions: [], ports: [], rollup: none });
+const group = () => variant("group", { summary: variant("none", null) });
 
 /** One WIRE row, as the source serves it — named by its test key (#822). */
 function planRow(key: string, kind: unknown = span(), parent?: string, series?: string): PlanWireRow {
     return {
         id: rowId(key, series),
         parent: parent !== undefined ? some(rowId(parent, series)) : none,
-        gutter: { label: key, id: none, sub: none, value: none, meta: none, stacked: none, swatches: [] },
+        gutter: { label: key, id: false, sub: none, value: none, meta: none, stacked: false, swatches: [] },
         kind,
-        collapsed: none, pinned: none, height: none, status: none, approval: none, expand: none,
+        collapsed: false, pinned: false, height: none, status: none, approval: none, expand: none,
     } as unknown as PlanWireRow;
 }
 
@@ -50,9 +50,8 @@ function root(rows: PlanWireRow[], opts: Partial<Record<string, unknown>> = {}):
             resolutions: [variant("week", null), variant("day", null)], now: none, format: none,
         }),
         grain: none, popover: none, hover: none, expandRender: none, expandGutter: none, review: none, pick: none,
-        slice: none, footer: [], id: "", sources: [], onDrag: none, canDrop: none,
-        onSelect: none, onRunClick: none, onEventClick: none, onMarkClick: none, onChipClick: none, onCellClick: none,
-        onGroupToggle: none, onGrainChange: none, style: none,
+        slice: none, footer: [], id: none, sources: [], onDrag: none, canDrop: none,
+        onSelect: none, onElementClick: none, onGroupToggle: none, onGrainChange: none, ui: none, style: none,
         ...opts,
     } as unknown as PlanRootValue;
 }
@@ -296,19 +295,26 @@ describe("the open element overlay", () => {
 });
 
 describe("the author's callbacks", () => {
-    test("an element click routes by the ref's own tag; a drop reports to onDrag — after the handler", async () => {
+    test("every element click reaches the ONE onElementClick with its ref; a drop reports to onDrag — after the handler (#824)", async () => {
         const calls: string[] = [];
         const { c } = show(root(ROWS, {
-            onRunClick: some((r: { run: string }) => { calls.push(`run ${r.run}`); }),
-            onEventClick: some((e: { event: string }) => { calls.push(`event ${e.event}`); }),
+            onElementClick: some((ref: { type: string; value: { key?: string } }) => { calls.push(`${ref.type}${ref.value.key !== undefined ? ` ${ref.value.key}` : ""}`); }),
             onDrag: some(() => { calls.push("drag"); }),
         }));
         c.elementClick(variant("event", { row: rowId("r1"), event: "e1" }) as never);
         c.elementClick(variant("run", { row: rowId("r1"), run: "x1" }) as never);
+        c.elementClick(variant("link", { key: "t1", from: { row: rowId("r1"), run: "x1" }, to: { row: rowId("r2"), run: "y1" } }) as never);
         c.drop({} as never);
         expect(calls).toEqual([]);
         await microtasks();
-        expect(calls).toEqual(["event e1", "run x1", "drag"]);
+        expect(calls).toEqual(["event", "run", "link t1", "drag"]);
+    });
+
+    test("with no onElementClick declared, a click reports to no one", async () => {
+        const { c } = show(root(ROWS));
+        c.elementClick(variant("run", { row: rowId("r1"), run: "x1" }) as never);
+        await microtasks();
+        expect(c.getSnapshot().store.ui.selected).toBeNull();
     });
 });
 
@@ -428,6 +434,187 @@ describe("what survives a remount (#813)", () => {
         c.dispatch({ t: "chart.toggle", key: rowKey("r3") });
         expect(writes).toHaveLength(2);
         expect(writes[1]!.charts).toEqual([rowKey("r3")]);
+    });
+});
+
+describe("a bound ui state (#824)", () => {
+    /** A host's bound state — a handle over one value, writes heard through
+     *  `subscribe` as the state store's are — and what the canvas wrote to it. */
+    function hostState(initial: Partial<PlanUiStateValue> = {}) {
+        let state: PlanUiStateValue = { selected: none, collapsed: [], expanded: [], charts: [], focus: none, ...initial };
+        const writes: PlanUiStateValue[] = [];
+        const listeners = new Set<() => void>();
+        const notify = () => { for (const l of [...listeners]) l(); };
+        const handle = {
+            read: () => state,
+            write: (s: PlanUiStateValue) => { state = s; writes.push(s); notify(); return null; },
+            has: () => true,
+        } as unknown as PlanUiBindValue;
+        return {
+            handle, writes,
+            subscribe: (l: () => void) => { listeners.add(l); return () => { listeners.delete(l); }; },
+            state: () => state,
+            /** The host writes it. */
+            set: (s: Partial<PlanUiStateValue>) => { state = { ...state, ...s }; notify(); },
+        };
+    }
+    /** A controller mounted over a bound root, listening. */
+    function mount(rows: PlanWireRow[], host: ReturnType<typeof hostState>, opts: { grain?: "group" | "resource"; collapsed?: string[]; persist?: (p: PlanPersisted) => void; root?: Partial<Record<string, unknown>> } = {}) {
+        const v = root(rows, { ui: some(host.handle), ...(opts.grain === "group" ? { grain: some(variant("group", null)) } : {}), ...opts.root });
+        const c = createPlanController({
+            grain: opts.grain ?? "resource", collapsed: (opts.collapsed ?? []).map((k) => rowKey(k)),
+            ui: host.handle, subscribeUi: host.subscribe, persist: opts.persist,
+        });
+        c.setValue(v, v);
+        c.connect();
+        let notified = 0;
+        c.subscribe(() => { notified += 1; });
+        return { c, notified: () => notified };
+    }
+    const folded = (key: string) => ({ ...planRow(key, group()), collapsed: true }) as PlanWireRow;
+
+    test("the host's state is the canvas's from its first frame — selection, folds, opened rows and charts", () => {
+        const host = hostState({ selected: some(rowId("r1")), collapsed: [rowId("G")], charts: [rowId("r3")] });
+        const c = createPlanController({ grain: "resource", collapsed: [], ui: host.handle });
+        const ui = c.getSnapshot().store.ui;
+        expect(ui.selected).toBe(rowKey("r1"));
+        expect([...ui.collapsed]).toEqual([rowKey("G")]);
+        expect([...ui.chartsExpanded]).toEqual([rowKey("r3")]);
+        // Opened against its declaration: a declared fold the host opened is open.
+        const opened = createPlanController({ grain: "resource", collapsed: [rowKey("G")], ui: hostState({ expanded: [rowId("G")] }).handle });
+        expect(opened.getSnapshot().store.ui.collapsed.has(rowKey("G"))).toBe(false);
+    });
+
+    test("a host write is taken on the store's notification — and a row in neither list follows its declaration again", () => {
+        const host = hostState({ expanded: [rowId("G")] });
+        const { c, notified } = mount([folded("G"), planRow("g1", span(), "G"), planRow("r1"), planRow("r3")], host, { collapsed: ["G"] });
+        expect(c.getSnapshot().store.ui.collapsed.has(rowKey("G"))).toBe(false);
+        host.set({ selected: some(rowId("r1")), charts: [rowId("r3")] });
+        expect(c.getSnapshot().store.ui.selected).toBe(rowKey("r1"));
+        expect(c.getSnapshot().store.ui.chartsExpanded.has(rowKey("r3"))).toBe(true);
+        expect(notified()).toBe(1);
+        host.set({ expanded: [] });
+        expect(c.getSnapshot().store.ui.collapsed.has(rowKey("G"))).toBe(true);
+        // A write that moved nothing the canvas holds renders nothing.
+        const n = notified();
+        host.set({ collapsed: [] });
+        expect(notified()).toBe(n);
+    });
+
+    test("the user's actions are written back once, after the handler — and a write that moves nothing, never", async () => {
+        const host = hostState({ charts: [rowId("r3")] });
+        const { c } = mount(ROWS, host);
+        c.dispatch({ t: "group.toggle", key: rowKey("G") });
+        c.dispatch({ t: "row.select", key: rowKey("r1") });
+        expect(host.writes).toHaveLength(0);
+        await microtasks();
+        expect(host.writes).toHaveLength(1);
+        expect(host.state()).toEqual({
+            selected: some(rowId("r1")), collapsed: [rowId("G")], expanded: [], charts: [rowId("r3")], focus: none,
+        });
+        // Its own write, heard back through the store, is nothing new.
+        expect(c.getSnapshot().store.ui.selected).toBe(rowKey("r1"));
+        c.dispatch({ t: "row.select", key: rowKey("r1") });
+        await microtasks();
+        expect(host.writes).toHaveLength(1);
+        // Reopened, G is no longer overridden against a declaration it does not
+        // have — it leaves `collapsed` for `expanded`, keeping the lists' order.
+        c.dispatch({ t: "group.toggle", key: rowKey("G") });
+        await microtasks();
+        expect(host.state().collapsed).toEqual([]);
+        expect(host.state().expanded).toEqual([rowId("G")]);
+    });
+
+    test("bound, the canvas persists no toggles of its own — the host holds them", () => {
+        const writes: PlanPersisted[] = [];
+        const { c } = mount(ROWS, hostState(), { persist: (p) => writes.push(p) });
+        c.dispatch({ t: "group.toggle", key: rowKey("G") });
+        c.dispatch({ t: "chart.toggle", key: rowKey("r3") });
+        expect(writes).toEqual([]);
+        // Nor are stored toggles restored over the host's state.
+        const restored = createPlanController({
+            grain: "resource", collapsed: [], ui: hostState().handle,
+            restored: { collapse: [[rowKey("G"), true]], charts: [rowKey("r3")], anchor: null },
+        });
+        expect(restored.getSnapshot().store.ui.collapsed.size).toBe(0);
+        expect(restored.getSnapshot().store.ui.chartsExpanded.size).toBe(0);
+    });
+
+    test("focus is a REQUEST: spent at once, then served — the folded ancestors open, the row scrolls to the top and holds the tab stop", async () => {
+        const host = hostState();
+        const { c } = mount([folded("G"), planRow("g1", span(), "G"), planRow("r1")], host, { collapsed: ["G"] });
+        host.set({ selected: some(rowId("g1")), focus: some(rowId("g1")) });
+        const snap = c.getSnapshot();
+        expect(snap.store.ui.collapsed.has(rowKey("G"))).toBe(false);
+        expect(snap.store.ui.selected).toBe(rowKey("g1"));
+        expect(snap.scroll).toMatchObject({ owner: "nav", nav: { key: rowItem("g1"), align: "start" } });
+        // The tab stop, not DOM focus: the host asked for the row to be shown.
+        expect(snap.nav).toEqual({ active: rowItem("g1"), request: null });
+        await microtasks();
+        expect(host.state().focus).toEqual(none);
+        // The ancestor it opened is the host's to hold, like any open.
+        expect(host.state().expanded).toEqual([rowId("G")]);
+        expect(host.state().selected).toEqual(some(rowId("g1")));
+    });
+
+    test("the group grain gives way to a request for a row inside a top group — keeping the host's selection", () => {
+        const host = hostState();
+        const { c } = mount(ROWS, host, { grain: "group" });
+        host.set({ selected: some(rowId("g1")), focus: some(rowId("g1")) });
+        expect(c.getSnapshot().store.ui.grain).toBe("resource");
+        expect(c.getSnapshot().store.ui.selected).toBe(rowKey("g1"));
+    });
+
+    test("a request for a row the inline canvas does not hold is dropped — and still spent", async () => {
+        const host = hostState();
+        const { c } = mount(ROWS, host);
+        const scroll = c.getSnapshot().scroll;
+        host.set({ focus: some(rowId("nowhere")) });
+        expect(c.getSnapshot().scroll).toBe(scroll);
+        await microtasks();
+        expect(host.state().focus).toEqual(none);
+    });
+
+    /** 50 windows of one group entry and ten members each; the key search
+     *  answers with the window its key names (`g<w>c<i>`). */
+    function pagedSource() {
+        return {
+            id: "c824-paged",
+            page: (offset: bigint) => {
+                const w = Number(offset) / PLAN_PAGE_SIZE;
+                return some([planRow(`g${w}`, group()), ...Array.from({ length: 10 }, (_u, i) => planRow(`g${w}c${i}`, span(), `g${w}`))]);
+            },
+            total: () => some(BigInt(50 * PLAN_PAGE_SIZE)),
+            seek: some((q: { type: string; value: string }) => {
+                const w = Number(/g(\d+)/u.exec(q.value)?.[1] ?? "0");
+                return some({ found: true, row: BigInt(w * PLAN_PAGE_SIZE), count: 1n });
+            }),
+            revision: () => none,
+            refresh: () => null,
+        };
+    }
+
+    test("a paged row seen before has its window opened, then is scrolled to", () => {
+        const host = hostState();
+        const { c } = mount([], host, { root: { rows: variant("paged", blocksSource(pagedSource())) } });
+        // Move away: window 1's rows leave the canvas.
+        c.search.jump(30 * PLAN_PAGE_SIZE);
+        c.committed(c.getSnapshot().paging);
+        expect(c.getSnapshot().paging.rows.some((r) => r.key === rowKey("g1c3"))).toBe(false);
+        host.set({ focus: some(rowId("g1c3")) });
+        expect(c.getSnapshot().paging.rows.some((r) => r.key === rowKey("g1c3"))).toBe(true);
+        expect(c.getSnapshot().scroll.nav).toMatchObject({ key: rowItem("g1c3"), align: "start" });
+    });
+
+    test("a paged row never seen is sought by its element's key, jumped to and scrolled to — leaving no search behind", async () => {
+        const host = hostState();
+        const { c } = mount([], host, { root: { rows: variant("paged", blocksSource(pagedSource())) } });
+        host.set({ focus: some(rowId("g40c2")) });
+        await microtasks();
+        await microtasks();
+        expect(c.getSnapshot().paging.rows.some((r) => r.key === rowKey("g40c2"))).toBe(true);
+        expect(c.getSnapshot().scroll).toMatchObject({ owner: "nav", nav: { key: rowItem("g40c2"), align: "start" } });
+        expect(c.getSnapshot().seek.sought).toBeNull();
     });
 });
 

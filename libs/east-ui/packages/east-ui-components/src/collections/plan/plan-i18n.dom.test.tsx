@@ -50,33 +50,35 @@ function planRow(key: string, kind: unknown, opts?: { parent?: string; label?: s
     return {
         id: rowId(key),
         parent: opts?.parent !== undefined ? some(rowId(opts.parent)) : none,
-        gutter: { label: opts?.label ?? key, id: none, sub: none, value: none, meta: none, stacked: none, swatches: [] },
+        gutter: { label: opts?.label ?? key, id: false, sub: none, value: none, meta: none, stacked: false, swatches: [] },
         kind,
-        collapsed: none, pinned: none, height: none,
+        collapsed: false, pinned: false, height: none,
         status: opts?.status !== undefined ? some(variant(opts.status, null)) : none,
         approval: none, expand: none,
     } as unknown as PlanWireRow;
 }
-const group = () => variant("group", { summary: none, summaryAggregate: none });
-function run(key: string, start: PlanInstantValue, end: PlanInstantValue, opts?: { qty?: number; moved?: bigint }) {
+const group = () => variant("group", { summary: variant("none", null) });
+function run(key: string, start: PlanInstantValue, end: PlanInstantValue, opts?: { quantity?: number; unit?: string; moved?: bigint }) {
     return {
-        key, start, end, label: key.toUpperCase(), quantity: none,
-        qty: opts?.qty !== undefined ? some(opts.qty) : none,
+        key, start, end, label: key.toUpperCase(),
+        quantity: opts?.quantity !== undefined
+            ? some({ value: opts.quantity, unit: opts.unit !== undefined ? some(opts.unit) : none, format: none, text: none })
+            : none,
         state: variant("actual", null), status: none,
         moved: opts?.moved !== undefined ? some(opts.moved) : none, icon: none,
     };
 }
-const span = (runs: unknown[], rollup?: { mode: string; unit: string }) => variant("span", {
+const span = (runs: unknown[], rollup?: string) => variant("span", {
     runs, decisions: [], ports: [],
-    rollup: rollup !== undefined ? some(variant(rollup.mode, null)) : none,
-    unit: rollup !== undefined ? some(rollup.unit) : none,
+    rollup: rollup !== undefined ? some(variant(rollup, null)) : none,
 });
 const heat = (cells: [Date, number][], aggregate?: string) => variant("heat", {
     cells: variant("heat", {
         cells: cells.map(([d, v]) => ({ at: t(d), value: some(v), label: none })),
-        min: some(0), max: some(100), warnAt: none,
+        scale: { min: some(0), max: some(100), warnAt: none }, fold: variant("mean", null), format: none,
     }),
     aggregate: aggregate !== undefined ? some(variant(aggregate, null)) : none,
+    scale: none,
 });
 
 function planRoot(rows: PlanWireRow[], opts: {
@@ -92,9 +94,8 @@ function planRoot(rows: PlanWireRow[], opts: {
         }),
         grain: none, popover: none, hover: none, expandRender: none, expandGutter: none,
         review: opts.review !== undefined ? some(opts.review) : none, pick: none, slice: none, footer: [],
-        id: "", sources: [], onDrag: none, canDrop: none, onSelect: none,
-        onRunClick: none, onEventClick: none, onMarkClick: none, onChipClick: none, onCellClick: none,
-        onGroupToggle: none, onGrainChange: none, style: none,
+        id: none, sources: [], onDrag: none, canDrop: none, onSelect: none, onElementClick: none,
+        onGroupToggle: none, onGrainChange: none, ui: none, style: none,
     } as unknown as PlanRootValue;
 }
 
@@ -174,7 +175,10 @@ const allMarked = (texts: readonly string[]) => {
 // ── Every chrome word is the table's ──────────────────────────────────────
 describe("one message table (#820)", () => {
     test("desktop: the toolbar, the ruler, a group's meta, a diagnostic row, a run's counter and a links focus all speak it", () => {
-        const links = [{ fromRow: rowId("s"), fromRun: "r1", toRow: rowId("u"), toRun: "ru", quantity: 1, label: "1 t" }];
+        const links = [{
+            key: "r1>ru", from: { row: rowId("s"), run: "r1" }, to: { row: rowId("u"), run: "ru" },
+            quantity: some({ value: 1, unit: some("t"), format: none, text: none }),
+        }];
         const { container } = renderPlan(planRoot([
             planRow("G", group(), { label: "Line 1" }),
             planRow("s", span([run("r1", t(W27), t(day("2026-07-13")), { moved: 2n })]), { parent: "G" }),
@@ -303,10 +307,11 @@ describe("one message table (#820)", () => {
 // ── The locale ────────────────────────────────────────────────────────────
 describe("the locale (#820)", () => {
     const rows = () => [
-        // A rollup parent over two overlapping runs: `×2 · 2,234.5 t`.
-        planRow("P", span([], { mode: "union", unit: "t" }), { label: "Parent" }),
-        planRow("a", span([run("ra", t(W27), t(day("2026-07-03")), { qty: 1234.25 })]), { parent: "P" }),
-        planRow("b", span([run("rb", t(day("2026-07-01")), t(day("2026-07-05")), { qty: 1000.25 })]), { parent: "P" }),
+        // A rollup parent over two overlapping runs: `×2 · 2,234.5 t` — the
+        // unit rides each run's quantity (#824).
+        planRow("P", span([], "union"), { label: "Parent" }),
+        planRow("a", span([run("ra", t(W27), t(day("2026-07-03")), { quantity: 1234.25, unit: "t" })]), { parent: "P" }),
+        planRow("b", span([run("rb", t(day("2026-07-01")), t(day("2026-07-05")), { quantity: 1000.25, unit: "t" })]), { parent: "P" }),
         // A mean over two heat rows: 72.5.
         planRow("H", heat([], "mean"), { label: "Mean" }),
         planRow("h1", heat([[W27, 80]]), { parent: "H" }),
@@ -323,9 +328,11 @@ describe("the locale (#820)", () => {
         // The rollup's summed quantity and the aggregated cell.
         expect(getByText("×2 · 2.234,5 t")).toBeTruthy();
         expect(heatLabel(container)).toBe("72,5");
-        // What a bar is called speaks the locale's dates.
+        // A run's own quantity prints in the locale too (#824)...
+        expect(words(container.querySelector("[data-run='ra']")!)).toEqual(["RA", "1.234,25 t"]);
+        // ...and what a bar is called speaks the locale's dates and numbers.
         expect(container.querySelector("[data-run='ra']")!.getAttribute("aria-label"))
-            .toBe("RA, 29. Juni 2026 – 3. Juli 2026, actual");
+            .toBe("RA, 29. Juni 2026 – 3. Juli 2026, actual, 1.234,25 t");
     });
 
     test("a locale change re-derives every word — the memoized rows included", () => {
@@ -336,7 +343,7 @@ describe("the locale (#820)", () => {
         expect(getByText("×2 · 2,234.5 t")).toBeTruthy();
         expect(heatLabel(container)).toBe("72.5");
         expect(container.querySelector("[data-run='ra']")!.getAttribute("aria-label"))
-            .toBe("RA, Jun 29, 2026 – Jul 3, 2026, actual");
+            .toBe("RA, Jun 29, 2026 – Jul 3, 2026, actual, 1,234.25 t");
     });
 
     describe("under a timezone west of UTC (#850)", () => {
@@ -349,7 +356,7 @@ describe("the locale (#820)", () => {
             const { container } = renderPlan(planRoot(rows(), { resolution: "day", window: week }), "plan-850-tz", german);
             expect(ticks(container)).toEqual(["MO", "DI", "MI", "DO", "FR", "SA", "SO"]);
             expect(container.querySelector("[data-run='ra']")!.getAttribute("aria-label"))
-                .toBe("RA, 29. Juni 2026 – 3. Juli 2026, actual");
+                .toBe("RA, 29. Juni 2026 – 3. Juli 2026, actual, 1.234,25 t");
         });
     });
 });

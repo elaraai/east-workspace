@@ -45,6 +45,7 @@
 import { utcDay, utcHour, utcMonday, utcMonth, utcYear, type TimeInterval } from "d3-time";
 import { formatDatePattern, tickFormatter, type TickFormat } from "../../charts/spec/index.js";
 import { numberInstant, ordinalInstant, timeInstant, type PlanAxisKind, type PlanInstantValue } from "./instant.js";
+import type { PlanPeriod } from "./fold.js";
 import { PLAN_WORDS, type PlanWords } from "./words.js";
 
 /** A concrete bucket resolution — the IR `TimeResolutionType` with `auto` resolved away. */
@@ -254,6 +255,13 @@ export interface PlanScale {
     snap(t: PlanInstantValue): PlanInstantValue;
     /** Period-align an instant downward (the period containing it). */
     floor(t: PlanInstantValue): PlanInstantValue;
+    /**
+     * The period this scale buckets by, as the fold reads it (#824) — ONE
+     * object per period, shared by every scale with the same resolution or
+     * step, so what depends on it (the folded cells) re-derives when the
+     * resolution changes and not when the window pans.
+     */
+    period: PlanPeriod;
     /** Shift an instant by `k` whole periods — pans, zooms, the one-period floor. */
     offset(t: PlanInstantValue, k: number): PlanInstantValue;
     /** The instant as a number on the scale's own domain (epoch ms / the value / the ordinal index; `NaN` off-arm). */
@@ -297,9 +305,24 @@ export interface PlanScale {
     bucketText(b: PlanBucket): string;
 }
 
+/** The periods handed out so far, by key — one object per period (see `PlanScale.period`). */
+const PERIODS = new Map<string, PlanPeriod>();
+
+/** The period named `key`: the one already handed out, else `floor` under that name. */
+function periodOf(key: string, floor: (t: PlanInstantValue) => PlanInstantValue): PlanPeriod {
+    let period = PERIODS.get(key);
+    if (period === undefined) {
+        period = { key, floor };
+        PERIODS.set(key, period);
+    }
+    return period;
+}
+
 /** The three kinds, reduced to one numeric domain with a period function. */
 interface Domain {
     kind: PlanAxisKind;
+    /** Names the period — what `floor` depends on, and nothing else (never the window). */
+    periodKey: string;
     minN: number;
     maxN: number;
     /** Period-align a domain number downward. */
@@ -330,6 +353,7 @@ function timeDomain(spec: Extract<PlanScaleSpec, { kind: "time" }>): Domain {
     const w = spec.words ?? PLAN_WORDS;
     return {
         kind: "time",
+        periodKey: `time:${spec.resolution}`,
         minN: spec.window.min.getTime(),
         maxN: spec.window.max.getTime(),
         floor: (n) => interval.floor(new Date(n)).getTime(),
@@ -358,6 +382,7 @@ function numberDomain(spec: Extract<PlanScaleSpec, { kind: "number" }>): Domain 
     const fmt = tickFormatter(spec.format, "linear", (spec.words ?? PLAN_WORDS).locale);
     return {
         kind: "number",
+        periodKey: `number:${step}`,
         minN: spec.window.min,
         maxN: spec.window.max,
         floor: (n) => Math.floor((n + eps) / step) * step,
@@ -384,6 +409,9 @@ function ordinalDomain(spec: Extract<PlanScaleSpec, { kind: "ordinal" }>): Domai
     const at = (n: number): string => values[Math.max(0, Math.min(last, Math.floor(n + 1e-9)))]!;
     return {
         kind: "ordinal",
+        // Every value is its own bucket: an ordinal period is the identity,
+        // whatever the list (`floor` below maps a value to itself).
+        periodKey: "ordinal",
         minN: 0,
         maxN: values.length,
         floor: (n) => Math.floor(n + 1e-9),
@@ -510,6 +538,11 @@ export function planScale(spec: PlanScaleSpec): PlanScale | undefined {
         const n = toN(t);
         return Number.isFinite(n) ? dom.fromN(dom.floor(n)) : t;
     };
+    // The fold's period (#824) — keyed by what `floor` depends on, so the
+    // first scale at a resolution lends its `floor` to every later one. An
+    // ordinal floor is the identity whatever the list: a value outside it
+    // stays itself, as it does here.
+    const period = periodOf(dom.periodKey, dom.kind === "ordinal" ? (t) => t : floor);
     const offset = (t: PlanInstantValue, k: number): PlanInstantValue => {
         const n = toN(t);
         return Number.isFinite(n) ? dom.fromN(dom.offset(n, k)) : t;
@@ -576,7 +609,7 @@ export function planScale(spec: PlanScaleSpec): PlanScale | undefined {
         resolution: dom.resolution,
         n: buckets.length, buckets,
         truncated: truncated ? { shown: buckets.length } : undefined,
-        xOf, fracOf, endFracOf, bucketOf, bucketAtFrac, snap, floor, offset,
+        xOf, fracOf, endFracOf, bucketOf, bucketAtFrac, snap, floor, period, offset,
         toNumber: toN, fromNumber: dom.fromN,
         nowFrac, renderMin, renderMax, renderBucketOf,
         instantText, bucketText,

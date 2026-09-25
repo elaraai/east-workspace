@@ -168,7 +168,7 @@ export function RowShell({
     const sub = gutter.sub.type === "some" ? gutter.sub.value : undefined;
     const meta = gutter.meta.type === "some" ? gutter.meta.value : undefined;
     const value = gutter.value.type === "some" ? gutter.value.value : undefined;
-    const isId = gutter.id.type === "some" && gutter.id.value;
+    const isId = gutter.id;
     const statusTone = row.status.type === "some" ? row.status.value.type : undefined;
     // The band an expanded row's own marks keep at the top — its natural kind
     // height, which the focused row is always handed.
@@ -188,8 +188,8 @@ export function RowShell({
     //    washing the entire canvas.
     //
     // The SLOT is the bucket under the pointer, named by its start instant —
-    // the canvas's own vocabulary for "where on the axis" (`onCellClick`
-    // reports the same bucket instant, not an index), spelled per the axis
+    // the canvas's own vocabulary for "where on the axis" (a `cell` element
+    // ref reports the same bucket instant, not an index), spelled per the axis
     // arm by the shared encoding (`toPlanSlot`, #631): a Z-less ISO instant,
     // a decimal, or the ordinal value.
     const plotElRef = useRef<HTMLElement | null>(null);

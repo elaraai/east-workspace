@@ -46,11 +46,12 @@ const NOW = new Date("2026-08-12T00:00:00Z");
 const t = (d: Date): PlanInstantValue => variant("time", d) as PlanInstantValue;
 const n = (v: number): PlanInstantValue => variant("number", v) as PlanInstantValue;
 
-function run(key: string, start: Date, end: Date, state: unknown, opts?: { quantity?: string; stuck?: boolean; qty?: number }) {
+function run(key: string, start: Date, end: Date, state: unknown, opts?: { quantity?: number; unit?: string; text?: string; stuck?: boolean }) {
     return {
         key, start: t(start), end: t(end), label: key.toUpperCase(),
-        quantity: opts?.quantity !== undefined ? some(opts.quantity) : none,
-        qty: opts?.qty !== undefined ? some(opts.qty) : none,
+        quantity: opts?.quantity !== undefined
+            ? some({ value: opts.quantity, unit: opts.unit !== undefined ? some(opts.unit) : none, format: none, text: opts.text !== undefined ? some(opts.text) : none })
+            : none,
         state,
         status: opts?.stuck === true ? some(variant("warning", null)) : none,
         moved: none, icon: none,
@@ -60,11 +61,11 @@ function run(key: string, start: Date, end: Date, state: unknown, opts?: { quant
 function gutter(label: string, opts?: { sub?: string; value?: string; meta?: string; id?: boolean }) {
     return {
         label,
-        id: opts?.id === true ? some(true) : none,
+        id: opts?.id === true,
         sub: opts?.sub !== undefined ? some(opts.sub) : none,
         value: opts?.value !== undefined ? some(opts.value) : none,
         meta: opts?.meta !== undefined ? some(opts.meta) : none,
-        stacked: none,
+        stacked: false,
         swatches: [],
     };
 }
@@ -76,21 +77,20 @@ function planRow(key: string, kind: unknown, opts?: { parent?: string; gutter?: 
         parent: opts?.parent !== undefined ? some(rowId(opts.parent)) : none,
         gutter: opts?.gutter ?? gutter(key),
         kind,
-        collapsed: opts?.collapsed !== undefined ? some(opts.collapsed) : none,
-        pinned: none, height: none, status: none, approval: none,
+        collapsed: opts?.collapsed === true,
+        pinned: false, height: none, status: none, approval: none,
         expand: opts?.expand !== undefined ? some(opts.expand) : none,
     } as unknown as PlanWireRow;
 }
 
-function spanKind(runs: unknown[], opts?: { rollup?: string; unit?: string }) {
+function spanKind(runs: unknown[], opts?: { rollup?: string }) {
     return variant("span", {
         runs, decisions: [], ports: [],
         rollup: opts?.rollup !== undefined ? some(variant(opts.rollup, null)) : none,
-        unit: opts?.unit !== undefined ? some(opts.unit) : none,
     });
 }
 
-function planRoot(rows: PlanWireRow[], opts?: { footer?: unknown[]; now?: Date | undefined; slice?: unknown; resolutions?: unknown[]; links?: unknown[]; popover?: unknown; hover?: unknown; expandRender?: unknown; source?: unknown; pick?: unknown; axis?: unknown; style?: { height?: string; maxHeight?: string }; clicks?: { onRunClick?: unknown; onEventClick?: unknown; onMarkClick?: unknown; onChipClick?: unknown; onCellClick?: unknown } }): PlanRootValue {
+function planRoot(rows: PlanWireRow[], opts?: { footer?: unknown[]; now?: Date | undefined; slice?: unknown; resolutions?: unknown[]; links?: unknown[]; popover?: unknown; hover?: unknown; expandRender?: unknown; source?: unknown; pick?: unknown; axis?: unknown; style?: { height?: string; maxHeight?: string }; onElementClick?: unknown; ui?: unknown }): PlanRootValue {
     return {
         rows: opts?.source !== undefined ? variant("paged", blocksSource(opts.source)) : variant("inline", oneBlock(rows)),
         links: opts?.links ?? [],
@@ -111,14 +111,10 @@ function planRoot(rows: PlanWireRow[], opts?: { footer?: unknown[]; now?: Date |
         pick: opts?.pick !== undefined ? some(opts.pick) : none,
         slice: opts?.slice ?? none,
         footer: opts?.footer ?? [],
-        id: "", sources: [], onDrag: none, canDrop: none,
+        id: none, sources: [], onDrag: none, canDrop: none,
         onSelect: none,
-        onRunClick: opts?.clicks?.onRunClick !== undefined ? some(opts.clicks.onRunClick) : none,
-        onEventClick: opts?.clicks?.onEventClick !== undefined ? some(opts.clicks.onEventClick) : none,
-        onMarkClick: opts?.clicks?.onMarkClick !== undefined ? some(opts.clicks.onMarkClick) : none,
-        onChipClick: opts?.clicks?.onChipClick !== undefined ? some(opts.clicks.onChipClick) : none,
-        onCellClick: opts?.clicks?.onCellClick !== undefined ? some(opts.clicks.onCellClick) : none,
-        onGroupToggle: none, onGrainChange: none,
+        onElementClick: opts?.onElementClick !== undefined ? some(opts.onElementClick) : none,
+        onGroupToggle: none, onGrainChange: none, ui: opts?.ui !== undefined ? some(opts.ui) : none,
         style: opts?.style !== undefined
             ? some({
                 height: opts.style.height !== undefined ? some(opts.style.height) : none,
@@ -142,7 +138,7 @@ describe("Plan span rows (§4·K1)", () => {
     test("run bars carry the state truth table on data-state, the stuck ring and the runoff mask", () => {
         const { container } = renderPlan(planRoot([
             planRow("m1", spanKind([
-                run("obs1", new Date("2026-06-29Z"), new Date("2026-07-13Z"), variant("actual", null), { quantity: "96 t" }),
+                run("obs1", new Date("2026-06-29Z"), new Date("2026-07-13Z"), variant("actual", null), { quantity: 96, unit: "t" }),
                 run("appr1", new Date("2026-07-13Z"), new Date("2026-07-27Z"), variant("confirmed", null)),
                 run("prop1", new Date("2026-07-27Z"), new Date("2026-08-10Z"), variant("proposed", variant("recommended", null)), { stuck: true }),
                 run("ghost1", new Date("2026-08-10Z"), new Date("2026-08-24Z"), variant("estimated", null)),
@@ -163,16 +159,37 @@ describe("Plan span rows (§4·K1)", () => {
     });
 
     test("declared rollups render renderer-DERIVED ×k · qty band captions", () => {
-        // Parent declares union + unit; the overlapping child runs derive one
-        // ×2 band summing 146 t in the pessimistic (confirmed) state.
+        // Parent declares union; the overlapping child runs derive one ×2 band
+        // summing their quantities, 146 t, in the pessimistic (confirmed) state.
         renderPlan(planRoot([
-            planRow("prog", spanKind([], { rollup: "union", unit: "t" })),
+            planRow("prog", spanKind([], { rollup: "union" })),
             planRow("m1", spanKind([
-                run("ra", new Date("2026-06-29Z"), new Date("2026-07-13Z"), variant("actual", null), { qty: 96 }),
-                run("rb", new Date("2026-07-06Z"), new Date("2026-07-20Z"), variant("confirmed", null), { qty: 50 }),
+                run("ra", new Date("2026-06-29Z"), new Date("2026-07-13Z"), variant("actual", null), { quantity: 96, unit: "t" }),
+                run("rb", new Date("2026-07-06Z"), new Date("2026-07-20Z"), variant("confirmed", null), { quantity: 50, unit: "t" }),
             ]), { parent: "prog" }),
         ]));
         expect(screen.getByText("×2 · 146 t")).toBeTruthy();
+    });
+
+    test("a run prints its ONE quantity — its text, else its value through its format and its unit; a band totals unit by unit (#824)", () => {
+        const oneDp = variant("number", { minimumFractionDigits: some(1n), maximumFractionDigits: some(1n), signDisplay: none });
+        const { container } = renderPlan(planRoot([
+            planRow("prog", spanKind([], { rollup: "union" })),
+            planRow("m1", spanKind([
+                { ...run("ra", new Date("2026-06-29Z"), new Date("2026-07-13Z"), variant("actual", null)),
+                    quantity: some({ value: 96.25, unit: some("t"), format: some(oneDp), text: none }) },
+                run("rb", new Date("2026-07-06Z"), new Date("2026-07-20Z"), variant("confirmed", null), { quantity: 112, unit: "t", text: "one hundred twelve" }),
+                run("rc", new Date("2026-07-06Z"), new Date("2026-07-13Z"), variant("confirmed", null), { quantity: 12, unit: "h" }),
+            ]), { parent: "prog" }),
+        ]));
+        // The bar's caption, and its accessible name, say the same thing.
+        const ra = container.querySelector('[data-run="ra"]')!;
+        expect(ra.textContent).toContain("96.3 t");
+        expect(ra.getAttribute("aria-label")).toMatch(/96\.3 t/u);
+        expect(container.querySelector('[data-run="rb"]')!.textContent).toContain("one hundred twelve");
+        // The band sums values, never captions — tonnes with tonnes, hours
+        // with hours — each total through its first member's format.
+        expect(screen.getByText("×3 · 208.3 t · 12 h")).toBeTruthy();
     });
 });
 
@@ -190,9 +207,9 @@ describe("Plan ruler + footer chrome", () => {
     test("footer items render with their tone and end alignment attributes", () => {
         const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], {
             footer: [
-                { text: "512 RESOURCES", tone: none, end: none },
-                { text: "3 EXCEPTIONS", tone: some(variant("warning", null)), end: none },
-                { text: "RUN 412", tone: none, end: some(true) },
+                { text: "512 RESOURCES", tone: none, end: false },
+                { text: "3 EXCEPTIONS", tone: some(variant("warning", null)), end: false },
+                { text: "RUN 412", tone: none, end: true },
             ],
         }));
         expect(screen.getByText("512 RESOURCES")).toBeTruthy();
@@ -206,7 +223,7 @@ describe("Plan ruler + footer chrome", () => {
 describe("Plan group strips (§5)", () => {
     test("a group toggles its subtree in place and shows the member meta", () => {
         const { container } = renderPlan(planRoot([
-            planRow("line1", variant("group", { summary: none, summaryAggregate: none }),
+            planRow("line1", variant("group", { summary: variant("none", null) }),
                 { gutter: gutter("LINE 1", { meta: "2 rs" }) }),
             planRow("m1", spanKind([]), { parent: "line1" }),
             planRow("m2", spanKind([]), { parent: "line1" }),
@@ -223,11 +240,7 @@ describe("Plan group strips (§5)", () => {
     test("an IR-collapsed group starts collapsed and renders its summary heat strip", () => {
         const { container } = renderPlan(planRoot([
             planRow("line2", variant("group", {
-                summary: some(variant("heat", {
-                    cells: [{ at: t(new Date("2026-06-29Z")), value: some(80), label: some("80") }],
-                    min: some(0), max: some(100), warnAt: none,
-                })),
-                summaryAggregate: none,
+                summary: variant("cells", heatArm([{ at: t(new Date("2026-06-29Z")), value: some(80), label: some("80") }], 0, 100)),
             }), { collapsed: true }),
             planRow("m3", spanKind([]), { parent: "line2" }),
         ]));
@@ -240,11 +253,7 @@ describe("Plan group strips (§5)", () => {
         // nothing, and it swallowed the band's own toggle.
         const { container } = renderPlan(planRoot([
             planRow("line2", variant("group", {
-                summary: some(variant("heat", {
-                    cells: [{ at: t(new Date("2026-06-29Z")), value: some(80), label: some("80") }],
-                    min: some(0), max: some(100), warnAt: none,
-                })),
-                summaryAggregate: none,
+                summary: variant("cells", heatArm([{ at: t(new Date("2026-06-29Z")), value: some(80), label: some("80") }], 0, 100)),
             }), { collapsed: true }),
             planRow("m3", spanKind([]), { parent: "line2" }),
         ]), "plan-strip-toggle");
@@ -258,15 +267,12 @@ describe("Plan heat rows (§4·K4)", () => {
     test("heat cells: depth labels, ≥ warnAt ring, no-data hatch, past-50% flip", () => {
         const { container } = renderPlan(planRoot([
             planRow("l1", variant("heat", {
-                cells: variant("heat", {
-                    cells: [
-                        { at: t(new Date("2026-06-29Z")), value: some(30), label: some("30") },
-                        { at: t(new Date("2026-07-06Z")), value: some(96), label: some("96") },
-                        { at: t(new Date("2026-07-13Z")), value: none, label: none },
-                    ],
-                    min: some(0), max: some(100), warnAt: some(95),
-                }),
-                aggregate: none,
+                cells: heatArm([
+                    { at: t(new Date("2026-06-29Z")), value: some(30), label: some("30") },
+                    { at: t(new Date("2026-07-06Z")), value: some(96), label: some("96") },
+                    { at: t(new Date("2026-07-13Z")), value: none, label: none },
+                ], 0, 100, 95),
+                aggregate: none, scale: none,
             })),
         ]));
         expect(screen.getByText("30")).toBeTruthy();
@@ -289,6 +295,7 @@ describe("Plan chart rows (§4·K3)", () => {
                     ],
                     axis: variant("left", null),
                     breach: none,
+                    fold: variant("mean", null),
                 }),
                 variant("refLine", { y: 100, axis: variant("left", null), label: some("TARGET 100") }),
             ],
@@ -300,7 +307,7 @@ describe("Plan chart rows (§4·K3)", () => {
             right: none,
             height,
             expandedHeight: none,
-            expandable: none,
+            expandable: false,
         });
         const spark = renderPlan(planRoot([
             planRow("cov", chart(variant("spark", null)), { gutter: gutter("COVERAGE", { id: true, value: "94.2%" }) }),
@@ -403,6 +410,20 @@ describe("Plan bucket rows (§4·K2)", () => {
     });
 });
 
+/** A heat cells arm (#824) — its cells on a scale, folding by `fold`, printing through `format`. */
+function heatArm(cells: unknown[], min?: number, max?: number, warnAt?: number, opts?: { fold?: string; format?: unknown }) {
+    return variant("heat", {
+        cells,
+        scale: {
+            min: min !== undefined ? some(min) : none,
+            max: max !== undefined ? some(max) : none,
+            warnAt: warnAt !== undefined ? some(warnAt) : none,
+        },
+        fold: variant(opts?.fold ?? "mean", null),
+        format: opts?.format !== undefined ? some(opts.format) : none,
+    });
+}
+
 function tableCell(at: Date, v: number | undefined, text?: string) {
     return {
         at: t(at),
@@ -417,7 +438,7 @@ function tableCell(at: Date, v: number | undefined, text?: string) {
 function tableKindOf(cells: unknown[], opts?: { aggregate?: boolean; emphasis?: string }) {
     return variant("table", {
         series: cells.length > 0
-            ? [{ cells, format: none, tone: none, strong: none, rollup: none }]
+            ? [{ cells, format: none, tone: none, strong: false, rollup: false, fold: variant("sum", null) }]
             : [],
         split: variant("horizontal", null),
         aggregate: opts?.aggregate === true ? some(variant("sum", null)) : none,
@@ -454,8 +475,9 @@ describe("Plan table rows (§4·K5)", () => {
             cells,
             format: none,
             tone: opts?.tone !== undefined ? some(variant(opts.tone, null)) : none,
-            strong: opts?.strong !== undefined ? some(opts.strong) : none,
-            rollup: none,
+            strong: opts?.strong === true,
+            rollup: false,
+            fold: variant("sum", null),
         });
         const { container } = renderPlan(planRoot([
             planRow("flow", variant("table", {
@@ -549,5 +571,80 @@ describe("Plan event rows (§4·K7)", () => {
         const swapped = container.querySelector('[data-mark="k4"]')!;
         expect(swapped.getAttribute("data-kind")).toBe("milestone");
         expect(swapped.querySelector("svg")).toBeTruthy();
+    });
+});
+
+describe("a coarser resolution FOLDS — one cell per bucket per row (#824)", () => {
+    /** Twelve weekly instants from W27 (Jun 29): one in June, four in July, five in August, two in September. */
+    const WEEKS = Array.from({ length: 12 }, (_, i) => new Date(Date.UTC(2026, 5, 29 + 7 * i)));
+    const monthAxis = variant("time", {
+        window: some({ min: new Date("2026-06-01Z"), max: new Date("2026-10-01Z") }),
+        resolution: variant("month", null), resolutions: [], now: none, format: none,
+    });
+    const weekAxis = variant("time", {
+        window: some({ min: W27, max: W39 }), resolution: variant("week", null), resolutions: [], now: none, format: none,
+    });
+    /** A heat row of weekly cells valued 10, 20, … 120 and labelled so. */
+    const weeklyHeat = (key: string, fold?: string) => planRow(key, variant("heat", {
+        cells: heatArm(WEEKS.map((at, i) => ({ at: t(at), value: some(10 * (i + 1)), label: some(String(10 * (i + 1))) })), 0, 200, undefined,
+            fold !== undefined ? { fold } : undefined),
+        aggregate: none, scale: none,
+    }));
+    const weeklyTable = (key: string, fold?: string) => planRow(key, variant("table", {
+        series: [{
+            cells: WEEKS.map((at) => tableCell(at, 10)), format: none, tone: none, strong: false, rollup: false,
+            fold: variant(fold ?? "sum", null),
+        }],
+        split: variant("horizontal", null), aggregate: none, format: none, emphasis: variant("body", null),
+    }));
+    const weeklyColumns = planRow("out", variant("chart", {
+        layers: [variant("column", {
+            points: WEEKS.map((at) => ({ t: t(at), y: 5 })), axis: variant("left", null), series: none, breach: none,
+            fold: variant("sum", null),
+        })],
+        left: none, right: none, height: variant("expanded", null), expandedHeight: none, expandable: false,
+    }));
+    const texts = (row: Element | null, sel: string) => Array.from(row!.querySelectorAll(sel)).map((n) => n.textContent);
+
+    test("WEEK → MONTH: a heat row's weeks fold to their MEAN, a table's to their SUM, a column layer's to its SUM", () => {
+        const { container } = renderPlan(planRoot([weeklyHeat("load"), weeklyTable("desp"), weeklyColumns], { axis: monthAxis }));
+        const heat = container.querySelector(rowSel("load"));
+        // Four months hold data — four cells, never twelve overlapping.
+        expect(heat!.querySelectorAll("[data-cell]")).toHaveLength(4);
+        // June's lone week keeps its own cell; July is the mean of 20, 30, 40, 50.
+        expect(texts(heat, "[data-cell] > span")).toEqual(["10", "35", "80", "115"]);
+        const table = container.querySelector(rowSel("desp"));
+        expect(table!.querySelectorAll("[data-cell]")).toHaveLength(4);
+        expect(texts(table, "[data-cell]")).toEqual(["10", "40", "50", "20"]);
+        // One column a month, each the sum of its weeks' points.
+        expect(container.querySelectorAll(`${rowSel("out")} [data-plan-mark="column"]`)).toHaveLength(4);
+    });
+
+    test("at the data's own resolution nothing folds — twelve weekly cells", () => {
+        const { container } = renderPlan(planRoot([weeklyHeat("load"), weeklyTable("desp")], { axis: weekAxis }));
+        expect(container.querySelector(rowSel("load"))!.querySelectorAll("[data-cell]")).toHaveLength(12);
+        expect(container.querySelector(rowSel("desp"))!.querySelectorAll("[data-cell]")).toHaveLength(12);
+    });
+
+    test("a declared fold is honoured — a heat row's max, a table's last", () => {
+        const { container } = renderPlan(planRoot([weeklyHeat("peak", "max"), weeklyTable("stock", "last")], { axis: monthAxis }));
+        expect(texts(container.querySelector(rowSel("peak")), "[data-cell] > span")).toEqual(["10", "50", "100", "120"]);
+        expect(texts(container.querySelector(rowSel("stock")), "[data-cell]")).toEqual(["10", "10", "10", "10"]);
+    });
+
+    test("a cell with no label prints its value through the arm's declared format — and one without a format prints nothing", () => {
+        const pct = variant("percent", { minimumFractionDigits: none, maximumFractionDigits: some(0n), signDisplay: none });
+        const { container } = renderPlan(planRoot([
+            planRow("fmt", variant("heat", {
+                cells: heatArm([{ at: t(W27), value: some(0.42), label: none }], 0, 1, undefined, { format: pct }),
+                aggregate: none, scale: none,
+            })),
+            planRow("bare", variant("heat", {
+                cells: heatArm([{ at: t(W27), value: some(0.42), label: none }], 0, 1),
+                aggregate: none, scale: none,
+            })),
+        ], { axis: weekAxis }));
+        expect(texts(container.querySelector(rowSel("fmt")), "[data-cell] > span")).toEqual(["42%"]);
+        expect(texts(container.querySelector(rowSel("bare")), "[data-cell] > span")).toEqual([""]);
     });
 });

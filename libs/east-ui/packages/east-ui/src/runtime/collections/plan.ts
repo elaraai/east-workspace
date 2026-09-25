@@ -58,7 +58,7 @@ const { Root: _root, ...authoring } = PlanFactory;
  * ```tsx
  * // .tsx file with the `@jsxImportSource @elaraai/east-ui` pragma
  * import { ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, StringType, StructType, VariantType, variant } from "@elaraai/east";
- * import { EventStateType, Plan, UIComponentType } from "@elaraai/east-ui";
+ * import { EventStateType, Format, Plan, UIComponentType } from "@elaraai/east-ui";
  *
  * const canvas = East.function([], UIComponentType, ($) => {
  *     // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
@@ -113,13 +113,14 @@ const { Root: _root, ...authoring } = PlanFactory;
  *     // inside each series' `derive`.
  *     const series = $.const([
  *         // One row per line, its machines stepped down into
- *         // (`Plan.children`) and their runs rolled up into its bands.
+ *         // (`Plan.children`) and their runs rolled up into its bands —
+ *         // which sum the runs' quantities, unit by unit.
  *         Plan.series.span(Block, {
  *             key: "lines", title: "Lines",
  *             match: (_b, name) => name.equal("Crews").not(),
  *             label: (_b, name) => name,
  *             runs: _b => [],
- *             rollup: "union", unit: "t",
+ *             rollup: "union",
  *             children: Plan.children((b) => b, [
  *                 Plan.series.span(OpsRow, {
  *                     key: "machines", title: "Machines",
@@ -128,8 +129,10 @@ const { Root: _root, ...authoring } = PlanFactory;
  *                     runs: r => r.kind.unwrap("machine").jobs.map((_$, j) => Plan.run({
  *                         key: j.batch, start: j.start, end: j.end,
  *                         label: East.str`RUN · ${j.batch}`,
- *                         quantity: East.str`${East.Float.printFixed(j.tonnes, 0n)} t`,
- *                         qty: j.tonnes, state: j.state,
+ *                         // A quantity is one value: the bar prints `96 t`,
+ *                         // and the line's band sums the tonnes.
+ *                         quantity: Plan.quantity(j.tonnes, { unit: "t", format: Format.Number({ maximumFractionDigits: 0n }) }),
+ *                         state: j.state,
  *                     })),
  *                 }),
  *             ]),
@@ -181,8 +184,9 @@ const { Root: _root, ...authoring } = PlanFactory;
  * `Plan.axis` (+ `.time` / `.number` / `.ordinal`), `Plan.at`,
  * `Plan.series.*`, `Plan.children`, `Plan.ref` / `Plan.sectionRef`,
  * `Plan.pick` / `Plan.pickItems`, the kind factories, the value and cell
- * builders, `Plan.link`, `Plan.layer` / `Plan.fixed` (chart channels),
- * `Plan.markKind`, and `Plan.Types.*`. Replaces `Gantt`, `Planner` and
+ * builders, `Plan.quantity`, `Plan.link`, `Plan.layer` / `Plan.fixed` (chart
+ * channels), `Plan.markKind`, `Plan.uiState` (a bound `ui` state's seed), and
+ * `Plan.Types.*`. Replaces `Gantt`, `Planner` and
  * `AlignedStack`.
  *
  * The tag is generic in the canvas's axis kind `K`, inferred from `axis`:

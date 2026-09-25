@@ -44,11 +44,12 @@ const NOW = new Date("2026-08-12T00:00:00Z");
 /** Instants on each arm — REAL East variant values, as the decoder yields them (#631). */
 const t = (d: Date): PlanInstantValue => variant("time", d) as PlanInstantValue;
 
-function run(key: string, start: Date, end: Date, state: unknown, opts?: { quantity?: string; stuck?: boolean; qty?: number }) {
+function run(key: string, start: Date, end: Date, state: unknown, opts?: { quantity?: number; unit?: string; text?: string; stuck?: boolean }) {
     return {
         key, start: t(start), end: t(end), label: key.toUpperCase(),
-        quantity: opts?.quantity !== undefined ? some(opts.quantity) : none,
-        qty: opts?.qty !== undefined ? some(opts.qty) : none,
+        quantity: opts?.quantity !== undefined
+            ? some({ value: opts.quantity, unit: opts.unit !== undefined ? some(opts.unit) : none, format: none, text: opts.text !== undefined ? some(opts.text) : none })
+            : none,
         state,
         status: opts?.stuck === true ? some(variant("warning", null)) : none,
         moved: none, icon: none,
@@ -58,11 +59,11 @@ function run(key: string, start: Date, end: Date, state: unknown, opts?: { quant
 function gutter(label: string, opts?: { sub?: string; value?: string; meta?: string; id?: boolean }) {
     return {
         label,
-        id: opts?.id === true ? some(true) : none,
+        id: opts?.id === true,
         sub: opts?.sub !== undefined ? some(opts.sub) : none,
         value: opts?.value !== undefined ? some(opts.value) : none,
         meta: opts?.meta !== undefined ? some(opts.meta) : none,
-        stacked: none,
+        stacked: false,
         swatches: [],
     };
 }
@@ -77,21 +78,20 @@ function planRow(key: string, kind: unknown, opts?: { id?: PlanRowId; parent?: s
             : opts?.parent !== undefined ? some(rowId(opts.parent)) : none,
         gutter: opts?.gutter ?? gutter(key),
         kind,
-        collapsed: opts?.collapsed !== undefined ? some(opts.collapsed) : none,
-        pinned: none, height: none, status: none, approval: none,
+        collapsed: opts?.collapsed === true,
+        pinned: false, height: none, status: none, approval: none,
         expand: opts?.expand !== undefined ? some(opts.expand) : none,
     } as unknown as PlanWireRow;
 }
 
-function spanKind(runs: unknown[], opts?: { rollup?: string; unit?: string }) {
+function spanKind(runs: unknown[], opts?: { rollup?: string }) {
     return variant("span", {
         runs, decisions: [], ports: [],
         rollup: opts?.rollup !== undefined ? some(variant(opts.rollup, null)) : none,
-        unit: opts?.unit !== undefined ? some(opts.unit) : none,
     });
 }
 
-function planRoot(rows: PlanWireRow[], opts?: { footer?: unknown[]; now?: Date | undefined; slice?: unknown; resolutions?: unknown[]; links?: unknown[]; popover?: unknown; hover?: unknown; expandRender?: unknown; source?: unknown; pick?: unknown; axis?: unknown; style?: { height?: string; maxHeight?: string }; clicks?: { onRunClick?: unknown; onEventClick?: unknown; onMarkClick?: unknown; onChipClick?: unknown; onCellClick?: unknown } }): PlanRootValue {
+function planRoot(rows: PlanWireRow[], opts?: { footer?: unknown[]; now?: Date | undefined; slice?: unknown; resolutions?: unknown[]; links?: unknown[]; popover?: unknown; hover?: unknown; expandRender?: unknown; source?: unknown; pick?: unknown; axis?: unknown; style?: { height?: string; maxHeight?: string }; onElementClick?: unknown; ui?: unknown }): PlanRootValue {
     return {
         rows: opts?.source !== undefined ? variant("paged", blocksSource(opts.source)) : variant("inline", oneBlock(rows)),
         links: opts?.links ?? [],
@@ -112,14 +112,10 @@ function planRoot(rows: PlanWireRow[], opts?: { footer?: unknown[]; now?: Date |
         pick: opts?.pick !== undefined ? some(opts.pick) : none,
         slice: opts?.slice ?? none,
         footer: opts?.footer ?? [],
-        id: "", sources: [], onDrag: none, canDrop: none,
+        id: none, sources: [], onDrag: none, canDrop: none,
         onSelect: none,
-        onRunClick: opts?.clicks?.onRunClick !== undefined ? some(opts.clicks.onRunClick) : none,
-        onEventClick: opts?.clicks?.onEventClick !== undefined ? some(opts.clicks.onEventClick) : none,
-        onMarkClick: opts?.clicks?.onMarkClick !== undefined ? some(opts.clicks.onMarkClick) : none,
-        onChipClick: opts?.clicks?.onChipClick !== undefined ? some(opts.clicks.onChipClick) : none,
-        onCellClick: opts?.clicks?.onCellClick !== undefined ? some(opts.clicks.onCellClick) : none,
-        onGroupToggle: none, onGrainChange: none,
+        onElementClick: opts?.onElementClick !== undefined ? some(opts.onElementClick) : none,
+        onGroupToggle: none, onGrainChange: none, ui: opts?.ui !== undefined ? some(opts.ui) : none,
         style: opts?.style !== undefined
             ? some({
                 height: opts.style.height !== undefined ? some(opts.style.height) : none,
@@ -266,7 +262,7 @@ describe("Plan paged source (P-c)", () => {
         // since that is their text rather than a derivation.
         const line = sectionId("line");
         const w0 = [
-            planRow("line", variant("group", { summary: none, summaryAggregate: none }),
+            planRow("line", variant("group", { summary: variant("none", null) }),
                 { id: line, gutter: gutter("Line 1") }),
             planRow("m1", spanKind([run("r1", W27, new Date("2026-07-13Z"), variant("actual", null))]), { parentId: line }),
             planRow("m2", spanKind([run("r2", W27, new Date("2026-07-13Z"), variant("actual", null))]), { parentId: line }),
@@ -301,15 +297,15 @@ describe("Plan paged source (P-c)", () => {
         // the entry carries whole and a window holds whole. Their numbers are
         // final the moment their window lands — marking them `~` on a paged
         // canvas would draw it differently from the same canvas inline.
-        const groupKind = variant("group", { summary: none, summaryAggregate: none });
+        const groupKind = variant("group", { summary: variant("none", null) });
         const inner = sectionId("inner", "g2");
         const rows = [
             planRow("g1", groupKind, { gutter: gutter("Line 1") }),
             planRow("a", spanKind([run("ra", W27, new Date("2026-07-13Z"), variant("actual", null))]), { parent: "g1" }),
             planRow("b", spanKind([run("rb", W27, new Date("2026-07-13Z"), variant("actual", null))]), { parent: "g1" }),
-            planRow("p1", spanKind([], { rollup: "union", unit: "t" }), { gutter: gutter("Program A") }),
-            planRow("c", spanKind([run("rc", W27, new Date("2026-07-13Z"), variant("actual", null), { qty: 10 })]), { parent: "p1" }),
-            planRow("d", spanKind([run("rd", new Date("2026-07-06Z"), new Date("2026-07-20Z"), variant("actual", null), { qty: 20 })]), { parent: "p1" }),
+            planRow("p1", spanKind([], { rollup: "union" }), { gutter: gutter("Program A") }),
+            planRow("c", spanKind([run("rc", W27, new Date("2026-07-13Z"), variant("actual", null), { quantity: 10, unit: "t" })]), { parent: "p1" }),
+            planRow("d", spanKind([run("rd", new Date("2026-07-06Z"), new Date("2026-07-20Z"), variant("actual", null), { quantity: 20, unit: "t" })]), { parent: "p1" }),
             planRow("g2", groupKind, { gutter: gutter("Line 2") }),
             planRow("inner", groupKind, { id: inner, parentId: rowId("g2"), gutter: gutter("Machines") }),
             planRow("e", spanKind([run("re", W27, new Date("2026-07-13Z"), variant("actual", null))]), { parentId: inner }),
@@ -563,7 +559,7 @@ describe("Plan paged source (P-c)", () => {
         // must not print `0 rs`, which would be a measured-looking claim about
         // rows that simply have not loaded.
         const w0 = [
-            planRow("chrome", variant("group", { summary: none, summaryAggregate: none }),
+            planRow("chrome", variant("group", { summary: variant("none", null) }),
                 { id: sectionId("chrome"), gutter: gutter("Line 9") }),
             planRow("m1", spanKind([run("r1", W27, new Date("2026-07-13Z"), variant("actual", null))])),
         ];
@@ -599,10 +595,10 @@ describe("Plan paged source (P-c)", () => {
         // window 0, so the demand rests on its ring and windows 3–4 stay a
         // band — #812.)
         const w0 = [
-            planRow("g1", variant("group", { summary: none, summaryAggregate: none }), { collapsed: true }),
+            planRow("g1", variant("group", { summary: variant("none", null) }), { collapsed: true }),
             ...Array.from({ length: 20 }, (_u, i) => planRow(`m${i}`, spanKind([]), { parent: "g1" })),
             ...Array.from({ length: 15 }, (_u, i) => planRow(`p${i}`, spanKind([]))),
-            { ...planRow("pin", spanKind([])), pinned: some(true) } as PlanWireRow,
+            { ...planRow("pin", spanKind([])), pinned: true } as PlanWireRow,
         ];
         const source = {
             page: (offset: bigint) => {

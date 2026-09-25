@@ -21,14 +21,26 @@ import type { RowKey } from "./plan-state.js";
 /** A row's typed identity — its series and the path of entry keys to it (#822). */
 export type PlanRowId = ValueTypeOf<typeof Plan.Types.RowId>;
 
+const printRowId = printFor(Plan.Types.RowId);
+const parseRowId = parseFor(Plan.Types.RowId);
+
 /**
  * The canonical text of a row id — the canvas row's key, East's own `.east`
  * printing of the id (`printFor`), so it is the same text a host builds with
  * `East.print(Plan.ref(…))` and parses back with `row.parse(Plan.Types.RowId)`.
+ *
+ * @remarks
+ * A function of exactly ONE argument, so it maps point-free
+ * (`ids.map(rowKeyOf)`): East's printer takes further parameters of its own,
+ * and handed `map`'s index and array as those it threw on the first list that
+ * held an id — a bound `ui` state's expanded charts (#824).
+ *
+ * @param id - The row's id
+ * @returns The row's key
  */
-export const rowKeyOf: (id: PlanRowId) => RowKey = printFor(Plan.Types.RowId);
-
-const parseRowId = parseFor(Plan.Types.RowId);
+export function rowKeyOf(id: PlanRowId): RowKey {
+    return printRowId(id);
+}
 
 /**
  * The typed id a row's key is the text of — the inverse of {@link rowKeyOf},

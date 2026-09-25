@@ -76,17 +76,17 @@ function planRow(key: string, kind: unknown, parent?: string, collapsed?: boolea
     return {
         id: rowId(key),
         parent: parent !== undefined ? some(rowId(parent)) : none,
-        gutter: { label: key, id: none, sub: none, value: none, meta: none, stacked: none, swatches: [] },
+        gutter: { label: key, id: false, sub: none, value: none, meta: none, stacked: false, swatches: [] },
         kind,
-        collapsed: collapsed === true ? some(true) : none,
-        pinned: none, height: none, status: none, approval: none, expand: none,
+        collapsed: collapsed === true,
+        pinned: false, height: none, status: none, approval: none, expand: none,
     } as unknown as PlanWireRow;
 }
-const span = () => variant("span", { runs: [], decisions: [], ports: [], rollup: none, unit: none });
-const group = () => variant("group", { summary: none, summaryAggregate: none });
+const span = () => variant("span", { runs: [], decisions: [], ports: [], rollup: none });
+const group = () => variant("group", { summary: variant("none", null) });
 const chart = () => variant("chart", {
     layers: [], left: none, right: none,
-    height: variant("spark", null), expandedHeight: none, expandable: some(true),
+    height: variant("spark", null), expandedHeight: none, expandable: true,
 });
 const pad = (i: number, width: number) => String(i).padStart(width, "0");
 
@@ -111,9 +111,9 @@ function planRoot(body: PlanWireRow[], opts?: { source?: unknown; slice?: unknow
         }),
         grain: none, popover: none, hover: none, expandRender: none, review: none, pick: none,
         slice: opts?.slice ?? none, footer: [],
-        id: "", sources: [], onDrag: none, canDrop: none,
-        onSelect: none, onRunClick: none, onEventClick: none, onMarkClick: none, onChipClick: none, onCellClick: none,
-        onGroupToggle: none, onGrainChange: none,
+        id: none, sources: [], onDrag: none, canDrop: none,
+        onSelect: none, onElementClick: none,
+        onGroupToggle: none, onGrainChange: none, ui: none,
         style: some({ height: some(`${VIEWPORT}px`), maxHeight: none, density: none, gutterWidth: none }),
     } as unknown as PlanRootValue;
 }
