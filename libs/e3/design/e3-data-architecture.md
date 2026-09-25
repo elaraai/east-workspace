@@ -607,6 +607,12 @@ Changes:
   - its memory becomes O(workers × segment): shared buffers reused per slot, and nothing allocated per frame that waits on a worker's GC;
   - then the store door frames on it again.
 
+Built in four parts, in this order (decided 2026-09-26):
+1. **The frame pool** (#841): its memory bounded by workers × segment, and the store door framing on it again.
+2. **The budget:** cores and memory (`--memory` / `E3_MEMORY`, the cgroup's `memory.max`), admission, and the removal of `state.concurrency` and the API request's `concurrency`.
+3. **Reservations from measured peaks:** execution records store each unit's `peakBytes`, a unit reserves its kind's recent peak, and a task with no history runs one unit before it fans out.
+4. **The guard,** and per-unit cgroups where delegation exists.
+
 Acceptance:
 - With `--memory` set below the sum of the units' peaks, a run completes without the kernel's OOM killer firing, and stays under the budget plus one unit's margin.
 - The frame pool's peak is the same at two output sizes, in a runner's emit sink and in the door.
