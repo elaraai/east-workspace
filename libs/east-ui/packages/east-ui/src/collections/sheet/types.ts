@@ -502,6 +502,53 @@ export const SheetContextType = StructType({
 export type SheetContextType = typeof SheetContextType;
 
 /**
+ * One row check of a readiness batch ({@link SheetReadyBatchType}, #882) —
+ * where its row sits among the batch's rows, and its driver.
+ * @internal
+ *
+ * @property index - The checked row's index in the batch's `rows` (a grouped sheet: its GROUP's)
+ * @property line - A grouped sheet: the checked line's index within its group; `none` on a flat sheet
+ * @property driver - The resolved driver member's key
+ */
+export const SheetReadyCheckType = StructType({
+    index:  IntegerType,
+    line:   OptionType(IntegerType),
+    driver: OptionType(StringType),
+});
+/** Type alias for {@link SheetReadyCheckType}. */
+export type SheetReadyCheckType = typeof SheetReadyCheckType;
+
+/**
+ * The WIRE readiness batch (#882) — every row check of one readiness
+ * evaluation, over the rows they share.
+ * @internal
+ *
+ * @remarks
+ * The shared fields cross the wire once, and the bridge builds the typed
+ * rows from them once. A check carries only its place and its driver: its
+ * row is the draft the bridge built at that place — the row's own cells over
+ * its own draft — so nothing is substituted into the rows, as a
+ * {@link SheetContextType}'s provisional row is.
+ *
+ * @property drafts - Row id → its current draft, encoded
+ * @property rows - The rows, in sheet order (a grouped sheet: the GROUP rows)
+ * @property rowsOffset - The source offset of `rows[0]`
+ * @property partial - `true` on a paged sheet whose source is not exhausted
+ * @property today - UTC midnight — so checks stay pure
+ * @property checks - The checks; their results return in this order
+ */
+export const SheetReadyBatchType = StructType({
+    drafts:     DictType(StringType, BlobType),
+    rows:       ArrayType(SheetRowType),
+    rowsOffset: IntegerType,
+    partial:    BooleanType,
+    today:      DateTimeType,
+    checks:     ArrayType(SheetReadyCheckType),
+});
+/** Type alias for {@link SheetReadyBatchType}. */
+export type SheetReadyBatchType = typeof SheetReadyBatchType;
+
+/**
  * The WIRE fill — one proposed cell value with its provenance (B§5.1).
  *
  * @property value - The proposed cell

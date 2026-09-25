@@ -19,6 +19,8 @@
  * - `draftDecode` — current cells over the existing field draft, preserving
  *   hidden values and retaining missing/invalid input without domain defaults;
  * - `bridgeCtx` — the wire context to `Sheet.Types.DraftContext(R, D)`;
+ * - `bridgeReady` — a readiness batch to one `DraftContext` per check, its
+ *   rows built once (#882);
  * - the wrappers — a fill provider, a proposer, an arity rule, a member
  *   check, an options rule, a custom kind's parse / print — each the
  *   author's typed function inside its closed wire twin;
@@ -69,6 +71,7 @@ import {
     SheetRowType,
     SheetLineType,
     SheetContextType,
+    SheetReadyBatchType,
     SheetFillType,
     SheetProposalType,
     SheetProviderType,
@@ -94,7 +97,7 @@ import { resolveTag } from "../plan/builders.js";
 import type { SheetSubRowsValue } from "./sub-rows.js";
 import { SheetMembersType, SheetRegisterMembersType, parseLink, EMPTY_LINK } from "./link.js";
 import { buildDraftRowDecoder, buildDraftGroupDecoder } from "./draft-bridge.js";
-import { buildDraftContextBridge, buildDraftBase } from "./context-bridge.js";
+import { buildDraftContextBridge, buildDraftBase, buildReadyContexts } from "./context-bridge.js";
 import { SheetDraftGroupTypeFor } from "./drafts.js";
 import { SheetDraftTypeFor } from "./transactions.js";
 import type { SheetAnyColumnConfig, SheetColumn } from "./columns.js";
@@ -519,6 +522,8 @@ export interface SheetBridge {
     rowById: ExprType<FunctionType<[StringType, IntegerType], OptionType<StructType>>>;
     /** The wire context → the typed context. */
     bridgeCtx: ExprType<FunctionType<[SheetContextType], StructType>>;
+    /** A readiness batch → one typed context per check, over rows built once (#882). */
+    bridgeReady: ExprType<FunctionType<[typeof SheetReadyBatchType], ArrayType<StructType>>>;
     /** `Sheet.Types.Patch(L)` → the set fields as cells. */
     encodePatch: ExprType<FunctionType<[StructType], typeof SheetCellsType>>;
     /** The group half — present on a grouped sheet. */
@@ -663,6 +668,8 @@ export function buildBridge(input: SheetBridgeInput): SheetBridge {
 
     const bridgeCtx = buildDraftContextBridge(rowType, lineType, groupInput?.linesField, ctxType, driverType,
         rowById as SheetBridge["rowById"], draftDecode, draftRow, lookupDriver);
+    const bridgeReady = buildReadyContexts(rowType, groupInput?.linesField, ctxType, driverType,
+        rowById as SheetBridge["rowById"], draftDecode, lookupDriver);
 
     const encodePatch = buildPatchCells(lineType, metas, registers);
 
@@ -671,6 +678,7 @@ export function buildBridge(input: SheetBridgeInput): SheetBridge {
         projectRow, projectSubRows, draftDecode, draftRow,
         rowById: rowById as unknown as SheetBridge["rowById"],
         bridgeCtx: bridgeCtx as unknown as SheetBridge["bridgeCtx"],
+        bridgeReady,
         encodePatch, seedCells: buildPatchCells(lineType, metas, registers, false),
         ...(group !== undefined ? { group } : {}),
     };

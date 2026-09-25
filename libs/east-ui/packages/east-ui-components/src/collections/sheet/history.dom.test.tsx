@@ -8,7 +8,7 @@ import { afterEach, beforeEach, expect, test } from "vitest";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { ArrayType, East, IntegerType, StringType, StructType, decodeBeast2For, some, variant } from "@elaraai/east";
-import { Sheet, State, UIComponentType } from "@elaraai/east-ui/internal";
+import { Sheet, SheetReadyBatchType, State, UIComponentType } from "@elaraai/east-ui/internal";
 import { system } from "../../theme/index.js";
 import { StateImpl, initializeStore } from "../../platform/state-runtime.js";
 import { UIStore } from "../../platform/state-store.js";
@@ -203,11 +203,14 @@ test("discarding a new row first commits another row's open editor as a separate
 
 test("an author rule marks the affected row, blocks Apply, focuses its issue and clears on Undo", async () => {
     const root = view();
-    const context = decodeBeast2For(Sheet.Types.WireContext);
+    const batchOf = decodeBeast2For(SheetReadyBatchType);
     const ui = mount({ ...root, editing: { ...root.editing, readyRow: some(blob => {
-        const qty = context(blob).row.get("qty");
-        return qty?.type === "Integer" && qty.value <= 0n
-            ? variant("incomplete", [{ field: "qty", message: "Quantity needs approval" }]) : variant("ready", null);
+        const batch = batchOf(blob);
+        return batch.checks.map((check) => {
+            const qty = batch.rows[Number(check.index)]!.cells.get("qty");
+            return qty?.type === "Integer" && qty.value <= 0n
+                ? variant("incomplete", [{ field: "qty", message: "Quantity needs approval" }]) : variant("ready", null);
+        });
     }) } });
     await ui.edit("0");
     await ui.press("Apply changes");

@@ -5,7 +5,7 @@
 
 /** Draft-aware callback contexts; no domain values are synthesized. @packageDocumentation */
 import { ArrayType, BlobType, DictType, East, FunctionType, IntegerType, OptionType, StringType, StructType, none, some, variant, type EastType, type ExprType, type SubtypeExprOrValue } from "@elaraai/east";
-import { SheetContextType } from "./types.js";
+import { SheetContextType, SheetReadyBatchType } from "./types.js";
 import { SheetDraftTypeFor } from "./transactions.js";
 import { SheetDraftGroupTypeFor } from "./drafts.js";
 import type { SheetBridge } from "./bridge.js";
@@ -66,6 +66,7 @@ export function buildDraftContextBridge(
         const dec = $.const(draftRow);
         const decEntry = $.const(draftDecode);
         const lookup = $.const(lookupDriver as ExprType<FunctionType<[StringType], OptionType<EastType>>>);
+        // Every resident row's current draft — a readiness batch builds its rows the same way (`buildReadyContexts`).
         const entries = $.const(ctx.rows.map((_$, wire, index) => decEntry(wire, readBase(ctx.drafts, wire.id, ctx.rowsOffset.add(index)), some(wire))), ArrayType(entryDraft));
         const driver = $.const(ctx.driver.match({ none: () => none, some: (_$, key) => lookup(key) }), OptionType(driverType));
         if (field === undefined) {
@@ -103,4 +104,57 @@ export function buildDraftContextBridge(
         )));
         return $.const({ rowIndex: ctx.rowIndex, row, rows, group: edited, groups, partial: ctx.partial, driver, today: ctx.today } as SubtypeExprOrValue<StructType>, ctxType);
     });
+}
+
+/**
+ * Build a readiness batch's typed contexts (#882): the rows are built once,
+ * then there is one context per check over them, in the checks' order.
+ *
+ * @remarks
+ * A check's row is the draft built at its place: the row's own cells over
+ * its own draft. A wire context substitutes its provisional row into the
+ * rows it builds ({@link buildDraftContextBridge}). For a check, that would
+ * put back the very draft it replaces, so every context shares the rows
+ * unchanged. On a grouped sheet a check's `group` is its group's draft,
+ * `rows` that group's lines and `groups` the batch's rows. Every check of a
+ * batch reads the same rows, so a check that edits them in place changes
+ * what the checks after it see.
+ *
+ * @param rowType - The source row's type (a grouped sheet: the group's)
+ * @param field - A grouped sheet's lines field
+ * @param ctxType - The typed context — `DraftContext(R, D)`, or `DraftContext(P, "lines", D)`
+ * @param driverType - The driver's row type
+ * @param rowById - The real source row by id and offset
+ * @param draftDecode - A row's cells over its draft
+ * @param lookupDriver - The driver row by key
+ * @returns The batch → one typed context per check
+ */
+export function buildReadyContexts(
+    rowType: StructType,
+    field: string | undefined,
+    ctxType: StructType,
+    driverType: EastType,
+    rowById: SheetBridge["rowById"],
+    draftDecode: SheetBridge["draftDecode"],
+    lookupDriver: ExprType<FunctionType>,
+): SheetBridge["bridgeReady"] {
+    const entryDraft = (field === undefined ? SheetDraftTypeFor(rowType) : SheetDraftGroupTypeFor(rowType, field)) as StructType;
+    const base = buildDraftBase(rowType, field, rowById);
+    return East.function([SheetReadyBatchType], ArrayType(ctxType), ($, batch) => {
+        const readBase = $.const(base);
+        const decEntry = $.const(draftDecode);
+        const lookup = $.const(lookupDriver as ExprType<FunctionType<[StringType], OptionType<EastType>>>);
+        // The rows, once for every check — as a wire context builds its `entries`.
+        const entries = $.const(batch.rows.map((_$, wire, index) => decEntry(wire, readBase(batch.drafts, wire.id, batch.rowsOffset.add(index)), some(wire))), ArrayType(entryDraft));
+        return batch.checks.map(($, check) => {
+            const driver = $.const(check.driver.match({ none: () => none, some: (_$, key) => lookup(key) }), OptionType(driverType));
+            if (field === undefined) {
+                return $.const({ rowIndex: check.index, row: entries.get(check.index), rows: entries, group: none, partial: batch.partial, driver, today: batch.today } as SubtypeExprOrValue<StructType>, ctxType);
+            }
+            const group = $.const(entries.get(check.index), entryDraft);
+            const lines = $.const(group[field] as ExprType<ArrayType<StructType>>);
+            const line = $.const(check.line.unwrap("some"));
+            return $.const({ rowIndex: line, row: lines.get(line), rows: lines, group: some(group), groups: entries, partial: batch.partial, driver, today: batch.today } as SubtypeExprOrValue<StructType>, ctxType);
+        }) as unknown as ExprType<ArrayType<StructType>>;
+    }) as unknown as SheetBridge["bridgeReady"];
 }

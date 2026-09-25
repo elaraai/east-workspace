@@ -10,7 +10,7 @@ import {
     type EastType, type ExprType, type SubtypeExprOrValue,
 } from "@elaraai/east";
 import type { ResolvedRowSource } from "../../contracts/source.js";
-import { SheetRowType, SheetPatchTypeFor, SheetContextType } from "./types.js";
+import { SheetRowType, SheetPatchTypeFor, SheetReadyBatchType } from "./types.js";
 import { buildPatchCells, type SheetBridge } from "./bridge.js";
 import { SheetApplyResultType, SheetChangeSetTypeFor, SheetNewRowType, SheetNewGroupType, SheetReadinessType, SheetDraftTypeFor } from "./transactions.js";
 import { SheetDraftEntryTypeFor, SheetPatchEventTypeFor } from "./drafts.js";
@@ -132,7 +132,7 @@ export function buildSheetEditing(source: ResolvedRowSource, bridge: SheetBridge
         const check = $.const(authorGroup as ExprType<FunctionType<[EastType], typeof SheetReadinessType>>);
         return check(blob.decodeBeast(draftType, "v2"));
     });
-    let readyRow: ExprType<FunctionType<[BlobType], typeof SheetReadinessType>> | undefined;
+    let readyRow: ExprType<FunctionType<[BlobType], ArrayType<typeof SheetReadinessType>>> | undefined;
     if (input.ready?.row !== undefined) {
         const fn = East.value(input.ready.row as SubtypeExprOrValue<EastType>) as ExprType<EastType>;
         const type = Expr.type(fn as Expr<EastType>) as EastType;
@@ -140,11 +140,22 @@ export function buildSheetEditing(source: ResolvedRowSource, bridge: SheetBridge
         if (type.type !== "Function" || type.inputs.length !== 2 || type.inputs[0] !== rowDraft || type.inputs[1] !== bridge.ctxType || type.output !== SheetReadinessType) {
             throw new Error("Sheet: ready.row must be an East function over this row's Draft and this sheet's DraftContext, returning Readiness");
         }
-        readyRow = East.function([BlobType], SheetReadinessType, ($, blob) => {
-            const context = $.const(bridge.bridgeCtx);
-            const typed = $.const(context(blob.decodeBeast(SheetContextType, "v2")));
+        // One call per evaluation (#882): the batch's rows are built once, and
+        // each check's result returns in the batch's order. A check that
+        // throws fails its own row alone — the rest still report.
+        readyRow = East.function([BlobType], ArrayType(SheetReadinessType), ($, blob) => {
+            const contexts = $.const(bridge.bridgeReady);
             const check = $.const(fn as ExprType<FunctionType<[StructType, StructType], typeof SheetReadinessType>>);
-            return check(typed.row as ExprType<StructType>, typed);
+            const typed = $.const(contexts(blob.decodeBeast(SheetReadyBatchType, "v2")));
+            return typed.map(($, context) => {
+                const result = $.let(variant("ready", null), SheetReadinessType);
+                $.try(($) => {
+                    $.assign(result, check(context.row as ExprType<StructType>, context));
+                }).catch(($, message) => {
+                    $.assign(result, variant("invalid", [{ field: "", message: East.str`Row readiness failed: ${message}` }]));
+                });
+                return result;
+            });
         });
     }
     return East.value({

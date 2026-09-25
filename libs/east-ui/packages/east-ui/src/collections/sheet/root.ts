@@ -147,7 +147,12 @@ export interface SheetSuggestInput<R extends StructType> {
  * @typeParam G - The group draft schema, when grouping is enabled
  */
 export interface SheetReadyInput<R extends StructType, G extends EastType = never> {
-    /** Check a row draft and its current draft-aware context. */
+    /**
+     * Check a row draft and its current draft-aware context. Every check of
+     * one evaluation runs in one call over the same `rows` (#882): read
+     * them, never sort or edit them in place, or the checks after it see the
+     * change. A check that throws marks its own row invalid.
+     */
     row?: SubtypeExprOrValue<FunctionType<[SheetDraftOf<R>, SheetAnyContextOf<R>], typeof SheetReadinessType>>;
     /** Check the group's own draft fields; child issues are checked separately. */
     group?: [G] extends [never] ? never : SubtypeExprOrValue<FunctionType<[G], typeof SheetReadinessType>>;

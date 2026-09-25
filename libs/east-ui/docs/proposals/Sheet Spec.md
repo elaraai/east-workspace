@@ -1223,6 +1223,7 @@ capture only data, bind handles and the author's functions:
 | a fill provider | `Fn([SheetContext], Option<SheetFill>)` | `ctx => author({ rowIndex, row: decode(ctx.rowId, ctx.row, rowById(ctx.rowId, ctx.offset)), rows: ctx.rows.map((r, i) => decode(r.id, r.cells, rowById(r.id, ctx.rowsOffset + i))), partial, driver: ctx.driver.map(lookupDriver), today }).map(f => ({ value: cellOf(f.value), meta: f.meta }))` — the async arm awaits the author's `East.asyncFunction` the same way |
 | a proposer | `Fn([SheetContext], Array<SheetProposal>)` | the same context bridge; each `Patch(R)`'s `some` fields encoded to cells |
 | arity `implied`, a `custom` check, a `custom` kind's `parse` / `print` | closed twins | the context bridge; the member passes through; payloads to and from cells |
+| a row readiness check | `Fn([Blob], Array<Readiness>)` | one batch per evaluation (#882): the drafts, the rows and each check's place and driver. `bridgeReady` decodes the rows once, as the context bridge decodes `rows`, then gives each check its context over them: `row` is the draft at its place, and on a grouped sheet `group` is its group's draft and `rows` that group's lines. The author's check runs once per check, and one that throws is that row's `invalid` result, so the other checks still report |
 | `onEdit` | `Fn([SheetEdit], Null)` | `e => author(e with its rows decoded)` |
 
 The bridge is the one place a string ever names a field — inside the factory,
@@ -1632,7 +1633,7 @@ renders the edited row. The row memo compares its props by identity, so every pr
 is a primitive or a reference that holds still:
 - each item's rail membership is computed once per body;
 - a row's draft presentation is derived once per session change (the session's
-  readiness is held by value, since it derives a fresh one on every read);
+  readiness is held by value);
 - the insertion seam arrives as the side its chips take, and the row draws it;
 - discard is one stable callback that takes the row's id (and a line's key);
 - a line's sub rows arrive as their count and whether they show;
@@ -1655,7 +1656,11 @@ the drafts:
 - the session looks its rows up through one id index, and a paste mints its ids
   against one set;
 - no spread into a call under `collections/sheet/` (lint, the Plan's #810 guard): a
-  batch of 250,000 failing rows returns its 250,000 issues.
+  batch of 250,000 failing rows returns its 250,000 issues;
+- a declared row check runs as one batch per evaluation (#882, §4.8). The rows
+  cross the wire once and the bridge builds them once; each check carries only its
+  place and its driver. Every check of the batch reads the same rows, so a check
+  that sorts or edits them in place changes what the checks after it see.
 
 **The fields (review, 2026-09-12).** The ring is the field chrome; what sits
 inside it is the COMMON control for the column's kind, never a bespoke input:

@@ -7,21 +7,24 @@
  * Evaluate business requirements against the current draft collection —
  * linear in the rows and the drafts (#859): the source rows' drafts are read
  * once per source generation, placement is one ordered pass, and each draft's
- * position comes from one index.
+ * position comes from one index. The author's row checks cross the wire as
+ * one batch per evaluation (#882), so the rows are sent and built once, not
+ * once per draft.
  *
  * @packageDocumentation
  */
 import { compareFor, fromEastTypeValue, decodeBeast2For, encodeBeast2For, StringType, none, some, variant, type ValueTypeOf } from "@elaraai/east";
-import { Sheet, SheetEditingType } from "@elaraai/east-ui/internal";
+import { Sheet, SheetEditingType, SheetReadyBatchType, SheetReadyCheckType } from "@elaraai/east-ui/internal";
 import { liftDraft, type BatchReadiness } from "./draft-values.js";
 import { placeInOrder } from "./placement.js";
 import type { EntryVersion } from "./transactions.js";
-import type { SheetContextValue, SheetRowValue } from "./values.js";
+import type { SheetRowValue } from "./values.js";
 
 type Editing = ValueTypeOf<typeof SheetEditingType>;
 type Readiness = ValueTypeOf<typeof Sheet.Types.Readiness>;
 type Issue = ValueTypeOf<typeof Sheet.Types.Issue>;
-const encodeContext = encodeBeast2For(Sheet.Types.WireContext);
+type ReadyCheck = ValueTypeOf<typeof SheetReadyCheckType>;
+const encodeBatch = encodeBeast2For(SheetReadyBatchType);
 const compareId = compareFor(StringType);
 
 /**
@@ -62,6 +65,11 @@ export function authorReadiness(editing: Editing, resident: readonly SheetRowVal
     };
     // Each source row's position: a failed window before it does not move it (#853).
     const sourceAt = new Map(resident.map((wire, i) => [wire.id, positions[i]!] as const));
+    /** The driver member a row's cells name, if the driver column holds one. */
+    const driverOf = (cells: SheetRowValue["cells"]): ReadyCheck["driver"] => {
+        const driver = driverColumn === undefined ? undefined : cells.get(driverColumn);
+        return driver?.type === "String" ? some(driver.value) : none;
+    };
     return (entries: ReadonlyMap<string, EntryVersion>): BatchReadiness => {
         if (entries.size === 0) return variant("ready", null);
         const issues: Issue[] = [];
@@ -94,28 +102,42 @@ export function authorReadiness(editing: Editing, resident: readonly SheetRowVal
             placedAt.push(sourceAt.get(row.id) ?? (i > 0 ? placedAt[i - 1]! + 1 : positions[0] ?? 0));
             if (!indexOf.has(row.id)) indexOf.set(row.id, i);
         });
+        // The row checks, one batch for the evaluation (#882): a draft's row,
+        // or each line of a draft's group. The rows cross the wire once and the
+        // bridge builds them once; the results return in the checks' order.
+        const checks: ReadyCheck[] = [];
+        let results: readonly Readiness[] = [];
+        if (rowCheck !== undefined) {
+            for (const [id, entry] of entries) {
+                if (entry.draft === undefined || entry.wire === undefined) continue;
+                const index = BigInt(indexOf.get(id)!);
+                if (childField === undefined) checks.push({ index, line: none, driver: driverOf(entry.wire.cells) });
+                else entry.wire.lines.forEach((line, at) => checks.push({ index, line: some(BigInt(at)), driver: driverOf(line.cells) }));
+            }
+            if (checks.length > 0) {
+                try { results = rowCheck(encodeBatch({ drafts, rows, rowsOffset: BigInt(placedAt[0] ?? 0), partial, today, checks })); }
+                catch (error) {
+                    // The batch itself failed — its rows could not be built — so
+                    // every check reports why. A check that throws fails alone:
+                    // the bridge catches it per check.
+                    const failed: Readiness = variant("invalid", [{ field: "", message: `Row readiness failed: ${error instanceof Error ? error.message : String(error)}` }]);
+                    results = checks.map(() => failed);
+                }
+            }
+        }
+        // Reported in the order the checks stand: a group's own check, then its lines'.
+        let next = 0;
         for (const [id, entry] of entries) {
             if (entry.draft === undefined || entry.wire === undefined) continue;
-            const position = indexOf.get(id) ?? -1;
-            const checkRow = (cells: SheetRowValue["cells"], index: number, key?: string) => {
-                if (rowCheck === undefined) return;
-                const driver = driverColumn === undefined ? undefined : cells.get(driverColumn);
-                const context: SheetContextValue = {
-                    drafts, rows, rowsOffset: BigInt(placedAt[0] ?? 0), rowId: id, offset: BigInt(placedAt[position] ?? 0),
-                    rowIndex: BigInt(index), line: key === undefined ? none : some(key), row: cells,
-                    partial, today, driver: driver?.type === "String" ? some(driver.value) : none,
-                };
-                try { report(rowCheck(encodeContext(context)), id, key === undefined ? undefined : index); }
-                catch (error) { report(variant("invalid", [{ field: "", message: `Row readiness failed: ${error instanceof Error ? error.message : String(error)}` }]), id, key === undefined ? undefined : index); }
-            };
-            if (childField === undefined) checkRow(entry.wire.cells, position);
-            else {
-                if (groupCheck !== undefined) {
-                    try { report(groupCheck(drafts.get(id)!), id); }
-                    catch (error) { report(variant("invalid", [{ field: "", message: `Group readiness failed: ${error instanceof Error ? error.message : String(error)}` }]), id); }
-                }
-                entry.wire.lines.forEach((line, index) => checkRow(line.cells, index, line.key));
+            if (childField === undefined) {
+                if (rowCheck !== undefined) report(results[next++]!, id);
+                continue;
             }
+            if (groupCheck !== undefined) {
+                try { report(groupCheck(drafts.get(id)!), id); }
+                catch (error) { report(variant("invalid", [{ field: "", message: `Group readiness failed: ${error instanceof Error ? error.message : String(error)}` }]), id); }
+            }
+            if (rowCheck !== undefined) for (let line = 0; line < entry.wire.lines.length; line++) report(results[next++]!, id, line);
         }
         return issues.length ? variant(invalid ? "invalid" : "incomplete", issues) : variant("ready", null);
     };

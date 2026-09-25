@@ -139,6 +139,26 @@ test("external state read by readiness is tracked without a new Sheet value", as
     expect(hook.result.current.renderedCanApply).toBe(false);
 });
 
+test("a check that throws on one row marks that row invalid, and the other rows still report (#882)", () => {
+    const zeroFails = East.function([Draft, Context], Ready, ($, row) => {
+        $.if(row.qty.hasTag("value").and(() => row.qty.unwrap("value").equal(0n)), ($) => { $.error("a quantity of zero"); });
+        return East.value(variant("incomplete", [{ field: "qty", message: "Needs review" }]), Ready);
+    });
+    const view = East.function([], UIComponentType, ($) => {
+        const data = $.const(State.bind([ArrayType(Row)], "readiness-throws", [{ id: "a", qty: 1n, note: none, hidden: "a" }, { id: "b", qty: 1n, note: none, hidden: "b" }]));
+        return Sheet.Root(data, { qty: Sheet.column.integer(Row) }, { id: "id", onUpdate: data.write, ready: { row: zeroFails } });
+    }).toIR().compile(StateImpl);
+    const root = unwrap(view());
+    const hook = mount(root);
+    const [a, b] = rows(root);
+    act(() => hook.result.current.record([edit(a!, 0n), edit(b!, 3n)]));
+    expect(hook.result.current.session.canApply).toBe(false);
+    expect(hook.result.current.session.readiness).toEqual(variant("invalid", [
+        { entry: "a", row: none, field: some(""), message: "Row readiness failed: a quantity of zero" },
+        { entry: "b", row: none, field: some("qty"), message: "Needs review" },
+    ]));
+});
+
 test("non-ready empty issue lists and failing callbacks never enable Apply", () => {
     for (const check of [
         East.function([Draft, Context], Ready, () => variant("invalid", [])),
