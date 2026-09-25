@@ -4,7 +4,8 @@ The anatomy, values, copy, motion and behaviour of the Elara chat concept, trans
 [`Chat Spec.html`](Chat%20Spec.html) so an implementation can be reviewed against text. The HTML is
 the ground truth: where this document and the mock disagree, the mock wins and this document is
 the bug. The design, the server and the phases are in issue #883; the deviations the
-implementation makes from the mock are listed there, under "Mock → parts, and deviations".
+implementation makes from the mock are listed there, under "Mock → parts, and deviations", and
+the smaller ones in §15.
 
 Conventions used below:
 
@@ -35,6 +36,7 @@ Conventions used below:
 12. Keyboard
 13. Copy
 14. The showcase page
+15. Deviations from the mock
 
 ---
 
@@ -49,6 +51,7 @@ pulses outward), and **writing** (a diagonal scan across every dot).
 | Property | Value |
 |---|---|
 | Drawing | `<svg viewBox="0 0 82.9 82.9" width={size} height={size} role="img">`, `display: block`, `overflow: visible`, `fill` = the tone colour |
+| Wrapper | The `<svg>` sits in a `<span>` with `display: inline-flex; flex: none; line-height: 0; vertical-align: middle` |
 | Dots | 152 `<circle r="2.2">` at the fixed coordinates in `ELARA_PTS` (`res/ElaraMark.dc.html`, verbatim in the mock). SHA-256 of that string: `11d026196f94da50ed72d80ae95626e9ec92c8bfbef19be0652bae1b32ae535d` |
 | Grid | 25 columns and rows, x and y ∈ {2.2, 5.5, 8.7, …, 77.4, 80.7}, pitch ≈ 3.27 |
 | Centre | C = (41.45, 41.45) |
@@ -124,6 +127,9 @@ animation lands on arbitrary frames (the orbit's floor is 0.16). So the mark's r
       pulsing (§11.4) followed by "WORKING" in `--brand-d` (gap 6), then a `·` separator.
     - Then `{surface title} · {subject} · {age}`, for example "BRISBANE DC · RUN #42 · 14 MIN AGO",
       with an ellipsis when it overflows.
+    - `{age}` is "new" for a thread with no messages and "now" once its first message is sent. The
+      product then counts from the last message: "{n} min ago", "{n} h ago" the same day,
+      "yesterday", then "{n} d ago".
 - **Buttons.** Three icon buttons 32 (radius 6, 13px icons) in a row with gap 2:
 
   | Icon | aria-label · title | Notes |
@@ -142,33 +148,39 @@ provenance popover.
 **History menu** (width 300)
 
 - **Heading.** "THREADS · {surface title}", padding `6 14 8`, label style at 0.16em.
-- **One button per thread**, newest first. Full width, row, gap 10, padding `8 14`, left-aligned
-  text. The current thread is filled `--brand-tint`; the others take `--paper-3` on hover. Each holds:
+- **One button per thread** (`role="menuitem"`), newest first. Full width, row, gap 10, padding
+  `8 14`, left-aligned text. The current thread is filled `--brand-tint`; every row, the current one
+  included, takes `--paper-3` on hover. Each holds a text column (gap 3) and the check:
   - the title, 13px/600 `--ink`, with an ellipsis;
   - the meta, `--font-mono` 9.5/500 at 0.08em, uppercase, `--ink-4`: "{when} · {n} MSG";
   - on the current thread, a trailing `fa-check` (11px, `--brand-d`).
-- `{when}` is "Today 09:41", "Yesterday 15:20" or "Mon 21 Sep". `{n}` counts the messages, not the
-  dividers.
+- `{when}` is "Today 09:41", "Yesterday 15:20" or "Mon 21 Sep", and "Now" for a new thread with no
+  messages. `{n}` counts the messages, not the dividers, and is live for the current thread.
+- Selecting a row switches threads (§11.6).
 
 **More menu** (width 232)
 
 - **Heading.** "THREAD" (padding `6 14 6`).
-- **Items.** Height 34, padding `0 14`, gap 10, 13px `--ink-2`. On hover the fill is `--paper-3` and
+- **Items** (`role="menuitem"`). Height 34, padding `0 14`, gap 10, 13px `--ink-2`. On hover the fill is `--paper-3` and
   the text `--ink`. Each has a leading icon 16px wide, 12px, `--ink-4`:
   - `fa-file-export` "Export transcript"
   - `fa-link` "Copy link"
 - A 1px `--rule` separator with 6px vertical margin.
 - `fa-trash-can` "Delete thread", in `--neg` (which also colours the icon); hover fill `--paper-3`.
+- **Actions.** Export transcript and Copy link close the menu and show their notices (§13). Delete
+  thread closes it and opens the dialog (§10).
 
 ### 3.3 Notice
 
-The notice is an in-surface banner, not a toast. It is a strip, `role="status"`, row, gap 10,
+The notice is an in-surface banner, not a toast, between the header and the thread (no flex
+growth). It is a strip, `role="status"`, row, gap 10,
 min-height 36, padding `0 10 0 18`, with a 1px `--brand-d` bottom border, a `--brand-tint` fill and
 12.5px `--ink-2` text:
 
 - `fa-circle-check` (12px, `--brand-d`);
 - the message (flex 1);
-- a dismiss button: icon button 24, radius 4, 11px `fa-xmark`, `--ink-3`, hover fill `--paper`.
+- a dismiss button: icon button 24, radius 4, 11px `fa-xmark`, `--ink-3`, hover fill `--paper`,
+  `aria-label="Dismiss"`.
 
 It auto-dismisses after **2 800 ms**; only the latest notice's timer can clear it. The messages are
 in §13.
@@ -183,7 +195,9 @@ in §13.
   - **Layout.** Centred in the scroll area with `margin: auto 0`. Column, centred, gap 16,
     padding `8 2`, centred text.
   - **Mark.** The Elara mark, idle, size 52.
-  - **Title.** "Ask Elara about {subject}", 15px/700 `--ink`. The subject is set in numerals style.
+  - **Title and body** stack in a centred column, gap 6.
+  - **Title.** "Ask Elara about {subject}", 15px/700 `--ink`. The numerals in the subject are
+    styled: in "run #42" only "#42" is mono.
   - **Body.** 12.5/1.5 `--ink-3`, max-width 300, `text-wrap: pretty`.
   - **Checklist.** Column, gap 5, 12.5px `--ink-3`. Each row is a mono `☐` in `--ink-4` with gap 8.
     Copy is in §13; the `/`, `/chart` and `@` in it are set mono `--ink`.
@@ -195,7 +209,10 @@ in §13.
     - the text, with its numerals styled;
     - a trailing `fa-arrow-right` (10px, `--ink-4`).
 
-    Clicking sends the text at once.
+    Each suggestion has its own icon. The mock's are `fa-triangle-exclamation` "Why is Thursday
+    flagged in the Brisbane DC plan?", `fa-list-check` "Summarise week 40 risks" and
+    `fa-code-compare` "Compare run #42 with run #41". Clicking one sends its text at once, without
+    the composer's command or attachments, and the composer keeps its draft (§15).
 - **Divider.** Row, gap 10, label style at 0.14em, tabular. A 1px `--rule` rule (flex 1) sits on
   each side of the label "TODAY · 09:41". In the mock a divider opens each thread; the product
   also opens each later day with one. The label is "Today", "Yesterday" or `ddd D MMM`, then
@@ -209,31 +226,37 @@ From top to bottom:
 1. **Attachments** (if any). Wrapping row, right-justified, gap 6. Each tile:
    - height 36, row, gap 8, padding `0 12 0 10`, 1px `--rule-strong` border, radius 6, `--paper` fill;
    - the file icon (13px `--ink-3`: `fa-file-csv`, `fa-file-excel`, `fa-file-pdf`, …);
-   - the name, 12px/600 `--ink`;
-   - the meta, mono 9.5 `--ink-4`: "18 KB · 3f9a…c21e".
+   - the name, 12px/600 `--ink`, over the meta (a column, gap 1);
+   - the meta, mono 9.5 `--ink-4`, tabular: "{size} · {sha256 head…tail}", for example
+     "18 KB · 3f9a…c21e".
 2. **Bubble** (when there is text or a command).
    - Max-width 100 %, padding `9 12`, radius **8**, `--paper-3` fill, 13.5/1.55 `--ink`.
    - `white-space: pre-wrap`, `overflow-wrap: anywhere`, `text-wrap: pretty`.
    - A command renders first as "/chart " in mono 12px/600 `--brand-d`.
-   - Numerals are styled.
+   - Numerals are styled, by the §7 pattern without its leading sign.
 3. **Meta row.** Height 22, gap 2.
    - **Actions.** Opacity 1 while the row is hovered and no reply is running, else 0, with an
      opacity transition over `--dur-fast`. In order:
      - "COPIED" (label style, `--pos`, 0.14em, right padding 4) for 1 400 ms after a copy;
-     - Edit: icon button 24, radius 4, 11px `fa-pen`, `--ink-4`;
-     - Copy: `fa-copy`, which turns to `fa-check` while "COPIED" shows.
+     - Edit: icon button 24, radius 4, 11px `fa-pen`, `--ink-4`, `aria-label="Edit message"`,
+       title "Edit". Not while a reply is running;
+     - Copy: `fa-copy`, which turns to `fa-check` while "COPIED" shows. `aria-label="Copy message"`,
+       title "Copy". It copies `{command} {text}`; a later copy restarts the 1 400 ms.
    - **Time.** Mono 10px at 0.06em, `--ink-4`, left padding 4, as `HH:mm`.
    - **"· EDITED"** (label style, 0.12em) once the message has been edited and resent.
 4. **Edit box** (replaces the bubble and meta row while editing).
    - Full-width column, gap 8, padding `10 12`, 1px `--brand-d` border, radius 8, `--paper` fill,
      `--shadow-focus`.
-   - A textarea: auto-focused, 3 rows, 13.5/1.55, no border or outline, no resize handle.
+   - A textarea (`aria-label="Edit message"`): auto-focused, 3 rows, 13.5/1.55, no border or
+     outline, no resize handle. It starts with the message's text; the command stays as it was.
    - Footer row, gap 8:
      - the hint "⏎ resend · esc cancel" (mono 9.5 `--ink-4`, flex 1);
      - **Cancel**: height 28, padding `0 10`, 1px `--rule-strong` border, radius 6, `--paper`,
        `--ink-2` 12.5px/500, hover border `--ink-3`;
      - **Resend**: height 28, padding `0 12`, 1px `--brand-d` border and `--brand-d` fill, `--paper`
        text at 12.5px/600, hover `--brand-dd`.
+   - Resending needs non-empty text. It keeps the message's command and attachments, stamps the new
+     time, marks it "· EDITED", drops every later message, and asks again.
 
 ## 6. Assistant message
 
@@ -261,13 +284,18 @@ The row is laid out as follows:
    - **State.** `aria-expanded` reflects the trace.
    - **Text** (§13):
      - "Thought {thoughtFor} s · {n} tool call(s)";
-     - "Thought {thoughtFor} s · {n} steps" when no step used a tool;
+     - "Thought {thoughtFor} s · {n} step(s)" when no step used a tool (the mock prints "1 steps",
+       §15);
      - "Stopped after {duration} s" when stopped before any text.
 3. **Trace.** Shown while thinking, after a failure, or when expanded.
    - **Box.** Column, gap 7, padding `10 12`, radius 8, `--paper-2` fill. The 1px `--rule-strong`
      border is **dashed** while thinking or after a failure, and solid otherwise.
    - **Live head** (while thinking only): label style at 0.14em in `--brand-d`,
      "THINKING · STEP {i} OF {n}". `i` is the first step not yet done, 1-based, minimum 1.
+   - **Steps in product.** The engine's steps (issue): "Reading thread context" first, then one per
+     tool call, labelled per §13. While the reply is thinking and no step is running, the trace ends
+     with a "Reasoning" row in the active state, as the mock's live mode shows it. The row is not
+     stored, and `i` and `n` count it.
    - **Step rows.** Each row has min-height 18 and gap 8, holding:
 
      | Part | Style |
@@ -285,7 +313,7 @@ The row is laid out as follows:
    - **Icon.** `fa-circle-exclamation` 14px `--neg`.
    - **Text.** "Request failed" (13px/600 `--ink`), then the error message (12.5/1.45 `--ink-3`).
    - **Retry.** Height 28, padding `0 10`, `--rule-strong` border, radius 6, `--paper`, `--ink-2`
-     12.5px/500. It regenerates the message.
+     12.5px/500, hover border `--ink-3`. It regenerates the message.
 7. **Sources** (done messages only). A row with `position: relative`, z 5, wrapping, gap 6.
    - **Label.** "SOURCES", label style at 0.14em, right padding 2.
    - **Chips.** Inline row, gap 6, height 22, padding `0 8`, radius 4.
@@ -294,7 +322,8 @@ The row is laid out as follows:
      - Mono 10px/600 at 0.06em, uppercase, `--ink-2`, tabular. Hover border `--ink-3`.
      - Contents: a 6px round dot in the freshness tone (`--pos` fresh, `--warn` stale), the label,
        then the meta at weight 500 in `--ink-4` ("14 MIN", "09:28", "2 D").
-     - `data-keep-open`. Clicking toggles the provenance popover.
+     - `data-keep-open`. Clicking toggles the provenance popover. Opening it closes the header
+       menus and the composer menu.
    - **Provenance popover.** `role="dialog"`, `aria-label="Provenance"`, `data-keep-open`.
      - **Box.** `position: absolute`, `top: calc(100% + 10px)`, z 6, width 288, 1px `--rule-strong`
        border, radius 6, `--paper` fill, `--shadow-md`.
@@ -307,39 +336,52 @@ The row is laid out as follows:
      - **Rows.** Padding `6 14`. Each row: baseline, gap 12, padding `4 0`. The key is label style
        at 0.12em, 72 wide; the value is mono 11 `--ink`, tabular.
      - **Footer.** Padding `8 14 10`, top border `--rule`. A link button, 12.5px/600 `--brand-d`
-       (hover `--brand-dd`): "{link} →".
+       (hover `--brand-dd`): "{label} →". Clicking it closes the popover and runs the source's
+       action:
+       - **open** (the mock's "Open run" and "View source"): `onOpenSource`, else the URL in a new
+         tab, and the notice "{title} opened in a new tab";
+       - **add** (the mock's "Attach roster_v8.csv" on the stale roster): puts the newer input into
+         the composer and focuses it. The mock attaches the file; in product the input is a
+         context chip (§15).
 8. **Actions** (done or stopped messages). Row, gap 2, margin `−2 0 0 −6`. Opacity 1 while hovered,
    on the last assistant message, or while "COPIED" shows; otherwise 0.
    - **Buttons.** Icon buttons 28, radius 6, 12px, `--ink-4`:
-     - Copy: `fa-copy`, which becomes `fa-check` in `--pos` for 1 400 ms.
-     - Regenerate: `fa-rotate-right`. Only on the last assistant message, and only when no reply is
-       running.
-     - Helpful: `fa-thumbs-up`.
-     - Not helpful: `fa-thumbs-down`.
+     - Copy (`aria-label="Copy answer"`, title "Copy"): `fa-copy`, which becomes `fa-check` in
+       `--pos` for 1 400 ms. It copies the text with each component written as `[{title}]`.
+     - Regenerate (`aria-label` and title "Regenerate"): `fa-rotate-right`. Only on the last
+       assistant message, and only when no reply is running. It reruns the same request into the
+       same message.
+     - Helpful (`aria-label` and title "Helpful"): `fa-thumbs-up`.
+     - Not helpful (`aria-label` and title "Not helpful"): `fa-thumbs-down`.
 
-     The two rating buttons toggle and set `aria-pressed`. When on, the fill is `--brand-tint` and
-     the colour `--brand-dd`.
+     The two rating buttons set `aria-pressed`. When on, the fill is `--brand-tint` and the colour
+     `--brand-dd`. The rules:
+     - Helpful toggles the "up" rating and closes the feedback panel.
+     - Not helpful on a message rated "down" clears the rating and closes the panel. Otherwise it
+       rates "down" and opens the panel, unless feedback was already sent.
    - **Trailing labels.** "COPIED" (`--pos`, 0.14em, left padding 6). After thumbs-down feedback is
      sent, "✓ FEEDBACK LOGGED · {subject}", with the check in `--pos` and the rest label style at
-     0.12em.
-9. **Feedback panel.** Opens on thumbs-down until feedback is sent.
+     0.12em. It shows only while the rating is "down".
+9. **Feedback panel.** Opens on thumbs-down until feedback is sent, on a done or stopped message.
    - **Box.** Column, gap 10, padding 12, 1px `--rule-strong` border, radius 8, `--paper-2` fill.
-   - **Head.** "WHAT WAS WRONG?" (0.14em) and a close button (icon button 24, 11px `fa-xmark`).
+   - **Head.** "WHAT WAS WRONG?" (0.14em) and a close button (icon button 24, 11px `fa-xmark`,
+     `aria-label="Close feedback"`). Closing keeps the rating.
    - **Reason chips.** Multi-select: "Numbers are wrong", "Missing context", "Too long",
      "Not actionable".
-     - Height 26, padding `0 10`, radius 4, 12px, hover border `--ink-3`.
+     - Height 26, padding `0 10`, radius 4, 12px, hover border `--ink-3`; in product,
+       `aria-pressed` (§15).
      - Selected: fill `--brand-tint`, border `--brand-d`, text `--brand-dd`.
      - Unselected: fill `--paper`, border `--rule-strong`, text `--ink-2`.
    - **Send feedback.** Right-aligned. Height 28, padding `0 12`, `--rule-strong` border, radius 6,
      `--paper`, `--ink-2` 12.5px/500. It is disabled (opacity 0.45, `cursor: not-allowed`) until at
-     least one reason is chosen.
+     least one reason is chosen. Sending closes the panel and shows the trailing label.
 10. **Follow-ups.** Last assistant message only, when it is done, no reply is running, and it has
     suggestions. A column, gap 6:
     - the label "FOLLOW UP" (0.14em);
     - a wrapping row (gap 6) of chips. Each chip: inline row, gap 7, height 28, padding `0 10`,
       `--rule-strong` border, radius 6, `--paper`, 12.5px `--ink-2`, hover border `--ink-3` and fill
       `--paper-2`. It holds the text (numerals styled) and a trailing `fa-arrow-right` (9px,
-      `--ink-4`). Clicking one sends it.
+      `--ink-4`). Clicking one sends its text alone; the composer keeps its draft (§15).
 
 ### 6.2 States
 
@@ -353,6 +395,10 @@ The row is laid out as follows:
 | stopped | idle | · STOPPED | "Thought …" or "Stopped after …" | when expanded | kept prefix, no caret; or "Stopped before answering" | actions only |
 | error | idle | · FAILED | — | open, dashed | — | — (the error card instead) |
 
+A stopped body keeps exactly the text revealed when Stop was pressed. In product the client sends
+the revealed length with the cancel, and the server cuts the stored answer there (issue);
+components placed after the cut are dropped.
+
 ## 7. Markdown
 
 The body is a column (gap 10, min-width 0), 13.5/1.6 `--ink`, `--font-body`. The parser works by
@@ -363,13 +409,13 @@ blocks:
 | Paragraph | Consecutive non-blank lines (joined with spaces) | `text-wrap: pretty`, `overflow-wrap: anywhere` |
 | Heading 1–2 | `#` / `##` | `--font-brand`, 16px / 15px, 700, −0.01em, `--ink`, padding-top 2, line-height 1.35 |
 | Heading 3–4 | `###` / `####` | Label style: mono 10px, 600, 0.14em, uppercase, `--ink-4` |
-| List | `-` `*` `+` or `N.` `N)` items; indentation ÷ 2 spaces gives the level (maximum 2) | Column, gap 4. Each item is a row, gap 8, `padding-left: level × 18px` |
+| List | `-` `*` `+` or `N.` `N)` items; indentation ÷ 2 spaces gives the level (maximum 2), a tab counting as 2 spaces | Column, gap 4. Each item is a row, gap 8, `padding-left: level × 18px` |
 | Task item | `[ ]` / `[x]` after the list marker | The marker ☐ / ☑; a done item's text is `--ink-4` and struck through |
-| Quote | `>` lines | Padding `10 12`, **dashed** 1px `--rule-strong` border, radius 6, `--paper-2` fill, `--ink-2`, 13/1.55 (the design system's Inset role) |
-| Code | Fenced with three backticks, with an optional language | See below |
-| Table | `\| … \|` followed by a separator line | See below |
+| Quote | `>` lines; a non-blank line straight after one joins the quote | Padding `10 12`, **dashed** 1px `--rule-strong` border, radius 6, `--paper-2` fill, `--ink-2`, 13/1.55 (the design system's Inset role) |
+| Code | Fenced with three backticks, with an optional language; an unclosed fence runs to the end | See below |
+| Table | `\| … \|` followed by a separator line; rows run while lines start and end with `\|` | See below |
 | Rule | `---`, `***` or `___` | 1px `--rule` |
-| Widget | A line that is exactly `[[id]]` | The component with that id (§8). Before its spec has arrived, a pending box (below) |
+| Widget | A line that is exactly `[[id]]` (`id` is word characters) | The component with that id (§8). Before its spec has arrived, a pending box (below). In product the engine puts every placeholder on its own line (issue) |
 
 **List markers.** Each marker is mono 600, line-height 21.6px, tabular:
 
@@ -387,9 +433,10 @@ A line indented at least two spaces after an item continues that item.
 - **Frame.** 1px `--rule` border, radius 6, `--paper-2` fill, overflow hidden.
 - **Header.** Height 28, padding `0 4 0 12`, bottom border `--rule`. It holds:
   - the language, label style at 0.14em, "text" when none is given;
-  - a copy button: height 22, padding `0 8`, radius 4, label style at 0.12em, hover `--paper-3` and
-    `--ink`. It shows `fa-copy` "COPY", which becomes `fa-check` "COPIED" in `--pos` for 1 400 ms.
-- **Body.** `<pre>` with padding `10 12 12`, mono 11.5/1.65 `--ink-2`, `white-space: pre`,
+  - a copy button (`margin-left: auto`): height 22, gap 6, padding `0 8`, radius 4, label style at
+    0.12em, hover `--paper-3` and `--ink`. It shows `fa-copy` (10px) "COPY", which becomes
+    `fa-check` "COPIED" in `--pos` for 1 400 ms. It copies the code without the caret.
+- **Body.** `<pre>` with padding `10 12 12`, mono 11.5/1.65 `--ink-2`, tabular, `white-space: pre`,
   horizontal scroll.
 
 **Table**
@@ -400,7 +447,8 @@ A line indented at least two spaces after an item continues that item.
 - **Header row.** `--paper-2` fill, bottom border `--rule`. Cells: padding `7 10`, label style at
   0.14em, line-height 1.4. Bold markers are stripped from header text.
 - **Body rows.** A top border `--rule` on every row but the first. Cells: padding `8 10`,
-  12.5/1.45 `--ink`, with inline markdown.
+  12.5/1.45 `--ink`, `overflow-wrap: anywhere`, with inline markdown. A missing cell renders empty;
+  cells past the header's count are dropped.
 - **Alignment.** An explicit `:--:` (centre) or `--:` (right) wins. Otherwise a column after the
   first is right-aligned when every cell matches
   `^[\s▲▼+−-]*[$#]?[\d,.]+\s?(%|h|min|pts|lines/hr)?$` or is a dash (`—`, `–` or `-`).
@@ -417,7 +465,10 @@ A line indented at least two spaces after an item continues that item.
 | `*em*` | Colour `--ink-2` only, not italic (the design system allows italic only for muted "no data" values) |
 | `[text](url)` | `--brand-d`, underline 1px thick with a 2px offset, `target="_blank"`, `rel="noreferrer"` |
 
-**Numerals.** Outside code, every match of
+Only `*em*` makes emphasis; `_em_` stays literal. Inside a heading, inline spans keep only their
+font, weight, colour and numerals, so code there gets no fill. Link text gets no numeral styling.
+
+**Numerals.** Outside code and link text, every match of
 `[+−-]?[#$]?\d[\d,]*(?:[.:]\d+)*(?:[–-]\d[\d,]*(?:[.:]\d+)*)?%?` renders mono 0.93em, weight 500
 (600 inside bold), tabular. Examples: `1,840`, `114%`, `10:00–14:00`, `#42`, `$0`, `−12`. A leading
 sign is left out of the run when the character before it is a word character or `)` (so `P-118`
@@ -433,9 +484,9 @@ keeps its hyphen in the text).
 
 The caret is ▍ (mono 0.9em, `--brand-d`, left padding 1px). It is appended to:
 
-- the last paragraph or heading;
+- the last paragraph, heading or quote;
 - the last list item;
-- the end of the last code block's text.
+- the end of the last code block's text, as a plain ▍ in the code's own style.
 
 After a widget, a pending box, a rule or a table, it starts a new paragraph instead.
 
@@ -449,7 +500,7 @@ After a widget, a pending box, a rule or a table, it starts a new paragraph inst
 
 | Part | Chart | Table | Stats | Proposal |
 |---|---|---|---|---|
-| Icon (12px wide, 11px, `--ink-4`) | `fa-chart-column` / `fa-chart-line` | `fa-table` | `fa-gauge-high` | `fa-code-pull-request` |
+| Icon (12px wide, 11px, `--ink-4`, `aria-hidden`) | `fa-chart-column` / `fa-chart-line` | `fa-table` | `fa-gauge-high` | `fa-code-pull-request` |
 | Eyebrow (label style at 0.14em) | "CHART.COLUMN" / "CHART.LINE" | "TABLE" | "STAT" | "PROPOSAL · {id}" |
 | Title (flex 1, 12px/600 `--ink-2`, ellipsis) | the spec title | the spec title | the spec title | — |
 | Status (label style at 0.14em, 6px dot, right padding 4) | — | — | — | "PENDING" `--warn` · "APPLIED" `--pos` · "OVERRIDDEN" `--ink-4` |
@@ -459,10 +510,13 @@ The header then ends with two icon buttons:
 - **Tool call.** Icon button 28, radius 6, 11px `fa-code`, `aria-label="Show tool call"`, title
   "Tool call". It is `--ink-4`; while its panel is open, fill `--brand-tint` and colour `--brand-dd`.
 - **Copy data.** Icon button 28, 11px `fa-copy`, which becomes `fa-check` in `--pos` for 1 400 ms.
-  `aria-label="Copy data"`. It copies CSV (§8.6).
+  `aria-label` and title "Copy data". It copies CSV (§8.6).
 
 A query-backed widget also fills the status cell and adds a Refresh button before these two. The
 value widget has its own header row. Both are product additions, specified in §8.7.
+
+A new spec for the widget (the mock's `uid`) resets its local state: the hover, hidden series,
+sort, selection, the open tool call panel and any unsaved proposal edits.
 
 ### 8.2 Chart
 
@@ -480,34 +534,37 @@ value widget has its own header row. Both are product additions, specified in §
 
 | Element | Rule |
 |---|---|
-| Width / height | width = container − 24 (minimum 220); height 168 |
+| Width / height | width = the widget's width − 24 (minimum 220), tracked with a `ResizeObserver` (a change over 1px re-renders; 380 before the first measure); height 168 |
 | Margins | left 36, right 8, top 16, bottom 22 |
 | Y domain | From `y0 = yMin` (0 by default) to `y0 + 4 × nice((max(values, band highs, ref) × 1.06 − y0) / 4)`, where `nice(v) = {1, 2, 2.5, 5, 10} × 10^⌊log10 v⌋` (the first ≥ v / 10^⌊log10 v⌋) |
 | Grid | Horizontal lines at ticks 1–4: `--rule`, dashed `3 3` |
-| Y ticks | 5 labels at x = left − 7, right-aligned, mono 10/500 `--ink-4`, tabular. Values ≥ 1 000 are printed as "1.5k" |
+| Y ticks | 5 labels at x = left − 7 and y = tick + 3.5, right-aligned, mono 10/500 `--ink-4`, tabular. Values ≥ 1 000 print in thousands to at most 2 decimals ("1.5k", "1.84k"); smaller values to at most 1 decimal |
 | X labels | Centred under each band at y = h − 5. When there are more than 8, only every `ceil(n / 7)`th is drawn. The hovered one is `--ink` |
 | Baseline | 1px `--rule-strong` at y0 |
 | Series colours | By `tone`, else by order: `--brand-d`, `--teal-500`, `--purple-500`, `--blue-500`, `--orange-500`. Tones: brand `--brand-d` · ink `--ink-3` · muted `--ink-5` · teal · purple · blue · orange · neg · pos · warn |
 | Columns | Bar width `max(4, min(c > 1 ? 12 : 18, (band × 0.62 − 3(c − 1)) / c))`, 3px gap between a group's bars, rx 2. A hidden series is drawn at opacity 0.22 |
-| Split over reference | When `splitOver` is set, each first-series bar above the ref is drawn in two parts: the series colour from 0 up to the ref, and the part above it in `--neg` (rx 2) |
+| Split over reference | When `splitOver` is set, each first-series bar above the ref is drawn in two parts: the series colour from 0 up to the ref, and the part above it in `--neg` (rx 2; the lower part is square) |
 | Lines | Stroke width 1.75, round joins and caps. `dashed` → `5 4`. A hidden series is dashed at opacity 0.45. `area` → a fill under the line in `--brand-tint` at opacity 0.7 |
 | Band (p10–p90) | A polygon from the highs to the reversed lows, `--brand-tint` at opacity 0.7. It hides with the series it belongs to (`bandOf`) |
 | Reference line | Tone colour (default `neg`), stroke 1.2, dash `4 3`. The label is mono 10px/600 in the tone, right-aligned at x = w − right, y = line − 5 |
-| Hover | Columns: a `--paper-3` band behind the hovered x. Lines: a vertical `2 2` `--ink-4` guide, plus a dot on each shown series (r 3.5, `--paper` fill, series-colour stroke 1.75). Pointer x is mapped to `floor(fraction × n)` |
-| Tooltip | `position: absolute`, top 2, 12px right of the hovered x (or left of it past the midpoint, using `translateX(−100%)`). min-width 136, padding `7 9`, radius 4, `--ink` fill, `--paper` text, `--shadow-md`, mono 10.5/1.6, tabular, no wrap. Title: label style at 0.12em, "{xLabel} {x}". One row per shown series: an 8×2 swatch, the name, the value (600, grouped, at most 1 decimal, plus the short unit). With `splitOver`, a last row "Over capacity  +{excess}" in `--neg` |
+| Hover | Columns: a `--paper-3` band behind the hovered x. Lines: a vertical `2 2` `--ink-4` guide, plus a dot on each shown series (r 3.5, `--paper` fill, series-colour stroke 1.75). Pointer x is mapped to `floor(fraction × n)`, clamped to the bands. The plot has `cursor: crosshair`; leaving it clears the hover |
+| Tooltip | `position: absolute`, top 2, 12px right of the hovered x (or left of it past the midpoint, using `translateX(−100%)`). min-width 136, padding `7 9`, radius 4, `--ink` fill, `--paper` text, `--shadow-md`, mono 10.5/1.6, tabular, no wrap, z 2, `pointer-events: none`. Title: label style at 0.12em, "{xLabel} {x}", or "{x}" without an `xLabel`. One row per shown series (gap 7): an 8×2 swatch, the name (flex 1), the value (left padding 12, 600, grouped, at most 1 decimal, plus the short unit). With `splitOver`, a last row "Over capacity  +{excess}" in `--neg` |
 
 ### 8.3 Table
 
 - **Scroll.** The body scrolls horizontally, with an inner min-width of 320.
 - **Columns.** The first is `minmax(0, 1.5fr)`, the rest `minmax(0, 1fr)`, unless a column sets
   `w`. A column is right-aligned when every value is numeric, unless `align` says otherwise; the
-  first column never is.
+  first column never is. A value is numeric when it is a number or matches
+  `^[\s▲▼+−-]*[$#]?\d[\d,.]*\s?(%|h|min|pts|k|s)?$`; a `{v}` cell tests its `v`, and status cells
+  never are.
 - **Header.** min-height 30. Each cell is a button: height 30, padding `0 10`, label style at 0.14em,
   `--ink-4`, or `--ink` when it is the sort column. Hover `--ink`. The sort glyph is ▲ / ▼ (8px).
   Clicking cycles ascending → descending → unsorted. Sorting compares numbers after stripping
   non-numeric characters, else lower-cased strings.
 - **Rows.** min-height 36, top border `--rule`. The fill is `--paper-3` when the row is selected,
-  with `--paper-2` on hover. A click toggles single selection.
+  with `--paper-2` on hover. A click toggles single selection, which follows the row through
+  sorting.
 - **Cells.** Padding `0 10`, no wrap, ellipsis.
 
   | Cell kind | Style | Colour |
@@ -549,8 +606,9 @@ value widget has its own header row. Both are product additions, specified in §
 - Shown while pending when an impact row trips a guard.
 - `role="status"`. Row, gap 10, padding `9 12`, 1px `--warn` border, radius 4, fill
   `color-mix(in oklch, var(--warn) 6%, transparent)`, 12.5/1.45 `--ink-2`.
-- `fa-triangle-exclamation` (12px `--warn`, top padding 2), then text with the figures in mono 600,
-  for example "Tue late reaches 102%, above the 90% guardrail."
+- `fa-triangle-exclamation` (12px `--warn`, top padding 2), then text with the reached figure in mono
+  600 and the limit in mono at normal weight, for example "Tue late reaches 102%, above the 90%
+  guardrail."
 
 **Modify** (while pending, in modify mode)
 
@@ -560,18 +618,20 @@ value widget has its own header row. Both are product additions, specified in §
 Integer stepper:
 
 - Label "PICKERS TO MOVE"; help "Range 1–8 · default 5".
-- − and + buttons: 28×28, `--rule-strong` border, radius 6, `--paper`, `--ink-2`, `fa-minus` /
-  `fa-plus` (10px). Each is disabled at its bound, at opacity 0.4.
+- A row, gap 4. The − and + buttons: 28×28, `--rule-strong` border (hover `--ink-3`), radius 6,
+  `--paper`, `--ink-2`, `fa-minus` / `fa-plus` (10px), `aria-label` "Fewer pickers" / "More
+  pickers" (in product "Decrease {field}" / "Increase {field}", §15). Each is disabled at its bound,
+  at opacity 0.4.
 - Between them, the value: min-width 40, height 28, `--rule-strong` border, radius 6, mono 13/600.
   Its fill is `--brand-tint` when the value differs from the default.
 
 Variant segmented control:
 
 - Label "THURSDAY WINDOW"; help "Applies to Thu only".
-- Frame: padding 2, gap 2, `--rule-strong` border, radius 6.
-- Segments: flex 1, height 22, radius 4, mono 10.5/600. The active one is `--brand-tint` with
+- Frame: padding 2, gap 2, `--rule-strong` border, radius 6, `--paper` fill.
+- Segments (`aria-pressed`): flex 1, height 22, padding `0 4`, radius 4, mono 10.5/600, tabular. The active one is `--brand-tint` with
   `--brand-dd` text; the others are transparent with `--ink-3` text. Hover `--ink`.
-- The mock's options are 08–12, 10–14 and 12–16.
+- The mock's options are 08–12, 10–14 and 12–16; the summary shows the long form ("10:00–14:00").
 
 **Impact rows** (hidden in override mode)
 
@@ -678,7 +738,9 @@ therefore shows it applied or overridden.
 | Proposal | `id,summary,status` |
 | Value | Not CSV: the value as East text (§8.7) |
 
-A refreshed widget copies the data it currently shows (§8.7).
+A refreshed widget copies the data it currently shows (§8.7). A field holding a comma, quote or
+newline is quoted as RFC 4180 says; the mock never quotes (§15). The mock's proposal row is
+`P-118,move {n} pickers Tue late → Thu {window},{status}`.
 
 ### 8.7 Product additions: query-backed widgets
 
@@ -785,7 +847,7 @@ active option is filled `--paper-3`. Each option holds:
 | Check (context only) | `fa-check` 11px `--brand-d`, when the item is already a chip |
 
 - Hovering an option makes it active. It is picked on mousedown, with the default prevented so the
-  textarea keeps focus.
+  textarea keeps focus. Picking focuses the textarea again.
 
 **Empty and footer.**
 
@@ -804,14 +866,17 @@ active option is filled `--paper-3`. Each option holds:
 
 - **A command.** Sets the command pill and clears the draft, unless the menu was opened from a
   button.
-- **A context item.** Toggles the chip, and removes the typed `@q` from the draft.
+- **A context item.** Toggles the chip, and removes the typed `@q` from the draft, unless the menu
+  was opened from a button.
 
 **Opening.**
 
 - **Typing.** A draft that is exactly `/{q}`, with no command set, opens Commands. A word starting
-  `@{q}` at the end of the draft opens Add context.
+  `@{q}` at the end of the draft opens Add context. Each keystroke detects again: the active option
+  resets to the first, and a menu opened by typing closes when the draft stops matching.
 - **Buttons.** The `@` button, the "+ Add" chip and the `/` button toggle the menus. These use
-  mousedown with the default prevented.
+  mousedown with the default prevented. Opening one closes the header menus and the popover and
+  focuses the textarea. A menu opened by a button stays open while typing.
 
 ### 9.2 Context row
 
@@ -824,7 +889,8 @@ The row wraps, with gap 6 and min-height 22. It holds, in order:
   - the icon (9px), the label, then a remove button (16×16, radius 3, 8px `fa-xmark`, hover fill
     `--paper`, `aria-label="Remove context"`).
 - **"+ Add".** A dashed 1px `--rule-strong` chip: height 22, padding `0 8`, radius 4, mono 10/500
-  `--ink-4`, with `fa-plus` (8px). Hover: border `--ink-3`, text `--ink-2`.
+  `--ink-4`, with `fa-plus` (8px) and "Add" (gap 5). Hover: border `--ink-3`, text `--ink-2`.
+- **Initial chips.** The surface's pinned items, the mock's "Plan · week 40" and "Brisbane DC".
 
 ### 9.3 Input box
 
@@ -834,13 +900,20 @@ with no shadow. Focused, the border is `--brand-d` with `--shadow-focus`. Both t
 
 **Attachments** (when there are any). A wrapping row, gap 6, padding `10 10 0`. Each tile:
 
-- min-width 176, height 38, padding `0 4 0 10`, radius 6, `--paper-2` fill;
+- row, gap 8, min-width 176, max-width 100 %, height 38, padding `0 4 0 10`, radius 6, `--paper-2`
+  fill;
 - a 1px `--rule-strong` border, **dashed** while uploading and solid once done;
 - the icon (14px `--ink-3`) and the name (12px/600, ellipsis);
 - while uploading, a 4px progress track (`--paper-3`, radius 2) with a `--brand-d` fill (its width
   transitions over `--dur-fast`, linear), and the percentage in mono 9.5;
 - once done, the meta in mono 9.5: "{size} · sha256 {head…tail}";
-- a remove button (22×22, radius 4, 10px `fa-xmark`).
+- a remove button (22×22, radius 4, 10px `fa-xmark`, `--ink-4`, hover `--paper-3` and `--ink`,
+  `aria-label="Remove attachment"`).
+
+A file with the same name as one already attached is not added again. The mock's Attach cycles
+through three demo files. In product it opens the browser's file picker (several files; PDF,
+images, CSV and text, issue P8). A failed upload keeps its tile with a `--neg` border and the error
+as its meta, and is left out of the send.
 
 **Input row.** Row, `align-items: flex-start`, gap 6, padding `10 12 2`.
 
@@ -956,7 +1029,8 @@ rule:
 - While at the bottom, each reveal tick scrolls to the bottom (instantly).
 - **Jump button.** Shown when not at the bottom and the thread has messages.
   - **Box.** `position: absolute`, left 50 %, bottom 12, `translateX(−50%)`, z 4. Row, gap 6,
-    height 28, padding `0 10`, `--rule-strong` border, radius 6, `--paper` fill, `--shadow-md`.
+    height 28, padding `0 10`, `--rule-strong` border, radius 6, `--paper` fill, `--shadow-md`;
+    hover border `--ink-3`.
   - **Text.** Label style at 0.12em in `--ink-2`, after `fa-arrow-down` (9px): "LATEST", or
     "NEW REPLY" while a reply is running.
   - **Action.** Smooth-scrolls to the bottom.
@@ -988,9 +1062,9 @@ The working marker (§3.1) and the active trace step (§6.1) use a 6×6 `--brand
 
 | Event | Behaviour |
 |---|---|
-| New thread | Stops a running reply, saves the current thread, and starts an empty one titled "New thread" (age "new") |
-| First message in a thread | The title becomes the text with whitespace collapsed, cut to 44 characters |
-| Selecting a thread | Stops a running reply first |
+| New thread | Stops a running reply, saves the current thread, starts an empty one titled "New thread" (age "new", when "Now") at the top of the history, and focuses the composer |
+| First message in a thread | The title becomes the text, or with no text the command's description, with whitespace collapsed and cut to 44 characters. A "TODAY · HH:mm" divider opens the thread, its age becomes "now" and its when "Today HH:mm" |
+| Selecting a thread | Stops a running reply first, closes the menus, the popover and any edit, and scrolls to the top after 60 ms |
 | Delete | Removes the thread, opens a fresh "New thread", and shows the "Thread deleted" notice |
 
 ## 12. Keyboard
@@ -1003,7 +1077,7 @@ The working marker (§3.1) and the active trace step (§6.1) use a 6×6 `--brand
 | ⌫ | Empty composer with a command | Clear the command |
 | ↑ | Empty composer, not busy | Edit the last user message |
 | ↑ / ↓ | Menu open | Move the active option (wraps) |
-| ⏎ / tab | Menu open | Pick the active option |
+| ⏎ / tab | Menu open, with matches | Pick the active option. With no matches, ⏎ sends |
 | esc | Menu open | Close the menu |
 | ⏎ | Edit box | Resend |
 | esc | Edit box | Cancel the edit |
@@ -1024,14 +1098,36 @@ All composer keys are ignored during IME composition (`isComposing`).
 
 **Commands.** The mock's defaults:
 
-| Command | Icon | Description | Hint |
-|---|---|---|---|
-| /explain | `fa-circle-question` | Explain a flagged metric | Metric or window to explain |
-| /compare | `fa-code-compare` | Compare two runs or periods | Periods or runs to compare |
-| /chart | `fa-chart-column` | Answer with a chart | What to chart |
-| /table | `fa-table` | Answer with a table | What to tabulate |
-| /scenario | `fa-code-fork` | Draft a what-if scenario | Describe the change |
-| /summarise | `fa-list-ul` | Summarise this thread | Optional focus |
+| Command | Icon | Description | Hint | Instruction to the model |
+|---|---|---|---|---|
+| /explain | `fa-circle-question` | Explain a flagged metric | Metric or window to explain | — |
+| /compare | `fa-code-compare` | Compare two runs or periods | Periods or runs to compare | — |
+| /chart | `fa-chart-column` | Answer with a chart | What to chart | "Answer with render_chart." |
+| /table | `fa-table` | Answer with a table | What to tabulate | "Answer with render_table." |
+| /scenario | `fa-code-fork` | Draft a what-if scenario | Describe the change | — |
+| /summarise | `fa-list-ul` | Summarise this thread | Optional focus | — |
+
+The model reads a message as `{command} {text}`, followed by the command's instruction when it has
+one. A message with a command and no text asks the command's description.
+
+**Trace step labels** (product; the mock's canned labels are in `CH_CANNED`)
+
+| Step | Label |
+|---|---|
+| The first step | "Reading thread context" |
+| `describe`, `summarize` | The dataset's name |
+| `check_query` | "check query" |
+| `run_query` | The call's `label`, for example "Thu demand by window" |
+| `call_function` | The function's name |
+| `render_chart` | "{kind} · {n} series", for example "column · 1 series" |
+| `render_table` | "{n} rows" |
+| `render_stats` | "{n} values" |
+| `render_value` | The title |
+| `propose_change` | The proposal id, for example "P-118" |
+| `read_context`, `edit_context` | The chip's label |
+| `search_examples`, `read_skill` | The query, or the skill's name |
+| `suggest_follow_ups` | No step |
+| The row shown while thinking (§6.1) | "Reasoning" |
 
 **Placeholders**
 
@@ -1062,28 +1158,50 @@ kept."
 
 1. `# {title}`, then `{surface title} · {subject}`.
 2. Per message, `**You · HH:mm**` or `**Elara · HH:mm**`, then the text. A component is written as
-   `[{title}]`.
+   `[{title}]`. Blocks are separated by a blank line.
+3. The file is named after the title: each run of non-word characters becomes "-", then the name
+   is lower-cased and ".md" appended, for example `thursday-capacity-flag.md`.
 
 ## 14. The showcase page
 
 - **Page.** `--paper-2` fill, padding `40 32 72`, max-width 1480, column, gap 32.
-- **Head.**
+- **Head.** A wrapping row (gap `24 48`, aligned to the bottom): the text column (flex
+  `1 1 420px`, gap 10), then the mark trio.
   - Eyebrow: "COMPONENT · ASSISTANT CHAT" (mono 11px/600, 0.14em, `--brand-d`).
   - Title: "Elara chat" (`--font-brand` 36px/700, −0.02em, line-height 1.1).
   - Lede (14px/1.6 `--ink-3`, max-width 640): "LLM conversation surface for interrogating a run.
     Answers stream as markdown and render East UI components through tool calls. Proposals commit
     through Override · Modify · Apply."
-- **Mark trio.** Three 160px columns in a framed grid, each showing the mark at 56px above its
-  caption:
+- **Mark trio.** Three 160px columns in a grid framed by 1px `--rule-strong` (radius 10,
+  `--paper`), divided by 1px `--rule`. Each column (padding `20 12 14`, gap 14) shows the mark at
+  56px above its caption: the state (mono 10/600, 0.14em, uppercase, `--ink`) over the note (mono
+  9.5 `--ink-4`, tabular):
 
   | State | Caption |
   |---|---|
   | IDLE | Static mark |
   | THINKING | Orbit + core · 1.6 s |
   | WRITING | Diagonal scan · 1.4 s |
-- **"TRY".** A grid of key caps with a sentence each, covering send, the command menu, context,
-  editing, stop, the tool call, the thinking trace, provenance, and Modify / Apply / Override.
-- **Instances.** Three chats, each 460 wide (minimum 340) and 800 high:
+- **"TRY".** Above a 1px `--rule` top border (padding-top 16, gap 10): the label "TRY" (mono
+  10/600, 0.14em, `--ink-4`), then a grid `repeat(auto-fill, minmax(260px, 1fr))`, gap `8 28`.
+  Each item is a baseline row, gap 10, 12.5/1.5 `--ink-3`: a key cap (min-width 18, padding `0 5`,
+  1px `--rule-strong` border with a 2px bottom, radius 4, `--paper`, mono 10/600 `--ink-2`,
+  centred; icons 9px) and its sentence:
+
+  | Key | Sentence |
+  |---|---|
+  | ⏎ | Send. Freeform questions go to the live model with tools. |
+  | / | Command menu, e.g. /chart or /table. ↑ ↓ ⏎ to pick. |
+  | @ | Add or remove a context chip. |
+  | ↑ | Edit your last message from an empty composer. |
+  | esc | Stop an answer mid-stream. |
+  | `fa-code` | Reveal the tool call behind a rendered chart or table. |
+  | `fa-list-check` | Expand the thinking trace under an answer. |
+  | ● | Click a source chip for its provenance. |
+  | `fa-code-pull-request` | Modify the proposal, then Apply or Override with a reason. |
+- **Instances.** A wrapping row, gap 28, of three chats, each `flex: 0 1 460px` (minimum 340) and
+  800 high. Each sits under a label row (gap 10): its number (mono 11/600 `--ink`, tabular) and its
+  label (mono 10/600, 0.14em, uppercase, `--ink-4`):
 
   | # | Label | Thread | Theme | Scroll |
   |---|---|---|---|---|
@@ -1093,3 +1211,25 @@ kept."
 
 - **Props.** `liveModel` (true: uses `window.claude.complete` when it exists), `simulateError`
   (false) and `streamSpeed` (normal).
+- **The mock's data** is the fixture for the product's examples (issue P5), replayed through the
+  scripted provider. It is all in `Chat Spec.html`:
+  - three threads: "Thursday capacity flag", "Dock 4 dwell time" and "Overtime vs plan · week 38";
+  - the canned answers, with their components, steps, sources and follow-ups (`CH_CANNED`);
+  - the sources' provenance (`CH_CHIPS`), the context items (`CH_CTX`), the demo files
+    (`CH_FILES`) and the follow-up texts (`CH_SUG`).
+
+## 15. Deviations from the mock
+
+The larger deviations are listed in the issue. These are the small ones, where the mock takes a
+demo shortcut or slips:
+
+| Mock | Product | Why |
+|---|---|---|
+| A suggestion or follow-up clears the composer's draft, command and attachments | They stay | A click should not lose a half-written message |
+| "Thought 2.1 s · 1 steps" | "1 step" | Plural agreement |
+| Once every step is done, the live head reads "STEP 1 OF n" | The "Reasoning" row stays active until the text starts (§6.1) | The head always points at a live row |
+| The stale roster's link attaches `roster_v8.csv` | An `add` action puts the newer input in the context row | In e3 a newer input is a dataset or record, not a file |
+| Feedback reason chips have no `aria-pressed` | They set it | They are toggles |
+| The link underline is 1px thick only in paragraphs and lists | 1px everywhere | One link style |
+| Copy data never quotes CSV fields | RFC 4180 quoting | Labels can hold commas |
+| The stepper's labels are "Fewer pickers" / "More pickers" | "Decrease {field}" / "Increase {field}" | Fields are generic |
