@@ -7,7 +7,7 @@
 import {
     ArrayType, AsyncFunctionType, BlobType, East, Expr, FunctionType, IntegerType,
     NullType, OptionType, StringType, StructType, none, some, toEastTypeValue, variant,
-    type EastType, type ExprType, type SubtypeExprOrValue, type VariantType,
+    type DictType, type EastType, type ExprType, type SubtypeExprOrValue, type VariantType,
 } from "@elaraai/east";
 import type { ResolvedRowSource } from "../../contracts/source.js";
 import { SheetRowType, SheetPatchTypeFor, SheetReadyBatchType } from "./types.js";
@@ -64,6 +64,21 @@ export function buildSheetEditing(source: ResolvedRowSource, bridge: SheetBridge
     const draftType = SheetDraftEntryTypeFor(rowType, field);
     const eventType = SheetPatchEventTypeFor(rowType, field);
     const batchType = SheetChangeSetTypeFor(rowType as StructType<Record<never, never>>);
+    // A keyed paged source's key type (#880). The shared session speaks keyed
+    // batches over it — `ChangeSet(R, K)` — while the author's `onApply` takes
+    // the Sheet's own `ChangeSet(R)`; a paged batch is checked by revision,
+    // which both spell alike, so the wrapper below restates the one as the other.
+    const keyType = source.kind === "paged" && source.collectionType.type === "Dict"
+        ? (source.collectionType as DictType<EastType, EastType>).key : undefined;
+    const wireBatchType = keyType !== undefined ? SheetChangeSetTypeFor(rowType as StructType<Record<never, never>>, keyType) : batchType;
+    const toAuthorBatch = keyType === undefined ? undefined : East.function([wireBatchType], batchType, ($, wire) => {
+        const base = $.let(variant("revision", ""), batchType.fields.base);
+        $.match(wire.base as unknown as ExprType<VariantType<{ revision: StringType; snapshot: EastType }>>, {
+            revision: ($2, revision) => { $2.assign(base, variant("revision", revision)); },
+            snapshot: ($2) => { $2.error("Sheet: a keyed paged source's batch is checked by its revision, never a snapshot"); },
+        });
+        return $.let({ requestId: wire.requestId, base, label: wire.label, changes: wire.changes }, batchType);
+    });
     if (input.onApply !== undefined && input.onUpdate !== undefined) throw new Error("Sheet: choose onApply or the inline onUpdate adapter, not both");
     if (input.onUpdate !== undefined && (source.kind !== "inline" || source.live === undefined)) {
         throw new Error("Sheet: onUpdate requires data={liveHandle} so each batch reads the latest collection — pass the handle itself or provide onApply");
@@ -104,14 +119,18 @@ export function buildSheetEditing(source: ResolvedRowSource, bridge: SheetBridge
             const fn = authorApply as ExprType<AsyncFunctionType<[typeof batchType], typeof SheetApplyResultType>>;
             const wrap = East.asyncFunction([BlobType], SheetApplyResultType, ($, blob) => {
                 const apply = $.const(fn);
-                return apply(blob.decodeBeast(batchType, "v2"));
+                if (toAuthorBatch === undefined) return apply(blob.decodeBeast(batchType, "v2"));
+                const restate = $.const(toAuthorBatch);
+                return apply(restate(blob.decodeBeast(wireBatchType, "v2")));
             });
             onApply = East.value(variant("async", wrap), SheetWireApplyType);
         } else {
             const fn = authorApply as ExprType<FunctionType<[typeof batchType], typeof SheetApplyResultType>>;
             const wrap = East.function([BlobType], SheetApplyResultType, ($, blob) => {
                 const apply = $.const(fn);
-                return apply(blob.decodeBeast(batchType, "v2"));
+                if (toAuthorBatch === undefined) return apply(blob.decodeBeast(batchType, "v2"));
+                const restate = $.const(toAuthorBatch);
+                return apply(restate(blob.decodeBeast(wireBatchType, "v2")));
             });
             onApply = East.value(variant("sync", wrap), SheetWireApplyType);
         }
@@ -177,7 +196,10 @@ export function buildSheetEditing(source: ResolvedRowSource, bridge: SheetBridge
         sourceId, entryType: toEastTypeValue(rowType), draftType: toEastTypeValue(draftType),
         idField: idField !== undefined ? some(idField) : none,
         children: field !== undefined ? some(field) : none,
-        keyed: source.kind === "paged" && source.collectionType.type === "Dict",
+        // A keyed paged source's key type (#880): its entries sort by key, a
+        // reconcile seeks an entry by its key's `.east` literal, and its
+        // batches arrive keyed (restated for the author above).
+        keyType: keyType !== undefined ? some(toEastTypeValue(keyType)) : none,
         snapshot: source.kind === "inline" ? some(East.Blob.encodeBeast(source.rows, "v2")) : none,
         readEntry, decode, onApply: onApply !== undefined ? some(onApply) : none,
         onPatch: onPatch !== undefined ? some(onPatch) : none,

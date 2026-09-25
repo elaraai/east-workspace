@@ -6,11 +6,12 @@
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { useMemo } from "react";
 import { act, cleanup, renderHook } from "@testing-library/react";
-import { ArrayType, East, FloatType, IntegerType, NullType, OptionType, StringType, StructType, none, some, variant } from "@elaraai/east";
+import { ArrayType, East, FloatType, IntegerType, NullType, OptionType, StringType, StructType, fromEastTypeValue, none, some, variant } from "@elaraai/east";
 import { Sheet, State, UIComponentType } from "@elaraai/east-ui/internal";
 import { initializeStore, StateImpl } from "../../platform/state-runtime.js";
 import { UIStore } from "../../platform/state-store.js";
 import { useSheetEditing } from "./use-editing.js";
+import { draftPresentation } from "./draft-state.js";
 import type { SheetRootValue, SheetRowValue } from "./values.js";
 
 beforeEach(() => initializeStore(new UIStore()));
@@ -157,6 +158,12 @@ test("a check that throws on one row marks that row invalid, and the other rows 
         { entry: "a", row: none, field: some(""), message: "Row readiness failed: a quantity of zero" },
         { entry: "b", row: none, field: some("qty"), message: "Needs review" },
     ]));
+    // Each row is marked for its OWN refusal, never the batch's (#880): the
+    // row whose check threw is invalid, the other only incomplete.
+    const { session } = hook.result.current;
+    const draftType = fromEastTypeValue(root.editing.draftType);
+    expect(draftPresentation(session, draftType, undefined, "a", undefined, session.readiness)).toMatchObject({ invalid: true, incomplete: false });
+    expect(draftPresentation(session, draftType, undefined, "b", undefined, session.readiness)).toMatchObject({ invalid: false, incomplete: true });
 });
 
 test("non-ready empty issue lists and failing callbacks never enable Apply", () => {

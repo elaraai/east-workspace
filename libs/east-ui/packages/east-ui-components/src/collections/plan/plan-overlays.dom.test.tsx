@@ -97,7 +97,7 @@ function planRoot(rows: PlanWireRow[], opts: { popover?: unknown; hover?: unknow
         popover: opts.popover !== undefined ? some(opts.popover) : none,
         hover: opts.hover !== undefined ? some(opts.hover) : none,
         expandRender: none, expandGutter: none, review: none, pick: none,
-        slice: none, footer: [], id: none, sources: [], onDrag: none, canDrop: none,
+        slice: none, footer: [], id: none, sources: [], editing: none, canDrop: none,
         onSelect: none, onElementClick: opts.onElementClick !== undefined ? some(opts.onElementClick) : none,
         onGroupToggle: none, onGrainChange: none, ui: none, style: none,
     } as unknown as PlanRootValue;

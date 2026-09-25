@@ -26,6 +26,7 @@ import { blocksSource, itemSel, oneBlock, rowId, rowSel } from "./plan.test-util
 import { PlanMessagesProvider, planMessages, type PlanMessages } from "./messages.js";
 import { PLAN_PAGE_SIZE } from "./use-plan-paging.js";
 import type { PlanInstantValue } from "./instant.js";
+import { mountCanvas, pressRow, releaseCanvases } from "./plan-editing.test-utils.js";
 
 class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
 (globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverStub;
@@ -35,6 +36,7 @@ beforeEach(() => { initializeStore(new UIStore()); });
 afterEach(() => {
     cleanup();
     while (cleanups.length > 0) cleanups.pop()!();
+    releaseCanvases();
     localStorage.clear();
 });
 
@@ -94,7 +96,7 @@ function planRoot(rows: PlanWireRow[], opts: {
         }),
         grain: none, popover: none, hover: none, expandRender: none, expandGutter: none,
         review: opts.review !== undefined ? some(opts.review) : none, pick: none, slice: none, footer: [],
-        id: none, sources: [], onDrag: none, canDrop: none, onSelect: none, onElementClick: none,
+        id: none, sources: [], editing: none, canDrop: none, onSelect: none, onElementClick: none,
         onGroupToggle: none, onGrainChange: none, ui: none, style: none,
     } as unknown as PlanRootValue;
 }
@@ -252,17 +254,21 @@ describe("one message table (#820)", () => {
         allMarked(words(container.querySelector("[data-plan-announce]")!));
     });
 
-    test("review: a row's Approve and Reject, and the batch foot's", () => {
-        const verb = some(() => undefined);
-        const review = {
-            columnLabel: "Decision", summary: none,
-            onApprove: verb, onReject: verb, onApproveAll: verb, onRejectAll: verb, onRerun: none,
-            rerunLabel: "Rerun",
-        };
-        const { container } = renderPlan(planRoot([planRow("m", span([]))], { review }), "plan-820-review", marked);
-        expect(words(container.querySelector("[data-slot='decisionCell']")!)).toEqual(["⟦Approve", "⟦Reject"]);
-        expect(words(container.querySelector("[data-slot='reviewFoot']")!)).toEqual(["⟦Reject all", "⟦Approve all"]);
-    });
+    // A canvas that takes verdicts (#880) — the factory's, compiled over a
+    // source the test holds, its words the marked table's.
+    for (const arm of ["inline", "paged"] as const) {
+        test(`${arm} review: a row's Approve and Reject, the batch foot's, and the history bar's`, async () => {
+            const { container } = await mountCanvas({ arm, wrap: marked });
+            expect(words(pressRow(container, "p1").querySelector("[data-slot='decisionCell']")!)).toEqual(["⟦Approve", "⟦Reject"]);
+            // A paged foot says how many rows it covers — the loaded ones.
+            expect(words(container.querySelector("[data-slot='reviewFoot']")!)).toEqual(arm === "paged"
+                ? ["⟦Reject 3 loaded", "⟦Approve 3 loaded"]
+                : ["⟦Reject all", "⟦Approve all"]);
+            // The history bar speaks through its buttons' names.
+            const names = [...container.querySelectorAll("[data-slot='history'] button")].map((b) => b.getAttribute("aria-label") ?? "");
+            expect(names).toEqual(["⟦0 issues", "⟦Undo", "⟦Redo", "⟦Discard", "⟦Apply changes"]);
+        }, 30_000);
+    }
 
     test("the empty state — a canvas with no window", () => {
         const { container } = renderPlan(planRoot([], { window: null }), "plan-820-empty", marked);

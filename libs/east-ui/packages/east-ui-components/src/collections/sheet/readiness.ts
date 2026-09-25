@@ -16,6 +16,7 @@
 import { compareFor, fromEastTypeValue, decodeBeast2For, encodeBeast2For, StringType, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Sheet, SheetEditingType, SheetReadyBatchType, SheetReadyCheckType } from "@elaraai/east-ui/internal";
 import { liftDraft, type BatchReadiness } from "./draft-values.js";
+import { raiseIssue } from "../../editing/draft.js";
 import { placeInOrder } from "./placement.js";
 import { ISSUE_TEXT } from "./words.js";
 import type { EntryVersion } from "./transactions.js";
@@ -79,12 +80,14 @@ export function authorReadiness(editing: Editing, resident: readonly SheetRowVal
         if (entries.size === 0) return variant("ready", null);
         const issues: Issue[] = [];
         let invalid = false;
+        // Each issue is raised with its own check's kind: the batch below holds
+        // them all under one, and a row is marked for its own.
         const report = (result: Readiness, entry: string, row?: number) => {
             if (result.type === "ready") return;
             invalid ||= result.type === "invalid";
             const at = row === undefined ? none : some(BigInt(row));
-            if (result.value.length === 0) issues.push({ entry, row: at, field: none, message: ISSUE_TEXT.author(result.type) });
-            for (const issue of result.value) issues.push({ entry, row: at, field: some(issue.field), message: issue.message });
+            if (result.value.length === 0) issues.push(raiseIssue(result.type, { entry, row: at, field: none, message: ISSUE_TEXT.author(result.type) }));
+            for (const issue of result.value) issues.push(raiseIssue(result.type, { entry, row: at, field: some(issue.field), message: issue.message }));
         };
         // The source rows' drafts, with the session's over them.
         const drafts = new Map(sourceDrafts());
@@ -95,7 +98,7 @@ export function authorReadiness(editing: Editing, resident: readonly SheetRowVal
             byId.set(id, entry.wire);
         }
         let rows = [...byId.values()];
-        if (editing.keyed) rows.sort((a, b) => compareId(a.id, b.id));
+        if (editing.keyType.type === "some") rows.sort((a, b) => compareId(a.id, b.id));
         else rows = placeInOrder(rows, row => row.id, Array.from(entries, ([id, entry]) => [id, entry.place] as const));
         const today = new Date();
         today.setUTCHours(0, 0, 0, 0);

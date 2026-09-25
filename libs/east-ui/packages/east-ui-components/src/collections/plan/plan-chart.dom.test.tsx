@@ -69,7 +69,7 @@ function planRoot(rows: PlanWireRow[], n: number): PlanRootValue {
         links: [],
         axis: variant("number", { window: some({ min: 0, max: n }), step: 1, now: none, format: none }),
         grain: none, popover: none, hover: none, expandRender: none, review: none, pick: none,
-        slice: none, footer: [], id: none, sources: [], onDrag: none, canDrop: none,
+        slice: none, footer: [], id: none, sources: [], editing: none, canDrop: none,
         onSelect: none, onElementClick: none, onGroupToggle: none, onGrainChange: none, ui: none, style: none,
     } as unknown as PlanRootValue;
 }

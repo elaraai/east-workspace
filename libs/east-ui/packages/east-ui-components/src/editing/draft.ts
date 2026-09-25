@@ -18,6 +18,43 @@ type Issue = ValueTypeOf<typeof EditingIssueType>;
 /** A batch's readiness — every draft's issues together. */
 export type BatchReadiness = ValueTypeOf<typeof EditingBatchReadinessType>;
 
+/** What an issue refuses its entry for: something still missing, or something refused. */
+export type IssueKind = "incomplete" | "invalid";
+
+/**
+ * The kind each issue was raised with. A batch's readiness holds every
+ * entry's issues under ONE kind — the wire's, which patch events carry — so
+ * an entry whose own issue is only incomplete would read as invalid beside
+ * another's invalid one. The kind rides beside the issue, renderer-side, from
+ * where it is raised to where an entry is marked for it.
+ */
+const issueKinds = new WeakMap<Issue, IssueKind>();
+
+/**
+ * Raise an issue of a kind — every issue a draft check or an author's check
+ * raises is raised through here, so its entry is marked for its own refusal.
+ *
+ * @param kind - What it refuses its entry for
+ * @param issue - The issue
+ * @returns The issue
+ */
+export function raiseIssue(kind: IssueKind, issue: Issue): Issue {
+    issueKinds.set(issue, kind);
+    return issue;
+}
+
+/**
+ * What an issue refuses its entry for — the kind it was raised with, else its
+ * batch's.
+ *
+ * @param issue - One of `readiness`'s issues
+ * @param readiness - The batch it came in
+ * @returns Its kind
+ */
+export function kindOfIssue(issue: Issue, readiness: Exclude<BatchReadiness, { type: "ready" }>): IssueKind {
+    return issueKinds.get(issue) ?? readiness.type;
+}
+
 /**
  * Lift a domain value into its draft: every field wrapped as a value; group
  * child arrays and entry variants keep their structure.
@@ -61,11 +98,11 @@ export function normalizeDraft(type: EastType, draft: unknown, entry: string): {
             if (state.type === "value") return state.value;
             const domain = type.cases.value!;
             if (state.type === "missing" && domain.type === "Variant" && domain.cases.none?.type === "Null" && domain.cases.some !== undefined && Object.keys(domain.cases).length === 2) return none;
-            (state.type === "invalid" ? invalid : missing).push({
+            (state.type === "invalid" ? invalid : missing).push(raiseIssue(state.type === "invalid" ? "invalid" : "incomplete", {
                 entry, row: row === undefined ? none : some(BigInt(row)), field: field === undefined ? none : some(field),
                 // The canonical English the patch events carry; a surface shows it in its words.
                 message: state.type === "invalid" ? DRAFT_ISSUE_TEXT.invalid(String(state.value)) : DRAFT_ISSUE_TEXT.required,
-            });
+            }));
             return undefined;
         }
         if (type.type === "Struct") return Object.fromEntries(Object.entries(type.fields).map(([key, child]) => [key, visit(child, (value as Record<string, unknown>)[key], key, row)]));
@@ -138,7 +175,10 @@ export function presentDraft(d: DraftToPresent): DraftPresentation {
     for (const issue of related) {
         if (issue.field.type === "some" && (d.row !== undefined || issue.row.type === "none") && !issues.has(issue.field.value)) issues.set(issue.field.value, d.text(issue.message));
     }
-    const invalid = checked.type === "invalid" || related.length > 0 && readiness?.type === "invalid";
+    // Each draft is marked for its OWN issues' kind, never the batch's: a row
+    // whose check found it incomplete stays incomplete beside an invalid one.
+    const invalid = checked.type === "invalid" || (readiness !== undefined && readiness.type !== "ready"
+        && related.some(issue => kindOfIssue(issue, readiness) === "invalid"));
     return {
         pending: !equalFor(OptionType(d.type))(d.before === undefined ? none : some(d.before), some(d.current)),
         invalid, incomplete: !invalid && (checked.type === "incomplete" || related.length > 0), issues,

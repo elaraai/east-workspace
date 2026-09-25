@@ -13,7 +13,7 @@
  * @packageDocumentation
  */
 import { useCallback, useLayoutEffect, useMemo, useSyncExternalStore } from "react";
-import { ArrayType, EastTypeType, OptionType, StringType, StructType, decodeBeast2For, encodeBeast2For, equalFor, fromEastTypeValue, none, printFor, some, toEastTypeValue, variant, type EastType, type option, type ValueTypeOf } from "@elaraai/east";
+import { ArrayType, DictType, EastTypeType, OptionType, StringType, StructType, decodeBeast2For, encodeBeast2For, equalFor, fromEastTypeValue, none, printFor, some, toEastTypeValue, variant, type EastType, type option, type ValueTypeOf } from "@elaraai/east";
 import type { SeekQueryType, SeekRangeType } from "@elaraai/east-ui";
 import type { EditingType } from "@elaraai/east-ui/internal";
 import { getStore } from "../platform/state-runtime.js";
@@ -60,6 +60,7 @@ const stores = new WeakMap<UIStoreInterface, Map<string, SourceSessions>>();
 const entryOffsets = new WeakMap<object, Map<string, number>>();
 const sessionKey = printFor(StructType({ view: StringType, entry: EastTypeType, draft: EastTypeType }));
 const stringEqual = equalFor(StringType);
+const printString = printFor(StringType);
 const ABSENT: EntryVersion<never> = { draft: undefined, wire: undefined, place: none };
 
 /**
@@ -79,6 +80,9 @@ export function useEditSession<W>(editing: EditingValue, source: EditSource<W> |
     const store = getStore();
     const entryType = useMemo(() => fromEastTypeValue(editing.entryType), [editing.entryType]);
     const draftType = useMemo((): EastType => fromEastTypeValue(editing.draftType), [editing.draftType]);
+    // A keyed source (#880): entries by key, a Dict snapshot, keyed batches.
+    const keyType = useMemo((): EastType | undefined =>
+        editing.keyType.type === "some" ? fromEastTypeValue(editing.keyType.value) : undefined, [editing.keyType]);
     const sourceId = editing.sourceId;
     const sourceSessions = useMemo(() => {
         let sources = stores.get(store);
@@ -88,13 +92,13 @@ export function useEditSession<W>(editing: EditingValue, source: EditSource<W> |
         return record;
     }, [store, sourceId]);
     const binding = useMemo<EditSessionBinding<W>>(() => ({
-        sourceId, entryType, draftType, ready,
+        sourceId, entryType, draftType, keyType, ready,
         idField: editing.idField.type === "some" ? editing.idField.value : undefined,
         children: editing.children.type === "some" ? editing.children.value : undefined,
         apply: editing.onApply.type === "some" ? editing.onApply.value.value : undefined,
         patch: editing.onPatch.type === "some" ? editing.onPatch.value : undefined,
         refresh: source?.refresh, auto: editing.mode.type === "auto",
-    }), [sourceId, entryType, draftType, editing, source, ready]);
+    }), [sourceId, entryType, draftType, keyType, editing, source, ready]);
     const schemaKey = useMemo(() => sessionKey({ view: storageKey, entry: editing.entryType, draft: editing.draftType }), [storageKey, editing.entryType, editing.draftType]);
     const session = useMemo(() => {
         const previous = sourceSessions.sessions.get(schemaKey) as EditSession<W> | undefined;
@@ -133,10 +137,11 @@ export function useEditSession<W>(editing: EditingValue, source: EditSource<W> |
         encodeDraft: encodeBeast2For(toEastTypeValue(draftType)),
         decodeDraft: decodeBeast2For(toEastTypeValue(draftType)),
         decodeEntry: decodeBeast2For(editing.entryType),
-        decodeRows: decodeBeast2For(toEastTypeValue(ArrayType(entryType))),
+        // An inline source's whole collection — an Array, or a keyed source's Dict.
+        decodeSnapshot: decodeBeast2For(toEastTypeValue(keyType !== undefined ? DictType(keyType, entryType) : ArrayType(entryType))),
         draftEqual: equalFor(toEastTypeValue(OptionType(draftType))),
         entryEqual: equalFor(editing.entryType),
-    }), [entryType, draftType, editing.entryType]);
+    }), [entryType, draftType, keyType, editing.entryType]);
     const read = useCallback(() => {
         // The author's checks run here, tracked: what they read (a State, a
         // dataset) re-runs this read when it moves, and the session takes
@@ -144,15 +149,17 @@ export function useEditSession<W>(editing: EditingValue, source: EditSource<W> |
         // read of it (#859).
         session.recheck(binding.ready, binding.ready?.(session.entries));
         const matches = new Map<string, unknown>();
-        if (editing.snapshot.type === "some") return { base: variant("snapshot", codecs.decodeRows(editing.snapshot.value)), matches };
+        if (editing.snapshot.type === "some") return { base: variant("snapshot", codecs.decodeSnapshot(editing.snapshot.value)), matches };
         const revision = source?.revision();
         if (revision?.type !== "some") return undefined;
         if (session.status === "reconciling" && source !== undefined) {
             for (const [id, entry] of session.entries) {
                 const resident = rowIndex.get(id);
                 let at = resident !== undefined ? positions[resident] : entryOffsets.get(session)?.get(id);
-                if (editing.keyed && source.seek.type === "some") {
-                    const found = source.seek.value(variant("key", id));
+                if (keyType !== undefined && source.seek.type === "some") {
+                    // A seek takes the key's `.east` literal: an id IS that
+                    // text for any key but a String, whose literal is quoted.
+                    const found = source.seek.value(variant("key", keyType.type === "String" ? printString(id) : id));
                     if (found.type === "none") continue;
                     at = Number(found.value.row);
                 }
@@ -173,7 +180,7 @@ export function useEditSession<W>(editing: EditingValue, source: EditSource<W> |
         return { base: variant("revision", revision.value), matches };
         // Session status and entries change under the external-store version.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [editing, source, rows, rowIndex, positions, codecs, session, version, binding, idOf]);
+    }, [editing, keyType, source, rows, rowIndex, positions, codecs, session, version, binding, idOf]);
     const { result } = useTrackedEvaluation(read);
     const observed = result.ok ? result.value : undefined;
     useLayoutEffect(() => {
@@ -194,7 +201,7 @@ export function useEditSession<W>(editing: EditingValue, source: EditSource<W> |
     }, [session, result, observed, codecs]);
 
     const placeOf = useCallback((id: string): Placement => {
-        if (editing.keyed) return some(variant("keyOrder", null));
+        if (keyType !== undefined) return some(variant("keyOrder", null));
         const index = rowIndex.get(id);
         if (index === undefined) return none;
         const next = rows[index + 1];
@@ -202,7 +209,7 @@ export function useEditSession<W>(editing: EditingValue, source: EditSource<W> |
         if (next) return some(variant("ordered", variant("before", idOf(next))));
         if (previous) return some(variant("ordered", variant("after", idOf(previous))));
         return some(variant("ordered", variant("start", null)));
-    }, [editing.keyed, rows, rowIndex, idOf]);
+    }, [keyType, rows, rowIndex, idOf]);
     const original = useCallback((id: string): EntryVersion<W> => {
         const existing = session.entries.get(id);
         if (existing) return existing;

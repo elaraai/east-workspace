@@ -30,6 +30,7 @@ import { statusText } from "../a11y.js";
 import { usePlanWords } from "../words.js";
 import type { PlanFocusTagWord } from "../messages.js";
 import type { PlanGridRow } from "../root/grid.js";
+import type { PlanDraftMark } from "../use-plan-editing.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
@@ -133,6 +134,10 @@ export interface RowShellProps {
     /** DnD drop registration for this row's plot. Absent ⇒ the row registers
      *  no cell, so it is never a destination and never lights up. */
     drop?: PlanRowDrop | undefined;
+    /** The row's draft mark (#880) — a draft of its entry changed it: the
+     *  Sheet's pending wash, and incomplete or invalid while a check refuses
+     *  the entry. */
+    draft?: PlanDraftMark | undefined;
     /** The row's grid plumbing (#819) — its written position, its share of
      *  the tab stop, and its focus handler (`usePlanGridRow`). */
     grid: PlanGridRow;
@@ -146,7 +151,7 @@ export interface RowShellProps {
 export function RowShell({
     row, styles, gridTemplate, height, depth, selected,
     caret, onCaretClick, emphasis, gutterOverlay, noGrid,
-    controls, focusTag, axisMode, ctx, decision, drop, children,
+    controls, focusTag, axisMode, ctx, decision, drop, draft, children,
     expandBody, expandGutter, bandHeight, grid, expandedState,
 }: RowShellProps) {
     const scale = usePlanScale();
@@ -305,6 +310,10 @@ export function RowShell({
             data-emphasis={emphasis}
             data-ctx={ctxAttr}
             data-expanded={expandedAttr}
+            // A drafted row (#880) — the Sheet's marks.
+            data-draft={draft !== undefined ? "" : undefined}
+            data-incomplete={draft === "incomplete" ? "" : undefined}
+            data-invalid={draft === "invalid" ? "" : undefined}
             // A strip's whole job is to be the way back — clicking one returns
             // to all rows rather than selecting the row underneath.
             onClick={() => dispatch(ctx === true

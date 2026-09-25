@@ -68,7 +68,7 @@ describe("authorReadiness at scale", () => {
             readyRow: none,
             readyGroup: some(() => { checks += 1; return READY; }),
             draftType: toEastTypeValue(StringType), entryType: toEastTypeValue(StringType),
-            children: some("lines"), driverColumn: none, keyed: false,
+            children: some("lines"), driverColumn: none, keyType: none,
             readEntry: () => none,
         } as unknown as Editing;
         const check = authorReadiness(editing, resident, positions, false)!;
@@ -96,7 +96,7 @@ describe("authorReadiness at scale", () => {
             }),
             readyGroup: none,
             draftType: toEastTypeValue(StringType), entryType: toEastTypeValue(StringType),
-            children: none, driverColumn: none, keyed: false,
+            children: none, driverColumn: none, keyType: none,
             readEntry: () => none,
         } as unknown as Editing;
         const check = authorReadiness(editing, resident, positions, false)!;
@@ -159,7 +159,7 @@ describe("the author's row check, one batch per evaluation (#882)", () => {
             }),
             readyGroup: none,
             draftType: toEastTypeValue(StringType), entryType: toEastTypeValue(StringType),
-            children: children === undefined ? none : some(children), driverColumn: some("activity"), keyed: false,
+            children: children === undefined ? none : some(children), driverColumn: some("activity"), keyType: none,
             readEntry: () => none,
         }) as unknown as Editing;
         const cells = (activity: string) => new Map([["activity", variant("String", activity)]]);
@@ -205,7 +205,7 @@ describe("the author's row check, one batch per evaluation (#882)", () => {
                 return READY;
             }),
             draftType: toEastTypeValue(DraftEntry), entryType: toEastTypeValue(Entry),
-            children: some("lines"), driverColumn: some("activity"), keyed: false,
+            children: some("lines"), driverColumn: some("activity"), keyType: none,
             readEntry: () => none,
         } as unknown as Editing;
         const cells = (activity: string) => new Map([["activity", variant("String", activity)]]);
@@ -236,7 +236,7 @@ describe("the author's row check, one batch per evaluation (#882)", () => {
             readyRow: some(() => { throw new Error("rows unavailable"); }),
             readyGroup: none,
             draftType: toEastTypeValue(Draft), entryType: toEastTypeValue(Row),
-            children: none, driverColumn: none, keyed: false,
+            children: none, driverColumn: none, keyType: none,
             readEntry: () => none,
         } as unknown as Editing;
         const entries = new Map<string, EntryVersion>(["a", "b"].map((id) => [id, { draft: liftDraft(Draft, { id, qty: 1n, hidden: id }), wire: { ...WIRE, id } as unknown as SheetRowValue, place: none }]));
@@ -261,7 +261,7 @@ describe("the session's readiness", () => {
             readyRow: some((blob: Uint8Array) => decodeBatch(blob).checks.map(() => { checks += 1; return READY; })),
             readyGroup: none,
             draftType: toEastTypeValue(Draft), entryType: toEastTypeValue(Row),
-            children: none, driverColumn: none, keyed: false,
+            children: none, driverColumn: none, keyType: none,
             readEntry: (id: string) => { sourceReads += 1; return some(encodeRow(rowOf(id))); },
         } as unknown as Editing;
         const session = new SheetTransactions(binding(authorReadiness(editing, resident, [0, 1, 2], false)));

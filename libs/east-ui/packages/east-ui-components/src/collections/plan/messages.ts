@@ -24,6 +24,7 @@
  */
 
 import { createContext, createElement, useContext, useMemo, type ReactNode } from "react";
+import { editingMessages, type EditingMessages } from "../../editing/messages.js";
 
 /** A lifecycle state as the words name it — `EventStateType`, with the
  *  proposal arms spelled out. */
@@ -67,8 +68,12 @@ export type PlanFocusTagWord = "UPSTREAM" | "DOWNSTREAM" | "LINKED";
  * numbers already formatted for the locale (a `percent` with its sign); `n`
  * is the raw number beside them, for plural rules. Dates (`date`, `at`,
  * `bucket`, `span`) are words the locale formatted.
+ *
+ * It carries the editing session's messages too ({@link EditingMessages},
+ * #880: the history bar and the draft issues), so a host translates the
+ * canvas's history bar where it translates the canvas.
  */
-export interface PlanMessages {
+export interface PlanMessages extends EditingMessages {
     // ── The frame ──────────────────────────────────────────────────────────
     /** The treegrid's accessible name. */
     gridLabel: () => string;
@@ -195,6 +200,11 @@ export interface PlanMessages {
     approveAll: () => string;
     /** The batch foot's reject-all button. */
     rejectAll: () => string;
+    /** The batch foot's approve-all button on a paged canvas, where it covers
+     *  the loaded rows (#880) — `Approve 120 loaded`. */
+    approveLoaded: (p: { n: number; count: string }) => string;
+    /** The batch foot's reject-all button on a paged canvas. */
+    rejectLoaded: (p: { n: number; count: string }) => string;
 
     // ── The narrow layout (§10) ────────────────────────────────────────────
     /** The Groups tab. */
@@ -339,6 +349,7 @@ const listed = (parts: ReadonlyArray<string | undefined>): string =>
  * The Plan's English messages — the default table.
  */
 export const planMessages: PlanMessages = {
+    ...editingMessages,
     gridLabel: () => "Plan",
     noWindow: () => "NO WINDOW — declare an axis window, or bind a slice whose range supplies it",
     noWindowOrdinal: () => "NO WINDOW — an ordinal axis needs at least one declared value",
@@ -412,6 +423,8 @@ export const planMessages: PlanMessages = {
     reject: () => "Reject",
     approveAll: () => "Approve all",
     rejectAll: () => "Reject all",
+    approveLoaded: ({ count }) => `Approve ${count} loaded`,
+    rejectLoaded: ({ count }) => `Reject ${count} loaded`,
 
     tabGroups: () => "Groups",
     tabRows: () => "Rows",

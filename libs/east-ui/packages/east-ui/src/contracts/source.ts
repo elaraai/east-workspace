@@ -436,7 +436,50 @@ export function buildRowSource<Out extends EastType>(
             sourceType,
         ) as RowSource<Out>;
     }
-    const handle = resolved.source as unknown as ExprType<StructType<{
+    const handle = pagedHandleOf(resolved);
+    // Erased locally: the window type is `Out`, but TS cannot see through the
+    // generic to unify `Option<Out>`'s arms — the East type is what types it.
+    const winType: EastType = outType;
+    // The WHOLE window of the source's own collection, then `make` over it
+    // (#829) — reified once, and shared with anything that must read the very
+    // windows a component reads (the Plan's editing, #880).
+    const window = buildPagedWindow(resolved);
+    const page = East.function([IntegerType, IntegerType], OptionType(winType), ($, offset, limit) => {
+        const read = $.const(window);
+        const result = $.let(none, OptionType(winType));
+        const whole = $.let(read(offset, limit));
+        $.match(whole, {
+            some: ($, entries) => {
+                const built = $.let(make(entries as ExprType<EastType>), outType);
+                $.assign(result, some(built));
+            },
+        });
+        return result;
+    });
+    // A source predating the contract carries no `id` / `seek`; fall back to a
+    // constant identity (it still compares equal to itself) and no seek.
+    const fields = structFields(Expr.type(resolved.source)) ?? {};
+    const id = fields["id"] !== undefined ? handle.id : East.value("", StringType);
+    const seek = fields["seek"] !== undefined
+        ? handle.seek
+        : East.value(none, OptionType(FunctionType([SeekQueryType], OptionType(SeekRangeType))));
+    const revision = fields["revision"] !== undefined
+        ? handle.revision
+        : East.function([], OptionType(StringType), () => none);
+    const refresh = fields["refresh"] !== undefined
+        ? handle.refresh
+        : East.function([OptionType(StringType)], NullType, $ => {
+            $.error("Paged: this legacy source cannot refresh — provide revision and refresh methods for mutable editing");
+        });
+    return East.value(
+        variant("paged", { id, page, total: handle.total, seek, revision, refresh }) as never,
+        sourceType,
+    ) as RowSource<Out>;
+}
+
+/** A resolved paged source's handle, at the contract's shape. */
+function pagedHandleOf(resolved: Extract<ResolvedRowSource, { kind: "paged" }>) {
+    return resolved.source as unknown as ExprType<StructType<{
         id: StringType;
         page: FunctionType<[IntegerType, IntegerType], OptionType<EastType>>;
         total: FunctionType<[], OptionType<IntegerType>>;
@@ -444,9 +487,24 @@ export function buildRowSource<Out extends EastType>(
         revision: FunctionType<[], OptionType<StringType>>;
         refresh: FunctionType<[OptionType<StringType>], NullType>;
     }>>;
-    // Erased locally: the window type is `Out`, but TS cannot see through the
-    // generic to unify `Option<Out>`'s arms — the East type is what types it.
-    const winType: EastType = outType;
+}
+
+/**
+ * The WHOLE window `(offset, limit)` of a paged source's own collection — the
+ * pieces a trimmed page left out asked for until the window holds `limit`
+ * elements, the source is exhausted, or a piece is in flight (the window then
+ * reads `none`, #829). What {@link buildRowSource}'s derived `page` maps its
+ * `make` over; a caller that must read the very windows a component reads —
+ * the Plan's editing reads its entries back (#880) — asks for them here, so
+ * each piece is the same request the component made.
+ *
+ * @param resolved - A resolved paged source ({@link resolveRowSource})
+ * @returns `(offset, limit)` → the window, `none` while a piece is in flight
+ */
+export function buildPagedWindow(
+    resolved: Extract<ResolvedRowSource, { kind: "paged" }>,
+): ExprType<FunctionType<[IntegerType, IntegerType], OptionType<EastType>>> {
+    const handle = pagedHandleOf(resolved);
     // The source's own collection — every piece of a window is a value of it.
     // Its size and the in-order join of two pieces are reified ONCE, outside
     // the block, per collection kind, then CALLED. Both are pure: a piece may
@@ -468,13 +526,13 @@ export function buildRowSource<Out extends EastType>(
                     b as unknown as ExprType<DictType<EastType, EastType>>, (_$2, _mine, theirs) => theirs))
             : East.function([pieceType, pieceType], pieceType, (_$, a, b) =>
                 (a as unknown as ExprType<SetType<EastType>>).union(b as unknown as ExprType<SetType<EastType>>));
-    const page = East.function([IntegerType, IntegerType], OptionType(winType), ($, offset, limit) => {
+    return East.function([IntegerType, IntegerType], OptionType(pieceType), ($, offset, limit) => {
         // Bound ONCE: the handle may be a platform call (`Data.bindPaged(…)`
         // passed inline), and this body reads it up to three times.
         const src = $.const(handle);
         const size = $.const(sizeOf as unknown as ExprType<FunctionType<[EastType], IntegerType>>);
         const join = $.const(joinOf as unknown as ExprType<FunctionType<[EastType, EastType], EastType>>);
-        const result = $.let(none, OptionType(winType));
+        const result = $.let(none, OptionType(pieceType));
         const first = $.let(src.page(offset, limit));
         $.match(first, {
             some: ($, head) => {
@@ -507,33 +565,11 @@ export function buildRowSource<Out extends EastType>(
                         },
                     });
                 });
-                $.if(inFlight.not(), ($) => {
-                    const built = $.let(make(window as ExprType<EastType>), outType);
-                    $.assign(result, some(built));
-                });
+                $.if(inFlight.not(), ($) => { $.assign(result, some(window)); });
             },
         });
         return result;
     });
-    // A source predating the contract carries no `id` / `seek`; fall back to a
-    // constant identity (it still compares equal to itself) and no seek.
-    const fields = structFields(Expr.type(resolved.source)) ?? {};
-    const id = fields["id"] !== undefined ? handle.id : East.value("", StringType);
-    const seek = fields["seek"] !== undefined
-        ? handle.seek
-        : East.value(none, OptionType(FunctionType([SeekQueryType], OptionType(SeekRangeType))));
-    const revision = fields["revision"] !== undefined
-        ? handle.revision
-        : East.function([], OptionType(StringType), () => none);
-    const refresh = fields["refresh"] !== undefined
-        ? handle.refresh
-        : East.function([OptionType(StringType)], NullType, $ => {
-            $.error("Paged: this legacy source cannot refresh — provide revision and refresh methods for mutable editing");
-        });
-    return East.value(
-        variant("paged", { id, page, total: handle.total, seek, revision, refresh }) as never,
-        sourceType,
-    ) as RowSource<Out>;
 }
 
 // ============================================================================

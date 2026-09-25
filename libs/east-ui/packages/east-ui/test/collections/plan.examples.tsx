@@ -23,7 +23,7 @@ import {
     some,
     variant,
 } from "@elaraai/east";
-import { DragEventType, EventStateType, State, StatusValueType, Style, UIComponentType } from "@elaraai/east-ui";
+import { ApprovalStateType, DragEventType, Editing, EventStateType, State, StatusValueType, Style, UIComponentType } from "@elaraai/east-ui";
 import { Badge, Box, Button, Chart, Configurator, Format, HStack, Library, Plan, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Text, VStack, deriveApproval } from "@elaraai/east-ui";
 
 // The corpus — every canvas is DEFINED the one way (`Plan Data Interface.md`
@@ -388,12 +388,10 @@ export const planTargetState = example({
                     ]}
                     data={ops}
                     series={series}
+                    // The review chrome — its foot and Rerun. A verdict is a
+                    // draft of an editing session (`planReview`, `planEditing`).
                     review={{
                         summary: <Text>4 JOBS · 2 FLAGGED NEED A CALL · +6H FLOAT</Text>,
-                        onApprove: onRow,
-                        onReject: onRow,
-                        onApproveAll: onBatch,
-                        onRejectAll: onBatch,
                         onRerun: onBatch,
                     }}
                     expandRender={expandRender}
@@ -2103,7 +2101,7 @@ export const planPick = example({
 });
 
 // ============================================================================
-// planSeriesLibrary — the pickable series library (the DnD behavioral isolate)
+// planLibraryDnd — the pickable series library over every row kind
 // ============================================================================
 
 export const planLibraryDnd = example({
@@ -2112,7 +2110,7 @@ export const planLibraryDnd = example({
         "toggle", "eye", "kind icon", "group", "section", "views", "nested", "children", "rows",
         "chrome", "span", "buckets", "chart", "heat", "table", "cards", "events", "duplicate",
         "same entity", "multiple views", "adjacent", "seek", "layout", "order",
-        "DnD", "drag", "drop", "onDrag", "canDrop", "sources", "add", "Reactive", "State", "#590",
+        "Reactive", "State", "#590",
     ],
     description: "The series library across every row kind — duplicate kinds, sections, a group per entry, and a `views` series showing one asset three ways",
     fn: East.function([], UIComponentType, (_$) => (
@@ -2400,8 +2398,6 @@ export const planLibraryDnd = example({
                 hidden: ["quality", "cards", "dock-group"],
             }));
             const axis = $.const(Plan.axis({ window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n) }));
-            const onDrag = $.const(East.function([DragEventType], NullType, (_$, _e) => null));
-            const canDrop = $.const(East.function([DragEventType], BooleanType, (_$, _e) => true));
             // `pick` REPLACES `series`: the handle already carries the list, so
             // the canvas feeds itself the picked ones and mounts the library.
             // Nothing here wires the panel to the canvas.
@@ -2410,9 +2406,6 @@ export const planLibraryDnd = example({
                     axis={axis}
                     data={ops}
                     pick={shown}
-                    id="plan" sources={["row-library"]}
-                    onDrag={onDrag}
-                    canDrop={canDrop}
                     style={{ height: "620px" }}
                 />
             );
@@ -2431,35 +2424,36 @@ export const planLibraryDnd = example({
  *
  * Roster, Board and Blend have ONE kind of cell, so "can you drop here" is a
  * question about the cell's contents. A Plan's rows are nine different things,
- * so the question is answered TWICE, at two different levels:
+ * so the question is answered at three levels:
  *
- *  1. **Structurally, by kind.** Only rows holding discrete scheduled objects
- *     register a drop cell at all — `span` (runs), `buckets` (tiles), `events`
+ *  1. **Structurally, by series.** A card lands only on a row whose series
+ *     declares `edit` — WHERE it lands (`items`, the entry's list the row's
+ *     elements come from) and HOW it becomes one (`create`, from the drop: the
+ *     card, the row and the bucket's instant). Only the kinds holding discrete
+ *     scheduled objects can — `span` (runs), `buckets` (tiles), `events`
  *     (marks), `cards` (chips). A `chart` / `heat` / `table` row renders
- *     DERIVED values, so there is nothing for a card to become; it registers
- *     no cell, never lights up during a drag, and is not reachable by any
- *     predicate. Section headers and group strips are wayfinding, so they
- *     are inert too — their MEMBERS receive.
+ *     DERIVED values, and section headers and group strips are wayfinding:
+ *     they register no cell and never light up during a drag.
  *  2. **By policy, with `canDrop`.** Of the rows that can receive, this canvas
  *     admits only the matching FAMILY: a job goes on a machine, a delivery on
  *     a dock, a shift on a crew, a milestone on a stream. The `PALLET` card
  *     belongs to no family and is therefore refused everywhere — the ⊘ stage
  *     on every row, which is what a card with nowhere to go should look like.
- *
- * The drop is not cosmetic. `onDrag` writes to bound state, the series
- * accessors read that state back, and the row re-derives — the documented flow
- * for every target ("no drop writes state directly"). Nothing is painted
- * optimistically, so what appears on the canvas is only ever what the data
- * says.
+ *  3. **As a draft (#880).** A drop is a gesture of the editing session: the
+ *     entry is drafted with the new item in its list and its rows derived
+ *     again — drawn at once with the pending mark, undone with ⌘Z — and Apply
+ *     writes every draft as ONE checked batch, here through the live handle's
+ *     inline adapter (`editing.onUpdate`).
  */
 export const planRowDrop = example({
     keywords: [
-        "Plan", "Library", "DnD", "drag", "drop", "onDrag", "canDrop", "sources", "id",
+        "Plan", "Library", "DnD", "drag", "drop", "canDrop", "sources", "id", "edit", "items", "create",
         "add", "target", "surface", "cell", "slot", "row kind", "selective", "veto",
         "invalid", "span", "buckets", "events", "cards", "chart", "heat", "table", "section", "row id", "row text",
-        "droppable", "inert", "bucket instant", "Reactive", "State", "commit", "re-derive",
+        "droppable", "inert", "bucket instant", "editing", "onUpdate", "onPatch", "draft", "Apply", "undo",
+        "Plan.Types.PatchEvent", "Reactive", "State", "live handle", "re-derive", "#880",
     ],
-    description: "Library + Plan DnD — only the kinds holding discrete objects receive, and `canDrop` admits only the matching family",
+    description: "Library + Plan DnD — a card lands only on a series that declares `edit`, `canDrop` admits only the matching family, and every drop is a draft applied as one checked batch",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
@@ -2476,10 +2470,6 @@ export const planRowDrop = example({
                 key: StringType, from: DateTimeType, to: DateTimeType, label: StringType, state: EventStateType,
             });
             const AllocRow = StructType({ key: StringType, at: DateTimeType, state: EventStateType });
-            // What a completed drop leaves behind: an instant and a name. The
-            // KIND it becomes is the receiving series' business, which is why
-            // one shape serves all four.
-            const DropRow = StructType({ key: StringType, at: DateTimeType, label: StringType });
             const OpsRow = StructType({
                 series: StringType, label: StringType,
                 jobs: ArrayType(JobRow),
@@ -2497,7 +2487,6 @@ export const planRowDrop = example({
             const noNums = $.const([], ArrayType(Plan.Types.TableCell));
             const noShifts = $.const([], ArrayType(ShiftRow));
             const noMarks = $.const([], ArrayType(Plan.Types.EventMark));
-            const noDrops = $.const([], ArrayType(DropRow));
             const pcts = $.const([46.0, 58.0, 66.0, 72.0, 84.0, 96.0], ArrayType(FloatType));
             const points = $.let(East.Array.generate(6n, MeasureRow, (_$, i) =>
                 ({ week: week(i.multiply(2n).add(27n)), pct: pcts.get(i) })));
@@ -2517,8 +2506,9 @@ export const planRowDrop = example({
             };
             // The series list below orders the canvas, interleaving the
             // droppable and inert kinds — a solid block of receiving rows would
-            // not show that the line is drawn per kind.
-            const ops = $.const(new Map([
+            // not show that the line is drawn per kind. The source is a LIVE
+            // handle: the canvas reads it, and Apply writes the drafts back.
+            const ops = $.let(State.bind([DictType(StringType, OpsRow)], "ex.plan.ops", new Map([
                 ["util",  { ...base, series: "util",  label: "UTIL %",     points }],
                 ["m03",   { ...base, series: "mach",  label: "L1-M03",
                             jobs: [{ key: "b214", label: "RUN · B-214", start: week(28n), end: week(31n), state: RUNNING }] }],
@@ -2540,7 +2530,7 @@ export const planRowDrop = example({
                 // span row under it receives like any other span row.
                 ["m11",   { ...base, series: "gmach", label: "L3-M11",
                             jobs: [{ key: "b301", label: "RUN · B-301", start: week(30n), end: week(34n), state: CONFIRMED }] }],
-            ]), DictType(StringType, OpsRow));
+            ])));
 
             // ── The two policy tables the host owns ───────────────────────
             // Which FAMILY of card each row will take. A drop cell names its
@@ -2574,10 +2564,9 @@ export const planRowDrop = example({
 
             // ── The drop veto ────────────────────────────────────────────
             // Consulted with the candidate event the pointer's CURRENT bucket
-            // would produce, so the ⊘ appears while dragging rather than after.
-            // Only `add` can reach a Plan (nothing on the canvas starts a drag,
-            // so the surface declares no move / resize), and refusing the rest
-            // says that rather than pretending they are permitted.
+            // would produce, so the ⊘ appears while dragging rather than after,
+            // and once more before the drop becomes a draft. Only `add` reaches
+            // a Plan from a library, and refusing the rest says so.
             const canDrop = $.const(East.function([DragEventType], BooleanType, ($, event) => {
                 const no = $.const(false, BooleanType);
                 return event.match({
@@ -2591,44 +2580,16 @@ export const planRowDrop = example({
                 }, _$ => no);
             }));
 
-            // ── The commit ───────────────────────────────────────────────
-            // The drop reports; the HOST writes. Nothing is painted
-            // optimistically — this state is what the series read back, so a
-            // dropped card only appears because the data now says it is there.
-            const dropBind = $.let(State.bind([DictType(StringType, ArrayType(DropRow))],
-                "ex.plan.drops", new Map()));
+            // ── The session ──────────────────────────────────────────────
+            // Every drop is a DRAFT of the entry it landed on: the canvas
+            // draws the new item at once, marked pending, and the history bar
+            // undoes, redoes, discards and applies it. Apply writes every draft
+            // through the live handle as one checked batch; `onPatch` hears each
+            // gesture as it is made.
             const lastBind = $.let(State.bind([StringType], "ex.plan.lastdrop", "none yet"));
-            const onDrag = $.const(East.function([DragEventType], NullType, ($, event) => {
-                $.match(event, {
-                    add: ($, add) => {
-                        const next = $.let(dropBind.read());
-                        const row = $.let(add.into.row);
-                        const card = $.let(add.from.key);
-                        // The slot IS an East DateTime in text — that is the
-                        // contract the Z-less ISO spelling exists to keep.
-                        const at = $.let(add.into.slot.parse(DateTimeType));
-                        const one = $.let([{
-                            key: East.str`drop-${card}-${add.into.slot}`,
-                            at, label: cardName.get(card),
-                        }], ArrayType(DropRow));
-                        $(next.insertOrUpdate(row, one,
-                            (_$, existing, incoming) => existing.concat(incoming)));
-                        $(dropBind.write(next));
-                        $(lastBind.write(East.str`add ${card} → ${row} · ${add.into.slot}`));
-                    },
-                    move: (_$) => {}, remove: (_$) => {}, resize: (_$) => {},
-                });
+            const onPatch = $.const(East.function([Plan.Types.PatchEvent(OpsRow)], NullType, ($, event) => {
+                $(lastBind.write(East.str`${event.origin.getTag()} · ${event.label}`));
             }));
-            // Read DIRECTLY in the accessors below — never through a helper
-            // East.function. A series accessor is reified into a standalone
-            // function, so whatever it captures crosses that boundary: a
-            // captured DICT travels as the value it is, but a captured
-            // FUNCTION drags the enclosing block along with it, once per
-            // accessor, and four accessors was enough to take this example's
-            // render payload past 100MB. `planReview` is the shape to copy.
-            // The drops are keyed by row text, so an accessor looks its own
-            // row up by the text of its id.
-            const drops = $.let(dropBind.read());
             const last = $.let(lastBind.read());
 
             const axis = $.const(Plan.axis({
@@ -2646,14 +2607,13 @@ export const planRowDrop = example({
                         data={ops}
                         // The DnD target role: `id` names this surface in every
                         // cell ref, `sources` says which palettes it will take
-                        // from, and the two callbacks are the policy and the
-                        // commit. Omitting either `id` or `onDrag` registers no
-                        // target at all — a drop with nowhere to report is a
-                        // gesture that silently loses work.
+                        // from, and `canDrop` is the policy. A drop becomes a
+                        // draft of the session — without `editing` no card
+                        // lands, since nothing could hold it.
                         id="ops-plan"
                         sources={["plan-library"]}
                         canDrop={canDrop}
-                        onDrag={onDrag}
+                        editing={{ onUpdate: ops.write, onPatch }}
                         series={[
                             // INERT — a chart plots a derived series, so there
                             // is nothing a card could become here.
@@ -2663,21 +2623,25 @@ export const planRowDrop = example({
                                 label: r => r.label, id: true, height: "spark",
                                 layers: r => [Chart.Line(r.points, { x: p => p.week, y: p => p.pct })],
                             }),
-                            // RECEIVES — runs are discrete scheduled objects.
-                            // The row's own runs, plus one proposed run per
-                            // card dropped on it — a fortnight long, starting
-                            // at the bucket the pointer named.
+                            // RECEIVES — runs are discrete scheduled objects. A
+                            // dropped job joins the machine's `jobs`: a
+                            // fortnight long, from the bucket the pointer named.
                             Plan.series.span(OpsRow, {
                                 key: "mach", title: "Machine jobs",
                                 match: r => r.series.equal("mach"),
                                 label: r => r.label, id: true,
-                                runs: (r, k) => r.jobs.map((_$, j) => Plan.run({
+                                runs: r => r.jobs.map((_$, j) => Plan.run({
                                     key: j.key, start: j.start, end: j.end, label: j.label, state: j.state,
-                                })).concat(drops.get(East.print(Plan.ref("mach", k)), () => noDrops)
-                                    .map((_$, d) => Plan.run({
-                                        key: d.key, start: d.at, end: d.at.addWeeks(2n),
-                                        label: d.label, state: ADDED,
-                                    }))),
+                                })),
+                                edit: {
+                                    items: "jobs",
+                                    create: (drop, r) => ({
+                                        key: East.str`drop-${drop.from.key}-${East.print(r.jobs.size())}`,
+                                        label: cardName.get(drop.from.key),
+                                        start: drop.at.unwrap("time"), end: drop.at.unwrap("time").addWeeks(2n),
+                                        state: ADDED,
+                                    }),
+                                },
                             }),
                             // INERT — an intensity field has no object to add to.
                             Plan.series.heat(OpsRow, {
@@ -2692,10 +2656,15 @@ export const planRowDrop = example({
                                 key: "dock", title: "Dock allocations",
                                 match: r => r.series.equal("dock"),
                                 label: r => r.label,
-                                events: (r, k) => r.allocs.map((_$, a) =>
-                                    Plan.event({ key: a.key, at: a.at, state: a.state }))
-                                    .concat(drops.get(East.print(Plan.ref("dock", k)), () => noDrops)
-                                        .map((_$, d) => Plan.event({ key: d.key, at: d.at, state: ADDED }))),
+                                events: r => r.allocs.map((_$, a) =>
+                                    Plan.event({ key: a.key, at: a.at, state: a.state })),
+                                edit: {
+                                    items: "allocs",
+                                    create: (drop, r) => ({
+                                        key: East.str`drop-${drop.from.key}-${East.print(r.allocs.size())}`,
+                                        at: drop.at.unwrap("time"), state: ADDED,
+                                    }),
+                                },
                             }),
                             // INERT — the cells are computed numbers.
                             Plan.series.table(OpsRow, {
@@ -2710,13 +2679,17 @@ export const planRowDrop = example({
                                 key: "crew", title: "Crew shifts",
                                 match: r => r.series.equal("crew"),
                                 label: r => r.label,
-                                chips: (r, k) => r.shifts.map((_$, s) => Plan.chip({
+                                chips: r => r.shifts.map((_$, s) => Plan.chip({
                                     key: s.key, from: s.from, to: s.to, label: s.label, state: s.state,
-                                })).concat(drops.get(East.print(Plan.ref("crew", k)), () => noDrops)
-                                    .map((_$, d) => Plan.chip({
-                                        key: d.key, from: d.at, to: d.at.addWeeks(2n),
-                                        label: d.label, state: ADDED,
-                                    }))),
+                                })),
+                                edit: {
+                                    items: "shifts",
+                                    create: (drop, r) => ({
+                                        key: East.str`drop-${drop.from.key}-${East.print(r.shifts.size())}`,
+                                        from: drop.at.unwrap("time"), to: drop.at.unwrap("time").addWeeks(2n),
+                                        label: cardName.get(drop.from.key), state: ADDED,
+                                    }),
+                                },
                             }),
                             // RECEIVES — a dropped milestone becomes a mark at
                             // the instant, the one kind with no duration.
@@ -2724,11 +2697,15 @@ export const planRowDrop = example({
                                 key: "strm", title: "Milestones",
                                 match: r => r.series.equal("strm"),
                                 label: r => r.label, id: true,
-                                marks: (r, k) => r.marks.concat(
-                                    drops.get(East.print(Plan.ref("strm", k)), () => noDrops)
-                                        .map((_$, d) => Plan.mark({
-                                            key: d.key, at: d.at, kind: "milestone", label: d.label,
-                                        }))),
+                                marks: r => r.marks,
+                                edit: {
+                                    items: "marks",
+                                    create: (drop, r) => ({
+                                        key: East.str`drop-${drop.from.key}-${East.print(r.marks.size())}`,
+                                        at: drop.at, kind: variant("milestone", null), icon: none,
+                                        label: some(cardName.get(drop.from.key)),
+                                    }),
+                                },
                             }),
                             // The HEADER is inert; the span row under it is not.
                             Plan.series.section(OpsRow, { key: "line3", title: "Line 3", meta: "span" }, [
@@ -2736,19 +2713,24 @@ export const planRowDrop = example({
                                     key: "gmach", title: "Line 3 machine jobs",
                                     match: r => r.series.equal("gmach"),
                                     label: r => r.label, id: true,
-                                    runs: (r, k) => r.jobs.map((_$, j) => Plan.run({
+                                    runs: r => r.jobs.map((_$, j) => Plan.run({
                                         key: j.key, start: j.start, end: j.end, label: j.label, state: j.state,
-                                    })).concat(drops.get(East.print(Plan.ref("gmach", k)), () => noDrops)
-                                        .map((_$, d) => Plan.run({
-                                            key: d.key, start: d.at, end: d.at.addWeeks(2n),
-                                            label: d.label, state: ADDED,
-                                        }))),
+                                    })),
+                                    edit: {
+                                        items: "jobs",
+                                        create: (drop, r) => ({
+                                            key: East.str`drop-${drop.from.key}-${East.print(r.jobs.size())}`,
+                                            label: cardName.get(drop.from.key),
+                                            start: drop.at.unwrap("time"), end: drop.at.unwrap("time").addWeeks(2n),
+                                            state: ADDED,
+                                        }),
+                                    },
                                 }),
                             ]),
                         ]}
                         style={{ height: "420px" }}
                     />
-                    <Text.MonoLabel>{East.str`LAST DROP · ${last}`}</Text.MonoLabel>
+                    <Text.MonoLabel>{East.str`LAST GESTURE · ${last}`}</Text.MonoLabel>
                 </VStack>
             );
         }}</Reactive>
@@ -2919,14 +2901,25 @@ export const planFill = example({
 // planReview — the review chrome, and what a verdict is FOR (#569)
 // ============================================================================
 
+/**
+ * Review as drafts (#880): a verdict is a FIELD of the record the reviewer
+ * decides about — `approval`, an `ApprovalStateType` — and the series whose
+ * rows are reviewed names it (`review: { verdict: "approval" }`). Approve or
+ * Reject on a row, and Approve all / Reject all at the foot, draft the entries
+ * with the field changed: the canvas derives the drafted rows again at once —
+ * buttons, bar, dot and run — marked pending, the history bar undoes, redoes
+ * and discards them, and Apply writes them back through the live handle as one
+ * checked batch. The foot's summary is the HOST's, over what it holds: the
+ * saved state, which moves only when Apply lands.
+ */
 export const planReview = example({
     keywords: [
-        "Plan", "review", "approval", "approve", "reject", "verdict", "decision",
-        "deriveApproval", "flagged", "chrome", "batch", "foot", "onApprove",
-        "onReject", "onApproveAll", "onRejectAll", "Reactive", "State", "bind",
-        "write", "live", "derived", "accessor", "data", "row id",
+        "Plan", "review", "approval", "approve", "reject", "verdict", "decision", "ApprovalStateType",
+        "deriveApproval", "flagged", "chrome", "batch", "foot", "Approve all", "Reject all", "onRerun",
+        "editing", "onUpdate", "draft", "pending", "Apply", "undo", "redo", "discard", "Reactive", "State", "bind",
+        "live handle", "derived", "accessor", "data", "row id", "#880",
     ],
-    description: "Live review chrome — verdicts live in bound `State`, and the canvas re-derives buttons, bar and dot",
+    description: "Review as drafts — a verdict drafts the entry's `approval` field, the canvas re-derives buttons, bar and dot from the draft, and Apply writes the batch back through the live handle",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
@@ -2934,78 +2927,57 @@ export const planReview = example({
                 const w1 = $.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
                 return w1.addWeeks(n.subtract(1n));
             }));
-            // The RAW record carries NO verdict — deciding is not a property of
-            // the job, it is something the reviewer does to it. So the verdicts
-            // live in their own bound state and the job rows stay untouched.
+            // The verdict IS a field of the job — what the reviewer decides
+            // about it — so a verdict drafts the job with `approval` changed,
+            // and Apply writes the job back. Nothing is held anywhere else.
             const JobRow = StructType({
                 start: DateTimeType, end: DateTimeType, tonnes: FloatType, flagged: BooleanType,
+                approval: ApprovalStateType,
             });
-            const jobs = $.const(new Map([
-                ["L1-M03", { start: week(28n), end: week(31n), tonnes: 96.0,  flagged: true  }],
-                ["L1-M04", { start: week(29n), end: week(33n), tonnes: 112.0, flagged: true  }],
-                ["L1-M07", { start: week(30n), end: week(34n), tonnes: 64.0,  flagged: true  }],
-                ["L2-M11", { start: week(27n), end: week(30n), tonnes: 88.0,  flagged: false }],
-            ]), DictType(StringType, JobRow));
+            // A LIVE handle: the canvas reads it, and Apply writes it.
+            const jobs = $.let(State.bind([DictType(StringType, JobRow)], "plan_review_jobs", new Map([
+                ["L1-M03", { start: week(28n), end: week(31n), tonnes: 96.0,  flagged: true,  approval: variant("pending", null) }],
+                ["L1-M04", { start: week(29n), end: week(33n), tonnes: 112.0, flagged: true,  approval: variant("approved", null) }],
+                ["L1-M07", { start: week(30n), end: week(34n), tonnes: 64.0,  flagged: true,  approval: variant("rejected", null) }],
+                ["L2-M11", { start: week(27n), end: week(30n), tonnes: 88.0,  flagged: false, approval: variant("approved", null) }],
+            ])));
 
-            // Every key is seeded, so a read is always a hit and the accessors
-            // never carry a "missing" branch.
-            const verdicts = $.let(State.bind([DictType(StringType, StringType)], "plan_review_verdicts",
-                new Map([
-                    ["L1-M03", "pending"], ["L1-M04", "approved"],
-                    ["L1-M07", "rejected"], ["L2-M11", "approved"],
-                ])));
-            const live = $.let(verdicts.read());
-
-            // The callbacks WRITE. `onApprove` fires with the row's id — its
-            // series and the path of keys to it, here the job's one key — so
-            // one key changes; the batch verbs rewrite every key. Nothing else
-            // in the canvas is told — it re-derives because `Reactive` re-runs.
-            const setOne = $.const(East.function([StringType, StringType], NullType, ($, key, verdict) => {
-                const next = $.let(verdicts.read());
-                $(next.insertOrUpdate(key, verdict));
-                $(verdicts.write(next));
+            // Rerun is not a verdict — it asks the host for a fresh proposal,
+            // so it stays a callback and writes the SOURCE: here every job
+            // returns to what its flag derives ("clean rests pre-approved,
+            // flagged awaits an explicit call"). Drafts made before it sit over
+            // a source that moved, and say so.
+            const onRerun = $.const(East.function([], NullType, ($) => {
+                const fresh = $.let(jobs.read().map((_$, j) => ({
+                    start: j.start, end: j.end, tonnes: j.tonnes, flagged: j.flagged,
+                    approval: deriveApproval(j.flagged).unwrap("some"),
+                })));
+                $(jobs.write(fresh));
             }));
-            const setAll = $.const(East.function([StringType], NullType, ($, verdict) => {
-                const next = $.let(new Map(), DictType(StringType, StringType));
-                $(jobs.forEach((_$, _r, k) => next.insertOrUpdate(k, verdict)));
-                $(verdicts.write(next));
-            }));
-            const onApprove = $.const(East.function([Plan.Types.RowId], NullType,
-                ($, id) => { $(setOne(id.unwrap("entry").path.get(0n), "approved")); }));
-            const onReject = $.const(East.function([Plan.Types.RowId], NullType,
-                ($, id) => { $(setOne(id.unwrap("entry").path.get(0n), "rejected")); }));
-            const onApproveAll = $.const(East.function([], NullType, ($) => { $(setAll("approved")); }));
-            const onRejectAll = $.const(East.function([], NullType, ($) => { $(setAll("rejected")); }));
-            const onRerun = $.const(East.function([], NullType, ($) => { $(setAll("pending")); }));
 
             const series = $.const([
                 Plan.series.span(JobRow, {
                     key: "jobs", title: "Jobs",
                     label: (_r, k) => k, id: true,
                     value: r => some(East.str`${East.Float.printFixed(r.tonnes, 0n)} t`),
-                    // Seeds the BUTTONS from the live verdict. `deriveApproval`
-                    // covers the undecided case — "clean rests pre-approved,
-                    // flagged awaits an explicit call".
-                    approval: (r, k) => live.get(k).equal("approved").ifElse(
-                        () => some(variant("approved", null)),
-                        () => live.get(k).equal("rejected").ifElse(
-                            () => some(variant("rejected", null)),
-                            () => deriveApproval(r.flagged))),
-                    // ...and the SAME fact drives the bar and the dot, because
+                    // The verdict's FIELD: the decision buttons show it, and a
+                    // verdict drafts the job with it changed.
+                    review: { verdict: "approval" },
+                    // ...and the SAME field drives the bar and the dot, because
                     // appearance is derived like everything else. Click Approve
-                    // and this repaints — the chrome never touched it.
-                    status: (r, k) => live.get(k).equal("rejected").ifElse(
+                    // and the draft repaints — the chrome never touched it.
+                    status: r => r.approval.hasTag("rejected").ifElse(
                         () => some(variant("danger", null)),
-                        () => r.flagged.and(_$ => live.get(k).equal("pending")).ifElse(
+                        () => r.flagged.and(_$ => r.approval.hasTag("pending")).ifElse(
                             () => some(variant("warning", null)),
                             () => none)),
                     runs: (r, k) => [Plan.run({
                         key: k, start: r.start, end: r.end,
                         label: East.str`RUN · ${k}`,
                         quantity: Plan.quantity(r.tonnes, { unit: "t", format: Format.Number({ maximumFractionDigits: 0n }) }),
-                        state: live.get(k).equal("approved").ifElse(
+                        state: r.approval.hasTag("approved").ifElse(
                             () => variant("confirmed", null),
-                            () => live.get(k).equal("rejected").ifElse(
+                            () => r.approval.hasTag("rejected").ifElse(
                                 () => variant("rejected", null),
                                 () => variant("proposed", variant("recommended", null)))),
                     })],
@@ -3014,18 +2986,185 @@ export const planReview = example({
             const axis = $.const(Plan.axis({
                 window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n),
             }));
-            const counts = $.let(live.filter((_$, v) => v.equal("pending")).size());
-            const rejected = $.let(live.filter((_$, v) => v.equal("rejected")).size());
+            // The host's summary reads what it holds — the saved jobs.
+            const saved = $.let(jobs.read());
+            const pending = $.let(saved.filter((_$, j) => j.approval.hasTag("pending")).size());
+            const rejected = $.let(saved.filter((_$, j) => j.approval.hasTag("rejected")).size());
             return (
                 <Plan
                     axis={axis}
                     data={jobs}
                     series={series}
                     review={{
-                        summary: <Text>{East.str`${East.Float.printFixed(counts.toFloat(), 0n)} PENDING · ${East.Float.printFixed(rejected.toFloat(), 0n)} REJECTED`}</Text>,
-                        onApprove, onReject, onApproveAll, onRejectAll, onRerun,
+                        summary: <Text>{East.str`SAVED · ${East.Float.printFixed(pending.toFloat(), 0n)} PENDING · ${East.Float.printFixed(rejected.toFloat(), 0n)} REJECTED`}</Text>,
+                        onRerun,
                     }}
+                    editing={{ onUpdate: jobs.write }}
                 />
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+// ============================================================================
+// planEditing — every change a draft, one checked Apply (#880)
+// ============================================================================
+
+/**
+ * The Plan's editing session (#880) — the Sheet's, over the canvas's entries.
+ *
+ * The source holds LINES, each holding its machines. A machine is reviewed
+ * (its `approval` field) and receives dropped jobs (its `jobs` list), and both
+ * gestures land on the MACHINE rows, one level down — yet each drafts the
+ * LINE, the source's top-level entry, which the whole subtree rides in:
+ *
+ *  - Approve / Reject on a machine, and Approve all / Reject all at the foot,
+ *    draft its `approval` (`review: { verdict: "approval" }` on the machines).
+ *  - A job card dropped on a machine drafts a new job in its `jobs` at the
+ *    bucket's instant (`edit: { items: "jobs", create }`).
+ *
+ * Every gesture is one transaction, drawn at once with the pending mark; the
+ * toolbar's history bar undoes, redoes and discards it (so do ⌘Z and ⌘⇧Z).
+ * `ready` is the author's check over a drafted line: a machine holding more
+ * than four jobs is refused, by name, and Apply waits until it is fixed.
+ * Apply writes the batch back through the live handle (`onUpdate`), and
+ * `onPatch` hears each gesture as it is made.
+ */
+export const planEditing = example({
+    keywords: [
+        "Plan", "editing", "session", "draft", "drafts", "transaction", "onUpdate", "onPatch", "ready",
+        "Readiness", "Editing.Types.Readiness", "invalid", "review", "verdict", "approval", "ApprovalStateType",
+        "Approve all", "Reject all", "edit", "items", "create", "drop", "Library", "DnD", "id", "sources",
+        "undo", "redo", "discard", "Apply", "history bar", "pending", "nested", "children", "Plan.children",
+        "top-level entry", "live handle", "Plan.Types.PatchEvent", "Reactive", "State", "bind", "#880",
+    ],
+    description: "The Plan's editing session — verdicts and dropped jobs on nested machine rows draft their line, the history bar undoes and applies them, and `ready` refuses a crowded machine",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
+            const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
+                const w1 = $.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
+                return w1.addWeeks(n.subtract(1n));
+            }));
+            const Job = StructType({
+                key: StringType, label: StringType, start: DateTimeType, end: DateTimeType, state: EventStateType,
+            });
+            const Machine = StructType({ approval: ApprovalStateType, jobs: ArrayType(Job) });
+            const Line = StructType({ name: StringType, machines: DictType(StringType, Machine) });
+            const CONFIRMED = variant("confirmed", null);
+            const RECOMMENDED = variant("proposed", variant("recommended", null));
+            // What a drop creates is a proposal the host has not committed.
+            const ADDED = variant("proposed", variant("added", null));
+            // A LIVE handle over the lines: the canvas reads it, and Apply
+            // writes it. M11 already holds four jobs, so one more is refused.
+            const lines = $.let(State.bind([DictType(StringType, Line)], "ex.plan.editing.lines", new Map([
+                ["L1", { name: "Line 1", machines: new Map([
+                    ["M03", { approval: variant("pending", null), jobs: [
+                        { key: "b214", label: "B-214", start: week(28n), end: week(31n), state: RECOMMENDED },
+                    ] }],
+                    ["M04", { approval: variant("approved", null), jobs: [
+                        { key: "b208", label: "B-208", start: week(27n), end: week(30n), state: CONFIRMED },
+                        { key: "b219", label: "B-219", start: week(31n), end: week(34n), state: RECOMMENDED },
+                    ] }],
+                ]) }],
+                ["L2", { name: "Line 2", machines: new Map([
+                    ["M11", { approval: variant("pending", null), jobs: [
+                        { key: "b241", label: "B-241", start: week(27n), end: week(29n), state: CONFIRMED },
+                        { key: "b244", label: "B-244", start: week(29n), end: week(31n), state: RECOMMENDED },
+                        { key: "b247", label: "B-247", start: week(31n), end: week(33n), state: RECOMMENDED },
+                        { key: "b250", label: "B-250", start: week(33n), end: week(35n), state: RECOMMENDED },
+                    ] }],
+                ]) }],
+            ])));
+
+            // The palette the jobs come from.
+            const CardRow = StructType({ key: StringType, name: StringType, note: StringType, icon: StringType });
+            const cards = $.const([
+                { key: "weld", name: "Weld run", note: "two weeks", icon: "gear" },
+                { key: "cure", name: "Cure run", note: "two weeks", icon: "fire" },
+            ], ArrayType(CardRow));
+            const cardName = $.const(cards.toDict((_$, c) => c.key, (_$, c) => c.name));
+
+            // The author's check over one drafted LINE — every check of the
+            // batch runs in one call. A refusal names the machine.
+            const ready = $.const(East.function([Line, StringType], Editing.Types.Readiness, ($, line, _key) => {
+                const crowded = $.let(line.machines.filter((_$, m) => m.jobs.size().greater(4n)));
+                const result = $.let(variant("ready", null), Editing.Types.Readiness);
+                $.if(crowded.size().greater(0n), ($) => {
+                    $.assign(result, variant("invalid", crowded.toArray((_$, m, k) => ({
+                        field: "jobs", message: East.str`${k} holds ${East.print(m.jobs.size())} jobs — at most 4`,
+                    }))));
+                });
+                return result;
+            }));
+            // Every gesture, as it is made — a verdict, a drop, an undo.
+            const lastBind = $.let(State.bind([StringType], "ex.plan.editing.last", "none yet"));
+            const onPatch = $.const(East.function([Plan.Types.PatchEvent(Line)], NullType, ($, event) => {
+                $(lastBind.write(East.str`${event.origin.getTag()} · ${event.label}`));
+            }));
+            const last = $.let(lastBind.read());
+
+            // The host's summary reads what it holds — the saved lines.
+            const saved = $.let(lines.read());
+            const pending = $.let(saved.toArray((_$, l) => l.machines.filter((_$, m) => m.approval.hasTag("pending")).size()).sum());
+            const axis = $.const(Plan.axis({
+                window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n),
+            }));
+            return (
+                <VStack gap="4" align="stretch">
+                    <Library
+                        id="plan-editing-jobs"
+                        data={cards}
+                        item={c => ({ key: c.key, label: c.name, sublabel: c.note, icon: c.icon })}
+                    />
+                    <Plan
+                        axis={axis}
+                        data={lines}
+                        id="plan-editing"
+                        sources={["plan-editing-jobs"]}
+                        series={[
+                            // One row per line, its machines stepped down into
+                            // through a plain field — which is what lets a
+                            // gesture on a machine write back into its line.
+                            Plan.series.span(Line, {
+                                key: "lines", title: "Lines",
+                                label: l => l.name,
+                                runs: _l => [],
+                                rollup: "union",
+                                children: Plan.children(l => l.machines, [
+                                    Plan.series.span(Machine, {
+                                        key: "machines", title: "Machines",
+                                        label: (_m, k) => k, id: true,
+                                        review: { verdict: "approval" },
+                                        status: m => m.approval.hasTag("rejected").ifElse(
+                                            () => some(variant("danger", null)),
+                                            () => none),
+                                        runs: m => m.jobs.map((_$, j) => Plan.run({
+                                            key: j.key, start: j.start, end: j.end,
+                                            label: East.str`RUN · ${j.label}`, state: j.state,
+                                        })),
+                                        edit: {
+                                            items: "jobs",
+                                            create: (drop, m) => ({
+                                                key: East.str`${drop.from.key}-${East.print(m.jobs.size())}`,
+                                                label: cardName.get(drop.from.key),
+                                                start: drop.at.unwrap("time"), end: drop.at.unwrap("time").addWeeks(2n),
+                                                state: ADDED,
+                                            }),
+                                        },
+                                    }),
+                                ]),
+                            }),
+                        ]}
+                        review={{
+                            summary: <Text>{East.str`SAVED · ${East.print(pending)} PENDING`}</Text>,
+                        }}
+                        editing={{ onUpdate: lines.write, onPatch, ready }}
+                        style={{ height: "360px" }}
+                    />
+                    <Text.MonoLabel>{East.str`LAST GESTURE · ${last}`}</Text.MonoLabel>
+                </VStack>
             );
         }}</Reactive>
     )),

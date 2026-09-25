@@ -92,7 +92,7 @@ export type {
     PlanTableSeriesInput, PlanExpandInput, PlanLinkInput,
     PlanIconInput, PlanLayerChannels,
     PlanChartLayerInput, PlanChartAxisInput, PlanHeatCellsOptions,
-    PlanReviewConfig, PlanRowsInput,
+    PlanReviewConfig, PlanEditingConfig, PlanBindHandle, PlanReviewInput, PlanEditInput, PlanRowsInput,
     PlanRowsValue,
     PlanSeriesArm, PlanSeriesValue, PlanSeriesInput, PlanSeriesIdentity,
     PlanEntryExpr, PlanAccessor, PlanChildren, PlanChildrenInput, PlanSeriesRowConfig,
@@ -170,6 +170,8 @@ export * from "./collections/sheet/types.js";
 export * from "./collections/sheet/transactions.js";
 export * from "./collections/sheet/drafts.js";
 export * from "./collections/sheet/editing-types.js";
+// The Plan's editing wire (#880) — what the renderer's session is handed.
+export { PlanEditingType, PlanWriteRequestType, PlanReadyEntryType, PLAN_PAGE_SIZE } from "./collections/plan/types.js";
 export * from "./collections/tree-view/types.js";
 export * from "./format/types.js";
 export * from "./charts/sparkline/types.js";

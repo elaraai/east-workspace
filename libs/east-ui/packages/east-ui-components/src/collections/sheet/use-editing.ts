@@ -90,7 +90,7 @@ export function useSheetEditing(editing: Editing, source: SheetPagedSourceValue 
                 case "remove": origin = "remove"; for (const id of event.value.rowIds) update(id, undefined); break;
                 case "insert": {
                     origin = event.value.source.type;
-                    const place: Placement = placements?.get(event.value.row.id) ?? (editing.keyed ? some(variant("keyOrder", null)) : some(variant("ordered", event.value.afterRowId.type === "some" ? variant("after", event.value.afterRowId.value) : variant("end", null))));
+                    const place: Placement = placements?.get(event.value.row.id) ?? (editing.keyType.type === "some" ? some(variant("keyOrder", null)) : some(variant("ordered", event.value.afterRowId.type === "some" ? variant("after", event.value.afterRowId.value) : variant("end", null))));
                     update(event.value.row.id, event.value.row, place); break;
                 }
                 case "lineRemove": origin = "remove"; update(event.value.rowId, event.value.row); break;

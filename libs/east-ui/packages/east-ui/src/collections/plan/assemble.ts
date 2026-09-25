@@ -42,6 +42,7 @@ import {
     PlanRowIdType,
     PlanRowKindType,
     PlanRowType,
+    type PlanRowEditsType,
     PlanRowsCollectionType,
     type PlanRowsValue,
     type PlanAxisKindLiteral,
@@ -81,7 +82,12 @@ export interface PlanRowFields {
     approval?: SubtypeExprOrValue<OptionType<ApprovalStateType>>;
     /** The expand-in-place declaration. */
     expand?: SubtypeExprOrValue<OptionType<PlanExpandType>>;
+    /** The gestures the row takes (#880) — none by default. */
+    edits?: SubtypeExprOrValue<PlanRowEditsType>;
 }
+
+/** A row that takes no gesture — every row but an editable series' (#880). */
+const NO_EDITS = { verdict: false, drop: false };
 
 /**
  * THE row envelope (#822) — an entry's row, a derived parent, a section header,
@@ -109,6 +115,7 @@ export function planRow(f: PlanRowFields): ExprType<PlanRowType> {
         status:    f.status ?? none,
         approval:  f.approval ?? none,
         expand:    f.expand ?? none,
+        edits:     f.edits ?? NO_EDITS,
     }, PlanRowType);
 }
 
@@ -364,6 +371,7 @@ export const REBASE_ROWS = East.function(
             status:    r.status,
             approval:  r.approval,
             expand:    r.expand,
+            edits:     r.edits,
         }));
     },
 );

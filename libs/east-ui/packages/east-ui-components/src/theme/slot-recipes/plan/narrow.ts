@@ -229,6 +229,11 @@ export const narrowBase = {
         overflow: "hidden",
         position: "relative",
         cursor: "pointer",
+        // A drafted row's card (#880) — the canvas row's marks: the warn wash
+        // while a draft of its entry changed it, danger while a check refuses
+        // the entry. Before the selection tint, which wins over both.
+        "&[data-draft]": { background: "color-mix(in oklch, {colors.status.warn} 8%, {colors.bg.surface})" },
+        "&[data-invalid]": { background: "color-mix(in oklch, {colors.status.neg} 8%, {colors.bg.surface})" },
         "&[data-selected]": { background: "{colors.brandTint}", borderColor: "color-mix(in srgb, {colors.brand.600} 40%, {colors.border.subtle})" },
         "&[data-expanded]": { borderColor: "{colors.brand.600}" },
     },

@@ -49,8 +49,10 @@ import {
     type ExprType,
     type SubtypeExprOrValue,
     ArrayType,
+    BlobType,
     BooleanType,
     DateTimeType,
+    DictType,
     FloatType,
     FunctionType,
     IntegerType,
@@ -66,6 +68,13 @@ import { IconType } from "../../display/icon/types.js";
 import { ColorSchemeType } from "../../style/scheme.js";
 import { EventStateType } from "../../contracts/states.js";
 import { ApprovalStateType } from "../../contracts/approval.js";
+import { LibraryRefType } from "../../contracts/drag.js";
+import {
+    EditingDraftFieldType,
+    EditingPatchEventTypeWith,
+    EditingReadinessType,
+    EditingSessionFields,
+} from "../../contracts/editing.js";
 import { TickFormatType } from "../../format/types.js";
 import { TimeResolutionType, type TimeResolutionLiteral } from "../../contracts/time.js";
 import { ValueFormatType } from "../../contracts/format.js";
@@ -951,6 +960,68 @@ export const PlanGroupToggleEventType = StructType({ row: PlanRowIdType, expande
 export type PlanGroupToggleEventType = typeof PlanGroupToggleEventType;
 
 // ============================================================================
+// Editing — the gestures a draft is made by (#880)
+// ============================================================================
+
+/**
+ * A library card dropped on a row (#880) — what an editable series' `create`
+ * builds its new item from.
+ *
+ * @remarks
+ * `at` is the start of the bucket the card landed in, on the axis's arm (a
+ * time axis's UTC instant, a number axis's bucket start, an ordinal axis's
+ * value) — the same instant a `cell` element ref reports.
+ *
+ * @property from - The card — the library that declared it and its item key
+ * @property row - The row it landed on
+ * @property at - The start of the bucket it landed in
+ * @property duplicate - Whether the drag was an alt-drag copy
+ */
+export const PlanDropType = StructType({
+    from:      LibraryRefType,
+    row:       PlanRowIdType,
+    at:        PlanInstantType,
+    duplicate: BooleanType,
+});
+export type PlanDropType = typeof PlanDropType;
+
+/**
+ * A gesture on the canvas — what one draft is made by (#880). A series writes
+ * it into the entry its row came from, through the fields it declares: a
+ * verdict into its `review.verdict` field, a drop into its `edit.items`.
+ *
+ * @property verdict - Approve or Reject (their "all" forms are the same verdict on every row the canvas holds)
+ * @property drop - A library card dropped on a row
+ */
+export const PlanGestureType = VariantType({
+    verdict: ApprovalStateType,
+    drop:    PlanDropType,
+});
+export type PlanGestureType = typeof PlanGestureType;
+
+/**
+ * Which gestures a row takes (#880) — whether its series declares the field
+ * each one writes, so the canvas offers only what a draft can hold: the
+ * decision buttons act on a `verdict` row, and a card lands only on a `drop`
+ * row.
+ *
+ * @property verdict - Its series names the field a verdict writes (`review.verdict`)
+ * @property drop - Its series names where a dropped card lands and how it becomes an item (`edit`)
+ */
+export const PlanRowEditsType = StructType({
+    verdict: BooleanType,
+    drop:    BooleanType,
+});
+export type PlanRowEditsType = typeof PlanRowEditsType;
+
+/**
+ * The entries in one window a paged canvas reads — it pages its source at
+ * `w × PLAN_PAGE_SIZE`, and the editing session reads an entry back from the
+ * very window it came from, so a gesture never waits on a new request (#880).
+ */
+export const PLAN_PAGE_SIZE = 200;
+
+// ============================================================================
 // The bound UI state (#824)
 // ============================================================================
 
@@ -1315,7 +1386,8 @@ export type PlanRowKindType = typeof PlanRowKindType;
  * `height` is a fixed CSS-px override; `status` the quiet gutter dot;
  * `approval` the review verdict (rendered only with the root's review
  * chrome); `expand` the R2 declaration (the render itself is the root's
- * `expandRender` resolver).
+ * `expandRender` resolver); `edits` the gestures the row takes (#880 —
+ * neither, unless its series declares the fields they write).
  */
 export const PlanRowType = StructType({
     id: PlanRowIdType,
@@ -1328,6 +1400,7 @@ export const PlanRowType = StructType({
     status: OptionType(StatusValueType),
     approval: OptionType(ApprovalStateType),
     expand: OptionType(PlanExpandType),
+    edits: PlanRowEditsType,
 });
 /** Type alias for {@link PlanRowType}. */
 export type PlanRowType = typeof PlanRowType;
@@ -1427,6 +1500,91 @@ export type PlanPagedSourceType = typeof PlanPagedSourceType;
 export const PlanRowsType = RowSourceType(PlanBlocksType);
 /** Type alias for {@link PlanRowsType}. */
 export type PlanRowsType = typeof PlanRowsType;
+
+// ============================================================================
+// The editing wire (#880) — what the canvas hands the shared session
+// ============================================================================
+
+/**
+ * What a Plan's `editing.onPatch` receives for entries of `R` (#880) — the
+ * shared patch event (`Editing.Types.PatchEvent`) over the Plan's drafts,
+ * which are whole entries (`Editing.Types.DraftField(R)`): every gesture
+ * writes a complete entry, so a draft is always its `value`.
+ *
+ * @typeParam R - The entry type
+ * @param entryType - The canvas's entry type
+ * @returns The patch event type
+ */
+export function PlanPatchEventTypeFor<R extends EastType>(entryType: R) {
+    return EditingPatchEventTypeWith(entryType, EditingDraftFieldType(entryType));
+}
+
+/**
+ * One entry's gesture, to be written (#880) — the entry's id (its key's text),
+ * its bytes, the rows the gesture was made on, and the gesture. Approve all
+ * writes every entry the canvas holds in one call.
+ *
+ * @internal
+ * @property id - The entry's id — its key, as a row path's first segment spells it
+ * @property entry - The entry as it stands now (its draft, else the source's), encoded
+ * @property rows - The rows the gesture was made on — one, or each of the entry's for a verdict on all
+ * @property gesture - The gesture
+ */
+export const PlanWriteRequestType = StructType({
+    id:      StringType,
+    entry:   BlobType,
+    rows:    ArrayType(PlanRowIdType),
+    gesture: PlanGestureType,
+});
+export type PlanWriteRequestType = typeof PlanWriteRequestType;
+
+/**
+ * A drafted entry the author's readiness check reads (#880).
+ *
+ * @internal
+ * @property id - The entry's id
+ * @property entry - The drafted entry, encoded
+ */
+export const PlanReadyEntryType = StructType({ id: StringType, entry: BlobType });
+export type PlanReadyEntryType = typeof PlanReadyEntryType;
+
+const PlanEditingTypeImpl = StructType({
+    ...EditingSessionFields,
+    derive:      FunctionType([IntegerType, IntegerType, DictType(StringType, BlobType)], OptionType(PlanBlocksType)),
+    deriveEntry: FunctionType([StringType, BlobType], PlanBlocksType),
+    write:       FunctionType([ArrayType(PlanWriteRequestType)], ArrayType(OptionType(BlobType))),
+    entryIds:    FunctionType([IntegerType, IntegerType], OptionType(ArrayType(StringType))),
+    ready:       OptionType(FunctionType([ArrayType(PlanReadyEntryType)], ArrayType(EditingReadinessType))),
+});
+
+type PlanEditingTypeImpl = typeof PlanEditingTypeImpl;
+
+/**
+ * The type of {@link PlanEditingType}.
+ *
+ * @remarks
+ * An interface, so a type that mentions it refers to it by name in
+ * declaration output rather than spelling out every field — above all
+ * `UIComponentType`, whose inferred type sits near the length TypeScript will
+ * serialize (TS7056); this one holds the canvas's blocks twice over.
+ */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- the empty interface is the point: it attaches a symbol the declaration emitter can reference by name
+export interface PlanEditingType extends PlanEditingTypeImpl {}
+
+/**
+ * The Plan's editing declaration, on the wire (#880) — the shared session's
+ * fields ({@link EditingSessionFields}) and the canvas's own. Every value
+ * crosses as bytes at the exact entry type the wire names, so the arm stays a
+ * closed type whatever the canvas's entries are.
+ *
+ * @internal
+ * @property derive - The canvas's blocks with drafted entries in place of the source's — `(offset, limit, drafts by id)`: inline the whole source (offset and limit unread), paged the window `(offset, limit)`, `none` while it is in flight. The series applied to the drafted entries, so a draft draws exactly as the applied batch would.
+ * @property deriveEntry - One entry's blocks — `(id, entry)` — the rows a draft is compared by, where it was made
+ * @property write - Gestures written into their entries — each request's entry, or `none` when no series takes it
+ * @property entryIds - The ids of the source's entries `[offset, offset + limit)`, `none` while in flight — how the session reads an entry back after an Apply
+ * @property ready - The author's readiness check over drafted entries, one result each, in order
+ */
+export const PlanEditingType: PlanEditingType = PlanEditingTypeImpl;
 
 
 // ============================================================================

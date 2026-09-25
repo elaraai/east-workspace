@@ -13,21 +13,23 @@
  *
  * @packageDocumentation
  */
-import { ArrayType, BlobType, East, EastTypeType, OptionType, StringType, StructType, decodeBeast2For, diffFor, encodeBeast2For, equalFor, none, some, toEastTypeValue, variant, type EastType, type ValueTypeOf } from "@elaraai/east";
+import { ArrayType, BlobType, DictType, East, EastTypeType, OptionType, StringType, StructType, decodeBeast2For, diffFor, encodeBeast2For, equalFor, none, some, toEastTypeValue, variant, type EastType, type ValueTypeOf } from "@elaraai/east";
 import {
     applyEditing, EditingAppliedTypeFor, EditingApplyResultType, EditingBaseTypeFor, EditingChangeSetTypeFor,
-    EditingChangeTypeFor, EditingPlacementType, EditingIssueType, EditingOriginType, EditingPatchEventTypeFor,
+    EditingChangeTypeFor, EditingPlacementType, EditingIssueType, EditingOriginType, EditingPatchEventTypeWith,
 } from "@elaraai/east-ui/internal";
 import { normalizeDraft, type BatchReadiness } from "./draft.js";
 import { SESSION_TEXT } from "./messages.js";
 
 // The runtime schemas remain exact. The TS algorithm treats domain payloads
-// opaquely instead of infinitely expanding PatchTypeOf<EastType>.
+// opaquely instead of infinitely expanding PatchTypeOf<EastType>; a keyed
+// source's collections are Maps where an Array source's are arrays, so the
+// algorithm reads its base and results through these widened types.
 type Opaque = StructType<Record<never, never>>;
 type Change = ValueTypeOf<ReturnType<typeof EditingChangeTypeFor<Opaque>>>;
-type Base = ValueTypeOf<ReturnType<typeof EditingBaseTypeFor<Opaque>>>;
-type Batch = ValueTypeOf<ReturnType<typeof EditingChangeSetTypeFor<Opaque>>>;
-type Applied = ValueTypeOf<ReturnType<typeof EditingAppliedTypeFor<Opaque>>>;
+type Base = ValueTypeOf<ReturnType<typeof EditingBaseTypeFor<Opaque>>> | ValueTypeOf<ReturnType<typeof EditingBaseTypeFor<Opaque, EastType>>>;
+type Batch = Omit<ValueTypeOf<ReturnType<typeof EditingChangeSetTypeFor<Opaque>>>, "base"> & { base: Base };
+type Applied = ValueTypeOf<ReturnType<typeof EditingAppliedTypeFor<Opaque>>> | ValueTypeOf<ReturnType<typeof EditingAppliedTypeFor<Opaque, EastType>>>;
 type ApplyResult = ValueTypeOf<typeof EditingApplyResultType>;
 /** An issue addressed to an entry. */
 export type EditIssue = ValueTypeOf<typeof EditingIssueType>;
@@ -88,6 +90,11 @@ export interface EditSessionBinding<W> {
     children?: string | undefined;
     /** An Array source's identity field. */
     idField?: string | undefined;
+    /**
+     * A keyed source's key type (#880): its batches are `ChangeSet(E, K)`, and
+     * an inline snapshot base is the source's `Dict<K, E>`, applied by key.
+     */
+    keyType?: EastType | undefined;
     /** The authoritative apply, over the batch's bytes. */
     apply: ((payload: Uint8Array) => ApplyResult | Promise<ApplyResult>) | undefined;
     /** The patch observer, over the event's bytes. */
@@ -154,8 +161,11 @@ export class EditSession<W> {
     private readonly encodeBatch: (value: unknown) => Uint8Array;
     private readonly encodeEvent: (value: unknown) => Uint8Array;
     private readonly cloneDraft: (value: unknown) => unknown;
-    private readonly transform: ((rows: ValueTypeOf<ArrayType<Opaque>>, batch: Batch, revision: ValueTypeOf<OptionType<StringType>>) => Applied) | undefined;
+    private readonly transform: ((collection: unknown, batch: Batch, revision: ValueTypeOf<OptionType<StringType>>) => Applied) | undefined;
     private readonly cloneBase: (value: Base) => Base;
+    private readonly baseEqual: (a: Base, b: Base) => boolean;
+    /** The source's whole collection, encoded — what an inline request's target is compared by. */
+    private readonly encodeCollection: (value: unknown) => Uint8Array;
     /** Where the latest request stands. */
     status: "idle" | "applying" | "unknown" | "reconciling" | "rejected" | "conflict" = "idle";
     /** The source's issues with the latest request. */
@@ -182,20 +192,28 @@ export class EditSession<W> {
         this.binding = binding;
         const entry = binding.entryType as Opaque;
         const draft = binding.draftType as Opaque;
-        this.transform = binding.idField === undefined ? undefined : East.compile(applyEditing(entry, binding.idField), []);
+        const keyType = binding.keyType;
+        // A keyed source is applied by key (#880); an Array source by its identity field.
+        this.transform = keyType !== undefined
+            ? East.compile(applyEditing(DictType(keyType, entry)), []) as unknown as EditSession<W>["transform"]
+            : binding.idField === undefined ? undefined : East.compile(applyEditing(entry, binding.idField), []) as unknown as EditSession<W>["transform"];
         this.draftEqual = equalFor(toEastTypeValue(OptionType(draft)));
         this.domainEqual = equalFor(toEastTypeValue(OptionType(entry)));
         this.draftDiff = diffFor(toEastTypeValue(OptionType(draft)));
         this.domainDiff = diffFor(toEastTypeValue(OptionType(entry)));
-        this.encodeBatch = encodeBeast2For(toEastTypeValue(EditingChangeSetTypeFor(entry)));
-        this.encodeEvent = encodeBeast2For(toEastTypeValue(EditingPatchEventTypeFor(entry, binding.children)));
+        this.encodeBatch = encodeBeast2For(toEastTypeValue(EditingChangeSetTypeFor(entry, keyType)));
+        // Events carry the collection's own drafts — field by field for the
+        // Sheet, whole entries for the Plan — at the exact type its wire names.
+        this.encodeEvent = encodeBeast2For(toEastTypeValue(EditingPatchEventTypeWith(entry, draft)));
         const encode = encodeBeast2For(toEastTypeValue(draft));
         const decode = decodeBeast2For(toEastTypeValue(draft));
         this.cloneDraft = value => value === undefined ? undefined : decode(encode(value));
-        const baseType = EditingBaseTypeFor(entry);
-        const encodeBase = encodeBeast2For(baseType);
-        const decodeBase = decodeBeast2For(baseType);
+        const baseType = EditingBaseTypeFor(entry, keyType);
+        const encodeBase = encodeBeast2For(baseType) as (value: Base) => Uint8Array;
+        const decodeBase = decodeBeast2For(baseType) as (bytes: Uint8Array) => Base;
         this.cloneBase = value => decodeBase(encodeBase(value));
+        this.baseEqual = equalFor(baseType) as (a: Base, b: Base) => boolean;
+        this.encodeCollection = encodeBeast2For(keyType !== undefined ? DictType(keyType, entry) : ArrayType(entry)) as (value: unknown) => Uint8Array;
     }
 
     /**
@@ -205,7 +223,10 @@ export class EditSession<W> {
      * @throws {Error} When the source or a schema changes
      */
     bind(binding: EditSessionBinding<W>): void {
-        if (!stringEqual(binding.sourceId, this.binding.sourceId) || !schemaEqual(toEastTypeValue(binding.entryType), toEastTypeValue(this.binding.entryType)) || !schemaEqual(toEastTypeValue(binding.draftType), toEastTypeValue(this.binding.draftType))) throw new Error("An editing session cannot change its source or schema");
+        const keysEqual = binding.keyType === undefined || this.binding.keyType === undefined
+            ? binding.keyType === this.binding.keyType
+            : schemaEqual(toEastTypeValue(binding.keyType), toEastTypeValue(this.binding.keyType));
+        if (!stringEqual(binding.sourceId, this.binding.sourceId) || !schemaEqual(toEastTypeValue(binding.entryType), toEastTypeValue(this.binding.entryType)) || !schemaEqual(toEastTypeValue(binding.draftType), toEastTypeValue(this.binding.draftType)) || !keysEqual) throw new Error("An editing session cannot change its source or schema");
         this.binding = binding;
     }
     /** Subscribe to every change (`useSyncExternalStore`). */
@@ -282,8 +303,7 @@ export class EditSession<W> {
      */
     observeBase(base: Base): void {
         if (this.base === undefined) { this.base = this.cloneBase(base); return; }
-        const type = EditingBaseTypeFor(this.binding.entryType as Opaque);
-        if (equalFor(type)(this.base, base)) return;
+        if (this.baseEqual(this.base, base)) return;
         if (this.locked) return; // Only reconcile() may acknowledge a submitted request.
         if (this.pending === 0) {
             this.base = this.cloneBase(base);
@@ -417,10 +437,10 @@ export class EditSession<W> {
             if (!batch.changes.length) return;
             let expected: Uint8Array | undefined;
             if (this.base.type === "snapshot") {
-                if (!this.transform) throw new Error("Inline editing requires its entry identity field");
+                if (!this.transform) throw new Error("Inline editing requires its entry identity field or its key type");
                 const result = this.transform(this.base.value, batch, none);
                 if (result.type === "conflict") { this.status = "conflict"; this.issues = result.value; this.changed(); return; }
-                expected = encodeBeast2For(ArrayType(this.binding.entryType as Opaque))(result.value);
+                expected = this.encodeCollection(result.value);
             }
             const payload = this.encodeBatch(batch);
             this.binding.gate?.acquire();
@@ -489,7 +509,7 @@ export class EditSession<W> {
         if ([...request.affected].some(id => !matches(id, this.domain(id, request.after.get(id) ?? ABSENT)))) return false;
         if (request.expected !== undefined) {
             if (base.type !== "snapshot") return false;
-            const actual = encodeBeast2For(ArrayType(this.binding.entryType as Opaque))(base.value);
+            const actual = this.encodeCollection(base.value);
             if (!blobEqual(actual, request.expected)) return false;
         }
         this.base = this.cloneBase(base); this.baseline = new Map(request.after);

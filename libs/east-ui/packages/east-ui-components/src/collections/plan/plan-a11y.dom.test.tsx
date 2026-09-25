@@ -129,7 +129,7 @@ function planRoot(rows: PlanWireRow[], opts: {
             ? some((id: PlanRowId) => variant("Text", { value: `R · ${id.value.path.join("/")}`, style: none }))
             : none,
         expandGutter: none, review: none, pick: none, slice: none, footer: [],
-        id: none, sources: [], onDrag: none, canDrop: none,
+        id: none, sources: [], editing: none, canDrop: none,
         onSelect: none,
         onElementClick: opts.onElementClick !== undefined ? some(opts.onElementClick) : none,
         onGroupToggle: none, onGrainChange: none, ui: none,

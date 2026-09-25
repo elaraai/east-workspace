@@ -84,8 +84,12 @@ import type { PlanPart } from "./messages.js";
 import {
     bodyItemKey, canvasRowsOf, derivePlan, indexRows, linkedRowKeys, pinnedRows, pxOf, rowHeight, rowItemKey, rowKeyOf,
     rowKeyWords, visibleRows,
-    type PlanRootValue, type PlanRowValue, type VisibleRow,
+    type PlanRootValue, type PlanRowIndex, type PlanRowValue, type VisibleRow,
 } from "./model.js";
+import type { RowKey } from "./plan-state.js";
+import { entryOf, usePlanEditing } from "./use-plan-editing.js";
+import { HistoryBar } from "../../editing/HistoryBar.js";
+import type { EditIssue } from "../../editing/session.js";
 import { PlanNarrow, PLAN_NARROW_BELOW } from "./narrow/index.js";
 import type { PlanNarrowPaging } from "./narrow/demand.js";
 import { LinksOverlay } from "./shell/LinksOverlay.js";
@@ -175,11 +179,11 @@ export interface EastChakraPlanProps {
 }
 
 /** Renders an East Plan value — the composite temporal canvas. */
-export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }: EastChakraPlanProps) {
+export const EastChakraPlan = memo(function EastChakraPlan({ value: hostValue, storageKey }: EastChakraPlanProps) {
     planRootRenderProbe?.();
     // Changes identity on a DATA change only — read data fields through it,
     // callbacks through `value` (#809).
-    const data = useDataStable(value, planRootDataEqual);
+    const hostData = useDataStable(hostValue, planRootDataEqual);
     // The canvas's words (#820) — its locale and message table, resolved once
     // per change and handed to every part beneath it.
     const words = useResolvedPlanWords();
@@ -197,27 +201,49 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
 
     // ── The controller — once per mount (#815) ────────────────────────────
     const [controller] = useState(() => createPlanController({
-        grain: declaredGrainOf(value),
-        collapsed: value.rows.type === "inline" ? declaredCollapsedOf(canvasRowsOf(value.rows.value)) : [],
+        grain: declaredGrainOf(hostValue),
+        collapsed: hostValue.rows.type === "inline" ? declaredCollapsedOf(canvasRowsOf(hostValue.rows.value)) : [],
         restored: persistedOf(stored),
         persist: (next) => persistTo.current(next),
         // A bound interaction state (#824) — the host's from the first frame,
         // and written from outside through the state store.
-        ui: getSomeorUndefined(value.ui),
+        ui: getSomeorUndefined(hostValue.ui),
         subscribeUi: (listener) => getStore().subscribe(listener),
     }));
     // What the live region speaks in (#820) — handed over before anything can
     // be said.
     useLayoutEffect(() => { controller.setWords(words); }, [controller, words]);
+    const paging = useControllerSelector(controller, selectPaging);
+
+    // ── The editing session (#880) ────────────────────────────────────────
+    // Every verdict and dropped card is a DRAFT of the entry its row came
+    // from, and the canvas draws the ROOT WITH THE DRAFTS IN PLACE — derived
+    // again, so a draft looks exactly as Apply will leave it. Everything
+    // below reads that root: `value` and `data` are the drafted pair.
+    // A row's name, for a transaction's label — read off the canvas below.
+    const indexRef = useRef<PlanRowIndex | undefined>(undefined);
+    const labelOf = useCallback(
+        (key: RowKey) => indexRef.current?.byKey.get(key)?.gutter.label ?? rowKeyWords(key), []);
+    const sourceRows = useMemo(
+        () => (hostData.rows.type === "inline" ? canvasRowsOf(hostData.rows.value) : paging.rows),
+        [hostData.rows, paging.rows]);
+    const editing = usePlanEditing({
+        value: hostValue, data: hostData, rows: sourceRows, origin: paging.origin, storageKey, labelOf,
+    });
+    const value = editing.value;
+    const data = editing.data;
     // Props sync. A new DATA identity reconciles the UI state (#610); the
     // render below already drew the reconciled view, so this commits what is
     // on screen and renders nothing more.
     useLayoutEffect(() => { controller.setValue(value, data); }, [controller, value, data]);
+    // A paged canvas's drafts moved under the same source: its windows are
+    // read again, the rows it has standing in until they land (#821).
+    const draftsVersion = editing.draftsVersion;
+    useLayoutEffect(() => { if (draftsVersion > 0) controller.refreshSource(); }, [controller, draftsVersion]);
     // The source's channels are listened to while the canvas is mounted.
     useEffect(() => controller.connect(), [controller]);
 
     // ── The rows: inline, or the paged source's resident ones (§3.8) ──────
-    const paging = useControllerSelector(controller, selectPaging);
     const paged = data.rows.type === "paged";
     // The inline arm is the canvas's BLOCKS (#823), one after another — the
     // stream's order is the render order (#822) — keyed for the canvas once
@@ -227,6 +253,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
         [data.rows, paging.rows],
     );
     const index = useMemo(() => indexRows(rows), [rows]);
+    indexRef.current = index;
 
     // ── The UI state the body lays out from ───────────────────────────────
     // Reconciled against the rows rendered NOW: a new value's first render
@@ -284,13 +311,24 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     // The series library (#590) — chrome, like the slice rail: the Plan feeds
     // ITSELF the picked series, so all that is left here is the panel.
     const pick = useMemo(() => getSomeorUndefined(value.pick), [value.pick]);
-    // Review chrome (#569) — ACTIONS only. The verdict is not held here: it
-    // lives wherever the author's callback wrote it and arrives back as each
-    // row's `approval`, so the buttons and the canvas cannot disagree. The
-    // verbs are the controller's, which fire the LATEST root's callbacks.
+    // Review chrome (#569) — a verdict is a DRAFT of the editing session
+    // (#880): Approve / Reject draft the row's entry with the field its series
+    // names, and Approve all / Reject all every row the canvas holds that
+    // takes one — on a paged canvas, the loaded rows. The canvas draws the
+    // draft, so the buttons and the canvas cannot disagree. Rerun changes no
+    // data: it is the controller's, which fires the LATEST root's callback.
+    const verdictRows = useMemo(() => index.rows.filter((r) => r.edits.verdict), [index]);
+    const verdictRowsRef = useRef(verdictRows);
+    verdictRowsRef.current = verdictRows;
+    const takesVerdicts = editing.enabled && verdictRows.length > 0;
+    const { verdict: draftVerdict, verdictAll: draftVerdictAll } = editing;
     const review = useMemo(
-        () => planReviewModel(getSomeorUndefined(data.review), controller),
-        [data.review, controller]);
+        () => planReviewModel(getSomeorUndefined(data.review), {
+            verdict: draftVerdict,
+            verdictAll: (v) => draftVerdictAll(v, verdictRowsRef.current),
+            rerun: controller.rerun,
+        }, { writable: editing.available, verdictRows: takesVerdicts }),
+        [data.review, draftVerdict, draftVerdictAll, controller, editing.available, takesVerdicts]);
     // What the chrome tells the truth with (#567 D9). Counted in ELEMENTS —
     // the number `total()` reports — never canvas rows, since a series can
     // emit any number of rows per element; the count is the block the
@@ -400,7 +438,9 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     const frameFills = height !== undefined || maxHeight !== undefined;
 
     // ── The drag-target role ──────────────────────────────────────────────
-    const rowDrop = usePlanDropTarget(value, data.sources, controller);
+    // A drop is a draft of the editing session (#880): the canvas is a target
+    // only while the session can take one.
+    const rowDrop = usePlanDropTarget(value, data.sources, editing.drop, editing.available);
 
     // ── The body ──────────────────────────────────────────────────────────
     const body = usePlanBody(visible, index, derived, paging, focusCtx, heightCtx, dense, chartsExpanded);
@@ -509,21 +549,38 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
         [clickable, controller]);
     // What every row of this render shares (#616: per-row facts are computed
     // from it, and each row's memo skips unless ITS facts moved).
+    const marks = editing.marks;
     const rowCtx = useMemo<PlanRowContext>(() => ({
         styles, gridTemplate, dense, storageKey, index, derived,
         dispatch: controller.dispatch, chartsExpanded, focusCtx, heightCtx, linkFamily, linkedKeys,
-        canExpand, expandBody, expandGutterBody, partial: transport?.partial, review, rowDrop,
+        canExpand, expandBody, expandGutterBody, partial: transport?.partial, review, rowDrop, marks,
     }), [styles, gridTemplate, dense, storageKey, index, derived, controller, chartsExpanded,
-        focusCtx, heightCtx, linkFamily, linkedKeys, canExpand, expandBody, expandGutterBody, transport, review, rowDrop]);
+        focusCtx, heightCtx, linkFamily, linkedKeys, canExpand, expandBody, expandGutterBody, transport, review, rowDrop, marks]);
 
     // The resolution segment is a TIME-axis affordance; the now instant rides
     // whichever arm the axis declares.
     const resolutions = useMemo(() => axisResolutions(data.axis), [data.axis]);
     const now = useMemo(() => axisNow(data.axis), [data.axis]);
-    // The batch foot's buttons, in the canvas's words (#820).
+    // The batch foot's buttons, in the canvas's words (#820) — on a paged
+    // canvas they cover the loaded rows, and say how many (#880).
+    const loadedVerdicts = verdictRows.length;
     const footLabels = useMemo(
-        () => ({ approveAll: words.m.approveAll(), rejectAll: words.m.rejectAll() }),
-        [words]);
+        () => (paged
+            ? {
+                approveAll: words.m.approveLoaded({ n: loadedVerdicts, count: words.number(loadedVerdicts) }),
+                rejectAll: words.m.rejectLoaded({ n: loadedVerdicts, count: words.number(loadedVerdicts) }),
+            }
+            : { approveAll: words.m.approveAll(), rejectAll: words.m.rejectAll() }),
+        [words, paged, loadedVerdicts]);
+    // The history bar (#880) — in the toolbar, and the narrow layout's chips.
+    // An issue takes the reader to its entry's first row on the canvas.
+    const onIssue = useCallback((issue: EditIssue) => {
+        const row = index.rows.find((r) => entryOf(r.id) === issue.entry);
+        if (row !== undefined) controller.focusItem(rowItemKey(row.key), "auto");
+    }, [index, controller]);
+    const history = editing.enabled
+        ? <HistoryBar session={editing.session} words={words} editing={false} onAction={editing.action} onIssue={onIssue} />
+        : undefined;
 
     // ── The treegrid (#819) ───────────────────────────────────────────────
     // Every item's place in the grid — the pinned rows first — published to
@@ -627,7 +684,8 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                 : undefined}
             linkCounts={linkFamily !== undefined
                 ? { upstream: linkFamily.upstream.size, downstream: linkFamily.downstream.size }
-                : undefined} />
+                : undefined}
+            history={history} />
     );
 
     // ── The grid's keys (#819, `root/keyboard.ts`) ────────────────────────
@@ -762,6 +820,14 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
         // Escape (its layer listens on the document, ahead of the canvas), a
         // widget in an expand render, a nested canvas's own ladder.
         if (e.defaultPrevented) return;
+        // The history keys (#880), as on the Sheet: ⌘Z / Ctrl+Z undo;
+        // ⌘⇧Z / Ctrl+Shift+Z and Ctrl+Y redo.
+        const letter = e.key.toLowerCase();
+        if (editing.enabled && (e.metaKey || e.ctrlKey) && !e.altKey && (letter === "z" || letter === "y")) {
+            e.preventDefault();
+            editing.action(e.shiftKey || letter === "y" ? "redo" : "undo");
+            return;
+        }
         // An open popover is the ladder's top rung.
         if (e.key === "Escape" && overlayHandlers.onKeyDown(e)) return;
         if (gridKeys(e, bodyEl)) return;
@@ -837,7 +903,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                         expandBody={expandBody} expandGutterBody={expandGutterBody}
                         canExpand={canExpand} partial={transport?.partial} fill={frameFills}
                         diagnostics={diagnostics} failures={paging.failures} onRetry={controller.retry}
-                        paging={narrowPaging}
+                        paging={narrowPaging} history={history} marks={marks}
                     />
                 ) : (
                     <VirtualRows

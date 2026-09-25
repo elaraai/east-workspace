@@ -123,9 +123,14 @@ export function rowItem(key: string, series?: string): string {
  *  objects, and their memos). */
 const blocksOfRows = new WeakMap<readonly unknown[], PlanWireBlock[]>();
 
+/** The gestures a row takes when its series declares none (#880) — the IR's
+ *  own default (`planRow`), which a hand-built row omits. */
+export const NO_EDITS = { verdict: false, drop: false } as const;
+
 /**
  * A test's rows as the canvas the IR carries (#823) — ONE paged block of them,
- * at the top of the canvas.
+ * at the top of the canvas. A row that says nothing of the gestures it takes
+ * takes none, as the IR's rows do (#880).
  *
  * @param rows - The rows, in stream order
  * @returns The canvas's blocks
@@ -133,7 +138,8 @@ const blocksOfRows = new WeakMap<readonly unknown[], PlanWireBlock[]>();
 export function oneBlock(rows: readonly unknown[]): PlanWireBlock[] {
     let blocks = blocksOfRows.get(rows);
     if (blocks === undefined) {
-        blocks = [{ fixed: false, parent: none, rows: rows as PlanWireRow[] } as unknown as PlanWireBlock];
+        const complete = rows.map((row) => ("edits" in (row as object) ? row : { ...(row as object), edits: NO_EDITS }));
+        blocks = [{ fixed: false, parent: none, rows: complete as PlanWireRow[] } as unknown as PlanWireBlock];
         blocksOfRows.set(rows, blocks);
     }
     return blocks;

@@ -111,7 +111,7 @@ function planRoot(body: PlanWireRow[], opts?: { source?: unknown; slice?: unknow
         }),
         grain: none, popover: none, hover: none, expandRender: none, review: none, pick: none,
         slice: opts?.slice ?? none, footer: [],
-        id: none, sources: [], onDrag: none, canDrop: none,
+        id: none, sources: [], editing: none, canDrop: none,
         onSelect: none, onElementClick: none,
         onGroupToggle: none, onGrainChange: none, ui: none,
         style: some({ height: some(`${VIEWPORT}px`), maxHeight: none, density: none, gutterWidth: none }),

@@ -36,6 +36,11 @@ export const rowsBase = {
         borderBottomWidth: "var(--plan-rule-h)",
         borderBottomColor: "border.subtle",
         background: "bg.surface",
+        // A drafted row (#880) — the Sheet's marks: an 8 % warn wash while a
+        // draft of its entry changed it, danger while a check refuses the
+        // entry. Before the selection tint, which wins over both.
+        "&[data-draft]": { background: "color-mix(in oklch, {colors.status.warn} 8%, {colors.bg.surface})" },
+        "&[data-invalid]": { background: "color-mix(in oklch, {colors.status.neg} 8%, {colors.bg.surface})" },
         // Selection tint — the one selection colour.
         "&[data-selected]": { background: "{colors.brandTint}" },
         // Table-row emphasis (K5): footer = 2px top rule; header = panel wash.

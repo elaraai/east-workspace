@@ -22,7 +22,7 @@ import { UIStore } from "../../platform/state-store.js";
 import { EastChakraPlan, type PlanRootValue } from "./index.js";
 import type { PlanRowId, PlanWireRow } from "./model.js";
 import type { PlanInstantValue } from "./instant.js";
-import { blocksSource, oneBlock, rowId, rowSel, sectionId, sectionSel, testKeyOf } from "./plan.test-utils.js";
+import { NO_EDITS, blocksSource, oneBlock, rowId, rowSel, sectionId, sectionSel, testKeyOf } from "./plan.test-utils.js";
 
 // A canvas persists its toggles under its storageKey (#813), and several tests
 // share one — nothing may carry from one test to the next.
@@ -74,7 +74,8 @@ function gutter(label: string, opts?: { sub?: string; value?: string; meta?: str
 
 /** One WIRE row, as the source serves it — named by its test key (#822), or
  *  by an explicit `id` (a section header's), and nested under a parent named
- *  by its test key or by its `parentId`. */
+ *  by its test key or by its `parentId`. It takes no gesture (#880): one test
+ *  hands its blocks to the canvas without `oneBlock`. */
 function planRow(key: string, kind: unknown, opts?: { id?: PlanRowId; parent?: string; parentId?: PlanRowId; gutter?: unknown; expand?: unknown; collapsed?: boolean }): PlanWireRow {
     return {
         id: opts?.id ?? rowId(key),
@@ -85,6 +86,7 @@ function planRow(key: string, kind: unknown, opts?: { id?: PlanRowId; parent?: s
         collapsed: opts?.collapsed === true,
         pinned: false, height: none, status: none, approval: none,
         expand: opts?.expand !== undefined ? some(opts.expand) : none,
+        edits: NO_EDITS,
     } as unknown as PlanWireRow;
 }
 
@@ -116,7 +118,7 @@ function planRoot(rows: PlanWireRow[], opts?: { footer?: unknown[]; now?: Date |
         pick: opts?.pick !== undefined ? some(opts.pick) : none,
         slice: opts?.slice ?? none,
         footer: opts?.footer ?? [],
-        id: none, sources: [], onDrag: none, canDrop: none,
+        id: none, sources: [], editing: none, canDrop: none,
         onSelect: none,
         onElementClick: opts?.onElementClick !== undefined ? some(opts.onElementClick) : none,
         onGroupToggle: none, onGrainChange: none, ui: opts?.ui !== undefined ? some(opts.ui) : none,

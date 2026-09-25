@@ -27,8 +27,7 @@ import {
 
 import { UIComponentType } from "../../component.js";
 import { PickBindType } from "../../contracts/pick.js";
-import { reviewType, type ReviewStructType } from "../../contracts/approval.js";
-import { CanDropFnType, DragEventType } from "../../contracts/drag.js";
+import { CanDropFnType } from "../../contracts/drag.js";
 import { SliceChromeType } from "../../platform/slice/index.js";
 import {
     PlanAxisType,
@@ -41,6 +40,7 @@ import {
     PlanFooterItemType,
     PlanStyleType,
     PlanUiBindType,
+    PlanEditingType,
 } from "./types.js";
 
 // ============================================================================
@@ -48,10 +48,29 @@ import {
 // ============================================================================
 
 /**
- * The Plan review config — the shared review contract at the row's id
- * ({@link PlanRowIdType}, #822).
+ * The Plan's review chrome (#880) — the decision column's header, the foot's
+ * summary and its Rerun.
+ *
+ * @remarks
+ * A verdict is a GESTURE of the root's editing session: the series whose rows
+ * are reviewed names the field it writes (`review.verdict`), Approve / Reject
+ * on a row and Approve all / Reject all over the canvas draft the entries,
+ * and Apply sends them as one checked batch. So the chrome carries no verdict
+ * callbacks — the shared contract's (`reviewType`) stay with Table, Roster
+ * and Board until they adopt a session. Rerun changes no data, so it stays a
+ * callback.
+ *
+ * @property columnLabel - The decision column's header (`"Decision"` by default)
+ * @property summary - The foot's eyebrow — a host-composed component
+ * @property onRerun - The Rerun verb (absent ⇒ no Rerun button)
+ * @property rerunLabel - The Rerun button's label (`"Rerun"` by default)
  */
-export const PlanReviewType: ReviewStructType<PlanRowIdType, UIComponentType> = reviewType(PlanRowIdType, UIComponentType);
+export const PlanReviewType = StructType({
+    columnLabel: StringType,
+    summary:     OptionType(UIComponentType),
+    onRerun:     OptionType(FunctionType([], NullType)),
+    rerunLabel:  StringType,
+});
 /** Type alias for {@link PlanReviewType}. */
 export type PlanReviewType = typeof PlanReviewType;
 
@@ -90,14 +109,17 @@ export const PlanRootType = StructType({
     // canvas. Same shape as `expandRender`, over the same row id.
     expandGutter: OptionType(FunctionType([PlanRowIdType], UIComponentType)),
     review: OptionType(PlanReviewType),
+    // The editing session (#880) — every verdict and every dropped card is a
+    // draft, applied as one checked batch.
+    editing: OptionType(PlanEditingType),
     pick: OptionType(PickBindType),
     slice: OptionType(SliceChromeType),
     footer: ArrayType(PlanFooterItemType),
-    // DnD target role — the shared grammar verbatim (contracts/drag.ts); no
-    // id, no drop target (#824 — it used to be `""`).
+    // DnD target role — the shared grammar (contracts/drag.ts); no id, no
+    // drop target (#824 — it used to be `""`). A drop is a gesture of the
+    // editing session (#880); `canDrop` vets it first.
     id: OptionType(StringType),
     sources: ArrayType(StringType),
-    onDrag: OptionType(FunctionType([DragEventType], NullType)),
     canDrop: OptionType(CanDropFnType),
     // Selection + the one element click (#824).
     onSelect: OptionType(FunctionType([PlanRowIdType], NullType)),

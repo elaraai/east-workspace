@@ -36,6 +36,7 @@ function planRow(key: string, kind: unknown = span(), parent?: string, series?: 
         gutter: { label: key, id: false, sub: none, value: none, meta: none, stacked: false, swatches: [] },
         kind,
         collapsed: false, pinned: false, height: none, status: none, approval: none, expand: none,
+        edits: { verdict: false, drop: false },
     } as unknown as PlanWireRow;
 }
 
@@ -49,8 +50,8 @@ function root(rows: PlanWireRow[], opts: Partial<Record<string, unknown>> = {}):
             window: some({ min: W27, max: W39 }), resolution: variant("week", null),
             resolutions: [variant("week", null), variant("day", null)], now: none, format: none,
         }),
-        grain: none, popover: none, hover: none, expandRender: none, expandGutter: none, review: none, pick: none,
-        slice: none, footer: [], id: none, sources: [], onDrag: none, canDrop: none,
+        grain: none, popover: none, hover: none, expandRender: none, expandGutter: none, review: none, editing: none, pick: none,
+        slice: none, footer: [], id: none, sources: [], canDrop: none,
         onSelect: none, onElementClick: none, onGroupToggle: none, onGrainChange: none, ui: none, style: none,
         ...opts,
     } as unknown as PlanRootValue;
@@ -295,19 +296,32 @@ describe("the open element overlay", () => {
 });
 
 describe("the author's callbacks", () => {
-    test("every element click reaches the ONE onElementClick with its ref; a drop reports to onDrag — after the handler (#824)", async () => {
+    test("every element click reaches the ONE onElementClick with its ref — after the handler (#824)", async () => {
         const calls: string[] = [];
         const { c } = show(root(ROWS, {
             onElementClick: some((ref: { type: string; value: { key?: string } }) => { calls.push(`${ref.type}${ref.value.key !== undefined ? ` ${ref.value.key}` : ""}`); }),
-            onDrag: some(() => { calls.push("drag"); }),
         }));
         c.elementClick(variant("event", { row: rowId("r1"), event: "e1" }) as never);
         c.elementClick(variant("run", { row: rowId("r1"), run: "x1" }) as never);
         c.elementClick(variant("link", { key: "t1", from: { row: rowId("r1"), run: "x1" }, to: { row: rowId("r2"), run: "y1" } }) as never);
-        c.drop({} as never);
         expect(calls).toEqual([]);
         await microtasks();
-        expect(calls).toEqual(["event", "run", "link t1", "drag"]);
+        expect(calls).toEqual(["event", "run", "link t1"]);
+    });
+
+    test("Rerun reaches the LATEST root's review.onRerun after the handler — the one review verb that stays a callback (#880)", async () => {
+        const calls: string[] = [];
+        const reviewOf = (tag: string) => some({
+            columnLabel: "Decision", summary: none, rerunLabel: "Rerun",
+            onRerun: some(() => { calls.push(tag); }),
+        });
+        const first = root(ROWS, { review: reviewOf("first") });
+        const { c } = show(first);
+        c.setValue(root(ROWS, { review: reviewOf("latest") }), first);
+        c.rerun();
+        expect(calls).toEqual([]);
+        await microtasks();
+        expect(calls).toEqual(["latest"]);
     });
 
     test("with no onElementClick declared, a click reports to no one", async () => {
@@ -319,33 +333,22 @@ describe("the author's callbacks", () => {
 });
 
 describe("payloads name rows by their typed id (#822)", () => {
-    test("onSelect, onGroupToggle and the review callbacks receive the row's id — never its key", async () => {
+    test("onSelect and onGroupToggle receive the row's id — never its key", async () => {
         const selected: PlanRowId[] = [];
         const toggled: { row: PlanRowId; expanded: boolean }[] = [];
-        const approved: PlanRowId[] = [];
-        const rejected: PlanRowId[] = [];
         const { c } = show(root(ROWS, {
             onSelect: some((id: PlanRowId) => { selected.push(id); }),
             onGroupToggle: some((e: { row: PlanRowId; expanded: boolean }) => { toggled.push(e); }),
-            review: some({
-                onApprove: some((id: PlanRowId) => { approved.push(id); }),
-                onReject: some((id: PlanRowId) => { rejected.push(id); }),
-                onApproveAll: none, onRejectAll: none, onRerun: none,
-            }),
         }));
         c.dispatch({ t: "row.select", key: rowKey("r2") });
         c.dispatch({ t: "group.toggle", key: rowKey("G") });
-        c.approveRow(rowKey("r1"));
-        c.rejectRow(rowKey("r3"));
         await microtasks();
         expect(selected).toHaveLength(1);
         expect(rowIdEqual(selected[0]!, rowId("r2"))).toBe(true);
+        expect(nameOf(selected[0]!)).toBe("r2");
         expect(toggled).toHaveLength(1);
         expect(rowIdEqual(toggled[0]!.row, rowId("G"))).toBe(true);
         expect(toggled[0]!.expanded).toBe(false);
-        expect(approved.map(nameOf)).toEqual(["r1"]);
-        expect(rejected.map(nameOf)).toEqual(["r3"]);
-        expect(rowIdEqual(approved[0]!, rowId("r1"))).toBe(true);
     });
 
     test("a repeated id's row still names the id it repeats", async () => {
@@ -792,6 +795,29 @@ describe("a new source revision (#821)", () => {
         expect(c.getSnapshot().scroll.targetKey).toBe(rowKey("e2", "jobs"));
         // The labels are the elements, each once, in key order from the key.
         expect(await c.search.listRange(0, 3)).toEqual(["e2", "e3"]);
+    });
+
+    test("refreshSource reads the windows again at the revision the source names NOW — no channel fired (#880)", () => {
+        // A drafted canvas's source: its content moves with the drafts under
+        // the same source, and says so only through its revision.
+        const state = { revision: "A", tag: "a" };
+        const source = {
+            id: "c880-drafted",
+            page: (offset: bigint) => some([planRow(`w${Number(offset) / PLAN_PAGE_SIZE}${state.tag}`)]),
+            total: () => some(1n),
+            seek: none,
+            revision: () => some(state.revision),
+            refresh: () => null,
+        };
+        const { c, notified } = show(root([], { source }));
+        expect(c.getSnapshot().paging.rows.map((r) => r.key)).toEqual([rowKey("w0a")]);
+        state.revision = "B";
+        state.tag = "b";
+        const n = notified();
+        c.refreshSource();
+        expect(c.getSnapshot().paging.revision).toBe("B");
+        expect(c.getSnapshot().paging.rows.map((r) => r.key)).toEqual([rowKey("w0b")]);
+        expect(notified()).toBe(n + 1);
     });
 
     test("the first revision a source names is not a move — a search asked before it survives", async () => {

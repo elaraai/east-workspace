@@ -64,13 +64,15 @@ export interface PlanHeaderProps {
     focusLabel: string | undefined;
     /** Family sizes under a links focus. */
     linkCounts: { upstream: number; downstream: number } | undefined;
+    /** The editing session's history bar (#880), when the canvas declares editing. */
+    history?: ReactNode;
 }
 
 /** The sticky header band. */
 export function PlanHeader({
     styles, gridTemplate, headerRef, chrome, slice, affordances, resolution, resolutions, grain,
     transport, search, pick, diagnostics, now, rulerCaption, cursorChipRef, reviewLabel,
-    pinned, pinnedId, focus, focusLabel, linkCounts,
+    pinned, pinnedId, focus, focusLabel, linkCounts, history,
 }: PlanHeaderProps) {
     return (
         <Box background="bg.surface" ref={headerRef} data-plan-header>
@@ -80,12 +82,14 @@ export function PlanHeader({
                 `seek` whether or not a slice was ever bound, so the bar mounts
                 for either reason. The series library (#590) is the same
                 argument again, the diagnostics (#811) — a canvas that carried
-                on past a failure must say so, slice or no slice — and the
-                grain segment (#632), which folds the canvas's own groups. */}
-            {(chrome || search !== undefined || pick !== undefined || hasDiagnostics(diagnostics) || grain !== undefined) && (
+                on past a failure must say so, slice or no slice — the grain
+                segment (#632), which folds the canvas's own groups, and the
+                history bar (#880), which a canvas that edits must show. */}
+            {(chrome || search !== undefined || pick !== undefined || hasDiagnostics(diagnostics) || grain !== undefined
+                || history !== undefined) && (
                 <PlanToolbar styles={styles} slice={slice} affordances={affordances}
                     resolution={resolution} resolutions={resolutions} grain={grain}
-                    transport={transport} search={search} pick={pick} diagnostics={diagnostics} />
+                    transport={transport} search={search} pick={pick} diagnostics={diagnostics} history={history} />
             )}
             {/* The brush mounts only where the slice's range domain speaks the
                 axis's arm — the band decides that itself (#631). */}

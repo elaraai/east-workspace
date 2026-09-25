@@ -36,7 +36,8 @@ import { KindPlot } from "./KindPlot.js";
 import { PlanPartBoundary } from "./PartBoundary.js";
 import { RowDiagnostic } from "./RowDiagnostic.js";
 import { rowToggle } from "./row-facts.js";
-import { PlanDecisionCell, tagOf, type PlanReview } from "../shell/Review.js";
+import { PlanDecisionCell, hasDecision, tagOf, type PlanReview } from "../shell/Review.js";
+import type { PlanDraftMark } from "../use-plan-editing.js";
 import { usePlanRowState } from "../controller/react.js";
 import { usePlanGridRow } from "../root/grid.js";
 import { statusText } from "../a11y.js";
@@ -67,7 +68,9 @@ type Styles = Record<string, Record<string, unknown>>;
  *   for a row inside it.
  *
  * A canvas narrows further with `canDrop` — this set is what is structurally
- * possible, the predicate is what this particular canvas permits.
+ * possible, the predicate is what this particular canvas permits. And a row
+ * takes a card only where its series declares where one lands (`edit`,
+ * #880): its row arrives flagged `edits.drop`, and the drop drafts its entry.
  */
 export const DROPPABLE_KINDS: ReadonlySet<string> = new Set(["span", "buckets", "events", "cards"]);
 
@@ -105,6 +108,8 @@ export interface PlanBodyRowProps {
     review: PlanReview | undefined;
     /** The shared drop registration, when the canvas is a drag target. */
     rowDrop: PlanRowDrop | undefined;
+    /** The row's draft mark, when a draft of its entry changed it (#880). */
+    draft: PlanDraftMark | undefined;
     /** Focal-row extras (only ever passed to the focal row). */
     expandBody?: ReactNode;
     expandGutter?: ReactNode;
@@ -163,7 +168,7 @@ function sameBodyRow(a: PlanBodyRowProps, b: PlanBodyRowProps): boolean {
 export const PlanBodyRow = memo(function PlanBodyRow({
     v, h, styles, gridTemplate, hasChildren, derived,
     dispatch, focusRole, focusTag, axisMode,
-    showLinksControl, showExpandControl, partial, review, rowDrop,
+    showLinksControl, showExpandControl, partial, review, rowDrop, draft,
     expandBody, expandGutter, bandHeight,
 }: PlanBodyRowProps) {
     bodyRowRenderProbe?.(v.row.key);
@@ -242,14 +247,19 @@ export const PlanBodyRow = memo(function PlanBodyRow({
             bandHeight,
             ...(expandGutter !== undefined ? { expandGutter } : {}),
         } : {}),
-        decision: review !== undefined && review.hasRowVerbs
-            ? <PlanDecisionCell rowKey={v.row.key} tag={tagOf(v.row)} review={review} grid />
+        // A verdict is drafted on a row whose series names the field it
+        // writes; a row that only shows one draws it with the buttons off.
+        decision: review !== undefined && hasDecision(v.row)
+            ? <PlanDecisionCell rowKey={v.row.key} tag={tagOf(v.row)} enabled={review.writable && v.row.edits.verdict}
+                review={review} grid />
             : undefined,
         // Only the kinds that hold droppable objects register a cell —
         // a chart / heat / table row is inert to a drag by construction,
-        // not by predicate (see `DROPPABLE_KINDS`). A diagnostic row places
-        // nothing, so nothing can land on it either.
-        drop: DROPPABLE_KINDS.has(kind.type) && diagnostic === undefined ? rowDrop : undefined,
+        // not by predicate (see `DROPPABLE_KINDS`) — and of those, only a
+        // row whose series declares where a card lands (#880). A diagnostic
+        // row places nothing, so nothing can land on it either.
+        drop: DROPPABLE_KINDS.has(kind.type) && v.row.edits.drop && diagnostic === undefined ? rowDrop : undefined,
+        draft,
         grid,
     } as const;
     // The per-kind SHELL differences — caret, toggle, emphasis, the chart's

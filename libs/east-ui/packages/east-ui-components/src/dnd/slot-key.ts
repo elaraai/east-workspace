@@ -17,7 +17,11 @@
  * @packageDocumentation
  */
 
-import type { PlanInstantValue } from "../collections/plan/instant.js";
+import { DateTimeType, FloatType, parseFor, variant } from "@elaraai/east";
+import type { PlanAxisKind, PlanInstantValue } from "../collections/plan/instant.js";
+
+const parseDateTimeSlot = parseFor(DateTimeType);
+const parseFloatSlot = parseFor(FloatType);
 
 /**
  * Encode a datetime instant as a drag-grammar slot key.
@@ -47,5 +51,30 @@ export function toPlanSlot(t: PlanInstantValue): string {
         case "time": return toEastDateTimeSlot(t.value);
         case "number": return String(t.value);
         case "ordinal": return t.value;
+    }
+}
+
+/**
+ * Read a drag-grammar slot key back as the Plan instant it names, per the
+ * axis arm — the inverse of {@link toPlanSlot}, parsed as East parses it
+ * (`slot.parse(DateTimeType)` / `slot.parse(FloatType)`, or the ordinal value
+ * itself). What a dropped card's draft is made at (#880).
+ *
+ * @param kind - The axis kind the slot was spelled for
+ * @param slot - The slot key
+ * @returns The instant, or `undefined` when the text is not one of that kind
+ */
+export function fromPlanSlot(kind: PlanAxisKind, slot: string): PlanInstantValue | undefined {
+    switch (kind) {
+        case "time": {
+            const parsed = parseDateTimeSlot(slot);
+            return parsed.success ? variant("time", parsed.value) as PlanInstantValue : undefined;
+        }
+        case "number": {
+            const parsed = parseFloatSlot(slot);
+            return parsed.success ? variant("number", parsed.value) as PlanInstantValue : undefined;
+        }
+        case "ordinal":
+            return variant("ordinal", slot) as PlanInstantValue;
     }
 }

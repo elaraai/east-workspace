@@ -105,7 +105,8 @@ const machineId = (key: string) => variant("entry", { series: "machines", path: 
 /** The row's element: `data-plan-row` holds its id's canonical text. */
 const machineRow = (key: string) => `[data-plan-row=${JSON.stringify(printFor(Plan.Types.RowId)(machineId(key)))}]`;
 
-/** A canvas row per machine — what the series pipeline would derive. */
+/** A canvas row per machine — what the series pipeline would derive; its
+ *  series declares no gesture (#880). */
 function rowOf(key: string, label: string): ValueTypeOf<typeof Plan.Types.Row> {
     return {
         id: machineId(key),
@@ -119,6 +120,7 @@ function rowOf(key: string, label: string): ValueTypeOf<typeof Plan.Types.Row> {
             decisions: [], ports: [], rollup: none,
         }),
         collapsed: false, pinned: false, height: none, status: none, approval: none, expand: none,
+        edits: { verdict: false, drop: false },
     } as unknown as ValueTypeOf<typeof Plan.Types.Row>;
 }
 
@@ -153,7 +155,7 @@ function planOver(handle: Record<string, unknown>): PlanRootValue {
             resolutions: [], now: none, format: none,
         }),
         grain: none, popover: none, hover: none, expandRender: none, expandGutter: none, review: none, pick: none,
-        slice: none, footer: [], id: none, sources: [], onDrag: none, canDrop: none,
+        slice: none, footer: [], id: none, sources: [], editing: none, canDrop: none,
         onSelect: none, onElementClick: none,
         onGroupToggle: none, onGrainChange: none, ui: none, style: none,
     } as unknown as PlanRootValue;

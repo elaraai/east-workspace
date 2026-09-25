@@ -65,6 +65,15 @@ declaration reorders its fields around the shared ones. See
 [One editing session (#879)](#one-editing-session-879) below. Stored
 `UIComponentType` values re-emit; no Sheet author changes a line.
 
+**#880 breaks the Plan wire again**, with its authoring API: every change on
+the canvas is a draft of that editing session. The review verbs and `onDrag`
+leave the root for `editing`, a series carries its writer, and a row says
+which gestures it takes. The shared session's `keyed` flag becomes the key
+type, so a Sheet's editing declaration changes on the wire too, though no
+Sheet author changes a line. See
+[Every change is a draft (#880)](#every-change-is-a-draft-880) below. Stored
+`UIComponentType` values re-emit.
+
 The public API break alongside it: the `Gantt` / `Planner` / `AlignedStack`
 exports (tags, factories, `*.Types`) are gone from `@elaraai/east-ui` and
 `@elaraai/east-ui/internal`, as are `EastChakraGantt` / `EastChakraPlanner`
@@ -94,7 +103,7 @@ same rows whether its data is inline or paged.
 | `PlanRowType.collapsed` | on the `group` kind only | on the row — any row with children may start collapsed; the `group` kind is `{ summary, summaryAggregate }` |
 | `PlanRowIdType` | — | `Variant { entry: { series, path: Array<String> }, section: { series, path } }` |
 | click payloads (`Run` / `Event` / `Mark` / `Chip` / `Cell` — since #824 the arms of `ElementRef`), `GroupToggleEvent` | `row: String` | `row: PlanRowIdType` |
-| `onSelect`, review `onApprove` / `onReject`, `expandRender`, `expandGutter` | `PlanRowRefType` (`{ key }`) | `PlanRowIdType` — `PlanRowRefType` / `Plan.Types.RowRef` are removed |
+| `onSelect`, review `onApprove` / `onReject`, `expandRender`, `expandGutter` | `PlanRowRefType` (`{ key }`) | `PlanRowIdType` — `PlanRowRefType` / `Plan.Types.RowRef` are removed; since #880 review has no per-row callbacks (a verdict is a draft) |
 | `PlanLinkType.fromRow` / `toRow` | `String` | `PlanRowIdType` — since #824 the `row` of the link's `from` / `to` (`PlanRunRefType`) |
 | `Plan.Types.Series(R)` | 9 arms; `derive: Fn(Dict<String, R>) → Dict<String, PlanRow>` | 11 arms (`+ section`, `views`); `derive: Fn(Dict<K, R>) → Array<PlanRow>`; `Plan.Types.Series(R, K)` for a key type other than String |
 | drag `CellRef.row` | the row key | still a `String` — the row id's canonical `.east` text (`East.print(Plan.ref(…))`), so the shared drag grammar is unchanged in shape |
@@ -115,7 +124,7 @@ path.
 | `keySuffix` (`"m03"` → `"m03/chart"`) and `keyPrefix` | `Plan.series.views(R, { key, title, match?, children?, collapsed? }, [series…])` — one row per member per entry, adjacent and in order; each row's id is its MEMBER's key and the entry's path, and a seek on the entry lands on its first view row | `planLibraryDnd`, `planFill` |
 | numbered keys to force a layout (`"10-line1"`, `"40-crewA"`) | order the series list — each series is one block, top to bottom | `planTargetState` |
 | `Plan.link({ from: "m03", to: "m04", … })` | `Plan.link({ from: Plan.ref("machines", "m03"), to: Plan.ref("machines", "m04"), … })` | `planSpanRows` |
-| `{ key }` / a row key String in a callback | the `Plan.Types.RowId`: compare with `East.equal(ev.row, Plan.ref(…))`, or read the entry's key with `id.unwrap("entry").path.get(0n)` | `planTargetState`, `planReview`, `planExpand` |
+| `{ key }` / a row key String in a callback | the `Plan.Types.RowId`: compare with `East.equal(ev.row, Plan.ref(…))`, or read the entry's key with `id.unwrap("entry").path.get(0n)` | `planTargetState`, `planExpand` |
 | a drop's `into.row` equal to the data key | the id's text — key host tables by `East.print(Plan.ref(series, …path))` (an id is a variant, so it cannot be a `Dict` key itself), or read it back with `row.parse(Plan.Types.RowId)` | `planRowDrop` |
 | `Plan.pick(key, all, { data, hidden })` — per-series row counts | `Plan.pick(key, all, { hidden })` — the library lists series by title, subtitle and kind icon; a count means something only with every entry in hand | `planPick`, `planLibraryDnd` |
 | fit-to-data — an axis with no `window` and no bound slice fitted itself to the rows (inline only) | state `axis.window`, or bind a slice whose range supplies it. Written in place, the canvas is refused at build; a bound or stored axis draws the `NO WINDOW` diagnostic. A slice-bound canvas with no stated window takes its window from the slice's range — the Plan's own brush then cannot clear it (other slice chrome still can). | `planTargetState`, `planNumberAxis` |
@@ -338,6 +347,86 @@ and each is the same value: `Sheet.apply === Editing.apply`, and
   message table carries the editing session's words (`EditingMessages`), so
   a `SheetMessagesProvider` still translates the Sheet's history bar.
 
+## Every change is a draft (#880)
+
+Before #880 the Plan handed every change straight to the host: a verdict
+called the review callbacks, and a card dropped on a row called `onDrag`. The
+canvas drew nothing where a change was made, could undo nothing, and checked
+no batch before it reached the source. Now every verdict and every dropped
+card is a draft in the Sheet's editing session (#879), over the source's
+top-level entries. A draft is drawn where it was made, undone from the
+history bar or the keyboard, and applied as one checked batch.
+
+### The wire
+
+| Type | Before | After |
+|---|---|---|
+| `PlanReviewType` (`Plan.Types.Review`) | the shared review contract at the row id: `{ columnLabel, summary, onApprove, onReject, onApproveAll, onRejectAll, onRerun, rerunLabel }` | `{ columnLabel, summary, onRerun, rerunLabel }`. Table, Roster and Board keep the shared contract's callbacks |
+| root `onDrag` | `Option<Fn(DragEvent) → Null>` | removed — a drop is a gesture of `editing` |
+| root `editing` | — | `Option<PlanEditingType>` (`Plan.Types.Editing`): the shared session's fields (`EditingSessionFields`), then the canvas's own — `derive`, `deriveEntry`, `write`, `entryIds`, `ready`. Entries cross as bytes, so the arm stays a closed type |
+| `PlanRowType.edits` | — | `PlanRowEditsType` (`Plan.Types.RowEdits`) = `{ verdict: Boolean, drop: Boolean }` — the gestures a row takes |
+| `Plan.Types.Series(R, K)`, every arm | `{ key, title, subtitle, icon, derive }` | adds `write: Fn(R, K, RowId, Gesture) → Option<R>` — a gesture on one of its rows, written into the entry — so a stored or picked list carries its writer |
+| `PlanGestureType` (`Plan.Types.Gesture`) | — | `verdict(ApprovalState) \| drop(PlanDrop)` |
+| `PlanDropType` (`Plan.Types.Drop`) | — | `{ from: LibraryRef, row: RowId, at: Instant, duplicate: Boolean }` |
+| `Plan.Types.PatchEvent(R)` | — | the shared patch event over whole-entry drafts — what `editing.onPatch` receives |
+| `EditingSessionFields` (a Sheet's and a Plan's `editing`) | `keyed: Boolean` | `keyType: Option<EastTypeType>` — the key type of a keyed source. A keyed paged Sheet's batches travel keyed and are restated as the author's `ChangeSet(R)` |
+
+### Removals and their replacements
+
+| Removed | Replacement | Example |
+|---|---|---|
+| `review={{ onApprove, onReject }}` | name the entry's `ApprovalStateType` field on the reviewed series — `review: { verdict: "approval" }` — and give the root `editing`. Approve / Reject draft the entry with the field set, and the row shows the field as its approval | `planReview`, `planEditing` |
+| `review={{ onApproveAll, onRejectAll }}` | nothing more: Approve all / Reject all is one gesture over every row the canvas holds that takes a verdict — on a paged canvas the loaded rows, and the foot says how many | `planReview` |
+| `onDrag={fn(DragEvent)}` | `edit: { items, create }` on each series a card may land on (span / buckets / cards / events): `items` names the entry's `Array` field, and `create` builds the item from the `Plan.Types.Drop`, the entry and its key. `onPatch` observes the gesture; `onApply` / `onUpdate` commits it. `canDrop` vets it as before | `planRowDrop`, `planEditing` |
+| a callback writing the verdict or the dropped item into `State` | `editing={{ onUpdate: handle.write }}` with `data={handle}` — the inline adapter applies each batch over the handle's latest `Dict` — or `onApply` for a host transaction | `planReview`, `planRowDrop` |
+| `approval: r => some(r.approval)` feeding the buttons of a verdict the canvas takes | `review: { verdict: "approval" }`; `approval` stays for a verdict the canvas only shows. Giving both fails the build | `planReview` |
+
+Each removed callback throws at build, naming its replacement.
+
+### Behaviour
+
+- **Drafts are drawn where they are made.** The canvas derives a drafted
+  entry's rows again, exactly as Apply will leave them: a verdict repaints its
+  buttons, bar and dot, and a dropped card appears where it landed. A row the
+  draft changed carries the Sheet's mark (pending, incomplete or invalid), and
+  so does its card in the narrow layout.
+- **One gesture, one transaction.** The history bar (#879's `HistoryBar`) is
+  at the end of the toolbar, and among the chips in the narrow layout. It
+  holds issues, Undo, Redo, Discard, Apply (or Retry request / Retry refresh)
+  and the status line. ⌘Z / Ctrl+Z undo; ⌘⇧Z / Ctrl+Shift+Z / Ctrl+Y redo.
+- **The base is the source's state.** An inline `Dict` is checked by its
+  snapshot, a paged source by its revision. A paged `onApply` needs the
+  source's `revision` and `refresh`; without them the canvas is refused at
+  build. A batch against a source that moved is refused, never rebased, and
+  the drafts say "Source changed — review or discard these drafts". An Apply
+  that throws retries the same request. Drafts retire only once the source
+  reads back at the committed revision.
+- **The entries are the source's top-level entries.** A gesture on a row at
+  any depth drafts the entry the row came from, and the series that made the
+  row writes it. The write reaches a nested row through the series'
+  `children`, which must read a field of the entry (`r => r.children`,
+  `Plan.children(r => r.lines, …)`) or be the entry itself (`g => g`). A
+  computed collection fails the build.
+- **Without `editing` the canvas takes no gesture.** The decision buttons are
+  disabled, the foot has no batch, no card lands, and there is no history bar.
+  Rerun changes no data, so it stays a callback.
+- **Each entry is marked for its own issues.** A batch's readiness holds
+  every entry's issues under one kind. So an entry whose own check found it
+  only incomplete used to read as invalid beside another entry's invalid
+  issue. Now each issue carries the kind it was raised with. The fix is
+  shared, so the Sheet has it too.
+
+### Renderer (`@elaraai/east-ui-components`)
+
+- `PlanMessages` extends `EditingMessages`, so a `PlanMessagesProvider`
+  translates the canvas's history bar. It gains `approveLoaded` /
+  `rejectLoaded` (`Approve 200 loaded`), the paged foot's words. A patch
+  event's `label` stays in canonical English, as the Sheet's does.
+- A drafted row, and its narrow card, carry `data-draft`, plus
+  `data-incomplete` or `data-invalid`.
+- `src/editing/draft.ts` gains `raiseIssue` / `kindOfIssue`: an issue raised
+  with a kind is marked for that kind, whatever its batch's.
+
 ## Extracted contracts (do this first when migrating imports)
 
 The shared audit vocabulary outlived the Planner and moved to `contracts/`:
@@ -393,11 +482,14 @@ domain id, never an index.
   series.
 - **axis.tier / striped / showToday**: resolution ≙ tier; `now` draws the
   divider (omit for none); striping is not part of the Plan language.
-- **Task move/resize drags**: not in Plan R1. The DnD target role covers
-  Library `add` drops (snapped bucket instants); in-canvas move/resize of
-  runs is future scope. `onTaskProgressChange` has no equivalent.
-- **Review**: identical chrome; callbacks receive the row's id
-  (`Plan.Types.RowId`, #822), never `{ rowIndex }`.
+- **Task move/resize drags**: Library `add` drops (snapped bucket instants)
+  are drafts of the editing session: the series declares
+  `edit: { items, create }` (#880). In-canvas move/resize of runs is #825, on
+  the same declaration. `onTaskProgressChange` has no equivalent.
+- **Review**: the same chrome, but a verdict is a draft (#880). Name the
+  entry's `ApprovalStateType` field on the series
+  (`review: { verdict: "approval" }`) and give the root `editing`. There are
+  no per-row callbacks, and nothing is addressed by `{ rowIndex }`.
 
 ### `<Planner.Point>` → `<Plan>` with a buckets series
 
@@ -473,13 +565,13 @@ gutter-imposing stack container any more.
 |---|---|
 | `ganttBasic` | `planSeriesData`, `planSpanRows` |
 | `ganttVariants` (presets/axis/fill/stress/callbacks) | `planVariants` (configurator + aside), `planSpanRows` (lifecycle flavours), `planFill` (fill + 200-row stress), `planTargetState` |
-| `ganttReactiveDrag` | `planRowDrop` (drop → State → re-derive; move/resize deferred) |
+| `ganttReactiveDrag` | `planRowDrop` (a drop is a draft; Apply writes the State handle; move/resize is #825) |
 | `ganttReview` | `planReview` |
 | `ganttLibraryDnd` | `planRowDrop` |
 | `plannerPoint` | `planBucketRows`; its `number` axis → `planNumberAxis` (#631) |
 | `plannerVariants` (states/stretch/tones/colors/markers/buckets/mixed/percell/popover/hovercard) | `planBucketRows` (incl. the colour channels), `planCardRows`, root resolvers in the per-kind panels; day/hour axes → `planVariants` sprint preset; number ranges → `planNumberAxis`, ordinal phases → `planOrdinalAxis` (#631) |
 | `plannerReview` | `planReview` |
-| `plannerLibraryDnd` (add + veto + review loop) | `planRowDrop` + `planReview` |
+| `plannerLibraryDnd` (add + veto + review loop) | `planEditing` (drops and verdicts in one session), `planRowDrop` + `planReview` |
 | `plannerSpan` | `planSpanRows` |
 | `plannerFill` | `planFill` |
 | `alignedStackAll` | `planTargetState` (all kinds, one axis), `planChartRows` (chart compositions) |

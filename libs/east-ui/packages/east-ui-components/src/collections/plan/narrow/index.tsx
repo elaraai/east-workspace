@@ -79,6 +79,7 @@ import { statusText } from "../a11y.js";
 import { usePlanWords } from "../words.js";
 import type { RowKey } from "../plan-state.js";
 import type { PlanUiView } from "../root/view.js";
+import type { PlanDraftMark } from "../use-plan-editing.js";
 import { feedTwoFingerPan, newTwoFingerPan } from "./pan.js";
 import { NarrowRowCard } from "./cards.js";
 import { NarrowRuler, ResolutionChip } from "./chrome.js";
@@ -153,6 +154,11 @@ export interface PlanNarrowProps {
     /** A paged source's demand (#812) — absent on an inline canvas, which
      *  has nothing to demand. */
     paging?: PlanNarrowPaging | undefined;
+    /** The editing session's history bar (#880), when the canvas declares
+     *  editing — it rides the chip row, as it rides the canvas's toolbar. */
+    history?: ReactNode;
+    /** Each drafted row's mark, by row key (#880) — a card wears its row's. */
+    marks: ReadonlyMap<RowKey, PlanDraftMark>;
 }
 
 const selectSelected = (s: PlanSnapshot) => s.store.ui.selected;
@@ -162,7 +168,7 @@ export function PlanNarrow({
     styles, index, derived, view, dense, storageKey,
     slice, affordances, resolution, resolutions, transport, footer, review,
     expandBody, expandGutterBody, canExpand, partial, fill,
-    diagnostics, failures, onRetry, paging,
+    diagnostics, failures, onRetry, paging, history, marks,
 }: PlanNarrowProps) {
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
@@ -302,7 +308,7 @@ export function PlanNarrow({
                 drill={drilled && expandBody !== null ? { body: expandBody, gutter: expandGutterBody } : undefined}
                 hasChildren={(index.children.get(row.key)?.length ?? 0) > 0}
                 styles={styles} derived={derived} storageKey={storageKey}
-                review={review} watch={watch} />
+                review={review} watch={watch} draft={marks.get(row.key)} />
         );
     };
 
@@ -474,7 +480,7 @@ export function PlanNarrow({
         <Tabs.Root asChild value={activeTab} onValueChange={(d) => setTab(d.value as NarrowTab)}
             variant="line" size="md">
             <Box css={styles.narrowRoot} data-plan-narrow data-plan-fill={fill ? "" : undefined}>
-                {(sliceChips || hasDiagnostics(narrowDiagnostics)) && (
+                {(sliceChips || hasDiagnostics(narrowDiagnostics) || history !== undefined) && (
                     <Box css={styles.narrowChips} data-slot="narrowChips">
                         {slice !== undefined && railKinds.length > 0 && <SliceRailCluster slice={slice} affordanceKinds={railKinds} />}
                         {slice !== undefined && resolutions.length > 0 && (
@@ -482,6 +488,7 @@ export function PlanNarrow({
                                 onPick={(r) => dispatch({ t: "resolution.set", resolution: r })} />
                         )}
                         {hasDiagnostics(narrowDiagnostics) && <PlanDiagnosticChips diagnostics={narrowDiagnostics} styles={styles} />}
+                        {history}
                     </Box>
                 )}
                 <Tabs.List data-slot="narrowTabs" flexShrink={0}>

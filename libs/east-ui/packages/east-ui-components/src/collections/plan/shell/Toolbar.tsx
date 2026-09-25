@@ -13,7 +13,7 @@
  * slice, between the search and the range — where the §1 mock puts it.
  */
 
-import { useMemo, useState, type KeyboardEvent } from "react";
+import { useMemo, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Box, chakra, useRecipe, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faLayerGroup } from "@fortawesome/free-solid-svg-icons";
@@ -112,10 +112,13 @@ export interface PlanToolbarProps {
     /** The canvas's local failures, as chips (#811) — skipped rows, a source
      *  or search failure, a truncated axis. */
     diagnostics?: PlanDiagnostics | undefined;
+    /** The editing session's history bar (#880) — Undo, Redo, Discard and
+     *  Apply over the drafts — at the right edge, as on the Sheet. */
+    history?: ReactNode;
 }
 
 /** The 44px toolbar band. */
-export function PlanToolbar({ styles, slice, affordances, resolution, resolutions, grain, transport, search, pick, diagnostics }: PlanToolbarProps) {
+export function PlanToolbar({ styles, slice, affordances, resolution, resolutions, grain, transport, search, pick, diagnostics, history }: PlanToolbarProps) {
     const dispatch = usePlanDispatch();
     const words = usePlanWords();
     // The segments' strips — every grain and resolution, by its name (#820).
@@ -220,7 +223,7 @@ export function PlanToolbar({ styles, slice, affordances, resolution, resolution
             {/* The right edge: the summary line, then the library button. Both
                 are trailing chrome, so they share one auto-margined group
                 rather than each claiming `marginLeft: auto` and fighting. */}
-            {(summary !== undefined || pick !== undefined) && (
+            {(summary !== undefined || pick !== undefined || history !== undefined) && (
                 <Box css={styles.toolbarTrailing} data-slot="toolbarTrailing">
                     {summary !== undefined && (
                         <Box css={styles.footerItem} data-slot="toolbarSummary">{summary}</Box>
@@ -229,6 +232,7 @@ export function PlanToolbar({ styles, slice, affordances, resolution, resolution
                         <PlanLibraryButton pick={pick} open={libraryOpen} onOpenChange={setLibraryOpen}
                             btn={btn} styles={styles} />
                     )}
+                    {history}
                 </Box>
             )}
         </Box>

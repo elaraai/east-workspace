@@ -102,6 +102,11 @@ import {
     PlanGroupSummaryType,
     PlanUiStateType,
     PlanUiBindType,
+    PlanDropType,
+    PlanGestureType,
+    PlanRowEditsType,
+    PlanPatchEventTypeFor,
+    PlanEditingType,
 } from "./types.js";
 import { PlanReviewType, PlanRootType } from "./ir.js";
 import {
@@ -264,6 +269,14 @@ export {
     PlanGroupSummaryType,
     PlanUiStateType,
     PlanUiBindType,
+    PlanDropType,
+    PlanGestureType,
+    PlanRowEditsType,
+    PlanPatchEventTypeFor,
+    PlanEditingType,
+    PlanWriteRequestType,
+    PlanReadyEntryType,
+    PLAN_PAGE_SIZE,
 } from "./types.js";
 
 // ── Public surface — re-exported from the split modules ─────────────────────
@@ -313,7 +326,7 @@ export {
     type PlanHeatParts,
     type PlanTableParts,
 } from "./factories.js";
-export { type PlanReviewConfig, type PlanConfig } from "./root.js";
+export { type PlanReviewConfig, type PlanEditingConfig, type PlanBindHandle, type PlanConfig } from "./root.js";
 export { type PlanPickOptions, createPlanPick, createPlanPickItems } from "./pick.js";
 export {
     PlanSeriesType,
@@ -338,6 +351,12 @@ export {
     type PlanGroupSeriesConfig,
     type PlanSectionSeriesConfig,
     type PlanViewsSeriesConfig,
+    type PlanEntryFields,
+    type PlanVerdictField,
+    type PlanItemsField,
+    type PlanItemOf,
+    type PlanReviewInput,
+    type PlanEditInput,
 } from "./series.js";
 
 // ============================================================================
@@ -552,8 +571,18 @@ export interface PlanNamespace {
         Expand: typeof PlanExpandType;
         /** The expand render's axis treatment (keep / dim / off). */
         ExpandAxis: typeof PlanExpandAxisType;
-        /** The review config at the row's id. */
+        /** The review chrome — the decision column's label, the foot's summary and Rerun (#880). */
         Review: typeof PlanReviewType;
+        /** A gesture a draft is made by — a verdict, or a card dropped on a row (#880). */
+        Gesture: typeof PlanGestureType;
+        /** A library card dropped on a row — what an editable series' `create` builds its item from (#880). */
+        Drop: typeof PlanDropType;
+        /** Which gestures a row takes (#880). */
+        RowEdits: typeof PlanRowEditsType;
+        /** `PatchEvent(R)` — what `editing.onPatch` receives for entries of `R` (#880). */
+        PatchEvent: typeof PlanPatchEventTypeFor;
+        /** The root's editing declaration on the wire — the shared session's fields and the canvas's own (#880). */
+        Editing: typeof PlanEditingType;
         /** The series type CONSTRUCTOR — `Plan.Types.Series(RowType)` gives the
          *  concrete variant type of one series over `Dict<String, RowType>`
          *  entries; `Plan.Types.Series(RowType, KeyType)` over another key type. */
@@ -693,6 +722,11 @@ export const Plan: PlanNamespace = {
         Expand: PlanExpandType,
         ExpandAxis: PlanExpandAxisType,
         Review: PlanReviewType,
+        Gesture: PlanGestureType,
+        Drop: PlanDropType,
+        RowEdits: PlanRowEditsType,
+        PatchEvent: PlanPatchEventTypeFor,
+        Editing: PlanEditingType,
         Series: PlanSeriesType,
         RunRef: PlanRunRefType,
         ElementRef: PlanElementRefType,

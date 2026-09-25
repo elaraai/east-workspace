@@ -112,7 +112,7 @@ function planRoot(rows: PlanWireRow[], opts?: { footer?: unknown[]; now?: Date |
         pick: opts?.pick !== undefined ? some(opts.pick) : none,
         slice: opts?.slice ?? none,
         footer: opts?.footer ?? [],
-        id: none, sources: [], onDrag: none, canDrop: none,
+        id: none, sources: [], editing: none, canDrop: none,
         onSelect: none,
         onElementClick: opts?.onElementClick !== undefined ? some(opts.onElementClick) : none,
         onGroupToggle: none, onGrainChange: none, ui: opts?.ui !== undefined ? some(opts.ui) : none,

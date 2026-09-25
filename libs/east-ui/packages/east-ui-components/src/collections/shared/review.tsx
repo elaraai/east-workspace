@@ -23,7 +23,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Box, useRecipe, useSlotRecipe } from "@chakra-ui/react";
+import { Box, chakra, useRecipe, useSlotRecipe } from "@chakra-ui/react";
 import { type OptionType, type ValueTypeOf } from "@elaraai/east";
 import { type RowReviewType, type ApprovalStateType, type UIComponentType } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
@@ -79,6 +79,10 @@ export interface ReviewFootModel {
     hasApproveAll: boolean;
     hasRejectAll: boolean;
     hasRerun: boolean;
+    /** Whether Approve all / Reject all cannot act now — a surface whose
+     *  verdicts are drafts (the Plan, #880) while its session takes no
+     *  gesture. Absent ⇒ they can. */
+    batchDisabled?: boolean | undefined;
     /** Approve every subject. */
     approveAll(): void;
     /** Reject every subject. */
@@ -253,16 +257,19 @@ export function ReviewFoot({ controller, storageKey, labels = FOOT_LABELS }: {
             </Box>
             <Box css={cs.btnRow}>
                 {controller.hasRejectAll && (
-                    <Box as="button" css={btn({ variant: "danger", size: "md" })}
-                        onClick={controller.rejectAll}>{labels.rejectAll}</Box>
+                    <chakra.button type="button" css={btn({ variant: "danger", size: "md" })}
+                        disabled={controller.batchDisabled === true} data-review-batch="reject"
+                        onClick={controller.rejectAll}>{labels.rejectAll}</chakra.button>
                 )}
                 {controller.hasRerun && (
-                    <Box as="button" css={btn({ variant: "outline", size: "md" })}
-                        onClick={controller.rerun}>{controller.rerunLabel}</Box>
+                    <chakra.button type="button" css={btn({ variant: "outline", size: "md" })}
+                        data-review-batch="rerun"
+                        onClick={controller.rerun}>{controller.rerunLabel}</chakra.button>
                 )}
                 {controller.hasApproveAll && (
-                    <Box as="button" css={btn({ variant: "solid", size: "md" })}
-                        onClick={controller.approveAll}>{labels.approveAll}</Box>
+                    <chakra.button type="button" css={btn({ variant: "solid", size: "md" })}
+                        disabled={controller.batchDisabled === true} data-review-batch="approve"
+                        onClick={controller.approveAll}>{labels.approveAll}</chakra.button>
                 )}
             </Box>
         </Box>

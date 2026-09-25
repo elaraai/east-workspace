@@ -59,7 +59,6 @@
 import { StringType, equalFor, none, printFor, some, type ValueTypeOf } from "@elaraai/east";
 import { Plan } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../../utils.js";
-import type { DragEventValue } from "../../../dnd/drag-layer";
 import type { PlanElementRefValue, PlanElementResolver } from "../context.js";
 import {
     bodyItemKey, canvasRowsOf, restUi, rowIdOfKey, rowItemKey, rowKeyOf, rowKeyWords, skeletonHeight, windowSkeleton,
@@ -222,15 +221,15 @@ export interface PlanController {
     overlayIntent(kind: "popover" | "hover", ref: PlanElementRefValue, open: boolean): void;
     /** A labelled mark's tooltip opens, or closes (`null`). */
     tooltipIntent(tip: PlanTooltip | null): void;
-    /** A completed drop on the canvas — reported to `onDrag`. */
-    drop(event: DragEventValue): void;
-    /** The review verbs, by row KEY (#569) — the callbacks receive the row's
-     *  typed id (#822). */
-    approveRow(key: string): void;
-    rejectRow(key: string): void;
-    approveAll(): void;
-    rejectAll(): void;
+    /** Rerun — the root's `review.onRerun`. A verdict and a dropped card are
+     *  drafts of the editing session (#880), not the controller's to report;
+     *  Rerun changes no data, so it stays a callback. */
     rerun(): void;
+    /** The paged source's content moved under the same source — a drafted
+     *  canvas's windows, derived with new drafts (#880): read its windows
+     *  again at the revision it names now, the rows it has standing in until
+     *  they land (#821). */
+    refreshSource(): void;
     /** Where the viewport is — the paged source's demand (#577). */
     reportViewport(at: PlanViewport, scrolling: boolean): void;
     /** The canvas committed a render of `paging` (the paging driver's
@@ -567,20 +566,6 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
             declaredGrain: declaredGrainOf(v),
         }).store;
         persistToggles();
-    }
-
-    /** One of the root's review callbacks, fired after the handler (#569),
-     *  naming the row by its typed id (#822). */
-    function reviewCall(k: "onApprove" | "onReject", key: string): void {
-        const review: PlanReviewValue | undefined = value !== undefined ? getSomeorUndefined(value.review) : undefined;
-        const fn = review !== undefined ? getSomeorUndefined(review[k]) : undefined;
-        const id = fn !== undefined ? rowIdOfKey(key) : undefined;
-        if (fn !== undefined && id !== undefined) queueMicrotask(() => fn(id));
-    }
-    function reviewBatchCall(k: "onApproveAll" | "onRejectAll" | "onRerun"): void {
-        const review: PlanReviewValue | undefined = value !== undefined ? getSomeorUndefined(value.review) : undefined;
-        const fn = review !== undefined ? getSomeorUndefined(review[k]) : undefined;
-        if (fn !== undefined) queueMicrotask(() => fn());
     }
 
     /** One interaction's transition and its effects — the core of `dispatch`,
@@ -933,19 +918,15 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
                 overlay = { ...overlay, tooltip: tip };
             });
         },
-        drop(event) {
-            // No optimistic row is synthesized: a Plan's rows are derived from
-            // `data` through the series pipeline, so the honest flow is the one
-            // the grammar documents — the host commits, the data changes, the
-            // rows re-derive.
-            const fn = value !== undefined ? getSomeorUndefined(value.onDrag) : undefined;
-            if (fn !== undefined) queueMicrotask(() => fn(event));
+        rerun() {
+            // The LATEST root's, after the handler (#569).
+            const review: PlanReviewValue | undefined = value !== undefined ? getSomeorUndefined(value.review) : undefined;
+            const fn = review !== undefined ? getSomeorUndefined(review.onRerun) : undefined;
+            if (fn !== undefined) queueMicrotask(() => fn());
         },
-        approveRow: (key) => reviewCall("onApprove", key),
-        rejectRow: (key) => reviewCall("onReject", key),
-        approveAll: () => reviewBatchCall("onApproveAll"),
-        rejectAll: () => reviewBatchCall("onRejectAll"),
-        rerun: () => reviewBatchCall("onRerun"),
+        refreshSource() {
+            batch(() => paging.refresh());
+        },
         reportViewport(at, scrolling) {
             batch(() => paging.reportViewport(at, scrolling));
         },

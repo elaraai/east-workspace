@@ -21,8 +21,9 @@ import { PLAN_GEOMETRY } from "./geometry.js";
 /** The decoded `paged` arm — the derived source at the canvas's blocks (#823). */
 export type PlanPagedSourceValue = Extract<PlanRootValue["rows"], { type: "paged" }>["value"];
 
-/** Source elements per window. */
-export const PLAN_PAGE_SIZE = 200;
+/** Source elements per window — the IR's, since its editing session reads an
+ *  entry back from the very window the canvas paged it in (#880). */
+export { PLAN_PAGE_SIZE } from "@elaraai/east-ui/internal";
 
 /** The shortest a failed window's band renders (#811) — its reason and its
  *  Retry must stay legible even in a short last window, or before any window

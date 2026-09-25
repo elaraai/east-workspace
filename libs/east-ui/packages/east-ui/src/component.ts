@@ -223,6 +223,7 @@ import {
     PlanFooterItemType,
     PlanStyleType,
     PlanUiBindType,
+    PlanEditingType,
 } from "./collections/plan/types.js";
 import {
     TableRowClickEventType,
@@ -979,19 +980,17 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         // The R2 gutter render — the expanded row's gutter grows with it, and
         // what fills the new space is the author's.
         expandGutter: OptionType(FunctionType([PlanRowIdType], node)),
-        // Optional review chrome — mirror `reviewType(PlanRowIdType, ·)`
-        // (`contracts/approval.ts`), `summary` on the recursion `node`;
-        // subjects are row ids, never indices.
+        // Optional review chrome — mirror `PlanReviewType` (#880: the
+        // column's label, the foot's summary and Rerun; a verdict is a gesture
+        // of the editing session), `summary` on the recursion `node`.
         review: OptionType(StructType({
             columnLabel: StringType,
             summary: OptionType(node),
-            onApprove: OptionType(FunctionType([PlanRowIdType], NullType)),
-            onReject: OptionType(FunctionType([PlanRowIdType], NullType)),
-            onApproveAll: OptionType(FunctionType([], NullType)),
-            onRejectAll: OptionType(FunctionType([], NullType)),
             onRerun: OptionType(FunctionType([], NullType)),
             rerunLabel: StringType,
         })),
+        // The editing session (#880) — closed: entries cross as bytes.
+        editing: OptionType(PlanEditingType),
         // The series library (#590) — chrome, like the slice rail. The
         // NON-generic contract only: an arm must be a closed East type, so the
         // author's typed handle stays outside and only its `pick` half rides.
@@ -999,10 +998,9 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         slice: OptionType(SliceChromeType),
         footer: ArrayType(PlanFooterItemType),
         // DnD target role — the shared grammar (`contracts/drag.ts`); no id,
-        // no drop target (#824).
+        // no drop target (#824). A drop is a gesture of the editing session.
         id: OptionType(StringType),
         sources: ArrayType(StringType),
-        onDrag: OptionType(FunctionType([DragEventType], NullType)),
         canDrop: OptionType(FunctionType([DragEventType], BooleanType)),
         // Selection + the one element click (#824).
         onSelect: OptionType(FunctionType([PlanRowIdType], NullType)),

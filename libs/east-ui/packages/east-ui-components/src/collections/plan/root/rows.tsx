@@ -23,6 +23,7 @@ import { PlanPartBoundary } from "../rows/PartBoundary.js";
 import { planRowRole } from "../rows/row-facts.js";
 import type { PlanRowDrop } from "../rows/RowShell.js";
 import type { PlanReview } from "../shell/Review.js";
+import type { PlanDraftMark } from "../use-plan-editing.js";
 import { usePlanItemNav } from "../controller/react.js";
 import { statusText } from "../a11y.js";
 import { usePlanWords, type PlanWords } from "../words.js";
@@ -65,6 +66,8 @@ export interface PlanRowContext {
     partial: boolean | undefined;
     review: PlanReview | undefined;
     rowDrop: PlanRowDrop | undefined;
+    /** Each drafted row's mark, by key (#880) — a row reads its own. */
+    marks: ReadonlyMap<RowKey, PlanDraftMark>;
 }
 
 /**
@@ -111,6 +114,7 @@ export function renderPlanRow(v: VisibleRow, ctx: PlanRowContext): ReactNode {
             partial={ctx.partial}
             review={ctx.review}
             rowDrop={ctx.rowDrop}
+            draft={ctx.marks.get(v.row.key)}
             {...(isFocal && expandBody !== null ? {
                 // The author's render is its own part (#811): a throw while
                 // rendering it stays inside the focused row.

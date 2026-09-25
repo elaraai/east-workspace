@@ -19,10 +19,11 @@ import { KindPlot } from "../rows/KindPlot.js";
 import { ChartLeftTicks } from "../rows/ChartRow.js";
 import { PlanPartBoundary } from "../rows/PartBoundary.js";
 import { RowDiagnostic } from "../rows/RowDiagnostic.js";
-import { PlanDecisionCell, tagOf, type PlanReview } from "../shell/Review.js";
+import { PlanDecisionCell, hasDecision, tagOf, type PlanReview } from "../shell/Review.js";
 import { statusText } from "../a11y.js";
 import { usePlanWords } from "../words.js";
 import { pxOf, type PlanDerived, type PlanRowValue } from "../model.js";
+import type { PlanDraftMark } from "../use-plan-editing.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 type UIValue = ComponentProps<typeof EastChakraComponent>["value"];
@@ -52,6 +53,8 @@ export interface NarrowRowCardProps {
     review: PlanReview | undefined;
     /** Enrols the card in the list's viewport observer (a paged canvas, #812). */
     watch: ((el: HTMLElement | null) => (() => void) | undefined) | undefined;
+    /** The row's draft mark (#880) — the canvas row's, where the draft was made. */
+    draft: PlanDraftMark | undefined;
 }
 
 /**
@@ -80,7 +83,7 @@ function sameCard(a: NarrowRowCardProps, b: NarrowRowCardProps): boolean {
 /** One data row as a card: head = the gutter identity, body = the plot. */
 export const NarrowRowCard = memo(function NarrowRowCard({
     row, h, chartExpanded, selected, canDrill, drill, hasChildren,
-    styles, derived, storageKey, review, watch,
+    styles, derived, storageKey, review, watch, draft,
 }: NarrowRowCardProps) {
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
@@ -104,6 +107,10 @@ export const NarrowRowCard = memo(function NarrowRowCard({
         <Box ref={watch} css={styles.narrowCard} data-plan-card={row.key}
             data-selected={selected ? "" : undefined}
             data-expanded={drill !== undefined ? "" : undefined}
+            // A drafted row (#880) — the canvas row's marks.
+            data-draft={draft !== undefined ? "" : undefined}
+            data-incomplete={draft === "incomplete" ? "" : undefined}
+            data-invalid={draft === "invalid" ? "" : undefined}
             // Tap selects; a second tap on a selected row that declares
             // `expand` drills it in place (and again returns) — §10.
             onClick={() => dispatch(selected && canDrill
@@ -155,9 +162,9 @@ export const NarrowRowCard = memo(function NarrowRowCard({
                     </PlanPartBoundary>
                 </Box>
             )}
-            {review !== undefined && review.hasRowVerbs && (
+            {review !== undefined && hasDecision(row) && (
                 <Box css={styles.narrowCardFoot}>
-                    <PlanDecisionCell rowKey={row.key} tag={tagOf(row)} review={review} />
+                    <PlanDecisionCell rowKey={row.key} tag={tagOf(row)} enabled={review.writable && row.edits.verdict} review={review} />
                 </Box>
             )}
         </Box>

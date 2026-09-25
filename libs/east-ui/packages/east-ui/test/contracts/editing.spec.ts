@@ -5,9 +5,9 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ArrayType, DictType, East, IntegerType, OptionType, StringType, StructType, diffFor, equalFor, none, printFor, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { ArrayType, DictType, East, IntegerType, OptionType, StringType, StructType, diffFor, equalFor, isTypeEqual, none, printFor, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Assert, describeEast, TestImpl } from "@elaraai/east-node-std";
-import { Editing, EditingSessionFields, Sheet, SheetEditingType } from "@elaraai/east-ui/internal";
+import { Editing, EditingPatchEventTypeWith, EditingSessionFields, Plan, Sheet, SheetEditingType } from "@elaraai/east-ui/internal";
 import * as ex from "./editing.examples.js";
 
 describeEast("Editing contract examples", test => {
@@ -135,6 +135,22 @@ test("the Sheet's transaction names are the shared contract's own values", () =>
     for (const [field, type] of Object.entries(EditingSessionFields)) {
         assert.equal(SheetEditingType.fields[field as keyof typeof SheetEditingType.fields], type, `SheetEditingType.${field}`);
     }
+});
+
+test("the Plan's editing wire carries every field of the shared session's, at the same type (#880)", () => {
+    for (const [field, type] of Object.entries(EditingSessionFields)) {
+        assert.equal(Plan.Types.Editing.fields[field as keyof typeof Plan.Types.Editing.fields], type, `Plan.Types.Editing.${field}`);
+    }
+});
+
+test("a patch event is one shape over any draft — field by field for the Sheet, whole entries for the Plan (#880)", () => {
+    // PatchEvent(E) is PatchEventWith over E's field-by-field draft…
+    assert.ok(isTypeEqual(Editing.Types.PatchEvent(Job), EditingPatchEventTypeWith(Job, Editing.Types.Draft(Job))));
+    // …and a whole-entry draft changes only what the draft changes carry.
+    const whole = EditingPatchEventTypeWith(Job, Editing.Types.DraftField(Job));
+    assert.ok(isTypeEqual(whole.fields.draftChanges, ArrayType(Editing.Types.Change(Editing.Types.DraftField(Job)))));
+    assert.ok(isTypeEqual(whole.fields.domainChanges, Editing.Types.PatchEvent(Job).fields.domainChanges));
+    assert.ok(isTypeEqual(whole.fields.readiness, Editing.Types.PatchEvent(Job).fields.readiness));
 });
 
 test("an origin names every gesture of every collection — the Plan's resize, drop and verdict among them", () => {

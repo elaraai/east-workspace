@@ -21,7 +21,7 @@
  */
 
 import {
-    ArrayType, AsyncFunctionType, BlobType, BooleanType, DictType, East, EastTypeType,
+    ArrayType, AsyncFunctionType, BlobType, DictType, East, EastTypeType,
     FunctionType, IntegerType, NullType, OptionType, PatchType, SetType, StringType,
     StructType, VariantType, none, some, variant,
     type EastType, type ExprType, type PatchTypeOf,
@@ -370,10 +370,25 @@ export function EditingAppliedTypeFor<E extends EastType, K extends EastType | u
  * @returns The event: its gesture, the draft changes, the domain changes once every draft is complete, and the batch's readiness
  */
 export function EditingPatchEventTypeFor<E extends EastType, F extends string = never>(entryType: E, field?: F) {
-    const draft = EditingDraftEntryTypeFor(entryType, field);
+    return EditingPatchEventTypeWith(entryType, EditingDraftEntryTypeFor(entryType, field));
+}
+
+/**
+ * Constructs the patch event of a collection whose drafts take another shape
+ * than a field-by-field one — the Plan drafts a whole entry at once
+ * (`DraftField(E)`, #880), since every gesture on it writes a complete entry.
+ * {@link EditingPatchEventTypeFor} is this over the field-by-field draft.
+ *
+ * @typeParam E - The source entry type
+ * @typeParam D - The entry's draft type
+ * @param entryType - The domain entry schema
+ * @param draftType - The entry's draft schema
+ * @returns The event: its gesture, the draft changes, the domain changes once every draft is complete, and the batch's readiness
+ */
+export function EditingPatchEventTypeWith<E extends EastType, D extends EastType>(entryType: E, draftType: D) {
     return StructType({
         transactionId: StringType, origin: EditingOriginType, label: StringType,
-        draftChanges: ArrayType(EditingChangeTypeFor(draft)),
+        draftChanges: ArrayType(EditingChangeTypeFor(draftType)),
         domainChanges: OptionType(ArrayType(EditingChangeTypeFor(entryType))),
         readiness: EditingBatchReadinessType,
     });
@@ -691,8 +706,13 @@ export const EditingSessionFields = {
     draftType: EastTypeType,
     /** A group entry's child field. */
     children: OptionType(StringType),
-    /** Whether the source is keyed — its entries sort by key. */
-    keyed: BooleanType,
+    /**
+     * A keyed source's key type — its entries sort by key, a change names its
+     * entry by the key's text (a String key as it is, any other key its
+     * `.east` text), its batches are `ChangeSet(E, K)` and an inline snapshot
+     * is a `Dict` of it; `none` for an Array source.
+     */
+    keyType: OptionType(EastTypeType),
     /** An inline source's whole collection — the base its batches check. */
     snapshot: OptionType(BlobType),
     /** One entry by id at its source offset, for a paged source's reads. */
@@ -760,17 +780,52 @@ export function buildInlineApply(
     write: ExprType<FunctionType>,
 ): ExprType<FunctionType<[BlobType], typeof EditingApplyResultType>> {
     const entry = entryType as StructType<Record<never, never>>;
-    const _rowsType = ArrayType(entry);
-    const batchType = EditingChangeSetTypeFor(entry);
-    const apply = applyEditing(entry, idField);
+    return inlineApply(ArrayType(entry), EditingChangeSetTypeFor(entry), applyEditing(entry, idField), sourceId, read, write);
+}
+
+/**
+ * Builds the inline `onUpdate` adapter over a live keyed handle — the
+ * {@link buildInlineApply} protocol over a `Dict`, its batches applied by key
+ * (`Editing.apply(DictType(K, E))`, #880).
+ *
+ * @internal
+ * @param sourceType - The source's Dict type
+ * @param sourceId - Stable identity of the captured binding
+ * @param read - Invocation-time collection reader
+ * @param write - The author's whole-collection writer
+ * @returns A closed Blob transport function for the typed apply callback
+ */
+export function buildKeyedInlineApply(
+    sourceType: DictType,
+    sourceId: ExprType<StringType>,
+    read: ExprType<FunctionType>,
+    write: ExprType<FunctionType>,
+): ExprType<FunctionType<[BlobType], typeof EditingApplyResultType>> {
+    const entry = sourceType.value as StructType<Record<never, never>>;
+    return inlineApply(DictType(sourceType.key, entry), EditingChangeSetTypeFor(entry, sourceType.key),
+        applyEditing(DictType(sourceType.key, entry)), sourceId, read, write);
+}
+
+/** The inline adapter's protocol over one collection type — see {@link buildInlineApply}. */
+function inlineApply(
+    collectionType: EastType,
+    batchType: EastType,
+    apply: ExprType<FunctionType>,
+    sourceId: ExprType<StringType>,
+    read: ExprType<FunctionType>,
+    write: ExprType<FunctionType>,
+): ExprType<FunctionType<[BlobType], typeof EditingApplyResultType>> {
+    // The algorithm treats the collection opaquely; its runtime type is exact.
+    const _rowsType = collectionType as ArrayType<StructType<Record<never, never>>>;
+    const typedBatch = batchType as ReturnType<typeof EditingChangeSetTypeFor<StructType<Record<never, never>>>>;
     return East.function([BlobType], EditingApplyResultType, ($, payload) => {
         const reader = $.const(read as ExprType<FunctionType<[], typeof _rowsType>>);
         const writer = $.const(write as ExprType<FunctionType<[typeof _rowsType], NullType>>);
-        const transform = $.const(apply);
+        const transform = $.const(apply as ExprType<FunctionType<[typeof _rowsType, typeof typedBatch, OptionType<StringType>], ReturnType<typeof EditingAppliedTypeFor<StructType<Record<never, never>>>>>>);
         const key = $.const(East.str`editing.requests:${sourceId}`);
         const saved = $.const(EditingRequestStore.read(key));
         const requests = $.let(saved.match({ none: ($) => $.const(new Map(), RequestsType), some: (_$, blob) => blob.decodeBeast(RequestsType, "v2") }));
-        const batch = $.const(payload.decodeBeast(batchType, "v2"));
+        const batch = $.const(payload.decodeBeast(typedBatch, "v2"));
         const recorded = $.const(requests.tryGet(batch.requestId));
         return recorded.match({
             some: ($, request) => East.equal(request.payload, payload).ifElse(

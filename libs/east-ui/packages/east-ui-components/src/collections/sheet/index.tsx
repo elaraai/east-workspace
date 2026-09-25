@@ -374,6 +374,8 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
     const noun = useMemo<SheetNounValue>(() => declaredNoun ?? { singular: words.m.groupNoun(), plural: words.m.groupNouns() }, [declaredNoun, words.m]);
     const readOnly = (getSomeorUndefined(value.readOnly) ?? false) || value.editing.onApply.type === "none";
     const capabilities = value.editing.edits;
+    // A keyed paged source (#880): its rows sort by key, so nothing is placed by position.
+    const keyed = value.editing.keyType.type === "some";
     const canInsertRows = !readOnly && capabilities.insertRows;
     const canInsertGroups = !readOnly && capabilities.insertGroups && group !== undefined;
     // The grouped blank-tail path remains until all insertions use explicit destinations.
@@ -532,7 +534,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
     const layerRef = useRef(layer);
     layerRef.current = layer;
     const setLayer = useCallback((fn: (prev: LocalLayer) => LocalLayer) => { layerRef.current = fn(layerRef.current); }, []);
-    const rows = useMemo(() => applyLayer(sourceRows, layer, value.editing.keyed), [sourceRows, layer, value.editing.keyed]);
+    const rows = useMemo(() => applyLayer(sourceRows, layer, keyed), [sourceRows, layer, keyed]);
     // Each row's position on screen, where each failed window sits among the
     // rows, and the contiguous runs between them (#853).
     const runLayout = useMemo(() => {
@@ -945,7 +947,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
             byRow.set(k, entry);
         }
         const base = layerRef.current;
-        const rowsNow = applyLayer(sourceRows, base, value.editing.keyed);
+        const rowsNow = applyLayer(sourceRows, base, keyed);
         const edits = new Map(base.edits);
         const appended = [...base.appended];
         const events: SheetEditValue[] = [];
@@ -1090,7 +1092,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
         setLayer(() => next);
         for (const e of events) emitEdit(e);
         return { firstInserted, ids };
-    }, [sourceRows, rowAt, columns, group, metaAt, newRowIdFn, newLineKeyFn, setLayer, emitEdit, readOnly, canInsertRows, value.editing.keyed, editingState.available]);
+    }, [sourceRows, rowAt, columns, group, metaAt, newRowIdFn, newLineKeyFn, setLayer, emitEdit, readOnly, canInsertRows, keyed, editingState.available]);
     /**
      * Delete whole rows. On a grouped sheet (#740, G7) lines in the range
      * leave their groups (`lineRemove`) and loose rows in it leave the sheet
@@ -1605,13 +1607,13 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
     }, [rowAt]);
     const executeInsertion = useCallback((request: InsertRequest) => {
         if (!editingState.available || (request.kind === "row" ? !canInsertRows : !canInsertGroups)) return;
-        const gesture = insertionGesture(request, rows, (i) => runLayout.positions[i] ?? endPosition, group !== undefined, value.editing.keyed,
+        const gesture = insertionGesture(request, rows, (i) => runLayout.positions[i] ?? endPosition, group !== undefined, keyed,
             () => newRowIdFn?.() ?? mintId(id => rows.some(row => row.id === id)), mintLineKey, loose);
         if (gesture === undefined) return;
         recordGesture([gesture.event], gesture.placement === undefined ? undefined : new Map([[gesture.id, gesture.placement]]), "insert");
         pendingInsertFocus.current = { id: gesture.id, ...(gesture.child === undefined ? {} : { child: gesture.child }) };
         dispatchStore({ t: "patch", patch: { sugg: null, selEnd: null, msg: request.kind === "group" ? { id: "newGroup", noun: declaredNoun?.singular } : { id: "newRow" } } });
-    }, [editingState.available, canInsertRows, canInsertGroups, rows, runLayout, endPosition, group, loose, declaredNoun, value.editing.keyed, newRowIdFn, recordGesture]);
+    }, [editingState.available, canInsertRows, canInsertGroups, rows, runLayout, endPosition, group, loose, declaredNoun, keyed, newRowIdFn, recordGesture]);
     const onInsert = useCallback((kind: "row" | "group", r: number, side: "before" | "after") => {
         const request: InsertRequest = { kind, anchor: anchorFor(r, side) };
         if (uiRef.current.edit !== null) { pendingInsertion.current = request; dispatch({ t: "editor.blur" }); }
@@ -2459,16 +2461,16 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
     /** What the seam above row `r` offers, and what each chip previews. */
     const insertActions = useCallback((r: number, side: "gutter" | "body"): InsertionActions => {
         const anchor = anchorFor(r, "before");
-        const ordered = anchor.child !== undefined || anchor.tail === true || !value.editing.keyed;
+        const ordered = anchor.child !== undefined || anchor.tail === true || !keyed;
         // Above a band, or beside a loose row, the row chip inserts a loose row (#846) — a row, not a line.
         const looseRow = loose && insertsLoose(anchor, rows);
         return {
-            ordered, groupOrdered: !value.editing.keyed,
+            ordered, groupOrdered: !keyed,
             line: group !== undefined && !looseRow, noun: noun.singular,
             row: canInsertRows && (group === undefined || anchor.entry !== undefined || looseRow) ? () => onInsert("row", r, "before") : undefined,
             group: canInsertGroups ? () => onInsert("group", r, "before") : undefined,
             preview: kind => {
-                if (kind === undefined || (kind === "row" ? !ordered : value.editing.keyed)) { setInsertPreview(undefined); return; }
+                if (kind === undefined || (kind === "row" ? !ordered : keyed)) { setInsertPreview(undefined); return; }
                 if (kind === "row") { setInsertPreview({ r, kind, side }); return; }
                 const parent = rows.find(row => row.id === anchor.entry);
                 if (parent === undefined) { setInsertPreview(undefined); return; }
@@ -2478,7 +2480,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
                 setInsertPreview(target === undefined ? undefined : { r: target, kind, side });
             },
         };
-    }, [canInsertRows, canInsertGroups, anchorFor, value.editing.keyed, group, loose, noun, onInsert, rows, rowOf, blankLineRowOf]);
+    }, [canInsertRows, canInsertGroups, anchorFor, keyed, group, loose, noun, onInsert, rows, rowOf, blankLineRowOf]);
     // The hovered seam. Its chips are drawn once, in the card's insertion
     // layer, placed from the seam's and the gutter's boxes on the screen: the
     // layer sits over every row and under the pinned header, so nothing a row
@@ -2868,7 +2870,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
                 )}
             </Box>
             {(wr !== null && edit === null || rows.length === 0) && editingState.available && <SheetInsertStrip styles={styles}
-                ordered={!value.editing.keyed || anchorFor(ui.sel.r, "before").child !== undefined}
+                ordered={!keyed || anchorFor(ui.sel.r, "before").child !== undefined}
                 above={canInsertRows ? () => onInsert("row", wr?.r0 ?? ui.sel.r, "before") : undefined}
                 below={canInsertRows && (group === undefined || loose || rows.length > 0) ? () => onInsert("row", wr?.r1 ?? ui.sel.r, "after") : undefined}
                 group={canInsertGroups ? () => onInsert("group", wr?.r1 ?? ui.sel.r, "after") : undefined}
