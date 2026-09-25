@@ -17,7 +17,6 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faAngleDown, faAngleUp, faArrowRight, faCheck, faMinus, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { none } from "@elaraai/east";
 import { getSomeorUndefined } from "../../utils.js";
-import { useFormatters } from "../../format/index.js";
 import { EastErrorBoundary } from "../../reactive/error-display.js";
 import {
     TITLE_KEY, cellIsBlank, cellText, driverKeyOf, isLinePosition, lineNumberOf, resolveMember,
@@ -31,6 +30,7 @@ import type { SheetCellValue, SheetNounValue, SheetRowValue, SheetSubRowValue } 
 import type { DraftPresentation } from "./draft-state.js";
 import type { SheetMembership } from "./membership.js";
 import { SheetInsertPoint } from "./Insertion.js";
+import { useSheetWords } from "./words.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
@@ -199,15 +199,16 @@ export const SheetRow = memo(function SheetRow(props: SheetRowProps) {
     const { styles, columns, registers, driverColumn, gridTemplate, rowPx, r, number, row, group, linkCtx, selC, range, picked, hit, editor, fills, nextTargetC, hoverC, first, seam, subRowCount } = props;
     sheetRowRenderProbe?.(r, props.sticky === true);
     const subRowsOpen = props.subRowsOpen === true;
-    // The sub-row count in the chevron's name, in the app's locale (#850).
-    const words = useFormatters();
+    // The row's words, its counts in the app's locale (#850, #861).
+    const words = useSheetWords();
+    const { m } = words;
     const issuePrefix = useId();
     const self = useRef<HTMLDivElement | null>(null);
     useArrival(self, props.entering);
     const invalid = props.draft?.invalid === true || (row !== undefined && [...row.cells.values()].some(cell => cell.type === "Invalid"));
     const rowBlank = row === undefined;
     const groupTitle = group?.row.cells.get(TITLE_KEY);
-    const groupName = groupTitle?.type === "String" ? groupTitle.value : group?.row.id;
+    const groupName = group === undefined ? undefined : groupTitle?.type === "String" ? groupTitle.value : group.row.id;
     const driverKey = driverKeyOf(row, driverColumn);
     const hasFills = fills !== undefined && fills.size > 0;
     return (
@@ -239,23 +240,23 @@ export const SheetRow = memo(function SheetRow(props: SheetRowProps) {
                 data-slot="gutter"
                 role="rowheader"
                 aria-colindex={1}
-                aria-label={group !== undefined ? `Line ${number} of ${groupName}` : `Row ${number}`}
+                aria-label={groupName !== undefined ? m.lineName({ number: String(number), group: groupName }) : m.rowName({ number: String(number) })}
                 onMouseDown={(e) => props.onRowPick(r, e)}
-                title={hasFills ? "Click the number to select the row · the button fills it" : "Select whole row — delete removes it"}
+                title={m.rowTitle({ fills: hasFills })}
             >
                 {seam !== undefined && props.onSeamEnter !== undefined && props.onSeamLeave !== undefined && (
                     <SheetInsertPoint styles={styles} side={seam} onEnter={(hit) => props.onSeamEnter?.(r, seam, hit)} onLeave={props.onSeamLeave} />
                 )}
                 <Rail styles={styles} membership={rowBlank ? undefined : props.membership} picked={picked} mixed={false} selectable={!rowBlank}
-                    label={group !== undefined ? `Select row ${number} in ${groupName}` : `Select row ${number}`}
+                    label={m.selectRow({ number: String(number), group: groupName })}
                     onPick={(event) => props.onRowPick(r, event)} />
                 <Box as="span" css={styles.gutterNumber} data-slot="gutterNumber" data-hit={hit ? "" : undefined} data-blank={rowBlank ? "" : undefined}>
                     {/* A line with sub rows: the chevron before its number shows or hides them (⌥ every line of the group); open, the tree's stem starts just under it. */}
                     {subRowCount !== undefined && (
                         <chakra.button type="button" css={styles.subRowChevron} data-slot="subRowChevron" data-open={subRowsOpen ? "" : undefined} tabIndex={-1}
                             aria-expanded={subRowsOpen}
-                            aria-label={`${subRowsOpen ? "Hide" : "Show"} the ${words.number(subRowCount)} row${subRowCount === 1 ? "" : "s"} under line ${number}`}
-                            title={`${subRowsOpen ? "Hide" : "Show"} the ${words.number(subRowCount)} row${subRowCount === 1 ? "" : "s"} under this line — Space · ⌥ every line in the ${props.noun?.singular ?? "group"}`}
+                            aria-label={m.subRows({ open: subRowsOpen, n: subRowCount, count: words.number(subRowCount), line: String(number) })}
+                            title={m.subRowsTitle({ open: subRowsOpen, n: subRowCount, count: words.number(subRowCount), noun: props.noun?.singular ?? m.groupNoun() })}
                             onMouseDown={(event) => { event.preventDefault(); event.stopPropagation(); props.onSubRows?.(r, event.altKey); }}
                             onClick={(event) => { if (event.detail === 0) props.onSubRows?.(r, event.altKey); }}>
                             <Chevron />
@@ -272,8 +273,8 @@ export const SheetRow = memo(function SheetRow(props: SheetRowProps) {
                             data-slot="fillRow"
                             data-kind="apply"
                             role="button"
-                            aria-label="Fill this row"
-                            title="Fill this row — ⌘⏎"
+                            aria-label={m.fillRow()}
+                            title={m.fillRowTitle()}
                             onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); props.onFillRow(); }}
                         >
                             <FontAwesomeIcon icon={faArrowRight} />
@@ -281,7 +282,7 @@ export const SheetRow = memo(function SheetRow(props: SheetRowProps) {
                     )}
                     {props.draft?.discardable && <chakra.button
                         type="button" css={styles.gutterButton} tabIndex={-1}
-                        data-slot="discardDraft" data-kind="discard" aria-label="Discard new row" title="Discard new row"
+                        data-slot="discardDraft" data-kind="discard" aria-label={m.discardRow()} title={m.discardRow()}
                         onMouseDown={(event) => { event.preventDefault(); event.stopPropagation(); }}
                         onClick={(event) => {
                             event.stopPropagation();
@@ -293,7 +294,7 @@ export const SheetRow = memo(function SheetRow(props: SheetRowProps) {
             </Box>
             {columns.list.map((meta, c) => {
                 const cell: SheetCellValue | undefined = row?.cells.get(meta.key);
-                const issue = cell?.type === "Invalid" ? `Invalid input: ${cell.value}` : props.draft?.issues.get(meta.key);
+                const issue = cell?.type === "Invalid" ? m.issueInvalid({ value: cell.value }) : props.draft?.issues.get(meta.key);
                 const issueId = `${issuePrefix}-${c}`;
                 const editing = editor?.c === c;
                 const selected = selC === c && !editing;
@@ -307,7 +308,7 @@ export const SheetRow = memo(function SheetRow(props: SheetRowProps) {
                 const when = meta.kind === "date" && meta.level !== undefined && row !== undefined
                     ? { level: meta.level(row.cells), actual: actualCell?.type === "DateTime" ? actualCell.value : undefined }
                     : undefined;
-                const detail = row !== undefined ? cellDetail(meta, row.cells) : undefined;
+                const detail = row !== undefined ? cellDetail(meta, row.cells, words) : undefined;
                 return (
                     <Box
                         key={meta.key}
@@ -354,8 +355,8 @@ export const SheetRow = memo(function SheetRow(props: SheetRowProps) {
                                 css={styles.takeButton}
                                 data-slot="take"
                                 role="button"
-                                aria-label={`Take ${meta.header}`}
-                                title={`Take — ${fill.meta === "" ? "suggested" : fill.meta}`}
+                                aria-label={m.take({ header: meta.header })}
+                                title={m.takeTitle({ meta: fill.meta === "" ? undefined : fill.meta })}
                                 onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); props.onTake(meta.key); }}
                             >
                                 <FontAwesomeIcon icon={faCheck} />
@@ -484,6 +485,8 @@ export interface SheetProposalRowProps {
 /** A proposed row (B§5.2): dashed-topped, hatched, real numbers; ✓ adds it, × rejects it. */
 export const SheetProposalRow = memo(function SheetProposalRow(props: SheetProposalRowProps) {
     const { styles, columns, registers, driverColumn, gridTemplate, rowPx, index, number, cells, meta, picked, linkCtx } = props;
+    // The suggestion's words (#861).
+    const { m } = useSheetWords();
     const pseudo: SheetRowValue = { id: "", owned: false, cells: cells as Map<string, SheetCellValue>, lines: [], band: none, subRows: [] };
     const driverKey = driverKeyOf(pseudo, driverColumn);
     const pick = (e: MouseEvent) => { if (e.button !== 0) return; e.preventDefault(); e.stopPropagation(); props.onPick(index); };
@@ -499,9 +502,9 @@ export const SheetProposalRow = memo(function SheetProposalRow(props: SheetPropo
             aria-rowindex={props.ariaRowIndex}
             title={meta}
         >
-            <Box css={styles.gutter} data-slot="gutter" role="rowheader" aria-colindex={1} aria-label={`Suggested row ${number}`} onMouseDown={pick} title="Suggested row — ✓ adds it, × rejects it">
+            <Box css={styles.gutter} data-slot="gutter" role="rowheader" aria-colindex={1} aria-label={m.proposalName({ number: String(number) })} onMouseDown={pick} title={m.proposalTitle()}>
                 <Rail styles={styles} membership={props.grouped ? { id: "", color: 0, above: true, below: true } : undefined} picked={picked} mixed={false} selectable
-                    label="Select this suggested row" onPick={pick} />
+                    label={m.proposalSelect()} onPick={pick} />
                 <Box as="span" css={styles.gutterNumber} data-slot="gutterNumber">{number}</Box>
                 <Box css={styles.gutterAction} data-slot="proposalActions">
                     <Box
@@ -510,8 +513,8 @@ export const SheetProposalRow = memo(function SheetProposalRow(props: SheetPropo
                         data-slot="accept"
                         data-kind="accept"
                         role="button"
-                        aria-label="Add this suggested row"
-                        title="Add this row to the plan — ⏎"
+                        aria-label={m.proposalAccept()}
+                        title={m.proposalAcceptTitle()}
                         onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); props.onAccept(index); }}
                     >
                         <FontAwesomeIcon icon={faCheck} />
@@ -522,8 +525,8 @@ export const SheetProposalRow = memo(function SheetProposalRow(props: SheetPropo
                         data-slot="reject"
                         data-kind="reject"
                         role="button"
-                        aria-label="Reject this suggestion"
-                        title="Reject — not offered after this activity again — ⌫"
+                        aria-label={m.proposalReject()}
+                        title={m.proposalRejectTitle()}
                         onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); props.onReject(index); }}
                     >
                         <FontAwesomeIcon icon={faXmark} />
@@ -588,8 +591,8 @@ export interface SheetBandRowProps extends SheetBandAria {
 /** A paged source's unloaded run — one band sized by the ledger. */
 export const SheetBandRow = memo(function SheetBandRow({ styles, band, loading, ariaRowIndex, colCount }: SheetBandRowProps) {
     const n = Math.max(0, band.to - band.from + 1);
-    // The element count, in the app's locale (#850).
-    const words = useFormatters();
+    // The element count, in the app's locale and the sheet's words (#850, #861).
+    const words = useSheetWords();
     return (
         <Box
             css={styles.band}
@@ -603,7 +606,7 @@ export const SheetBandRow = memo(function SheetBandRow({ styles, band, loading, 
             <Box css={styles.bandRule} aria-hidden="true" />
             <Box as="span" css={styles.bandPill} role="gridcell" aria-colindex={1} aria-colspan={colCount + 1}
                 style={{ position: "sticky", top: "60px", alignSelf: "flex-start", marginTop: "0" }}>
-                {`${words.number(n)} ${loading ? "loading" : "not loaded"}`}
+                {words.m.bandUnloaded({ n, count: words.number(n), loading })}
             </Box>
         </Box>
     );
@@ -617,11 +620,12 @@ export interface SheetRetryProps {
 
 /** The one Retry control (#853) — a failed window's band, the transport line and the whole-sheet message all ask again through it. */
 export function SheetRetry({ styles, onRetry }: SheetRetryProps) {
+    const { m } = useSheetWords();
     return (
         <chakra.button type="button" css={styles.retry} data-slot="retry"
             onMouseDown={(event) => { event.preventDefault(); event.stopPropagation(); }}
             onClick={(event) => { event.stopPropagation(); onRetry(); }}>
-            Retry
+            {m.retry()}
         </chakra.button>
     );
 }
@@ -642,8 +646,8 @@ export interface SheetFailedBandRowProps extends SheetBandAria {
  * the tab order (#860): nothing else asks that window again.
  */
 export const SheetFailedBandRow = memo(function SheetFailedBandRow({ styles, failure, onRetry, ariaRowIndex, colCount }: SheetFailedBandRowProps) {
-    // The element numbers, in the app's locale (#850).
-    const words = useFormatters();
+    // The element numbers, in the app's locale and the sheet's words (#850, #861).
+    const words = useSheetWords();
     return (
         <Box
             css={styles.band}
@@ -657,7 +661,7 @@ export const SheetFailedBandRow = memo(function SheetFailedBandRow({ styles, fai
         >
             <Box css={styles.bandRule} aria-hidden="true" />
             <Box as="span" css={styles.bandPill} data-failed="" role="gridcell" aria-colindex={1} aria-colspan={colCount + 1}>
-                <Box as="span" role="alert">{`Elements ${words.number(failure.from + 1)}–${words.number(failure.to + 1)} could not be read — ${failure.error}`}</Box>
+                <Box as="span" role="alert">{words.m.windowFailed({ from: words.number(failure.from + 1), to: words.number(failure.to + 1), reason: failure.error })}</Box>
                 <SheetRetry styles={styles} onRetry={() => onRetry(failure.w)} />
             </Box>
         </Box>
@@ -682,13 +686,14 @@ export interface SheetRowBoundaryProps {
  * boundary does the same (#811).
  */
 export function SheetRowBoundary({ styles, rowPx, number, resetKey, children }: SheetRowBoundaryProps) {
+    const { m } = useSheetWords();
     return (
         <EastErrorBoundary
             title={`Sheet row ${number}`}
             resetKey={resetKey}
             fallback={({ message }) => (
                 <Box css={styles.rowError} data-slot="rowError" data-row-error={number} role="row" style={{ minHeight: `${rowPx}px` }}>
-                    <Box as="span" role="alert">{`Row ${number} could not be drawn — ${message}`}</Box>
+                    <Box as="span" role="alert">{m.rowFailed({ number: String(number), reason: message })}</Box>
                 </Box>
             )}
         >
@@ -721,31 +726,34 @@ export const SheetGapRow = memo(function SheetGapRow({ styles, gap, reach, onRev
     // A run inside a group (#740) is bounded by line numbers, not sheet rows.
     const above = isLinePosition(gap.from) ? lineNumberOf(gap.from) - 1 : gap.from;
     const below = isLinePosition(gap.to) ? lineNumberOf(gap.to) + 1 : gap.to + 2;
-    // The hidden count, in the app's locale (#850).
-    const words = useFormatters();
+    // The gap's words, its counts in the app's locale (#850, #861).
+    const words = useSheetWords();
+    const { m } = words;
+    const top = { n: reach.top, count: words.number(reach.top) };
+    const bottom = { n: reach.bottom, count: words.number(reach.bottom) };
     return (
         <Box css={styles.band} data-slot="band" data-band="lens" data-gap={gap.key} data-hidden={gap.hidden} role="row" aria-rowindex={ariaRowIndex}>
             <Box css={styles.bandRule} aria-hidden="true" />
             <Box as="span" css={styles.bandPill} data-slot="bandPill" data-lens="" role="gridcell" aria-colindex={1} aria-colspan={colCount + 1}>
                 {!gap.first && (
                     <Box as="span" css={styles.bandControl} data-slot="bandControl" data-where="top" role="button"
-                        aria-label={`Show ${words.number(reach.top)} more after row ${above}`} title={`Show the rows just after row ${above}`} onMouseDown={press("top")}>
+                        aria-label={m.gapAfter({ ...top, row: String(above) })} title={m.gapAfterTitle({ row: String(above) })} onMouseDown={press("top")}>
                         <FontAwesomeIcon icon={faAngleUp} />
-                        {`+${words.number(reach.top)}`}
+                        {m.gapMore(top)}
                     </Box>
                 )}
-                <Box as="span" css={styles.bandCount} data-slot="bandCount" role="button" title="Expand — each click reaches further" onMouseDown={press(middle)}>
-                    {`${words.number(gap.hidden)} hidden`}
+                <Box as="span" css={styles.bandCount} data-slot="bandCount" role="button" title={m.gapHiddenTitle()} onMouseDown={press(middle)}>
+                    {m.gapHidden({ n: gap.hidden, count: words.number(gap.hidden) })}
                 </Box>
                 {!gap.last && (
                     <Box as="span" css={styles.bandControl} data-slot="bandControl" data-where="bottom" role="button"
-                        aria-label={`Show ${words.number(reach.bottom)} more before row ${below}`} title={`Show the rows just before row ${below}`} onMouseDown={press("bottom")}>
-                        {`+${words.number(reach.bottom)}`}
+                        aria-label={m.gapBefore({ ...bottom, row: String(below) })} title={m.gapBeforeTitle({ row: String(below) })} onMouseDown={press("bottom")}>
+                        {m.gapMore(bottom)}
                         <FontAwesomeIcon icon={faAngleDown} />
                     </Box>
                 )}
-                <Box as="span" css={styles.bandControl} data-slot="bandControl" data-where="all" role="button" aria-label="Show every hidden row" title="Show every hidden row" onMouseDown={press("all")}>
-                    all
+                <Box as="span" css={styles.bandControl} data-slot="bandControl" data-where="all" role="button" aria-label={m.gapAllName()} title={m.gapAllName()} onMouseDown={press("all")}>
+                    {m.gapAll()}
                 </Box>
             </Box>
         </Box>
@@ -819,9 +827,11 @@ export const SheetGroupRow = memo(function SheetGroupRow(props: SheetGroupRowPro
     const titleMeta = group.cells.get(TITLE_KEY);
     const titleSelected = selC !== undefined && selC < span && editor === undefined;
     const titleEditing = editor !== undefined && editor.c < span;
-    const word = group.noun.singular;
-    // The line count and the band cells' titles, in the app's locale (#850, #852).
-    const words = useFormatters();
+    // The band's words, its line count and cells' titles in the app's locale (#850, #852, #861).
+    const words = useSheetWords();
+    const { m } = words;
+    // The host's word for a group, else the sheet's own (#844, #861).
+    const word = group.noun?.singular ?? m.groupNoun();
     // To assistive tech (#860) the band is a row: its rowheader names the
     // group and its lines, the title is its first cell — the sub line that
     // cell's description — and each band cell a cell under its column.
@@ -848,18 +858,18 @@ export const SheetGroupRow = memo(function SheetGroupRow(props: SheetGroupRowPro
             aria-expanded={!folded}
         >
             <Box css={styles.gutter} data-slot="gutter" role="rowheader" aria-colindex={1}
-                aria-label={`${word} ${props.number}, ${words.number(count)} line${count === 1 ? "" : "s"}`}
-                onMouseDown={(e) => props.onRowPick(r, e)} title={`Select the ${word}'s lines — delete removes them`}>
+                aria-label={m.groupName({ noun: word, number: String(props.number), n: count, count: words.number(count) })}
+                onMouseDown={(e) => props.onRowPick(r, e)} title={m.groupTitle({ noun: word })}>
                 {seam !== undefined && props.onSeamEnter !== undefined && props.onSeamLeave !== undefined && (
                     <SheetInsertPoint styles={styles} side={seam} onEnter={(hit) => props.onSeamEnter?.(r, seam, hit)} onLeave={props.onSeamLeave} />
                 )}
                 <Rail styles={styles} membership={props.membership} picked={picked} mixed={props.mixed === true} selectable
-                    label={`Select ${word} ${title}`} onPick={(event) => props.onRowPick(r, event)} />
+                    label={m.groupSelect({ noun: word, title })} onPick={(event) => props.onRowPick(r, event)} />
                 <Box as="span" css={styles.gutterNumber} data-slot="gutterNumber">{props.number}</Box>
                 <Box css={styles.gutterAction} data-slot="fillSlot">
                     {props.draft?.discardable && <chakra.button
                         type="button" css={styles.gutterButton} tabIndex={-1}
-                        data-slot="discardDraft" data-kind="discard" aria-label={`Discard new ${word}`} title={`Discard new ${word}`}
+                        data-slot="discardDraft" data-kind="discard" aria-label={m.groupDiscard({ noun: word })} title={m.groupDiscard({ noun: word })}
                         onMouseDown={(event) => { event.preventDefault(); event.stopPropagation(); }}
                         onClick={(event) => { event.stopPropagation(); props.onDiscard?.(row.id); }}
                     ><FontAwesomeIcon icon={faXmark} /></chakra.button>}
@@ -869,8 +879,8 @@ export const SheetGroupRow = memo(function SheetGroupRow(props: SheetGroupRowPro
                 style={{ gridColumn: `span ${Math.max(1, columns.list.length)}` }}>
                 {/* The row's `aria-expanded` says whether it is open, and Space folds it: the chevron is the pointer's. */}
                 <chakra.button type="button" css={styles.groupChevron} data-slot="fold" tabIndex={-1} aria-hidden="true"
-                    aria-label={folded ? `Open the ${word}` : `Fold the ${word}`} aria-expanded={!folded}
-                    title={folded ? "Open — Space · ⌥ opens all" : "Fold — Space · ⌥ folds all"}
+                    aria-label={m.groupFold({ folded, noun: word })} aria-expanded={!folded}
+                    title={m.groupFoldTitle({ folded })}
                     onMouseDown={(event) => { event.preventDefault(); event.stopPropagation(); props.onFold(r, event.altKey); }}
                     onClick={(event) => { if (event.detail === 0) props.onFold(r, event.altKey); }}>
                     <Chevron />
@@ -892,7 +902,7 @@ export const SheetGroupRow = memo(function SheetGroupRow(props: SheetGroupRowPro
                     onMouseEnter={() => props.onCellEnter(r, 0)}
                 >
                     {range !== undefined && range.c0 < span && <Box css={styles.rangeWash} data-slot="rangeWash" />}
-                    <Box as="span" css={styles.groupTitleText} data-slot="groupTitle">{title === "" && titleMeta !== undefined ? "Untitled" : title}</Box>
+                    <Box as="span" css={styles.groupTitleText} data-slot="groupTitle">{title === "" && titleMeta !== undefined ? m.untitled() : title}</Box>
                     {titleSelected && <Box css={styles.ring} data-slot="ring" />}
                     {titleEditing && editor.node}
                 </Box>
@@ -924,7 +934,7 @@ export const SheetGroupRow = memo(function SheetGroupRow(props: SheetGroupRowPro
                             onMouseDown={(e) => props.onCellDown(r, c, e)}
                             onDoubleClick={() => props.onCellDouble(r, c)}
                             onMouseEnter={() => props.onCellEnter(r, c)}
-                            title={meta !== undefined ? `${colMeta.header} — ${cellText(cell, meta, words)}` : undefined}
+                            title={meta !== undefined ? m.bandCellTitle({ header: colMeta.header, value: cellText(cell, meta, words) }) : undefined}
                         >
                             {inRange && <Box css={styles.rangeWash} data-slot="rangeWash" />}
                             {meta !== undefined && (

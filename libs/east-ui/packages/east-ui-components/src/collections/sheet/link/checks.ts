@@ -14,6 +14,7 @@
 
 import type { LinkVocabulary } from "./grammar.js";
 import type { SheetColumnMeta } from "../model.js";
+import type { SheetMessages } from "../messages.js";
 import type { SheetCheckContextValue, SheetCheckValue, SheetLinkValue, SheetMemberValue } from "../values.js";
 
 /** One check of a link column — the decoded wire check: `exists`, or the author's bridged rule. */
@@ -38,14 +39,21 @@ export function hasFlags(flags: LinkFlags): boolean {
     return flags.from.some((f) => f.length > 0) || flags.to.some((f) => f.length > 0);
 }
 
-/** The `exists` check on one member. */
-export function existsFlag(m: SheetMemberValue, vocab: LinkVocabulary): string | undefined {
+/**
+ * The `exists` check on one member, flagged in the sheet's words (#861).
+ *
+ * @param m - The member
+ * @param vocab - The column's vocabulary
+ * @param messages - The sheet's message table
+ * @returns The flag, or `undefined` when the member passes
+ */
+export function existsFlag(m: SheetMemberValue, vocab: LinkVocabulary, messages: SheetMessages): string | undefined {
     switch (m.type) {
         case "identified":
         case "counted":
-            return vocab.byKey.has(m.value.key.toLowerCase()) ? undefined : `${m.value.key} is not in the register`;
+            return vocab.byKey.has(m.value.key.toLowerCase()) ? undefined : messages.notInRegister({ key: m.value.key });
         case "range":
-            return vocab.byKey.has(m.value.from.toLowerCase()) ? undefined : `${m.value.from} is not in the register`;
+            return vocab.byKey.has(m.value.from.toLowerCase()) ? undefined : messages.notInRegister({ key: m.value.from });
         default:
             return undefined;
     }
@@ -58,19 +66,22 @@ export function existsFlag(m: SheetMemberValue, vocab: LinkVocabulary): string |
  * @param checks - The column's checks
  * @param vocab - The column's vocabulary (for `exists`)
  * @param contextFor - The wire check context for a member (`half`, `member` filled by the caller)
+ * @param messages - The sheet's message table (the `exists` flag's words)
+ * @returns The flags, per half and member
  */
 export function checkLink(
     link: SheetLinkValue,
     checks: readonly CheckDecl[],
     vocab: LinkVocabulary,
     contextFor: (half: "from" | "to", member: SheetMemberValue) => SheetCheckContextValue,
+    messages: SheetMessages,
 ): LinkFlags {
     if (checks.length === 0) return NO_FLAGS;
     const run = (half: "from" | "to", members: readonly SheetMemberValue[]): string[][] => members.map((m) => {
         const flags: string[] = [];
         for (const c of checks) {
             if (c.type === "exists") {
-                const f = existsFlag(m, vocab);
+                const f = existsFlag(m, vocab, messages);
                 if (f !== undefined) flags.push(f);
                 continue;
             }

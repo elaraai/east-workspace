@@ -10,8 +10,9 @@
 
 import { describe, test, expect } from "vitest";
 import { none, some, variant } from "@elaraai/east";
-import { formatters } from "../../format/index.js";
 import { foldTabs, lensCount, lensGaps, lensHits, lensVisible, matchRecord, narrowingActive, nextReach, revealStep, viewName, type LensConfig } from "./lens.js";
+import { sheetMessages } from "./messages.js";
+import { SHEET_WORDS, sheetWords } from "./words.js";
 import type { SliceStateValue } from "./sheet-types.js";
 import type { SheetColumnMeta } from "./model.js";
 import type { SheetCellValue, SheetRowValue } from "./values.js";
@@ -132,14 +133,17 @@ describe("visibility, gaps and reveals", () => {
     });
 
     test("the count line and a view's name", () => {
-        const en = formatters("en-US");
-        expect(lensCount([true, false, true, false], [true, true, true, false], en)).toBe("2 matches · 1 context");
-        expect(lensCount([true, false], [true, false], en)).toBe("1 match");
+        expect(lensCount([true, false, true, false], [true, true, true, false], SHEET_WORDS)).toBe("2 matches · 1 context");
+        expect(lensCount([true, false], [true, false], SHEET_WORDS)).toBe("1 match");
         // The counts print in the app's locale (#850).
         const many = Array.from({ length: 1500 }, () => true);
-        expect(lensCount(many, many, formatters("de-DE"))).toBe("1.500 matches");
+        expect(lensCount(many, many, sheetWords("de-DE", sheetMessages))).toBe("1.500 matches");
+        // The line is the sheet's words (#861).
+        expect(lensCount([true, false], [true, true], sheetWords("en-US", { ...sheetMessages, lensCount: ({ count, context }) => `${count}|${context}` }))).toBe("1|1");
         expect(viewName("paint", 3)).toBe("paint");
         expect(viewName("   ", 3)).toBe("view 3");
+        // An unnamed view takes the sheet's name for it (#861).
+        expect(viewName("   ", 3, (seq) => `Ansicht ${seq}`)).toBe("Ansicht 3");
         expect(viewName("a very long search query indeed", 1)).toBe("a very long sea…");
     });
 });

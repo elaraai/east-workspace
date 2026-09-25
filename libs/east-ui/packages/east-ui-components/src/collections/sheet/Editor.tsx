@@ -45,13 +45,13 @@ import type { DateValue } from "@internationalized/date";
 import { CompoundDateField, CompoundDateInput, CompoundDateSegment } from "../../forms/input/date/index.js";
 import { dateToCalendarDate, dateValueToDate } from "../../forms/input/index.js";
 import { useDensity } from "../../contracts/density.js";
-import { useFormatters } from "../../format/index.js";
 import { memberIsDashed, memberLabel, type SheetKind } from "./model.js";
 import { formatDateEdit, splitTimeToken, type WhenLevel } from "./parse/date.js";
 import type { LinkVocabulary } from "./link/grammar.js";
 import type { LinkHalves } from "./link/sides.js";
 import type { LinkGroups } from "./sheet-state.js";
 import type { SheetMemberValue } from "./values.js";
+import { useSheetWords } from "./words.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
@@ -177,8 +177,8 @@ function segmentsOf(root: HTMLElement | null): HTMLElement[] {
 export const SheetEditor = memo(function SheetEditor({ styles, kind, value, date, seed, ghost, resolve, badge, error, focus, ariaLabel, link, options, highlighted, browse, onPick, whenLevel, onChange, onKey, onBlur, onHalfDown }: SheetEditorProps) {
     const density = useDensity();
     const controlSize = density === "comfortable" ? "md" : density === "condensed" ? "xs" : "sm";
-    // The number field reads and steps the buffer in the viewer's language — the one the cells print and the grammar reads (#852).
-    const { locale } = useFormatters();
+    // The number field reads and steps the buffer in the viewer's language — the one the cells print and the grammar reads (#852) — and the editor speaks the sheet's words (#861).
+    const { locale, m } = useSheetWords();
     const rootRef = useRef<HTMLDivElement | null>(null);
     const inputRef = useRef<HTMLInputElement | null>(null);
     const lastFocus = useRef("");
@@ -407,7 +407,7 @@ export const SheetEditor = memo(function SheetEditor({ styles, kind, value, date
             <Portal>
                 <ChakraCombobox.Positioner css={styles.editorMenu} data-slot="editorMenu">
                     <ChakraCombobox.Content onMouseDown={(e) => e.preventDefault()}>
-                        {items.length === 0 && <ChakraCombobox.Empty css={styles.editorOptionMeta}>no options</ChakraCombobox.Empty>}
+                        {items.length === 0 && <ChakraCombobox.Empty css={styles.editorOptionMeta}>{m.editorNoOptions()}</ChakraCombobox.Empty>}
                         {items.map((o) => (
                             <ChakraCombobox.Item key={o.key} item={o} css={styles.editorOption} data-slot="editorOption">
                                 {o.tone !== undefined && <Box as="span" css={styles.cellDot} data-tone={o.tone} aria-hidden="true" />}
@@ -431,7 +431,7 @@ export const SheetEditor = memo(function SheetEditor({ styles, kind, value, date
                 </CompoundDateInput>
             </CompoundDateField>
             {whenLevel === "time" && (
-                <chakra.input css={styles.editorTime} data-slot="editorTime" aria-label="Time" placeholder="hh:mm" defaultValue={timeNow} key={timeNow}
+                <chakra.input css={styles.editorTime} data-slot="editorTime" aria-label={m.editorTime()} placeholder={m.editorTimePlaceholder()} defaultValue={timeNow} key={timeNow}
                     onMouseDown={(e) => e.stopPropagation()}
                     onKeyDown={handleTimeKey}
                     onChange={(e) => { const v = e.currentTarget.value.trim(); if (/^\d{1,2}:\d{2}$/.test(v)) setTimeToken(v); }}
@@ -466,25 +466,25 @@ export const SheetEditor = memo(function SheetEditor({ styles, kind, value, date
                 {active && <Box aria-hidden="true" style={{ position: "absolute", left: side === 0 ? 0 : 3, right: side === 0 ? 3 : 0, bottom: 4, height: "1.5px", background: "var(--chakra-colors-brand-solid)", pointerEvents: "none" }} />}
                 {!state.live && state.lock !== "" && (
                     <Box as="span" css={warn ? styles.lockWarn : styles.lockTag} data-slot={warn ? "lockWarn" : "lockTag"}
-                        title={warn ? `This ${key === "from" ? "source" : "destination"} is locked — anything here is kept but flagged` : undefined}>
+                        title={warn ? m.editorLocked({ half: key }) : undefined}>
                         {state.lock}
                     </Box>
                 )}
-                {state.live && members.length === 0 && <Box as="span" css={styles.halfLabel} data-slot="halfLabel">{key}</Box>}
-                {members.map((m, i) => {
+                {state.live && members.length === 0 && <Box as="span" css={styles.halfLabel} data-slot="halfLabel">{m.halfLabel({ half: key })}</Box>}
+                {members.map((member, i) => {
                     const n = offset + i;
                     const picked = link.chipSel !== null && n >= link.chipSel.lo && n <= link.chipSel.hi;
                     return (
-                        <Box key={i} as="span" css={picked ? styles.chipPicked : memberIsDashed(m) ? styles.chipDashed : styles.chip}
-                            data-slot="chip" data-member={m.type} data-picked={picked ? "" : undefined}>
-                            {memberLabel(m)}
+                        <Box key={i} as="span" css={picked ? styles.chipPicked : memberIsDashed(member) ? styles.chipDashed : styles.chip}
+                            data-slot="chip" data-member={member.type} data-picked={picked ? "" : undefined}>
+                            {memberLabel(member)}
                         </Box>
                     );
                 })}
                 {active && typed(side)}
-                {link.predicted[side].map((m, i) => (
+                {link.predicted[side].map((member, i) => (
                     <Box key={`p${i}`} as="span" css={styles.chipDashed} data-slot="chip" data-predicted="" style={{ paddingLeft: 6, paddingRight: 6 }}>
-                        {memberLabel(m)}
+                        {memberLabel(member)}
                     </Box>
                 ))}
             </Box>

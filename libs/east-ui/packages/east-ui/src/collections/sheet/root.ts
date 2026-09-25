@@ -718,10 +718,8 @@ export function createSheet(
                 payloadType: toEastTypeValue(m.payloadType),
                 editable:    m.editable,
             }, SheetGroupCellType)), ArrayType(SheetGroupCellType)),
-            noun: East.value({
-                singular: groupDecl.config.noun?.singular ?? "group",
-                plural:   groupDecl.config.noun?.plural ?? "groups",
-            }, SheetNounType),
+            // The host's word; with none, the renderer says its own (#861).
+            noun: optionOf(groupDecl.config.noun, SheetNounType),
         }), OptionType(SheetGroupType))
         : East.value(none, OptionType(SheetGroupType));
 

@@ -30,6 +30,7 @@
  */
 
 import { formatDatePattern, parseDatePattern } from "../../../charts/spec/index.js";
+import type { SheetWords } from "../words.js";
 
 /** The cell's display pattern — `17 Nov 26`. */
 export const DATE_DISPLAY_PATTERN = "D MMM YY";
@@ -234,35 +235,35 @@ export const WHEN_DISPLAY_PATTERN = "DD/MM/YY";
 /**
  * What a date cell prints at a level: the day as `dd/mm/yy` (at the week
  * level, the week's Monday), the time after it at the time level, and the
- * RESOLUTION as a tag — `wk` · `day` · `range` · `time` — so a reader never
- * infers the precision from the shape of the text.
+ * RESOLUTION as a tag — `wk` · `day` · `range` · `time` in English, the
+ * sheet's words (#861) — so a reader never infers the precision from the
+ * shape of the text.
  *
  * @param d - The instant
  * @param level - The level it is read at
+ * @param w - The sheet's words
  * @returns The text and its resolution tag
  */
-export function formatWhen(d: Date, level: WhenLevel): { text: string; suffix: string } {
+export function formatWhen(d: Date, level: WhenLevel, w: SheetWords): { text: string; suffix: string } {
+    const suffix = w.m.whenTag({ level });
     switch (level) {
-        case "week":  return { text: formatDatePattern(WHEN_DISPLAY_PATTERN, weekStart(d)), suffix: "wk" };
-        case "day":   return { text: formatDatePattern(WHEN_DISPLAY_PATTERN, d), suffix: "day" };
-        case "range": return { text: formatDatePattern(WHEN_DISPLAY_PATTERN, d), suffix: "range" };
-        case "time":  return { text: `${formatDatePattern(WHEN_DISPLAY_PATTERN, d)} ${formatTime(d)}`, suffix: "time" };
+        case "week":  return { text: formatDatePattern(WHEN_DISPLAY_PATTERN, weekStart(d)), suffix };
+        case "day":   return { text: formatDatePattern(WHEN_DISPLAY_PATTERN, d), suffix };
+        case "range": return { text: formatDatePattern(WHEN_DISPLAY_PATTERN, d), suffix };
+        case "time":  return { text: `${formatDatePattern(WHEN_DISPLAY_PATTERN, d)} ${formatTime(d)}`, suffix };
     }
 }
 
 /**
- * The forms a level accepts — the strip's `accepts` line.
+ * The forms a level accepts — the strip's `accepts` line, in the sheet's
+ * words (#861).
  *
  * @param level - The level
+ * @param w - The sheet's words
  * @returns The chip and the meta line
  */
-export function whenAccepts(level: WhenLevel): { chip: string; meta: string } {
-    switch (level) {
-        case "week":  return { chip: "a week — any day in it", meta: "22/3 · fri · +7d · shown as its Monday" };
-        case "day":   return { chip: "a day", meta: "22/3 · fri · +3d" };
-        case "range": return { chip: "one end of the days it can run in", meta: "18/3 here, 22/3 at the other end" };
-        case "time":  return { chip: "a day and a time", meta: "22/3 19:00 · fri 07:30" };
-    }
+export function whenAccepts(level: WhenLevel, w: SheetWords): { chip: string; meta: string } {
+    return { chip: w.m.whenAccepts({ level }), meta: w.m.whenAcceptsForms({ level }) };
 }
 
 /**
@@ -274,9 +275,10 @@ export function whenAccepts(level: WhenLevel): { chip: string; meta: string } {
  * @param wanted - The wanted date, as the cell holds it
  * @param level - The level it is read at
  * @param actual - When the work really happened
+ * @param w - The sheet's words (#861)
  * @returns The tag (`+1d` · `−3h` · `actual`), its tone, and the words the cell's detail says (`3 hours late`)
  */
-export function actualAgainst(wanted: Date, level: WhenLevel, actual: Date): { tag: string; tone: "on" | "late" | "early"; words: string } {
+export function actualAgainst(wanted: Date, level: WhenLevel, actual: Date, w: SheetWords): { tag: string; tone: "on" | "late" | "early"; words: string } {
     let lo: number;
     let hi: number;
     switch (level) {
@@ -285,15 +287,14 @@ export function actualAgainst(wanted: Date, level: WhenLevel, actual: Date): { t
         case "time": lo = wanted.getTime() - 3_600_000; hi = wanted.getTime() + 3_600_000; break;
     }
     const t = actual.getTime();
-    if (t >= lo && t < hi) return { tag: "actual", tone: "on", words: "on time" };
+    if (t >= lo && t < hi) {
+        const on = { tone: "on", n: 0, count: w.number(0), unit: "d" } as const;
+        return { tag: w.m.actualTag(on), tone: "on", words: w.m.actualWords(on) };
+    }
     const off = Math.abs(t - wanted.getTime());
-    const late = t >= hi;
-    const days = Math.max(1, Math.round(off / DAY_MS));
-    const hours = Math.max(1, Math.round(off / 3_600_000));
+    const tone = t >= hi ? "late" : "early";
     const inDays = off >= 20 * 3_600_000;
-    const amount = inDays ? `${days}d` : `${hours}h`;
-    const spelled = inDays ? `${days} day${days === 1 ? "" : "s"}` : `${hours} hour${hours === 1 ? "" : "s"}`;
-    return late
-        ? { tag: `+${amount}`, tone: "late", words: `${spelled} late` }
-        : { tag: `−${amount}`, tone: "early", words: `${spelled} early` };
+    const n = inDays ? Math.max(1, Math.round(off / DAY_MS)) : Math.max(1, Math.round(off / 3_600_000));
+    const p = { tone, n, count: w.number(n), unit: inDays ? "d" : "h" } as const;
+    return { tag: w.m.actualTag(p), tone, words: w.m.actualWords(p) };
 }

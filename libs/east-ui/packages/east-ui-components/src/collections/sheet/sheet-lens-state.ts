@@ -150,13 +150,10 @@ export function createTab(s: SheetUiState, ctx: SheetMachineCtx): Transition {
     let seq = s.tabs.seq;
     let id = `view-${seq}`;
     while (kept.some((v) => v.id === id)) { seq += 1; id = `view-${seq}`; }
-    const name = viewName(query, seq);
+    const name = viewName(query, seq, ctx.viewName);
     const view: SheetViewValue = { id, name, narrowing, context: BigInt(s.lens.context), reveals: wireReveals(s.lens.reveals), folds: wireFolds(s.lens.folds) };
-    const msg = query.trim() !== ""
-        ? `Saved tab "${name}" — a live view: rows that match join it as the sheet changes`
-        : `Saved tab "${name}" — no filter; type a search and ⏎ to scope it`;
     return {
-        state: { ...s, tabs: { ...s.tabs, active: id, seq: seq + 1, renaming: null, renameVal: "" }, msg },
+        state: { ...s, tabs: { ...s.tabs, active: id, seq: seq + 1, renaming: null, renameVal: "" }, msg: { id: "tabSaved", name, query: query.trim() !== "" } },
         effects: [{ t: "emit.views", views: [...kept, view] }],
     };
 }
@@ -167,11 +164,11 @@ export function closeTab(s: SheetUiState, ctx: SheetMachineCtx, id: string): Tra
     const t = views.find((v) => v.id === id);
     if (t === undefined) return noop(s);
     const rest = views.filter((v) => v.id !== id);
-    if (s.tabs.active !== id) return { state: { ...s, msg: `Closed "${t.name}"` }, effects: [{ t: "emit.views", views: rest }] };
+    if (s.tabs.active !== id) return { state: { ...s, msg: { id: "tabClosed", name: t.name, active: false } }, effects: [{ t: "emit.views", views: rest }] };
     const effects: SheetEffect[] = [{ t: "emit.views", views: rest }];
     if (ctx.emptyNarrowing !== undefined) effects.push({ t: "slice.write", state: ctx.emptyNarrowing });
     return {
-        state: { ...s, tabs: { ...s.tabs, active: null, renaming: null, renameVal: "" }, lens: EMPTY_LENS, selEnd: null, gsel: null, msg: `Closed "${t.name}" — back to the whole sheet` },
+        state: { ...s, tabs: { ...s.tabs, active: null, renaming: null, renameVal: "" }, lens: EMPTY_LENS, selEnd: null, gsel: null, msg: { id: "tabClosed", name: t.name, active: true } },
         effects,
     };
 }
@@ -182,14 +179,14 @@ export function updateTab(s: SheetUiState, ctx: SheetMachineCtx): Transition {
     const narrowing = ctx.narrowing;
     if (t === undefined || narrowing === undefined) return noop(s);
     const views = (ctx.views ?? []).map((v) => (v.id === t.id ? { ...v, narrowing, context: BigInt(s.lens.context), reveals: wireReveals(s.lens.reveals), folds: wireFolds(s.lens.folds) } : v));
-    return { state: { ...s, msg: `Tab "${t.name}" now saves this search` }, effects: [{ t: "emit.views", views }] };
+    return { state: { ...s, msg: { id: "tabUpdated", name: t.name } }, effects: [{ t: "emit.views", views }] };
 }
 
 /** esc with a dirty tab: the slice returns to the tab's saved narrowing, the lens to its saved context, reveals and folds. */
 export function revertTab(s: SheetUiState, ctx: SheetMachineCtx): Transition {
     const t = activeView(s, ctx);
     if (t === undefined) return noop(s);
-    return { state: { ...s, lens: lensOf(t), msg: "Reverted to the tab's saved search" }, effects: [{ t: "slice.write", state: t.narrowing }] };
+    return { state: { ...s, lens: lensOf(t), msg: { id: "tabReverted" } }, effects: [{ t: "slice.write", state: t.narrowing }] };
 }
 
 /** A double click on a tab opens its name for editing. */

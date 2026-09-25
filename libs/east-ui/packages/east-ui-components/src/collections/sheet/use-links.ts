@@ -24,6 +24,7 @@ import { checksOf, checkLink, NO_FLAGS, type CheckDecl, type LinkFlags } from ".
 import type { LinkCellContext } from "./cells/Cell.js";
 import type { LinkEditCtx, LinkGroups } from "./sheet-types.js";
 import type { SheetArityValue, SheetCellValue, SheetDriverValue, SheetLinkValue, SheetRowValue } from "./values.js";
+import type { SheetWords } from "./words.js";
 
 /** One link column's decoded declaration. */
 export interface LinkColumn {
@@ -46,18 +47,21 @@ export interface UseSheetLinksArgs {
     predictedLink: (r: number, key: string) => SheetLinkValue | undefined;
     /** The member keys a row is OFFERED on a link column — its `options` rule (`undefined` = the whole register). */
     allowedFor?: ((r: number, meta: SheetColumnMeta) => ReadonlySet<string> | undefined) | undefined;
+    /** The sheet's words (#861): the candidates' metas and the `exists` flag speak them. */
+    words: SheetWords;
 }
 
 export interface SheetLinks {
     linkVocabularies: ReadonlyMap<string, LinkVocabulary>;
     linkColumns: ReadonlyMap<string, LinkColumn>;
-    driverName: (row: SheetRowValue | undefined) => string;
+    /** The row's driver member's name — `undefined` when the row names none (the words then say "this row", #861). */
+    driverName: (row: SheetRowValue | undefined) => string | undefined;
     linkCellCtx: (row: SheetRowValue | undefined, meta: SheetColumnMeta) => LinkCellContext | undefined;
     linkCtxFor: (r: number, c: number) => LinkEditCtx | undefined;
 }
 
 /** The link columns' vocabularies, halves, checks and editor contexts. */
-export function useSheetLinks({ drafts, columns, registers, driver, driverColumn, body, rowAt, predictedLink, allowedFor }: UseSheetLinksArgs): SheetLinks {
+export function useSheetLinks({ drafts, columns, registers, driver, driverColumn, body, rowAt, predictedLink, allowedFor, words }: UseSheetLinksArgs): SheetLinks {
     const linkVocabularies = useMemo(() => {
         const out = new Map<string, LinkVocabulary>();
         for (const meta of columns.list) {
@@ -80,18 +84,20 @@ export function useSheetLinks({ drafts, columns, registers, driver, driverColumn
         }
         return out;
     }, [columns, registers, linkVocabularies]);
-    const driverName = useCallback((row: SheetRowValue | undefined): string => {
+    const driverName = useCallback((row: SheetRowValue | undefined): string | undefined => {
         const key = driverKeyOf(row, driverColumn);
-        if (key === undefined) return "This row";
+        if (key === undefined) return undefined;
         const member = driver?.members.find((m) => m.key === key);
         return member?.label ?? key;
     }, [driverColumn, driver]);
     // A provider may inspect hidden drafts or group fields while the visible
-    // child row stays identical. Reset the memoized results for either input.
+    // child row stays identical. Reset the memoized results for either input —
+    // and for a new message table, whose words the `exists` flag speaks (#861).
+    const messages = words.m;
     const flagCache = useMemo(() => new WeakMap<SheetRowValue, Map<string, LinkFlags>>(),
         // These inputs invalidate the cache consumed by flagsFor below.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [drafts, linkColumns]);
+        [drafts, linkColumns, messages]);
     const flagsFor = useCallback((item: SheetBodyItem, meta: SheetColumnMeta): LinkFlags => {
         if (item.kind !== "real") return NO_FLAGS;
         const lc = linkColumns.get(meta.key);
@@ -109,10 +115,10 @@ export function useSheetLinks({ drafts, columns, registers, driver, driverColumn
             offset: BigInt(item.position),
             line: item.group !== undefined ? some(item.group.key) : none,
             row: item.row.cells, half: variant(half, null), member,
-        }));
+        }), messages);
         byKey.set(meta.key, flags);
         return flags;
-    }, [linkColumns, drafts, flagCache]);
+    }, [linkColumns, drafts, flagCache, messages]);
     const linkCellCtx = useCallback((row: SheetRowValue | undefined, meta: SheetColumnMeta): LinkCellContext | undefined => {
         const lc = linkColumns.get(meta.key);
         if (lc === undefined) return undefined;
@@ -143,13 +149,13 @@ export function useSheetLinks({ drafts, columns, registers, driver, driverColumn
         return {
             halves,
             initial: [current !== undefined ? [...current.from] : [], current !== undefined ? [...current.to] : []],
-            candidates: (text, groups) => linkCandidates(text, offer, usedOf(groups)),
-            candidateAt: (text, hi, groups) => linkCandidateAt(text, hi, offer, usedOf(groups)),
+            candidates: (text, groups) => linkCandidates(text, offer, usedOf(groups), words),
+            candidateAt: (text, hi, groups) => linkCandidateAt(text, hi, offer, usedOf(groups), words),
             resolve: (text, cand) => resolveBuffer(text, cand, vocab),
             predicted: (side, groups, typed) => predictedMembers(predictedLink(r, meta.key), side, groups, side === 0 ? halves.from.live : halves.to.live, typed, vocab),
             cell: (groups): SheetCellValue | null => (groups[0].length === 0 && groups[1].length === 0 ? null : variant("Link", { from: groups[0], to: groups[1] })),
             driverName: driverName(row),
         };
-    }, [columns, linkColumns, rowAt, driverColumn, driverName, predictedLink, allowedFor]);
+    }, [columns, linkColumns, rowAt, driverColumn, driverName, predictedLink, allowedFor, words]);
     return { linkVocabularies, linkColumns, driverName, linkCellCtx, linkCtxFor };
 }

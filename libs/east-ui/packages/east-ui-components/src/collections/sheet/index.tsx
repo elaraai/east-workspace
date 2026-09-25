@@ -52,7 +52,6 @@ import { useDensityHeights } from "../shared/helpers.js";
 import { useSliceReactivity } from "../../slice/use-slice-reactivity.js";
 import { useDataStable } from "../../hooks/useDataStable.js";
 import { usePersistedState } from "../../hooks/usePersistedState.js";
-import { useFormatters } from "../../format/index.js";
 import { railAffordanceKinds } from "../../slice/rail-kinds.js";
 import { VirtualRows, VIRTUALIZE_UNBOUNDED_AT, type RowsViewport } from "../virtual-rows.js";
 import {
@@ -80,6 +79,8 @@ import {
     initialSheetStore, sheetReducer, sheetStoreReducer, selectionRect, wholeRows, provisionalCell, nextTargetOf, fillOrder, isBlankRowId,
     type EditSource, type LensContext, type SheetEffect, type SheetEvent, type SheetMachineCtx, type SliceStateValue, type Suggestions,
 } from "./sheet-state.js";
+import type { SheetNotice } from "./sheet-types.js";
+import { noticeText, useSheetWords, type SheetWords } from "./words.js";
 import { runSuggest, SuggestMemo, LATENCY_MS, type FillColumn } from "./suggest.js";
 import { InFlight, trackWork } from "./suggest-async.js";
 import { SheetInsertLayer, SheetInsertStrip, type InsertionActions, type InsertSeam } from "./Insertion.js";
@@ -109,9 +110,6 @@ const GUTTER_PX = 128;
 /** Keeps the marker, number and two 44 px actions in separate touch targets. */
 const COARSE_GUTTER_PX = 254;
 
-/** The word for a group when the sheet declares none. */
-const GROUP_NOUN: SheetNounValue = { singular: "group", plural: "groups" };
-
 const sheetRootEqual = equivalentFor(Sheet.Types.Root);
 const sheetRootDataEqual = equalFor(Sheet.Types.Root);
 const stringEqual = equalFor(StringType);
@@ -126,12 +124,12 @@ function clearNarrowing(state: SliceStateValue): SliceStateValue {
     return { ...state, range: none, filters: [], activeCohorts: new Set<string>(), search: none } as SliceStateValue;
 }
 
-/** A view's hover title (B§8) — its query and context, and the gestures it takes. */
-function viewTitle(view: SheetViewValue): string {
+/** A view's hover title (B§8) — its query and context, and the gestures it takes — in the sheet's words (#861). */
+function viewTitle(view: SheetViewValue, words: SheetWords): string {
     const q = view.narrowing.search.type === "some" ? view.narrowing.search.value.trim() : "";
     const ctx = Number(view.context);
-    const what = q !== "" ? `"${q}"${ctx > 0 ? ` · ±${ctx}` : ""}` : view.narrowing.range.type === "some" ? "a date window" : view.narrowing.filters.length > 0 || view.narrowing.activeCohorts.size > 0 ? "a filter" : "no filter — the whole sheet";
-    return `${what} · live · double-click renames · middle-click closes`;
+    const scope = q !== "" ? "query" : view.narrowing.range.type === "some" ? "range" : view.narrowing.filters.length > 0 || view.narrowing.activeCohorts.size > 0 ? "filter" : "none";
+    return words.m.viewTitle({ scope, query: q, context: ctx > 0 ? words.number(ctx) : undefined });
 }
 
 /** The decoded rows with the local layer applied — its placements in one linear pass (#859). */
@@ -340,9 +338,10 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
     // Changes identity on a DATA change only — what owns local state keys on
     // it; callbacks come from `value` (#809).
     const data = useDataStable(value, sheetRootDataEqual);
-    // The counts the chrome prints — the summary, the hints, the messages,
-    // the lens line — in the app's locale (#850).
-    const words = useFormatters();
+    // The sheet's words (#861) — the message table in effect, and the
+    // counts the chrome prints (the summary, the hints, the messages, the
+    // lens line) in the app's locale (#850).
+    const words = useSheetWords();
     // The grid's id: its cells' ids hang off it, and the view tabs name it as what they switch (#860).
     const gridId = useId();
     // ── Decode ────────────────────────────────────────────────────────────
@@ -351,10 +350,11 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
     const driver = useMemo(() => getSomeorUndefined(value.driver), [value.driver]);
     const driverColumn = driver?.column;
     // Grouped rows (#740): the band's cells and the title span.
+    const titleColumn = words.m.titleColumn();
     const group = useMemo(() => {
         const g = getSomeorUndefined(value.group);
-        return g !== undefined ? indexGroup(g, columns) : undefined;
-    }, [value.group, columns]);
+        return g !== undefined ? indexGroup(g, columns, titleColumn) : undefined;
+    }, [value.group, columns, titleColumn]);
     const titleMeta = group?.cells.get(TITLE_KEY);
     const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);
     const size = densityOf(value);
@@ -363,7 +363,11 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
     const bandPx = Math.max(groupBandPx(size), coarse ? 46 : 42);
     // A sub row's least height; a wrapping detail grows it, and the rows are measured.
     const subRowPx = 30;
-    const noun = group?.noun ?? GROUP_NOUN;
+    // The word for a group: the host's (#844), else the sheet's words (#861).
+    // The machine's messages carry only the host's, and word a missing one
+    // when they show — so a new table re-words them.
+    const declaredNoun = group?.noun;
+    const noun = useMemo<SheetNounValue>(() => declaredNoun ?? { singular: words.m.groupNoun(), plural: words.m.groupNouns() }, [declaredNoun, words.m]);
     const readOnly = (getSomeorUndefined(value.readOnly) ?? false) || value.editing.onApply.type === "none";
     const capabilities = value.editing.edits;
     const canInsertRows = !readOnly && capabilities.insertRows;
@@ -511,11 +515,11 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
             let byChild = byEntry.get(id);
             if (byChild === undefined) { byChild = new Map(); byEntry.set(id, byChild); }
             let found = byChild.get(child);
-            if (found === undefined) { found = draftPresentation(session, draftType, childField, id, child, readiness); byChild.set(child, found); }
+            if (found === undefined) { found = draftPresentation(session, draftType, childField, id, child, readiness, words); byChild.set(child, found); }
             return found;
         };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- draftVersion tracks changes within the stable transaction session.
-    }, [session, draftType, childField, readiness, draftVersion]);
+    }, [session, draftType, childField, readiness, draftVersion, words]);
     // Temporary writes within one reducer effect batch; the transaction session
     // publishes the completed gesture and owns the rendered layer thereafter.
     const layerRef = useRef(layer);
@@ -698,7 +702,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
     }, [ui.sugg, idAt]);
     // A link column's options rule narrows what a row is offered.
     const allowedFor = useCallback((r: number, meta: SheetColumnMeta) => candidateCtxFor(r).allowed?.(meta), [candidateCtxFor]);
-    const links = useSheetLinks({ drafts, columns, registers, driver, driverColumn, body, rowAt, predictedLink, allowedFor });
+    const links = useSheetLinks({ drafts, columns, registers, driver, driverColumn, body, rowAt, predictedLink, allowedFor, words });
     const { linkVocabularies, linkColumns, linkCellCtx, linkCtxFor } = links;
     const parseCtxFor = useCallback((r: number, meta: SheetColumnMeta): ParseContext => {
         let baseDate: Date | undefined;
@@ -786,13 +790,15 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
             if ((it.kind === "real" || it.kind === "blank") && it.group !== undefined) return it.group.number;
             return it.kind === "real" || it.kind === "blank" ? it.position + 1 : r + 1;
         },
-        rowNameAt: (r) => {
+        // A row as the messages name it — worded when they show (#861).
+        rowRefAt: (r) => {
             const it = rowAt(r);
             const lg = it !== undefined && (it.kind === "real" || it.kind === "blank") ? it.group : undefined;
-            if (lg === undefined) return `row ${it !== undefined && (it.kind === "real" || it.kind === "blank") ? it.position + 1 : r + 1}`;
+            if (lg === undefined) return { line: false, number: it !== undefined && (it.kind === "real" || it.kind === "blank") ? it.position + 1 : r + 1 };
             const title = lg.row.cells.get(TITLE_KEY);
-            return `line ${lg.number} of ${title !== undefined && title.type === "String" && title.value !== "" ? title.value : `the ${noun.singular}`}`;
+            return { line: true, number: lg.number, title: title !== undefined && title.type === "String" && title.value !== "" ? title.value : undefined, noun: declaredNoun?.singular };
         },
+        viewName: (seq) => words.m.viewName({ seq: String(seq) }),
         views,
         narrowing: sliceState,
         emptyNarrowing,
@@ -827,7 +833,8 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
         },
         // Every group, the ones a lens hides included: what fold-all folds.
         groupIds: group !== undefined ? rows.map((row) => row.id) : undefined,
-        groupNoun: noun,
+        // The host's word only: a message words a missing one when it shows (#861).
+        groupNoun: declaredNoun,
         // A line's sub rows: whether they show is read off the body (the lens may have opened them).
         lineSubRowsAt: (r) => {
             const bi = rowSpace.bodyIndexOf[r];
@@ -843,7 +850,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
                 group: g.lines.filter((l) => l.subRows.length > 0).map((l) => lineId(g.id, l.key)),
             };
         },
-    }), [rowCount, colCount, lensOn, exhausted, readOnly, canInsertRows, editingState.available, group, noun, columns, rows, rowAt, metaAt, parseCtxFor, candidateCtxFor, cellAt, levelAt, words, linkCtxFor, rowOf, idAt, driverColumn, views, sliceState, emptyNarrowing, dirty, rowSpace, body, pagedSource, pagedHead, pagedTail, pageRows]);
+    }), [rowCount, colCount, lensOn, exhausted, readOnly, canInsertRows, editingState.available, group, declaredNoun, columns, rows, rowAt, metaAt, parseCtxFor, candidateCtxFor, cellAt, levelAt, words, linkCtxFor, rowOf, idAt, driverColumn, views, sliceState, emptyNarrowing, dirty, rowSpace, body, pagedSource, pagedHead, pagedTail, pageRows]);
     const ctxRef = useRef(ctx);
     ctxRef.current = ctx;
     const uiRef = useRef(ui);
@@ -1308,12 +1315,15 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
                     if (readOnly) break;
                     const out = deleteRows(eff.r0, eff.r1);
                     if (out.n === 0) break;
-                    const what = out.what === "groups" ? countNoun(out.n, noun, words) : `${words.number(out.n)} ${out.what === "lines" ? "line" : "row"}${out.n === 1 ? "" : "s"}`;
-                    const msg = `Deleted ${what}`;
+                    const msg: SheetNotice = {
+                        id: "deleted", n: out.n, what: out.what, noun: declaredNoun?.singular, nouns: declaredNoun?.plural,
+                        // The group is left empty: ⌫ again removes it.
+                        again: out.emptiedBandR !== undefined,
+                    };
                     if (out.emptiedBandR !== undefined) {
                         dispatchStore({ t: "patch", patch: {
                             sel: { r: out.emptiedBandR, c: 0 }, selEnd: { r: out.emptiedBandR, c: Math.max(0, colCount - 1) },
-                            msg: `${msg} — ⌫ again removes the ${noun.singular}`,
+                            msg,
                         } });
                     } else {
                         dispatchStore({ t: "patch", patch: { msg } });
@@ -1360,7 +1370,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
                     const wide = Math.max(1, laid.width);
                     dispatchStore({ t: "patch", patch: {
                         selEnd: { r: eff.r + matrix.length - 1, c: Math.min(colCount - 1, eff.c + wide - 1) },
-                        msg: `Pasted ${words.number(matrix.length)}×${words.number(matrix[0]?.length ?? 0)} from clipboard${skipped > 0 ? ` · ${words.number(skipped)} unrecognised` : ""}`,
+                        msg: { id: "pasted", rows: matrix.length, cols: matrix[0]?.length ?? 0, skipped },
                     } });
                     break;
                 }
@@ -1445,9 +1455,9 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
             }
         }
         try { recordGesture(gestureEvents.current); }
-        catch (error) { console.error("Sheet transaction failure", error); dispatchStore({ t: "patch", patch: { msg: error instanceof Error ? error.message : String(error) } }); }
+        catch (error) { console.error("Sheet transaction failure", error); dispatchStore({ t: "patch", patch: { msg: { id: "text", text: error instanceof Error ? error.message : String(error) } } }); }
         finally { gestureEvents.current = []; }
-    }, [recordGesture, writeCells, deleteRows, insertProposal, columns, group, noun, words, metaAt, blankLineRowOf, readOnly, cellAt, colCount, parseCtxFor, onSelectFn, rowAt, rowOf, rowSpace, store.ui.sel, store.ui.edit, idAt, copilotOn, triggers, requestRun, requestReady, dispatch, value.views, onViewsChangeFn, slice, paging.head, paging.tail, paging.total, jumpToElement]);
+    }, [recordGesture, writeCells, deleteRows, insertProposal, columns, group, declaredNoun, words, metaAt, blankLineRowOf, readOnly, cellAt, colCount, parseCtxFor, onSelectFn, rowAt, rowOf, rowSpace, store.ui.sel, store.ui.edit, idAt, copilotOn, triggers, requestRun, requestReady, dispatch, value.views, onViewsChangeFn, slice, paging.head, paging.tail, paging.total, jumpToElement]);
     const drainedFx = useRef(0);
     useLayoutEffect(() => {
         if (store.fxSeq === drainedFx.current) return;
@@ -1477,7 +1487,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
     const pendingDiscard = useRef<{ id: string; child: string | undefined } | undefined>(undefined);
     const executeDiscard = useCallback((id: string, child?: string) => {
         if (discardDraft(session, childField, id, child)) {
-            dispatchStore({ t: "patch", patch: { sugg: null, msg: "Discarded new row" } });
+            dispatchStore({ t: "patch", patch: { sugg: null, msg: { id: "discarded" } } });
             cardRef.current?.focus({ preventScroll: true });
         }
     }, [session, childField]);
@@ -1528,8 +1538,8 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
         if (gesture === undefined) return;
         recordGesture([gesture.event], gesture.placement === undefined ? undefined : new Map([[gesture.id, gesture.placement]]), "insert");
         pendingInsertFocus.current = { id: gesture.id, ...(gesture.child === undefined ? {} : { child: gesture.child }) };
-        dispatchStore({ t: "patch", patch: { sugg: null, selEnd: null, msg: request.kind === "group" ? `New ${noun.singular}` : "New row" } });
-    }, [editingState.available, canInsertRows, canInsertGroups, rows, runLayout, endPosition, group, noun, value.editing.keyed, newRowIdFn, recordGesture]);
+        dispatchStore({ t: "patch", patch: { sugg: null, selEnd: null, msg: request.kind === "group" ? { id: "newGroup", noun: declaredNoun?.singular } : { id: "newRow" } } });
+    }, [editingState.available, canInsertRows, canInsertGroups, rows, runLayout, endPosition, group, declaredNoun, value.editing.keyed, newRowIdFn, recordGesture]);
     const onInsert = useCallback((kind: "row" | "group", r: number, side: "before" | "after") => {
         const request: InsertRequest = { kind, anchor: anchorFor(r, side) };
         if (uiRef.current.edit !== null) { pendingInsertion.current = request; dispatch({ t: "editor.blur" }); }
@@ -1658,7 +1668,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
         e.clipboardData.setData("text/plain", exportMatrix(cellAt, columns.list, rect, words, isBandRow));
         let copied = 0;
         for (let r = rect.r0; r <= rect.r1; r++) if (!isBandRow(r)) copied += 1;
-        dispatchStore({ t: "patch", patch: { msg: `Copied ${words.number(copied)}×${words.number(rect.c1 - rect.c0 + 1)} to clipboard` } });
+        dispatchStore({ t: "patch", patch: { msg: { id: "copied", rows: copied, cols: rect.c1 - rect.c0 + 1 } } });
     }, [store.ui, cellAt, columns, isBandRow, words]);
     const onPaste = useCallback((e: ClipboardEvent<HTMLDivElement>) => {
         if (store.ui.edit !== null) return;
@@ -1687,8 +1697,8 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
     const editBadge = useMemo(() => {
         if (edit === null || editMeta === undefined || edit.val.trim() === "" || edit.link !== undefined) return "";
         const n = candidateList(editMeta, edit.val, candidateCtxFor(edit.r)).length;
-        return n > 1 ? `${Math.min(Math.max(edit.hi, 0), n - 1) + 1}/${n}` : "";
-    }, [edit, editMeta, candidateCtxFor]);
+        return n > 1 ? words.m.editorBadge({ index: words.number(Math.min(Math.max(edit.hi, 0), n - 1) + 1), total: words.number(n) }) : "";
+    }, [edit, editMeta, candidateCtxFor, words]);
     const onEditorChange = useCallback((val: string) => dispatch({ t: "editor.change", val }), [dispatch]);
     // An enum column's combobox. Two modes over the machine's
     // buffer: BROWSING — the buffer is empty or a whole option (the cell's own
@@ -1932,7 +1942,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
         const column = field === undefined ? -1 : columns.list.findIndex(col => stringEqual(col.key, field));
         dispatch({ t: "select.set", r, c: Math.max(0, column) });
         setScrollTarget(index);
-        dispatchStore({ t: "patch", patch: { msg: `${field ?? issue.entry}: ${issue.message}` } });
+        dispatchStore({ t: "patch", patch: { msg: { id: "issue", where: field ?? issue.entry, message: issue.message } } });
         cardRef.current?.focus({ preventScroll: true });
         setPendingIssue(undefined);
     }, [pendingIssue, body, rowSpace, columns, dispatch]);
@@ -1950,19 +1960,19 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
                     const hits = lensLineHits(v.narrowing, sliceConfig, g, columns.list);
                     return n + lineRowsOf(g).filter((row, j) => hits[j] === true && !rowIsBlank(row, columns)).length;
                 }, 0);
-                return { id: v.id, name: v.name, count, title: viewTitle(v) };
+                return { id: v.id, name: v.name, count, title: viewTitle(v, words) };
             }
             const hits = sliceConfig !== undefined ? lensHits(v.narrowing, sliceConfig, countedRows, columns.list) : [];
             const count = countedRows.filter((row, i) => hits[i] === true && !rowIsBlank(row, columns)).length;
-            return { id: v.id, name: v.name, count, title: viewTitle(v) };
+            return { id: v.id, name: v.name, count, title: viewTitle(v, words) };
         });
-    }, [slice, views, sliceConfig, countedRows, columns, group, rows]);
+    }, [slice, views, sliceConfig, countedRows, columns, group, rows, words]);
     const summary = useMemo(() => {
         if (group === undefined) return undefined;
         // The sub rows under the lines count too.
         const lines = countedRows.length;
         const subRows = rows.reduce((n, g) => n + g.lines.reduce((m, l) => m + l.subRows.length, 0), 0);
-        return `${countNoun(rows.length, noun, words)} · ${words.number(lines)} line${lines === 1 ? "" : "s"}${subRows > 0 ? ` · ${words.number(subRows)} sub row${subRows === 1 ? "" : "s"}` : ""}`;
+        return words.m.summary({ groups: countNoun(rows.length, noun, words), n: lines, lines: words.number(lines), nSub: subRows, subRows: words.number(subRows) });
     }, [group, noun, rows, countedRows.length, words]);
     const onTabSwitch = useCallback((id: string | null) => dispatch({ t: "tab.switch", id }), [dispatch]);
     const onTabCreate = useCallback(() => dispatch({ t: "tab.create" }), [dispatch]);
@@ -2025,7 +2035,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
             const meta = columns.byKey.get(key);
             return { key, header: meta?.header ?? key, text: meta !== undefined ? cellText(f.cell, meta, words) : "", meta: f.meta, armed: nextTarget?.key === key };
         });
-        const pending = sugg.pending.map((key) => ({ key, header: key === "rows" ? "rows" : columns.byKey.get(key)?.header ?? key }));
+        const pending = sugg.pending.map((key) => ({ key, header: key === "rows" ? words.m.stripRowsHeader() : columns.byKey.get(key)?.header ?? key }));
         return { fills, rows: sugg.rows.length, rowsMeta: sugg.rows[0]?.meta ?? "", pending };
     }, [edit, ui.sugg, ctx, columns, nextTarget, words]);
 
@@ -2035,13 +2045,13 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
         const meta = metaAt(ui.sel.r, ui.sel.c);
         const it = rowAt(ui.sel.r);
         if (meta === undefined || it === undefined || it.kind !== "real") return undefined;
-        const d = cellDetail(meta, it.row.cells);
+        const d = cellDetail(meta, it.row.cells, words);
         if (d === undefined) return undefined;
         const cell = it.row.cells.get(meta.key);
         const member = meta.kind === "enum" && cell !== undefined && cell.type === "String" ? resolveRegisterMember(registers, meta.register, cell.value) : undefined;
         const memberMeta = member !== undefined ? getSomeorUndefined(member.meta) ?? "" : "";
-        return { label: meta.header.toUpperCase(), chips: d.chips, meta: d.meta !== "" ? d.meta : memberMeta, keys: meta.kind === "date" ? "⏎ edits the wanted date" : "⏎ edit" };
-    }, [edit, ui.selEnd, ui.sel, metaAt, rowAt, registers]);
+        return { label: meta.header.toUpperCase(), chips: d.chips, meta: d.meta !== "" ? d.meta : memberMeta, keys: words.m.stripKeysDetail({ date: meta.kind === "date" }) };
+    }, [edit, ui.selEnd, ui.sel, metaAt, rowAt, registers, words]);
     const strip = useMemo(() => {
         if (edit === null || editMeta === undefined) return buildStrip({ edit: null, meta: undefined, candidates: undefined, words, today, baseDate: undefined, unit: undefined, customPreview: undefined, suggested, detail });
         const pctx = parseCtxFor(edit.r, editMeta);
@@ -2069,7 +2079,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
                 } catch (err) {
                     console.error(`[Sheet] arity rule failed on column "${editMeta.key}":`, err);
                 }
-                arity = arityMeta(implied, namedCount(linkEdit.groups[linkEdit.side], vocab));
+                arity = arityMeta(implied, namedCount(linkEdit.groups[linkEdit.side], vocab), words);
             }
             const predicted = linkEditCtx.predicted(linkEdit.side, linkEdit.groups, edit.val);
             // A counted member is the plan-level answer; naming the members is the
@@ -2083,7 +2093,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
                 if (free.length === n && free.length > 0) {
                     enumerate = {
                         label: free.map((m) => m.key).join(", "),
-                        meta: "name them now instead of leaving them to the scheduler",
+                        meta: words.m.enumerateInstead(),
                         members: free.map((m) => variant("identified", { key: m.key })),
                     };
                 }
@@ -2093,12 +2103,12 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
                 side: linkEdit.side,
                 candidates: linkEditCtx.candidates(edit.val, linkEdit.groups),
                 armed: linkArmed,
-                entry: offer !== undefined ? linkEntryCandidates(offer, used) : [],
+                entry: offer !== undefined ? linkEntryCandidates(offer, used, words) : [],
                 predicted,
                 enumerate,
                 predictedMeta: fill?.meta ?? "",
                 arity,
-                grammar: offer !== undefined ? grammarLine(offer) : "",
+                grammar: offer !== undefined ? grammarLine(offer, words) : "",
             };
         }
         return buildStrip({
@@ -2132,20 +2142,21 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
     const hasRows = ui.sugg !== null && ui.sugg.rows.length > 0;
     const ringKind = ctx.rowKindAt?.(ui.sel.r);
     const ringSubRows = ringKind === "row" ? ctx.lineSubRowsAt?.(ui.sel.r) : undefined;
+    const picked = wr !== null ? wr.r1 - wr.r0 + 1 : 0;
     const hint = ui.gsel !== null
-        ? "⏎ adds the selected row · ⌫ rejects it · esc deselects"
+        ? words.m.hintProposal()
         : ringKind === "group" && wr === null
-            ? `⏎ renames the ${noun.singular} · Space folds it · ⇧Space folds all · click its number to select its lines`
+            ? words.m.hintBand({ noun: noun.singular })
         // A line with sub rows under it.
         : ringSubRows !== undefined && wr === null && ui.sugg === null
-            ? `Space ${ringSubRows.open ? "hides" : "shows"} its ${words.number(ringSubRows.count)} sub row${ringSubRows.count === 1 ? "" : "s"} · ⇧Space every line's in the ${noun.singular} · ⏎ edit`
+            ? words.m.hintSubRows({ open: ringSubRows.open, n: ringSubRows.count, count: words.number(ringSubRows.count), noun: noun.singular })
         : wr !== null
-            ? `${words.number(wr.r1 - wr.r0 + 1)} row${wr.r1 - wr.r0 === 0 ? "" : "s"} selected · ⌫ deletes them · ⌘C copies`
+            ? words.m.hintRows({ n: picked, count: words.number(picked) })
             : hasFills
-                ? "⇥ walks the fills · ⌘⏎ fills the row · ⌘⇧⏎ takes everything · esc dismisses"
+                ? words.m.hintFills()
                 : hasRows
-                    ? "⏎ adds the next suggested row · click a row to select it · esc dismisses"
-                    : "⏎ edit · esc cancel · click a row number to select it · ⌘C / ⌘V round-trips with Excel";
+                    ? words.m.hintSuggestedRows()
+                    : words.m.hintDefault();
 
     // ── Viewport → the driver (paged) ─────────────────────────────────────
     const reportViewport = paging.reportViewport;
@@ -2366,7 +2377,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
         const ordered = anchor.child !== undefined || anchor.tail === true || !value.editing.keyed;
         return {
             ordered, groupOrdered: !value.editing.keyed,
-            rowWord: group !== undefined ? "line" : "row", groupWord: noun.singular,
+            line: group !== undefined, noun: noun.singular,
             row: canInsertRows && (group === undefined || anchor.entry !== undefined) ? () => onInsert("row", r, "before") : undefined,
             group: canInsertGroups ? () => onInsert("group", r, "before") : undefined,
             preview: kind => {
@@ -2611,7 +2622,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
     if (paging.error !== undefined) {
         return (
             <Box css={styles.diagnostic} data-sheet-error role="alert">
-                {`NO ROWS — the paged source could not be read. ${paging.error} `}
+                {words.m.noSource({ reason: paging.error })}
                 <SheetRetry styles={styles} onRetry={() => paging.retry()} />
             </Box>
         );
@@ -2774,9 +2785,9 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
                 above={canInsertRows ? () => onInsert("row", wr?.r0 ?? ui.sel.r, "before") : undefined}
                 below={canInsertRows && (group === undefined || rows.length > 0) ? () => onInsert("row", wr?.r1 ?? ui.sel.r, "after") : undefined}
                 group={canInsertGroups ? () => onInsert("group", wr?.r1 ?? ui.sel.r, "after") : undefined}
-                groupWord={noun.singular} />}
+                noun={noun.singular} />}
             <SheetStrip styles={styles} model={strip} onAction={onStripAction} />
-            <SheetFooter styles={styles} items={value.footer} summary={summary} hint={hint} message={ui.msg} transport={transport} onRetry={paging.retry} />
+            <SheetFooter styles={styles} items={value.footer} summary={summary} hint={hint} message={ui.msg === null ? "" : noticeText(ui.msg, words)} transport={transport} onRetry={paging.retry} />
         </Box>
     );
 

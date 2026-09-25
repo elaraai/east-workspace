@@ -31,6 +31,7 @@ import { variant } from "@elaraai/east";
 import { memberLabel, type SheetColumnMeta } from "../model.js";
 import { getSomeorUndefined } from "../../../utils.js";
 import type { SheetLinkValue, SheetMemberValue, SheetRegisterMemberValue } from "../values.js";
+import type { SheetWords } from "../words.js";
 
 /** The arrow forms that separate the halves (B§4.1). */
 export const ARROW = /\s*(?:->|-->|=>|→|>)\s*|\s+[-–]\s+/;
@@ -290,20 +291,29 @@ export function parseLinkText(textIn: string, vocab: LinkVocabulary): SheetLinkV
     return { from, to };
 }
 
-/** A member's chip meta — the register's line, `unassigned` for a counted member (a count names no one in particular), the span of a range. */
-export function memberMeta(m: SheetMemberValue, vocab: LinkVocabulary): string {
+/**
+ * A member's chip meta — the register's line, `unassigned` for a counted
+ * member (a count names no one in particular), the span of a range; the
+ * sheet's words where it has its own (#861).
+ *
+ * @param m - The member
+ * @param vocab - The column's vocabulary
+ * @param w - The sheet's words
+ * @returns The meta, or `""`
+ */
+export function memberMeta(m: SheetMemberValue, vocab: LinkVocabulary, w: SheetWords): string {
     switch (m.type) {
         case "identified": {
             const reg = vocab.byKey.get(m.value.key.toLowerCase());
             return reg !== undefined ? getSomeorUndefined(reg.meta) ?? "" : "";
         }
         case "counted":
-            return vocab.byKey.has(m.value.key.toLowerCase()) ? "unassigned" : "";
+            return vocab.byKey.has(m.value.key.toLowerCase()) ? w.m.unassigned() : "";
         case "range": {
             // The span in the kind's own word: `6 machines`.
             const n = rangeMembers(m.value.from, m.value.to, vocab).length;
             const kind = vocab.byKey.get(m.value.from.toLowerCase())?.kind;
-            return n > 0 ? `${n} ${kind !== undefined ? pluralKind(kind) : "members"}` : "";
+            return n > 0 ? w.m.rangeSpan({ n, count: w.number(n), kind }) : "";
         }
         default:
             return "";

@@ -6,6 +6,7 @@
 /** Schema-directed draft lifting and unconditional readiness checks. @packageDocumentation */
 import { none, some, variant, type EastType, type VariantType, type ValueTypeOf } from "@elaraai/east";
 import { SheetBatchReadinessType, SheetIssueType } from "@elaraai/east-ui/internal";
+import { ISSUE_TEXT } from "./words.js";
 
 type Issue = ValueTypeOf<typeof SheetIssueType>;
 export type BatchReadiness = ValueTypeOf<typeof SheetBatchReadinessType>;
@@ -41,7 +42,8 @@ export function normalizeDraft(type: EastType, draft: unknown, entry: string): {
             if (state.type === "missing" && domain.type === "Variant" && domain.cases.none?.type === "Null" && domain.cases.some !== undefined && Object.keys(domain.cases).length === 2) return none;
             (state.type === "invalid" ? invalid : missing).push({
                 entry, row: row === undefined ? none : some(BigInt(row)), field: field === undefined ? none : some(field),
-                message: state.type === "invalid" ? `Invalid input: ${String(state.value)}` : "A value is required",
+                // The canonical English the patch events carry; the sheet shows it in its words (`issueText`, #861).
+                message: state.type === "invalid" ? ISSUE_TEXT.invalid(String(state.value)) : ISSUE_TEXT.required,
             });
             return undefined;
         }

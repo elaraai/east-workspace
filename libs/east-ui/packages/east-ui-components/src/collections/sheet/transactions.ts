@@ -8,6 +8,7 @@ import { ArrayType, BlobType, East, EastTypeType, OptionType, StringType, Struct
 import { applySheet, SheetAppliedTypeFor, SheetApplyResultType, SheetBaseTypeFor, SheetChangeSetTypeFor, SheetChangeTypeFor, SheetEntryPlacementType, SheetIssueType, SheetOriginType, SheetPatchEventTypeFor } from "@elaraai/east-ui/internal";
 import { normalizeDraft, type BatchReadiness } from "./draft-values.js";
 import type { SheetRowValue } from "./values.js";
+import { SESSION_TEXT } from "./words.js";
 
 // The runtime schemas remain exact. The TS algorithm treats domain payloads
 // opaquely instead of infinitely expanding PatchTypeOf<EastType>.
@@ -346,7 +347,8 @@ export class SheetTransactions {
             this.submission = undefined; request.release?.(); this.status = result.type; this.issues = result.value; this.changed(); return;
         }
         if (request.base.type === "revision" && result.value.revision.type !== "some") {
-            this.status = "unknown"; this.error = "The source applied the batch without its committed revision; recover this request before continuing"; this.changed(); return;
+            // The session's own text, canonical; the history bar words it (#861).
+            this.status = "unknown"; this.error = SESSION_TEXT.noRevision; this.changed(); return;
         }
         request.revision = result.value.revision.type === "some" ? result.value.revision.value : undefined;
         this.status = "reconciling"; this.changed();

@@ -18,6 +18,7 @@
 import { actualAgainst, formatWhen, type WhenLevel } from "./parse/date.js";
 import type { SheetColumnMeta } from "./model.js";
 import type { SheetCellValue } from "./values.js";
+import type { SheetWords } from "./words.js";
 
 /** A cell's detail — the strip's chips and meta, and the hover line. */
 export interface CellDetail {
@@ -27,26 +28,29 @@ export interface CellDetail {
 }
 
 /**
- * The detail of a column's cell in a row, if it has one.
+ * The detail of a column's cell in a row, if it has one — in the sheet's
+ * words (#861).
  *
  * @param meta - The column
  * @param cells - The row's cells (the unrendered rule cells included)
+ * @param words - The sheet's words
  * @returns The detail, or `undefined` when the cell says nothing beyond its value
  */
-export function cellDetail(meta: SheetColumnMeta, cells: ReadonlyMap<string, SheetCellValue>): CellDetail | undefined {
+export function cellDetail(meta: SheetColumnMeta, cells: ReadonlyMap<string, SheetCellValue>, words: SheetWords): CellDetail | undefined {
+    const { m } = words;
     if (meta.kind === "date" && meta.actual !== undefined) {
         const a = cells.get(meta.actual);
         if (a !== undefined && a.type === "DateTime") {
-            const when = formatWhen(a.value, "time").text;
+            const when = formatWhen(a.value, "time", words).text;
             const w = cells.get(meta.key);
-            if (w === undefined || w.type !== "DateTime") return { chips: [`happened ${when}`], meta: "no wanted date", title: `Happened ${when} — no wanted date` };
+            if (w === undefined || w.type !== "DateTime") return { chips: [m.detailHappened({ when })], meta: m.detailNoWanted(), title: m.detailHappenedTitle({ when }) };
             const level: WhenLevel = meta.level?.(cells) ?? "day";
-            const wanted = formatWhen(w.value, level);
-            const vs = actualAgainst(w.value, level, a.value);
+            const wanted = formatWhen(w.value, level, words);
+            const vs = actualAgainst(w.value, level, a.value, words);
             return {
-                chips: [`wanted ${wanted.text} · ${wanted.suffix}`, `happened ${when}`],
+                chips: [m.detailWanted({ text: wanted.text, tag: wanted.suffix }), m.detailHappened({ when })],
                 meta: vs.words,
-                title: `Happened ${when} — wanted ${wanted.text} (${wanted.suffix}) · ${vs.words}`,
+                title: m.detailTitle({ when, text: wanted.text, tag: wanted.suffix, words: vs.words }),
             };
         }
     }

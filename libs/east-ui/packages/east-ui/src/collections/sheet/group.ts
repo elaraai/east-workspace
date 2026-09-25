@@ -186,7 +186,7 @@ export function stamped<P extends StructType>(_groupType: P, field: SheetFieldOf
  * @property sub - The band's eyebrow — an accessor over the group row, display only
  * @property cells - Band cells keyed by the LINE column they sit under
  * @property folded - Whether a group opens folded — an accessor over the group row
- * @property noun - The word the renderer prints for a group — fold-all, the footer count, hints, the new-group button (default `"group"` / `"groups"`, #844)
+ * @property noun - The word the renderer prints for a group — fold-all, the footer count, hints, the new-group button (#844); omitted, the renderer's own word in the viewer's language (`"group"` / `"groups"` in English, #861)
  */
 export interface SheetGroupConfig<P extends StructType, L extends StructType = StructType> {
     /** The band's title — a `String` field of the group row. */

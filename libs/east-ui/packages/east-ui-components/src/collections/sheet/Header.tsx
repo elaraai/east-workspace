@@ -20,9 +20,9 @@ import { memo } from "react";
 import { Box, chakra } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faMinus } from "@fortawesome/free-solid-svg-icons";
-import { useFormatters } from "../../format/index.js";
 import { countNoun, type SheetColumnMeta } from "./model.js";
 import type { SheetNounValue } from "./values.js";
+import { useSheetWords } from "./words.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
@@ -48,10 +48,10 @@ function DoubleChevron() {
 
 /** Renders the header row. */
 export const SheetHeader = memo(function SheetHeader({ styles, columns, gridTemplate, picked, foldAll }: SheetHeaderProps) {
-    // The fold-all's count, in the app's locale (#850).
-    const words = useFormatters();
+    // The fold-all's words, its count in the app's locale (#850, #861).
+    const words = useSheetWords();
+    const { m } = words;
     const groups = foldAll !== undefined ? countNoun(foldAll.count, foldAll.noun, words) : "";
-    const hint = foldAll !== undefined ? `⌥ on a chevron, ⇧Space on a ${foldAll.noun.singular}` : "";
     return (
         <Box css={styles.header} style={{ gridTemplateColumns: gridTemplate }} data-slot="header" role="row" aria-rowindex={1}>
             <Box css={styles.headerGutter} data-slot="headerGutter" role="columnheader" aria-colindex={1}>
@@ -60,14 +60,14 @@ export const SheetHeader = memo(function SheetHeader({ styles, columns, gridTemp
                         {picked && <FontAwesomeIcon icon={faMinus} />}
                     </Box>
                 </Box>
-                <Box as="span" css={styles.headerNumber} data-slot="headerNumber">#</Box>
+                <Box as="span" css={styles.headerNumber} data-slot="headerNumber">{m.headerNumber()}</Box>
                 <Box css={styles.gutterAction} data-slot="foldAllSlot">
                     {foldAll !== undefined && foldAll.count > 0 && (
                         <chakra.button
                             type="button" css={styles.gutterButton} data-slot="foldAll" data-kind="fold" data-folded={foldAll.folded ? "" : undefined} tabIndex={-1}
                             aria-expanded={!foldAll.folded}
-                            aria-label={foldAll.folded ? `Open ${groups}` : `Fold ${groups}`}
-                            title={`${foldAll.folded ? "Open" : "Fold"} ${groups} — ${hint}`}
+                            aria-label={m.foldAll({ folded: foldAll.folded, groups })}
+                            title={m.foldAllTitle({ folded: foldAll.folded, groups, noun: foldAll.noun.singular })}
                             onMouseDown={(event) => { event.preventDefault(); event.stopPropagation(); }}
                             onClick={(event) => { event.stopPropagation(); foldAll.onFoldAll(!foldAll.folded); }}>
                             <DoubleChevron />

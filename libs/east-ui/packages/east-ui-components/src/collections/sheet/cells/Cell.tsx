@@ -17,7 +17,7 @@
 import { memo } from "react";
 import { Box } from "@chakra-ui/react";
 import { getSomeorUndefined } from "../../../utils.js";
-import { useFormatters } from "../../../format/index.js";
+import { useSheetWords } from "../words.js";
 import { EMPTY_LINK, cellIsBlank, cellText, memberIsDashed, memberLabel, type SheetColumnMeta } from "../model.js";
 import { LinkCell } from "./LinkCell.js";
 import { actualAgainst, formatWhen, type WhenLevel } from "../parse/date.js";
@@ -33,7 +33,8 @@ export interface LinkCellContext {
     halves: LinkHalves;
     vocab: LinkVocabulary | undefined;
     flags: LinkFlags;
-    driverName: string;
+    /** The row's driver member's name — `undefined` when it names none. */
+    driverName: string | undefined;
 }
 
 export interface SheetCellContentProps {
@@ -56,8 +57,8 @@ export interface SheetCellContentProps {
 
 /** Renders a cell's content. */
 export const SheetCellContent = memo(function SheetCellContent({ styles, meta, cell, rowBlank, unit, member, ghost, link, when }: SheetCellContentProps) {
-    // Numbers in the viewer's language — the one its edit box reads back (#852).
-    const words = useFormatters();
+    // Numbers in the viewer's language — the one its edit box reads back (#852) — and the sheet's words (#861).
+    const words = useSheetWords();
     const blank = cellIsBlank(cell);
     const shown = blank && ghost !== undefined ? ghost : cell;
     const isGhost = blank && ghost !== undefined;
@@ -67,8 +68,9 @@ export const SheetCellContent = memo(function SheetCellContent({ styles, meta, c
         case "stamped": {
             // Once the work has happened the cell prints when, to the minute; the tag says how that stands against the wanted date.
             if (meta.kind === "date" && when?.actual !== undefined && !isGhost) {
-                const a = formatWhen(when.actual, "time");
-                const vs = shown?.type === "DateTime" ? actualAgainst(shown.value, when.level, when.actual) : { tag: "actual", tone: "on" as const };
+                const a = formatWhen(when.actual, "time", words);
+                const vs = shown?.type === "DateTime" ? actualAgainst(shown.value, when.level, when.actual, words)
+                    : { tag: words.m.actualTag({ tone: "on", n: 0, count: words.number(0), unit: "d" }), tone: "on" as const };
                 return (
                     <>
                         <Box as="span" css={styles.cellMono} data-mono="" data-actual="">{a.text}</Box>
@@ -81,7 +83,7 @@ export const SheetCellContent = memo(function SheetCellContent({ styles, meta, c
             }
             // At a level the date prints `dd/mm/yy` (its time at the time level) and the resolution as a tag at the cell's right edge.
             if (meta.kind === "date" && when !== undefined && shown?.type === "DateTime") {
-                const w = formatWhen(shown.value, when.level);
+                const w = formatWhen(shown.value, when.level, words);
                 return (
                     <>
                         <Box as="span" css={isGhost ? styles.cellGhost : styles.cellMono} data-mono="" data-level={when.level}>{w.text}</Box>

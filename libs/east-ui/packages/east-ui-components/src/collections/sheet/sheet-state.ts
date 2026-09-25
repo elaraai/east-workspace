@@ -64,7 +64,7 @@ import { ghostFor, ghostWord, resolveFor } from "./candidates.js";
 import type { SheetKind } from "./model.js";
 import {
     same, clamp, selectionRect, wholeRows, initialSheetState,
-    type CellRef, type CommitDir, type EditBuffer, type LinkGroups, type SheetEffect, type SheetEvent, type SheetMachineCtx, type SheetUiState, type Transition,
+    type CellRef, type CommitDir, type EditBuffer, type LinkGroups, type SheetEffect, type SheetEvent, type SheetMachineCtx, type SheetNotice, type SheetUiState, type Transition,
 } from "./sheet-types.js";
 import { linkStartSide, withBuffer, linkChange, linkKey, switchSide } from "./sheet-link-state.js";
 import {
@@ -250,18 +250,7 @@ function toggleFold(s: SheetUiState, r: number, ctx: SheetMachineCtx): Transitio
     folds.set(g.id, !g.folded);
     const effects: SheetEffect[] = [];
     const moved = moveTo(s, { r, c: s.sel.c }, ctx, effects, false);
-    return { state: { ...moved, lens: { ...moved.lens, folds }, msg: g.folded ? `Opened the ${nounOf(ctx).singular}` : `Folded the ${nounOf(ctx).singular} — Space or the chevron opens it` }, effects };
-}
-
-/** The word the messages use for a group — the host's, `group` by default. */
-function nounOf(ctx: SheetMachineCtx): { singular: string; plural: string } {
-    return ctx.groupNoun ?? { singular: "group", plural: "groups" };
-}
-
-/** `n group(s)` in the host's word. */
-function groupsWord(n: number, ctx: SheetMachineCtx): string {
-    const noun = nounOf(ctx);
-    return `${n} ${n === 1 ? noun.singular : noun.plural}`;
+    return { state: { ...moved, lens: { ...moved.lens, folds }, msg: { id: g.folded ? "groupOpened" : "groupFolded", noun: ctx.groupNoun?.singular } }, effects };
 }
 
 /** The group the ring is on: its band's row when the ring is on the band, else the nearest band above (a line's group). */
@@ -286,7 +275,7 @@ function foldAll(s: SheetUiState, folded: boolean, ctx: SheetMachineCtx): Transi
     const effects: SheetEffect[] = [];
     const group = groupOfRing(s.sel.r, ctx);
     if (group !== undefined) effects.push({ t: "select.id", id: group.id, c: s.sel.c });
-    const msg = folded ? `Folded ${groupsWord(ids.length, ctx)} — the corner, ⌥ on a chevron or ⇧Space opens them` : `Opened ${groupsWord(ids.length, ctx)}`;
+    const msg: SheetNotice = { id: folded ? "groupsFolded" : "groupsOpened", n: ids.length, noun: ctx.groupNoun?.singular, nouns: ctx.groupNoun?.plural };
     return { state: { ...s, selEnd: null, gsel: null, lens: { ...s.lens, folds }, msg }, effects };
 }
 
@@ -305,9 +294,10 @@ function toggleSubRows(s: SheetUiState, r: number, all: boolean, ctx: SheetMachi
     const effects: SheetEffect[] = [];
     const moved = moveTo(s, { r, c: s.sel.c }, ctx, effects, false);
     const n = all ? ids.length : st.count;
-    const msg = all
-        ? open ? `Showing the sub rows under ${n} line${n === 1 ? "" : "s"} of the ${nounOf(ctx).singular} — ⇧Space hides them` : `Hid the sub rows under the ${nounOf(ctx).singular}'s lines`
-        : open ? `Showing ${n} sub row${n === 1 ? "" : "s"} under the line — Space hides them` : "Hid the sub rows — Space shows them";
+    const noun = ctx.groupNoun?.singular;
+    const msg: SheetNotice = all
+        ? open ? { id: "subRowsShownAll", n, noun } : { id: "subRowsHidAll", noun }
+        : open ? { id: "subRowsShown", n } : { id: "subRowsHid" };
     return { state: { ...moved, lens: { ...moved.lens, folds }, msg }, effects };
 }
 
@@ -534,7 +524,7 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
                 const groups: LinkGroups = [[...link.groups[0]], [...link.groups[1]]];
                 groups[link.side] = groups[link.side].concat(members);
                 return {
-                    state: { ...s, msg: `Added ${members.length} member${members.length === 1 ? "" : "s"}`, edit: { ...s.edit, val: "", hi: -1, err: false, link: { ...link, groups, chipSel: null } } },
+                    state: { ...s, msg: { id: "membersAdded", n: members.length }, edit: { ...s.edit, val: "", hi: -1, err: false, link: { ...link, groups, chipSel: null } } },
                     effects: [{ t: "focus.editor", selectAll: false }, { t: "schedule.suggest", latency: "instant" }],
                 };
             }
@@ -579,7 +569,7 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
             const edit = moved !== null && moved.r < ctx.rowCount && moved.c < ctx.colCount ? moved : null;
             const hover = s.hover !== null ? follow(s.hover) : null;
             const armed = s.armed !== null ? follow(s.armed) : null;
-            const msg = editLeft ? "The edited row left the sheet — its edit was not kept" : s.msg;
+            const msg: SheetNotice | null = editLeft ? { id: "rowLeft" } : s.msg;
             const clamped = same(sel, s.sel) && (selEnd === null ? s.selEnd === null : same(selEnd, s.selEnd)) && edit === s.edit && hover === s.hover && armed === s.armed && msg === s.msg
                 ? s
                 : { ...s, sel, selEnd, edit, hover, armed, msg };

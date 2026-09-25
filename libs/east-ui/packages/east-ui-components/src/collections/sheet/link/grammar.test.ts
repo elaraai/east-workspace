@@ -9,6 +9,7 @@ import { describe, test, expect } from "vitest";
 import { none, some, variant } from "@elaraai/east";
 import { classifyToken, linkVocabulary, parseLinkText, printLinkText, usedKeys, memberMeta, parseRange } from "./grammar.js";
 import { indexColumns, memberLabel } from "../model.js";
+import { SHEET_WORDS } from "../words.js";
 import type { SheetMemberValue, SheetRegisterMemberValue } from "../values.js";
 
 const member = (key: string, kind: string, extra: Partial<{ aliases: string[]; meta: string; parent: string; label: string }> = {}): SheetRegisterMemberValue => ({
@@ -108,12 +109,12 @@ describe("halves", () => {
 
 describe("meta and used keys", () => {
     test("chip meta comes from the register; a counted member is unassigned; a range names its span", () => {
-        expect(memberMeta(m("identified", { key: "M2140" }), vocab)).toBe("CNC lathe");
-        expect(memberMeta(m("counted", { n: 4n, key: "CNC lathe" }), vocab)).toBe("unassigned");
-        expect(memberMeta(m("counted", { n: 2n, key: "Line 2" }), vocab)).toBe("unassigned");
-        expect(memberMeta(m("counted", { n: 2n, key: "nowhere" }), vocab)).toBe("");
-        expect(memberMeta(m("range", { from: "M2140", to: "M2145" }), vocab)).toBe("3 machines");
-        expect(memberMeta(m("text", "x"), vocab)).toBe("");
+        expect(memberMeta(m("identified", { key: "M2140" }), vocab, SHEET_WORDS)).toBe("CNC lathe");
+        expect(memberMeta(m("counted", { n: 4n, key: "CNC lathe" }), vocab, SHEET_WORDS)).toBe("unassigned");
+        expect(memberMeta(m("counted", { n: 2n, key: "Line 2" }), vocab, SHEET_WORDS)).toBe("unassigned");
+        expect(memberMeta(m("counted", { n: 2n, key: "nowhere" }), vocab, SHEET_WORDS)).toBe("");
+        expect(memberMeta(m("range", { from: "M2140", to: "M2145" }), vocab, SHEET_WORDS)).toBe("3 machines");
+        expect(memberMeta(m("text", "x"), vocab, SHEET_WORDS)).toBe("");
     });
 
     test("a range's expansion counts as used", () => {

@@ -23,10 +23,11 @@ import { variant } from "@elaraai/east";
 import { getSomeorUndefined } from "../../../utils.js";
 import { memberLabel } from "../model.js";
 import {
-    classifyToken, isCountable, isIdentified, memberMeta, parseRange, pluralKind, resolveMember, usedKeys,
+    classifyToken, isCountable, isIdentified, memberMeta, parseRange, resolveMember, usedKeys,
     type LinkVocabulary,
 } from "./grammar.js";
 import type { SheetLinkValue, SheetMemberValue, SheetRegisterMemberValue } from "../values.js";
+import type { SheetWords } from "../words.js";
 
 /** One candidate the strip lists. */
 export interface LinkCandidate {
@@ -52,8 +53,17 @@ export function membersUnder(parent: SheetRegisterMemberValue, vocab: LinkVocabu
     return vocab.members.filter((m) => free(m) && getSomeorUndefined(m.meta)?.toLowerCase() === key);
 }
 
-/** The scored candidates for a typed buffer, in the B§4.5 order. */
-export function linkCandidates(query: string, vocab: LinkVocabulary, used: ReadonlySet<string>): LinkCandidate[] {
+/**
+ * The scored candidates for a typed buffer, in the B§4.5 order — their metas
+ * in the sheet's words where they are its own (#861).
+ *
+ * @param query - The typed buffer
+ * @param vocab - The column's vocabulary
+ * @param used - The lower-cased keys the cell already holds
+ * @param w - The sheet's words
+ * @returns The candidates, best first
+ */
+export function linkCandidates(query: string, vocab: LinkVocabulary, used: ReadonlySet<string>, w: SheetWords): LinkCandidate[] {
     const t = query.trim().toLowerCase();
     if (t === "") return [];
     const free = (m: SheetRegisterMemberValue) => !used.has(m.key.toLowerCase());
@@ -61,9 +71,10 @@ export function linkCandidates(query: string, vocab: LinkVocabulary, used: Reado
     if (rng !== undefined) {
         const names = rng.members.map((m) => m.key).join(", ");
         // The span in the kind's own word (`→ 6 machines: …`).
+        const n = rng.members.length;
         return [{
             label: `${rng.from}-${rng.to}`,
-            meta: `→ ${rng.members.length} ${pluralKind(rng.members[0]!.kind)}: ${names.length > 34 ? `${names.slice(0, 34)}…` : names}`,
+            meta: w.m.candidateRange({ n, count: w.number(n), kind: rng.members[0]!.kind, names: names.length > 34 ? `${names.slice(0, 34)}…` : names }),
             members: [variant("range", { from: rng.from, to: rng.to })],
         }];
     }
@@ -96,7 +107,7 @@ export function linkCandidates(query: string, vocab: LinkVocabulary, used: Reado
         if (under.length > 0) {
             out.push({
                 label: under.map((x) => x.key).join(", "),
-                meta: `enumerate · ${under.length} members`,
+                meta: w.m.candidateEnumerate({ n: under.length, count: w.number(under.length) }),
                 members: under.map((x) => identified(x.key)),
             });
         }
@@ -107,14 +118,23 @@ export function linkCandidates(query: string, vocab: LinkVocabulary, used: Reado
         if (!isCountable(vocab, m) || !free(m) || seen.has(m.key)) continue;
         if (m.key.toLowerCase().replace(/\s+/g, "").startsWith(bare)) push(m);
     }
-    if ("tbc".startsWith(t)) out.push({ label: "TBC", meta: "to confirm", members: [variant("placeholder", null)] });
+    if ("tbc".startsWith(t)) out.push({ label: "TBC", meta: w.m.candidateTbc(), members: [variant("placeholder", null)] });
     return out;
 }
 
-/** The armed candidate: the explicit pick, else the top one once something is typed. */
-export function linkCandidateAt(query: string, hi: number, vocab: LinkVocabulary, used: ReadonlySet<string>): LinkCandidate | undefined {
+/**
+ * The armed candidate: the explicit pick, else the top one once something is typed.
+ *
+ * @param query - The typed buffer
+ * @param hi - The explicit pick (`-1` = none)
+ * @param vocab - The column's vocabulary
+ * @param used - The lower-cased keys the cell already holds
+ * @param w - The sheet's words
+ * @returns The candidate, if any
+ */
+export function linkCandidateAt(query: string, hi: number, vocab: LinkVocabulary, used: ReadonlySet<string>, w: SheetWords): LinkCandidate | undefined {
     if (query.trim() === "") return undefined;
-    const list = linkCandidates(query, vocab, used);
+    const list = linkCandidates(query, vocab, used, w);
     if (list.length === 0) return undefined;
     return list[Math.min(Math.max(hi, 0), list.length - 1)];
 }
@@ -188,8 +208,13 @@ function follows(a: SheetRegisterMemberValue, b: SheetRegisterMemberValue): bool
  * a code) and each RUN of a ranged kind's consecutive codes as one range
  * (`M2140-M2145`, #844); the identified codes only when nothing else is
  * offered. Nothing already used.
+ *
+ * @param vocab - The column's vocabulary
+ * @param used - The lower-cased keys the cell already holds
+ * @param w - The sheet's words (a range's span, #861)
+ * @returns The menu
  */
-export function linkEntryCandidates(vocab: LinkVocabulary, used: ReadonlySet<string>): LinkCandidate[] {
+export function linkEntryCandidates(vocab: LinkVocabulary, used: ReadonlySet<string>, w: SheetWords): LinkCandidate[] {
     const out: LinkCandidate[] = [];
     const ranged = new Set(vocab.kinds.filter((k) => k.ranged).map((k) => k.kind));
     const members = vocab.members.filter((m) => !used.has(m.key.toLowerCase()));
@@ -201,7 +226,7 @@ export function linkEntryCandidates(vocab: LinkVocabulary, used: ReadonlySet<str
             let n = 1;
             while (i + 1 < members.length && follows(last, members[i + 1]!)) { last = members[++i]!; n++; }
             if (n === 1) out.push(one(m));
-            else out.push({ label: `${m.key}-${last.key}`, meta: `${n} ${pluralKind(m.kind)}`, members: [variant("range", { from: m.key, to: last.key })] });
+            else out.push({ label: `${m.key}-${last.key}`, meta: w.m.rangeSpan({ n, count: w.number(n), kind: m.kind }), members: [variant("range", { from: m.key, to: last.key })] });
             continue;
         }
         if (isCountable(vocab, m)) out.push(one(m));
@@ -215,20 +240,35 @@ export function linkEntryCandidates(vocab: LinkVocabulary, used: ReadonlySet<str
     return out;
 }
 
-/** The grammar line the strip states when a half has nothing to offer. */
-export function grammarLine(vocab: LinkVocabulary): string {
+/**
+ * The grammar line the strip states when a half has nothing to offer — the
+ * forms the half takes, in the sheet's words (#861); `TBC` is the grammar's
+ * own token.
+ *
+ * @param vocab - The column's vocabulary
+ * @param w - The sheet's words
+ * @returns The line
+ */
+export function grammarLine(vocab: LinkVocabulary, w: SheetWords): string {
     const parts: string[] = [];
     for (const k of vocab.kinds) {
         if (k.kind === "range") continue;
-        parts.push(k.identified ? `${k.kind} code` : k.kind);
+        parts.push(k.identified ? w.m.grammarCode({ kind: k.kind }) : k.kind);
     }
-    if (vocab.countableKinds.size > 0) parts.push("N x kind");
-    if (vocab.ranges) parts.push("a range");
+    if (vocab.countableKinds.size > 0) parts.push(w.m.grammarCounted());
+    if (vocab.ranges) parts.push(w.m.grammarRange());
     parts.push("TBC");
     return parts.join(" · ");
 }
 
-/** The metas of a candidate list's members, for tests and the strip. */
-export function candidateMeta(c: LinkCandidate, vocab: LinkVocabulary): string {
-    return c.meta !== "" ? c.meta : c.members.map((m) => memberMeta(m, vocab)).find((s) => s !== "") ?? "";
+/**
+ * The metas of a candidate list's members, for tests and the strip.
+ *
+ * @param c - The candidate
+ * @param vocab - The column's vocabulary
+ * @param w - The sheet's words
+ * @returns The first meta a member has, or `""`
+ */
+export function candidateMeta(c: LinkCandidate, vocab: LinkVocabulary, w: SheetWords): string {
+    return c.meta !== "" ? c.meta : c.members.map((m) => memberMeta(m, vocab, w)).find((s) => s !== "") ?? "";
 }

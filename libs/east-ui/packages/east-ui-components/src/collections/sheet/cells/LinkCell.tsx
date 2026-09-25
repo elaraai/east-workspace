@@ -20,10 +20,11 @@ import { Box } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faArrowRightLong, faMinus } from "@fortawesome/free-solid-svg-icons";
 import { memberChipLabel, memberIsDashed } from "../model.js";
-import { memberMeta, pluralKind, type LinkVocabulary } from "../link/grammar.js";
+import { memberMeta, type LinkVocabulary } from "../link/grammar.js";
 import { halfWarns, type LinkHalves } from "../link/sides.js";
 import type { LinkFlags } from "../link/checks.js";
 import type { SheetLinkValue, SheetMemberValue } from "../values.js";
+import { useSheetWords, type SheetWords } from "../words.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
@@ -43,18 +44,19 @@ export interface LinkChipProps {
 /**
  * A counted member's count in the words of the kind it resolves to — the
  * host's kind names (`4 machines`); the bare number when the vocabulary says
- * nothing about it.
+ * nothing about it. In the sheet's words (#861).
  *
  * @param member - The member
  * @param vocab - The column's vocabulary
+ * @param w - The sheet's words
  * @returns The count's text, or `undefined` for a member that is not counted
  */
-export function countText(member: SheetMemberValue, vocab: LinkVocabulary | undefined): string | undefined {
+export function countText(member: SheetMemberValue, vocab: LinkVocabulary | undefined, w: SheetWords): string | undefined {
     if (member.type !== "counted") return undefined;
     const n = Number(member.value.n);
     const kind = vocab?.byKey.get(member.value.key.toLowerCase())?.kind;
     const noun = kind !== undefined ? vocab?.kinds.find((k) => k.kind === kind)?.resolvesTo : undefined;
-    return noun !== undefined ? `${n} ${n === 1 ? noun : pluralKind(noun)}` : String(n);
+    return w.m.countedMembers({ n, count: w.number(n), kind: noun });
 }
 
 /** One chip. */
@@ -87,31 +89,34 @@ export interface LinkHalfProps {
     vocab: LinkVocabulary | undefined;
     flags: readonly (readonly string[])[];
     ghost: boolean;
-    /** The driver's name for the lock tag's title. */
-    driverName: string;
+    /** The driver's name for the lock tag's title — `undefined` when the row names none. */
+    driverName: string | undefined;
 }
 
 /** One half: the lock tag or the hint, then the chips. */
 export const LinkHalfView = memo(function LinkHalfView({ styles, half, members, state, vocab, flags, ghost, driverName }: LinkHalfProps) {
+    // The half's words (#861).
+    const words = useSheetWords();
+    const { m } = words;
     const warn = halfWarns(state, members);
     const title = !state.live
-        ? `${driverName} has no ${half === "from" ? "source" : "destination"}${state.lock !== "" ? ` · ${state.lock}` : ""}`
-        : half === "from" ? "From" : "To";
+        ? m.halfNone({ driver: driverName ?? m.thisRow(), half, lock: state.lock !== "" ? state.lock : undefined })
+        : m.halfTitle({ half });
     return (
         <Box css={styles.half} data-half={half} data-locked={!state.live ? "" : undefined} title={title}>
             {!state.live && state.lock !== "" && (
                 <Box as="span" css={warn ? styles.lockWarn : styles.lockTag} data-slot={warn ? "lockWarn" : "lockTag"}>{state.lock}</Box>
             )}
-            {state.live && members.length === 0 && <Box as="span" css={styles.halfLabel} data-slot="halfLabel">{half}</Box>}
-            {members.map((m, i) => (
+            {state.live && members.length === 0 && <Box as="span" css={styles.halfLabel} data-slot="halfLabel">{m.halfLabel({ half })}</Box>}
+            {members.map((member, i) => (
                 <LinkChip
                     key={i}
                     styles={styles}
-                    member={m}
-                    meta={members.length === 1 && vocab !== undefined ? memberMeta(m, vocab) : ""}
+                    member={member}
+                    meta={members.length === 1 && vocab !== undefined ? memberMeta(member, vocab, words) : ""}
                     ghost={ghost}
                     flags={flags[i] ?? []}
-                    count={countText(m, vocab)}
+                    count={countText(member, vocab, words)}
                 />
             ))}
         </Box>
@@ -126,7 +131,8 @@ export interface LinkCellProps {
     flags: LinkFlags;
     /** A proposal — every chip dashed. */
     ghost: boolean;
-    driverName: string;
+    /** The row's driver member's name — `undefined` when it names none. */
+    driverName: string | undefined;
 }
 
 /** Renders the split cell. */

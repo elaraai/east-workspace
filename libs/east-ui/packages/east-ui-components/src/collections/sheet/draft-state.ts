@@ -7,6 +7,7 @@
 import { OptionType, equalFor, none, some, type EastType } from "@elaraai/east";
 import { normalizeDraft, type BatchReadiness } from "./draft-values.js";
 import type { EntryVersion, SheetTransactions } from "./transactions.js";
+import { SHEET_WORDS, issueText, type SheetWords } from "./words.js";
 
 export interface DraftPresentation {
     pending: boolean;
@@ -24,8 +25,21 @@ function childOf(entry: EntryVersion | undefined, field: string, key: string): u
     return ((entry.draft as Record<string, unknown>)[field] as unknown[])[index];
 }
 
-/** Derive row affordances from the exact draft schema and acknowledged baseline. */
-export function draftPresentation(session: SheetTransactions, type: EastType, field: string | undefined, id: string, child?: string, readiness?: BatchReadiness): DraftPresentation {
+/**
+ * Derive row affordances from the exact draft schema and acknowledged
+ * baseline. The issues are the sheet's words (#861): the renderer's own read
+ * back from their canonical English, an author's as written.
+ *
+ * @param session - The editing session
+ * @param type - The draft type
+ * @param field - A group's children field
+ * @param id - The entry
+ * @param child - A line's key
+ * @param readiness - The session's readiness, for the author's issues
+ * @param words - The sheet's words
+ * @returns The presentation
+ */
+export function draftPresentation(session: SheetTransactions, type: EastType, field: string | undefined, id: string, child?: string, readiness?: BatchReadiness, words: SheetWords = SHEET_WORDS): DraftPresentation {
     const entry = session.entries.get(id);
     if (entry?.draft === undefined) return CLEAN;
     const original = session.originals.get(id);
@@ -41,13 +55,13 @@ export function draftPresentation(session: SheetTransactions, type: EastType, fi
     const checked = normalizeDraft(type, current, id).readiness;
     const issues = new Map<string, string>();
     if (checked.type !== "ready") for (const issue of checked.value) {
-        if (issue.field.type === "some" && issue.row.type === "none") issues.set(issue.field.value, issue.message);
+        if (issue.field.type === "some" && issue.row.type === "none") issues.set(issue.field.value, issueText(issue.message, words));
     }
     const childIndex = child === undefined ? undefined : entry.wire?.lines.findIndex(line => line.key === child);
     const related = readiness !== undefined && readiness.type !== "ready"
         ? readiness.value.filter(issue => issue.entry === id && (child === undefined || issue.row.type === "some" && issue.row.value === BigInt(childIndex ?? -1))) : [];
     for (const issue of related) {
-        if (issue.field.type === "some" && (child !== undefined || issue.row.type === "none") && !issues.has(issue.field.value)) issues.set(issue.field.value, issue.message);
+        if (issue.field.type === "some" && (child !== undefined || issue.row.type === "none") && !issues.has(issue.field.value)) issues.set(issue.field.value, issueText(issue.message, words));
     }
     const invalid = checked.type === "invalid" || related.length > 0 && readiness?.type === "invalid";
     return {

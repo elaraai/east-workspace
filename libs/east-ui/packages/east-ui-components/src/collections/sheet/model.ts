@@ -32,6 +32,7 @@ import type {
     SheetNounValue, SheetRegisterMemberValue, SheetRootValue, SheetRowValue, SheetSubRowValue,
 } from "./values.js";
 import type { LensGap } from "./lens.js";
+import type { SheetWords } from "./words.js";
 import { blankRowId } from "./sheet-types.js";
 import { DATE_DISPLAY_PATTERN, isWhenLevel, type WhenLevel } from "./parse/date.js";
 
@@ -270,35 +271,43 @@ export interface SheetGroupIndex {
     cells: ReadonlyMap<string, SheetColumnMeta>;
     /** How many leading columns the title spans — up to three, stopping before the first column with a band cell. */
     titleSpan: number;
-    /** The word the renderer prints for a group (#844) — the host's, `group` / `groups` by default. */
-    noun: SheetNounValue;
+    /** The host's word for a group (#844); `undefined` when it names none — the sheet's words say their own (#861). */
+    noun: SheetNounValue | undefined;
 }
 
-/** Decode the wire group declaration. */
-export function indexGroup(group: SheetGroupValue, columns: SheetColumnIndex): SheetGroupIndex {
+/**
+ * Decode the wire group declaration.
+ *
+ * @param group - The wire group declaration
+ * @param columns - The line columns
+ * @param titleHeader - The sheet's word for the band title's column (#861)
+ * @returns The band's cells, the title span and the host's noun
+ */
+export function indexGroup(group: SheetGroupValue, columns: SheetColumnIndex, titleHeader: string): SheetGroupIndex {
     const cells = new Map<string, SheetColumnMeta>();
     for (const cell of group.cells) {
         const meta = indexColumns([{
-            key: cell.key, header: cell.key === TITLE_KEY ? "Title" : columns.byKey.get(cell.key)?.header ?? cell.key,
+            key: cell.key, header: cell.key === TITLE_KEY ? titleHeader : columns.byKey.get(cell.key)?.header ?? cell.key,
             sub: none, width: none, kind: cell.kind, dataType: cell.dataType, payloadType: cell.payloadType, editable: cell.editable, fill: [], detailCell: none,
         }]).list[0]!;
         cells.set(cell.key, meta);
     }
     let firstCell = columns.list.length;
     columns.list.forEach((c, i) => { if (i < firstCell && cells.has(c.key)) firstCell = i; });
-    return { linesField: group.lines, keyed: group.keyed, cells, titleSpan: Math.max(1, Math.min(3, columns.list.length, firstCell)), noun: group.noun };
+    return { linesField: group.lines, keyed: group.keyed, cells, titleSpan: Math.max(1, Math.min(3, columns.list.length, firstCell)), noun: getSomeorUndefined(group.noun) };
 }
 
 /**
- * `n group(s)` in the host's noun, the count in the app's locale (#850).
+ * `n group(s)` in the host's noun, in the sheet's words — the count in the
+ * app's locale (#850, #861).
  *
  * @param n - The count
  * @param noun - The host's word for a group
- * @param words - The formatters the count prints through
+ * @param words - The sheet's words
  * @returns The phrase
  */
-export function countNoun(n: number, noun: SheetNounValue, words: Formatters): string {
-    return `${words.number(n)} ${n === 1 ? noun.singular : noun.plural}`;
+export function countNoun(n: number, noun: SheetNounValue, words: SheetWords): string {
+    return words.m.countNoun({ n, count: words.number(n), noun: noun.singular, nouns: noun.plural });
 }
 
 // A line's pseudo row is built once per group row and wire key, so its

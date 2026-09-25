@@ -836,9 +836,10 @@ export const SheetGroupCellType = StructType({
 export type SheetGroupCellType = typeof SheetGroupCellType;
 
 /**
- * The word the renderer prints for a group (#844) — fold-all, the footer
- * count, hints and the new-group button. Host-set; `"group"` / `"groups"`
- * when the declaration names none.
+ * The host's word for a group (#844) — what fold-all, the footer count, hints
+ * and the new-group button call a group. When the declaration names none the
+ * wire carries none, and the renderer says its own word — its message
+ * table's, so a translation reaches it (#861).
  *
  * @property singular - One group (`"order"`)
  * @property plural - Several (`"orders"`)
@@ -857,13 +858,13 @@ export type SheetNounType = typeof SheetNounType;
  * @property lines - The group row's field that holds the lines
  * @property keyed - `true` ⇒ `Dict<String, L>` lines (keys are stable), `false` ⇒ `Array<L>` lines (a line's key is its position)
  * @property cells - The band's cells, the title first under {@link SHEET_TITLE_CELL}
- * @property noun - The word the renderer prints for a group (#844)
+ * @property noun - The host's word for a group (#844); `none` ⇒ the renderer's own (#861)
  */
 export const SheetGroupType = StructType({
     lines: StringType,
     keyed: BooleanType,
     cells: ArrayType(SheetGroupCellType),
-    noun:  SheetNounType,
+    noun:  OptionType(SheetNounType),
 });
 /** Type alias for {@link SheetGroupType}. */
 export type SheetGroupType = typeof SheetGroupType;

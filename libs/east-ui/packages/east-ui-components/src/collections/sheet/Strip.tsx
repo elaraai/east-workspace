@@ -28,7 +28,6 @@ import { Box, chakra } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faChevronLeft, faChevronRight } from "@fortawesome/free-solid-svg-icons";
 import { getSomeorUndefined } from "../../utils.js";
-import type { Formatters } from "../../format/index.js";
 import { candidateList, candidateAt, type CandidateContext } from "./candidates.js";
 import { cellText, formatQuantity, memberLabel, type SheetColumnMeta } from "./model.js";
 import type { LinkCandidate } from "./link/predict.js";
@@ -36,6 +35,7 @@ import { parseDate, formatDateLong, daysBetween, formatWhen, whenAccepts, type W
 import { parseQuantity } from "./parse/quantity.js";
 import type { EditBuffer } from "./sheet-types.js";
 import type { SheetCellValue, SheetMemberValue } from "./values.js";
+import { useSheetWords, type SheetWords } from "./words.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
@@ -78,8 +78,8 @@ const OFF: StripModel = { on: false, label: "", chips: [], meta: "", keys: "" };
 
 /** What the strip reads beside the edit buffer. */
 export interface StripInput {
-    /** The viewer's formatters — a number reads and previews in their language, as the cells print (#852). */
-    words: Formatters;
+    /** The sheet's words — the strip speaks them (#861), and a number reads and previews in the viewer's language, as the cells print (#852). */
+    words: SheetWords;
     edit: EditBuffer | null;
     meta: SheetColumnMeta | undefined;
     candidates: CandidateContext | undefined;
@@ -143,16 +143,17 @@ const flat = (label: string): StripChip[] => [{ key: "v", label, on: false, flat
 
 /** The strip for the current state (pure). */
 export function buildStrip(input: StripInput): StripModel {
-    const { edit, meta } = input;
+    const { edit, meta, words } = input;
+    const { m } = words;
     if (edit === null || meta === undefined) {
-        if (input.suggested !== undefined) return buildSuggestStrip(input.suggested);
+        if (input.suggested !== undefined) return buildSuggestStrip(input.suggested, words);
         // Nothing to suggest: the resting cell's detail, when it has one.
         const d = input.detail;
         return d === undefined ? OFF : { on: true, label: d.label, chips: d.chips.map((c, i) => ({ key: `d${i}`, label: c, on: false, flat: true, title: c })), meta: d.meta, keys: d.keys };
     }
     const empty = edit.val.trim() === "";
     const header = meta.header.toUpperCase();
-    if ((meta.kind === "link" || meta.kind === "set") && input.link !== undefined) return buildLinkStrip(header, edit.val, input.link, meta.kind === "set");
+    if ((meta.kind === "link" || meta.kind === "set") && input.link !== undefined) return buildLinkStrip(header, edit.val, input.link, meta.kind === "set", words);
     switch (meta.kind) {
         case "lookup":
         case "reference":
@@ -160,7 +161,7 @@ export function buildStrip(input: StripInput): StripModel {
             if (input.candidates === undefined) return OFF;
             const list = candidateList(meta, edit.val, input.candidates);
             if (list.length === 0) {
-                return empty ? OFF : { on: true, label: header, chips: flat("no register match — kept as typed"), meta: "", keys: "⏎ commit as typed" };
+                return empty ? OFF : { on: true, label: header, chips: flat(m.stripNoMatch()), meta: "", keys: m.stripKeysTyped() };
             }
             const armed = candidateAt(meta, edit.val, edit.hi, input.candidates);
             const hi = armed === undefined ? -1 : Math.max(0, list.indexOf(armed));
@@ -173,17 +174,18 @@ export function buildStrip(input: StripInput): StripModel {
                 title: label,
                 action: { kind: "candidate", label, i },
             }));
-            const member = hi >= 0 ? input.candidates.registers.byName.get(meta.register ?? "")?.find((m) => m.key === list[hi]) : undefined;
+            const member = hi >= 0 ? input.candidates.registers.byName.get(meta.register ?? "")?.find((x) => x.key === list[hi]) : undefined;
             const memberMeta = member !== undefined ? getSomeorUndefined(member.meta) ?? "" : "";
             if (hi < 0) {
-                return { on: true, label: `${header} · accepts`, chips, meta: memberMeta, keys: "type to filter · ⌥↓ to pick · click any" };
+                return { on: true, label: m.stripAccepts({ header }), chips, meta: memberMeta, keys: m.stripKeysFilter() };
             }
+            const many = list.length > 1;
             return {
                 on: true,
-                label: `${list.length > 1 ? "⌥] " : ""}${header}`,
+                label: m.stripArmed({ header, many }),
                 chips,
                 meta: memberMeta,
-                keys: `${list.length > 1 ? `${hi + 1} of ${list.length} · ` : ""}⇥ take`,
+                keys: m.stripKeysTake({ many, index: words.number(hi + 1), total: words.number(list.length) }),
             };
         }
         case "date": {
@@ -191,41 +193,41 @@ export function buildStrip(input: StripInput): StripModel {
             // At a level (#844) the strip says what the level accepts and previews the date as the cell will print it.
             const level = input.whenLevel;
             if (empty) {
-                const acc = level !== undefined ? whenAccepts(level) : { chip: "a date", meta: "dd / mm / yyyy" };
-                return { on: true, label: `${header} · accepts`, chips: flat(acc.chip), meta: acc.meta, keys: "digits fill a segment · ↑↓ step it · ⇥ next" };
+                const acc = level !== undefined ? whenAccepts(level, words) : { chip: m.stripDate(), meta: m.stripDateForm() };
+                return { on: true, label: m.stripAccepts({ header }), chips: flat(acc.chip), meta: acc.meta, keys: m.stripKeysDateEmpty() };
             }
             const d = parseDate(edit.val, { today: input.today, base: input.baseDate });
             if (d === null || d === undefined) {
-                return { on: true, label: header, chips: flat("incomplete"), meta: level !== undefined ? whenAccepts(level).meta : "dd / mm / yyyy", keys: "digits fill a segment · ⇥ next" };
+                return { on: true, label: header, chips: flat(m.stripIncomplete()), meta: level !== undefined ? whenAccepts(level, words).meta : m.stripDateForm(), keys: m.stripKeysDate() };
             }
-            const span = input.baseDate !== undefined ? `${daysBetween(input.baseDate, d)} days` : "";
+            const days = input.baseDate !== undefined ? daysBetween(input.baseDate, d) : undefined;
+            const span = days !== undefined ? m.stripDays({ n: days, count: words.number(days) }) : "";
             if (level !== undefined) {
-                const w = formatWhen(d, level);
+                const w = formatWhen(d, level, words);
                 const shown = `${w.text} · ${w.suffix}`;
-                return { on: true, label: header, chips: flat(shown), meta: span !== "" ? span : formatDateLong(d), keys: "⏎ commit · esc cancel" };
+                return { on: true, label: header, chips: flat(shown), meta: span !== "" ? span : formatDateLong(d), keys: m.stripKeysCommit() };
             }
-            return { on: true, label: header, chips: flat(formatDateLong(d)), meta: span, keys: "⏎ commit · esc cancel" };
+            return { on: true, label: header, chips: flat(formatDateLong(d)), meta: span, keys: m.stripKeysCommit() };
         }
         case "quantity":
         case "integer": {
             // The number field: digits and the viewer's decimal separator; a pasted `1.2k` still parses through the grammar (#852).
-            const words = input.words;
             const accepts = meta.kind === "quantity" ? `${words.bare(1200)} · ${words.bare(1200.5)}` : words.bare(1200);
             if (empty) {
-                return { on: true, label: `${header} · accepts`, chips: flat(meta.kind === "quantity" ? "number + unit" : "number"), meta: accepts, keys: "↑↓ step · ⏎ commit" };
+                return { on: true, label: m.stripAccepts({ header }), chips: flat(m.stripNumber({ unit: meta.kind === "quantity" })), meta: accepts, keys: m.stripKeysStep() };
             }
             const n = parseQuantity(edit.val, words.separators);
             if (n === null || n === undefined) {
-                return { on: true, label: header, chips: flat("unrecognised"), meta: "", keys: accepts };
+                return { on: true, label: header, chips: flat(m.stripUnrecognised()), meta: "", keys: accepts };
             }
             const unit = meta.kind === "quantity" && input.unit !== undefined ? ` ${input.unit}` : "";
-            return { on: true, label: header, chips: flat(`${formatQuantity(n, meta.kind === "quantity" ? meta.format : undefined, words)}${unit}`), meta: "", keys: "↑↓ step · ⏎ commit" };
+            return { on: true, label: header, chips: flat(`${formatQuantity(n, meta.kind === "quantity" ? meta.format : undefined, words)}${unit}`), meta: "", keys: m.stripKeysStep() };
         }
         case "custom": {
-            if (empty) return { on: true, label: `${header} · accepts`, chips: flat(meta.accepts ?? "a value"), meta: "", keys: "type to parse" };
+            if (empty) return { on: true, label: m.stripAccepts({ header }), chips: flat(meta.accepts ?? m.stripValue()), meta: "", keys: m.stripKeysParse() };
             const p = input.customPreview;
-            if (p === undefined || p === null) return { on: true, label: header, chips: flat("unrecognised"), meta: meta.accepts ?? "", keys: "" };
-            return { on: true, label: header, chips: flat(cellText(p, meta, input.words)), meta: meta.accepts ?? "", keys: "" };
+            if (p === undefined || p === null) return { on: true, label: header, chips: flat(m.stripUnrecognised()), meta: meta.accepts ?? "", keys: "" };
+            return { on: true, label: header, chips: flat(cellText(p, meta, words)), meta: meta.accepts ?? "", keys: "" };
         }
         default:
             return OFF;
@@ -233,21 +235,23 @@ export function buildStrip(input: StripInput): StripModel {
 }
 
 /** The link strip states (B§9): predicted · candidates · the entry menu · the grammar line. */
-function buildLinkStrip(header: string, val: string, link: StripLinkInput, single: boolean): StripModel {
+function buildLinkStrip(header: string, val: string, link: StripLinkInput, single: boolean, words: SheetWords): StripModel {
+    const { m } = words;
     const empty = val.trim() === "";
-    const halfName = single ? "" : link.side === 1 ? " · to" : " · from";
+    // The column, and on a link the half being edited.
+    const half = m.stripHalf({ header, half: single ? undefined : link.side === 1 ? "to" : "from" });
     const chipOf = (c: LinkCandidate, i: number, on: boolean): StripChip => ({
         key: `a${i}`, label: c.label.length > 34 ? `${c.label.slice(0, 33)}…` : c.label, on, flat: false, title: c.label,
         action: { kind: "members", label: c.label, members: c.members },
     });
     // A prediction is more specific than the register's entry menu.
     if (empty && link.predicted.length > 0) {
-        const chips: StripChip[] = link.predicted.map((m, i) => ({
-            key: `p${i}`, label: memberLabel(m), on: i === 0, flat: false, title: `Add ${memberLabel(m)}`,
-            action: { kind: "members", label: memberLabel(m), members: [m] },
+        const chips: StripChip[] = link.predicted.map((member, i) => ({
+            key: `p${i}`, label: memberLabel(member), on: i === 0, flat: false, title: m.stripAdd({ label: memberLabel(member) }),
+            action: { kind: "members", label: memberLabel(member), members: [member] },
         }));
         if (link.enumerate !== undefined) chips.push(chipOf(link.enumerate, 99, false));
-        return { on: true, label: `${header} · predicted`, chips, meta: link.predictedMeta, keys: "⇥ one · ⌘→ all · or type" };
+        return { on: true, label: m.stripPredicted({ header }), chips, meta: link.predictedMeta, keys: m.stripKeysPredicted() };
     }
     const list = empty ? link.entry : link.candidates;
     if (list.length > 0) {
@@ -256,39 +260,41 @@ function buildLinkStrip(header: string, val: string, link: StripLinkInput, singl
         const hi = armed === undefined ? -1 : Math.max(0, list.findIndex((c) => c.label === armed.label));
         const chips = list.slice(0, 24).map((c, i) => chipOf(c, i, i === hi));
         if (hi < 0) {
-            return { on: true, label: `${header}${halfName} · accepts`, chips, meta: link.arity, keys: "type to filter · ⌥↓ to pick · click any" };
+            return { on: true, label: m.stripAccepts({ header: half }), chips, meta: link.arity, keys: m.stripKeysFilter() };
         }
+        const many = list.length > 1;
         return {
             on: true,
-            label: `${list.length > 1 ? "⌥] " : ""}${header}${halfName}`,
+            label: m.stripArmed({ header: half, many }),
             chips,
             meta: armed?.meta ?? "",
-            keys: `${list.length > 1 ? `${hi + 1} of ${list.length} · ` : ""}⇥ take · , next${single ? "" : " · > hops to the To half"} · ⌘→ rest`,
+            keys: m.stripKeysLinkTake({ many, index: words.number(hi + 1), total: words.number(list.length), single }),
         };
     }
     // Nothing to offer is still worth a line: the grammar, and the arity check.
     return {
         on: true,
-        label: `${header}${halfName} · accepts`,
-        chips: flat(empty ? link.grammar : "no register match — kept as typed"),
+        label: m.stripAccepts({ header: half }),
+        chips: flat(empty ? link.grammar : m.stripNoMatch()),
         meta: link.arity,
-        keys: `, adds${single ? "" : " · > hops to the To half"} · ⏎ done`,
+        keys: m.stripKeysLinkAdd({ single }),
     };
 }
 
 /** The suggestions state (B§9): one chip per pending fill, `+n rows`, the pending providers, the provenance. */
-function buildSuggestStrip(s: StripSuggestInput): StripModel {
+function buildSuggestStrip(s: StripSuggestInput, words: SheetWords): StripModel {
+    const { m } = words;
     const chips: StripChip[] = s.fills.map((f) => ({
         key: `f${f.key}`, label: f.header, on: f.armed, flat: false,
         title: `${f.text}${f.meta !== "" ? ` — ${f.meta}` : ""}`,
         action: { kind: "fill", key: f.key },
     }));
-    if (s.rows > 0) chips.push({ key: "rows", label: `+${s.rows} row${s.rows === 1 ? "" : "s"}`, on: false, flat: false, title: s.rowsMeta, action: { kind: "rows" } });
-    for (const p of s.pending) chips.push({ key: `p${p.key}`, label: `${p.header} ⋯`, on: false, flat: false, pending: true, title: `${p.header} — thinking` });
+    if (s.rows > 0) chips.push({ key: "rows", label: m.stripRows({ n: s.rows, count: words.number(s.rows) }), on: false, flat: false, title: s.rowsMeta, action: { kind: "rows" } });
+    for (const p of s.pending) chips.push({ key: `p${p.key}`, label: m.stripPending({ header: p.header }), on: false, flat: false, pending: true, title: m.stripPendingTitle({ header: p.header }) });
     if (chips.length === 0) return OFF;
     const armed = s.fills.find((f) => f.armed);
     const meta = armed !== undefined && armed.meta !== "" ? armed.meta : s.fills[0]?.meta !== undefined && s.fills[0].meta !== "" ? s.fills[0].meta : s.rowsMeta;
-    return { on: true, label: "suggested", chips, meta, keys: "⇥ walk · ⌘⏎ row · ⌘⇧⏎ all · esc" };
+    return { on: true, label: m.stripSuggested(), chips, meta, keys: m.stripKeysSuggested() };
 }
 
 export interface SheetStripProps {
@@ -308,6 +314,9 @@ const chipSignature = (chips: readonly StripChip[]): string =>
 
 /** Renders the docked strip — the chips of the current page, the pager when there is more than one. */
 export const SheetStrip = memo(function SheetStrip({ styles, model, onAction }: SheetStripProps) {
+    // The pager's words, its numbers in the app's locale (#861).
+    const words = useSheetWords();
+    const { m } = words;
     const rowRef = useRef<HTMLDivElement | null>(null);
     const measureRef = useRef<HTMLDivElement | null>(null);
     const [width, setWidth] = useState(0);
@@ -329,9 +338,9 @@ export const SheetStrip = memo(function SheetStrip({ styles, model, onAction }: 
     }, [on]);
     // Cut the chips into pages by their measured widths: one page when they all fit, else the pager's width set aside on every page.
     useLayoutEffect(() => {
-        const m = measureRef.current;
-        if (!on || m === null || width <= 0) { setStarts([0]); return; }
-        const widths = Array.from(m.children, (k) => (k as HTMLElement).offsetWidth);
+        const measure = measureRef.current;
+        if (!on || measure === null || width <= 0) { setStarts([0]); return; }
+        const widths = Array.from(measure.children, (k) => (k as HTMLElement).offsetWidth);
         const total = widths.reduce((a, w) => a + w, 0) + GAP_PX * Math.max(0, widths.length - 1);
         if (total <= width) { setStarts([0]); return; }
         const avail = Math.max(40, width - PAGER_PX);
@@ -356,6 +365,8 @@ export const SheetStrip = memo(function SheetStrip({ styles, model, onAction }: 
     const from = starts[cur] ?? 0;
     const to = cur + 1 < starts.length ? starts[cur + 1]! : model.chips.length;
     const paged = starts.length > 1;
+    // Which page, of how many — in the app's locale.
+    const at = { page: words.number(cur + 1), pages: words.number(starts.length) };
     const chipStyle = (ch: StripChip) => (ch.flat ? styles.stripChipFlat : ch.on ? styles.stripChipOn : styles.stripChip);
     return (
         <Box css={styles.strip} data-slot="strip" data-paged={paged ? "" : undefined}>
@@ -379,16 +390,16 @@ export const SheetStrip = memo(function SheetStrip({ styles, model, onAction }: 
                         </Box>
                     ))}
                 {paged && (
-                    <Box as="span" css={styles.stripPager} data-slot="stripPager" title={`${model.chips.length} options · page ${cur + 1} of ${starts.length}`}>
+                    <Box as="span" css={styles.stripPager} data-slot="stripPager" title={m.stripPager({ n: model.chips.length, count: words.number(model.chips.length), ...at })}>
                         <chakra.button
-                            type="button" css={styles.stripPage} data-slot="stripPage" data-dir="prev" aria-label="Previous options" disabled={cur === 0}
+                            type="button" css={styles.stripPage} data-slot="stripPage" data-dir="prev" aria-label={m.stripPrevious()} disabled={cur === 0}
                             onMouseDown={(e) => { e.preventDefault(); if (cur > 0) setPage(cur - 1); }}
                         >
                             <FontAwesomeIcon icon={faChevronLeft} />
                         </chakra.button>
-                        <Box as="span" css={styles.stripPageCount} data-slot="stripPageCount">{cur + 1}/{starts.length}</Box>
+                        <Box as="span" css={styles.stripPageCount} data-slot="stripPageCount">{m.stripPage(at)}</Box>
                         <chakra.button
-                            type="button" css={styles.stripPage} data-slot="stripPage" data-dir="next" aria-label="More options" disabled={cur >= starts.length - 1}
+                            type="button" css={styles.stripPage} data-slot="stripPage" data-dir="next" aria-label={m.stripNext()} disabled={cur >= starts.length - 1}
                             onMouseDown={(e) => { e.preventDefault(); if (cur < starts.length - 1) setPage(cur + 1); }}
                         >
                             <FontAwesomeIcon icon={faChevronRight} />

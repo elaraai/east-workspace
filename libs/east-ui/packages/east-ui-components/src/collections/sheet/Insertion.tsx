@@ -8,6 +8,7 @@ import { forwardRef } from "react";
 import { Box, chakra } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faLayerGroup, faPlus } from "@fortawesome/free-solid-svg-icons";
+import { useSheetWords } from "./words.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 export interface InsertionActions {
@@ -16,10 +17,10 @@ export interface InsertionActions {
     ordered: boolean;
     groupOrdered: boolean;
     preview?: ((kind: "row" | "group" | undefined) => void) | undefined;
-    /** What a row is called here — `line` on a grouped sheet, else `row`. */
-    rowWord: string;
+    /** A row here is a LINE — a grouped sheet's (the sheet's words say which, #861). */
+    line: boolean;
     /** What a group is called — the host's noun (#844). */
-    groupWord: string;
+    noun: string;
 }
 
 /** Where the chips of the hovered seam sit, in the card's coordinates. */
@@ -67,20 +68,21 @@ export const SheetInsertLayer = forwardRef<HTMLDivElement, {
     actions: InsertionActions;
     onLeave: (to: EventTarget | null) => void;
 }>(function SheetInsertLayer({ styles, seam, actions, onLeave }, ref) {
+    const { m } = useSheetWords();
     const defaultKind = actions.row ? "row" : "group";
-    const { rowWord, groupWord } = actions;
+    const { line, noun } = actions;
     return <Box ref={ref} css={styles.insertLayer} data-slot="insertLayer" data-side={seam.side}
         style={{ top: `${seam.top}px`, left: `${seam.left}px` }}
         onMouseLeave={event => onLeave(event.relatedTarget)}
         onKeyDown={event => event.stopPropagation()}>
-        <Box css={styles.insertChips} data-slot="insertChips" role="group" aria-label="Insert here">
+        <Box css={styles.insertChips} data-slot="insertChips" role="group" aria-label={m.insertHere()}>
             {actions.row && <chakra.button type="button" css={styles.insertButton} data-slot="insertRow"
-                aria-label={actions.ordered ? `Insert ${rowWord} before` : `Add ${rowWord}`} title={actions.ordered ? `Insert a ${rowWord} here` : `Add a ${rowWord} in key order`}
+                aria-label={m.insertRow({ ordered: actions.ordered, line })} title={m.insertRowTitle({ ordered: actions.ordered, line })}
                 onMouseDown={event => { event.preventDefault(); event.stopPropagation(); }}
                 onMouseEnter={() => actions.preview?.("row")} onMouseLeave={() => actions.preview?.(defaultKind)}
                 onClick={event => { event.stopPropagation(); actions.row?.(); }}><FontAwesomeIcon icon={faPlus} /></chakra.button>}
             {actions.group && <chakra.button type="button" css={styles.insertButton} data-slot="insertGroup"
-                aria-label={actions.groupOrdered ? `New ${groupWord}` : `Add ${groupWord}`} title={actions.groupOrdered ? `Start a new ${groupWord} at the nearest ${groupWord} boundary` : `Add a ${groupWord} in key order`}
+                aria-label={m.insertGroup({ ordered: actions.groupOrdered, noun })} title={m.insertGroupTitle({ ordered: actions.groupOrdered, noun })}
                 onMouseDown={event => { event.preventDefault(); event.stopPropagation(); }}
                 onMouseEnter={() => actions.preview?.("group")} onMouseLeave={() => actions.preview?.(defaultKind)}
                 onClick={event => { event.stopPropagation(); actions.group?.(); }}><FontAwesomeIcon icon={faLayerGroup} /></chakra.button>}
@@ -88,14 +90,17 @@ export const SheetInsertLayer = forwardRef<HTMLDivElement, {
     </Box>;
 });
 
-/** A visible alternative to the gutter controls when whole rows are selected. */
-export function SheetInsertStrip({ styles, ordered, above, below, group, groupWord = "group" }: {
-    styles: Styles; ordered: boolean; above?: (() => void) | undefined; below?: (() => void) | undefined; group?: (() => void) | undefined; groupWord?: string;
+/** A visible alternative to the gutter controls when whole rows are selected — in the sheet's words (#861). */
+export function SheetInsertStrip({ styles, ordered, above, below, group, noun }: {
+    styles: Styles; ordered: boolean; above?: (() => void) | undefined; below?: (() => void) | undefined; group?: (() => void) | undefined;
+    /** The host's word for a group (#844); the sheet's own when it declares none. */
+    noun?: string | undefined;
 }) {
+    const { m } = useSheetWords();
     if (!above && !below && !group) return null;
-    return <Box css={styles.insertStrip} role="group" aria-label="Row insertion">
-        {ordered && above && <chakra.button type="button" css={styles.insertChoice} onClick={above}>Insert above</chakra.button>}
-        {below && <chakra.button type="button" css={styles.insertChoice} onClick={below}>{ordered ? "Insert below" : "Add row"}</chakra.button>}
-        {group && <chakra.button type="button" css={styles.insertChoice} onClick={group}>{`New ${groupWord}`}</chakra.button>}
+    return <Box css={styles.insertStrip} role="group" aria-label={m.insertStrip()}>
+        {ordered && above && <chakra.button type="button" css={styles.insertChoice} onClick={above}>{m.insertAbove()}</chakra.button>}
+        {below && <chakra.button type="button" css={styles.insertChoice} onClick={below}>{m.insertBelow({ ordered })}</chakra.button>}
+        {group && <chakra.button type="button" css={styles.insertChoice} onClick={group}>{m.insertNewGroup({ noun: noun ?? m.groupNoun() })}</chakra.button>}
     </Box>;
 }

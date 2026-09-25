@@ -11,7 +11,7 @@
 import { memo } from "react";
 import { Box } from "@chakra-ui/react";
 import { getSomeorUndefined } from "../../utils.js";
-import { useFormatters } from "../../format/index.js";
+import { useSheetWords } from "./words.js";
 import type { ValueTypeOf } from "@elaraai/east";
 import type { Sheet } from "@elaraai/east-ui/internal";
 import { SheetRetry } from "./Rows.js";
@@ -44,8 +44,10 @@ export interface SheetFooterProps {
 
 /** Renders the footer. */
 export const SheetFooter = memo(function SheetFooter({ styles, items, summary, hint, message, transport, onRetry }: SheetFooterProps) {
-    // The transport counts, in the app's locale (#850).
-    const words = useFormatters();
+    // The transport line, in the sheet's words and the app's locale (#850, #861).
+    const words = useSheetWords();
+    const line = transport === undefined ? ""
+        : words.m.transport({ loaded: words.number(transport.loaded), total: transport.total !== undefined ? words.number(transport.total) : undefined });
     return (
         <Box css={styles.footer} data-slot="footer">
             {(items.length > 0 || summary !== undefined) && (
@@ -60,13 +62,10 @@ export const SheetFooter = memo(function SheetFooter({ styles, items, summary, h
             )}
             {transport !== undefined && (
                 <Box as="span" css={styles.footerTransport} data-slot="footerTransport">
-                    {transport.total !== undefined
-                        ? `${words.number(transport.loaded)} loaded of ${words.number(transport.total)}`
-                        : `${words.number(transport.loaded)} loaded`}
-                    {transport.loading ? " · Loading…" : ""}
+                    {transport.loading ? words.m.transportLoading({ line }) : line}
                     {transport.error !== undefined && (
                         <Box as="span" data-slot="transportError" role="alert">
-                            {` · could not be read — ${transport.error} `}
+                            {words.m.transportFailed({ reason: transport.error })}
                             {onRetry !== undefined && <SheetRetry styles={styles} onRetry={() => onRetry()} />}
                         </Box>
                     )}

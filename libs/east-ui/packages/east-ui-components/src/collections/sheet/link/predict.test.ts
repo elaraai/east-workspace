@@ -12,6 +12,7 @@ import { linkVocabulary } from "./grammar.js";
 import { linkCandidates, linkCandidateAt, linkGhost, linkResolve, resolveBuffer, predictedMembers, linkEntryCandidates, grammarLine } from "./predict.js";
 import { namedCount, arityMeta } from "./arity.js";
 import { indexColumns } from "../model.js";
+import { SHEET_WORDS } from "../words.js";
 import type { SheetLinkValue, SheetMemberValue, SheetRegisterMemberValue } from "../values.js";
 
 const member = (key: string, kind: string, extra: Partial<{ aliases: string[]; meta: string; parent: string }> = {}): SheetRegisterMemberValue => ({
@@ -52,7 +53,7 @@ const NONE = new Set<string>();
 
 describe("candidates", () => {
     test("the B§4.5 order: exact → code prefixes → countables with enumerate → other countables → placeholder", () => {
-        const labels = (q: string, used = NONE) => linkCandidates(q, vocab, used).map((c) => c.label);
+        const labels = (q: string, used = NONE) => linkCandidates(q, vocab, used, SHEET_WORDS).map((c) => c.label);
         expect(labels("m21")).toEqual(["M2140", "M2141", "M2145"]);
         expect(labels("M2140")).toEqual(["M2140"]);
         expect(labels("2")).toEqual(["M2140", "M2141", "M2145", "Line 2", "M2140, M2141, M2145"]);   // codes first: `2` looks like a code
@@ -63,7 +64,7 @@ describe("candidates", () => {
         expect(labels("tb")).toEqual(["TBC"]);
         expect(labels("zzz")).toEqual([]);
         // A range shows one candidate: its expansion.
-        const rng = linkCandidates("M2140-45", vocab, NONE);
+        const rng = linkCandidates("M2140-45", vocab, NONE, SHEET_WORDS);
         expect(rng).toHaveLength(1);
         expect(rng[0]!.label).toBe("M2140-M2145");
         expect(rng[0]!.meta).toBe("→ 3 machines: M2140, M2141, M2145");
@@ -72,23 +73,23 @@ describe("candidates", () => {
 
     test("members already in the cell are never offered twice — the enumerate alternative shrinks with them", () => {
         const used = new Set(["m2140"]);
-        expect(linkCandidates("m21", vocab, used).map((c) => c.label)).toEqual(["M2141", "M2145"]);
-        expect(linkCandidates("the 2", vocab, used).map((c) => c.label)).toEqual(["Line 2", "M2141, M2145"]);
+        expect(linkCandidates("m21", vocab, used, SHEET_WORDS).map((c) => c.label)).toEqual(["M2141", "M2145"]);
+        expect(linkCandidates("the 2", vocab, used, SHEET_WORDS).map((c) => c.label)).toEqual(["Line 2", "M2141, M2145"]);
     });
 
     test("the ghost is the top prefix candidate's suffix; a non-prefix match previews as a replacement", () => {
-        const cand = linkCandidateAt("m21", 0, vocab, NONE);
+        const cand = linkCandidateAt("m21", 0, vocab, NONE, SHEET_WORDS);
         expect(linkGhost("m21", cand)).toBe("40");
         expect(linkResolve("m21", cand)).toBe("");
-        const alias = linkCandidateAt("the 2", 0, vocab, NONE);
+        const alias = linkCandidateAt("the 2", 0, vocab, NONE, SHEET_WORDS);
         expect(linkGhost("the 2", alias)).toBe("");
         expect(linkResolve("the 2", alias)).toBe("Line 2  line · 96");
-        expect(linkCandidateAt("", 0, vocab, NONE)).toBeUndefined();
-        expect(linkCandidateAt("m21", 2, vocab, NONE)?.label).toBe("M2145");
+        expect(linkCandidateAt("", 0, vocab, NONE, SHEET_WORDS)).toBeUndefined();
+        expect(linkCandidateAt("m21", 2, vocab, NONE, SHEET_WORDS)?.label).toBe("M2145");
     });
 
     test("a buffer resolves to the armed candidate when it completes the text, else through the grammar", () => {
-        expect(resolveBuffer("m21", linkCandidateAt("m21", 0, vocab, NONE), vocab)).toEqual([m("identified", { key: "M2140" })]);
+        expect(resolveBuffer("m21", linkCandidateAt("m21", 0, vocab, NONE, SHEET_WORDS), vocab)).toEqual([m("identified", { key: "M2140" })]);
         expect(resolveBuffer("m2140, 4 x lathe", undefined, vocab)).toEqual([m("identified", { key: "M2140" }), m("counted", { n: 4n, key: "CNC lathe" })]);
         expect(resolveBuffer("nope", undefined, vocab)).toEqual([m("text", "nope")]);
         expect(resolveBuffer("  ", undefined, vocab)).toEqual([]);
@@ -108,9 +109,9 @@ describe("prediction", () => {
     });
 
     test("the entry menu offers the countable abstractions; the grammar line names the kinds", () => {
-        expect(linkEntryCandidates(vocab, NONE).map((c) => c.label)).toEqual(["Line 2", "Line 7", "CNC lathe", "120 t press"]);
-        expect(linkEntryCandidates(vocab, new Set(["line 2"])).map((c) => c.label)).toEqual(["Line 7", "CNC lathe", "120 t press"]);
-        expect(grammarLine(vocab)).toBe("machine code · line · family · N x kind · a range · TBC");
+        expect(linkEntryCandidates(vocab, NONE, SHEET_WORDS).map((c) => c.label)).toEqual(["Line 2", "Line 7", "CNC lathe", "120 t press"]);
+        expect(linkEntryCandidates(vocab, new Set(["line 2"]), SHEET_WORDS).map((c) => c.label)).toEqual(["Line 7", "CNC lathe", "120 t press"]);
+        expect(grammarLine(vocab, SHEET_WORDS)).toBe("machine code · line · family · N x kind · a range · TBC");
     });
 });
 
@@ -119,10 +120,10 @@ describe("arity", () => {
         expect(namedCount([m("identified", { key: "M2140" }), m("counted", { n: 3n, key: "CNC lathe" }), m("range", { from: "M2140", to: "M2145" }), m("text", "x"), m("placeholder", null)], vocab)).toBe(7);
     });
     test("the strip meta words", () => {
-        expect(arityMeta({ n: 4, key: "CNC lathe" }, 3)).toBe("4 × CNC lathe implied · 3 named so far");
-        expect(arityMeta({ n: 4, key: "CNC lathe" }, 4)).toBe("4 × CNC lathe implied · 4 named");
-        expect(arityMeta({ n: 4, key: "CNC lathe" }, 5)).toBe("4 × CNC lathe implied · 5 named — more than the quantity needs");
-        expect(arityMeta({ n: 4, key: "CNC lathe" }, 0)).toBe("");
-        expect(arityMeta(undefined, 3)).toBe("");
+        expect(arityMeta({ n: 4, key: "CNC lathe" }, 3, SHEET_WORDS)).toBe("4 × CNC lathe implied · 3 named so far");
+        expect(arityMeta({ n: 4, key: "CNC lathe" }, 4, SHEET_WORDS)).toBe("4 × CNC lathe implied · 4 named");
+        expect(arityMeta({ n: 4, key: "CNC lathe" }, 5, SHEET_WORDS)).toBe("4 × CNC lathe implied · 5 named — more than the quantity needs");
+        expect(arityMeta({ n: 4, key: "CNC lathe" }, 0, SHEET_WORDS)).toBe("");
+        expect(arityMeta(undefined, 3, SHEET_WORDS)).toBe("");
     });
 });

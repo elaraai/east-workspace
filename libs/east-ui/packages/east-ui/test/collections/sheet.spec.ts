@@ -686,11 +686,12 @@ describeEast("Sheet", (test) => {
         $(Assert.equal(first.get(2n).id, ""));
         $(Assert.equal(first.get(3n).name, "Driver"));
         $(Assert.equal(group.lines.get(1n).subRows.size(), 0n));
-        // The group's noun rides on the declaration; the default is "group".
-        $(Assert.equal(root.group.unwrap("some").noun.singular, "order"));
-        $(Assert.equal(root.group.unwrap("some").noun.plural, "orders"));
+        // The group's noun rides on the declaration; with none the wire carries
+        // none, and the renderer says its own word in the viewer's language (#861).
+        $(Assert.equal(root.group.unwrap("some").noun.unwrap("some").singular, "order"));
+        $(Assert.equal(root.group.unwrap("some").noun.unwrap("some").plural, "orders"));
         const plain = $.let(Sheet.Root(orders, { task: Sheet.column.text(WorkType) }, { id: "id", group: Sheet.group(OrderType, "work", { title: "name" }) }).unwrap().unwrap("Sheet"));
-        $(Assert.equal(plain.group.unwrap("some").noun.plural, "groups"));
+        $(Assert.equal(plain.group.unwrap("some").noun.hasTag("none"), true));
         $(Assert.equal(plain.rows.unwrap("inline").get(0n).lines.get(0n).subRows.size(), 0n));
     });
 

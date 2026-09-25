@@ -76,7 +76,7 @@ export function takeFill(s: SheetUiState, ctx: SheetMachineCtx, key: string, bac
     const c = ctx.columnOf?.(key);
     if (f === undefined || r === undefined || c === undefined) return none(s);
     const effects: SheetEffect[] = [{ t: "write.many", r, writes: [{ c, cell: f.cell }], source: "fill" }];
-    let next: SheetUiState = { ...s, sugg: withoutFill(sugg, key), armed: null, gsel: null, msg: `Took ${key} — ${f.meta === "" ? "suggested" : f.meta}` };
+    let next: SheetUiState = { ...s, sugg: withoutFill(sugg, key), armed: null, gsel: null, msg: { id: "fillTaken", column: key, meta: f.meta === "" ? undefined : f.meta } };
     const nt = nextTargetOf(next, ctx, back);
     if (nt !== null) {
         next = { ...next, sel: { r: nt.r, c: nt.c }, selEnd: null, armed: { r: nt.r, c: nt.c } };
@@ -96,7 +96,7 @@ export function fillRow(s: SheetUiState, ctx: SheetMachineCtx): Transition {
     const rest: Suggestions | null = sugg.rows.length > 0 || sugg.pending.length > 0 ? { ...sugg, fill: new Map() } : null;
     const n = writes.length;
     return {
-        state: { ...s, sugg: rest, armed: null, gsel: null, msg: `Filled ${n} cell${n === 1 ? "" : "s"} on ${ctx.rowNameAt?.(r) ?? `row ${ctx.numberAt?.(r) ?? r + 1}`}` },
+        state: { ...s, sugg: rest, armed: null, gsel: null, msg: { id: "rowFilled", n, row: ctx.rowRefAt?.(r) ?? { line: false, number: ctx.numberAt?.(r) ?? r + 1 } } },
         effects: [{ t: "write.many", r, writes, source: "row" }],
     };
 }
@@ -126,7 +126,7 @@ export function takeProposals(s: SheetUiState, ctx: SheetMachineCtx, upTo: numbe
     return {
         state: {
             ...next, sugg: null, armed: null, gsel: null, selEnd: null,
-            msg: `Took ${label === "" ? "the suggested row" : label}${rest.length > 0 ? " — next one suggested below" : ""}`,
+            msg: { id: "proposalTaken", label: label === "" ? undefined : label, more: rest.length > 0 },
         },
         effects,
     };
@@ -147,7 +147,7 @@ export function rejectProposal(s: SheetUiState, ctx: SheetMachineCtx, i: number)
     return {
         state: {
             ...s, gsel: null, sugg: rest, rejected: { ...s.rejected, follows },
-            msg: `Rejected — ${to === "" ? "that row" : to} will not be suggested after ${from === "" ? "this" : from} again`,
+            msg: { id: "proposalRejected", to: to === "" ? undefined : to, from: from === "" ? undefined : from },
         },
         effects: [],
     };
@@ -161,7 +161,7 @@ export function rejectFill(s: SheetUiState, ctx: SheetMachineCtx, key: string): 
     fills.add(`${sugg.anchorId}|${key}`);
     void ctx;
     return {
-        state: { ...s, sugg: withoutFill(sugg, key), armed: null, rejected: { ...s.rejected, fills }, msg: `Dismissed — ${key} will not be suggested again on this row` },
+        state: { ...s, sugg: withoutFill(sugg, key), armed: null, rejected: { ...s.rejected, fills }, msg: { id: "fillDismissed", column: key } },
         effects: [],
     };
 }
@@ -222,10 +222,10 @@ export function afterRowsChanged(s: SheetUiState, ctx: SheetMachineCtx): SheetUi
 
 /** The esc rungs the copilot adds: a selected proposal → the row fill (rows stay) → everything. `null` = nothing to drop. */
 export function escSuggest(s: SheetUiState): Transition | null {
-    if (s.gsel !== null) return { state: { ...s, gsel: null, msg: "Deselected — esc again dismisses every suggestion" }, effects: [] };
+    if (s.gsel !== null) return { state: { ...s, gsel: null, msg: { id: "proposalDeselected" } }, effects: [] };
     if (s.sugg === null) return null;
     if (s.sugg.fill.size > 0 && s.sugg.rows.length > 0) {
-        return { state: { ...s, sugg: { ...s.sugg, fill: new Map() }, armed: null, msg: "Row fill dismissed — esc again for the suggested rows" }, effects: [] };
+        return { state: { ...s, sugg: { ...s.sugg, fill: new Map() }, armed: null, msg: { id: "rowFillDismissed" } }, effects: [] };
     }
     return { state: { ...s, sugg: null, armed: null, selEnd: null }, effects: [] };
 }

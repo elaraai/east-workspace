@@ -130,6 +130,47 @@ export interface Rejections {
     follows: ReadonlySet<string>;
 }
 
+/**
+ * A row as a message names it (#861): a row by its number, or on a grouped
+ * sheet a line by its number in its group (`title` its group's, `noun` the
+ * host's word for a group) — worded at render.
+ */
+export type SheetRowRef =
+    | { line: false; number: number }
+    | { line: true; number: number; title: string | undefined; noun: string | undefined };
+
+/**
+ * What a gesture leaves in the footer's `aria-live` line (#861): a message of
+ * the Sheet's table by its id, with its parameters as data — counts raw, a
+ * row as a {@link SheetRowRef}, a noun `undefined` where the host declares
+ * none — so the reducer knows no locale; the footer words it (`noticeText`).
+ * `issue` names the issue the history bar went to; `text` carries words that
+ * are not the Sheet's own (an error a host's callback threw).
+ */
+export type SheetNotice =
+    | { id: "groupOpened" | "groupFolded"; noun: string | undefined }
+    | { id: "groupsOpened" | "groupsFolded"; n: number; noun: string | undefined; nouns: string | undefined }
+    | { id: "subRowsShownAll"; n: number; noun: string | undefined }
+    | { id: "subRowsHidAll"; noun: string | undefined }
+    | { id: "subRowsShown"; n: number }
+    | { id: "subRowsHid" | "rowLeft" | "tabReverted" | "proposalDeselected" | "rowFillDismissed" | "discarded" | "newRow" }
+    | { id: "membersAdded" | "membersRemoved" | "predictedTaken"; n: number }
+    | { id: "lockedHalf"; driver: string | undefined }
+    | { id: "tabSaved"; name: string; query: boolean }
+    | { id: "tabClosed"; name: string; active: boolean }
+    | { id: "tabUpdated"; name: string }
+    | { id: "fillTaken"; column: string; meta: string | undefined }
+    | { id: "rowFilled"; n: number; row: SheetRowRef }
+    | { id: "proposalTaken"; label: string | undefined; more: boolean }
+    | { id: "proposalRejected"; to: string | undefined; from: string | undefined }
+    | { id: "fillDismissed"; column: string }
+    | { id: "deleted"; n: number; what: "rows" | "lines" | "groups"; noun: string | undefined; nouns: string | undefined; again: boolean }
+    | { id: "pasted"; rows: number; cols: number; skipped: number }
+    | { id: "copied"; rows: number; cols: number }
+    | { id: "newGroup"; noun: string | undefined }
+    | { id: "issue"; where: string; message: string }
+    | { id: "text"; text: string };
+
 /** All ephemeral UI state — one object, one reducer. */
 export interface SheetUiState {
     /** The ring. */
@@ -140,8 +181,8 @@ export interface SheetUiState {
     edit: EditBuffer | null;
     /** The hovered cell (the ✓ take button's home). */
     hover: CellRef | null;
-    /** The footer's `aria-live` line. */
-    msg: string;
+    /** The footer's `aria-live` line — the message the last gesture left (#861). */
+    msg: SheetNotice | null;
     /** Rows appended past the padding with ↓ on the last row. */
     appended: number;
     /** The copilot's pending suggestions. */
@@ -190,7 +231,7 @@ export type SheetEvent =
      * index, clamped. `undefined` where nothing is known of the row.
      */
     | { t: "rows.changed"; moved?: ((r: number) => number | null | undefined) | undefined }
-    | { t: "msg"; msg: string }
+    | { t: "msg"; msg: SheetNotice }
     | { t: "clipboard.copy" }
     | { t: "clipboard.paste"; text: string }
     /** The copilot runner's result for an anchor (`null` = nothing to suggest). */
@@ -337,8 +378,10 @@ export interface SheetMachineCtx {
     driverColumn?: string | undefined;
     /** The 1-based row number at a row-space index (the footer's messages). */
     numberAt?: (r: number) => number;
-    /** How the footer's messages name a row: `row 4`, or on a grouped sheet `line 3 of Line 2 week 8` (#740, G3). */
-    rowNameAt?: (r: number) => string;
+    /** How the footer's messages name a row — a row, or on a grouped sheet a line of its group (#740, G3); worded at render (#861). */
+    rowRefAt?: (r: number) => SheetRowRef;
+    /** A new view's name when there is no query to name it from (#861) — the sheet's words, stored with the view. */
+    viewName?: ((seq: number) => string) | undefined;
     /** The saved views, in order — the component's local layer over `views`. */
     views?: readonly SheetViewValue[];
     /** The slice's current narrowing (`undefined` without a bound slice). */
@@ -377,8 +420,8 @@ export interface LinkEditCtx {
     predicted: (side: 0 | 1, groups: LinkGroups, typed: string) => SheetMemberValue[];
     /** The cell for the halves — `null` when both are empty. */
     cell: (groups: LinkGroups) => SheetCellValue | null;
-    /** The driver member's name, for the hop-into-a-locked-half message. */
-    driverName: string;
+    /** The driver member's name, for the hop-into-a-locked-half message — `undefined` when the row names none (#861: the words say "this row"). */
+    driverName: string | undefined;
 }
 
 /** One transition's result. */
@@ -396,7 +439,7 @@ export const EMPTY_LENS: LensState = { context: 0, reveals: new Set(), steps: ne
 /** The initial UI state — `active` is the initial view tab, if the sheet opens on one; `folds`, the fold overrides it opens with (#857). */
 export function initialSheetState(sel: CellRef = { r: 0, c: 0 }, active: string | null = null, folds?: ReadonlyMap<string, boolean>): SheetUiState {
     return {
-        sel, selEnd: null, edit: null, hover: null, msg: "", appended: 0, sugg: null, armed: null, gsel: null, rejected: NO_REJECTIONS,
+        sel, selEnd: null, edit: null, hover: null, msg: null, appended: 0, sugg: null, armed: null, gsel: null, rejected: NO_REJECTIONS,
         lens: folds === undefined || folds.size === 0 ? EMPTY_LENS : { ...EMPTY_LENS, folds },
         tabs: { active, seq: 1, renaming: null, renameVal: "" },
     };

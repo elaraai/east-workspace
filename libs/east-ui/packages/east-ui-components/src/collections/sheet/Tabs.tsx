@@ -31,9 +31,9 @@ import { memo, useContext, useEffect, useLayoutEffect, useRef, useState, type Dr
 import { Box, chakra, Menu as ChakraMenu, Portal, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faChevronDown, faPlus, faXmark } from "@fortawesome/free-solid-svg-icons";
-import { useFormatters } from "../../format/index.js";
 import { foldTabs } from "./lens.js";
 import { SheetTabsFoldContext } from "./fold-context.js";
+import { useSheetWords } from "./words.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
@@ -79,8 +79,9 @@ export interface SheetTabsProps {
 export const SheetTabs = memo(function SheetTabs(props: SheetTabsProps) {
     const { styles, views, wholeCount, active, dirty, hasQuery, renaming, renameVal, panelId } = props;
     const menuStyles = useSlotRecipe({ key: "menu" })() as unknown as Styles;
-    // The tabs' counts, in the app's locale (#850).
-    const words = useFormatters();
+    // The tabs' words and counts, in the app's locale (#850, #861).
+    const words = useSheetWords();
+    const { m } = words;
     const dragging = useRef<string | null>(null);
     const renameRef = useRef<HTMLInputElement | null>(null);
     const skipBlur = useRef(false);
@@ -207,7 +208,7 @@ export const SheetTabs = memo(function SheetTabs(props: SheetTabsProps) {
     };
     return (
         <Box ref={stripRef} css={styles.tabs} data-slot="tabs" data-folded={hidden.length > 0 ? hidden.length : undefined}>
-            <Box css={styles.tabList} data-slot="tabList" role="tablist" aria-label="Views">
+            <Box css={styles.tabList} data-slot="tabList" role="tablist" aria-label={m.tabList()}>
                 <Box
                     ref={tabRef(ALL)}
                     as="span"
@@ -219,13 +220,13 @@ export const SheetTabs = memo(function SheetTabs(props: SheetTabsProps) {
                     aria-selected={active === null}
                     aria-controls={panelId}
                     tabIndex={current === ALL ? 0 : -1}
-                    title="Every row — the whole sheet"
+                    title={m.tabAllTitle()}
                     onMouseDown={(e: MouseEvent) => { if (e.button !== 0) return; e.preventDefault(); props.onSwitch(null); }}
                     onKeyDown={onTabKey(ALL)}
                     onDragOver={onDragOver}
                     onDrop={dropAt(0)}
                 >
-                    All
+                    {m.tabAll()}
                     <Box as="span" css={styles.tabCount} data-slot="tabCount">{words.number(wholeCount)}</Box>
                 </Box>
                 {visible.map((v) => {
@@ -239,7 +240,7 @@ export const SheetTabs = memo(function SheetTabs(props: SheetTabsProps) {
                                     css={styles.tabRename}
                                     data-slot="tabRename"
                                     value={renameVal}
-                                    aria-label="Rename tab"
+                                    aria-label={m.tabRename()}
                                     onChange={(e) => props.onRenameChange(e.target.value)}
                                     onKeyDown={onRenameKey}
                                     onBlur={onRenameBlur}
@@ -274,7 +275,7 @@ export const SheetTabs = memo(function SheetTabs(props: SheetTabsProps) {
                             <Box as="span" css={styles.tabLabel} data-slot="tabLabel">{v.name}</Box>
                             <Box as="span" css={styles.tabCount} data-slot="tabCount">{words.number(v.count)}</Box>
                             {on && dirty && (
-                                <Box as="span" css={styles.tabDot} data-slot="tabDot" title="Unsaved query — ⏎ updates this tab · esc reverts" />
+                                <Box as="span" css={styles.tabDot} data-slot="tabDot" title={m.tabDirty()} />
                             )}
                             {/* The pointer's close; the keyboard's is Delete on the tab. */}
                             <Box
@@ -282,7 +283,7 @@ export const SheetTabs = memo(function SheetTabs(props: SheetTabsProps) {
                                 css={styles.tabClose}
                                 data-slot="tabClose"
                                 aria-hidden="true"
-                                title="Close tab"
+                                title={m.tabClose()}
                                 onMouseDown={(e: MouseEvent) => { e.preventDefault(); e.stopPropagation(); props.onClose(v.id); }}
                             >
                                 <FontAwesomeIcon icon={faXmark} />
@@ -294,8 +295,9 @@ export const SheetTabs = memo(function SheetTabs(props: SheetTabsProps) {
             {hidden.length > 0 && (
                 <ChakraMenu.Root positioning={{ placement: "bottom-start" }} onSelect={(d) => props.onSwitch(d.value)}>
                     <ChakraMenu.Trigger asChild>
-                        <chakra.button type="button" css={styles.tabMore} data-slot="tabMore" aria-label={`${hidden.length} more views`} title="More views">
-                            {`+${hidden.length}`}
+                        <chakra.button type="button" css={styles.tabMore} data-slot="tabMore"
+                            aria-label={m.tabMoreName({ n: hidden.length, count: words.number(hidden.length) })} title={m.tabMoreTitle()}>
+                            {m.tabMore({ n: hidden.length, count: words.number(hidden.length) })}
                             <FontAwesomeIcon icon={faChevronDown} style={{ fontSize: "8px", opacity: 0.7 }} />
                         </chakra.button>
                     </ChakraMenu.Trigger>
@@ -317,8 +319,8 @@ export const SheetTabs = memo(function SheetTabs(props: SheetTabsProps) {
                 type="button"
                 css={styles.tabAdd}
                 data-slot="tabAdd"
-                aria-label="New tab from this view"
-                title={hasQuery ? "New tab from this search — query, context and expanded bands, evaluated live" : "New tab — no filter yet; search inside it and ⏎ to scope it"}
+                aria-label={m.tabAddName()}
+                title={m.tabAddTitle({ query: hasQuery })}
                 onMouseDown={(e: MouseEvent) => { if (e.button !== 0) return; e.preventDefault(); props.onCreate(); }}
                 // Enter or Space on the focused button: a click with no pointer behind it.
                 onClick={(e: MouseEvent) => { if (e.detail === 0) props.onCreate(); }}
@@ -326,7 +328,7 @@ export const SheetTabs = memo(function SheetTabs(props: SheetTabsProps) {
                 onDrop={dropAt(views.length)}
             >
                 <FontAwesomeIcon icon={faPlus} style={{ fontSize: "8px" }} />
-                <Box as="span" data-slot="tabAddLabel">tab</Box>
+                <Box as="span" data-slot="tabAddLabel">{m.tabAdd()}</Box>
             </chakra.button>
         </Box>
     );

@@ -17,6 +17,7 @@ import { compareFor, fromEastTypeValue, decodeBeast2For, encodeBeast2For, String
 import { Sheet, SheetEditingType, SheetReadyBatchType, SheetReadyCheckType } from "@elaraai/east-ui/internal";
 import { liftDraft, type BatchReadiness } from "./draft-values.js";
 import { placeInOrder } from "./placement.js";
+import { ISSUE_TEXT } from "./words.js";
 import type { EntryVersion } from "./transactions.js";
 import type { SheetRowValue } from "./values.js";
 
@@ -78,7 +79,7 @@ export function authorReadiness(editing: Editing, resident: readonly SheetRowVal
             if (result.type === "ready") return;
             invalid ||= result.type === "invalid";
             const at = row === undefined ? none : some(BigInt(row));
-            if (result.value.length === 0) issues.push({ entry, row: at, field: none, message: `Author check reports ${result.type}` });
+            if (result.value.length === 0) issues.push({ entry, row: at, field: none, message: ISSUE_TEXT.author(result.type) });
             for (const issue of result.value) issues.push({ entry, row: at, field: some(issue.field), message: issue.message });
         };
         // The source rows' drafts, with the session's over them.
@@ -120,7 +121,7 @@ export function authorReadiness(editing: Editing, resident: readonly SheetRowVal
                     // The batch itself failed — its rows could not be built — so
                     // every check reports why. A check that throws fails alone:
                     // the bridge catches it per check.
-                    const failed: Readiness = variant("invalid", [{ field: "", message: `Row readiness failed: ${error instanceof Error ? error.message : String(error)}` }]);
+                    const failed: Readiness = variant("invalid", [{ field: "", message: ISSUE_TEXT.rowCheck(error instanceof Error ? error.message : String(error)) }]);
                     results = checks.map(() => failed);
                 }
             }
@@ -135,7 +136,7 @@ export function authorReadiness(editing: Editing, resident: readonly SheetRowVal
             }
             if (groupCheck !== undefined) {
                 try { report(groupCheck(drafts.get(id)!), id); }
-                catch (error) { report(variant("invalid", [{ field: "", message: `Group readiness failed: ${error instanceof Error ? error.message : String(error)}` }]), id); }
+                catch (error) { report(variant("invalid", [{ field: "", message: ISSUE_TEXT.groupCheck(error instanceof Error ? error.message : String(error)) }]), id); }
             }
             if (rowCheck !== undefined) for (let line = 0; line < entry.wire.lines.length; line++) report(results[next++]!, id, line);
         }
