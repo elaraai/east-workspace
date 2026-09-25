@@ -7,10 +7,14 @@
  * Graph-free, persistence-free execution — the shared primitive behind
  * `e3.function` calls and one-shot execution.
  *
- * runDetached: marshal inputs → run a body IR on a chosen runner → return
- * the result value inline; write nothing durable. No task object, no output
- * object, no execution record, no logs, no dataset ref. The only disk write
- * is the transient scratch directory, removed on completion.
+ * runDetached: stage the program and its arguments → run them on a runner →
+ * return the result value inline; write nothing durable. No task object, no
+ * output object, no execution record, no logs, no dataset ref. The only disk
+ * write is the transient scratch directory, removed on completion.
+ *
+ * A stock runner runs the call as a unit through its `exec` (units.ts); a
+ * `custom` runner runs its command with `run`'s arguments, as a custom task's
+ * program runs.
  */
 
 import type { StorageBackend } from '../storage/index.js';
@@ -18,13 +22,10 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { tmpdir } from 'os';
 import { randomBytes } from 'crypto';
-import { withRunnerLifeline, withRunnerVerbose, type RunnerValue } from '@elaraai/e3-types';
-import {
-  marshalBytesToDir,
-  buildRunnerArgv,
-  spawnAndCapture,
-  readOutputFile,
-} from './processExec.js';
+import { encodeBeast2SegmentsFor, readBeast2Manifest, spliceBeast2 } from '@elaraai/east';
+import { manifestByteSize, type RunnerValue } from '@elaraai/e3-types';
+import { spawnAndCapture } from './processExec.js';
+import { stageCallUnit, unitArgv } from './units.js';
 
 /**
  * Specification of a detached run.
@@ -34,7 +35,8 @@ export interface DetachedSpec {
   bodyIr: Uint8Array;
   /** positional arg values (beast2), already validated for arity */
   args: Uint8Array[];
-  /** wire runner variant — resolved to argv via buildRunnerArgv */
+  /** wire runner variant: a stock runner runs the call as a unit, a custom
+   *  one its command */
   runner: RunnerValue;
   /** execution limits (all required — the caller applies defaults/clamps) */
   limits: { timeoutMs: number; maxResultBytes: number; maxLogBytes: number };
@@ -46,9 +48,11 @@ export interface DetachedSpec {
 /**
  * Result of a detached run.
  *
- * - `success`: the runner's output file bytes (beast2), under the size cap
+ * - `success`: the value's beast2 bytes, under the size cap — the runner's
+ *   output file, or a collection's segments spliced into one blob
  * - `failed`: the process exited non-zero (or failed to spawn)
- * - `too_large`: output over `maxResultBytes` — the bytes are never loaded
+ * - `too_large`: the output over `maxResultBytes` — its file's size, or a
+ *   collection's segments' — and the value never loaded
  * - `timed_out`: the process group was killed at `timeoutMs`
  */
 export type DetachedResult =
@@ -73,18 +77,20 @@ export interface DetachedRunOptions {
   /** Storage backend for materializing `spec.environment` (local runner);
    *  required when the spec declares an environment. */
   storage?: StorageBackend;
-  /** Pass `-v` to the runner (known runtimes only) so it prints timing/perf
-   *  to stderr. Runtime-only: applied to the built argv just before spawn. */
+  /** Pass `-v` to a stock runner's `exec`, so it prints where the time went
+   *  and its peak memory to stderr. */
   verbose?: boolean;
 }
 
 /**
- * Run a body IR on a runner, returning the result inline.
+ * Run a function on a runner, returning its value inline.
  *
- * mkScratch → write bodyIr → marshal args → build argv → spawnAndCapture
- * (bounded-tail stdout/stderr) → on exit 0: fs.stat the output BEFORE
- * reading; size > maxResultBytes ⇒ too_large (bytes never loaded); else
- * success(readOutputFile) → finally rm scratch.
+ * The program and arguments are written to a scratch directory and the runner
+ * spawned, with bounded tails of stdout and stderr. On exit 0 the output is
+ * sized before it is read, so a value over `maxResultBytes` is `too_large`
+ * and never loaded. A collection, which `exec` writes as a manifest naming its
+ * segments, is spliced back into one blob. The scratch directory is removed
+ * however the call ends.
  *
  * NEVER writes to the object store, execution records, or logs.
  */
@@ -99,21 +105,23 @@ export async function runDetached(
   await fs.mkdir(scratchDir, { recursive: true });
 
   try {
-    const bodyIrPath = path.join(scratchDir, 'fn.beast2');
-    await fs.writeFile(bodyIrPath, spec.bodyIr);
-
-    const argPaths = await marshalBytesToDir(scratchDir, spec.args);
+    const program = path.join(scratchDir, 'program.beast2');
+    await fs.writeFile(program, spec.bodyIr);
+    const inputs: string[] = [];
+    for (const [i, arg] of spec.args.entries()) {
+      const input = path.join(scratchDir, `input-${i}.beast2`);
+      await fs.writeFile(input, arg);
+      inputs.push(input);
+    }
     const outputPath = path.join(scratchDir, 'output.beast2');
-    // A stock runner exits with this process: the stdin lifeline pipe below
-    // and `--exit-with-parent` on its command line; a custom command is left
-    // alone.
-    const stdinLifeline = spec.runner.type !== 'custom';
-    let args = withRunnerVerbose(
-      spec.runner,
-      buildRunnerArgv(spec.runner, argPaths, outputPath, bodyIrPath),
-      options.verbose,
-    );
-    if (stdinLifeline) args = withRunnerLifeline(spec.runner, args);
+    // A stock runner runs the call as a unit, and exits with this process: the
+    // stdin lifeline pipe below and `--exit-with-parent` on its command line.
+    // A custom command is given `run`'s arguments, and left alone.
+    const runner = spec.runner;
+    const stdinLifeline = runner.type !== 'custom';
+    const args = runner.type === 'custom'
+      ? [...runner.value.command, ...inputs.flatMap((input) => ['-i', input]), '-o', outputPath, program]
+      : unitArgv(runner, await stageCallUnit(scratchDir, runner, program, inputs, outputPath), options.verbose);
 
     const searchDirs = options.runnerSearchDir
       ? [options.runnerSearchDir, process.cwd()]
@@ -155,7 +163,7 @@ export async function runDetached(
       return { kind: 'failed', exitCode: result.exitCode ?? -1, ...streams };
     }
 
-    // stat BEFORE read — an over-cap result is never loaded into memory.
+    // Sized BEFORE it is read — an over-cap value is never loaded into memory.
     let size: number;
     try {
       size = (await fs.stat(outputPath)).size;
@@ -168,8 +176,22 @@ export async function runDetached(
     if (size > spec.limits.maxResultBytes) {
       return { kind: 'too_large', bytes: size, limit: spec.limits.maxResultBytes, ...streams };
     }
-
-    const value = await readOutputFile(outputPath);
+    const written = await fs.readFile(outputPath);
+    const manifest = readBeast2Manifest(written);
+    if (manifest === null) {
+      return { kind: 'success', value: written, ...streams };
+    }
+    // A collection: the manifest records its segments' sizes, and its segments
+    // are standalone blobs under one header, which splice into the blob they
+    // were cut from. An empty one names no segment.
+    const bytes = manifestByteSize(manifest);
+    if (bytes > spec.limits.maxResultBytes) {
+      return { kind: 'too_large', bytes, limit: spec.limits.maxResultBytes, ...streams };
+    }
+    const segments = `${outputPath}.segments`;
+    const value = manifest.entries.length === 0
+      ? encodeBeast2SegmentsFor(manifest.type)([])
+      : spliceBeast2(await Promise.all(manifest.entries.map((entry) => fs.readFile(path.join(segments, `${entry.hash}.beast2`)))));
     return { kind: 'success', value, ...streams };
   } finally {
     try {

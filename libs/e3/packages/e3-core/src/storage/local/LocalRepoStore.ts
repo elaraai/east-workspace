@@ -348,12 +348,11 @@ export class LocalRepoStore implements RepoStore {
     const entries = await this.refs.executionList(repo);
     for (const { taskHash, inputsHash } of entries) {
       // The plan of a split task's execution that can resume: the `$plan` of
-      // the stage it is in, or the partition plan a released e3 recorded. It
-      // is the only reference to the pieces it cut and the key ranges it
-      // planned, and it lives in a sidecar no other scan reads — unrooted, the
-      // sweep takes the plan and everything it records, and a resumed run
-      // plans again from scratch. gc walks the plan itself (see
-      // isUnitPlanShape and isPartitionPlanShape).
+      // the stage it is in. It is the only reference to the pieces it cut and
+      // the key ranges it planned, and it lives in a sidecar no other scan
+      // reads — unrooted, the sweep takes the plan and everything it records,
+      // and a resumed run plans again from scratch. gc walks the plan itself,
+      // by its kind tag.
       const planHash = await this.refs.executionPlanRead(repo, taskHash, inputsHash);
       if (planHash && /^[a-f0-9]{64}$/.test(planHash)) roots.push(planHash);
       const ids = await this.refs.executionListIds(repo, taskHash, inputsHash);

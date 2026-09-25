@@ -13,7 +13,8 @@
  * `run` unit — the program, the staged inputs and the output kind, with each
  * function and value the kind folds with staged beside them — and, for a task
  * split into pieces, into the `merge` units that assemble what its pieces
- * wrote. It takes what the units wrote into the store through its door: a
+ * wrote; and a function call into the `run` unit that returns its value. It
+ * takes what a task's units wrote into the store through its door: a
  * value or an array as the manifest the runner wrote, a set or a dict from its
  * runs, which a `merge` unit assembles when there are several, and a fold as
  * the value it folded to.
@@ -227,6 +228,40 @@ export async function stageMergeUnit(
   const file = path.join(dir, 'unit.beast2');
   await fs.writeFile(file, encodeBeast2For(UnitType)(unit));
   return { file, result: path.join(dir, RESULT_FILE), dir, unit, runner };
+}
+
+/**
+ * Stages a function call as a `run` unit in `dir`: the unit naming the
+ * program and the arguments, written there already, whose output is the value
+ * the function returns — one blob, or a collection's manifest directory.
+ *
+ * @param dir - The call's scratch directory
+ * @param runner - The stock runner
+ * @param program - The program's file
+ * @param inputs - The arguments' files, in the function's parameter order
+ * @param output - The file the value is written to
+ * @returns The staged unit
+ */
+export async function stageCallUnit(
+  dir: string,
+  runner: StockRunner,
+  program: string,
+  inputs: readonly string[],
+  output: string,
+): Promise<StagedUnit> {
+  const unit: Unit = {
+    work: variant('run', {
+      program: unitPath(dir, program),
+      inputs: inputs.map((input) => unitPath(dir, input)),
+      output: variant('value', unitPath(dir, output)),
+    }),
+    platforms: runner.value.platforms,
+    threads: BigInt(availableParallelism()),
+    result: RESULT_FILE,
+  };
+  const file = path.join(dir, 'unit.beast2');
+  await fs.writeFile(file, encodeBeast2For(UnitType)(unit));
+  return { file, result: path.join(dir, RESULT_FILE) };
 }
 
 /**

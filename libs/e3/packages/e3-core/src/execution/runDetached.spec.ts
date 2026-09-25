@@ -7,10 +7,12 @@
  * Tests for the graph-free execution primitive (runDetached) and the
  * persistence-free process helpers it composes.
  *
- * A fake `east-node` runner script (planted in a temp node_modules/.bin and
- * reached via runnerSearchDir) drives the runner-facing behaviour
- * deterministically: echo, oversized output, non-zero exit, slow runs.
- * End-to-end runs against the real east-node runner live in e3-api-tests.
+ * Functions run on the real east-node runner, which e3-core's tests reach
+ * through its node_modules: a value returned inline, a collection spliced back
+ * from the manifest `exec` writes, a failure, and the size cap. A fake runner
+ * planted in a temp node_modules/.bin, and reached via runnerSearchDir, drives
+ * what depends only on the process: the command line and the stdin lifeline,
+ * a runner that writes nothing, and slow runs.
  */
 
 import { describe, it, before, after } from 'node:test';
@@ -18,8 +20,12 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
-import { variant } from '@elaraai/east';
-import { buildRunnerArgv, collectVenvBins, marshalBytesToDir, spawnAndCapture } from './processExec.js';
+import { randomBytes } from 'node:crypto';
+import {
+  DictType, East, IntegerType, StringType,
+  decodeBeast2For, encodeBeast2For, encodeEastIR, readBeast2Extents, variant,
+} from '@elaraai/east';
+import { collectVenvBins, spawnAndCapture } from './processExec.js';
 import { runDetached } from './runDetached.js';
 
 const isWindows = process.platform === 'win32';
@@ -52,40 +58,6 @@ function plantEcho(binDir: string, name: string, text: string): void {
 /** A node script printing whether its stdin is a pipe — neither a
  *  character device (an ignored stdin is the null device) nor a file. */
 const STDIN_IS_PIPE = 'const s = require("fs").fstatSync(0); process.stdout.write(String(!s.isCharacterDevice() && !s.isFile()))';
-
-describe('buildRunnerArgv', () => {
-  it('builds the runner argv from the wire variant', () => {
-    const argv = buildRunnerArgv(
-      variant('east_node', { platforms: ['@elaraai/east-node-std'] }),
-      ['/tmp/a.beast2', '/tmp/b.beast2'],
-      '/tmp/out.beast2',
-      '/tmp/fn.beast2'
-    );
-    assert.deepEqual(argv, [
-      'east-node', 'run', '-p', '@elaraai/east-node-std',
-      '-i', '/tmp/a.beast2', '-i', '/tmp/b.beast2',
-      '-o', '/tmp/out.beast2',
-      '/tmp/fn.beast2',
-    ]);
-  });
-
-  it('maps each runtime tag to its binary name', () => {
-    assert.equal(buildRunnerArgv(variant('east_py', { platforms: [] }), [], 'o', 'f')[0], 'east-py');
-    assert.equal(buildRunnerArgv(variant('east_c', { platforms: [] }), [], 'o', 'f')[0], 'east-c');
-  });
-});
-
-describe('marshalBytesToDir', () => {
-  it('stages each blob as input-<i>.beast2 in order', async () => {
-    const dir = mkdtempSync(path.join(tmpdir(), 'e3-marshal-'));
-    try {
-      const paths = await marshalBytesToDir(dir, [new Uint8Array([1]), new Uint8Array([2, 3])]);
-      assert.deepEqual(paths.map((p) => path.basename(p)), ['input-0.beast2', 'input-1.beast2']);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-});
 
 describe('collectVenvBins', () => {
   let root: string;
@@ -355,36 +327,21 @@ describe('spawnAndCapture', () => {
 describe('runDetached', () => {
   let searchDir: string;
 
-  // A fake `east-node` runner with the real CLI contract:
-  //   east-node run [--exit-with-parent] [-p name]... [-i input]... -o output <bodyIr>
-  // Behaviour is selected by FAKE_RUNNER_MODE (inherited env):
-  //   echo (default) - copy input-0 (or the bodyIr) to the output
-  //   big            - write 4 KiB to the output
-  //   fail           - print to stderr, exit 3, no output
-  //   sleep          - sleep 30 s
-  //   silent-ok      - exit 0 WITHOUT writing the output file
-  const FAKE_RUNNER = `const fs = require('fs');
-const args = process.argv.slice(2);
-const inputs = [];
-let output = null;
-let bodyIr = null;
-for (let i = 0; i < args.length; i++) {
-  if (args[i] === 'run' || args[i] === '--exit-with-parent') continue;
-  else if (args[i] === '-p') i++;
-  else if (args[i] === '-i') inputs.push(args[++i]);
-  else if (args[i] === '-o') output = args[++i];
-  else bodyIr = args[i];
-}
-const mode = process.env.FAKE_RUNNER_MODE || 'echo';
-if (mode === 'fail') { console.error('fake runner failure'); process.exit(3); }
-if (mode === 'sleep') { setTimeout(() => {}, 30000); }
-else if (mode === 'big') { fs.writeFileSync(output, Buffer.alloc(4096, 7)); }
-else if (mode === 'silent-ok') { /* exit 0, no output */ }
-else { fs.copyFileSync(inputs[0] ?? bodyIr, output); }
-`;
-
   const limits = { timeoutMs: 60_000, maxResultBytes: 1024, maxLogBytes: 64 * 1024 };
   const runner = variant('east_node', { platforms: [] as string[] });
+  const encodeInt = encodeBeast2For(IntegerType);
+  const TableType = DictType(IntegerType, IntegerType);
+  // A table of `n` rows, keyed 0 to n - 1, each valued twice its key.
+  const table = encodeEastIR(East.function([IntegerType], TableType,
+    ($, n) => East.Dict.generate(n, IntegerType, IntegerType, ($, i) => i, ($, i) => i.multiply(2n))).toIR());
+
+  // A fake runner for what depends only on the process. Behaviour is selected
+  // by FAKE_RUNNER_MODE (inherited env):
+  //   sleep     - sleep 30 s
+  //   silent-ok - exit 0 without writing the output
+  const FAKE_RUNNER = `const mode = process.env.FAKE_RUNNER_MODE;
+if (mode === 'sleep') setTimeout(() => {}, 30000);
+`;
 
   const withMode = async <T>(mode: string | undefined, fn: () => Promise<T>): Promise<T> => {
     const prev = process.env.FAKE_RUNNER_MODE;
@@ -409,66 +366,97 @@ else { fs.copyFileSync(inputs[0] ?? bodyIr, output); }
     rmSync(searchDir, { recursive: true, force: true });
   });
 
-  it('returns the output bytes inline on success', async () => {
-    const payload = new Uint8Array([10, 20, 30]);
-    const result = await withMode(undefined, () => runDetached(
-      { bodyIr: new Uint8Array([0]), args: [payload], runner, limits },
-      { runnerSearchDir: searchDir }
-    ));
-    assert.equal(result.kind, 'success');
-    assert.deepEqual(new Uint8Array((result as { value: Uint8Array }).value), payload);
+  it('runs a function as a unit and returns its value inline', async () => {
+    const add = East.function([IntegerType, IntegerType], IntegerType, ($, a, b) => a.add(b));
+    const result = await runDetached({ bodyIr: encodeEastIR(add.toIR()), args: [encodeInt(2n), encodeInt(3n)], runner, limits });
+    assert.equal(result.kind, 'success', result.stderr);
+    assert.equal(decodeBeast2For(IntegerType)((result as { value: Uint8Array }).value), 5n);
   });
 
-  it('spawns a stock runner with the lifeline flag and pipe, and a custom one without', async () => {
-    // The fake runner reports its argv and whether stdin is a pipe.
-    const reporter = plantNodeBin(path.join(searchDir, 'node_modules', '.bin'), 'east-c', [
-      'const s = require("fs").fstatSync(0);',
-      'require("fs").writeFileSync(process.argv[process.argv.indexOf("-o") + 1], Buffer.from([1]));',
-      'process.stdout.write(process.argv.slice(2).join(" ") + " | stdin pipe " + (!s.isCharacterDevice() && !s.isFile()));',
-    ].join('\n'));
-    const stock = await runDetached(
-      { bodyIr: new Uint8Array([0]), args: [], runner: variant('east_c', { platforms: [] }), limits },
-      { runnerSearchDir: searchDir },
-    );
-    assert.equal(stock.kind, 'success', stock.stderr);
-    assert.match(stock.stdout, /^run --exit-with-parent -o .* \| stdin pipe true$/);
-    const custom = await runDetached(
-      { bodyIr: new Uint8Array([0]), args: [], runner: variant('custom', { command: [reporter, 'run'] }), limits },
-      { runnerSearchDir: searchDir },
-    );
-    assert.equal(custom.kind, 'success', custom.stderr);
-    assert.match(custom.stdout, /^run -o .* \| stdin pipe false$/);
+  it('splices a collection result back into one blob, over any number of segments', async () => {
+    // `exec` writes a collection as a manifest naming its segments; the call
+    // returns the value they splice into, and an empty one names none.
+    for (const rows of [0n, 3n, 10_000n]) {
+      const result = await runDetached({ bodyIr: table, args: [encodeInt(rows)], runner, limits: { ...limits, maxResultBytes: 1 << 24 } });
+      assert.equal(result.kind, 'success', result.stderr);
+      const value = (result as { value: Uint8Array }).value;
+      const dict = decodeBeast2For(TableType)(value);
+      assert.equal(dict.size, Number(rows));
+      if (rows > 0n) assert.equal(dict.get(rows - 1n), 2n * (rows - 1n));
+      if (rows === 10_000n) {
+        assert.ok(readBeast2Extents(value).offsets.length > 1, 'ten thousand rows span several segments');
+      }
+    }
+  });
+
+  it('reports a failure as failed, with the runner\'s error on stderr', async () => {
+    const lookup = East.function([IntegerType], IntegerType, ($, x) => $.error(East.str`no price for ${x}`));
+    const result = await runDetached({ bodyIr: encodeEastIR(lookup.toIR()), args: [encodeInt(7n)], runner, limits });
+    assert.equal(result.kind, 'failed');
+    assert.equal((result as { exitCode: number }).exitCode, 1);
+    assert.match(result.stderr, /no price for 7/);
+  });
+
+  it('fails closed with too_large when the value exceeds maxResultBytes, and never loads it', async () => {
+    // Random characters, which the output's deflate cannot shrink under the cap.
+    const echo = East.function([StringType], StringType, ($, s) => s);
+    const value = await runDetached({
+      bodyIr: encodeEastIR(echo.toIR()),
+      args: [encodeBeast2For(StringType)(randomBytes(3072).toString('base64'))],
+      runner,
+      limits: { ...limits, maxResultBytes: 1024 },
+    });
+    assert.equal(value.kind, 'too_large', value.stderr);
+    assert.ok((value as { bytes: number }).bytes > 1024);
+    assert.equal((value as { limit: number }).limit, 1024);
+
+    // A collection is sized by the segments its manifest names: fifty thousand
+    // rows take far more than 16 KiB, in some fifty segments whose manifest
+    // takes far less.
+    const collection = await runDetached({ bodyIr: table, args: [encodeInt(50_000n)], runner, limits: { ...limits, maxResultBytes: 16 * 1024 } });
+    assert.equal(collection.kind, 'too_large', collection.stderr);
+    assert.ok((collection as { bytes: number }).bytes > 16 * 1024);
   });
 
   it('cleans up its scratch directory', async () => {
     const before = readdirSync(tmpdir()).filter((d) => d.startsWith('e3-call-')).length;
-    await withMode(undefined, () => runDetached(
-      { bodyIr: new Uint8Array([0]), args: [new Uint8Array([1])], runner, limits },
-      { runnerSearchDir: searchDir }
-    ));
+    const result = await runDetached({ bodyIr: table, args: [encodeInt(3n)], runner, limits });
+    assert.equal(result.kind, 'success', result.stderr);
     const after = readdirSync(tmpdir()).filter((d) => d.startsWith('e3-call-')).length;
     assert.ok(after <= before, 'scratch directory leaked');
   });
 
-  it('fails closed with too_large when the output exceeds maxResultBytes', async () => {
-    const result = await withMode('big', () => runDetached(
-      { bodyIr: new Uint8Array([0]), args: [], runner, limits: { ...limits, maxResultBytes: 100 } },
-      { runnerSearchDir: searchDir }
-    ));
-    assert.equal(result.kind, 'too_large');
-    const tooLarge = result as { bytes: number; limit: number };
-    assert.equal(tooLarge.bytes, 4096);
-    assert.equal(tooLarge.limit, 100);
-  });
-
-  it('reports non-zero exits as failed with the stderr tail', async () => {
-    const result = await withMode('fail', () => runDetached(
-      { bodyIr: new Uint8Array([0]), args: [], runner, limits },
-      { runnerSearchDir: searchDir }
-    ));
-    assert.equal(result.kind, 'failed');
-    assert.equal((result as { exitCode: number }).exitCode, 3);
-    assert.match(result.stderr, /fake runner failure/);
+  it('runs a stock runner\'s exec with the lifeline flag and pipe, and a custom command with run\'s arguments', async () => {
+    // The fake reports its arguments by file name and whether stdin is a
+    // pipe, and writes an output where each form puts it: after `-o`, or
+    // beside the unit.
+    const reporter = plantNodeBin(path.join(searchDir, 'node_modules', '.bin'), 'east-c', [
+      'const fs = require("fs");',
+      'const path = require("path");',
+      'const args = process.argv.slice(2);',
+      'const s = fs.fstatSync(0);',
+      'const o = args.indexOf("-o");',
+      'const unit = args.find((a) => a.endsWith("unit.beast2"));',
+      'fs.writeFileSync(o >= 0 ? args[o + 1] : path.join(path.dirname(unit), "output.beast2"), Buffer.from([1]));',
+      'process.stdout.write(args.map((a) => path.basename(a)).join(" ") + " | stdin pipe " + (!s.isCharacterDevice() && !s.isFile()));',
+    ].join('\n'));
+    const stock = await runDetached(
+      { bodyIr: new Uint8Array([0]), args: [encodeInt(1n)], runner: variant('east_c', { platforms: [] }), limits },
+      { runnerSearchDir: searchDir },
+    );
+    assert.equal(stock.kind, 'success', stock.stderr);
+    assert.equal(stock.stdout, 'exec --exit-with-parent unit.beast2 | stdin pipe true');
+    const verbose = await runDetached(
+      { bodyIr: new Uint8Array([0]), args: [], runner: variant('east_c', { platforms: [] }), limits },
+      { runnerSearchDir: searchDir, verbose: true },
+    );
+    assert.equal(verbose.stdout, 'exec --exit-with-parent unit.beast2 -v | stdin pipe true');
+    const custom = await runDetached(
+      { bodyIr: new Uint8Array([0]), args: [encodeInt(1n)], runner: variant('custom', { command: [reporter, 'run'] }), limits },
+      { runnerSearchDir: searchDir, verbose: true },
+    );
+    assert.equal(custom.kind, 'success', custom.stderr);
+    assert.equal(custom.stdout, 'run -i input-0.beast2 -o output.beast2 program.beast2 | stdin pipe false');
   });
 
   it('reports exit-0-without-output as failed', async () => {

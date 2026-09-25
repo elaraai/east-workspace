@@ -7,7 +7,7 @@
  * `e3 dataflow run -v` end-to-end: the flag flows through the orchestrator to a
  * real runner, and it is cache-safe.
  *
- * `-v` is a pure runtime toggle: it adds `-v` to a known runtime's argv
+ * `-v` is a pure runtime toggle: it adds `-v` to a stock runner's `exec`
  * immediately before spawn, AFTER the cache decision, and never touches the
  * task object or any hash. This suite proves both halves through the actual
  * CLI + orchestrator:
@@ -103,14 +103,15 @@ describe('e3 dataflow run -v (east-c)', () => {
       const verboseLogs = await logs();
       assert.strictEqual(verboseLogs.exitCode, 0, `logs failed: ${verboseLogs.stderr}`);
       // The verbose block the runner's `exec` prints, captured by e3 into the
-      // task logs: `run`'s block, without its `Running:` line.
+      // task logs: the Timing and Memory sections of `run`'s block.
       for (const re of [/^Timing:$/m, /^ {2}Execute: +\d+\.\d ms$/m, /^ {2}Peak RSS: +\d+\.\d MB$/m]) {
         assert.match(verboseLogs.stdout, re, `-v output must reach the task logs (${re}):\n${verboseLogs.stdout}`);
       }
     });
 
   // `e3 call` runs graph-free via runDetached (a different injection site than
-  // dataflow's taskExecute), so it gets its own coverage.
+  // dataflow's taskExecute), so it gets its own coverage. A call is a unit too,
+  // so its block is the one `exec` prints, as a task's is.
   it('e3 call -v surfaces the runner verbose block (runDetached path)',
     { skip: hasEastC ? false : 'east-c not built' }, async () => {
       const fn = e3.function(
@@ -122,11 +123,11 @@ describe('e3 dataflow run -v (east-c)', () => {
       assert.strictEqual((await runE3Command(['repo', 'create', repoDir], testDir)).exitCode, 0);
       assert.strictEqual((await runE3Command(['package', 'import', repoDir, zip], testDir)).exitCode, 0);
 
-      // -v on: the canonical verbose block reaches stderr; the result (10) prints.
+      // -v on: the verbose block reaches stderr; the result (10) prints.
       const v = await runE3Command(['call', repoDir, 'verbose-fn.doubled', '5', '-v'], testDir, { env: runEnv });
       assert.strictEqual(v.exitCode, 0, `call -v failed: ${v.stderr}`);
       assert.match(v.stdout, /\b10\b/, `call should print the doubled result:\n${v.stdout}`);
-      for (const re of [/^Running: /m, /^Timing:$/m, /^ {2}Execute: +\d+\.\d ms$/m]) {
+      for (const re of [/^Timing:$/m, /^ {2}Execute: +\d+\.\d ms$/m, /^ {2}Peak RSS: +\d+\.\d MB$/m]) {
         assert.match(v.stderr, re, `call -v must surface the runner verbose block (${re}):\n${v.stderr}`);
       }
 
@@ -173,10 +174,10 @@ describe('remote e3 call -v over HTTP (?verbose=1 query param → server)', () =
         const baseUrl = `http://localhost:${server.port}`;
         const req = { args: [encodeBeast2For(IntegerType)(5n)], runner: none, limits: none };
 
-        // -v ON: the canonical verbose block travels back on stderr; result is 10.
+        // -v ON: the verbose block travels back on stderr; result is 10.
         const v = await functionCall(baseUrl, repoName, 'verbose-fn', '1.0.0', 'doubled', req, { token: null, verbose: true });
         assert.strictEqual(v.outcome.type, 'success', `remote call failed: ${v.stderr}`);
-        for (const re of [/^Running: /m, /^Timing:$/m, /^ {2}Execute: +\d+\.\d ms$/m]) {
+        for (const re of [/^Timing:$/m, /^ {2}Execute: +\d+\.\d ms$/m, /^ {2}Peak RSS: +\d+\.\d MB$/m]) {
           assert.match(v.stderr, re, `remote -v must surface the runner verbose block (${re}):\n${v.stderr}`);
         }
 

@@ -25,15 +25,15 @@ import { RunnerType } from './runner.js';
  * `PackageObject.functions`.
  */
 export const FunctionObjectType = StructType({
-  /** Hash of the encoded EastIR bundle (encodeEastIR), like a task's commandIr object. */
+  /** Hash of the encoded EastIR bundle (encodeEastIR), as a task's program is. */
   bodyIr: StringType,
   /** Positional parameter types — the IR's signature, surfaced for arity/type
    *  validation and `describe` without decoding the whole IR. */
   inputTypes: ArrayType(EastTypeType),
   /** Return type — used to decode the result `value` blob client-side. */
   outputType: EastTypeType,
-  /** Author-chosen runtime; resolved to argv by runnerToArgv. One of the known
-   *  runtime tags — there is no raw-argv runner for functions. */
+  /** Author-chosen runtime: a stock runner runs the function as a unit, and a
+   *  `custom` one runs its command with `run`'s arguments. */
   runner: RunnerType,
   /**
    * Hash of an `EnvironmentSpecType` object the function executes in;

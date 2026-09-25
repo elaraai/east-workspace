@@ -21,7 +21,6 @@ import type { Readable } from 'stream';
 import crossSpawn from 'cross-spawn';
 import { spawn as nodeSpawn, type ChildProcess, type SpawnOptions } from 'child_process';
 import { createRequire } from 'module';
-import { runnerToArgv, type RunnerValue } from '@elaraai/e3-types';
 import { DatasetSegments, openDatasetObject } from '../dataset-open.js';
 import type { StorageBackend } from '../storage/interfaces.js';
 
@@ -92,10 +91,10 @@ export interface MarshalInputsOptions {
    * @remarks
    * True stages a manifest-backed input as the manifest file plus one linked
    * file per segment, so staging a 2 GB input is O(segments) links and no
-   * bytes and the body reads only the segments it touches. False splices the
-   * segments into one file, which every runner got before the layout and a
-   * `custom` command still needs. Decided per runner variant
-   * (`runnerOpensManifests`), never per task.
+   * bytes and the body reads only the segments it touches. Every stock runner
+   * opens manifests. False splices the segments into one file, which a command
+   * needs — a `customTask`'s, or the `custom` runtime's — since it reads one
+   * ordinary file.
    */
   manifests?: boolean;
   /**
@@ -105,8 +104,8 @@ export interface MarshalInputsOptions {
    * @remarks
    * True is the default and is safe for every stock runner: east-c maps its
    * inputs read-only, east-node and east-py read them. It must be false for a
-   * `custom` runner, whose command is arbitrary and could `mv` or truncate an
-   * input path — which, through a hard link, would corrupt the object itself.
+   * command, which is arbitrary and could `mv` or truncate an input path —
+   * which, through a hard link, would corrupt the object itself.
    */
   link?: boolean;
 }
@@ -172,59 +171,6 @@ export async function marshalInputsToDir(
     inputPaths.push(inputPath);
   }
   return inputPaths;
-}
-
-/**
- * Marshal raw value bytes to staged `.beast2` files in a scratch directory.
- *
- * The graph-free path writes args to scratch directly from request bytes —
- * no object-store round trip.
- *
- * @returns The staged file paths, in arg order
- */
-export async function marshalBytesToDir(
-  scratchDir: string,
-  blobs: ReadonlyArray<Uint8Array>
-): Promise<string[]> {
-  const argPaths: string[] = [];
-  for (let i = 0; i < blobs.length; i++) {
-    const argPath = path.join(scratchDir, `input-${i}.beast2`);
-    await fs.writeFile(argPath, blobs[i]!);
-    argPaths.push(argPath);
-  }
-  return argPaths;
-}
-
-/**
- * Read a runner's output file back as bytes.
- *
- * Extracted so the graph-free path returns bytes without writing them to
- * the object store.
- */
-export async function readOutputFile(outputPath: string): Promise<Uint8Array> {
-  return fs.readFile(outputPath);
-}
-
-/**
- * Build the full runner argv for a function/one-shot call.
- *
- * This is the function analogue of a task's `commandIr` output — built
- * directly from the wire runner variant, no IR evaluation. (Task mapping:
- * `args` ⇄ the `-i` data inputs, `bodyIr` ⇄ the trailing IR positional
- * that was `input-0`.)
- */
-export function buildRunnerArgv(
-  runner: RunnerValue,
-  argPaths: string[],
-  outputPath: string,
-  bodyIrPath: string,
-): string[] {
-  return [
-    ...runnerToArgv(runner),
-    ...argPaths.flatMap((p) => ['-i', p]),
-    '-o', outputPath,
-    bodyIrPath,
-  ];
 }
 
 /** How long a child e3 stopped is read after it has exited, before its pipes

@@ -17,7 +17,7 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { variant } from '@elaraai/east';
-import { type ExecutionStatus, type PartitionProgress, type TaskObject, decodeTaskObject, withRunnerLifeline, withRunnerVerbose, runnerOpensManifests } from '@elaraai/e3-types';
+import { type ExecutionStatus, type PartitionProgress, type TaskObject, decodeTaskObject } from '@elaraai/e3-types';
 import { inputsHash, evaluateCommandIr } from '../executions.js';
 import { uuidv7 } from '../uuid.js';
 import type { StorageBackend } from '../storage/interfaces.js';
@@ -32,19 +32,15 @@ import type { JobSlots, ReleaseSlot } from './jobs.js';
 import { readUnitResult, stageMergeUnit, stageOutputMerge, stageRunUnit, storeUnitOutput, unitArgv, type MergeParts, type StagedUnit, type TaskUnit } from './units.js';
 import { executeSplitTask, isSplitTask } from './engine.js';
 
-// Re-exported from processExec.js (where the implementation moved) for
-// backwards compatibility — exported for testing, not public API.
-export { collectNodeModulesBins, collectVenvBins } from './processExec.js';
-
 /**
  * Options for task execution
  */
 export interface ExecuteOptions {
   /** Re-run even if cached (default: false) */
   force?: boolean;
-  /** Pass `-v` to the runner (known runtimes only) so it prints timing/perf
-   *  to stderr. Runtime-only: applied to the evaluated argv just before spawn,
-   *  so it never affects the task hash or caching. */
+  /** Pass `-v` to a stock runner's `exec`, so it prints where the time went
+   *  and its peak memory to stderr. Runtime-only: it never affects the task
+   *  hash or caching. */
   verbose?: boolean;
   /** Timeout in milliseconds (default: none) */
   timeout?: number;
@@ -416,7 +412,9 @@ export async function taskExecuteBody(
   merge: MergeParts | null = null,
 ): Promise<ExecutionResult> {
   const { inHash, executionId, startTime } = ids;
-  const stock = task.runner.type !== 'custom';
+  // What spawns: a stock runner's `exec`, for an East body on a stock runtime;
+  // otherwise the author's own command.
+  const stock = task.body.type === 'east' && task.runner.type !== 'custom';
 
   /** Records an error e3 met before the runner ran. */
   const errorResult = async (message: string, exitCode: number | null = null): Promise<ExecutionResult> => {
@@ -451,15 +449,15 @@ export async function taskExecuteBody(
 
   try {
     // Step 5: Marshal inputs to scratch dir. A stock runner only ever READS
-    // its inputs, so they may share the object's storage; a `custom` runner is
-    // an arbitrary command that could move or truncate the path, which through
-    // a hard link would rewrite the object itself — so it gets copies. A
-    // runner whose reader opens a segment manifest gets one staged as the
-    // manifest plus its linked segments; every other gets the spliced value.
+    // its inputs, so they may share the object's storage, and it opens a
+    // collection staged as its manifest, the segments linked beside it. A
+    // command is arbitrary and could move or truncate the path, which through
+    // a hard link would rewrite the object itself — so it gets copies, and a
+    // collection spliced into one file.
     const staged = merge === null ? inputHashes : [...(merge.range === null ? [] : [merge.range]), ...merge.parts];
     const inputPaths = await marshalInputsToDir(storage, repo, scratchDir, staged, {
       link: stock,
-      manifests: runnerOpensManifests(task.runner),
+      manifests: stock,
     });
 
     // Step 6: The runner's argv, by the body.
@@ -488,12 +486,6 @@ export async function taskExecuteBody(
       if (args.length === 0) {
         return await errorResult('Command IR produced empty command');
       }
-      // A record step's command is a stock runner's: `-v` and the stdin
-      // lifeline are spliced into it after the cache decision, and never
-      // touch the command IR or any hash. A custom command is the author's,
-      // and gets neither.
-      args = withRunnerVerbose(task.runner, args, options.verbose);
-      if (stock) args = withRunnerLifeline(task.runner, args);
     } else if (task.runner.type === 'custom') {
       if (task.output.kind.type !== 'value') {
         return await errorResult(`the custom runtime runs a program that returns its output, and this task's output is ${task.output.kind.type}, which is emitted`);

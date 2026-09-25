@@ -11,7 +11,8 @@ import * as path from 'node:path';
 import { ArrayType, East, IRType, StringType, encodeBeast2For, none, variant } from '@elaraai/east';
 import { TASK_OBJECT_KIND, TaskObjectType, type ExecutionOwner, type ExecutionStatus, type TaskObject } from '@elaraai/e3-types';
 
-import { collectNodeModulesBins, probeExecutionCache, taskExecute } from './LocalTaskRunner.js';
+import { probeExecutionCache, taskExecute } from './LocalTaskRunner.js';
+import { collectNodeModulesBins } from './processExec.js';
 import { JobSlots } from './jobs.js';
 import { getBootId, getPidStartTime } from './processHelpers.js';
 import { uuidv7 } from '../uuid.js';

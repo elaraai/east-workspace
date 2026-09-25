@@ -13,7 +13,7 @@ import { existsSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { East, ArrayType, BlobType, DateTimeType, DictType, EastTypeType, IntegerType, OptionType, StringType, StructType, VariantType, SEGMENT_RULE_KEYED, decodeBeast2For, encodeBeast2For, fromEastTypeValue, variant, some, none, toEastTypeValue } from '@elaraai/east';
 import e3 from '@elaraai/e3';
-import { WorkspaceStateType, PackageObjectType, PackageDataType, TASK_OBJECT_KIND, TaskObjectType, FunctionObjectType, DataRefType, DatasetRefType, RecordCommitType, RecordIndexObjectType, MutationObjectType, EnvironmentSpecType, PythonEnvironmentType, NodeEnvironmentType, ImageEnvironmentType, PartitionPlanType, RunnerType, TreePathType, COLLECTION_MANIFEST_KIND, CollectionManifestType, RECORD_STATE_KIND, RecordStateType, UNIT_PLAN_KIND, UnitPlanType, encodeCollectionManifest, decodeCollectionManifest, encodePartitionPlan, encodeUnitPlan } from '@elaraai/e3-types';
+import { WorkspaceStateType, PackageObjectType, PackageDataType, TASK_OBJECT_KIND, TaskObjectType, FunctionObjectType, DataRefType, DatasetRefType, RecordCommitType, RecordIndexObjectType, MutationObjectType, EnvironmentSpecType, PythonEnvironmentType, NodeEnvironmentType, ImageEnvironmentType, RunnerType, TreePathType, COLLECTION_MANIFEST_KIND, CollectionManifestType, RECORD_STATE_KIND, RecordStateType, UNIT_PLAN_KIND, UnitPlanType, encodeCollectionManifest, decodeCollectionManifest, encodeUnitPlan } from '@elaraai/e3-types';
 import type { WorkspaceState, PackageObject, TaskObject } from '@elaraai/e3-types';
 import { repoGc, collectAllRoots, markReachable, sweepBatch } from './storage/local/gc.js';
 import { readDatasetWhole } from './dataset-open.js';
@@ -916,69 +916,6 @@ describe('gc', () => {
         assert.ok(store.headReads.every((read) => read.length === 64 * 1024), 'every type fits the first head probe');
       });
 
-      it('keeps a partition plan\'s slices and merge ranges reachable', async () => {
-        const planHash = 'e'.repeat(64);
-        const slices = [['1'.repeat(64), '2'.repeat(64)], ['3'.repeat(64), '4'.repeat(64)]];
-        const ranges = ['7'.repeat(64), '8'.repeat(64)];
-        const objects = new Map([[planHash, encodePartitionPlan({
-          partitions: ['5'.repeat(64), '6'.repeat(64)],
-          boundaries: [0n, 3n],
-          splits: [[{ seg: 0n, offset: 0n }, { seg: 1n, offset: 2n }, { seg: 4n, offset: 0n }]],
-          slices,
-          merges: [{ partials: ['a'.repeat(64), 'b'.repeat(64)], ranges }],
-        })]]);
-        const store = tracedStore(objects);
-
-        const reachable = await markReachable(store.readObject, new Set([planHash]), { readHead: store.readHead });
-
-        // Every partition slice and every range blob is marked, without
-        // being read.
-        assert.deepStrictEqual([...reachable].sort(), [planHash, ...slices.flat(), ...ranges].sort());
-        assert.deepStrictEqual(store.wholeReads, [planHash], 'the slices and ranges are marked without being read');
-      });
-
-      it('keeps the plan reachable once the plan type has grown a field', async () => {
-        // gc classifies a plan by matching a PREFIX of PartitionPlanType's
-        // fields, so appending one — the migration this type is designed for
-        // — must keep gc marking the plan's slices and ranges. Getting this
-        // wrong loses them silently: an unrecognised plan is a leaf, its
-        // children are never extracted, and the sweep deletes them.
-        const planFields = (toEastTypeValue(PartitionPlanType).value as { name: string; type: unknown }[]);
-        const grown = fromEastTypeValue(variant('Struct', [
-          ...planFields,
-          { name: 'a_field_appended_later', type: toEastTypeValue(IntegerType) },
-        ]) as never);
-        const planHash = 'e'.repeat(64);
-        const slices = [['1'.repeat(64), '2'.repeat(64)]];
-        const ranges = ['7'.repeat(64)];
-        const objects = new Map([[planHash, encodeBeast2For(grown as never)({
-          partitions: ['5'.repeat(64)],
-          boundaries: [0n],
-          splits: [[{ seg: 0n, offset: 0n }, { seg: 4n, offset: 0n }]],
-          slices,
-          merges: [{ partials: ['a'.repeat(64)], ranges }],
-          a_field_appended_later: 0n,
-        } as never)]]);
-        const store = tracedStore(objects);
-
-        const reachable = await markReachable(store.readObject, new Set([planHash]), { readHead: store.readHead });
-
-        assert.deepStrictEqual([...reachable].sort(), [planHash, ...slices.flat(), ...ranges].sort());
-      });
-
-      it('pins gc\'s plan prefix to PartitionPlanType\'s field order', () => {
-        // The prefix match above only holds while the plan grows by APPENDING.
-        // A field inserted or reordered would make older plans stop matching,
-        // and gc would quietly stop marking their slices and ranges — so pin
-        // the fields every vintage carries to the front, in order.
-        const fields = (toEastTypeValue(PartitionPlanType).value as { name: string }[]).map((f) => f.name);
-        assert.deepStrictEqual(
-          fields.slice(0, 4),
-          ['partitions', 'boundaries', 'splits', 'slices'],
-          'a plan field must be APPENDED, never inserted or reordered — see isPartitionPlanShape',
-        );
-      });
-
       it('keeps what a unit plan names reachable: its task, the pieces\' inputs, and the merges\' parts and ranges', async () => {
         const taskHash = 'b'.repeat(64);
         const irHash = 'c'.repeat(64);
@@ -1707,25 +1644,6 @@ describe('gc', () => {
 
       const reachable = await markReachable(trace(objects), new Set([root]));
       assert.ok(reachable.has(tarball), 'the project tarball must survive');
-    });
-
-    it('walks a partition plan from before merges', async () => {
-      const root = 'an-older-plan'.padEnd(64, '0');
-      const slice = '6'.repeat(64);
-      const objects = new Map([[root, encodeBeast2For(StructType({
-        partitions: ArrayType(StringType),
-        boundaries: ArrayType(IntegerType),
-        splits: ArrayType(ArrayType(StructType({ seg: IntegerType, offset: IntegerType }))),
-        slices: ArrayType(ArrayType(StringType)),
-      }))({
-        partitions: ['7'.repeat(64)],
-        boundaries: [0n],
-        splits: [],
-        slices: [[slice]],
-      })]]);
-
-      const reachable = await markReachable(trace(objects), new Set([root]));
-      assert.ok(reachable.has(slice), 'the carved slice must survive');
     });
   });
 });

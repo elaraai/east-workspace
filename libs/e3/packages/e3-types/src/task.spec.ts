@@ -4,8 +4,7 @@
  */
 
 /**
- * Task object wire: the typed task object's round trip and its refusals, and
- * the partition plan round trip.
+ * Task object wire: the typed task object's round trip and its refusals.
  */
 
 import { describe, it } from 'node:test';
@@ -14,10 +13,7 @@ import { ArrayType, BlobType, IntegerType, OptionType, StringType, StructType, e
 import {
   TASK_OBJECT_KIND,
   TaskObjectType,
-  decodePartitionPlan,
   decodeTaskObject,
-  encodePartitionPlan,
-  type PartitionPlan,
   type TaskObject,
 } from './task.js';
 import { RunnerType } from './runner.js';
@@ -87,50 +83,5 @@ describe('TaskObjectType', () => {
 
   it('throws for bytes of no known task shape', () => {
     assert.throws(() => decodeTaskObject(encodeBeast2For(IntegerType)(7n)), /re-export/);
-  });
-});
-
-describe('PartitionPlanType', () => {
-  it('round-trips a plan, before and after its slices are carved and its merge ranges planned', () => {
-    const plan: PartitionPlan = {
-      partitions: ['a'.repeat(64), 'b'.repeat(64)],
-      boundaries: [0n, 4n, 9n],
-      splits: [[{ seg: 0n, offset: 0n }, { seg: 3n, offset: 17n }, { seg: 8n, offset: 0n }, { seg: 12n, offset: 0n }]],
-      slices: [],
-      merges: [],
-    };
-    assert.deepEqual(decodePartitionPlan(encodePartitionPlan(plan)), plan);
-
-    const carved: PartitionPlan = { ...plan, slices: [['c'.repeat(64), 'd'.repeat(64), 'e'.repeat(64)], ['f'.repeat(64), '0'.repeat(64), '1'.repeat(64)]] };
-    assert.deepEqual(decodePartitionPlan(encodePartitionPlan(carved)), carved);
-
-    const merged: PartitionPlan = {
-      ...carved,
-      merges: [{ partials: ['2'.repeat(64), '3'.repeat(64)], ranges: ['4'.repeat(64), '5'.repeat(64)] }],
-    };
-    assert.deepEqual(decodePartitionPlan(encodePartitionPlan(merged)), merged);
-  });
-
-  it('decodes a plan recorded before merge ranges existed, with none', () => {
-    // The pre-`merges` wire shape, encoded directly.
-    const PreMergesPlanType = StructType({
-      partitions: ArrayType(StringType),
-      boundaries: ArrayType(IntegerType),
-      splits: ArrayType(ArrayType(StructType({ seg: IntegerType, offset: IntegerType }))),
-      slices: ArrayType(ArrayType(StringType)),
-    });
-    const older = encodeBeast2For(PreMergesPlanType)({
-      partitions: ['a'.repeat(64)],
-      boundaries: [0n, 2n],
-      splits: [],
-      slices: [['b'.repeat(64), 'c'.repeat(64)]],
-    });
-    assert.deepEqual(decodePartitionPlan(older), {
-      partitions: ['a'.repeat(64)],
-      boundaries: [0n, 2n],
-      splits: [],
-      slices: [['b'.repeat(64), 'c'.repeat(64)]],
-      merges: [],
-    });
   });
 });

@@ -66,8 +66,7 @@ import { getBootId, getPidStartTime } from './processHelpers.js';
 import type { SplitUnit } from './interfaces.js';
 import { probeExecutionCache, type ExecuteOptions, type ExecutionIds, type ExecutionResult } from './LocalTaskRunner.js';
 import { planPieces, pieceSizes, type PieceSizes } from './pieces.js';
-import { planMergeRanges } from './partitionExec.js';
-import { mergeComponents, mergeTreeGroups, mergeTreeLevels } from './steps.js';
+import { mergeComponents, mergeTreeGroups, mergeTreeLevels, planMergeRanges } from './steps.js';
 import type { MergeParts } from './units.js';
 
 /** The pool width — the most units in flight at once — of a task run on its

@@ -21,7 +21,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { tmpdir } from 'os';
 import { decodeBeast2, isEastDict, readBeast2Type, toEastTypeValue, variant, type EastTypeValue } from '@elaraai/east';
-import { COLLECTION_MANIFEST_KIND, CollectionManifestType, MutationObjectType, PartitionPlanType, RECORD_STATE_KIND, RecordCommitType, RecordIndexObjectType, RecordObjectType, RecordStateType, TASK_OBJECT_KIND, TaskObjectType, UNIT_PLAN_KIND, UnitPlanType, type CollectionManifest, type RecordState, type TaskObject, type UnitPlan } from '@elaraai/e3-types';
+import { COLLECTION_MANIFEST_KIND, CollectionManifestType, MutationObjectType, RECORD_STATE_KIND, RecordCommitType, RecordIndexObjectType, RecordObjectType, RecordStateType, TASK_OBJECT_KIND, TaskObjectType, UNIT_PLAN_KIND, UnitPlanType, type CollectionManifest, type RecordState, type TaskObject, type UnitPlan } from '@elaraai/e3-types';
 import type { RepoStore, GcObjectEntry, GcRootScanResult, LockHandle, StorageBackend } from '../interfaces.js';
 import { transferStagingDir } from './localHelpers.js';
 import { sweepScratchDirs } from '../../execution/scratch.js';
@@ -536,39 +536,6 @@ function isRecordCommitShape(type: any): boolean {
   return RECORD_COMMIT_FIELDS.slice(0, common).every((name, i) => name === names[i]);
 }
 
-/** `PartitionPlanType`'s field names, in wire order, read from the type
- *  itself rather than written out here: every plan shape a repository can
- *  hold is a PREFIX of this list, because beast2 encodes struct fields
- *  positionally and the plan only ever grows by appending LAST. */
-const PARTITION_PLAN_FIELDS: readonly string[] =
-  (toEastTypeValue(PartitionPlanType).value as { name: string }[]).map(f => f.name);
-
-/** The fields every plan has carried, from the first vintage on: the ones a
- *  prefix must reach before it is a plan rather than an unrelated struct. */
-const PARTITION_PLAN_MIN_FIELDS = 4;
-
-/**
- * Check if a decoded EastTypeValue represents a PartitionPlan — of any
- * vintage: a struct that agrees with {@link PARTITION_PLAN_FIELDS} on their
- * common prefix, which must reach {@link PARTITION_PLAN_MIN_FIELDS}.
- *
- * Both directions matter, and both lose objects when they are wrong. A plan
- * SHORTER than this build's type is one an older e3 recorded; a plan LONGER
- * is one a newer e3 recorded in a repository this build is sweeping. Either
- * way an unrecognised plan is treated as a leaf, its children are never
- * extracted, and the sweep deletes the carved slices and range blobs it is
- * the only reference to. Reading the names off the type keeps the two from
- * drifting when a field is appended; `gc.spec.ts` pins the order they must
- * be appended in.
- */
-function isPartitionPlanShape(type: any): boolean {
-  if (type.type !== 'Struct') return false;
-  const names = (type.value as { name: string }[]).map(f => f.name);
-  const common = Math.min(names.length, PARTITION_PLAN_FIELDS.length);
-  if (common < PARTITION_PLAN_MIN_FIELDS) return false;
-  return PARTITION_PLAN_FIELDS.slice(0, common).every((name, i) => name === names[i]);
-}
-
 /**
  * Check if a field type is a DataRef (Variant with cases: unassigned, null, value, tree).
  */
@@ -597,7 +564,7 @@ function isStructuralShape(type: EastTypeValue): boolean {
   const t = type as any;
   return taggedKindOf(t) !== null || isPackageObjectShape(t) || isPreCutoverTaskObjectShape(t) || isFunctionObjectShape(t)
     || isRecordObjectShape(t) || isMutationObjectShape(t) || isEnvironmentSpecShape(t)
-    || isRecordCommitShape(t) || isPartitionPlanShape(t) || isTreeObjectShape(t) || isRecordIndexObjectShape(t);
+    || isRecordCommitShape(t) || isTreeObjectShape(t) || isRecordIndexObjectShape(t);
 }
 
 /**
@@ -750,20 +717,6 @@ function extractChildren(
     // segment objects: marked, then classified, never read as a value.
     if (commit.delta?.type === 'some') {
       children.push({ hash: commit.delta.value, kind: 'value' });
-    }
-    return children;
-  }
-
-  if (isPartitionPlanShape(t)) {
-    // A partition slice is a dataset value; '' marks a slice the run never
-    // carved, which is no object. A merged component's range blobs are values
-    // too — either may be a manifest naming segment objects.
-    const plan = value as { slices: string[][]; merges?: { ranges: string[] }[] };
-    for (const slices of plan.slices) {
-      for (const slice of slices) if (slice !== '') children.push({ hash: slice, kind: 'value' });
-    }
-    for (const merge of plan.merges ?? []) {
-      for (const range of merge.ranges) children.push({ hash: range, kind: 'value' });
     }
     return children;
   }

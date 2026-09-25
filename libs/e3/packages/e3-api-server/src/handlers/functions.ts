@@ -19,6 +19,7 @@
 import { ArrayType, variant, none } from '@elaraai/east';
 import {
   packageRead,
+  readDatasetWhole,
   workspaceGetPackage,
   workspaceGetDatasetHash,
   TaskNotFoundError,
@@ -193,7 +194,8 @@ async function executeFunction(
 /**
  * Resolve one-shot args: inline values pass through; dataset paths are
  * resolved + pinned by content hash at launch (objects are immutable, so no
- * lock is needed — snapshot consistency).
+ * lock is needed — snapshot consistency) and read whole, so a collection,
+ * whose ref names its manifest, reaches the runner as its value.
  *
  * @returns The arg bytes, or an `invalid` ExecuteResult if a dataset arg is
  *   unassigned.
@@ -218,7 +220,7 @@ async function resolveOneShotArgs(
           invalid: invalidResult(`Dataset argument ${i} is not assigned (ref type: ${refType})`),
         };
       }
-      bytes.push(await storage.objects.read(repoPath, hash));
+      bytes.push(await readDatasetWhole(storage, repoPath, hash));
     }
   }
   return { ok: true, bytes };

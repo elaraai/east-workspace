@@ -243,7 +243,7 @@ function readRange(path: string, keyType: EastTypeValue): KeyRange {
         throw new Error(`merge: --range (${path}): cannot open the file`);
     }
     // The same shape east-c builds (merge.c) and e3-core writes
-    // (partitionExec.ts): the bounds struct over the key type.
+    // (execution/steps.ts): the bounds struct over the key type.
     const key = fromEastTypeValue(keyType);
     const rangeType = toEastTypeValue(StructType({ from: OptionType(key), to: OptionType(key) }));
     let type: EastTypeValue;

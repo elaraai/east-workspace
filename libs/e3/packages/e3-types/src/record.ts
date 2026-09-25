@@ -113,7 +113,7 @@ export const MutationObjectType = StructType({
   bodyIr: StringType,
   /** The EXTRA positional parameter types after the state parameter. */
   argTypes: ArrayType(EastTypeType),
-  /** Author-chosen runtime; resolved to argv by runnerToArgv. */
+  /** Author-chosen runtime the mutation's unit runs on. */
   runner: RunnerType,
   /** Which write form this is — see {@link MutationForm}. Appended LAST, per
    *  the positional rule. */

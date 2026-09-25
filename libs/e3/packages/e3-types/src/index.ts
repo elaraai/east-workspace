@@ -59,21 +59,7 @@ export {
   type DataManifest,
   TaskRoleType,
   type TaskRole,
-  PartitionPlanType,
-  MergeRangePlanType,
-  type PartitionPlan,
-  type MergeRangePlan,
-  encodePartitionPlan,
-  decodePartitionPlan,
 } from './task.js';
-
-// Stream and merge commands
-export {
-  type StreamMergeMode,
-  type StreamCommandSpec,
-  streamCommandIr,
-  mergeCommandIr,
-} from './stream.js';
 
 // Execution environments
 export {
@@ -114,13 +100,10 @@ export {
   type DatasetSchema,
 } from './structure.js';
 
-// Runner wire types (functions)
+// Runner wire types
 export {
   RunnerType,
   type RunnerValue,
-  runnerToArgv,
-  runnerOpensManifests,
-  withRunnerVerbose,
   withRunnerLifeline,
 } from './runner.js';
 

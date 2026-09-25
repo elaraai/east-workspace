@@ -49,7 +49,7 @@ This organization provides:
 - Natural grouping for `e3 exec list --task <hash>`
 - Simpler GC - can delete all executions when a task is removed
 
-The `plan` sidecar names the `$plan` of the stage a split task's execution is in, from its first stage until the execution ends, when it is cleared (see Split Tasks). A released e3 wrote a partitioned execution's partition plan there.
+The `plan` sidecar names the `$plan` of the stage a split task's execution is in, from its first stage until the execution ends, when it is cleared (see Split Tasks).
 
 ### Status File Format
 
@@ -111,8 +111,8 @@ This handles: process crashes, machine restarts, and PID wraparound/reuse.
 4. **Task.** The task object is read and decoded (`decodeTaskObject`). One an older SDK exported does not decode, and the execution is recorded `error`, saying to re-export the package. A task whose work is split over its inputs runs on the engine instead (see Split Tasks), each of its units through the steps below.
 5. **Scratch.** A scratch directory `e3-exec-<task8>-<in8>-<pid>-<pidStartTime>-<executionId>`, the id's dashes dropped, is created under `<repo>/tmp/scratch`, or under `E3_SCRATCH_DIR` when it is set.
 6. **Inputs** (`marshalInputsToDir`). Each input object is staged as `input-<i>.beast2` without passing through e3's heap: the backend places it (`ObjectStore.materialize`), by a link, a reflink or one kernel copy where its objects are files.
-   - A collection stored as a segment manifest is staged as the manifest plus one linked file per segment (`input-<i>.beast2.segments/<hash>.beast2`) for a stock runner, every one of which opens manifests (`runnerOpensManifests`), and spliced into one file for a `custom` runner.
-   - A `custom` runner is given copies, never links, since its command could modify an input path.
+   - A collection stored as a segment manifest is staged as the manifest plus one linked file per segment (`input-<i>.beast2.segments/<hash>.beast2`) for an `east` body on a stock runner, every one of which opens manifests, and spliced into one file for a command, a `customTask`'s or the `custom` runtime's, which reads one ordinary file.
+   - A command is given copies, never links, since it could modify an input path.
    - A merge unit of a split task stages its key range, when it has one, and its parts.
 7. **Command.** The runner's argv follows from the task's body (`TaskBodyType`):
    - An `east` body on a stock runner is a unit the runner's `exec` runs (`execution/units.ts`; the protocol's `UnitType` in `@elaraai/east`). `stageRunUnit` links the program, and the files the output kind folds with, into the scratch directory, and writes `unit.beast2` naming them and the staged inputs by relative path. The argv is `<runner> exec --exit-with-parent unit.beast2`, with `-v` when verbose.
@@ -222,10 +222,6 @@ A record's index builds and its mutations run as tasks e3-core writes from the r
 - **A mutation** is one unit: its program, or an unkeyed record's reducer, as the body; the record's state and each argument as its inputs; and a `dict` output, the delta, or a `value`, the reducer's new state. The state is staged as its manifest with the segments linked, which the runner opens lazily once it is past the lazy-open threshold. A mutation's `timeoutMs` aborts the unit through the signal a cancellation uses: the execution is recorded `cancelled`, and the mutation reports `timed_out` with the tail of the unit's `stderr.txt`.
 
 Both are ordinary executions, so a rebuild over an unchanged primary, or a mutation over a state and arguments it has run on before, runs no unit. How a mutation's delta is applied is in `e3-records-storage.md`. Nothing in e3 runs the runners' `merge` command any more; it goes with `run`'s mode flags.
-
-### Plans a released e3 recorded
-
-A released e3 recorded a partitioned execution's partition plan (`PartitionPlanType`) in the `plan` sidecar: the partitioned inputs, the boundaries and split points, the carved slices and each merged component's range blobs. e3 no longer writes one. GC still roots it through the sidecar and walks its slices and range blobs as dataset values, and a split task that finds one there plans its pieces again.
 
 ## The Jobs Budget
 

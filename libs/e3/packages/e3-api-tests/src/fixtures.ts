@@ -95,6 +95,8 @@ export async function createRolesPackageZip(
  *
  * Creates a package with:
  * - Input: "value" (Integer, default 10)
+ * - Input: "prices" (Dict<String, Integer>, default {a: 1, b: 2, c: 3}) - a
+ *   collection, stored as a manifest, for a one-shot call to bind
  * - Task: "compute" - multiplies input by 2 (so the package is deployable)
  * - Function: "add" - (Integer, Integer) -> Integer
  * - Function: "slow" - (Integer) -> Integer, sleeps 30s (for timeout/cancel tests)
@@ -128,7 +130,8 @@ export async function createFunctionPackageZip(
       return $.return(x);
     })
   );
-  const pkg = e3.package(name, version, compute, add, slow);
+  const prices = e3.input('prices', DictType(StringType, IntegerType), variant('value', new Map([['a', 1n], ['b', 2n], ['c', 3n]])));
+  const pkg = e3.package(name, version, compute, add, slow, prices);
 
   const zipPath = join(tempDir, `${name}-${version}.zip`);
   await e3.export(pkg, zipPath);

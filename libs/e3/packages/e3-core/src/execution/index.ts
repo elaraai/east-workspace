@@ -39,9 +39,6 @@ export {
 export {
   marshalInputsToDir,
   type MarshalInputsOptions,
-  marshalBytesToDir,
-  readOutputFile,
-  buildRunnerArgv,
   spawnAndCapture,
   type SpawnAndCaptureOptions,
   type SpawnAndCaptureResult,
