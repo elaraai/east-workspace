@@ -6,8 +6,8 @@
 /**
  * Cross-language functions at `e3 export` (#628): a task's
  * `East.importFunction` references resolve against the manifests the
- * export is given, embed as pure IR in the task's function_ir object, and
- * are checked against the task's runner for the platform packages the
+ * export is given, embed as pure IR in the program its task object names,
+ * and are checked against the task's runner for the platform packages the
  * embedded functions need.
  */
 
@@ -21,8 +21,8 @@ import { execFileSync } from 'node:child_process';
 import yauzl from 'yauzl';
 import {
   East, FunctionType, IntegerType, NullType, StringType,
-  decodeBeast2For, decodeEastIR, walkIR, IMPORT_PLATFORM, variant } from '@elaraai/east';
-import { DatasetRefType } from '@elaraai/e3-types';
+  decodeEastIR, walkIR, IMPORT_PLATFORM, variant } from '@elaraai/east';
+import { decodePackageObject, decodeTaskObject } from '@elaraai/e3-types';
 import { export_ } from './export.js';
 import { package_ } from './package.js';
 import { task } from './task.js';
@@ -75,12 +75,14 @@ async function readZip(zipPath: string): Promise<Map<string, Buffer>> {
   });
 }
 
-/** The IR object a bundle holds for `data/<refPath>.ref`. */
-function irAt(entries: Map<string, Buffer>, refPath: string) {
-  const ref = decodeBeast2For(DatasetRefType)(new Uint8Array(entries.get(`data/${refPath}.ref`)!));
-  assert.strictEqual(ref.type, 'value');
-  const hash = (ref as any).value.hash as string;
-  return decodeEastIR(new Uint8Array(entries.get(`objects/${hash.slice(0, 2)}/${hash.slice(2)}.beast2`)!));
+/** The program the task object of a bundle's task `name` names. */
+function programOf(entries: Map<string, Buffer>, name: string) {
+  const object = (hash: string) => new Uint8Array(entries.get(`objects/${hash.slice(0, 2)}/${hash.slice(2)}.beast2`)!);
+  const pkgRef = [...entries.keys()].find((key) => key.startsWith('packages/'))!;
+  const pkg = decodePackageObject(object(entries.get(pkgRef)!.toString().trim()));
+  const task = decodeTaskObject(object(pkg.tasks.get(name)!));
+  assert.strictEqual(task.body.type, 'east');
+  return decodeEastIR(object((task.body.value as { program: string }).program));
 }
 
 describe('export_ links East.importFunction references (#628)', () => {
@@ -88,7 +90,7 @@ describe('export_ links East.importFunction references (#628)', () => {
   before(() => { tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'e3-link-')); });
   after(() => { fs.rmSync(tempDir, { recursive: true, force: true }); });
 
-  it("embeds the exported IR in the task's function_ir and the program runs", async () => {
+  it("embeds the exported IR in the task's program, which runs", async () => {
     const greeting = input('greeting', StringType, variant('value', 'hello'));
     const use = task('use_double', [greeting], East.function([StringType], IntegerType, ($, s) => dbl(s.length()).add(1n)));
     const pkg = package_('importer', '1.0.0', use);
@@ -96,7 +98,7 @@ describe('export_ links East.importFunction references (#628)', () => {
     await export_(pkg, zipPath, { functions: [manifest] });
 
     const entries = await readZip(zipPath);
-    const bundle = irAt(entries, 'tasks/use_double/function_ir');
+    const bundle = programOf(entries, 'use_double');
     assert.strictEqual(countImports(bundle.ir), 0);
     assert.strictEqual(bundle.compile([])('hello'), 11n);
   });
@@ -110,7 +112,7 @@ describe('export_ links East.importFunction references (#628)', () => {
     const pkg = package_('importer', '1.0.0', use);
     const zipPath = path.join(tempDir, 'importer-file.zip');
     await export_(pkg, zipPath, { functions: [manifestPath] });
-    const bundle = irAt(await readZip(zipPath), 'tasks/use_shout/function_ir');
+    const bundle = programOf(await readZip(zipPath), 'use_shout');
     assert.strictEqual(countImports(bundle.ir), 0);
   });
 
@@ -236,7 +238,7 @@ describe('export_ resolves an imported workspace package itself (#652)', () => {
       events = [];
       await inWorkspace(() => export_(pkg, zipPath, { onEvent: (e) => { if (e.kind === 'functions') events.push(`${e.package}:${e.count}:${e.tool}`); } }));
       assert.deepStrictEqual(events, ['pricing:1:east-py export-functions']);
-      const bundle = irAt(await readZip(zipPath), 'tasks/use_triple/function_ir');
+      const bundle = programOf(await readZip(zipPath), 'use_triple');
       assert.strictEqual(countImports(bundle.ir), 0);
       assert.strictEqual(bundle.compile([])(4n), 13n);
     });
@@ -252,7 +254,7 @@ describe('export_ resolves an imported workspace package itself (#652)', () => {
       events = [];
       await inWorkspace(() => export_(pkg, zipPath, { functions: [given], onEvent: (e) => { if (e.kind === 'functions') events.push(e.package); } }));
       assert.deepStrictEqual(events, []);
-      assert.strictEqual(irAt(await readZip(zipPath), 'tasks/use_triple/function_ir').compile([])(4n), 120n);
+      assert.strictEqual(programOf(await readZip(zipPath), 'use_triple').compile([])(4n), 120n);
     });
 
   it("a function the package does not export is the exporter's own error, naming the import",
@@ -287,8 +289,8 @@ describe('export_ resolves an imported workspace package itself (#652)', () => {
       await inWorkspace(() => export_(pkg, zipPath, { onEvent: (e) => { if (e.kind === 'functions') events.push(`${e.package}:${e.count}:${e.tool}`); } }));
       assert.deepStrictEqual(events, ['pricing:1:east-py export-functions', 'pricing:1:east-py export-functions']);
       const entries = await readZip(zipPath);
-      assert.strictEqual(irAt(entries, 'tasks/use_triple/function_ir').compile([])(4n), 13n);
-      assert.strictEqual(countImports(irAt(entries, 'tasks/use_shout/function_ir').ir), 0);
+      assert.strictEqual(programOf(entries, 'use_triple').compile([])(4n), 13n);
+      assert.strictEqual(countImports(programOf(entries, 'use_shout').ir), 0);
       // B's providers are the runner's; an owner on the default runner importing `shout` has none for `my.log`
       const c = task('use_shout_default', [s], East.function([StringType], NullType, ($, x) => { $(shout(x)); }));
       await assert.rejects(
@@ -384,7 +386,7 @@ describe('export_ resolves an imported npm workspace package itself (#652)', () 
       const events: string[] = [];
       await inWorkspace(() => export_(pkg, zipPath, { onEvent: (e) => { if (e.kind === 'functions') events.push(`${e.package}:${e.count}:${e.tool}`); } }));
       assert.deepStrictEqual(events, ['pricing:1:east-node export-functions']);
-      const bundle = irAt(await readZip(zipPath), 'tasks/use_triple/function_ir');
+      const bundle = programOf(await readZip(zipPath), 'use_triple');
       assert.strictEqual(countImports(bundle.ir), 0);
       assert.strictEqual(bundle.compile([])(4n), 13n);
     });

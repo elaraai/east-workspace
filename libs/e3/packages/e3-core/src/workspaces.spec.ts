@@ -14,7 +14,7 @@ import { join } from 'node:path';
 import { StringType, variant, some, none, encodeBeast2For } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import {
-  EnvironmentSpecType, TaskObjectType, PackageObjectType, WorkspaceStateType,
+  EnvironmentSpecType, TASK_OBJECT_KIND, TaskObjectType, PackageObjectType, WorkspaceStateType,
 } from '@elaraai/e3-types';
 import type { TaskObject, PackageObject, WorkspaceState } from '@elaraai/e3-types';
 import {
@@ -292,10 +292,14 @@ describe('workspaces', () => {
       // tasks referencing the env specs
       const taskEnc = encodeBeast2For(TaskObjectType);
       const mkTask = (envHash: string, out: string): TaskObject => ({
-        commandIr, inputs: [], output: [variant('field', out)],
-        kind: none, metadata: none, runner: variant('custom', { command: [] }),
+        kind: TASK_OBJECT_KIND,
+        body: variant('command', { commandIr }),
+        runner: variant('custom', { command: [] }),
+        inputs: [],
+        output: { path: [variant('field', out)], kind: variant('value', null) },
+        role: variant('data', null),
         environment: some(envHash),
-      } as TaskObject);
+      });
       const toolsTask = await storage.objects.write(testRepo, taskEnc(mkTask(toolsEnv, 'tools_out')));
       const wnTask = await storage.objects.write(testRepo, taskEnc(mkTask(wnEnv, 'wn_out')));
 

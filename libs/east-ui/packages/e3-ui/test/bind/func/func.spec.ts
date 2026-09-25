@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { East, FloatType, IntegerType, NullType, StringType, variant } from "@elaraai/east";
 import { Reactive, Stat, Button, UIComponentType } from "@elaraai/east-ui/internal";
-import { Func, Data, deriveManifest, decodeManifest, ui } from "@elaraai/e3-ui";
+import { Func, Data, deriveManifest, ui } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
 import * as ex from "./func.examples.js";
 
@@ -121,8 +121,7 @@ describeEast("Func — manifest derivation", (test) => {
                 const forecast = $.let(Func.bind(forecastDef));
                 return Stat.Root({ label: "F", value: East.print(forecast.read()) });
             }))));
-        assert.ok(dashboard.metadata, "metadata should be set");
-        const manifest = decodeManifest(dashboard.metadata);
-        assert.deepEqual(manifest.functions, ["forecast"]);
+        assert.equal(dashboard.role.type, "ui");
+        assert.deepEqual(dashboard.role.value!.functions, ["forecast"]);
     });
 }, { platformFns: TestImpl });

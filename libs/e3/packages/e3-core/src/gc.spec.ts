@@ -11,9 +11,9 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
 import { existsSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
-import { East, DictType, IntegerType, StringType, StructType, SEGMENT_RULE_KEYED, decodeBeast2For, encodeBeast2For, fromEastTypeValue, variant, some, none, toEastTypeValue } from '@elaraai/east';
+import { East, ArrayType, BlobType, DictType, IntegerType, OptionType, StringType, StructType, SEGMENT_RULE_KEYED, decodeBeast2For, encodeBeast2For, fromEastTypeValue, variant, some, none, toEastTypeValue } from '@elaraai/east';
 import e3 from '@elaraai/e3';
-import { WorkspaceStateType, PackageObjectType, TaskObjectType, FunctionObjectType, DataRefType, DatasetRefType, RecordCommitType, RecordIndexObjectType, MutationObjectType, EnvironmentSpecType, PartitionPlanType, COLLECTION_MANIFEST_KIND, encodeCollectionManifest, decodeCollectionManifest, encodePartitionPlan } from '@elaraai/e3-types';
+import { WorkspaceStateType, PackageObjectType, TASK_OBJECT_KIND, TaskObjectType, FunctionObjectType, DataRefType, DatasetRefType, RecordCommitType, RecordIndexObjectType, MutationObjectType, EnvironmentSpecType, PartitionPlanType, RunnerType, TreePathType, COLLECTION_MANIFEST_KIND, encodeCollectionManifest, decodeCollectionManifest, encodePartitionPlan } from '@elaraai/e3-types';
 import type { WorkspaceState, PackageObject, TaskObject } from '@elaraai/e3-types';
 import { repoGc, collectAllRoots, markReachable, sweepBatch } from './storage/local/gc.js';
 import { readDatasetWhole } from './dataset-open.js';
@@ -608,10 +608,13 @@ describe('gc', () => {
       // Encode a TaskObject referencing the IR hash
       const taskEncoder = encodeBeast2For(TaskObjectType);
       const taskData = taskEncoder({
-        commandIr: irHash,
-        inputs: [[variant('field', 'x')]],
-        output: [variant('field', 'y')],
-        kind: variant('none', null), metadata: variant('none', null), runner: variant('custom', { command: [] }), environment: variant('none', null),
+        kind: TASK_OBJECT_KIND,
+        body: variant('command', { commandIr: irHash }),
+        runner: variant('custom', { command: [] }),
+        inputs: [{ path: [variant('field', 'x')], partition: none }],
+        output: { path: [variant('field', 'y')], kind: variant('value', null) },
+        role: variant('data', null),
+        environment: none,
       } as TaskObject);
       const taskHash = 'b'.repeat(64);
 
@@ -659,10 +662,13 @@ describe('gc', () => {
 
       const taskEncoder = encodeBeast2For(TaskObjectType);
       const taskData = taskEncoder({
-        commandIr: irHash,
-        inputs: [[variant('field', 'x')]],
-        output: [variant('field', 'y')],
-        kind: variant('none', null), metadata: variant('none', null), runner: variant('custom', { command: [] }), environment: variant('some', envHash),
+        kind: TASK_OBJECT_KIND,
+        body: variant('command', { commandIr: irHash }),
+        runner: variant('custom', { command: [] }),
+        inputs: [{ path: [variant('field', 'x')], partition: none }],
+        output: { path: [variant('field', 'y')], kind: variant('value', null) },
+        role: variant('data', null),
+        environment: some(envHash),
       } as TaskObject);
       const taskHash = 'b'.repeat(64);
 
@@ -690,11 +696,13 @@ describe('gc', () => {
       }));
       const envHash = 'b'.repeat(63) + '3';
       const taskData = encodeBeast2For(TaskObjectType)({
-        commandIr: 'c'.repeat(64),
-        inputs: [[variant('field', 'x')]],
-        output: [variant('field', 'y')],
-        kind: none, metadata: none,
-        runner: variant('custom', { command: [] }), environment: some(envHash),
+        kind: TASK_OBJECT_KIND,
+        body: variant('command', { commandIr: 'c'.repeat(64) }),
+        runner: variant('custom', { command: [] }),
+        inputs: [{ path: [variant('field', 'x')], partition: none }],
+        output: { path: [variant('field', 'y')], kind: variant('value', null) },
+        role: variant('data', null),
+        environment: some(envHash),
       } as TaskObject);
       const taskHash = 'd'.repeat(64);
 
@@ -721,11 +729,13 @@ describe('gc', () => {
       }));
       const envHash = 'f'.repeat(63) + '6';
       const taskData = encodeBeast2For(TaskObjectType)({
-        commandIr: 'c'.repeat(64),
-        inputs: [[variant('field', 'x')]],
-        output: [variant('field', 'y')],
-        kind: none, metadata: none,
-        runner: variant('custom', { command: [] }), environment: some(envHash),
+        kind: TASK_OBJECT_KIND,
+        body: variant('command', { commandIr: 'c'.repeat(64) }),
+        runner: variant('custom', { command: [] }),
+        inputs: [{ path: [variant('field', 'x')], partition: none }],
+        output: { path: [variant('field', 'y')], kind: variant('value', null) },
+        role: variant('data', null),
+        environment: some(envHash),
       } as TaskObject);
       const taskHash = 'a'.repeat(64);
 
@@ -863,10 +873,13 @@ describe('gc', () => {
             records: new Map(), sources: new Map(),
           } as PackageObject)],
           [taskHash, encodeBeast2For(TaskObjectType)({
-            commandIr: irHash,
-            inputs: [[variant('field', 'x')]],
-            output: [variant('field', 'y')],
-            kind: none, metadata: none, runner: variant('custom', { command: [] }), environment: none,
+            kind: TASK_OBJECT_KIND,
+            body: variant('command', { commandIr: irHash }),
+            runner: variant('custom', { command: [] }),
+            inputs: [{ path: [variant('field', 'x')], partition: none }],
+            output: { path: [variant('field', 'y')], kind: variant('value', null) },
+            role: variant('data', null),
+            environment: none,
           } as TaskObject)],
           // A dataset rooted directly, as a workspace's dataset refs are.
           [datasetHash, encodeBeast2For(StructType({ name: StringType, count: IntegerType }))({ name: 'x'.repeat(200_000), count: 1n })],
@@ -1161,6 +1174,102 @@ describe('gc', () => {
       const reachable = await markReachable(trace(objects), new Set([root]));
       assert.ok(reachable.has(root));
       assert.ok(!reachable.has(KEY_IR), 'the "keyIr"-named string must not be followed');
+    });
+  });
+
+  // A task object names the program a deployed package runs and the functions
+  // and value its output folds with. Unrecognised, it is a leaf: they go
+  // unmarked, and the sweep deletes what the package runs.
+  describe('the task object recognizer', () => {
+    const trace = (objects: Map<string, Uint8Array>) =>
+      async (h: string): Promise<Uint8Array | null> => objects.get(h) ?? null;
+    const PROGRAM = '1'.repeat(64);
+    const MERGE = '2'.repeat(64);
+    const ZERO = '3'.repeat(64);
+    const COMBINE = '4'.repeat(64);
+    const ENV = '5'.repeat(64);
+    const TOOL = '6'.repeat(64);
+    // The environment is read to find the files it names, so it must exist.
+    const environment: [string, Uint8Array] = [ENV, encodeBeast2For(EnvironmentSpecType)(variant('tools', {
+      files: [{ path: 'bin/solver', hash: TOOL }],
+    }))];
+    const task: TaskObject = {
+      kind: TASK_OBJECT_KIND,
+      body: variant('east', { program: PROGRAM }),
+      runner: variant('east_node', { platforms: ['@elaraai/east-node-std'] }),
+      inputs: [{ path: [variant('field', 'x')], partition: some({ by: ['k'] }) }],
+      output: { path: [variant('field', 'y')], kind: variant('fold', { zero: ZERO, combine: COMBINE }) },
+      role: variant('data', null),
+      environment: some(ENV),
+    };
+
+    it('keeps the program, what the output folds with, and the environment reachable', async () => {
+      const folds = 'a-fold-task'.padEnd(64, '0');
+      const merges = 'a-dict-task'.padEnd(64, '0');
+      const objects = new Map([
+        [folds, encodeBeast2For(TaskObjectType)(task)],
+        [merges, encodeBeast2For(TaskObjectType)({ ...task, output: { path: [variant('field', 'y')], kind: variant('dict', { merge: some(MERGE) }) } })],
+        environment,
+      ]);
+
+      const reachable = await markReachable(trace(objects), new Set([folds, merges]));
+      for (const [label, hash] of [
+        ['the program', PROGRAM], ['the dict merge', MERGE], ['the fold zero', ZERO],
+        ['the fold combine', COMBINE], ['the environment', ENV], ['the environment\'s file', TOOL],
+      ] as const) {
+        assert.ok(reachable.has(hash), `${label} must survive`);
+      }
+    });
+
+    it('keeps them reachable once the task object has grown a field', async () => {
+      const fields = toEastTypeValue(TaskObjectType).value as { name: string; type: unknown }[];
+      const grown = fromEastTypeValue(variant('Struct', [
+        ...fields,
+        { name: 'a_field_appended_later', type: toEastTypeValue(IntegerType) },
+      ]) as never);
+      const root = 'a-newer-task'.padEnd(64, '0');
+      const objects = new Map([[root, encodeBeast2For(grown as never)({ ...task, a_field_appended_later: 0n } as never)], environment]);
+
+      const reachable = await markReachable(trace(objects), new Set([root]));
+      for (const hash of [PROGRAM, ZERO, COMBINE, ENV, TOOL]) assert.ok(reachable.has(hash));
+    });
+
+    it('treats a task-shaped struct carrying another kind as a leaf', async () => {
+      const root = 'not-a-task'.padEnd(64, '0');
+      const objects = new Map([[root, encodeBeast2For(TaskObjectType)({ ...task, kind: '$something-else' })]]);
+
+      const reachable = await markReachable(trace(objects), new Set([root]));
+      assert.ok(reachable.has(root));
+      assert.ok(!reachable.has(PROGRAM), 'an object carrying another kind must not be traversed as a task');
+    });
+
+    it('keeps the command IR and environment of a task object an older SDK wrote', async () => {
+      // The shape every task object had before the typed task object. A
+      // repository keeps its packages until they are removed, so gc recognises
+      // it by its shape for as long as one can be deployed.
+      const PreCutoverTaskObjectType = StructType({
+        commandIr: StringType,
+        inputs: ArrayType(TreePathType),
+        output: TreePathType,
+        kind: OptionType(StringType),
+        metadata: OptionType(BlobType),
+        runner: RunnerType,
+        environment: OptionType(StringType),
+      });
+      const root = 'an-older-task'.padEnd(64, '0');
+      const objects = new Map([[root, encodeBeast2For(PreCutoverTaskObjectType)({
+        commandIr: PROGRAM,
+        inputs: [[variant('field', 'x')]],
+        output: [variant('field', 'y')],
+        kind: none,
+        metadata: none,
+        runner: variant('custom', { command: [] }),
+        environment: some(ENV),
+      })], environment]);
+
+      const reachable = await markReachable(trace(objects), new Set([root]));
+      assert.ok(reachable.has(PROGRAM), 'the command IR must survive');
+      assert.ok(reachable.has(ENV) && reachable.has(TOOL), 'the environment and its file must survive');
     });
   });
 

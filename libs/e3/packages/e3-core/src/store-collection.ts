@@ -20,9 +20,11 @@
  * - A manifest in the store, cut by the current rule under the canonical
  *   header, is the Writer's already: its segments are carried over by
  *   reference and never read, and only the seams between sources are re-cut.
- * - A stock runner's output file was written through the Writer, whose bytes
- *   the conformance corpus pins in every runtime, so its segments are stored as
- *   they stand — carved out of the file, never decoded.
+ * - A stock runner's output was written through the Writer, whose bytes the
+ *   conformance corpus pins in every runtime, so its segments are stored as
+ *   they stand, never decoded: a manifest directory's segment files are linked
+ *   in under the hashes that name them, and a blob's segments are carved out of
+ *   the file.
  * - Everything else is foreign: a delivered file, an upload, a custom task's
  *   output, a blob or a manifest written before the current rule. Its elements
  *   are read a segment of the source at a time and written again through the
@@ -36,7 +38,8 @@
  */
 
 import { createReadStream } from 'node:fs';
-import { open, type FileHandle } from 'node:fs/promises';
+import { open, readFile, type FileHandle } from 'node:fs/promises';
+import { join } from 'node:path';
 import {
   Beast2ElementWriter,
   EastTypeValueType,
@@ -58,6 +61,8 @@ import {
   type EastTypeValue,
 } from '@elaraai/east';
 import {
+  decodeCollectionManifest,
+  isCollectionManifestType,
   isCollectionRoot,
   writeCollectionManifest,
   type CollectionManifest,
@@ -84,6 +89,12 @@ export type CollectionSource =
    *  runner's output — so its segments are stored as they stand; otherwise
    *  its elements are read and written again. */
   | { readonly file: string; readonly canonical?: boolean }
+  /** A manifest directory: the manifest in the file `manifest`, and each
+   *  object it names in `<manifest>.segments/`, the file named by the
+   *  object's SHA-256. `canonical` when the Writer wrote it — a stock
+   *  runner's output — so its segments are stored as they stand; otherwise
+   *  its elements are read and written again. */
+  | { readonly manifest: string; readonly canonical?: boolean }
   /** A beast2 blob arriving as a stream of bytes, from outside. */
   | { readonly chunks: AsyncIterable<Uint8Array> | Iterable<Uint8Array> }
   /** Elements in canonical order: an Array's in position, a Set's or a
@@ -216,6 +227,25 @@ export async function storeCollection(
     return { elements: readElements(createReadStream(file, { highWaterMark: READ_CHUNK_BYTES })) };
   };
 
+  /** A manifest directory. A stock runner's, cut by the current rule under
+   *  the canonical header, is the Writer's: each segment file is linked into
+   *  the store under the hash that names it and carried by its entry, never
+   *  read. Any other has its elements read a segment file at a time and
+   *  written again. */
+  const directoryPiece = async (file: string, canonical: boolean): Promise<CollectionPiece> => {
+    const manifest = decodeCollectionManifest(await readFile(file));
+    checkType(file, manifest.type);
+    const segmentFile = (hash: string): string => join(`${file}.segments`, `${hash}.beast2`);
+    if (canonical && manifest.rule === rule && manifest.header === headerHash) {
+      for (const entry of manifest.entries) await storage.objects.adoptFile(repo, segmentFile(entry.hash), entry.hash);
+      return { segments: manifestRefs(manifest, 0, manifest.entries.length) };
+    }
+    async function* elements(): AsyncGenerator<unknown> {
+      for (const entry of manifest.entries) yield* readElements([await readFile(segmentFile(entry.hash))]);
+    }
+    return { elements: elements() };
+  };
+
   /** Each segment of a canonical file, carved as it is reached: its fence is
    *  its first key, and its logical size is in its frame's header. */
   async function* fileRefs(file: string, extents: Beast2RangedExtents): AsyncGenerator<CollectionSegmentRef> {
@@ -243,6 +273,7 @@ export async function storeCollection(
       if ('elements' in source) yield { elements: source.elements };
       else if ('chunks' in source) yield { elements: readElements(source.chunks) };
       else if ('file' in source) yield await filePiece(source.file, source.canonical === true);
+      else if ('manifest' in source) yield await directoryPiece(source.manifest, source.canonical === true);
       else yield await storedPiece(source);
     }
   }
@@ -256,11 +287,13 @@ export async function storeCollection(
  * other value as the object the file is.
  *
  * @remarks
- * What a task's output takes. A collection a stock runner wrote is the
- * Writer's, so it is `canonical` and its segments are stored as they stand; one
- * any other program wrote is read and written again. Any other root is adopted
- * as it stands, by link where the store's objects are files — and so is a file
- * whose header does not read, which the reader that needs its type refuses.
+ * What a task's output takes. A manifest file is the manifest directory a stock
+ * runner writes a collection as, and is stored from its segment files. A
+ * collection blob a stock runner wrote is the Writer's, so it is `canonical`
+ * and its segments are stored as they stand; one any other program wrote is
+ * read and written again. Any other root is adopted as it stands, by link where
+ * the store's objects are files — and so is a file whose header does not read,
+ * which the reader that needs its type refuses.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
@@ -281,6 +314,10 @@ export async function storeDatasetFile(
     type = readDatasetFileType(file);
   } catch {
     return (await storage.objects.adoptFile(repo, file)).hash;
+  }
+  if (isCollectionManifestType(type)) {
+    const { type: manifestType } = decodeCollectionManifest(await readFile(file));
+    return storeCollection(storage, repo, manifestType, [{ manifest: file, canonical: options.canonical === true }]);
   }
   if (!isCollectionRoot(type)) return (await storage.objects.adoptFile(repo, file)).hash;
   return storeCollection(storage, repo, type, [{ file, canonical: options.canonical === true }]);

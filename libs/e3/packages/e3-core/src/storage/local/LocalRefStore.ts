@@ -6,7 +6,7 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { decodeBeast2For, encodeBeast2For } from '@elaraai/east';
-import { ExecutionStatusType, DataflowRunType } from '@elaraai/e3-types';
+import { ExecutionStatusType, DataflowRunType, decodeExecutionStatus } from '@elaraai/e3-types';
 import type { ExecutionOwner, ExecutionStatus, DataflowRun } from '@elaraai/e3-types';
 import type { RefStore } from '../interfaces.js';
 import { isNotFoundError, ExecutionCorruptError } from '../../errors.js';
@@ -179,8 +179,7 @@ export class LocalRefStore implements RefStore {
     }
 
     try {
-      const decoder = decodeBeast2For(ExecutionStatusType);
-      return decoder(data);
+      return decodeExecutionStatus(data);
     } catch (err) {
       throw new ExecutionCorruptError(
         taskHash,

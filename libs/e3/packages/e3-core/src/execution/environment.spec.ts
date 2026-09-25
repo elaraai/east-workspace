@@ -11,7 +11,7 @@ import * as path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { encodeBeast2For, variant, some, none } from '@elaraai/east';
 import {
-  TaskObjectType, decodeTaskObject,
+  TASK_OBJECT_KIND, TaskObjectType, decodeTaskObject,
   FunctionObjectType, decodeFunctionObject,
   EnvironmentSpecType, environmentSpecObjectHashes,
   type TaskObject, type FunctionObject,
@@ -22,8 +22,8 @@ import { LocalBackend } from '../storage/local/index.js';
 import { repoInit } from '../storage/local/repository.js';
 import { materializeEnvironment } from './environment.js';
 
-describe('task/function object dual decoders', () => {
-  it('decodes pre-environment task bytes with environment defaulted to none', () => {
+describe('task and function object decoders', () => {
+  it('refuses pre-environment task bytes, as every task object an older SDK exported, saying to re-export', () => {
     const PreEnvironmentTaskObjectType = StructType({
       commandIr: StringType,
       inputs: ArrayType(TreePathType),
@@ -41,19 +41,17 @@ describe('task/function object dual decoders', () => {
       runner: variant('custom', { command: [] }),
     });
 
-    const task = decodeTaskObject(legacyBytes);
-    assert.strictEqual(task.commandIr, 'a'.repeat(64));
-    assert.strictEqual(task.environment.type, 'none');
+    assert.throws(() => decodeTaskObject(legacyBytes), /exported by an older e3 SDK — re-export it with the current one/);
   });
 
   it('round-trips a current task with an environment hash', () => {
     const taskObj: TaskObject = {
-      commandIr: 'a'.repeat(64),
-      inputs: [],
-      output: [variant('field', 'y')],
-      kind: none,
-      metadata: none,
+      kind: TASK_OBJECT_KIND,
+      body: variant('command', { commandIr: 'a'.repeat(64) }),
       runner: variant('custom', { command: [] }),
+      inputs: [],
+      output: { path: [variant('field', 'y')], kind: variant('value', null) },
+      role: variant('data', null),
       environment: some('b'.repeat(64)),
     };
     const decoded = decodeTaskObject(encodeBeast2For(TaskObjectType)(taskObj));
@@ -94,12 +92,12 @@ describe('task/function object dual decoders', () => {
 
   it('folds the environment into the task object bytes (cache identity)', () => {
     const base: TaskObject = {
-      commandIr: 'a'.repeat(64),
-      inputs: [],
-      output: [variant('field', 'y')],
-      kind: none,
-      metadata: none,
+      kind: TASK_OBJECT_KIND,
+      body: variant('command', { commandIr: 'a'.repeat(64) }),
       runner: variant('custom', { command: [] }),
+      inputs: [],
+      output: { path: [variant('field', 'y')], kind: variant('value', null) },
+      role: variant('data', null),
       environment: none,
     };
     const encoder = encodeBeast2For(TaskObjectType);

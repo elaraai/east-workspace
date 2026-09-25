@@ -37,6 +37,7 @@ import {
 
 import { StructureType, TreePathType } from './structure.js';
 import { RunnerType } from './runner.js';
+import { TaskBodyType, TaskInputType, TaskOutputType, TaskRoleType } from './task.js';
 
 // =============================================================================
 // Error Types
@@ -451,31 +452,34 @@ export const WorkspaceStatusResultType = StructType({
  *
  * @property name - Task name
  * @property hash - Task definition hash
- * @property kind - Task kind: "ui" (e3-ui `ui()`), other future kinds; none for plain tasks / old packages
+ * @property role - What the task's output is for: data, or a ui with what it
+ *   binds
  */
 export const TaskListItemType = StructType({
   name: StringType,
   hash: StringType,
-  kind: OptionType(StringType),
+  role: TaskRoleType,
 });
 
 /**
- * Detailed task information.
+ * Detailed task information: the task object's fields.
  *
  * @property name - Task name
  * @property hash - Task definition hash
- * @property commandIr - East IR for the task's command
- * @property inputs - Tree paths for task inputs
- * @property output - Tree path for task output
+ * @property body - What the task runs: an East program, or a command
+ * @property runner - The runtime it runs on
+ * @property inputs - The datasets it reads, each with its partition
+ * @property output - Where its output goes, and how it is made
+ * @property role - What its output is for: data, or a ui with what it binds
  */
 export const TaskDetailsType = StructType({
   name: StringType,
   hash: StringType,
-  commandIr: StringType,
-  inputs: ArrayType(TreePathType),
-  output: TreePathType,
-  kind: OptionType(StringType),
-  metadata: OptionType(BlobType),
+  body: TaskBodyType,
+  runner: RunnerType,
+  inputs: ArrayType(TaskInputType),
+  output: TaskOutputType,
+  role: TaskRoleType,
 });
 
 // =============================================================================
@@ -658,13 +662,17 @@ export const ApiDataflowExecutionStateType = StructType({
 // =============================================================================
 
 /**
- * Execution status for history listing.
+ * Execution status for history listing: `cancelled` when e3 stopped the
+ * execution because its run was aborted, `interrupted` when the orchestrator
+ * that owned it exited before it finished.
  */
 export const ExecutionHistoryStatusType = VariantType({
   running: NullType,
   success: NullType,
   failed: NullType,
   error: NullType,
+  cancelled: NullType,
+  interrupted: NullType,
 });
 
 /**

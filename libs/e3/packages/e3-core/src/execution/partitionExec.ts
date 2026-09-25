@@ -4,14 +4,13 @@
  */
 
 /**
- * The byte-level steps of partitioned execution — bounded-memory fan-out and
- * fan-in over canonical beast2 segments (issue #770).
+ * The byte-level steps of a fan-out — bounded-memory fan-out and fan-in over
+ * canonical beast2 segments (issue #770).
  *
- * The template interpreter (`steps.ts`) runs a partitioned task as plan →
- * map → reduce/splice; this module supplies the plan and the byte hooks:
- * {@link planPartitions} reads the primary partitioned input's segment index
- * and chooses partition boundaries (deterministically, from the index + the
- * `by` projection + `targetPartitionBytes`) and each co-partitioned
+ * A record's index build (`recordSteps.ts`) runs as plan → map → merge →
+ * splice over these: {@link planPartitions} reads the primary input's segment
+ * index and chooses partition boundaries (deterministically, from the index,
+ * the `by` projection and the byte target) and each co-partitioned
  * secondary's split points; {@link carvePartitionSlices} carves a
  * partition's slices (byte copy; at most the two edge segments of each
  * secondary are re-encoded); {@link planMergeRanges} chooses the key ranges
@@ -19,13 +18,10 @@
  * its merge units take as an input — nothing is carved for a range: each
  * runner seeks every partial to it; {@link spliceBlobs} assembles stored
  * collections through the store's door, validating the canonical shard order.
- * The local interpreter calls these directly; a remote backend supplies its
- * kernel's carve and splice.
  *
- * Because each per-partition execution is content-addressed by
- * `(taskHash, inputsHash([functionIr, ...slices, ...broadcast]))` and
- * boundaries are a pure function of the input blob + task metadata,
- * partition-level memoization rides the existing execution cache: appends
+ * Because each per-partition execution is content-addressed by its task and
+ * inputs, and boundaries are a pure function of the input blob and the byte
+ * target, partition-level memoization rides the existing execution cache: appends
  * and tail-localized changes leave earlier slices byte-identical and their
  * executions cache-hit. A mid-key-space insertion shifts subsequent segment
  * packing, so partitions after the insertion point re-run — append-friendly,
@@ -46,7 +42,6 @@ import {
   compareFor,
   decodeEastIR,
   encodeBeast2For,
-  equalFor,
   fromEastTypeValue,
   isEastDict,
   none,
@@ -57,22 +52,15 @@ import {
 import type { EastTypeValue, FunctionTypeValue } from '@elaraai/east';
 import { PartitionBlob, bufferPart, spliceChunks, type SplicePart } from './partitionIo.js';
 import {
-  PartitionPlanType,
-  decodePartitionPlan,
   partitionProjectionShape,
   projectKey,
   projectedKeyType,
-  type MergeRangePlan,
   type PartitionPlan,
   type ProjectionShape,
-  type TaskObject,
 } from '@elaraai/e3-types';
 import type { StorageBackend } from '../storage/interfaces.js';
 import { DatasetSegments } from '../dataset-open.js';
 import { storeCollection } from '../store-collection.js';
-import type { ExecuteOptions, ExecutionResult } from './LocalTaskRunner.js';
-
-export { partitionTaskExecute } from './steps.js';
 
 /** A carve position: the first element of the slice, as a segment index and
  *  an element offset within that segment (`offset` 0 = the segment start). */
@@ -80,19 +68,6 @@ export interface SplitPoint {
   seg: number;
   offset: number;
 }
-
-/**
- * Runs one unit of a partitioned task — a partition execution, a combine step
- * or a merge unit — once the interpreter's own cache probe has missed (or
- * `force` skipped it): the unit is an ordinary content-addressed execution of
- * `task` over `inputHashes`, recorded under a fresh execution id.
- *
- * @remarks
- * The local default runs the standard execution body in this process; a
- * remote backend supplies its own, so the orchestration (planning, carving,
- * caching, the tree) stays in e3-core whatever runs the unit.
- */
-export type PartitionUnitExecutor = (taskHash: string, task: TaskObject, inputHashes: string[], options: ExecuteOptions) => Promise<ExecutionResult>;
 
 /** What {@link planPartitions} plans over. */
 export interface PlanRequest {
@@ -380,7 +355,7 @@ export function mergeRangeTypeValue(keyType: EastTypeValue): EastTypeValue {
  * @param storage - Storage backend
  * @param repo - Repository identifier
  * @param partials - The component's partial hashes, in partition order; at least one
- * @param targetBytes - The bytes one merge unit's ranged inputs aim for — the task's `targetPartitionBytes`
+ * @param targetBytes - The bytes one merge unit's ranged inputs aim for
  * @returns The range blobs' hashes, in key order; at least one
  * @throws {Error} When a partial is not a Set or Dict blob, or a probe fails.
  */
@@ -451,57 +426,6 @@ export async function planMergeRanges(
 }
 
 /**
- * The recorded plan a `plan` sidecar names, or `null` when it is gone or does
- * not decode.
- *
- * @param storage - Storage backend
- * @param repo - Repository identifier
- * @param recordedPlanHash - The hash the sidecar names
- * @returns The plan, or `null`
- */
-export async function readRecordedPlan(storage: StorageBackend, repo: string, recordedPlanHash: string): Promise<PartitionPlan | null> {
-  try {
-    return decodePartitionPlan(await storage.objects.read(repo, recordedPlanHash));
-  } catch {
-    return null;
-  }
-}
-
-/**
- * The key ranges a recorded plan planned for a component, when it recorded
- * the same partials and every range blob still exists: the ranges are
- * trusted as recorded — a pure function of the partials and the task's byte
- * target, in the task's own plan — so a re-run skips the planning probes;
- * `null` when the recorded plan holds no such component, or a range blob is
- * gone (the ranges are planned again).
- *
- * @param storage - Storage backend
- * @param repo - Repository identifier
- * @param recorded - The recorded plan
- * @param partials - This run's partials of the component, in partition order
- * @returns The recorded range blobs' hashes, in key order, or `null`
- */
-export async function recordedMergeRanges(
-  storage: StorageBackend,
-  repo: string,
-  recorded: PartitionPlan,
-  partials: readonly string[],
-): Promise<string[] | null> {
-  const samePartials = (entry: MergeRangePlan): boolean =>
-    entry.partials.length === partials.length && entry.partials.every((hash, i) => hash === partials[i]);
-  const entry = recorded.merges.find(samePartials);
-  if (entry === undefined || entry.ranges.length === 0) return null;
-  for (const hash of entry.ranges) {
-    try {
-      await storage.objects.stat(repo, hash);
-    } catch {
-      return null;
-    }
-  }
-  return [...entry.ranges];
-}
-
-/**
  * Carves one partition's slice of every partitioned input, as a plan names
  * them: the primary's segments from `boundaries[p]` up to the next boundary
  * by byte copy, and each co-partitioned secondary's range between its split
@@ -542,46 +466,6 @@ export async function carvePartitionSlices(
     } finally {
       blob.release();
     }
-  }
-  return slices;
-}
-
-/**
- * The slices a recorded plan carved, when that plan plans exactly as `plan`:
- * `slices[input][partition]`, with `''` for a partition the recorded run
- * never carved or whose slice no longer exists (both are carved again);
- * `null` when the recorded plan differs.
- *
- * @param storage - Storage backend
- * @param repo - Repository identifier
- * @param recorded - The recorded plan (see {@link readRecordedPlan})
- * @param plan - This run's plan
- * @returns The reusable slices, or `null`
- */
-export async function recordedSlices(
-  storage: StorageBackend,
-  repo: string,
-  recorded: PartitionPlan,
-  plan: PartitionPlan,
-): Promise<string[][] | null> {
-  if (!equalFor(PartitionPlanType)({ ...recorded, slices: [], merges: [] }, { ...plan, slices: [], merges: [] })) return null;
-  const partitions = plan.boundaries.length;
-  if (recorded.slices.length !== plan.partitions.length || recorded.slices.some((slices) => slices.length !== partitions)) {
-    return null;
-  }
-  const slices = recorded.slices.map((input) => input.slice());
-  for (let p = 0; p < partitions; p++) {
-    // A partition's slices are reused all together or carved all together.
-    let present = slices.every((input) => input[p] !== '');
-    for (const input of slices) {
-      if (!present) break;
-      try {
-        await storage.objects.stat(repo, input[p]!);
-      } catch {
-        present = false;
-      }
-    }
-    if (!present) for (const input of slices) input[p] = '';
   }
   return slices;
 }

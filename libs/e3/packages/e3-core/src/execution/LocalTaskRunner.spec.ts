@@ -9,7 +9,7 @@ import { mkdtempSync, mkdirSync, readdirSync, realpathSync, rmSync } from 'node:
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { ArrayType, East, IRType, StringType, encodeBeast2For, none, variant } from '@elaraai/east';
-import { TaskObjectType, type ExecutionOwner, type ExecutionStatus, type TaskObject } from '@elaraai/e3-types';
+import { TASK_OBJECT_KIND, TaskObjectType, type ExecutionOwner, type ExecutionStatus, type TaskObject } from '@elaraai/e3-types';
 
 import { collectNodeModulesBins, probeExecutionCache, taskExecute } from './LocalTaskRunner.js';
 import { JobSlots } from './jobs.js';
@@ -92,12 +92,12 @@ describe('taskExecute output capture', () => {
       ($, inputs, output) => ['bash', '-c', 'head -c 268435456 /dev/zero | tr "\\0" x; cp "$1" "$2"', '--', inputs.get(0n), output],
     );
     const task: TaskObject = {
-      commandIr: await objectWrite(repo, encodeBeast2For(IRType)(commandFn.toIR().ir)),
-      inputs: [],
-      output: [],
-      kind: none,
-      metadata: none,
+      kind: TASK_OBJECT_KIND,
+      body: variant('command', { commandIr: await objectWrite(repo, encodeBeast2For(IRType)(commandFn.toIR().ir)) }),
       runner: variant('custom', { command: [] }),
+      inputs: [],
+      output: { path: [], kind: variant('value', null) },
+      role: variant('data', null),
       environment: none,
     };
     const taskHash = await objectWrite(repo, encodeBeast2For(TaskObjectType)(task));
@@ -164,12 +164,12 @@ describe('stopped executions', () => {
       ($, inputs, output) => [...argv, inputs.get(0n), output],
     );
     const task: TaskObject = {
-      commandIr: await objectWrite(repo, encodeBeast2For(IRType)(commandFn.toIR().ir)),
-      inputs: [],
-      output: [],
-      kind: none,
-      metadata: none,
+      kind: TASK_OBJECT_KIND,
+      body: variant('command', { commandIr: await objectWrite(repo, encodeBeast2For(IRType)(commandFn.toIR().ir)) }),
       runner: variant('custom', { command: [] }),
+      inputs: [],
+      output: { path: [], kind: variant('value', null) },
+      role: variant('data', null),
       environment: none,
     };
     return {
@@ -197,8 +197,7 @@ describe('stopped executions', () => {
     assert.equal(result.cancelled, true);
     assert.equal(result.error, 'cancelled: e3 stopped the runner because the run was aborted');
     const status = await storage.refs.executionGet(repo, taskHash, result.inputsHash, result.executionId);
-    assert.equal(status?.type, 'error');
-    assert.equal(status?.type === 'error' ? status.value.message : null, 'cancelled: e3 stopped the runner because the run was aborted');
+    assert.equal(status?.type, 'cancelled');
     assert.ok((await stderrOf(taskHash, result)).endsWith('e3: cancelled: e3 stopped the runner because the run was aborted\n'));
     // Nothing is cached: the next run executes.
     assert.equal(await probeExecutionCache(storage, repo, taskHash, result.inputsHash), null);
@@ -225,7 +224,7 @@ describe('stopped executions', () => {
     const refs = storage.refs;
     const write = refs.executionWrite.bind(refs);
     refs.executionWrite = async (r, t, i, e, status) => {
-      if (status.type === 'error') throw new Error('the record cannot be written');
+      if (status.type === 'cancelled') throw new Error('the record cannot be written');
       return write(r, t, i, e, status);
     };
     const unhandled: unknown[] = [];
@@ -290,11 +289,8 @@ describe('stopped executions', () => {
 
       assert.equal(await probeExecutionCache(storage, repo, taskHash, inHash), null);
       const status = await storage.refs.executionGet(repo, taskHash, inHash, executionId);
-      assert.equal(status?.type, 'error');
-      assert.equal(
-        status?.type === 'error' ? status.value.message : null,
-        `interrupted: the orchestrator exited before this execution finished (runner pid ${runner.pid})`,
-      );
+      assert.equal(status?.type, 'interrupted');
+      assert.equal(status?.type === 'interrupted' ? status.value.pid : null, BigInt(runner.pid));
     });
 
     it('leaves a running record alone while its owner lives, while its runner lives, or with no owner', async () => {
@@ -372,12 +368,12 @@ describe('the jobs budget', () => {
       ($, inputs, output) => ['bash', '-c', script, salt, inputs.get(0n), output],
     );
     const task: TaskObject = {
-      commandIr: await objectWrite(repo, encodeBeast2For(IRType)(commandFn.toIR().ir)),
-      inputs: [],
-      output: [],
-      kind: none,
-      metadata: none,
+      kind: TASK_OBJECT_KIND,
+      body: variant('command', { commandIr: await objectWrite(repo, encodeBeast2For(IRType)(commandFn.toIR().ir)) }),
       runner: variant('custom', { command: [] }),
+      inputs: [],
+      output: { path: [], kind: variant('value', null) },
+      role: variant('data', null),
       environment: none,
     };
     return {
@@ -435,7 +431,7 @@ describe('the jobs budget', () => {
     assert.equal(waited.cancelled, true);
     assert.equal(waited.error, 'cancelled: e3 did not start the runner because the run was aborted');
     const status = await storage.refs.executionGet(repo, waiter.taskHash, waited.inputsHash, waited.executionId);
-    assert.equal(status?.type === 'error' ? status.value.message : status?.type, 'cancelled: e3 did not start the runner because the run was aborted');
+    assert.equal(status?.type, 'cancelled');
     const stderr = await storage.logs.read(repo, waiter.taskHash, waited.inputsHash, waited.executionId, 'stderr');
     assert.equal(stderr.data, 'e3: cancelled: e3 did not start the runner because the run was aborted\n');
     // No runner ever ran for it: the only record it has is the cancelled one.

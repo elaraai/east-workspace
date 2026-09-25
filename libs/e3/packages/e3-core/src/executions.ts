@@ -192,7 +192,7 @@ export async function executionFindCurrent(
   const currentInputHashes: string[] = [];
   let allInputsAssigned = true;
 
-  for (const inputPath of task.inputs) {
+  for (const { path: inputPath } of task.inputs) {
     const { refType, hash } = await workspaceGetDatasetHash(storage, repo, ws, inputPath);
     if (refType !== 'value' || hash === null) {
       allInputsAssigned = false;
@@ -275,7 +275,8 @@ export async function executionReadLog(
 // ============================================================================
 
 /**
- * Evaluate command IR to get exec args.
+ * Evaluate command IR to get exec args — the body of a custom task or of a
+ * record step's unit.
  *
  * The IR is an East function: (inputs: Array<String>, output: String) -> Array<String>
  *

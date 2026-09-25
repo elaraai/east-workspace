@@ -78,8 +78,8 @@ function fixture(options: { running?: boolean } = {}): Action[] {
         entry('inputs.calendar', rowsType, 2_150, '5b0e88a1c3d7beef'),
         entry('inputs.params', paramsType, 1_229, '0a44e1b7c9d2f00d'),
         entry('inputs.overrides', overridesType, null, null),
-        // The server lists a function task's subtree as one leaf at `.tasks.<name>`; a custom task's
-        // subtree is walked, so its output is listed at `.tasks.<name>.output` — both must resolve.
+        // The server lists a task's subtree as one leaf at `.tasks.<name>`, and a listing that walks
+        // into one names its output `.tasks.<name>.output` — both must resolve.
         entry('tasks.ingest', rowsType, 12_687_000, 'out-ingest'),
         entry('tasks.features', paramsType, 432_600_000, 'out-features'),
         entry('tasks.forecast', forecastType, 88_300_000, 'out-forecast'),
@@ -118,7 +118,11 @@ function fixture(options: { running?: boolean } = {}): Action[] {
         { type: 'data/workspaceState', ws: 'main', state: { packageName: 'demand', packageVersion: '1.4.2', packageHash: 'p', deployedAt: new Date(NOW - 3 * 86_400_000), currentRunId: none } as never },
         { type: 'data/status', ws: 'main', result: status as never, at: NOW - 400 },
         { type: 'data/datasets', ws: 'main', entries: entries as never },
-        { type: 'data/taskList', ws: 'main', tasks: tasks.map(t => ({ name: t.name, hash: t.hash, kind: t.name === 'dashboard' ? some('ui') : none })) as never },
+        { type: 'data/taskList', ws: 'main', tasks: tasks.map(t => ({
+            name: t.name,
+            hash: t.hash,
+            role: t.name === 'dashboard' ? variant('ui', { paths: [], functions: [], records: [], pages: [] }) : variant('data', null),
+        })) as never },
         { type: 'data/execution', ws: 'main', state: execution.state as never, events: execution.events as never, startedAt: execution.startedAt },
     ];
 }

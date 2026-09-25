@@ -11,7 +11,7 @@ import { TreePathType } from "@elaraai/e3-types";
 import { input, record, recordIndex } from "@elaraai/e3";
 import { Reactive, UIComponentType, Text } from "@elaraai/east-ui/internal";
 
-import { decodeManifest, DataManifestType, Data } from "@elaraai/e3-ui";
+import { DataManifestType, Data } from "@elaraai/e3-ui";
 import { ui } from "@elaraai/e3-ui";
 
 const pathEqual = equalFor(TreePathType);
@@ -20,30 +20,26 @@ const manifestEqual = equalFor(DataManifestType);
 const blankUI = East.function([], UIComponentType, (_$) => Text.Root("hello"));
 
 describe("ui()", () => {
-    test("returns a TaskDef with kind='task' and taskKind='ui'", () => {
+    test("returns a TaskDef with kind='task' in the ui role", () => {
         const dashboard = ui("dashboard", [], blankUI);
         assert.equal(dashboard.kind, "task");
-        assert.equal(dashboard.taskKind, "ui");
+        assert.equal(dashboard.role.type, "ui");
         assert.equal(dashboard.name, "dashboard");
     });
 
-    test("custom runner flows through to the command IR", () => {
+    test("runs on east-c unless given a runner, which flows through to the task", () => {
         const def = ui("with_default_runner", [], blankUI);
         const custom = ui("with_custom_runner", [], blankUI, {
             runner: { runtime: "custom", command: ["east-c", "run", "--debug"] },
         });
-        const replacer = (_: string, v: unknown) => typeof v === "bigint" ? `${v}n` : v;
-        assert.notEqual(
-            JSON.stringify(def.command, replacer),
-            JSON.stringify(custom.command, replacer),
-            "expected command IR to differ when runner changes",
-        );
+        assert.deepEqual(def.runner, { runtime: "east-c" });
+        assert.deepEqual(custom.runner, { runtime: "custom", command: ["east-c", "run", "--debug"] });
     });
 
     test("derives an empty manifest when fn does not call Data.bind and no inputs", () => {
         const dashboard = ui("dashboard", [], blankUI);
-        assert.ok(dashboard.metadata, "metadata should be set");
-        assert.ok(manifestEqual(decodeManifest(dashboard.metadata), { paths: [], functions: [], records: [], pages: [] }),
+        assert.equal(dashboard.role.type, "ui");
+        assert.ok(manifestEqual(dashboard.role.value!, { paths: [], functions: [], records: [], pages: [] }),
             "expected empty manifest");
     });
 
@@ -52,7 +48,7 @@ describe("ui()", () => {
         const dashboard = ui("dashboard", [threshold],
             East.function([FloatType], UIComponentType, (_$, _t) => Text.Root("hi"))
         );
-        const manifest = decodeManifest(dashboard.metadata!);
+        const manifest = dashboard.role.value!;
         assert.equal(manifest.paths.length, 1);
         assert.ok(pathEqual(manifest.paths[0]!,
             [variant("field", "inputs"), variant("field", "threshold")]));
@@ -67,7 +63,7 @@ describe("ui()", () => {
                 return Text.Root(East.print(v));
             }))
         ));
-        const manifest = decodeManifest(dashboard.metadata!);
+        const manifest = dashboard.role.value!;
         assert.equal(manifest.paths.length, 1);
         assert.ok(pathEqual(manifest.paths[0]!,
             [variant("field", "inputs"), variant("field", "threshold")]));
@@ -91,7 +87,7 @@ describe("ui()", () => {
                 return Text.Root(East.print(t));
             }))
         ));
-        const manifest = decodeManifest(dashboard.metadata!);
+        const manifest = dashboard.role.value!;
         // The whole-value bind is preloaded; the paged one is only declared.
         assert.equal(manifest.paths.length, 1);
         assert.ok(pathEqual(manifest.paths[0]!,
@@ -116,7 +112,7 @@ describe("ui()", () => {
                 return Text.Root(East.print(w.hasTag("some")));
             }))
         ));
-        const manifest = decodeManifest(dashboard.metadata!);
+        const manifest = dashboard.role.value!;
         assert.equal(manifest.paths.length, 0, "an index read is never preloaded");
         assert.equal(manifest.pages.length, 1);
         assert.ok(pathEqual(manifest.pages[0]!, [variant("field", "records"), variant("field", "plans")]));
@@ -132,7 +128,7 @@ describe("ui()", () => {
                 }))
             )
         );
-        const manifest = decodeManifest(dashboard.metadata!);
+        const manifest = dashboard.role.value!;
         assert.equal(manifest.paths.length, 1, "expected dedupe");
     });
 

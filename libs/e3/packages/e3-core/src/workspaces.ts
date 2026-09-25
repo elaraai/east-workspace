@@ -424,8 +424,8 @@ export async function workspaceDeploy(
       // input's consumers.
       //
       // The file IS the value, so a new delivery under the same path is a new
-      // hash: its consumers re-run and `partitionTask`'s per-partition
-      // memoization keeps the partitions whose slices did not move.
+      // hash: its consumers re-run, and a task that splits its work over it
+      // keeps the pieces that did not move.
       for (const [refPath, hash] of adoptedSources) {
         await workspaceSetDatasetByHash(
           storage, repo, name, treePathOfRefPath(refPath), hash,
@@ -792,7 +792,7 @@ export async function workspaceExport(
 
         // Compute inputsHash from workspace refs
         const inputHashes: string[] = [];
-        for (const inputPath of task.inputs) {
+        for (const { path: inputPath } of task.inputs) {
           try {
             const { workspaceGetDatasetHash } = await import('./trees.js');
             const { hash } = await workspaceGetDatasetHash(storage, repo, name, inputPath);

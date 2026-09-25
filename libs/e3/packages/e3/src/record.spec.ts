@@ -49,7 +49,7 @@ function objectAt(entries: Map<string, Buffer>, hash: string): Buffer {
   return buf;
 }
 
-describe('e3.record / e3.mutation', () => {
+describe('e3.record / e3.mutation.reduce', () => {
   it('record() mounts a non-writable dataset at .records.<name> with the initial value', () => {
     const counter = record('counter', IntegerType, 0n);
     assert.strictEqual(counter.kind, 'dataset');
@@ -63,9 +63,9 @@ describe('e3.record / e3.mutation', () => {
     assert.ok(counter.deps.has(recordsTree));
   });
 
-  it('mutation() derives the extra arg types from the reducer signature', () => {
+  it('mutation.reduce() derives the extra arg types from the reducer signature', () => {
     const counter = record('counter', IntegerType, 0n);
-    const increment = mutation(
+    const increment = mutation.reduce(
       'increment',
       counter,
       East.function([IntegerType, IntegerType], IntegerType, ($, state, by) => state.add(by))
@@ -78,7 +78,7 @@ describe('e3.record / e3.mutation', () => {
 
   it('package() folds mutations onto their record', () => {
     const counter = record('counter', IntegerType, 0n);
-    const increment = mutation(
+    const increment = mutation.reduce(
       'increment',
       counter,
       East.function([IntegerType, IntegerType], IntegerType, ($, state, by) => state.add(by))
@@ -92,7 +92,7 @@ describe('e3.record / e3.mutation', () => {
 
   it('preserves a record’s mutations when its package is imported into another', () => {
     const counter = record('counter', IntegerType, 0n);
-    const increment = mutation(
+    const increment = mutation.reduce(
       'increment',
       counter,
       East.function([IntegerType, IntegerType], IntegerType, ($, state, by) => state.add(by))
@@ -120,8 +120,8 @@ describe('e3.record / e3.mutation', () => {
   it('refuses two mutations of one name on a record, wherever the second comes from', () => {
     const counter = record('counter', IntegerType, 0n);
     const reducer = East.function([IntegerType, IntegerType], IntegerType, ($, state, by) => state.add(by));
-    const increment = mutation('increment', counter, reducer);
-    const another = mutation('increment', counter, reducer);
+    const increment = mutation.reduce('increment', counter, reducer);
+    const another = mutation.reduce('increment', counter, reducer);
     // A record keeps one mutation per name. With two it would keep whichever
     // came last, and a caller of `increment` would run the other one.
     assert.throws(() => package_('c', '1.0.0', increment, another), /record 'counter' declares two mutations named 'increment'/);
@@ -135,7 +135,7 @@ describe('e3.record / e3.mutation', () => {
     // Async bodies break CAS-retry safety; the typed overload rejects them at
     // compile time, and the cast checks the runtime guard for dynamic callers.
     assert.throws(
-      () => mutation('bad', counter, East.asyncFunction([IntegerType, IntegerType], IntegerType, ($, state, by) => state.add(by)) as never),
+      () => mutation.reduce('bad', counter, East.asyncFunction([IntegerType, IntegerType], IntegerType, ($, state, by) => state.add(by)) as never),
       /pure, synchronous|async/i,
     );
   });
@@ -146,7 +146,7 @@ describe('e3.record / e3.mutation', () => {
     // async check misses it — the body walk must reject it: the CAS retry loop
     // re-runs the reducer, so a platform result is non-deterministic.
     assert.throws(
-      () => mutation('bad', counter, East.function([IntegerType, IntegerType], IntegerType,
+      () => mutation.reduce('bad', counter, East.function([IntegerType, IntegerType], IntegerType,
         ($, state, by) => state.add(East.platform('time_now', [], IntegerType)()).add(by))),
       /must not call platform functions/,
     );
@@ -156,7 +156,7 @@ describe('e3.record / e3.mutation', () => {
     const counter = record('counter', IntegerType, 0n);
     // The walk must descend into closure bodies, not just the top level.
     assert.throws(
-      () => mutation('bad', counter, East.function([IntegerType, IntegerType], IntegerType,
+      () => mutation.reduce('bad', counter, East.function([IntegerType, IntegerType], IntegerType,
         ($, state, by) => {
           $.let(East.value([1n, 2n], ArrayType(IntegerType))
             .map(($, x) => x.add(East.platform('time_now', [], IntegerType)())));
@@ -173,7 +173,7 @@ describe('e3.record / e3.mutation', () => {
     // still reject a mismatched reducer (here Integer record vs String reducer).
     assert.throws(
       () =>
-        mutation(
+        mutation.reduce(
           'bad',
           counter,
           East.function([StringType, FloatType], StringType, ($, state, _by) => state) as never
@@ -189,7 +189,7 @@ describe('e3.record / e3.mutation', () => {
 
     it('writes a RecordObject + MutationObject and a writable:false structure leaf', async () => {
       const counter = record('counter', IntegerType, 0n);
-      const increment = mutation(
+      const increment = mutation.reduce(
         'increment',
         counter,
         East.function([IntegerType, IntegerType], IntegerType, ($, state, by) => state.add(by))

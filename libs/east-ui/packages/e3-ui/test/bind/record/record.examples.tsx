@@ -12,9 +12,9 @@ import e3 from "@elaraai/e3";
 // record def + its mutations — the state type, mutation names and arg types
 // all come from them, so the binding can never drift from the deployed record.
 export const counter = e3.record("counter", IntegerType, 0n);
-export const increment = e3.mutation("increment", counter,
+export const increment = e3.mutation.reduce("increment", counter,
     East.function([IntegerType, IntegerType], IntegerType, ($, state, by) => state.add(by)));
-export const reset = e3.mutation("reset", counter,
+export const reset = e3.mutation.reduce("reset", counter,
     East.function([IntegerType], IntegerType, (_$, _state) => 0n));
 
 export const recordBindMutate = example({

@@ -910,12 +910,13 @@ export interface WorkspaceGetTreeOptions {
 }
 
 /**
- * Check if a structure represents a task (has function_ir and output).
+ * Check if a structure represents a task: a task's subtree holds its output
+ * dataset and nothing else.
  */
 function isTaskStructure(structure: Structure): boolean {
   if (structure.type !== 'struct') return false;
   const fields = structure.value;
-  return fields.has('function_ir') && fields.has('output');
+  return fields.size === 1 && fields.get('output')?.type === 'value';
 }
 
 /**

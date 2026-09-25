@@ -15,7 +15,7 @@ What it does:
 - **Editable inputs** — leaf edit / add / remove / variant tag with a dirty commit bar; conflict detection. (extension `InputPreview editable`)
 - **Repositories / workspaces** views, `e3-ui auth …` (the same device flow and credential store as `e3 auth`).
 
-A `kind:'ui'` task's output is a dataset like any other and is shown as a value tree (its embedded closures print as opaque `[function]` leaves). No component renderer — the pixel path stays `e3-ui shot`.
+A `ui` task's output is a dataset like any other and is shown as a value tree (its embedded closures print as opaque `[function]` leaves). No component renderer — the pixel path stays `e3-ui shot`.
 
 ## 2. Goals · non-goals
 
@@ -107,7 +107,7 @@ bin/e3-ui.mjs ─► dist/cli.js (commander)
                                                      value tree rows ← ValueTree.flatten / flattenPaged  (east-ui, sub-issue #719)
 ```
 
-Seams reused verbatim (no duplication): `startRepoServer` (this package), every `@elaraai/e3-api-client` function, `ValueTree.materialize / applyEdit / keyLabel` and the extracted row model (`@elaraai/east-ui/internal`), `decodeBeast2For / encodeBeast2For / parseFor / printFor` (`@elaraai/east`), `encodeDatasetBlob` (`@elaraai/e3-types`), `decodeManifest` (`@elaraai/e3-ui/internal`), `parseRepoLocation / getValidToken / createAuthCommand / formatError / formatSize / formatTaskStatus / suggestSimilar` (`@elaraai/e3-cli/internal`).
+Seams reused verbatim (no duplication): `startRepoServer` (this package), every `@elaraai/e3-api-client` function, `ValueTree.materialize / applyEdit / keyLabel` and the extracted row model (`@elaraai/east-ui/internal`), `decodeBeast2For / encodeBeast2For / parseFor / printFor` (`@elaraai/east`), `encodeDatasetBlob` (`@elaraai/e3-types`), `DataManifest` (`@elaraai/e3-ui/internal`), `parseRepoLocation / getValidToken / createAuthCommand / formatError / formatSize / formatTaskStatus / suggestSimilar` (`@elaraai/e3-cli/internal`).
 
 Dependencies added to `@elaraai/e3-ui-cli` `dependencies`: `ink@^7.1.1` (MIT), `react@^19.2.0` (MIT; moves from devDependencies), `@elaraai/e3-api-client`, `@elaraai/e3-types`, `@elaraai/east-ui`, `@elaraai/e3-ui` (move from devDependencies), `@elaraai/e3-cli` (new). All permissive or first-party; none has an install script (root `pnpm.onlyBuiltDependencies` untouched); the verdaccio smoke (`e3-ui --version`) stays browser-free. Dev: `ink-testing-library@^4.0.0`.
 
@@ -509,7 +509,7 @@ Data: `workspaceStatus` every 1 s (tasks, datasets, summary, lock), `dataflowExe
 
 ### 7.4 Task view
 
-Tabs `1 Output · 2 Stdout · 3 Stderr · 4 Runs` (+ `5 Reads` for `kind:'ui'`). Title line: kind, status word with detail, duration, inputs hash (a `ui` task: `3 reads · 1 function`). Second line: output path, type, entry count, size, content hash.
+Tabs `1 Output · 2 Stdout · 3 Stderr · 4 Runs` (+ `5 Reads` for a `ui` task). Title line: role, status word with detail, duration, inputs hash (a `ui` task: `3 reads · 1 function`). Second line: output path, type, entry count, size, content hash.
 
 **Output** — the value tree (§8). **Stdout / Stderr** — one tab per stream: `taskLogs` in 64 KB chunks (`offset += size`, 10 MB cap), 1 s poll for the shown stream (stderr every 5 s on every task tab, so the Stderr tab carries its line count — `3 Stderr (12)` — before it is visited), follow-tail with a `↑ pauses follow` rule, `/find` with n/N, `s` save, `c` copy (OSC 52, with a fallback note); each tab keeps its own scroll, follow and match. **Runs** — `taskExecutionList` with `all=true` (every attempt, not only the latest per inputs hash), `⏎` expands the inputs hashes. **Reads** — the manifest's `paths` (each `⏎`-openable as a dataset), `functions`, `records`.
 
@@ -1122,7 +1122,7 @@ Where the implementation differs from the mocks above (each was a deliberate cal
 - **Inputs** — `⏎` with nothing pending toggles a branch or edits a leaf; `esc` with pending edits confirms a discard; commands that leave the view confirm through `/discard --then "<command>"`; the conflict banner's `esc` keeps editing on the old base (an apply then overwrites).
 - **Layout** — the medium (80–99) and narrow (60–79) column plans are tighter than the 120-column design, and `fitPlan` narrows the widest fixed columns until the last column keeps 12 cells (untouched at 120); a table's NAME column grows to its longest name (up to 24 cells) so real task names such as `forecast_count` are never clipped, and a fixed cell that still overflows ends in `…` with one cell of gap before the next column.
 - **Durations** — event, summary and run durations are the API's milliseconds; an execution summary without a duration (the server only times the runs it launched itself) shows `completedAt − startedAt`.
-- **Dataset list** — the recursive listing shows a function task's subtree as one leaf at `.tasks.<name>` (the output's type / hash / size) and walks a custom task's, so its output is listed at `.tasks.<name>.output`; the OUTPUT / SIZE columns resolve either spelling.
+- **Dataset list** — the recursive listing shows a task's subtree as one leaf at `.tasks.<name>` (the output's type / hash / size), while the status names the output `.tasks.<name>.output`; the OUTPUT / SIZE columns resolve either spelling.
 - **Repositories** — LAST DEPLOY is fetched lazily per repository (its workspace list + deployed state), not from a single endpoint.
 - **Mouse** — completion rows are clickable too; the connection pill runs `/refresh`, the running pill prefills `/stop`, the dirty pill `/apply`.
 - **Terminal notes (§13)** — tmux needs `set -g mouse on`; without reporting most terminals turn the wheel into arrow keys on the alternate screen, so wheel scrolling works anyway; `TERM=dumb` and a non-TTY stdout keep the enable sequence unwritten.

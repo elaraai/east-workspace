@@ -41,20 +41,24 @@ export {
 
 // Task definitions
 export {
+  TASK_OBJECT_KIND,
   TaskObjectType,
   type TaskObject,
   decodeTaskObject,
-  TASK_KIND_PARTITION,
-  TASK_KIND_STREAM,
-  TASK_KIND_MERGE,
-  PartitionTaskMetadataType,
-  type PartitionTaskMetadata,
-  encodePartitionTaskMetadata,
-  decodePartitionTaskMetadata,
-  StreamTaskMetadataType,
-  type StreamTaskMetadata,
-  encodeStreamTaskMetadata,
-  decodeStreamTaskMetadata,
+  TaskBodyType,
+  type TaskBody,
+  TaskPartitionType,
+  type TaskPartition,
+  TaskInputType,
+  type TaskInput,
+  TaskOutputKindType,
+  type TaskOutputKind,
+  TaskOutputType,
+  type TaskOutput,
+  DataManifestType,
+  type DataManifest,
+  TaskRoleType,
+  type TaskRole,
   PartitionPlanType,
   MergeRangePlanType,
   type PartitionPlan,
@@ -201,6 +205,7 @@ export {
 export {
   ExecutionStatusType,
   type ExecutionStatus,
+  decodeExecutionStatus,
   type ExecutionOwner,
 } from './execution.js';
 

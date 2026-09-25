@@ -14,6 +14,7 @@
  * - For success: output hash and timing
  * - For failed: exit code and timing
  * - For error: internal error message and timing
+ * - For cancelled and interrupted: how e3, not the task, ended it
  */
 
 import {
@@ -24,79 +25,157 @@ import {
   IntegerType,
   DateTimeType,
   ValueTypeOf,
+  decodeBeast2For,
+  variant,
 } from '@elaraai/east';
+
+/** A running execution's process identification. */
+const RunningStatusType = StructType({
+  /** Unique execution ID (UUIDv7) */
+  executionId: StringType,
+  /** Input dataset hashes */
+  inputHashes: ArrayType(StringType),
+  /** When execution started */
+  startedAt: DateTimeType,
+  /** Process ID of the runner */
+  pid: IntegerType,
+  /** Process start time in jiffies since boot (from /proc/<pid>/stat field 22) */
+  pidStartTime: IntegerType,
+  /** System boot ID (from /proc/sys/kernel/random/boot_id) */
+  bootId: StringType,
+});
+
+const SuccessStatusType = StructType({
+  /** Unique execution ID (UUIDv7) */
+  executionId: StringType,
+  /** Input dataset hashes */
+  inputHashes: ArrayType(StringType),
+  /** Hash of the output dataset */
+  outputHash: StringType,
+  /** When execution started */
+  startedAt: DateTimeType,
+  /** When execution completed */
+  completedAt: DateTimeType,
+});
+
+const FailedStatusType = StructType({
+  /** Unique execution ID (UUIDv7) */
+  executionId: StringType,
+  /** Input dataset hashes */
+  inputHashes: ArrayType(StringType),
+  /** When execution started */
+  startedAt: DateTimeType,
+  /** When execution completed */
+  completedAt: DateTimeType,
+  /** Process exit code */
+  exitCode: IntegerType,
+});
+
+const ErrorStatusType = StructType({
+  /** Unique execution ID (UUIDv7) */
+  executionId: StringType,
+  /** Input dataset hashes */
+  inputHashes: ArrayType(StringType),
+  /** When execution started */
+  startedAt: DateTimeType,
+  /** When execution completed */
+  completedAt: DateTimeType,
+  /** Error message describing what went wrong */
+  message: StringType,
+});
 
 /**
  * Execution status stored in executions/<taskHash>/<inputsHash>/status.beast2
- *
- * A variant type representing the four possible states of an execution:
  *
  * - `running`: Task has been launched but not yet completed
  * - `success`: Task ran and returned exit code 0
  * - `failed`: Task ran and returned non-zero exit code
  * - `error`: e3 execution engine had an internal error (runner not found, output missing, etc.)
+ * - `cancelled`: e3 stopped the execution because the run was aborted, before
+ *   its runner started or while it ran — not the task's own failure
+ * - `interrupted`: the orchestrator that owned the execution exited before it
+ *   finished, and its runner is gone too, so nothing will write its outcome
  *
  * The `running` state includes process identification fields (pid, pidStartTime, bootId)
  * to enable detection of crashed executions. See design/e3-execution.md for details.
+ *
+ * Stored state: read it with {@link decodeExecutionStatus}, which also reads
+ * the records written before `cancelled` and `interrupted` existed.
  */
 export const ExecutionStatusType = VariantType({
-  /** Task has been launched but not yet completed */
-  running: StructType({
+  running: RunningStatusType,
+  success: SuccessStatusType,
+  failed: FailedStatusType,
+  error: ErrorStatusType,
+  cancelled: StructType({
     /** Unique execution ID (UUIDv7) */
     executionId: StringType,
     /** Input dataset hashes */
     inputHashes: ArrayType(StringType),
     /** When execution started */
     startedAt: DateTimeType,
-    /** Process ID of the runner */
+    /** When e3 stopped it */
+    completedAt: DateTimeType,
+  }),
+  interrupted: StructType({
+    /** Unique execution ID (UUIDv7) */
+    executionId: StringType,
+    /** Input dataset hashes */
+    inputHashes: ArrayType(StringType),
+    /** When execution started */
+    startedAt: DateTimeType,
+    /** When the interruption was found */
+    completedAt: DateTimeType,
+    /** Process ID the runner had */
     pid: IntegerType,
-    /** Process start time in jiffies since boot (from /proc/<pid>/stat field 22) */
-    pidStartTime: IntegerType,
-    /** System boot ID (from /proc/sys/kernel/random/boot_id) */
-    bootId: StringType,
-  }),
-  /** Task ran and returned exit code 0 */
-  success: StructType({
-    /** Unique execution ID (UUIDv7) */
-    executionId: StringType,
-    /** Input dataset hashes */
-    inputHashes: ArrayType(StringType),
-    /** Hash of the output dataset */
-    outputHash: StringType,
-    /** When execution started */
-    startedAt: DateTimeType,
-    /** When execution completed */
-    completedAt: DateTimeType,
-  }),
-  /** Task ran and returned non-zero exit code */
-  failed: StructType({
-    /** Unique execution ID (UUIDv7) */
-    executionId: StringType,
-    /** Input dataset hashes */
-    inputHashes: ArrayType(StringType),
-    /** When execution started */
-    startedAt: DateTimeType,
-    /** When execution completed */
-    completedAt: DateTimeType,
-    /** Process exit code */
-    exitCode: IntegerType,
-  }),
-  /** e3 execution engine had an internal error */
-  error: StructType({
-    /** Unique execution ID (UUIDv7) */
-    executionId: StringType,
-    /** Input dataset hashes */
-    inputHashes: ArrayType(StringType),
-    /** When execution started */
-    startedAt: DateTimeType,
-    /** When execution completed */
-    completedAt: DateTimeType,
-    /** Error message describing what went wrong */
-    message: StringType,
   }),
 });
 
 export type ExecutionStatus = ValueTypeOf<typeof ExecutionStatusType>;
+
+/** The status wire before `cancelled` and `interrupted` were cases of it: an
+ *  `error` whose message began `cancelled:` or `interrupted:` said which. */
+const PreOutcomeExecutionStatusType = VariantType({
+  running: RunningStatusType,
+  success: SuccessStatusType,
+  failed: FailedStatusType,
+  error: ErrorStatusType,
+});
+
+const decodeCurrentStatus = decodeBeast2For(ExecutionStatusType);
+const decodePreOutcomeStatus = decodeBeast2For(PreOutcomeExecutionStatusType);
+
+/**
+ * Decode an execution status, of any released form.
+ *
+ * @remarks
+ * A record written before `cancelled` and `interrupted` were cases is an
+ * `error` whose message said which, and reads back as that case, so a history
+ * reads the same whichever e3 wrote it.
+ *
+ * @param data - the stored bytes
+ * @returns the status
+ * @throws {Error} When the bytes are no known status shape — the current
+ *   format's error.
+ */
+export function decodeExecutionStatus(data: Uint8Array): ExecutionStatus {
+  try {
+    return decodeCurrentStatus(data);
+  } catch (err) {
+    let legacy: ValueTypeOf<typeof PreOutcomeExecutionStatusType>;
+    try {
+      legacy = decodePreOutcomeStatus(data);
+    } catch {
+      throw err;
+    }
+    if (legacy.type !== 'error') return legacy;
+    const { message, ...stopped } = legacy.value;
+    if (message.startsWith('cancelled: ')) return variant('cancelled', stopped);
+    const interrupted = /^interrupted: .*\(runner pid (-?\d+)\)$/.exec(message);
+    if (interrupted !== null) return variant('interrupted', { ...stopped, pid: BigInt(interrupted[1]!) });
+    return legacy;
+  }
+}
 
 /**
  * The orchestrator process that launched an execution (issue #770).

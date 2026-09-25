@@ -6,21 +6,20 @@
 /**
  * Stopped executions, end to end (issue #770, gate (c)).
  *
- * - Ctrl-C during a partition: the partition and the partitioned task are
- *   recorded `error` with `cancelled:`, the partition's stderr log ends with
- *   the `e3:` line, `e3 dataflow run` prints `[CANCELLED]`, and the next run
- *   executes.
+ * - Ctrl-C while the task runs: its execution is recorded `cancelled`, its
+ *   stderr log ends with the `e3:` line, `e3 dataflow run` prints
+ *   `[CANCELLED]`, and the next run executes.
  * - The same through `LocalOrchestrator.cancel()`.
- * - `kill -9` of e3 during a partition: the runner exits with it (the stdin
+ * - `kill -9` of e3 while the task runs: the runner exits with it (the stdin
  *   lifeline), the next run sweeps the scratch directory the killed run left
- *   behind, and the stopped partition is recorded `interrupted:` — under one
- *   partition at a time, and under `--jobs 4` with every partition's runner
- *   running, on east-node and, when on PATH, on east-c.
+ *   behind, and the stopped execution is recorded `interrupted`, naming its
+ *   runner's pid — on east-node and, when on PATH, on east-c.
  *
- * The partitioned task runs on east-node, e3's default runner, unless a case
- * says otherwise. Its body marks that it runs and then spins while a hold
- * file exists, so each case stops a partition mid-computation, and a run with
- * the same inputs completes once the hold file is gone.
+ * The task reads its input through `e3.partition`, and runs on east-node, e3's
+ * default runner, unless a case says otherwise. Its body marks that it runs
+ * and then spins while a hold file exists, so each case stops it
+ * mid-computation, and a run with the same inputs completes once the hold file
+ * is gone.
  *
  * On Windows a runner's record names cmd.exe running the pnpm shim, which dies
  * with e3's job object whatever the runner does, so the kill cases wait for
@@ -45,15 +44,13 @@ import {
   readDatasetWhole,
   workspaceGetDatasetHash,
   workspaceGetTaskHash,
-  workspaceStatus,
   type TaskCompletedCallback,
 } from '@elaraai/e3-core';
 import { encodeInSegmentsOf } from '@elaraai/e3-core/test';
 import { createTestDir, processTree, removeTestDir, runE3Command, spawnE3Command, waitFor } from './helpers.js';
 
 const TableType = DictType(IntegerType, StringType);
-const CANCELLED_TASK = 'cancelled: e3 stopped the partitioned run because the run was aborted';
-const CANCELLED_UNIT = 'cancelled: e3 stopped the runner because the run was aborted';
+const CANCELLED = 'cancelled: e3 stopped the runner because the run was aborted';
 
 /** Whether a process with this pid exists. */
 function alive(pid: number): boolean {
@@ -103,22 +100,21 @@ describe('stopped executions', () => {
     table = new SortedMap(Array.from({ length: 3_600 }, (_, i) => [BigInt(i), `row-${i}`] as [bigint, string]), compareFor(IntegerType));
   });
 
-  /** Deploys the held task on `runner`: 3,600 rows are stored in four
-   *  segments, the cut rule's whatever the delivery's, which make four
-   *  partitions — one runs at a time under --jobs 1, all four under 4. */
+  /** Deploys the held task on `runner`, over a table of 3,600 rows. */
   async function deploy(runner: Runner): Promise<void> {
     const tableInput = e3.input('table', TableType);
-    const held = e3.partitionTask('held', {
-      partitions: [tableInput],
-      output: TableType,
-      targetPartitionBytes: 1,
+    const held = e3.streamTask('held', {
+      inputs: [e3.partition(tableInput)],
+      output: e3.output.dict(IntegerType, StringType),
       runner,
-    }, ($, slice) => {
+    }, ($, table, emit) => {
       const startedPath = $.const(started);
       const holdPath = $.const(hold);
       $(FileSystem.writeFile(startedPath, 'running'));
       $.while(FileSystem.exists(holdPath), (_$) => { });
-      return slice;
+      $.for(table, ($, value, key) => {
+        $(emit(key, value));
+      });
     });
     const zip = join(dir, 'held.zip');
     await e3.export(e3.package('held', '1.0.0', held), zip);
@@ -141,25 +137,15 @@ describe('stopped executions', () => {
     removeTestDir(dir);
   });
 
-  /** The partitioned task and its first partition are recorded cancelled,
-   *  and the partition's stderr log ends with the `e3:` line. */
+  /** The task's execution is recorded cancelled, and its stderr log ends
+   *  with the `e3:` line. */
   async function assertCancelled(): Promise<void> {
-    const status = await workspaceStatus(storage, repo, 'ws');
-    const task = status.tasks.find((t) => t.name === 'held');
-    assert.equal(task?.status.type === 'error' ? task.status.message : JSON.stringify(task?.status), CANCELLED_TASK);
-
-    // The partitioned task's log names the partition that was stopped.
+    const taskHash = await workspaceGetTaskHash(storage, repo, 'ws', 'held');
+    const records = await storage.refs.executionListLatest(repo, taskHash);
+    assert.deepEqual(records.map(({ status }) => status.type), ['cancelled']);
     const logs = await runE3Command(['task', 'logs', repo, 'ws.held', '--all'], dir);
     assert.equal(logs.exitCode, 0, logs.stderr);
-    const line = /^partition 1\/4 cancelled task=([0-9a-f]{64}) inputs=([0-9a-f]{64}) execution=(\S+) duration=\d+$/m.exec(logs.stdout);
-    assert.ok(line, `the partitioned task's log names the stopped partition:\n${logs.stdout}`);
-    const [, taskHash, inputsHash, executionId] = line;
-
-    const unit = await storage.refs.executionGet(repo, taskHash!, inputsHash!, executionId!);
-    assert.equal(unit?.type === 'error' ? unit.value.message : unit?.type, CANCELLED_UNIT);
-    const unitLogs = await runE3Command(['task', 'logs', repo, '--execution', `${taskHash}/${inputsHash}/${executionId}`, '--all'], dir);
-    assert.equal(unitLogs.exitCode, 0, unitLogs.stderr);
-    assert.match(unitLogs.stdout, new RegExp(`=== STDERR ===\\n(.*\\n)*e3: ${CANCELLED_UNIT}\\n?$`));
+    assert.match(logs.stdout, new RegExp(`=== STDERR ===\\n(.*\\n)*e3: ${CANCELLED}\\n?$`));
   }
 
   /** With the hold file gone, a run with the same inputs executes the task
@@ -174,7 +160,7 @@ describe('stopped executions', () => {
     assert.ok(equalFor(TableType)(decodeBeast2For(TableType)(await readDatasetWhole(storage, repo, hash)), table));
   }
 
-  it('Ctrl-C during a partition records the partition and the task cancelled, prints [CANCELLED], and the next run executes', {
+  it('Ctrl-C while the task runs records it cancelled, prints [CANCELLED], and the next run executes', {
     skip: process.platform === 'win32' ? 'a test cannot deliver Ctrl-C on Windows: process.kill ends the CLI outright' : false,
   }, async () => {
     await deploy(EAST_NODE);
@@ -191,7 +177,7 @@ describe('stopped executions', () => {
     await assertNextRunExecutes();
   });
 
-  it('LocalOrchestrator.cancel() during a partition records the same, and the next run executes', async () => {
+  it('LocalOrchestrator.cancel() while the task runs records the same, and the next run executes', async () => {
     await deploy(EAST_NODE);
     writeFileSync(hold, '');
     const orchestrator = new LocalOrchestrator(new InMemoryStateStore());
@@ -210,20 +196,20 @@ describe('stopped executions', () => {
     await assertNextRunExecutes();
   });
 
-  /** kill -9 of e3 with `concurrency` partitions running on `runner`: every
-   *  running partition's runner exits with e3, the next run sweeps every
-   *  scratch directory the killed run left behind, and every stopped
-   *  partition is recorded `interrupted:`. */
-  async function assertKillMinusNine(runner: Runner, concurrency: number): Promise<void> {
+  /** kill -9 of e3 while the task runs on `runner`: its runner exits with
+   *  e3, the next run sweeps the scratch directory the killed run left
+   *  behind, and the stopped execution is recorded `interrupted`, naming its
+   *  runner. */
+  async function assertKillMinusNine(runner: Runner): Promise<void> {
     await deploy(runner);
     const scratch = join(dir, 'scratch');
     mkdirSync(scratch);
     const env = { E3_SCRATCH_DIR: scratch };
     writeFileSync(hold, '');
-    const run = spawnE3Command(['dataflow', 'run', repo, 'ws', '--jobs', String(concurrency)], dir, { env });
+    const run = spawnE3Command(['dataflow', 'run', repo, 'ws'], dir, { env });
     await waitFor(() => existsSync(started), 30_000);
 
-    // Every running partition's record names its runner.
+    // The running record names the runner.
     const taskHash = await workspaceGetTaskHash(storage, repo, 'ws', 'held');
     const units = new Map<string, { inputsHash: string; executionId: string; pid: number }>();
     await waitFor(async () => {
@@ -232,42 +218,32 @@ describe('stopped executions', () => {
           units.set(inputsHash, { inputsHash, executionId: status.value.executionId, pid: Number(status.value.pid) });
         }
       }
-      return units.size === concurrency;
+      return units.size === 1;
     }, 30_000);
-    await waitFor(() => readdirSync(scratch).filter((name) => name.startsWith('e3-exec-')).length === concurrency, 30_000);
+    await waitFor(() => readdirSync(scratch).filter((name) => name.startsWith('e3-exec-')).length === 1, 30_000);
     const leftBehind = readdirSync(scratch).filter((name) => name.startsWith('e3-exec-'));
-    assert.equal(leftBehind.length, concurrency, `${concurrency} partition(s) run: ${leftBehind.join(', ')}`);
+    const [unit] = [...units.values()];
 
-    // Every process of each runner's tree: on Windows the shim and the runner.
-    const trees = [...units.values()].map((unit) => processTree(unit.pid));
+    // Every process of the runner's tree: on Windows the shim and the runner.
+    const tree = processTree(unit!.pid);
     run.kill('SIGKILL');
     await run.result;
-    for (const tree of trees) {
-      for (const pid of tree) {
-        assert.ok(await exitsWithin(pid, 10_000), `runner process ${pid} (of ${tree.join(', ')}) outlived the killed e3 by 10 s`);
-      }
+    for (const pid of tree) {
+      assert.ok(await exitsWithin(pid, 10_000), `runner process ${pid} (of ${tree.join(', ')}) outlived the killed e3 by 10 s`);
     }
-    for (const name of leftBehind) assert.ok(existsSync(join(scratch, name)), 'the killed run left its scratch directories behind');
+    for (const name of leftBehind) assert.ok(existsSync(join(scratch, name)), 'the killed run left its scratch directory behind');
 
     await assertNextRunExecutes(env);
     for (const name of leftBehind) assert.ok(!existsSync(join(scratch, name)), `the next run swept ${name}`);
-    for (const unit of units.values()) {
-      const stopped = await storage.refs.executionGet(repo, taskHash, unit.inputsHash, unit.executionId);
-      assert.match(
-        stopped?.type === 'error' ? stopped.value.message : String(stopped?.type),
-        new RegExp(`^interrupted: the orchestrator exited before this execution finished \\(runner pid ${unit.pid}\\)$`),
-      );
-    }
+    const stopped = await storage.refs.executionGet(repo, taskHash, unit!.inputsHash, unit!.executionId);
+    assert.ok(stopped?.type === 'interrupted', `the stopped execution is recorded ${stopped?.type}`);
+    assert.equal(stopped.value.pid, BigInt(unit!.pid));
   }
 
-  it('kill -9 of e3 during a partition: its runner exits, and the next run sweeps the scratch directory and records the partition interrupted', async () => {
-    await assertKillMinusNine(EAST_NODE, 1);
-  });
-
   for (const { name, runner, available } of KILL_RUNNERS) {
-    it(`kill -9 of e3 with four partitions running on ${name}: every runner exits, and the next run sweeps every scratch directory and records each partition interrupted`,
+    it(`kill -9 of e3 while the task runs on ${name}: its runner exits, and the next run sweeps the scratch directory and records the execution interrupted`,
       { skip: available ? false : `${name} not on PATH` }, async () => {
-        await assertKillMinusNine(runner, 4);
+        await assertKillMinusNine(runner);
       });
   }
 });

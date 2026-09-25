@@ -17,7 +17,6 @@ import yazl from 'yazl';
 import { decodeBeast2For, encodeBeast2For } from '@elaraai/east';
 import {
   DataflowRunType,
-  ExecutionStatusType,
   DatasetRefType,
   EnvironmentSpecType,
   RecordIndexObjectType,
@@ -25,6 +24,7 @@ import {
   decodeFunctionObject,
   decodeMutationObject,
   decodePackageObject,
+  decodeExecutionStatus,
   decodeRecordObject,
   decodeTaskObject,
 } from '@elaraai/e3-types';
@@ -96,12 +96,10 @@ export async function packageImport(
       return;
     }
 
-    // Write status first
+    // Write status first, in the current form whichever form it was exported in
     const statusData = currentExecFiles.get('status.beast2');
     if (statusData) {
-      const statusDecoder = decodeBeast2For(ExecutionStatusType);
-      const status = statusDecoder(statusData);
-      await storage.refs.executionWrite(repo, taskHash, inputsHash, executionId, status);
+      await storage.refs.executionWrite(repo, taskHash, inputsHash, executionId, decodeExecutionStatus(statusData));
     }
 
     // Write logs
@@ -356,10 +354,12 @@ const DETERMINISTIC_MTIME = new Date(0);
  * Visits every object a package consists of, each once.
  *
  * @remarks
- * The package object, then what it names: each task and function with its IR
- * and environment, each record with its mutations and index declarations, and
- * the stored value of each dataset ref. A value is more than the object its
- * ref names. A collection held as a segment manifest is the manifest, its
+ * The package object, then what it names: each task with its program or
+ * command, the functions and value its output folds with, and its
+ * environment; each function with its IR and environment; each record with its
+ * mutations and index declarations; and the stored value of each dataset ref.
+ * A value is more than the object its ref names. A collection held as a
+ * segment manifest is the manifest, its
  * header and every segment, and an indexed record's ref names a `$record`
  * state over the primary's manifest and one per index, each index built under
  * a declaration of its own. An export that stopped at the named object would
@@ -426,8 +426,15 @@ export async function walkPackageObjects(
   for (const taskHash of pkg.tasks.values()) {
     await add(taskHash);
     const task = decodeTaskObject(await storage.objects.read(repo, taskHash));
-    await add(task.commandIr);
-    await addNamedIn(task.commandIr);
+    const body = task.body.type === 'east' ? task.body.value.program : task.body.value.commandIr;
+    await add(body);
+    await addNamedIn(body);
+    const kind = task.output.kind;
+    if (kind.type === 'dict' && kind.value.merge.type === 'some') await add(kind.value.merge.value);
+    if (kind.type === 'fold') {
+      await add(kind.value.zero);
+      await add(kind.value.combine);
+    }
     if (task.environment.type === 'some') await addEnvironment(task.environment.value);
   }
 

@@ -101,6 +101,8 @@ export function historyStatusCell(status: ExecutionHistoryStatus['type'], g: Gly
         case 'success': return { glyph: g.dot, tone: 'pos', word: 'success', detail: '' };
         case 'failed': return { glyph: g.cross, tone: 'neg', word: 'failed', detail: '' };
         case 'error': return { glyph: g.half, tone: 'warn', word: 'error', detail: '' };
+        case 'cancelled': return { glyph: g.square, tone: 'warn', word: 'cancelled', detail: '' };
+        case 'interrupted': return { glyph: g.half, tone: 'warn', word: 'interrupted', detail: '' };
     }
 }
 

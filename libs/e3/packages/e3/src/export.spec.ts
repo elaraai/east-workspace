@@ -10,11 +10,12 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import yazl from 'yazl';
 import yauzl from 'yauzl';
-import { East, DictType, IntegerType, StringType, SEGMENT_RULE_KEYED, beast2HasIndex, decodeBeast2For, encodeBeast2For, encodeBeast2PagedFor, openBeast2PagesFor, variant } from '@elaraai/east';
-import { PackageObjectType, DatasetRefType, EnvironmentSpecType, decodeCollectionManifest, decodePackageObject, decodeTaskObject, decodeFunctionObject, manifestElementCount } from '@elaraai/e3-types';
+import { East, DictType, FloatType, IntegerType, StringType, StructType, SEGMENT_RULE_KEYED, beast2HasIndex, decodeBeast2For, decodeEastIR, encodeBeast2For, encodeBeast2PagedFor, none, openBeast2PagesFor, some, variant } from '@elaraai/east';
+import { PackageObjectType, DatasetRefType, EnvironmentSpecType, TASK_OBJECT_KIND, decodeCollectionManifest, decodePackageObject, decodeTaskObject, decodeFunctionObject, manifestElementCount, type TaskObject } from '@elaraai/e3-types';
 import { addObject, export_ } from './export.js';
 import { package_ } from './package.js';
-import { task } from './task.js';
+import { customTask, partition, streamTask, task } from './task.js';
+import { output } from './output.js';
 import { function_ } from './function.js';
 import { input } from './input.js';
 
@@ -513,5 +514,110 @@ describe('path-initialised inputs (source variants)', () => {
     const ref = decodeBeast2For(DatasetRefType)(entries.get('data/inputs/inline.ref')!);
     assert.strictEqual(ref.type, 'value');
     assert.strictEqual((await packageObjectOf(zipPath, 'value-src')).sources.size, 0);
+  });
+});
+
+describe('the typed task object', () => {
+  let tempDir: string;
+  const SaleKeyType = StructType({ sku: StringType, period: IntegerType });
+
+  before(async () => {
+    tempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'e3-export-tasks-'));
+  });
+  after(async () => {
+    await fs.promises.rm(tempDir, { recursive: true });
+  });
+
+  /** Exports `items` and returns each task's object, and a reader of the bundle's objects. */
+  async function exported(name: string, ...items: Parameters<typeof package_>[2][]) {
+    const zipPath = path.join(tempDir, `${name}.zip`);
+    await export_(package_(name, '1.0.0', ...items), zipPath);
+    const entries = await readZip(zipPath);
+    const object = (hash: string): Uint8Array => {
+      const bytes = entries.get(`objects/${hash.slice(0, 2)}/${hash.slice(2)}.beast2`);
+      assert.ok(bytes, `missing object ${hash}`);
+      return new Uint8Array(bytes);
+    };
+    const pkg = decodePackageObject(object(entries.get(`packages/${name}/1.0.0`)!.toString().trim()));
+    const tasks = new Map<string, TaskObject>([...pkg.tasks].map(([task, hash]) => [task, decodeTaskObject(object(hash))]));
+    return { pkg, tasks, object };
+  }
+
+  it('names a task\'s program, and its inputs are the datasets alone', async () => {
+    const greeting = input('greeting', StringType, variant('value', 'hi'));
+    const shout = task('shout', [greeting], East.function([StringType], StringType, ($, g) => g.upperCase()));
+    const { pkg, tasks, object } = await exported('program-pkg', shout);
+
+    const shoutObject = tasks.get('shout')!;
+    assert.strictEqual(shoutObject.kind, TASK_OBJECT_KIND);
+    assert.deepStrictEqual(shoutObject.inputs, [{ path: greeting.path, partition: none }]);
+    assert.deepStrictEqual(shoutObject.output, { path: shout.output.path, kind: variant('value', null) });
+    assert.deepStrictEqual(shoutObject.role, variant('data', null));
+    assert.deepStrictEqual(shoutObject.runner, variant('east_node', { platforms: ['@elaraai/east-node-std'] }));
+    assert.strictEqual(shoutObject.body.type, 'east');
+    const program = decodeEastIR(object((shoutObject.body.value as { program: string }).program));
+    assert.strictEqual(program.compile([])('hi'), 'HI');
+
+    // The task's subtree holds its output and nothing else.
+    const root = pkg.data.structure.value as Map<string, { value: Map<string, { value: Map<string, unknown> }> }>;
+    assert.deepStrictEqual([...root.get('tasks')!.value.get('shout')!.value.keys()], ['output']);
+  });
+
+  it('writes a stream task\'s partitioned inputs, and the merge its dict output folds with', async () => {
+    const sales = input('sales', DictType(SaleKeyType, IntegerType));
+    const rates = input('rates', FloatType, variant('value', 1.0));
+    const totals = streamTask('totals', {
+      inputs: [partition(sales, { by: ['sku'] }), rates],
+      output: output.dict(StringType, FloatType, { merge: (_$, _sku, a, b) => a.add(b) }),
+    }, ($, sales, rate, emit) => {
+      $.for(sales, ($, qty, key) => {
+        $(emit(key.sku, qty.toFloat().multiply(rate)));
+      });
+    });
+    const { tasks, object } = await exported('stream-pkg', totals);
+
+    const totalsObject = tasks.get('totals')!;
+    assert.deepStrictEqual(totalsObject.inputs, [
+      { path: sales.path, partition: some({ by: ['sku'] }) },
+      { path: rates.path, partition: none },
+    ]);
+    const kind = totalsObject.output.kind;
+    assert.strictEqual(kind.type, 'dict');
+    const merge = (kind.value as { merge: { type: string; value: string } }).merge;
+    assert.strictEqual(merge.type, 'some');
+    assert.strictEqual(decodeEastIR(object(merge.value)).compile([])('a', 1.5, 2.0), 3.5);
+  });
+
+  it('writes a fold\'s zero as a value and its combine as a program', async () => {
+    const amounts = input('amounts', DictType(StringType, IntegerType));
+    const total = streamTask('total', {
+      inputs: [partition(amounts)],
+      output: output.fold(IntegerType, { zero: 0n, combine: (_$, a, b) => a.add(b) }),
+    }, ($, amounts, emit) => {
+      $.for(amounts, ($, amount) => { $(emit(amount)); });
+    });
+    const { tasks, object } = await exported('fold-pkg', total);
+
+    const kind = tasks.get('total')!.output.kind;
+    assert.strictEqual(kind.type, 'fold');
+    const { zero, combine } = kind.value as { zero: string; combine: string };
+    assert.strictEqual(decodeBeast2For(IntegerType)(object(zero)), 0n);
+    assert.strictEqual(decodeEastIR(object(combine)).compile([])(2n, 3n), 5n);
+  });
+
+  it('writes a custom task\'s command, on the custom runtime with no command of its own, and a UI task\'s role', async () => {
+    const greeting = input('greeting', StringType, variant('value', 'hi'));
+    const copy = customTask('copy', [greeting], StringType, (_$, inputs, out) => East.str`cp ${inputs.get(0n)} ${out}`);
+    const role = variant('ui', { paths: [greeting.path], functions: ['forecast'], records: [], pages: [] });
+    const view = task('view', [greeting], East.function([StringType], StringType, ($, g) => g), { role });
+    const { tasks, object } = await exported('custom-pkg', copy, view);
+
+    const copyObject = tasks.get('copy')!;
+    assert.deepStrictEqual(copyObject.runner, variant('custom', { command: [] }));
+    assert.strictEqual(copyObject.body.type, 'command');
+    const command = decodeEastIR(object((copyObject.body.value as { commandIr: string }).commandIr));
+    assert.deepStrictEqual(command.compile([])(['in.beast2'], 'out.beast2'), ['bash', '-c', 'cp in.beast2 out.beast2']);
+
+    assert.deepStrictEqual(tasks.get('view')!.role, role);
   });
 });

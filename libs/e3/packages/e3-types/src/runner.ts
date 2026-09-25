@@ -23,12 +23,12 @@ import { VariantType, StructType, ArrayType, StringType, ValueTypeOf } from '@el
  * (symmetric: both carry `runner: RunnerType`).
  *
  * The known-runtime tags name a runtime binary; `platforms` are passed as
- * `-p` flags. `custom` carries a raw argv prefix: for functions it is the
- * executed command (the standard `-i/-o/<ir>` suffix is appended, so the
- * command must speak the runner CLI convention); for tasks it is routing
- * metadata only — a task's `commandIr` remains authoritative for execution.
- * Package authors can already execute arbitrary commands via custom tasks,
- * so `custom` grants no capability that tasks don't have.
+ * `-p` flags. `custom` carries a raw argv prefix, the executed command: the
+ * standard `-i/-o/<ir>` suffix is appended, so the command must speak the
+ * runner CLI convention — for a function, and for a task whose body is an
+ * East program. A custom task's body is its own command, and its runner's
+ * prefix is empty. Package authors can already execute arbitrary commands via
+ * custom tasks, so `custom` grants no capability that tasks don't have.
  */
 export const RunnerType = VariantType({
   east_node: StructType({ platforms: ArrayType(StringType) }),
@@ -46,8 +46,7 @@ function flags(platforms: string[]): string[] {
 
 /**
  * Resolve a {@link RunnerType} value to the argv prefix of one of its
- * commands (the wire-value analogue of the SDK's `runnerToCommand`): `run`,
- * the default — `[<bin>, 'run', -p…]` — or `merge`, the blob merge every
+ * commands: `run`, the default — `[<bin>, 'run', -p…]` — or `merge`, the blob merge every
  * stock runner ships — `[<bin>, 'merge', -p…]`, the fan-in of a partitioned
  * task's keyed partials (issue #770). Lives in e3-types so both e3-core
  * (local) and the cloud execution kernel import the one resolver.
@@ -103,11 +102,11 @@ export function runnerOpensManifests(r: RunnerValue): boolean {
  * accept `-v` among their options and print timing/perf detail to stderr; a
  * `custom` runner's argv is user-authored, so a flag is never spliced into
  * it. A known-runtime argv always starts `[<bin>, <command>, …]` (see
- * {@link runnerToArgv} and the SDK's `runnerToCommand`), so `-v` goes at
- * index 2 — ahead of the `-p`/`-i`/`-o` flags and the trailing IR path.
+ * {@link runnerToArgv}), so `-v` goes at index 2 — ahead of the
+ * `-p`/`-i`/`-o` flags and the trailing IR path.
  *
  * This is a pure **runtime** toggle: it is applied to the *evaluated* argv
- * immediately before spawn and never touches the task's `commandIr`, the
+ * immediately before spawn and never touches the task object, the
  * {@link RunnerType}, or any hash — so it cannot affect caching.
  *
  * @param runner - the runner the argv was built for (gates the injection)
@@ -129,8 +128,7 @@ export function withRunnerVerbose(runner: RunnerValue, args: string[], verbose?:
  * `custom` runner's argv is user-authored, so the flag is never spliced into
  * it, and it keeps an ignored stdin. Like {@link withRunnerVerbose} the flag
  * goes at index 2, after `[<bin>, <command>]`, and is a pure runtime toggle
- * applied just before spawn — never part of the task's `commandIr` or any
- * hash.
+ * applied just before spawn — never part of the task object or any hash.
  *
  * @param runner - the runner the argv was built for (gates the injection)
  * @param args - the fully-built argv

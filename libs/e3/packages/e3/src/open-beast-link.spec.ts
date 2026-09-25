@@ -22,8 +22,8 @@ import * as path from 'node:path';
 import yauzl from 'yauzl';
 import {
   East, DictType, FunctionType, IntegerType, StringType, StructType,
-  decodeBeast2For, decodeEastIR, walkIR, IMPORT_PLATFORM, variant } from '@elaraai/east';
-import { DatasetRefType } from '@elaraai/e3-types';
+  decodeEastIR, walkIR, IMPORT_PLATFORM, variant } from '@elaraai/east';
+import { decodePackageObject, decodeTaskObject } from '@elaraai/e3-types';
 import { export_ } from './export.js';
 import { package_ } from './package.js';
 import { task } from './task.js';
@@ -92,12 +92,14 @@ async function readZip(zipPath: string): Promise<Map<string, Buffer>> {
   });
 }
 
-/** The IR object a bundle holds for `data/<refPath>.ref`. */
-function irAt(entries: Map<string, Buffer>, refPath: string) {
-  const ref = decodeBeast2For(DatasetRefType)(new Uint8Array(entries.get(`data/${refPath}.ref`)!));
-  assert.strictEqual(ref.type, 'value');
-  const hash = (ref as any).value.hash as string;
-  return decodeEastIR(new Uint8Array(entries.get(`objects/${hash.slice(0, 2)}/${hash.slice(2)}.beast2`)!));
+/** The program the task object of a bundle's task `name` names. */
+function programOf(entries: Map<string, Buffer>, name: string) {
+  const object = (hash: string) => new Uint8Array(entries.get(`objects/${hash.slice(0, 2)}/${hash.slice(2)}.beast2`)!);
+  const pkgRef = [...entries.keys()].find((key) => key.startsWith('packages/'))!;
+  const pkg = decodePackageObject(object(entries.get(pkgRef)!.toString().trim()));
+  const task = decodeTaskObject(object(pkg.tasks.get(name)!));
+  assert.strictEqual(task.body.type, 'east');
+  return decodeEastIR(object((task.body.value as { program: string }).program));
 }
 
 const STOCK_RUNNERS: ReadonlyArray<Runner> = [
@@ -126,7 +128,7 @@ describe('FileSystem.openBeast links on every stock runner (#660)', () => {
       const zipPath = path.join(tempDir, `importer-${runner.runtime}.zip`);
       await export_(pkg, zipPath, { functions: [manifest] });
 
-      const bundle = irAt(await readZip(zipPath), 'tasks/sum_rows/function_ir');
+      const bundle = programOf(await readZip(zipPath), 'sum_rows');
       assert.strictEqual(countImports(bundle.ir), 0, 'the import resolved to embedded IR');
       assert.deepStrictEqual(genericPlatformCalls(bundle.ir), [{ name: 'fs_open_beast', typeParameters: 1 }]);
     });

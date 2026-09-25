@@ -107,7 +107,7 @@ describe('end-to-end workflow', () => {
           console.log(`  tree: ${item.name} at ${JSON.stringify(item.path)}`);
         } else if (item.kind === 'task') {
           console.log(`  task: ${item.name}`);
-          console.log(`    inputs: ${item.inputs.map(i => JSON.stringify(i.path)).join(', ')}`);
+          console.log(`    inputs: ${item.inputs.map(i => JSON.stringify(i.kind === 'partition' ? i.dataset.path : i.path)).join(', ')}`);
         }
       }
 
@@ -407,10 +407,10 @@ describe('end-to-end workflow', () => {
       await runE3Command(['workspace', 'deploy', repoDir, 'ws', 'status-test@1.0.0'], testDir);
 
       // After deploy, ref files should exist in workspaces/ws/data/ — the
-      // structure has inputs.x, tasks.double.output, tasks.double.function_ir
+      // structure has inputs.x and tasks.double.output
       const dataDir = join(repoDir, 'workspaces', 'ws', 'data');
       const refFiles = findRefFiles(dataDir);
-      assert.ok(refFiles.length >= 3, `Should have at least 3 ref files (input, output, function_ir), found ${refFiles.length}: ${refFiles.join(', ')}`);
+      assert.strictEqual(refFiles.length, 2, `Should have 2 ref files (input, output), found ${refFiles.length}: ${refFiles.join(', ')}`);
       assert.ok(existsSync(join(dataDir, 'inputs', 'x.ref')), 'Input ref file should exist after deploy');
 
       // Check input status — should show set with hash and size
@@ -562,7 +562,7 @@ describe('reactive caching — change one input, only its tasks recompute', () =
   // this is exercised in CI where `make link` puts east-node on PATH.)
   it('mutating a record re-runs the task that reads it; an independent task stays CACHED', async () => {
     const counter = e3.record('counter', IntegerType, 0n);
-    const inc = e3.mutation('inc', counter, East.function([IntegerType], IntegerType, ($, s) => s.add(1n)));
+    const inc = e3.mutation.reduce('inc', counter, East.function([IntegerType], IntegerType, ($, s) => s.add(1n)));
     const otherIn = e3.input('other_in', StringType, variant('value', 'x1'));
     // customTasks read their inputs directly; reads_counter depends on the record.
     const readsCounter = e3.customTask('reads_counter', [counter], IntegerType, (_$, inputs, output) => East.str`cp ${inputs.get(0n)} ${output}`);

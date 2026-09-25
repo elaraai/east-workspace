@@ -24,6 +24,7 @@ import { workspaceSetDataset } from '../trees.js';
 import { objectWrite } from '../storage/local/LocalObjectStore.js';
 import {
   PackageObjectType,
+  TASK_OBJECT_KIND,
   TaskObjectType,
 } from '@elaraai/e3-types';
 import type { StorageBackend } from '../storage/interfaces.js';
@@ -334,10 +335,13 @@ describe('stepDetectInputChanges', () => {
     for (const t of tasks) {
       const commandIrHash = await createCommandIr(repoPath, t.command);
       const taskObj = {
-        commandIr: commandIrHash,
-        inputs: t.inputs,
-        output: t.output,
-        kind: variant('none', null), metadata: variant('none', null), runner: variant('custom', { command: [] }), environment: variant('none', null),
+        kind: TASK_OBJECT_KIND,
+        body: variant('command', { commandIr: commandIrHash }),
+        runner: variant('custom', { command: [] }),
+        inputs: t.inputs.map((path) => ({ path, partition: none })),
+        output: { path: t.output, kind: variant('value', null) },
+        role: variant('data', null),
+        environment: none,
       };
       const taskHash = await objectWrite(repoPath, taskEncoder(taskObj));
       tasksMap.set(t.name, taskHash);

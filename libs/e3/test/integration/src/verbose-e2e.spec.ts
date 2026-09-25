@@ -7,10 +7,10 @@
  * `e3 dataflow run -v` end-to-end: the flag flows through the orchestrator to a
  * real runner, and it is cache-safe.
  *
- * `-v` is a pure runtime toggle (see `withRunnerVerbose` in e3-types): it
- * splices `-v` into a known runtime's argv immediately before spawn, AFTER the
- * cache decision, and never touches the task's `commandIr` or any hash. This
- * suite proves both halves through the actual CLI + orchestrator:
+ * `-v` is a pure runtime toggle: it adds `-v` to a known runtime's argv
+ * immediately before spawn, AFTER the cache decision, and never touches the
+ * task object or any hash. This suite proves both halves through the actual
+ * CLI + orchestrator:
  *
  *   1. cache-safety — a first run executes the task; a `-v` re-run reports
  *      `[CACHED]` (identical task hash + inputs ⇒ same cache key). `-v` did not
@@ -102,8 +102,9 @@ describe('e3 dataflow run -v (east-c)', () => {
 
       const verboseLogs = await logs();
       assert.strictEqual(verboseLogs.exitCode, 0, `logs failed: ${verboseLogs.stderr}`);
-      // The runner's canonical verbose block, captured by e3 into the task logs.
-      for (const re of [/^Running: /m, /^Timing:$/m, /^ {2}Execute: +\d+\.\d ms$/m, /^ {2}Peak RSS: +\d+\.\d MB$/m]) {
+      // The verbose block the runner's `exec` prints, captured by e3 into the
+      // task logs: `run`'s block, without its `Running:` line.
+      for (const re of [/^Timing:$/m, /^ {2}Execute: +\d+\.\d ms$/m, /^ {2}Peak RSS: +\d+\.\d MB$/m]) {
         assert.match(verboseLogs.stdout, re, `-v output must reach the task logs (${re}):\n${verboseLogs.stdout}`);
       }
     });

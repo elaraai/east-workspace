@@ -81,7 +81,7 @@ describe('workspaceStatus crash detection', () => {
     taskHash = pkgObject.tasks.get('double')!;
     const task = await workspaceGetTask(storage, repoPath, WS, 'double');
     const hashes: string[] = [];
-    for (const inputPath of task.inputs) {
+    for (const { path: inputPath } of task.inputs) {
       const { hash } = await workspaceGetDatasetHash(storage, repoPath, WS, inputPath);
       hashes.push(hash!);
     }

@@ -52,7 +52,7 @@ describe('compactCommand', () => {
     storage = new LocalStorage(dirname(repo));
 
     const counter = e3.record('counter', IntegerType, 0n);
-    const increment = e3.mutation(
+    const increment = e3.mutation.reduce(
       'increment', counter,
       East.function([IntegerType, IntegerType], IntegerType, ($, state, by) => state.add(by)),
     );

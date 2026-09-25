@@ -15,9 +15,10 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
 import { join } from 'node:path';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { variant, StringType, IntegerType, ArrayType, encodeBeast2For, decodeBeast2For, East, IRType } from '@elaraai/east';
+import { variant, none, StringType, IntegerType, ArrayType, encodeBeast2For, decodeBeast2For, East, IRType } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import {
+  TASK_OBJECT_KIND,
   TaskObjectType,
   PackageObjectType,
   type TreePath,
@@ -106,10 +107,13 @@ describe('dataflow orchestration with MockTaskRunner', () => {
     for (const t of tasks) {
       const commandIrHash = await createCommandIr(repoPath, t.command);
       const taskObj = {
-        commandIr: commandIrHash,
-        inputs: t.inputs,
-        output: t.output,
-        kind: variant('none', null), metadata: variant('none', null), runner: variant('custom', { command: [] }), environment: variant('none', null),
+        kind: TASK_OBJECT_KIND,
+        body: variant('command', { commandIr: commandIrHash }),
+        runner: variant('custom', { command: [] }),
+        inputs: t.inputs.map((path) => ({ path, partition: none })),
+        output: { path: t.output, kind: variant('value', null) },
+        role: variant('data', null),
+        environment: none,
       };
       const taskHash = await objectWrite(repoPath, taskEncoder(taskObj));
       tasksMap.set(t.name, taskHash);
@@ -2220,7 +2224,7 @@ describe('dataflow orchestration with MockTaskRunner', () => {
       const tempDir = createTempDir();
       try {
         const counter = e3.record('counter', IntegerType, 0n);
-        const increment = e3.mutation(
+        const increment = e3.mutation.reduce(
           'increment', counter,
           East.function([IntegerType, IntegerType], IntegerType, ($, state, by) => state.add(by)),
         );
@@ -2239,16 +2243,11 @@ describe('dataflow orchestration with MockTaskRunner', () => {
         const deployed = decodeBeast2For(PackageObjectType)(await storage.objects.read(testRepo, hash));
         const readerHash = deployed.tasks.get('reader')!;
 
-        // Capture the record state the reader is actually fed each run by decoding
-        // whichever input object is the IntegerType state (the runner is also fed
-        // the function IR, which is not an integer).
+        // Capture the record state the reader is fed each run: its one input.
         const seen: bigint[] = [];
         mockRunner.setResult(readerHash, async (inputHashes) => {
-          let state: bigint | undefined;
-          for (const h of inputHashes) {
-            try { state = decodeInt(await storage.objects.read(testRepo, h) as Uint8Array); break; } catch { /* not the state input */ }
-          }
-          seen.push(state!);
+          assert.strictEqual(inputHashes.length, 1);
+          seen.push(decodeInt(await storage.objects.read(testRepo, inputHashes[0]!) as Uint8Array));
           return { state: 'success' as const, cached: false, outputHash: `reader-v${seen.length}` };
         });
 

@@ -245,15 +245,15 @@ async function buildDependencyGraph(
     const taskData = await storage.objects.read(repo, taskHash);
     const task = taskDecoder(Buffer.from(taskData));
 
-    const outputPathStr = pathToString(task.output);
+    const outputPathStr = pathToString(task.output.path);
     outputToTask.set(outputPathStr, taskName);
 
     taskNodes.set(taskName, {
       name: taskName,
       hash: taskHash,
       task,
-      inputPaths: task.inputs,
-      outputPath: task.output,
+      inputPaths: task.inputs.map((input) => input.path),
+      outputPath: task.output.path,
       unresolvedCount: 0,
     });
   }

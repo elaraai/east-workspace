@@ -51,19 +51,19 @@ export async function createPackageZip(
 }
 
 /**
- * Create a package mixing task kinds for the list API (#341).
+ * Create a package mixing task roles for the list API.
  *
  * Creates a package with:
  * - Input: "value" (Integer, default 10)
- * - Task: "compute" - plain task (no kind)
- * - Task: "display" - kind "ui" (what e3-ui's `ui()` wrapper sets)
+ * - Task: "compute" - a data task
+ * - Task: "display" - a ui task (the role e3-ui's `ui()` wrapper sets)
  *
  * @param tempDir - Directory to write the zip file
  * @param name - Package name
  * @param version - Package version
  * @returns Path to the created zip file
  */
-export async function createKindsPackageZip(
+export async function createRolesPackageZip(
   tempDir: string,
   name: string,
   version: string
@@ -80,7 +80,7 @@ export async function createKindsPackageZip(
     'display',
     [input],
     East.function([IntegerType], StringType, ($, x) => East.print(x)),
-    { kind: 'ui' }
+    { role: variant('ui', { paths: [], functions: [], records: [], pages: [] }) }
   );
   const pkg = e3.package(name, version, compute, display);
 
@@ -157,12 +157,12 @@ export async function createRecordPackageZip(
   mkdirSync(tempDir, { recursive: true });
 
   const counter = e3.record('counter', IntegerType, 0n);
-  const increment = e3.mutation(
+  const increment = e3.mutation.reduce(
     'increment',
     counter,
     East.function([IntegerType, IntegerType], IntegerType, ($, state, by) => state.add(by))
   );
-  const addPositive = e3.mutation(
+  const addPositive = e3.mutation.reduce(
     'add_positive',
     counter,
     East.function([IntegerType, IntegerType], IntegerType, ($, state, by) =>
@@ -209,7 +209,7 @@ export async function createKeyedRecordPackageZip(
   mkdirSync(tempDir, { recursive: true });
 
   const plans = e3.record('plans', PlansType, new Map());
-  const seed = e3.mutation('seed', plans,
+  const seed = e3.mutation.reduce('seed', plans,
     East.function([PlansType, IntegerType], PlansType, ($, _state, rows) => {
       const out = $.let(new Map(), PlansType);
       $.for(East.Array.range(0n, rows), ($, i) => {
@@ -221,8 +221,8 @@ export async function createKeyedRecordPackageZip(
       });
       return out;
     }));
-  const retitle = e3.editMutation('retitle', plans,
-    East.function([PlansType, StringType, e3.editTypeOf(PlansType)], NullType, ($, state, key, edit) => {
+  const retitle = e3.mutation.edit('retitle', plans,
+    East.function([PlansType, StringType, e3.mutation.editType(PlansType)], NullType, ($, state, key, edit) => {
       const row = $.let(state.get(key));
       $(edit.set(key, { status: row.status, due: row.due, title: 'RETITLED' }));
     }));
@@ -231,7 +231,7 @@ export async function createKeyedRecordPackageZip(
       ($, _k, v) => ({ status: v.status, due: v.due })),
     value: East.function([StringType, PlanRowType], StringType, ($, _k, v) => v.title),
   });
-  const pkg = e3.package(name, version, plans, seed, retitle, e3.patchMutation(plans), byStatus);
+  const pkg = e3.package(name, version, plans, seed, retitle, e3.mutation.patch(plans), byStatus);
 
   const zipPath = join(tempDir, `${name}-${version}.zip`);
   await e3.export(pkg, zipPath);

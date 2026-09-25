@@ -33,10 +33,9 @@
  * @packageDocumentation
  */
 
-import { encodeBeast2For, encodeEastIR, none, some, type EastIR } from '@elaraai/east';
+import { encodeBeast2For, encodeEastIR, none, variant, type EastIR } from '@elaraai/east';
 import {
-  TASK_KIND_MERGE,
-  TASK_KIND_STREAM,
+  TASK_OBJECT_KIND,
   TaskObjectType,
   mergeCommandIr,
   streamCommandIr,
@@ -119,7 +118,7 @@ export async function executeRecordOperation(
   }
   const concurrency = Math.max(1, options.partitionConcurrency ?? options.jobs?.capacity ?? DEFAULT_CONCURRENCY);
 
-  const map = await unitTask(storage, repo, operation.runner, TASK_KIND_STREAM,
+  const map = await unitTask(storage, repo, operation.runner,
     streamCommandIr(operation.runner, { emit: 'dict', merge: 'none', stream: 'first' }));
 
   // ---------------------------------------------------------------------
@@ -182,7 +181,7 @@ export async function executeRecordOperation(
   // ---------------------------------------------------------------------
   // reduce — the merge tree of the partitioned fan-in
   // ---------------------------------------------------------------------
-  const merge = await unitTask(storage, repo, operation.runner, TASK_KIND_MERGE,
+  const merge = await unitTask(storage, repo, operation.runner,
     mergeCommandIr(operation.runner, 'function'));
   let groups: { range: string | null; entries: string[] }[];
   try {
@@ -299,23 +298,22 @@ function message(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-/** Writes the synthesized task a unit executes: its command IR, its runtime,
- *  and nothing else — a record operation's units have no dataset of their own
- *  and no environment. */
+/** Writes the synthesized task a unit executes: a command body over the staged
+ *  inputs, its runtime, and nothing else — a record operation's units have no
+ *  dataset of their own and no environment. */
 async function unitTask(
   storage: StorageBackend,
   repo: string,
   runnerValue: RunnerValue,
-  kind: string,
   command: EastIR<[string[], string], string[]>,
 ): Promise<{ hash: string; task: TaskObject }> {
   const task: TaskObject = {
-    commandIr: await storage.objects.write(repo, encodeEastIR(command)),
-    inputs: [],
-    output: [],
-    kind: some(kind),
-    metadata: none,
+    kind: TASK_OBJECT_KIND,
+    body: variant('command', { commandIr: await storage.objects.write(repo, encodeEastIR(command)) }),
     runner: runnerValue,
+    inputs: [],
+    output: { path: [], kind: variant('value', null) },
+    role: variant('data', null),
     environment: none,
   };
   return { hash: await storage.objects.write(repo, encodeBeast2For(TaskObjectType)(task)), task };

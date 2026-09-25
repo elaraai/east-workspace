@@ -8,11 +8,11 @@
  *
  * An author declares what an index keys on and how a mutation writes; what
  * actually runs is a program built from those declarations — an ordinary East
- * function assembled at export time from the author's own expressions, the way
- * `partitionTask` builds its merge command and `streamTask` its command IR. It
- * is linked and encoded like any other body, runs on the runner the author
- * chose, and is what keeps e3 out of the business of evaluating user East: the
- * engine runs a program and applies what it emits.
+ * function assembled at export time from the author's own expressions, as a
+ * stream task's output kind builds its merge function. It is linked and
+ * encoded like any other body, runs on the runner the author chose, and is
+ * what keeps e3 out of the business of evaluating user East: the engine runs a
+ * program and applies what it emits.
  *
  * @packageDocumentation
  */
@@ -262,7 +262,7 @@ export function buildMutationProgram(rec: RecordDef, mut: MutationDef): EastIR<a
   const collection = rec.type as unknown as { type: string; key: EastType; value: EastType };
   if (!hasKeyedDelta(rec.type)) {
     throw new Error(
-      `e3.${mut.form === 'reduce' ? 'mutation' : `${mut.form}Mutation`} '${mut.name}' writes a delta, ` +
+      `e3.mutation.${mut.form} '${mut.name}' writes a delta, ` +
       `which addresses a Dict or a Set by key; record '${rec.name}' holds ${collection.type}.`);
   }
   const keyed = collection.type as 'Dict' | 'Set';

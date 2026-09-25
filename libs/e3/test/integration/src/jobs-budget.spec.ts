@@ -5,10 +5,9 @@
 
 /**
  * The jobs budget, end to end (issue #770): `e3 dataflow run --jobs 2` over
- * three plain tasks and a partitioned task of several partitions, none
- * depending on another, keeps exactly two runner processes in flight at once
- * — the plain tasks and the partitions draw from the same budget — and every
- * execution completes once the hold is released.
+ * four tasks, none depending on another — three plain tasks and one whose
+ * input is partitioned — keeps exactly two runner processes in flight at once,
+ * and every execution completes once the hold is released.
  *
  * Every body spins while a hold file exists, so the run parks with its two
  * runners up and everything else queued; the `running` execution records
@@ -22,7 +21,7 @@ import { join } from 'node:path';
 import e3 from '@elaraai/e3';
 import { East, DictType, IntegerType, SortedMap, StringType, compareFor, variant } from '@elaraai/east';
 import { FileSystem } from '@elaraai/east-node-std';
-import { DatasetSegments, LocalStorage, workspaceGetDatasetHash, workspaceGetTaskHash } from '@elaraai/e3-core';
+import { LocalStorage, workspaceGetTaskHash } from '@elaraai/e3-core';
 import { encodeInSegmentsOf } from '@elaraai/e3-core/test';
 import { createTestDir, removeTestDir, runE3Command, spawnE3Command, waitFor } from './helpers.js';
 
@@ -50,19 +49,19 @@ describe('the jobs budget', () => {
       $.while(FileSystem.exists(holdPath), (_$) => { });
       return n;
     })));
-    const held = e3.partitionTask('held_p', {
-      partitions: [tableInput],
-      output: TableType,
-      targetPartitionBytes: 1,
-    }, ($, slice) => {
+    const held = e3.streamTask('held_p', {
+      inputs: [e3.partition(tableInput)],
+      output: e3.output.dict(IntegerType, StringType),
+    }, ($, table, emit) => {
       const holdPath = $.const(hold);
       $.while(FileSystem.exists(holdPath), (_$) => { });
-      return slice;
+      $.for(table, ($, value, key) => {
+        $(emit(key, value));
+      });
     });
     const zip = join(dir, 'budget.zip');
     await e3.export(e3.package('budget', '1.0.0', ...plain, held), zip);
-    // Enough rows for the table to be stored in several segments, a partition
-    // each at a target of one byte.
+    // The table the partitioned task reads, stored in several segments.
     const table = new SortedMap(Array.from({ length: 3_600 }, (_, i) => [BigInt(i), `row-${i}`] as [bigint, string]), compareFor(IntegerType));
     const tablePath = join(dir, 'table.beast2');
     writeFileSync(tablePath, encodeInSegmentsOf(TableType, 1_000)(table));
@@ -83,9 +82,8 @@ describe('the jobs budget', () => {
     removeTestDir(dir);
   });
 
-  /** The runner pids of every `running` record across the plain tasks and
-   *  the partitioned task's units — not the partitioned task's own logical
-   *  record, whose pid is e3's. */
+  /** The runner pids of every `running` record across the tasks — none of
+   *  them e3's own. */
   async function runnersUp(e3Pid: number | undefined): Promise<number[]> {
     const pids: number[] = [];
     for (const name of [...PLAIN_TASKS, 'held_p']) {
@@ -97,7 +95,7 @@ describe('the jobs budget', () => {
     return pids;
   }
 
-  it('keeps exactly --jobs runners in flight across plain tasks and partition units, then completes them all', async () => {
+  it('keeps exactly --jobs runners in flight across the tasks, then completes them all', async () => {
     writeFileSync(hold, '');
     const run = spawnE3Command(['dataflow', 'run', repo, 'ws', '--jobs', '2'], dir);
     // Two runners come up and hold; nothing else spawns while they do.
@@ -112,16 +110,12 @@ describe('the jobs budget', () => {
     assert.match(result.stdout, /Jobs: 2/);
     for (const name of [...PLAIN_TASKS, 'held_p']) assert.match(result.stdout, new RegExp(`\\[DONE\\] ${name} `));
     assert.deepEqual(await runnersUp(run.pid), [], 'no runner is left running');
-    // Every execution — three plain tasks, a partition per segment of the
-    // table, the logical one — succeeded.
-    const { hash: tableHash } = await workspaceGetDatasetHash(storage, repo, 'ws', [variant('field', 'inputs'), variant('field', 'table')]);
-    const partitions = (await DatasetSegments.open(storage, repo, tableHash!)).segmentCount;
-    assert.ok(partitions > 2, `the table is stored in ${partitions} segments`);
+    // Every execution succeeded.
     let successes = 0;
     for (const name of [...PLAIN_TASKS, 'held_p']) {
       const taskHash = await workspaceGetTaskHash(storage, repo, 'ws', name);
       for (const { status } of await storage.refs.executionListLatest(repo, taskHash)) if (status.type === 'success') successes++;
     }
-    assert.equal(successes, 3 + partitions + 1);
+    assert.equal(successes, 4);
   });
 });

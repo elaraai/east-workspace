@@ -335,7 +335,7 @@ export const RecordBindPrimitives = {
  * import e3 from "@elaraai/e3";
  *
  * const counter = e3.record("counter", IntegerType, 0n);
- * const increment = e3.mutation("increment", counter,
+ * const increment = e3.mutation.reduce("increment", counter,
  *     East.function([IntegerType, IntegerType], IntegerType, ($, state, by) => state.add(by)));
  *
  * const counterUi = East.function([], UIComponentType, _$ =>

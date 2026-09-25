@@ -14,8 +14,8 @@
  * - **Task**: A transformation that reads input datasets and produces an output dataset
  */
 
-import type { EastType, EastIR, AsyncEastIR, ValueTypeOf, variant } from '@elaraai/east';
-import type { MutationForm, TreePath } from '@elaraai/e3-types';
+import type { ArrayType, AsyncEastIR, DictType, EastIR, EastType, FunctionType, NullType, SetType, ValueTypeOf, variant } from '@elaraai/east';
+import type { MutationForm, TaskRole, TreePath } from '@elaraai/e3-types';
 import type { DatasetSource } from './input.js';
 import type { Runner } from './runner.js';
 import type { EnvironmentDecl } from './environment.js';
@@ -57,10 +57,8 @@ export interface DatasetDef<T extends EastType = EastType, Path extends TreePath
    * An inline initial value that travels IN the package.
    *
    * @remarks
-   * Not the input surface any more — `e3.input` writes {@link source}. This
-   * stays for the two internal inline-value uses: a task's `function_ir`
-   * dataset (an `EastIR` bundle) and `record()`'s initial state. Neither is
-   * path-initialisable.
+   * Not the input surface — `e3.input` writes {@link source}. This carries
+   * `record()`'s initial state, which is not path-initialisable.
    */
   readonly default?: ValueTypeOf<T>;
   /**
@@ -81,6 +79,94 @@ export interface DatasetDef<T extends EastType = EastType, Path extends TreePath
 }
 
 /**
+ * An input the work of an `e3.streamTask` may be split over — what
+ * `e3.partition` returns.
+ *
+ * @typeParam T - The East type of the dataset, a collection
+ */
+export interface PartitionDef<T extends EastType = EastType> {
+  readonly kind: 'partition';
+  /** The dataset. The body receives one piece of it, typed as the whole. */
+  readonly dataset: DatasetDef<T>;
+  /**
+   * Leading key fields, in order: rows with equal values of them are never
+   * split across pieces. The last may be a first-field path, `'at.day'`.
+   * Empty when each row is its own group.
+   */
+  readonly by: readonly string[];
+}
+
+/**
+ * An output kind collecting elements in the order they are emitted — what
+ * `e3.output.array` returns.
+ *
+ * @typeParam T - The element type
+ */
+export interface ArrayOutputDef<T extends EastType = EastType> {
+  readonly kind: 'array';
+  /** The output dataset's type. */
+  readonly type: ArrayType<T>;
+  /** `emit`'s type: `emit(t)`. */
+  readonly emit: FunctionType<[T], NullType>;
+}
+
+/**
+ * An output kind collecting the distinct elements emitted — what
+ * `e3.output.set` returns.
+ *
+ * @typeParam T - The element type
+ */
+export interface SetOutputDef<T extends EastType = EastType> {
+  readonly kind: 'set';
+  /** The output dataset's type. */
+  readonly type: SetType<T>;
+  /** `emit`'s type: `emit(t)`. */
+  readonly emit: FunctionType<[T], NullType>;
+}
+
+/**
+ * An output kind collecting entries by key — what `e3.output.dict` returns.
+ *
+ * @typeParam K - The key type
+ * @typeParam V - The value type
+ */
+export interface DictOutputDef<K extends EastType = EastType, V extends EastType = EastType> {
+  readonly kind: 'dict';
+  /** The output dataset's type. */
+  readonly type: DictType<K, V>;
+  /** `emit`'s type: `emit(k, v)`. */
+  readonly emit: FunctionType<[K, V], NullType>;
+  /** `(K, V, V) -> V`, folding the values of equal keys in input order. Absent
+   *  when a repeated key is an error. Typed loosely, as {@link FunctionDef.body}
+   *  is. */
+  readonly merge?: EastIR<any, any>;
+}
+
+/**
+ * An output kind folding every emitted value into one — what
+ * `e3.output.fold` returns.
+ *
+ * @typeParam T - The folded value's type
+ */
+export interface FoldOutputDef<T extends EastType = EastType> {
+  readonly kind: 'fold';
+  /** The output dataset's type. */
+  readonly type: T;
+  /** `emit`'s type: `emit(t)`. */
+  readonly emit: FunctionType<[T], NullType>;
+  /** The value the fold starts from, an identity of {@link combine}. */
+  readonly zero: ValueTypeOf<T>;
+  /** `(T, T) -> T`, associative. */
+  readonly combine: EastIR<any, any>;
+}
+
+/**
+ * What an `e3.streamTask` emits into. The kind fixes `emit`'s signature and
+ * how the parts of the output combine.
+ */
+export type OutputDef = ArrayOutputDef | SetOutputDef | DictOutputDef | FoldOutputDef;
+
+/**
  * A task definition.
  *
  * Tasks are transformations that read from input datasets and write to an
@@ -92,23 +178,30 @@ export interface TaskDef<TOutput extends EastType = EastType, Path extends TreeP
   readonly kind: 'task';
   /** Task name */
   readonly name: string;
-  /** Command construction function — an EastIR bundle carrying both the IR
-   *  and its source map so export serialization can preserve source locations. */
-  readonly command: EastIR<[string[], string], string[]>;
-  /** Input datasets this task reads from */
-  readonly inputs: DatasetDef[];
-  /** Output dataset this task writes to (at `.outputs.${name}`) */
+  /**
+   * What runs: an East program, which `e3.task` and `e3.streamTask` define,
+   * or a custom task's command, an East function from the staged input and
+   * output paths to the argv. Each is kept as its EastIR bundle, so export
+   * keeps its source map.
+   */
+  readonly body:
+    | { readonly kind: 'east'; readonly program: EastIR<any, any> | AsyncEastIR<any, any> }
+    | { readonly kind: 'command'; readonly command: EastIR<[string[], string], string[]> };
+  /** The inputs, in the body's parameter order. A `streamTask`'s may include
+   *  datasets its work can be split over. */
+  readonly inputs: readonly (DatasetDef | PartitionDef)[];
+  /** Output dataset this task writes to (at `.tasks.${name}.output`) */
   readonly output: DatasetDef<TOutput, Path>;
+  /** The output kind a `streamTask` emits into. Absent when the body returns
+   *  the output. */
+  readonly outputKind?: OutputDef;
+  /** A data task, or a UI task with the data its surface reads. */
+  readonly role: TaskRole;
   /** Dependencies: all trees, datasets and tasks this task depends on */
   readonly deps: Set<DataTreeDef | DatasetDef | TaskDef>;
-  /** Task kind: "data" (default), "ui", or future extensions */
-  readonly taskKind?: string;
-  /** Opaque extension metadata (beast2-encoded) */
-  readonly metadata?: Uint8Array;
   /**
-   * The typed runner this task resolves to. Undefined for custom-command
-   * tasks (customTask) — export serializes that as `runner: none` so
-   * orchestrators route it to a full environment.
+   * The runner the body runs on. Undefined for a custom task, whose command is
+   * what runs: export writes it as the `custom` runtime with an empty command.
    */
   readonly runner?: Runner;
   /**
@@ -139,7 +232,7 @@ export interface FunctionDef<
   readonly name: string;
   // EastIR/AsyncEastIR constrain their first param to a MUTABLE any[]; a readonly
   // generic is rejected (TS2344). Type the field loosely and cast fn.toIR(),
-  // exactly as task.ts does for its function_ir.
+  // exactly as a task's program is.
   readonly body: EastIR<any, any> | AsyncEastIR<any, any>;
   /** Positional parameter types (the East function's signature) */
   readonly inputTypes: Inputs;
@@ -252,7 +345,7 @@ export interface MutationDef<
   /** Which write form this is: a reducer over the whole state, a body writing
    *  through an `edit` capability, or a client-supplied patch. */
   readonly form: MutationForm;
-  // Typed loosely + cast like FunctionDef.body / task function_ir (TS2344 on
+  // Typed loosely + cast like FunctionDef.body / a task's program (TS2344 on
   // a readonly first generic param of EastIR).
   /** The author's body; absent for the `patch` form, which has none. */
   readonly body?: EastIR<any, any> | AsyncEastIR<any, any>;

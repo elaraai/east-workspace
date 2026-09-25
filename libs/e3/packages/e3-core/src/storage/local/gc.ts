@@ -21,7 +21,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { tmpdir } from 'os';
 import { decodeBeast2, isEastDict, readBeast2Type, toEastTypeValue, variant, type EastTypeValue } from '@elaraai/east';
-import { COLLECTION_MANIFEST_KIND, MutationObjectType, PartitionPlanType, RECORD_STATE_KIND, RecordCommitType, RecordIndexObjectType, RecordObjectType, isCollectionManifestType, isRecordStateType } from '@elaraai/e3-types';
+import { COLLECTION_MANIFEST_KIND, MutationObjectType, PartitionPlanType, RECORD_STATE_KIND, RecordCommitType, RecordIndexObjectType, RecordObjectType, TASK_OBJECT_KIND, TaskObjectType, isCollectionManifestType, isRecordStateType } from '@elaraai/e3-types';
 import type { RepoStore, GcObjectEntry, GcRootScanResult, LockHandle, StorageBackend } from '../interfaces.js';
 import { transferStagingDir } from './localHelpers.js';
 import { sweepScratchDirs } from '../../execution/scratch.js';
@@ -301,11 +301,34 @@ function isEnvironmentSpecShape(type: any): boolean {
     && [...names].every((n) => known.has(n));
 }
 
+/** `TaskObjectType`'s field names, in wire order, read from the type itself:
+ *  a task object of any later vintage BEGINS with these, because struct fields
+ *  encode positionally and a field is only ever appended LAST. */
+const TASK_OBJECT_FIELDS: readonly string[] =
+  (toEastTypeValue(TaskObjectType).value as { name: string }[]).map(f => f.name);
+
 /**
- * Check if a decoded EastTypeValue represents a TaskObject.
- * TaskObject is a Struct with fields: commandIr, inputs, output
+ * Check if a decoded EastTypeValue represents a TaskObject: a struct beginning
+ * with {@link TASK_OBJECT_FIELDS}, so one a newer e3 wrote with a field
+ * appended is still recognised. Its `kind` tag is checked when the children
+ * are extracted, so a struct of this shape carrying another tag is a leaf.
+ *
+ * A task object this does not recognise is a leaf: its program goes unmarked,
+ * and the next sweep deletes what the deployed package runs.
  */
 function isTaskObjectShape(type: any): boolean {
+  if (type.type !== 'Struct') return false;
+  const names = (type.value as { name: string }[]).map(f => f.name);
+  if (names.length < TASK_OBJECT_FIELDS.length) return false;
+  return TASK_OBJECT_FIELDS.every((name, i) => name === names[i]);
+}
+
+/**
+ * Check if a decoded EastTypeValue represents a task object an e3 SDK wrote
+ * before the typed task object: a Struct with fields commandIr, inputs and
+ * output, which names its command IR and its environment.
+ */
+function isPreCutoverTaskObjectShape(type: any): boolean {
   if (type.type !== 'Struct') return false;
   const fields = type.value as { name: string; type: any }[];
   const names = new Set(fields.map(f => f.name));
@@ -507,7 +530,7 @@ function isTreeObjectShape(type: any): boolean {
  */
 function isStructuralShape(type: EastTypeValue): boolean {
   const t = type as any;
-  return isPackageObjectShape(t) || isTaskObjectShape(t) || isFunctionObjectShape(t)
+  return isPackageObjectShape(t) || isTaskObjectShape(t) || isPreCutoverTaskObjectShape(t) || isFunctionObjectShape(t)
     || isRecordObjectShape(t) || isMutationObjectShape(t) || isEnvironmentSpecShape(t)
     || isRecordCommitShape(t) || isPartitionPlanShape(t) || isTreeObjectShape(t)
     || isCollectionManifestShape(t) || isRecordIndexObjectShape(t) || isRecordStateShape(t);
@@ -557,6 +580,30 @@ function extractChildren(
   }
 
   if (isTaskObjectShape(t)) {
+    const task = value as {
+      kind: string;
+      body: { type: string; value: { program?: string; commandIr?: string } };
+      output: { kind: { type: string; value: any } };
+      environment: { type: string; value: string };
+    };
+    if (task.kind !== TASK_OBJECT_KIND) return children; // a look-alike user struct
+    // The program or the command IR, and what the output folds with: every one
+    // an IR blob or a value, which name nothing.
+    children.push({ hash: (task.body.value.program ?? task.body.value.commandIr)!, kind: 'leaf' });
+    const kind = task.output.kind;
+    if (kind.type === 'dict' && kind.value.merge.type === 'some') {
+      children.push({ hash: kind.value.merge.value, kind: 'leaf' });
+    }
+    if (kind.type === 'fold') {
+      children.push({ hash: kind.value.zero, kind: 'leaf' }, { hash: kind.value.combine, kind: 'leaf' });
+    }
+    if (task.environment.type === 'some') {
+      children.push({ hash: task.environment.value, kind: 'node' }); // walk the spec's blobs
+    }
+    return children;
+  }
+
+  if (isPreCutoverTaskObjectShape(t)) {
     const task = value as { commandIr: string; environment?: { type: string; value: string } };
     children.push({ hash: task.commandIr, kind: 'leaf' }); // IR is a leaf
     if (task.environment?.type === 'some') {

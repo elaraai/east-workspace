@@ -16,7 +16,9 @@
  *
  * All three are pure East: purity is what makes retry-on-conflict safe, since
  * the compare-and-swap loop can re-run against fresher state with no
- * observable side effects.
+ * observable side effects. They are `e3.mutation.reduce`, `e3.mutation.edit`
+ * and `e3.mutation.patch`, beside `e3.mutation.editType`, the type of the
+ * `edit` capability.
  */
 
 import type {
@@ -89,7 +91,7 @@ function checkKeyed(surface: string, name: string, rec: RecordDef): void {
     throw new Error(
       `e3.${surface} '${name}' writes a delta addressed by key, so it needs a ` +
       `Dict or Set record — '${rec.name}' holds ${printType(rec.type)}. Use ` +
-      `e3.mutation, whose reducer returns the whole state.`,
+      `e3.mutation.reduce, whose reducer returns the whole state.`,
     );
   }
 }
@@ -112,8 +114,8 @@ function checkKeyed(surface: string, name: string, rec: RecordDef): void {
  * The reducer sees the whole state, so its cost in the runner is the record's
  * size however little it changes; only its write, for a Dict or Set record, is
  * proportional to what it touched — any other record's state is written whole.
- * {@link editMutation} is the form whose body reads only the entries it
- * touches, and whose commit rewrites only the segments they live in.
+ * {@link edit} is the form whose body reads only the entries it touches, and
+ * whose commit rewrites only the segments they live in.
  *
  * @typeParam Name - Mutation name (literal type)
  * @typeParam T - The owning record's state type
@@ -128,7 +130,7 @@ function checkKeyed(surface: string, name: string, rec: RecordDef): void {
  * ```ts
  * const orders = e3.record('orders', OrdersType, new Map());
  *
- * const placeOrder = e3.mutation('place_order', orders,
+ * const placeOrder = e3.mutation.reduce('place_order', orders,
  *   East.function([OrdersType, OrderType], OrdersType, ($, state, order) => {
  *     $.if(state.has(order.id), $ => $.error(East.str`duplicate order ${order.id}`));
  *     const next = $.let(state.copy());
@@ -139,13 +141,13 @@ function checkKeyed(surface: string, name: string, rec: RecordDef): void {
  * const pkg = e3.package('planning', '1.0.0', orders, placeOrder);
  * ```
  */
-export function mutation<Name extends string, T extends EastType, Args extends EastType[]>(
+function reduce<Name extends string, T extends EastType, Args extends EastType[]>(
   name: Name,
   rec: RecordDef<T>,
   fn: FunctionExpr<[T, ...Args], T> | CallableFunctionExpr<[T, ...Args], T>,
   config?: { runner?: FunctionRunner },
 ): MutationDef<Name, T, Args>;
-export function mutation(
+function reduce(
   name: string,
   rec: RecordDef,
   fn: FunctionExpr<any, any> | AsyncFunctionExpr<any, any>,
@@ -155,7 +157,7 @@ export function mutation(
   // Validate eagerly so a bad runner fails at definition time, not export time.
   runnerToVariant(runner);
 
-  const signature = checkBody('mutation', name, rec, fn);
+  const signature = checkBody('mutation.reduce', name, rec, fn);
   // The reducer is (state, ...args) => state: the return must be the record's
   // state type too. The typed overload enforces this at compile time, but a
   // dynamic / cast caller could pass a mismatched function — and because
@@ -163,7 +165,7 @@ export function mutation(
   // would be silently undetectable downstream.
   if (!sameEastType(rec.type, signature.output)) {
     throw new Error(
-      `e3.mutation '${name}' reducer must return the record's state type ` +
+      `e3.mutation.reduce '${name}' reducer must return the record's state type ` +
       `${printType(rec.type)}, but returns ${printType(signature.output)}.`,
     );
   }
@@ -202,12 +204,12 @@ export function mutation(
  * holds is no change. A `delete` or `update` of a key the record does not hold
  * is a conflict naming the key, exactly as applying such a patch would be.
  *
- * The purity rules of {@link mutation} apply unchanged.
+ * The purity rules of {@link reduce} apply unchanged.
  *
  * @typeParam Name - Mutation name (literal type)
  * @typeParam T - The owning record's state type (a Dict)
  * @typeParam Args - The EXTRA positional parameter types (between the state and the edit)
- * @typeParam E - The edit capability's struct type, `editTypeOf(T)`
+ * @typeParam E - The edit capability's struct type, `e3.mutation.editType(T)`
  * @param name - Mutation name (unique within the record)
  * @param rec - The record this mutation writes
  * @param fn - The body `(state, ...args, edit) => null`
@@ -221,21 +223,21 @@ export function mutation(
  *
  * // The edit capability is the body's LAST parameter; its type comes from
  * // the record, so `edit.set` checks the key and the row.
- * const reschedule = e3.editMutation('reschedule', plans,
- *   East.function([plans.type, StringType, DateTimeType, e3.editTypeOf(plans.type)], NullType,
+ * const reschedule = e3.mutation.edit('reschedule', plans,
+ *   East.function([plans.type, StringType, DateTimeType, e3.mutation.editType(plans.type)], NullType,
  *     ($, state, id, due, edit) => {
  *       const plan = $.let(state.get(id));
  *       $(edit.set(id, { title: plan.title, owner: plan.owner, due }));
  *     }));
  * ```
  */
-export function editMutation<Name extends string, T extends EastType, Args extends EastType[], E extends EastType>(
+function edit<Name extends string, T extends EastType, Args extends EastType[], E extends EastType>(
   name: Name,
   rec: RecordDef<T>,
   fn: FunctionExpr<[T, ...Args, E], NullType> | CallableFunctionExpr<[T, ...Args, E], NullType>,
   config?: { runner?: FunctionRunner },
 ): MutationDef<Name, T, Args>;
-export function editMutation(
+function edit(
   name: string,
   rec: RecordDef,
   fn: FunctionExpr<any, any> | AsyncFunctionExpr<any, any>,
@@ -243,22 +245,22 @@ export function editMutation(
 ): MutationDef {
   const runner = config?.runner ?? DEFAULT_RUNNER;
   runnerToVariant(runner);
-  checkKeyed('editMutation', name, rec);
+  checkKeyed('mutation.edit', name, rec);
 
-  const signature = checkBody('editMutation', name, rec, fn);
+  const signature = checkBody('mutation.edit', name, rec, fn);
   const editType = editTypeOf(rec.type);
   const last = signature.inputs[signature.inputs.length - 1];
   if (signature.inputs.length < 2 || last === undefined || !sameEastType(editType, last)) {
     throw new Error(
-      `e3.editMutation '${name}' body's LAST parameter must be the edit ` +
-      `capability ${printType(editType)} — e3.editTypeOf(record.type) — but got ` +
+      `e3.mutation.edit '${name}' body's LAST parameter must be the edit ` +
+      `capability ${printType(editType)} — e3.mutation.editType(record.type) — but got ` +
       `${last === undefined ? 'no parameters' : printType(last)}.`,
     );
   }
   if (!sameEastType(NullType, signature.output)) {
     throw new Error(
-      `e3.editMutation '${name}' body writes through 'edit' and returns Null, ` +
-      `but returns ${printType(signature.output)}. Use e3.mutation for a reducer ` +
+      `e3.mutation.edit '${name}' body writes through 'edit' and returns Null, ` +
+      `but returns ${printType(signature.output)}. Use e3.mutation.reduce for a reducer ` +
       `that returns the whole state.`,
     );
   }
@@ -303,25 +305,25 @@ export function editMutation(
  * @example
  * ```ts
  * const plans = e3.record('plans', DictType(StringType, PlanType), new Map());
- * const pkg = e3.package('planning', '1.0.0', plans, e3.patchMutation(plans));
+ * const pkg = e3.package('planning', '1.0.0', plans, e3.mutation.patch(plans));
  * ```
  */
-export function patchMutation<T extends EastType, Name extends string = 'patch'>(
+function patch<T extends EastType, Name extends string = 'patch'>(
   rec: RecordDef<T>,
   name?: Name,
   config?: { runner?: FunctionRunner },
 ): MutationDef<Name, T, [PatchTypeOf<T>]>;
-export function patchMutation(
+function patch(
   rec: RecordDef,
   name: string = 'patch',
   config?: { runner?: FunctionRunner },
 ): MutationDef {
   if (!name) {
-    throw new Error('e3.patchMutation requires a non-empty name');
+    throw new Error('e3.mutation.patch requires a non-empty name');
   }
   const runner = config?.runner ?? DEFAULT_RUNNER;
   runnerToVariant(runner);
-  checkKeyed('patchMutation', name, rec);
+  checkKeyed('mutation.patch', name, rec);
 
   return {
     kind: 'mutation',
@@ -332,3 +334,9 @@ export function patchMutation(
     runner,
   };
 }
+
+/**
+ * The write forms of a record: {@link reduce}, {@link edit} and {@link patch},
+ * and `editType`, the type of the capability an `edit` body writes through.
+ */
+export const mutation = { reduce, edit, patch, editType: editTypeOf };

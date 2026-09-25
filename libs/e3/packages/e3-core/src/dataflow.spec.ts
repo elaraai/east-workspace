@@ -11,8 +11,9 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
 import { join } from 'node:path';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { variant, StringType, ArrayType, encodeBeast2For, East, IRType } from '@elaraai/east';
+import { variant, none, StringType, ArrayType, encodeBeast2For, East, IRType } from '@elaraai/east';
 import {
+  TASK_OBJECT_KIND,
   TaskObjectType,
   PackageObjectType,
   type TreePath,
@@ -104,10 +105,13 @@ describe('dataflow', () => {
       const commandIrHash = await createCommandIr(repoPath, t.command);
 
       const taskObj = {
-        commandIr: commandIrHash,
-        inputs: t.inputs,
-        output: t.output,
-        kind: variant('none', null), metadata: variant('none', null), runner: variant('custom', { command: [] }), environment: variant('none', null),
+        kind: TASK_OBJECT_KIND,
+        body: variant('command', { commandIr: commandIrHash }),
+        runner: variant('custom', { command: [] }),
+        inputs: t.inputs.map((path) => ({ path, partition: none })),
+        output: { path: t.output, kind: variant('value', null) },
+        role: variant('data', null),
+        environment: none,
       };
       const taskHash = await objectWrite(repoPath, taskEncoder(taskObj));
       tasksMap.set(t.name, taskHash);

@@ -13,7 +13,7 @@ export interface UseTaskDetailsOptions {
     queryOverrides?: QueryOverrides;
 }
 
-/** Fetch a task's details (name, kind, metadata, output, ...). */
+/** Fetch a task's details (name, body, runner, inputs, output, role). */
 export function useTaskDetails(
     apiUrl: string,
     repo: string,
@@ -28,14 +28,4 @@ export function useTaskDetails(
         enabled: !!repo && !!workspace && !!taskName,
         ...options?.queryOverrides,
     });
-}
-
-/** Read `kind` from TaskDetails as a plain string ('ui' | 'data' | etc) or null. */
-export function getTaskKind(details: TaskDetails): string | null {
-    return details.kind?.type === 'some' ? details.kind.value : null;
-}
-
-/** Read `metadata` blob from TaskDetails or null. */
-export function getTaskMetadata(details: TaskDetails): Uint8Array | null {
-    return details.metadata?.type === 'some' ? details.metadata.value : null;
 }

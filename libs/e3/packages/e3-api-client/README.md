@@ -100,11 +100,12 @@ import { taskList, taskGet } from '@elaraai/e3-api-client';
 
 // List tasks
 const tasks = await taskList(url, 'production');
-// [{ name: 'compute', hash: 'abc123...' }, ...]
+// [{ name: 'compute', hash: 'abc123...', role: <data | ui> }, ...]
 
 // Get task details
 const task = await taskGet(url, 'production', 'compute');
-// { name: 'compute', hash: '...', commandIr: '...', inputs: [...], output: [...] }
+// { name: 'compute', hash: '...', body: <east program | command>, runner: <runtime>,
+//   inputs: [{ path, partition }], output: { path, kind }, role: <data | ui> }
 ```
 
 ### Execution

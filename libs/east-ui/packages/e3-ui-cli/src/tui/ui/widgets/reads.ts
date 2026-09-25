@@ -4,15 +4,15 @@
  */
 
 /**
- * The Reads tab of a `ui` task — its data manifest (`decodeManifest` from
- * `@elaraai/e3-ui/internal`): the dataset paths it reads (each `⏎` opens
+ * The Reads tab of a `ui` task — the data manifest its task object carries
+ * as its `ui` role: the dataset paths it reads (each `⏎` opens
  * as a dataset), the paths it reads by window, the package functions it
  * calls and the records it binds.
  *
  * @packageDocumentation
  */
 
-import { decodeManifest, type DataManifest } from '@elaraai/e3-ui/internal';
+import type { DataManifest } from '@elaraai/e3-ui/internal';
 import type { TaskDetails } from '@elaraai/e3-api-client';
 import { dottedPath } from '../../api.js';
 import type { Controller } from '../../controller.js';
@@ -33,15 +33,10 @@ export interface ReadRow {
  * The manifest of a task's details, if it carries one.
  *
  * @param details - The task details
- * @returns The manifest, or null (no metadata, or not a manifest)
+ * @returns The manifest, or null for a data task
  */
 export function manifestOf(details: TaskDetails | undefined): DataManifest | null {
-    if (details === undefined || details.metadata.type !== 'some') return null;
-    try {
-        return decodeManifest(details.metadata.value);
-    } catch {
-        return null;
-    }
+    return details?.role.type === 'ui' ? details.role.value : null;
 }
 
 /** `manifest: 3 reads · 1 function` for the title line. */

@@ -108,8 +108,8 @@ Emission order is free: the platform sorts sets and dicts. A producer is a `stre
 
 ```
 TaskObject = {
-  body:   east    { program: <IR object hash> }          // stock runners
-        | command { commandIr: <IR object hash> },       // customTask, the custom runtime
+  body:   east    { program: <IR object hash> }          // e3.task, e3.streamTask
+        | command { commandIr: <IR object hash> },       // customTask
   runner: RunnerType,
   inputs: [ { path: TreePath, partition: Option<{ by: [String] }> } ],
   output: { path: TreePath,
@@ -121,6 +121,7 @@ TaskObject = {
 ```
 
 - Inputs are data only. A body or merge function is no longer an input by position, and the unit builder (§3.5) never counts wire indices.
+- An `e3.task` on the `custom` runtime has an `east` body too. e3 runs the runner's command with `run`'s arguments: `-i` for each input, `-o`, then the program's file, as it runs an `e3.function` on a custom runner. Only `customTask` keeps a command IR.
 - `role.ui` carries what UI tasks put in `metadata` today, as a typed struct. Read the e3-ui consumer of `kind` and `metadata` before writing it.
 - It carries a kind tag for GC (§3.11).
 
@@ -521,8 +522,9 @@ In three parts:
      - The unit builder (`execution/units.ts`) and `exec`, with the store's door taking a runner's manifest directories.
      - Typed execution outcomes (F8).
      - `role` in place of `kind` and `metadata`: the API's task details, the e3-ui previews and the TUI read it.
-     - Deleted: `partitionTask` and its types, which the typed task object cannot express; the old `streamTask` shape and its metadata; the old mutation names; the command IR for stock runners; `kind` and `metadata` in the config; and the `function_ir` and `merge_ir` datasets, since the program is named by the task object.
-  2. **The engine, in process:** content-defined pieces as sub-manifests, a unit per piece, assembly by output kind, and a cache entry per unit. Deleted: `templateFor`, `executeTemplate` and the partition metadata.
+     - Deleted: `partitionTask` and its types, which the typed task object cannot express; the old `streamTask` shape and its metadata; the old mutation names; the command IR of every task but a `customTask`; `kind` and `metadata` in the config; and the `function_ir` and `merge_ir` datasets, since the program is named by the task object.
+     - Deleted with them: `templateFor`, `executeTemplate` and the partition metadata. The interpreter dispatches on the task object's `kind` and reads its `metadata`, which the typed task object no longer has, and `partitionTask` was its only caller. `TASK_KIND_*` goes too, since no field holds it; the record steps' units become `command` bodies until 4b.
+  2. **The engine, in process:** content-defined pieces as sub-manifests, a unit per piece, assembly by output kind, and a cache entry per unit.
   3. **Units in the dataflow:** unit graphs persisted in the execution state, units in the ready set, a yield or crash resumed per unit, and a new version of the execution event wire (F35).
   4. **Kind tags, GC and 4a's acceptance tests.**
 - **4b — records.**
@@ -531,7 +533,7 @@ In three parts:
   - The Merger for applies. Recut already applies them, from stage 1.
 - **4c — deletions:** what records use until 4b.
   - e3-types:
-    - `TASK_KIND_*` and `stream.ts`;
+    - `stream.ts`;
     - `runnerOpensManifests` and `withRunnerVerbose`;
     - the partition plan's legacy decoder;
     - `partitionProjectionShape` and `projectKey`, since `by` is now data.

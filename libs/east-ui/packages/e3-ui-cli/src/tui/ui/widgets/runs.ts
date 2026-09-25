@@ -88,7 +88,7 @@ export function renderRuns(state: TuiState, ws: string, task: string, visible: n
         if (run !== undefined) {
             const inputs = state.data.taskDetails[ws]?.[task]?.inputs ?? [];
             const pairs = run.inputHashes.map((h, i) => {
-                const p = inputs[i];
+                const p = inputs[i]?.path;
                 const name = p === undefined ? `#${i + 1}` : dottedPath(p).replace(/^\.inputs\./, '').replace(/^\.tasks\./, '.tasks.');
                 return `${name} ${hashTiny(h)}`;
             });

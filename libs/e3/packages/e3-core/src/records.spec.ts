@@ -82,7 +82,7 @@ describe('records', () => {
 
     // counter record + increment(state, by) => state + by
     const counter = e3.record('counter', IntegerType, 0n);
-    const increment = e3.mutation(
+    const increment = e3.mutation.reduce(
       'increment',
       counter,
       East.function([IntegerType, IntegerType], IntegerType, ($, state, by) => state.add(by))
@@ -630,24 +630,24 @@ describe('frozen reducer state (#539)', () => {
     realRunner = new LocalTaskRunner(repo);
 
     const kv = e3.record('kv', StateT, new Map());
-    const seed = e3.mutation('seed', kv, East.function([StateT], StateT, ($, _state) => {
+    const seed = e3.mutation.reduce('seed', kv, East.function([StateT], StateT, ($, _state) => {
       const out = $.let(new Map(), StateT);
       $.for(East.Array.range(0n, 2500n), ($, i) => {
         $(out.insert(East.str`k-${i}`, { n: i, xs: [] }));
       });
       return out;
     }));
-    const touch = e3.mutation('touch', kv, East.function([StateT, StringType], StateT, ($, state, k) => {
+    const touch = e3.mutation.reduce('touch', kv, East.function([StateT, StringType], StateT, ($, state, k) => {
       const row = $.let(state.get(k));
       const out = $.let(new Map(), StateT);
       $(out.insert(k, row));
       return out;
     }));
-    const bump = e3.mutation('bump', kv, East.function([StateT], StateT, ($, state) => {
+    const bump = e3.mutation.reduce('bump', kv, East.function([StateT], StateT, ($, state) => {
       $(state.insert('zzz', { n: 0n, xs: [] }));
       return state;
     }));
-    const bumpCopy = e3.mutation('bumpCopy', kv, East.function([StateT], StateT, ($, state) => {
+    const bumpCopy = e3.mutation.reduce('bumpCopy', kv, East.function([StateT], StateT, ($, state) => {
       const next = $.let(state.copy());
       $(next.insert('zzz', { n: 0n, xs: [] }));
       return next;
@@ -755,7 +755,7 @@ describe('record indexes', () => {
     realRunner = new LocalTaskRunner(repo);
 
     const plans = e3.record('plans', PlansType, new Map());
-    const seed = e3.mutation('seed', plans, East.function([PlansType], PlansType, ($, _state) => {
+    const seed = e3.mutation.reduce('seed', plans, East.function([PlansType], PlansType, ($, _state) => {
       const out = $.let(new Map(), PlansType);
       $.for(East.Array.range(0n, 600n), ($, i) => {
         const status = $.let('ok');
@@ -766,7 +766,7 @@ describe('record indexes', () => {
       });
       return out;
     }));
-    const seedMany = e3.mutation('seed_many', plans, East.function([PlansType, IntegerType], PlansType, ($, _state, rows) => {
+    const seedMany = e3.mutation.reduce('seed_many', plans, East.function([PlansType, IntegerType], PlansType, ($, _state, rows) => {
       const out = $.let(new Map(), PlansType);
       $.for(East.Array.range(0n, rows), ($, i) => {
         const status = $.let('ok');
@@ -777,7 +777,7 @@ describe('record indexes', () => {
       });
       return out;
     }));
-    const retitle = e3.mutation('retitle', plans, East.function([PlansType, StringType], PlansType, ($, state, k) => {
+    const retitle = e3.mutation.reduce('retitle', plans, East.function([PlansType, StringType], PlansType, ($, state, k) => {
       const next = $.let(state.copy());
       const row = $.let(state.get(k));
       $(next.insert(k, { status: row.status, due: row.due, title: 'RETITLED' }));
@@ -1160,8 +1160,8 @@ describe('record indexes', () => {
       compareFor(StringType),
     );
     const plans = e3.record('plans', PlansType, rows);
-    const retitle = e3.editMutation('retitle', plans,
-      East.function([PlansType, StringType, e3.editTypeOf(PlansType)], NullType, ($, state, key, edit) => {
+    const retitle = e3.mutation.edit('retitle', plans,
+      East.function([PlansType, StringType, e3.mutation.editType(PlansType)], NullType, ($, state, key, edit) => {
         const row = $.let(state.get(key));
         $(edit.set(key, { status: row.status, due: row.due, title: 'RETITLED' }));
       }));
@@ -1261,7 +1261,7 @@ describe('the mutation delta', () => {
   /** A record with `seed`, an `edit` retitle and a `patch` door, indexed when asked. */
   function planPackage(name: string, indexed: boolean): ReturnType<typeof e3.package> {
     const plans = e3.record('plans', PlansType, new Map());
-    const seed = e3.mutation('seed', plans, East.function([PlansType], PlansType, ($, _state) => {
+    const seed = e3.mutation.reduce('seed', plans, East.function([PlansType], PlansType, ($, _state) => {
       const out = $.let(new Map(), PlansType);
       $.for(East.Array.range(0n, BigInt(ROWS)), ($, i) => {
         const status = $.let('ok');
@@ -1272,12 +1272,12 @@ describe('the mutation delta', () => {
       });
       return out;
     }));
-    const retitle = e3.editMutation('retitle', plans,
-      East.function([PlansType, StringType, e3.editTypeOf(PlansType)], NullType, ($, state, key, edit) => {
+    const retitle = e3.mutation.edit('retitle', plans,
+      East.function([PlansType, StringType, e3.mutation.editType(PlansType)], NullType, ($, state, key, edit) => {
         const row = $.let(state.get(key));
         $(edit.set(key, { status: row.status, due: row.due, title: 'RETITLED' }));
       }));
-    const patch = e3.patchMutation(plans);
+    const patch = e3.mutation.patch(plans);
     if (!indexed) return e3.package(name, '1.0.0', plans, seed, retitle, patch);
     return e3.package(name, '1.0.0', plans, seed, retitle, patch, e3.recordIndex('by_status', plans, {
       key: East.function([StringType, PlanRowType], StatusKeyType, ($, _k, v) => ({ status: v.status, due: v.due })),
@@ -1590,7 +1590,7 @@ describe('the mutation delta — cross-runtime parity', () => {
   let realRunner: TaskRunner;
 
   /** The runtimes to compare, minus any that is not installed. */
-  const runtimes: Array<{ ws: string; runner: Parameters<typeof e3.mutation>[3] }> = [
+  const runtimes: Array<{ ws: string; runner: Parameters<typeof e3.mutation.reduce>[3] }> = [
     { ws: 'node', runner: { runner: { runtime: 'east-node', platforms: ['@elaraai/east-node-std'] } } },
     ...(onPath('east-c', ['version']) ? [{ ws: 'c', runner: { runner: { runtime: 'east-c' as const, platforms: [] } } }] : []),
     ...(onPath('east-py', ['version']) ? [{ ws: 'py', runner: { runner: { runtime: 'east-py' as const, platforms: [] } } }] : []),
@@ -1608,7 +1608,7 @@ describe('the mutation delta — cross-runtime parity', () => {
 
     for (const { ws, runner } of runtimes) {
       const plans = e3.record('plans', PlansType, new Map());
-      const seed = e3.mutation('seed', plans, East.function([PlansType], PlansType, ($, _state) => {
+      const seed = e3.mutation.reduce('seed', plans, East.function([PlansType], PlansType, ($, _state) => {
         const out = $.let(new Map(), PlansType);
         $.for(East.Array.range(0n, ROWS), ($, i) => {
           const status = $.let('ok');
@@ -1619,20 +1619,20 @@ describe('the mutation delta — cross-runtime parity', () => {
         });
         return out;
       }), runner);
-      const retitle = e3.editMutation('retitle', plans,
-        East.function([PlansType, StringType, e3.editTypeOf(PlansType)], NullType, ($, state, key, edit) => {
+      const retitle = e3.mutation.edit('retitle', plans,
+        East.function([PlansType, StringType, e3.mutation.editType(PlansType)], NullType, ($, state, key, edit) => {
           const row = $.let(state.get(key));
           $(edit.set(key, { status: 'late', due: row.due, title: 'RETITLED' }));
         }), runner);
-      const drop = e3.editMutation('drop', plans,
-        East.function([PlansType, StringType, e3.editTypeOf(PlansType)], NullType, ($, _state, key, edit) => {
+      const drop = e3.mutation.edit('drop', plans,
+        East.function([PlansType, StringType, e3.mutation.editType(PlansType)], NullType, ($, _state, key, edit) => {
           $(edit.delete(key));
         }), runner);
       const byStatus = e3.recordIndex('by_status', plans, {
         key: East.function([StringType, PlanRowType], StatusKeyType, ($, _k, v) => ({ status: v.status, due: v.due })),
         value: East.function([StringType, PlanRowType], StringType, ($, _k, v) => v.title),
       }, runner);
-      const pkg = e3.package(`parity-${ws}`, '1.0.0', plans, seed, retitle, drop, e3.patchMutation(plans, 'patch', runner), byStatus);
+      const pkg = e3.package(`parity-${ws}`, '1.0.0', plans, seed, retitle, drop, e3.mutation.patch(plans, 'patch', runner), byStatus);
       const zip = join(tempDir, `parity-${ws}.zip`);
       await e3.export(pkg, zip);
       await packageImport(storage, repo, zip);

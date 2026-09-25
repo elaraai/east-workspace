@@ -204,9 +204,9 @@ export async function objectAdoptFile(
  *
  * @remarks
  * The file IS the value: adopting it again after it changes gives a new hash,
- * so its consumers re-run and `partitionTask`'s per-partition memoization keeps
- * the partitions whose slices did not move. There is no mtime or size memo and
- * no configuration — the memo is of the bytes' own hash.
+ * so its consumers re-run, and a task that splits its work over it keeps the
+ * pieces that did not move. There is no mtime or size memo and no
+ * configuration — the memo is of the bytes' own hash.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier

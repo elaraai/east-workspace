@@ -18,8 +18,8 @@ import * as nodePath from 'node:path';
 import { createHash } from 'node:crypto';
 import yazl from 'yazl';
 import { variant, some, none, encodeBeast2For, encodeEastIR, EastIR, AsyncEastIR, printIdentifier, SortedMap, toEastTypeValue, decodeFunctionManifest, linkImports, type FunctionManifest, type LinkedImport } from '@elaraai/east';
-import type { Structure, PackageObject, DatasetRef, DatasetSourceWire, FunctionObject, MutationObject, RecordIndexObject, RecordObject } from '@elaraai/e3-types';
-import { DatasetRefType, PackageObjectType, TaskObjectType, FunctionObjectType, MutationObjectType, RecordIndexObjectType, RecordObjectType, encodeDatasetBlob } from '@elaraai/e3-types';
+import type { Structure, PackageObject, DatasetRef, DatasetSourceWire, FunctionObject, MutationObject, RecordIndexObject, RecordObject, TaskObject, TaskOutputKind } from '@elaraai/e3-types';
+import { DatasetRefType, PackageObjectType, TASK_OBJECT_KIND, TaskObjectType, FunctionObjectType, MutationObjectType, RecordIndexObjectType, RecordObjectType, encodeDatasetBlob } from '@elaraai/e3-types';
 import { buildMutationProgram, hasKeyedDelta, indexBuildProgram, indexMergeProgram } from './record-programs.js';
 import { readDatasetFileHeader } from './dataset-file.js';
 import type { PackageDef, PackageItem } from './types.js';
@@ -80,18 +80,6 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
     : (e: CaptureEvent) => options.onEvent!({ kind: 'capture', ...e });
   const partialPath = `${outputPath}.partial`;
 
-  // The task a function_ir (or a stream task's merge_ir) dataset belongs to
-  // (e3.task lists them first among the task's inputs), so the dataset's IR
-  // links against that task's runner.
-  const taskOfFunctionIR = new Map<PackageItem, { name: string; runner: Runner | undefined }>();
-  for (const item of pkg.contents) {
-    if (item.kind === 'task') {
-      for (const input of item.inputs) {
-        if (input.name === 'function_ir' || input.name === 'merge_ir') taskOfFunctionIR.set(input, { name: item.name, runner: item.runner });
-      }
-    }
-  }
-
   // Cross-language imports (#628): every East.importFunction in a task's,
   // function's or mutation's IR resolves against a manifest and embeds as
   // pure IR — the deployed program needs no exporting language at run
@@ -108,10 +96,11 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
     for (const [name, functions] of importedFunctions(bundle.ir)) references.push({ package: name, functions: [...functions], owner, runner });
   };
   for (const item of pkg.contents) {
-    if (item.kind === 'dataset' && (item.default instanceof EastIR || item.default instanceof AsyncEastIR)) {
-      const owner = taskOfFunctionIR.get(item);
-      refer(item.default, owner ? `task "${owner.name}"` : `dataset "${item.name}"`, owner?.runner);
-    }
+    if (item.kind !== 'task' || item.body.kind !== 'east') continue;
+    const owner = `task "${item.name}"`;
+    refer(item.body.program, owner, item.runner);
+    if (item.outputKind?.kind === 'dict' && item.outputKind.merge !== undefined) refer(item.outputKind.merge, owner, item.runner);
+    if (item.outputKind?.kind === 'fold') refer(item.outputKind.combine, owner, item.runner);
   }
   for (const [fname, fdef] of Object.entries(pkg.functions)) refer(fdef.body, `function "${fname}"`, fdef.runner);
   for (const [rname, rdef] of Object.entries(pkg.records)) {
@@ -249,14 +238,13 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
       }).join('/');
 
       // An input's initial value comes from its SOURCE variant; `default` is
-      // the internal inline-value channel (a task's function_ir bundle,
-      // record()'s initial state), which is never path-initialised.
+      // the internal inline-value channel (record()'s initial state), which
+      // is never path-initialised.
       //
-      // - `value` and `default` are serialized into the bundle as before —
-      //   an EastIR / AsyncEastIR bundle through encodeEastIR so its source
-      //   map survives, everything else through the store path's own encoder
-      //   (a collection root ships segmented + indexed, so a deployed input is
-      //   pageable without anyone having to write it first, #584).
+      // - `value` and `default` are serialized into the bundle through the
+      //   store path's own encoder (a collection root ships segmented +
+      //   indexed, so a deployed input is pageable without anyone having to
+      //   write it first, #584).
       // - `file` records a DESCRIPTOR and leaves the ref unassigned: the
       //   bytes never travel in the package. The file is validated here,
       //   from its header, so a schema drift is a build error at the
@@ -273,17 +261,11 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
         sources.set(refPath, variant('file', { path: resolved }));
         datasetRef = variant('unassigned', null);
       } else if (inline !== undefined) {
-        let valueData: Uint8Array;
-        if (inline instanceof EastIR || inline instanceof AsyncEastIR) {
-          const owner = taskOfFunctionIR.get(item);
-          valueData = encodeEastIR(link(inline, owner ? `task "${owner.name}"` : `dataset "${refPath}"`, owner?.runner));
-        } else {
-          // A collection root ships as segment objects plus the manifest
-          // naming them, exactly as the store's own door writes one, so a
-          // deployed input is in the layout before anything writes it.
-          valueData = await encodeDatasetBlob(item.type, inline,
-            (bytes) => Promise.resolve(addObject(zipfile, Buffer.from(bytes))));
-        }
+        // A collection root ships as segment objects plus the manifest naming
+        // them, exactly as the store's own door writes one, so a deployed
+        // input is in the layout before anything writes it.
+        const valueData = await encodeDatasetBlob(item.type, inline,
+          (bytes) => Promise.resolve(addObject(zipfile, Buffer.from(bytes))));
         const valueHash = addObject(zipfile, Buffer.from(valueData));
         datasetRef = variant('value', { hash: valueHash, versions: new Map() });
       } else {
@@ -303,38 +285,46 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
       parentStructure.value.set(name, variant('value', { type: typeValue, writable: item.writable }));
 
     } else if (item.kind === "task") {
-      // Tasks are serialized and written immediately
+      // Tasks are serialized and written immediately: the program and the
+      // functions the output kind folds with are objects of their own, each
+      // linked against the task's runner, and the task object names them.
+      const owner = `task "${item.name}"`;
+      const irObject = (bundle: EastIR<any, any> | AsyncEastIR<any, any>): string =>
+        addObject(zipfile, Buffer.from(encodeEastIR(link(bundle, owner, item.runner))));
 
-      // Build input paths from the task definition
-      // Note: e3.task() includes function_ir in inputs, e3.customTask() does not
-      const inputPaths = item.inputs.map(input => input.path);
+      let outputKind: TaskOutputKind;
+      const kind = item.outputKind;
+      switch (kind?.kind) {
+        case undefined: outputKind = variant('value', null); break;
+        case 'array': outputKind = variant('array', null); break;
+        case 'set': outputKind = variant('set', null); break;
+        case 'dict': outputKind = variant('dict', { merge: kind.merge === undefined ? none : some(irObject(kind.merge)) }); break;
+        case 'fold':
+          outputKind = variant('fold', {
+            zero: addObject(zipfile, Buffer.from(encodeBeast2For(kind.type)(kind.zero))),
+            combine: irObject(kind.combine),
+          });
+          break;
+      }
 
-      // Serialize command IR — item.command is an EastIR bundle so this
-      // preserves the source map.
-      const commandIrData = encodeEastIR(item.command);
-      const commandIrHash = addObject(zipfile, Buffer.from(commandIrData));
-
-      // Build TaskObject
-      const taskObject = {
-        commandIr: commandIrHash,
-        inputs: inputPaths,
-        output: item.output.path,
-        kind: item.taskKind ? variant('some', item.taskKind) : variant('none', null),
-        metadata: item.metadata ? variant('some', item.metadata) : variant('none', null),
-        // Routing metadata (commandIr stays authoritative for execution).
-        // customTask leaves TaskDef.runner undefined -> opaque custom
-        // (empty command: the wire field is informational for custom tasks).
+      const taskObject: TaskObject = {
+        kind: TASK_OBJECT_KIND,
+        // A custom task's command builds an argv and calls no function, so it
+        // is encoded unlinked.
+        body: item.body.kind === 'east'
+          ? variant('east', { program: irObject(item.body.program) })
+          : variant('command', { commandIr: addObject(zipfile, Buffer.from(encodeEastIR(item.body.command))) }),
+        // customTask leaves TaskDef.runner undefined: its command is what
+        // runs, so the runner is the custom runtime with an empty command.
         runner: item.runner ? runnerToVariant(item.runner) : variant('custom', { command: [] as string[] }),
+        inputs: item.inputs.map((input) => input.kind === 'partition'
+          ? { path: input.dataset.path, partition: some({ by: [...input.by] }) }
+          : { path: input.path, partition: none }),
+        output: { path: item.output.path, kind: outputKind },
+        role: item.role,
         environment: resolveEnvironment(item.environment, item.runner, item.name),
       };
-
-      // Serialize and add to zip
-      const taskEncoder = encodeBeast2For(TaskObjectType);
-      const taskData = taskEncoder(taskObject);
-      const taskHash = addObject(zipfile, Buffer.from(taskData));
-
-      // Add to package tasks map
-      tasks.set(item.name, taskHash);
+      tasks.set(item.name, addObject(zipfile, Buffer.from(encodeBeast2For(TaskObjectType)(taskObject))));
 
     } else {
       throw new Error(`Unknown package item kind: ${(item satisfies never as PackageItem).kind}`);

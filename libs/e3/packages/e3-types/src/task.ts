@@ -6,332 +6,187 @@
 /**
  * Task object types for e3.
  *
- * A task object defines a complete executable unit: the command IR that
- * generates the exec args, where to read inputs from, and where to write output.
+ * A task object says what a task runs, on which runtime, over which datasets,
+ * and what its output is: every field a mode used to be implied by is typed.
+ * Task objects are stored in the object store and referenced by packages, so
+ * they are content-addressed, which is what memoizes their executions.
  *
- * Task objects are stored in the object store and referenced by packages.
- * They are content-addressed, enabling deduplication and memoization.
- *
- * Input and output types are inferred from the package's structure at the
- * specified paths - the task just references locations, not types.
+ * Input and output types are not stored here: they are the package structure's
+ * at the paths the task names.
  */
 
-import { StructType, StringType, ArrayType, BlobType, BooleanType, IntegerType, OptionType, ValueTypeOf, decodeBeast2For, encodeBeast2For, none, variant } from '@elaraai/east';
+import { StructType, StringType, ArrayType, IntegerType, NullType, OptionType, VariantType, ValueTypeOf, decodeBeast2For, encodeBeast2For, variant } from '@elaraai/east';
 import type { EastTypeValue, FunctionIR } from '@elaraai/east';
 import { TreePathType } from './structure.js';
 import { RunnerType } from './runner.js';
 
+/** The kind tag every task object carries, which the garbage collector
+ *  dispatches on. */
+export const TASK_OBJECT_KIND = '$task';
+
+/**
+ * What a task runs.
+ *
+ * - `east`: an East program, which a stock runner executes as a unit
+ *   (`exec`): `program` is the hash of its IR bundle.
+ * - `command`: a command, which the custom runtime spawns. `commandIr` is the
+ *   hash of the IR bundle of the East function that builds its argv,
+ *   `(inputs: Array<String>, output: String) -> Array<String>`.
+ */
+export const TaskBodyType = VariantType({
+  east: StructType({ program: StringType }),
+  command: StructType({ commandIr: StringType }),
+});
+export type TaskBodyType = typeof TaskBodyType;
+export type TaskBody = ValueTypeOf<typeof TaskBodyType>;
+
+/**
+ * An input the work may be split over: `by` names the leading key fields
+ * whose equal values are never split across pieces — a field, or a
+ * first-field path written `a.b`. Empty when any key may start a piece.
+ */
+export const TaskPartitionType = StructType({ by: ArrayType(StringType) });
+export type TaskPartitionType = typeof TaskPartitionType;
+export type TaskPartition = ValueTypeOf<typeof TaskPartitionType>;
+
+/** A dataset a task reads, and whether the work may be split over it. */
+export const TaskInputType = StructType({
+  path: TreePathType,
+  partition: OptionType(TaskPartitionType),
+});
+export type TaskInputType = typeof TaskInputType;
+export type TaskInput = ValueTypeOf<typeof TaskInputType>;
+
+/**
+ * How a task's output is made, which fixes how the parts of it that units
+ * write combine.
+ *
+ * - `value`: the program returns it.
+ * - `array`: emitted elements, concatenated in emission order.
+ * - `set`: emitted elements, in any order, unioned.
+ * - `dict`: emitted entries, in any order; equal keys fold with `merge`, the
+ *   hash of a `(K, V, V) -> V` IR bundle, and without it are refused.
+ * - `fold`: emitted values folded with `combine`, the hash of a `(T, T) -> T`
+ *   IR bundle, starting at `zero`, the hash of a stored value.
+ */
+export const TaskOutputKindType = VariantType({
+  value: NullType,
+  array: NullType,
+  set: NullType,
+  dict: StructType({ merge: OptionType(StringType) }),
+  fold: StructType({ zero: StringType, combine: StringType }),
+});
+export type TaskOutputKindType = typeof TaskOutputKindType;
+export type TaskOutputKind = ValueTypeOf<typeof TaskOutputKindType>;
+
+/** Where a task's output goes, and how it is made. */
+export const TaskOutputType = StructType({
+  path: TreePathType,
+  kind: TaskOutputKindType,
+});
+export type TaskOutputType = typeof TaskOutputType;
+export type TaskOutput = ValueTypeOf<typeof TaskOutputType>;
+
+/**
+ * What a ui task binds as it renders.
+ *
+ * @property paths - Dataset paths it reads or writes through `Data.bind`,
+ *   including each bound record's own path, so the record's current value is
+ *   preloaded and polled like any dataset.
+ * @property functions - Package functions it calls through `Func.bind`.
+ * @property records - Records it binds through `Record.bind`.
+ * @property pages - Dataset paths it reads a window at a time through
+ *   `Data.bindPaged`: declared apart from `paths` because they are never
+ *   preloaded or polled whole.
+ */
+export const DataManifestType = StructType({
+  paths: ArrayType(TreePathType),
+  functions: ArrayType(StringType),
+  records: ArrayType(StringType),
+  pages: ArrayType(TreePathType),
+});
+export type DataManifestType = typeof DataManifestType;
+export type DataManifest = ValueTypeOf<typeof DataManifestType>;
+
+/**
+ * What a task's output is for: `data`, or a `ui` whose output is a component
+ * tree rendered against the datasets, functions and records it binds.
+ */
+export const TaskRoleType = VariantType({
+  data: NullType,
+  ui: DataManifestType,
+});
+export type TaskRoleType = typeof TaskRoleType;
+export type TaskRole = ValueTypeOf<typeof TaskRoleType>;
+
 /**
  * Task object stored in the object store.
  *
- * A task is a complete executable unit that reads from input dataset paths
- * and writes to an output dataset path. The commandIr is evaluated at runtime
- * to produce the exec args.
- *
  * @remarks
- * - `commandIr`: Hash of East IR object that produces exec args
- *   - IR signature: (inputs: Array<String>, output: String) -> Array<String>
- *   - `inputs` are paths to staged input .beast2 files
- *   - `output` is the path where output should be written
- *   - Returns array of strings to exec (e.g., ["sh", "-c", "python ..."])
- * - `inputs`: Paths to input datasets in the data tree
- * - `output`: Path to the output dataset in the data tree
- *
- * Types are not stored in the task - they are inferred from the package's
- * structure at the specified paths. This keeps tasks simple and avoids
- * redundant type information.
+ * A package-borne wire, so it changes by hard cutover: a package exported by
+ * an older SDK is re-exported, and {@link decodeTaskObject} says so.
  *
  * @example
  * ```ts
- * import { variant } from '@elaraai/east';
+ * import { none, variant } from '@elaraai/east';
  *
- * // Task with command IR that generates: ["sh", "-c", "python script.py <input> <output>"]
  * const task: TaskObject = {
- *   commandIr: '5e7a3b...',  // hash of compiled IR
- *   inputs: [
- *     [variant('field', 'inputs'), variant('field', 'sales')],
- *   ],
- *   output: [variant('field', 'tasks'), variant('field', 'train'), variant('field', 'output')],
+ *   kind: TASK_OBJECT_KIND,
+ *   body: variant('east', { program: '5e7a3b...' }),
+ *   runner: variant('east_node', { platforms: ['@elaraai/east-node-std'] }),
+ *   inputs: [{ path: [variant('field', 'inputs'), variant('field', 'sales')], partition: none }],
+ *   output: { path: [variant('field', 'tasks'), variant('field', 'totals'), variant('field', 'output')], kind: variant('value', null) },
+ *   role: variant('data', null),
+ *   environment: none,
  * };
  * ```
  */
 export const TaskObjectType = StructType({
-  /** Hash of East IR that generates exec args: (inputs, output) -> Array<String> */
-  commandIr: StringType,
-  /** Input paths: where to read each input dataset from the data tree */
-  inputs: ArrayType(TreePathType),
-  /** Output path: where to write the output dataset in the data tree */
-  output: TreePathType,
-  /** Task kind: "data" (default), "ui", or future extensions. None for old packages. */
-  kind: OptionType(StringType),
-  /** Opaque extension metadata (beast2-encoded). Interpreted by the kind-specific consumer. */
-  metadata: OptionType(BlobType),
-  /**
-   * The task's runner, as routing metadata (symmetric with
-   * FunctionObject.runner). For `custom` runners, `commandIr` remains
-   * authoritative for execution — the wire command is informational.
-   *
-   * NOTE: added as a hard cutover (no dual decoder) — packages exported by
-   * older SDKs must be re-exported.
-   */
+  /** Always {@link TASK_OBJECT_KIND}. */
+  kind: StringType,
+  /** What the task runs. */
+  body: TaskBodyType,
+  /** The runtime it runs on. A `custom` runner's command is informational:
+   *  the body's command IR is what spawns. */
   runner: RunnerType,
-  /**
-   * Hash of an {@link EnvironmentSpecType} object the task executes in;
-   * `none` ⇒ the stock runtime image. Appended LAST (BEAST2 encodes struct
-   * fields positionally) with a legacy dual decoder — see
-   * {@link decodeTaskObject}.
-   */
+  /** The datasets it reads, in the order its program takes them. */
+  inputs: ArrayType(TaskInputType),
+  /** Where its output goes, and how it is made. */
+  output: TaskOutputType,
+  /** What its output is for. */
+  role: TaskRoleType,
+  /** Hash of the {@link EnvironmentSpecType} object it executes in; `none`
+   *  for the stock runtime image. */
   environment: OptionType(StringType),
 });
 export type TaskObjectType = typeof TaskObjectType;
 
 export type TaskObject = ValueTypeOf<typeof TaskObjectType>;
 
-/**
- * The pre-`environment` task object wire shape, kept only so
- * {@link decodeTaskObject} can read tasks exported before execution
- * environments existed.
- */
-const PreEnvironmentTaskObjectType = StructType({
-  commandIr: StringType,
-  inputs: ArrayType(TreePathType),
-  output: TreePathType,
-  kind: OptionType(StringType),
-  metadata: OptionType(BlobType),
-  runner: RunnerType,
-});
-
 const decodeCurrentTask = decodeBeast2For(TaskObjectType);
-const decodePreEnvironmentTask = decodeBeast2For(PreEnvironmentTaskObjectType);
 
 /**
- * Decode a `TaskObject` from BEAST2 bytes, tolerating the pre-`environment`
- * wire format (dual-decode migration, like {@link decodePackageObject}).
+ * Decode a `TaskObject` from BEAST2 bytes.
  *
- * Every task-read path — local AND cloud — must use this instead of
- * `decodeBeast2For(TaskObjectType)` directly. Older bytes decode with
- * `environment` defaulted to `none`.
+ * @param data - the stored bytes
+ * @returns the task object
+ * @throws {Error} When the bytes are not a current task object — a package
+ *   exported by an older SDK, which is re-exported with the current one.
  */
 export function decodeTaskObject(data: Uint8Array): TaskObject {
+  let task: TaskObject;
   try {
-    return decodeCurrentTask(data);
+    task = decodeCurrentTask(data);
   } catch (err) {
-    try {
-      const legacy = decodePreEnvironmentTask(data);
-      return { ...legacy, environment: none };
-    } catch {
-      throw err; // no known shape — surface the current-format error
-    }
+    throw new Error(
+      `the task object does not decode: the package was exported by an older e3 SDK — re-export it with the current one ` +
+      `(${err instanceof Error ? err.message : String(err)})`,
+    );
   }
-}
-
-// =============================================================================
-// Partition / stream task kinds
-// =============================================================================
-
-/** Task kind of a partitioned task — the orchestrator carves its partitioned
- *  input(s) into key-range slices, runs each slice as an ordinary
- *  content-addressed execution, and assembles the output by splice or by
- *  combining partials. The spec rides {@link TaskObjectType}'s `metadata`
- *  slot as a beast2-encoded {@link PartitionTaskMetadataType}. */
-export const TASK_KIND_PARTITION = 'partition';
-
-/** Task kind of a streaming task — one execution whose runner feeds the
- *  stream input lazily and writes the output incrementally through an `emit`
- *  capability. The spec rides {@link TaskObjectType}'s `metadata` slot as a
- *  beast2-encoded {@link StreamTaskMetadataType}. */
-export const TASK_KIND_STREAM = 'stream';
-
-/** Task kind of a merge unit — the runner's `merge` command over sorted
- *  partials of a partitioned task's keyed output (issue #770). The
- *  orchestrator writes one such task per partitioned task from the
- *  package's {@link PartitionTaskMetadataType} `mergeCommand`, and runs it
- *  as an ordinary content-addressed execution per group of partials. It
- *  carries no metadata. */
-export const TASK_KIND_MERGE = 'merge';
-
-/**
- * Metadata of a {@link TASK_KIND_PARTITION} task.
- *
- * The task's wire `inputs` are laid out `[function_ir, ...partitions,
- * ...inputs]`, so `partitions` counts how many entries after the function IR
- * are partitioned datasets; the rest are ordinary (broadcast) inputs that
- * hash into every partition execution's identity.
- *
- * `by` and `combine` are carried as `encodeEastIR` bundles (capture-free IR +
- * its source map), not as FunctionType values or object-store hashes: IR is
- * how executable code travels everywhere on the e3 wire (`commandIr`,
- * `function_ir`, `bodyIr`), a FunctionType value could smuggle captures the
- * orchestrator must not evaluate, and inline bytes stay reachable where a
- * hash inside an opaque metadata blob would be invisible to GC.
- */
-export const PartitionTaskMetadataType = StructType({
-  /** Number of partitioned inputs (wire input indices `1..1+partitions`). */
-  partitions: IntegerType,
-  /** `encodeEastIR` bundle of the boundary-alignment projection
-   *  `(Key) -> Projection`; `none` when partitioning is free per row/segment. */
-  by: OptionType(BlobType),
-  /** `encodeEastIR` bundle of the associative fold `(Out, Out) -> Out`;
-   *  `none` in splice mode (shards concatenate). */
-  combine: OptionType(BlobType),
-  /** Target carved-slice size in wire bytes — the only sizing knob. */
-  targetPartitionBytes: IntegerType,
-  /**
-   * `encodeEastIR` bundle of the per-key merge `(Key, Value, Value) -> Value`
-   * for a Dict output; `none` otherwise.
-   *
-   * Its presence (or {@link mergeSets}) selects the MERGE-TREE assembly:
-   * partials whose key ranges overlap are merged by the task's own runner, in
-   * a tree of merge executions ({@link mergeCommand}) folding equal keys with
-   * this function; disjoint partials are spliced; the orchestrator never
-   * decodes a partial. Appended after `targetPartitionBytes` (BEAST2 encodes
-   * struct fields positionally) with a dual decoder — see
-   * {@link decodePartitionTaskMetadata}.
-   */
-  merge: OptionType(BlobType),
-  /** Whether a Set output assembles by the merge tree, keeping one of equal
-   *  elements (`--union`). The Set twin of {@link merge}, which needs no
-   *  function. */
-  mergeSets: BooleanType,
-  /**
-   * `encodeEastIR` bundle of the merge command `(input_paths, output_path) ->
-   * argv` — `mergeCommandIr` over the task's runner, in `function` mode with
-   * {@link merge} and `union` mode with {@link mergeSets} — that the
-   * orchestrator's merge units execute; `none` in splice and combine modes.
-   * Built at export, so the merge unit task is a package object like any
-   * other and nothing is synthesized at run time. Appended LAST with a
-   * triple decoder — see {@link decodePartitionTaskMetadata}.
-   */
-  mergeCommand: OptionType(BlobType),
-});
-export type PartitionTaskMetadataType = typeof PartitionTaskMetadataType;
-
-export type PartitionTaskMetadata = ValueTypeOf<typeof PartitionTaskMetadataType>;
-
-/**
- * The pre-`merge` partition metadata wire shape, kept only so
- * {@link decodePartitionTaskMetadata} can read tasks exported before the
- * segment-merge assembly existed.
- */
-const PreMergePartitionTaskMetadataType = StructType({
-  partitions: IntegerType,
-  by: OptionType(BlobType),
-  combine: OptionType(BlobType),
-  targetPartitionBytes: IntegerType,
-});
-
-/**
- * The v1.0.77 partition metadata wire shape — `merge` and `mergeSets` but no
- * `mergeCommand` — kept only so {@link decodePartitionTaskMetadata} can read
- * tasks exported by that SDK; their merge units cannot run.
- */
-const PreMergeCommandPartitionTaskMetadataType = StructType({
-  partitions: IntegerType,
-  by: OptionType(BlobType),
-  combine: OptionType(BlobType),
-  targetPartitionBytes: IntegerType,
-  merge: OptionType(BlobType),
-  mergeSets: BooleanType,
-});
-
-/** Encode a {@link PartitionTaskMetadataType} value for `TaskObject.metadata`. */
-export const encodePartitionTaskMetadata: (value: PartitionTaskMetadata) => Uint8Array =
-  encodeBeast2For(PartitionTaskMetadataType);
-
-const decodeCurrentPartitionMetadata = decodeBeast2For(PartitionTaskMetadataType);
-const decodePreMergeCommandPartitionMetadata = decodeBeast2For(PreMergeCommandPartitionTaskMetadataType);
-const decodePreMergePartitionMetadata = decodeBeast2For(PreMergePartitionTaskMetadataType);
-
-/**
- * Decode a `TaskObject.metadata` blob of a {@link TASK_KIND_PARTITION} task,
- * tolerating the two older wire formats: the v1.0.77 shape without
- * `mergeCommand`, and the pre-`merge` shape.
- *
- * @param data - the metadata blob
- * @returns the decoded metadata, with `mergeCommand` (and, for the oldest
- *   bytes, `merge`/`mergeSets`) defaulted off
- */
-export function decodePartitionTaskMetadata(data: Uint8Array): PartitionTaskMetadata {
-  try {
-    return decodeCurrentPartitionMetadata(data);
-  } catch (err) {
-    try {
-      return { ...decodePreMergeCommandPartitionMetadata(data), mergeCommand: none };
-    } catch {
-      try {
-        return { ...decodePreMergePartitionMetadata(data), merge: none, mergeSets: false, mergeCommand: none };
-      } catch {
-        throw err; // no known shape — surface the current-format error
-      }
-    }
+  if (task.kind !== TASK_OBJECT_KIND) {
+    throw new Error(`the object is not a task object: its kind is '${task.kind}', not '${TASK_OBJECT_KIND}'`);
   }
-}
-
-/**
- * Metadata of a {@link TASK_KIND_STREAM} task.
- *
- * The task's wire `inputs` are laid out `[function_ir, merge_ir?, stream?,
- * ...inputs]` — `merge_ir` only in `function` merge mode; the compiled body
- * takes one trailing `emit` parameter beyond the wire inputs, and the runner
- * writes the `-o` file from the emit sink instead of the body's (Null) return
- * value.
- */
-export const StreamTaskMetadataType = StructType({
-  /** Whether the first input after the IRs is the streamed input (producer
-   *  tasks have no streamed input). */
-  stream: BooleanType,
-  /** The output collection kind the emit sink writes: `"array"`, `"set"`, or
-   *  `"dict"` — element/key/value types come from the body IR's emit
-   *  parameter. */
-  emit: StringType,
-  /**
-   * How the emit sink treats equal keys, a `StreamMergeMode`: `"none"` —
-   * a duplicate key is an error; `"function"` — wire input 1 is the merge IR
-   * `(K, V, V) -> V`, folding equal Dict keys; `"union"` — equal Set elements
-   * collapse. Appended LAST (BEAST2 encodes struct fields positionally) with a
-   * dual decoder — see {@link decodeStreamTaskMetadata}.
-   */
-  merge: StringType,
-});
-export type StreamTaskMetadataType = typeof StreamTaskMetadataType;
-
-export type StreamTaskMetadata = ValueTypeOf<typeof StreamTaskMetadataType>;
-
-/**
- * The pre-`merge` stream metadata wire shape, kept only so
- * {@link decodeStreamTaskMetadata} can read tasks exported before folding
- * emit sinks existed.
- */
-const PreMergeStreamTaskMetadataType = StructType({
-  stream: BooleanType,
-  emit: StringType,
-});
-
-/** Encode a {@link StreamTaskMetadataType} value for `TaskObject.metadata`. */
-export const encodeStreamTaskMetadata: (value: StreamTaskMetadata) => Uint8Array =
-  encodeBeast2For(StreamTaskMetadataType);
-
-const decodeCurrentStreamMetadata = decodeBeast2For(StreamTaskMetadataType);
-const decodePreMergeStreamMetadata = decodeBeast2For(PreMergeStreamTaskMetadataType);
-
-/**
- * Decode a `TaskObject.metadata` blob of a {@link TASK_KIND_STREAM} task,
- * tolerating the pre-`merge` wire format (dual-decode migration).
- *
- * @param data - the metadata blob
- * @returns the decoded metadata, with `merge` defaulted to `"none"` for older
- *   bytes
- */
-export function decodeStreamTaskMetadata(data: Uint8Array): StreamTaskMetadata {
-  try {
-    return decodeCurrentStreamMetadata(data);
-  } catch (err) {
-    try {
-      return { ...decodePreMergeStreamMetadata(data), merge: 'none' };
-    } catch {
-      throw err; // no known shape — surface the current-format error
-    }
-  }
+  return task;
 }
 
 // =============================================================================
@@ -347,12 +202,11 @@ const SplitPointType = StructType({ seg: IntegerType, offset: IntegerType });
  * hashes of the range blobs the units take as their input.
  *
  * @remarks
- * The ranges are a pure function of the partials and the task's
- * `targetPartitionBytes` — the boundary keys are fences of the largest
- * partial — so a re-run whose partials are the same objects plans the same
- * ranges; recording them lets it skip the planning probes, and because
- * every unit's inputs are then the same objects, every merge unit
- * cache-hits.
+ * The ranges are a pure function of the partials and the target byte size —
+ * the boundary keys are fences of the largest partial — so a re-run whose
+ * partials are the same objects plans the same ranges; recording them lets it
+ * skip the planning probes, and because every unit's inputs are then the same
+ * objects, every merge unit cache-hits.
  */
 export const MergeRangePlanType = StructType({
   /** The component's partial hashes, in partition order. */
@@ -372,13 +226,9 @@ export type MergeRangePlan = ValueTypeOf<typeof MergeRangePlanType>;
  * the ranged fan-in of each merged component.
  *
  * @remarks
- * The step interpreter writes it to the object store as the run goes —
- * after the map step with the carved slices, and again after the reduce
- * step has planned each component's merge ranges — and points the `plan`
- * sidecar of the execution's `(taskHash, inputsHash)` directory at it, so a
- * re-plan or a resume that computes the same `partitions`/`boundaries`/
- * `splits` reuses the slices instead of carving them again, partition by
- * partition, and a component of the same partials reuses its ranges.
+ * Stored state: repositories hold plans an earlier e3 recorded beside its
+ * executions, and the garbage collector reads them to keep the slices and
+ * ranges they name.
  */
 export const PartitionPlanType = StructType({
   /** Partitioned input hashes, wire order. */
@@ -419,7 +269,7 @@ const decodePreMergesPlan = decodeBeast2For(PreMergesPartitionPlanType);
 /**
  * Decode a {@link PartitionPlanType} object, tolerating the pre-`merges`
  * wire shape (dual-decode migration): an older plan decodes with no recorded
- * merge ranges, so its partition slices are reused and its ranges planned.
+ * merge ranges.
  *
  * @param data - the plan object's bytes
  * @returns the decoded plan
@@ -441,8 +291,8 @@ export function decodePartitionPlan(data: Uint8Array): PartitionPlan {
 // =============================================================================
 
 /**
- * The shape a partition task's `by` projection reads, as extracted from its
- * IR by {@link partitionProjectionShape}.
+ * The shape a partition `by` projection reads, as extracted from its IR by
+ * {@link partitionProjectionShape}.
  *
  * - `fields`: the identity (`names: []`), or a leading prefix of the key's
  *   top-level fields — one field, or a struct literal of fields in declared
