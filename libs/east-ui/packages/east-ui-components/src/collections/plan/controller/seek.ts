@@ -99,24 +99,36 @@ export interface SeekDriver {
 }
 
 /**
- * The first loaded row whose element sorts at-or-after `key` — where a search
- * positions the canvas, and where its labels start.
+ * Where a search positions the canvas, and where its labels start: the first
+ * loaded row that SHOWS the sought element — its key, else the first whose
+ * key the sought text begins — and, when no block shows one, the first row
+ * whose element sorts at-or-after it.
  *
  * @remarks
- * Windows land in the source's key order, and each series places its rows in
- * element order within a window, so the first row in stream order at-or-after
- * the key is the first row of the match run (#822). A parent precedes its
- * subtree, so that row is the element's own, never a child's.
+ * Each block's windows land in the source's key order, and each series places
+ * its rows in element order, so within a block the rows at-or-after the key
+ * start the match run (#822). A jump moves every block to the target window
+ * (#823), and a block whose series skips the element shows its neighbours
+ * there: the first block that shows the element itself wins, not the first
+ * block. A parent precedes its subtree, so the row found is the element's own,
+ * never a child's (for `views`, its first view row).
  *
  * @param rows - The loaded canvas rows, stream order
  * @param key - The sought key
  * @returns The index, or `-1` when no loaded row's element sorts at or after it
  */
 export function firstAtOrAfter(rows: readonly PlanRowValue[], key: string): number {
-    return rows.findIndex((r) => {
+    let exact = -1;
+    let prefixed = -1;
+    let after = -1;
+    rows.forEach((r, i) => {
         const element = elementKeyOf(r);
-        return element !== undefined && KEY_ORDER(element, key) >= 0;
+        if (element === undefined) return;
+        if (exact < 0 && element === key) exact = i;
+        if (prefixed < 0 && element.startsWith(key)) prefixed = i;
+        if (after < 0 && KEY_ORDER(element, key) >= 0) after = i;
     });
+    return exact >= 0 ? exact : prefixed >= 0 ? prefixed : after;
 }
 
 /**

@@ -43,8 +43,8 @@ import { getSomeorUndefined } from "../../../utils.js";
 import type { DragEventValue } from "../../../dnd/drag-layer";
 import type { PlanElementRefValue, PlanElementResolver } from "../context.js";
 import {
-    bodyItemKey, canvasRowsOf, rowIdOfKey, rowKeyWords, windowRestHeight,
-    type PlanBodyItem, type PlanRootValue, type PlanRowValue,
+    bodyItemKey, canvasRowsOf, restUi, rowIdOfKey, rowKeyWords, skeletonHeight, windowSkeleton,
+    type PlanBodyItem, type PlanFocusCtx, type PlanRootValue, type PlanRowValue, type SkeletonUi,
 } from "../model.js";
 import {
     initialPlanStore, planStoreReducer,
@@ -57,7 +57,7 @@ import {
     NOT_PERSISTED, sameAnchor, sameKey, sameList, sameToggle,
     type PlanAnchor, type PlanPersisted,
 } from "../persisted.js";
-import { createPagingDriver, type PlanPagingSnapshot } from "./paging.js";
+import { createPagingDriver, type PlanPagingSnapshot, type PlanRowPlace } from "./paging.js";
 import { CANVAS_KEY_TYPE, createSeekDriver, firstAtOrAfter, type PlanSeekSnapshot } from "./seek.js";
 import { currentScale, runPlanEffects } from "./effects.js";
 import { announcementOf, landedText } from "../a11y.js";
@@ -207,6 +207,9 @@ export interface PlanController {
     committed(paging: PlanPagingSnapshot): void;
     /** Ask a failed window again (#811). */
     retry(w: number): void;
+    /** Where a paged row the body does not hold sits — its block's band, and
+     *  how far down it (#823: a link into an evicted window). */
+    placeOf(key: RowKey): PlanRowPlace | undefined;
     /** The key search, for the toolbar (its `find` / `jump` / `clear` are this
      *  controller's). Mount it only where the source declares `seek`; its
      *  `resetKey` is the seek snapshot's `epoch` (#821). */
@@ -337,11 +340,34 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
     // A store the canvas has already drawn — committed without a notification.
     let quietStore: PlanStore | undefined;
 
+    /** The UI state a paged window's height reads (#823) — the store's grain
+     *  and charts, and each row's collapse as the canvas draws it: a declared
+     *  collapse not seeded yet is the collapse its landing will seed, so a
+     *  window measures the same before and after its rows seed. */
+    const skeletonUi: SkeletonUi = {
+        get grain() { return store.ui.grain; },
+        collapsed: (key, declared) => (declared && !store.seeded.has(key)
+            ? store.overrides.get(key) ?? true
+            : store.ui.collapsed.has(key)),
+        get chartsExpanded() { return store.ui.chartsExpanded; },
+    };
+    /** The expand focus's context strips — what a window's rows draw at under
+     *  it (a links focus elides runs across windows, and measures unfocused). */
+    const expandFocus = (): PlanFocusCtx | undefined =>
+        (store.ui.focus?.kind === "expand" ? { kind: "expand", key: store.ui.focus.key } : undefined);
+
     const paging = createPagingDriver({
-        // The at-rest height of a window's rows (#613): declared collapse, no
-        // focus, pinned rows excluded — never transient UI state.
-        heightOf: (rows) => (value === undefined ? 0
-            : windowRestHeight(rows, declaredGrainOf(value), denseOf(value), value.axis.type)),
+        // Each landed window's height facts, once (#823) — the axis kind says
+        // which rows draw as diagnostics.
+        skeletonOf: (rows) => windowSkeleton(rows, value?.axis.type),
+        // What the window's rows draw at NOW — the ledger follows the canvas's
+        // collapse, grain, charts and expand focus, so a band that stands for
+        // evicted rows is exactly as tall as they would draw.
+        heightOf: (sk) => (value === undefined ? 0 : skeletonHeight(sk, skeletonUi, denseOf(value), expandFocus())),
+        // At rest (#613): declared collapse, no charts, no focus — what the
+        // slot rate is seeded from, so a first window that landed mid-collapse
+        // does not describe every unvisited one by it.
+        restHeightOf: (sk) => (value === undefined ? 0 : skeletonHeight(sk, restUi(declaredGrainOf(value)), denseOf(value))),
         policy: options.policy,
         onChange: () => batch(() => {
             const landed = paging.getSnapshot();
@@ -371,6 +397,29 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
     let snapshot: PlanSnapshot = {
         store, paging: paging.getSnapshot(), seek: seek.getSnapshot(), overlay, anchor, scroll, nav, announce,
     };
+
+    // What the paged windows' heights were last measured under (#823).
+    let measuredUnder: {
+        grain: PlanGrain; overrides: PlanStore["overrides"]; charts: ReadonlySet<RowKey>;
+        expand: RowKey | undefined; dense: boolean;
+    } | undefined;
+
+    /** Measure every window the paged blocks have seen again when what their
+     *  rows draw at moved — a collapse toggle, the grain, a chart toggle, an
+     *  expand focus, the density — so the bands that stand for evicted rows
+     *  follow, exactly as the rows would move inline (#823). A seed moves
+     *  nothing here: a window measures an unseeded declared collapse as the
+     *  collapse its seed will be. */
+    function syncHeights(): void {
+        if (value === undefined || value.rows.type !== "paged") return;
+        const expand = store.ui.focus?.kind === "expand" ? store.ui.focus.key : undefined;
+        const dense = denseOf(value);
+        const m = measuredUnder;
+        if (m !== undefined && m.grain === store.ui.grain && m.overrides === store.overrides
+            && m.charts === store.ui.chartsExpanded && m.expand === expand && m.dense === dense) return;
+        measuredUnder = { grain: store.ui.grain, overrides: store.overrides, charts: store.ui.chartsExpanded, expand, dense };
+        if (m !== undefined) paging.remeasure();
+    }
 
     /** Rebuild the snapshot from the parts — the same object when none moved. */
     function refresh(): void {
@@ -501,12 +550,9 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
                 const src = next.rows.type === "paged" ? next.rows.value : undefined;
                 seek.setSeek(src !== undefined && src.seek.type === "some" ? src.seek.value : undefined);
                 paging.setSource(src);
-                // The ledger measures windows at rest by the declared grain,
-                // density and axis kind — a change there re-measures them.
-                if (prev !== undefined && src !== undefined && (declaredGrainOf(prev) !== declaredGrainOf(next)
-                    || denseOf(prev) !== denseOf(next) || prev.axis.type !== next.axis.type)) {
-                    paging.refresh();
-                }
+                // Which rows draw as diagnostics is the axis kind's to say:
+                // the windows take their skeletons again.
+                if (prev !== undefined && src !== undefined && prev.axis.type !== next.axis.type) paging.reskeleton();
                 if (dataChanged) {
                     const grain = store.declaredGrain;
                     reconcile(next);
@@ -516,6 +562,9 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
                     // rows that are still there (and read the store itself).
                     if (store.declaredGrain === grain) quietStore = store;
                 }
+                // A new density, or a grain the declaration changed, redraws
+                // the paged windows' rows at other heights.
+                syncHeights();
             });
         },
         setWords(next) {
@@ -532,6 +581,9 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
                 store = step.store;
                 if (value !== undefined && step.effects.length > 0) runPlanEffects(step.effects, value);
                 persistToggles();
+                // A collapse, the grain, a chart or an expand focus redraws the
+                // paged windows' rows at other heights (#823).
+                syncHeights();
                 // What the interaction changed, for the live region (#819) —
                 // said by the action that did it, so a reconcile or a landing
                 // that moves the same state says nothing.
@@ -633,6 +685,7 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
         retry(w) {
             batch(() => paging.retry(w));
         },
+        placeOf: (key) => paging.placeOf(key),
         search,
         seekSkipped() {
             batch(() => { scroll = { ...scroll, owner: "skipped", skippedSeq: scroll.skippedSeq + 1 }; });
@@ -651,16 +704,18 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
                 const at = items.findIndex((it) => bodyItemKey(it) === saved.key);
                 if (at < 0 && value?.rows.type === "paged" && saved.window !== null) {
                     // A paged canvas may simply not have loaded the row yet:
-                    // open at the window it came from before calling it gone —
-                    // a rebase, not a walk.
+                    // open its block at the window it came from before calling
+                    // it gone — a rebase, not a walk.
                     const w = saved.window;
+                    const block = saved.block ?? undefined;
                     if (anchor.phase === "pending") {
                         anchor = { ...anchor, phase: "seeking" };
-                        paging.openAt(w * PLAN_PAGE_SIZE);
+                        paging.openAt(w * PLAN_PAGE_SIZE, block);
                         return;
                     }
                     const snap = paging.getSnapshot();
-                    const settled = snap.failures.some((f) => f.w === w) || [...snap.origin.values()].includes(w);
+                    const settled = snap.failures.some((f) => f.w === w)
+                        || [...snap.origin.values()].some((o) => o.w === w && (block === undefined || o.block === block));
                     if (!settled) return;
                 }
                 anchor = {
@@ -678,11 +733,13 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
             if (anchor.phase !== "settled") return;
             const item = items[at.index];
             if (item === undefined) return;
+            const origin = item.kind === "row" ? paging.getSnapshot().origin.get(item.row.row.key) : undefined;
             const next: PlanAnchor = {
                 key: bodyItemKey(item),
                 offset: at.offset,
                 index: at.index,
-                window: item.kind === "row" ? paging.getSnapshot().origin.get(item.row.row.key) ?? null : null,
+                window: origin?.w ?? null,
+                block: origin?.block ?? null,
             };
             if (sameAnchor(persisted.anchor, next)) return;
             persisted = { ...persisted, anchor: next };

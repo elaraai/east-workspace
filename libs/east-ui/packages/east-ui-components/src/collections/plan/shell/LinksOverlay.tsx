@@ -10,8 +10,9 @@
  * runs' sides.
  *
  * Every endpoint comes from the MODEL (#818, `ribbon-layout.ts`): a row's
- * place is the body's own height arithmetic, its bar the geometry table's, a
- * run's x its window fraction across the plot. The layer is drawn inside the
+ * place is the body's own height arithmetic — or, for a row in an evicted
+ * paged window, that window's offset in its block's band (#823) — its bar the
+ * geometry table's, a run's x its window fraction across the plot. The layer is drawn inside the
  * frame's rows (`VirtualRows`' `overlay`), in their coordinates, so it scrolls
  * with them natively and re-lays out in the same render as they do — a
  * collapse, a chart toggle, a window landing. Nothing is measured but the
@@ -32,8 +33,8 @@
 
 import { useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, useCallback, type RefObject } from "react";
 import { Box } from "@chakra-ui/react";
-import { RIBBON_FADE_W, layoutRibbons, type RibbonBody } from "./ribbon-layout.js";
-import type { RibbonEnd, RibbonOff } from "./ribbon-geometry.js";
+import { RIBBON_FADE_W, layoutRibbons, type RibbonBeyond, type RibbonBody } from "./ribbon-layout.js";
+import type { RibbonEnd } from "./ribbon-geometry.js";
 import type { PlanLinkValue } from "../model.js";
 import type { PlanScale } from "../scale.js";
 import type { PlanInstantValue } from "../instant.js";
@@ -58,8 +59,9 @@ export interface LinksOverlayProps {
     visibleKeys: ReadonlySet<string>;
     /** The canvas body as the ribbons see it (`ribbonBody`). */
     body: RibbonBody;
-    /** The side of the rows a row the body does not hold lies past (a pinned row is above them). */
-    beyond: (key: string) => RibbonOff | undefined;
+    /** Where a row the body does not hold is drawn — past the rows' top (a
+     *  pinned row), or at its evicted window's place in its block's band (#823). */
+    beyond: (key: string) => RibbonBeyond | undefined;
     /** The shared scale. */
     scale: PlanScale;
     /** A run's instants by `(rowKey, runKey)`. */

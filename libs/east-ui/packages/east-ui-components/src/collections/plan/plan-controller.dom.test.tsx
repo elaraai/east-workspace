@@ -30,7 +30,7 @@ import { EastChakraPlan, setPlanRootRenderProbe, type PlanRootValue } from "./in
 import type { PlanWireRow } from "./model.js";
 import { setBodyRowRenderProbe } from "./rows/BodyRow.js";
 import { PLAN_PAGE_SIZE } from "./use-plan-paging.js";
-import { rowId, rowIdEqual, rowSel, testKeyOf } from "./plan.test-utils.js";
+import { blocksSource, oneBlock, rowId, rowIdEqual, rowSel, testKeyOf } from "./plan.test-utils.js";
 
 class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
 (globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverStub;
@@ -64,7 +64,7 @@ const without = (rows: PlanWireRow[], key: string) => rows.filter((r) => !rowIdE
 
 function planRoot(rows: PlanWireRow[], opts: { source?: unknown; links?: unknown[]; popover?: unknown } = {}): PlanRootValue {
     return {
-        rows: opts.source !== undefined ? variant("paged", opts.source) : variant("inline", rows),
+        rows: opts.source !== undefined ? variant("paged", blocksSource(opts.source)) : variant("inline", oneBlock(rows)),
         links: opts.links ?? [],
         axis: variant("time", {
             window: some({ min: W27, max: W39 }), resolution: variant("week", null),

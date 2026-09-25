@@ -19,6 +19,10 @@ export interface PlanAnchor {
     /** The source window its row came from, on a paged canvas — where a
      *  remount that has not loaded the row yet looks for it. */
     window: number | null;
+    /** The block its row came from (#823) — which block the remount opens at
+     *  that window; `null` for a row of no paged block, or an anchor saved
+     *  before blocks paged apart (every block then opens there). */
+    block: number | null;
 }
 
 /** What the canvas persists under its `storageKey` (#813). */
@@ -51,11 +55,13 @@ export function persistedOf(stored: unknown): PlanPersisted {
     const a = anchor as Partial<PlanAnchor> | null | undefined;
     const okAnchor = typeof a === "object" && a !== null && typeof a.key === "string"
         && Number.isFinite(a.offset) && Number.isInteger(a.index)
-        && (a.window === null || Number.isInteger(a.window));
+        && (a.window === null || Number.isInteger(a.window))
+        // Written before blocks paged apart, an anchor names none.
+        && (a.block === undefined || a.block === null || Number.isInteger(a.block));
     return {
         collapse: okCollapse ? collapse as Array<[string, boolean]> : [],
         charts: okCharts ? charts as string[] : [],
-        anchor: okAnchor ? a as PlanAnchor : null,
+        anchor: okAnchor ? { ...(a as PlanAnchor), block: a.block ?? null } : null,
     };
 }
 
@@ -73,4 +79,4 @@ export const sameKey = (x: string, y: string): boolean => x === y;
 
 /** Two anchors are the same — `x` may be absent. */
 export const sameAnchor = (x: PlanAnchor | null, y: PlanAnchor): boolean => x !== null
-    && x.key === y.key && x.offset === y.offset && x.index === y.index && x.window === y.window;
+    && x.key === y.key && x.offset === y.offset && x.index === y.index && x.window === y.window && x.block === y.block;

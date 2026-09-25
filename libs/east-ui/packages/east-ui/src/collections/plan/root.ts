@@ -52,7 +52,7 @@ import {
     PlanFooterItemType,
     PlanStyleType,
     PlanElementRefType,
-    PlanRowsCollectionType,
+    PlanBlocksType,
     PlanRowsType,
     type PlanAxisKindLiteral,
     type PlanAxisInput,
@@ -324,9 +324,11 @@ export function createPlanRoot<K extends PlanAxisKindLiteral = PlanAxisKindLiter
             );
         }
     }
+    // The canvas's BLOCKS, in layout order (#823): inline, the whole source's;
+    // paged, each window's share of every block — one read serves them all.
     const rowsValue = buildRowSource(
         resolved,
-        PlanRowsCollectionType,
+        PlanBlocksType,
         (source) => applySeries(seriesInput, source),
     ) as unknown as ExprType<PlanRowsType>;
     const style = config.style;

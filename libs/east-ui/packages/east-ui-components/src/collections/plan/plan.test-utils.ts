@@ -11,11 +11,13 @@
  * the path `[key]` unless a test names another series.
  */
 
-import { equalFor, variant } from "@elaraai/east";
+import { equalFor, none, some, variant } from "@elaraai/east";
 import { Plan } from "@elaraai/east-ui/internal";
 import { rowIdOfKey, rowKeyOf, type PlanRowId } from "./row-key.js";
 import { rowItemKey } from "./body-items.js";
 import type { RowKey } from "./plan-state.js";
+import type { PlanWireBlock, PlanWireRow } from "./model.js";
+import type { PlanPagedSourceValue } from "./use-plan-paging.js";
 
 /** The series every hand-built test row belongs to, unless a test names one. */
 export const TEST_SERIES = "t";
@@ -114,6 +116,53 @@ export function itemSel(key: string, series?: string): string {
  */
 export function rowItem(key: string, series?: string): string {
     return rowItemKey(rowKey(key, series));
+}
+
+/** Each rows array's one-block canvas, kept — so a root rebuilt over the same
+ *  rows hands the renderer the same decoded blocks (its rows keep their
+ *  objects, and their memos). */
+const blocksOfRows = new WeakMap<readonly unknown[], PlanWireBlock[]>();
+
+/**
+ * A test's rows as the canvas the IR carries (#823) — ONE paged block of them,
+ * at the top of the canvas.
+ *
+ * @param rows - The rows, in stream order
+ * @returns The canvas's blocks
+ */
+export function oneBlock(rows: readonly unknown[]): PlanWireBlock[] {
+    let blocks = blocksOfRows.get(rows);
+    if (blocks === undefined) {
+        blocks = [{ fixed: false, parent: none, rows: rows as PlanWireRow[] } as unknown as PlanWireBlock];
+        blocksOfRows.set(rows, blocks);
+    }
+    return blocks;
+}
+
+/** Each test `page`'s block-serving twin, kept per function. */
+const blockPages = new WeakMap<object, (offset: bigint, limit: bigint) => unknown>();
+
+/**
+ * A test's paged source of ROWS as the paged source the IR carries (#823) —
+ * each window's rows served as one paged block ({@link oneBlock}). The twin
+ * `page` is kept per function, so a source rebuilt over the same functions
+ * stays equivalent to the one it replaces, as it would in production.
+ *
+ * @param src - The test's source, its `page` answering rows
+ * @returns The source, its `page` answering blocks
+ */
+export function blocksSource(src: unknown): PlanPagedSourceValue {
+    const source = src as { page: (offset: bigint, limit: bigint) => { type: string; value?: unknown } };
+    let page = blockPages.get(source.page);
+    if (page === undefined) {
+        const rowsPage = source.page;
+        page = (offset, limit) => {
+            const window = rowsPage(offset, limit);
+            return window.type === "some" ? some(oneBlock(window.value as readonly unknown[])) : window;
+        };
+        blockPages.set(rowsPage, page);
+    }
+    return { ...source, page } as unknown as PlanPagedSourceValue;
 }
 
 /**

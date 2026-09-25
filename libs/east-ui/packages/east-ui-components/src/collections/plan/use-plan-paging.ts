@@ -18,7 +18,7 @@ import type { PlanBand, PlanRootValue } from "./model.js";
 import { elementsIn } from "./window-ledger.js";
 import { PLAN_GEOMETRY } from "./geometry.js";
 
-/** The decoded `paged` arm — the derived source at the canvas-row type. */
+/** The decoded `paged` arm — the derived source at the canvas's blocks (#823). */
 export type PlanPagedSourceValue = Extract<PlanRootValue["rows"], { type: "paged" }>["value"];
 
 /** Source elements per window. */
@@ -40,12 +40,16 @@ export type { PlanBand, PlanWindowFailure } from "./model.js";
  * the canvas's business — it interleaves gap bands under a links focus, hides
  * collapsed subtrees, pins rows above the scroll. So the canvas says which ROW
  * (or which band) the viewport is over, and the driver maps that back to a
- * window through the origin map. No layout knowledge crosses the boundary.
+ * block and a window through the origin map (#823: each paged block pages on
+ * its own, so demand follows the block the viewport is in). No layout
+ * knowledge crosses the boundary.
  */
 export type PlanViewport =
     | { kind: "row"; key: string }
     | {
         kind: "band";
+        /** The block whose band it is (#823). */
+        block: number;
         at: "head" | "tail";
         /** Pixels from the band's own top to the viewport center, when the
          *  caller knows them (`VirtualRows`' center report). Without them the
@@ -53,8 +57,8 @@ export type PlanViewport =
          *  scrollbar drag then walks the gap instead of rebasing (#612). */
         px?: number | undefined;
     }
-    /** A failed window's band — it names its own window (#811). */
-    | { kind: "window"; w: number };
+    /** A failed window's band — it names its own block and window (#811). */
+    | { kind: "window"; block: number; w: number };
 
 /** Elements the band covers, for its caption. */
 export function bandElements(band: PlanBand): number {

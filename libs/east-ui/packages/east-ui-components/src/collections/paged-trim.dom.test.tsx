@@ -32,6 +32,7 @@ import { ArrayType, DictType, East, IntegerType, StringType, StructType, type Va
 import { Paged, Plan, Table, UIComponentType } from "@elaraai/east-ui/internal";
 import { PLAN_PAGE_SIZE, type PlanPagedSourceValue } from "./plan/use-plan-paging.js";
 import { createPagingDriver, type PagingDriver } from "./plan/controller/paging.js";
+import { restUi, skeletonHeight, windowSkeleton } from "./plan/model.js";
 import { useTablePagedRows, type TablePagedSourceValue } from "./table/use-paged-rows.js";
 import { rowKey } from "./plan/plan.test-utils.js";
 
@@ -105,7 +106,12 @@ afterEach(() => {
 
 /** The Plan's paging driver over `src`, as the canvas drives it. */
 function drivePlan(src: PlanPagedSourceValue): PagingDriver {
-    const driver = createPagingDriver({ heightOf: (rows) => rows.length * 32, onChange: () => undefined });
+    const driver = createPagingDriver({
+        skeletonOf: (rows) => windowSkeleton(rows),
+        heightOf: (sk) => skeletonHeight(sk, restUi("resource"), false),
+        restHeightOf: (sk) => skeletonHeight(sk, restUi("resource"), false),
+        onChange: () => undefined,
+    });
     plan = driver;
     driver.setSource(src);
     return driver;
@@ -114,7 +120,7 @@ function drivePlan(src: PlanPagedSourceValue): PagingDriver {
 /** Rows per resident window — from the driver's own row → window map. */
 function planWindowSizes(): Map<number, number> {
     const sizes = new Map<number, number>();
-    for (const w of plan?.getSnapshot().origin.values() ?? []) sizes.set(w, (sizes.get(w) ?? 0) + 1);
+    for (const { w } of plan?.getSnapshot().origin.values() ?? []) sizes.set(w, (sizes.get(w) ?? 0) + 1);
     return sizes;
 }
 
@@ -135,8 +141,8 @@ describe("a trimmed source through the Plan's paging driver (#829)", () => {
             const snap = driver.getSnapshot();
             for (const row of snap.rows) seen.add(row.key);
             if ((snap.resident?.from ?? 0) > 0) evicted = true;
-            if (snap.tail === undefined) break;
-            driver.reportViewport({ kind: "band", at: "tail" }, false);
+            if (snap.blocks[0]?.tail === undefined) break;
+            driver.reportViewport({ kind: "band", block: 0, at: "tail" }, false);
         }
         // Every entry was on the canvas at some point — none fell between a
         // trimmed piece and the next window.
@@ -155,7 +161,7 @@ describe("a trimmed source through the Plan's paging driver (#829)", () => {
         driver.jumpToElement(3_333);
         await waitFor(() => expect(driver.getSnapshot().origin.has(entryRow(3_333))).toBe(true));
         expectWholePlanWindows();
-        expect(driver.getSnapshot().origin.get(entryRow(3_333))).toBe(Math.floor(3_333 / PLAN_PAGE_SIZE));
+        expect(driver.getSnapshot().origin.get(entryRow(3_333))).toEqual({ block: 0, w: Math.floor(3_333 / PLAN_PAGE_SIZE) });
     });
 });
 

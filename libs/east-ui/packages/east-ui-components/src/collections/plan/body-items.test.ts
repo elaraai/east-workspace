@@ -125,19 +125,19 @@ describe("Plan link graph (R1)", () => {
 describe("Plan failed-window placement (#811)", () => {
     const rowItem = (key: string, collapsed = false): PlanBodyItem =>
         ({ kind: "row", row: { row: toCanvasRows([wire(key, spanKind)])[0]!, depth: 0, collapsed } });
-    const failure = (w: number): PlanWindowFailure => ({ w, from: w * 200, to: w * 200 + 199, px: 200, error: "boom" });
+    const failure = (w: number): PlanWindowFailure => ({ block: 0, w, from: w * 200, to: w * 200 + 199, px: 200, error: "boom" });
     const keys = (items: readonly PlanBodyItem[]) => items.map((i) =>
         (i.kind === "row" ? testKeyOf(i.row.row.key) : i.kind === "failed" ? `F${i.failure.w}` : i.kind));
 
     test("each band goes after the last row of an EARLIER window — at the head, in a seam, at the tail", () => {
-        // S is a row windows 1 and 3 both serve (a section header): it stays
-        // where window 1 first placed it, attributed to window 1 (#822).
+        // One block's rows, in window order (#823); a row no window placed (a
+        // fixed row) anchors no seam.
         const items = [rowItem("S"), rowItem("a"), rowItem("b"), rowItem("c")];
-        const origin = new Map([[rowKey("S"), 1], [rowKey("a"), 1], [rowKey("b"), 1], [rowKey("c"), 3]]);
-        const placed = placeFailures(items, [failure(5), failure(2), failure(0)], origin);
+        const origin = new Map([[rowKey("a"), 1], [rowKey("b"), 1], [rowKey("c"), 3]]);
+        const placed = placeFailures(items, [failure(5), failure(2), failure(0)], (k) => origin.get(k));
         expect(keys(placed)).toEqual(["F0", "S", "a", "b", "F2", "c", "F5"]);
         // Nothing failed: the very same items.
-        expect(placeFailures(items, [], origin)).toBe(items);
+        expect(placeFailures(items, [], (k) => origin.get(k))).toBe(items);
     });
 
     test("the chip seeks the first diagnostic row — or the collapsed group hiding it", () => {

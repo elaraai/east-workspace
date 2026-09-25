@@ -22,7 +22,7 @@ import { UIStore } from "../../platform/state-store.js";
 import { registerReactiveTracker, type ReactiveTracker } from "../../reactive/tracker.js";
 import { EastChakraPlan, type PlanRootValue } from "./index.js";
 import type { PlanRowId, PlanWireRow } from "./model.js";
-import { itemSel, rowId, rowSel, testKeyOf } from "./plan.test-utils.js";
+import { blocksSource, itemSel, oneBlock, rowId, rowSel, testKeyOf } from "./plan.test-utils.js";
 import { setBodyRowRenderProbe } from "./rows/BodyRow.js";
 import { PLAN_PAGE_SIZE } from "./use-plan-paging.js";
 import { minOf } from "./reductions.js";
@@ -114,7 +114,7 @@ function planRoot(rows: PlanWireRow[], opts: {
     height?: string; expandRender?: boolean;
 } = {}): PlanRootValue {
     return {
-        rows: opts.source !== undefined ? variant("paged", opts.source) : variant("inline", rows),
+        rows: opts.source !== undefined ? variant("paged", blocksSource(opts.source)) : variant("inline", oneBlock(rows)),
         links: opts.links ?? [],
         axis: variant("time", {
             window: some({ min: W27, max: W39 }), resolution: variant("week", null),
@@ -182,7 +182,7 @@ const EVERY_KIND = () => [
 ];
 
 /** An item by its key in the test's words — `r:s` is row `s`'s item (its key
- *  is the id's text, #822); `b:tail` and `f:2` are bands. */
+ *  is the id's text, #822); `b:0:tail` and `f:0:2` are bands — block 0's (#823). */
 const item = (c: HTMLElement, key: string) =>
     c.querySelector(key.startsWith("r:") ? itemSel(key.slice(2)) : `[data-plan-item="${key}"]`) as HTMLElement;
 const gridOf = (c: HTMLElement) => c.querySelector('[role="treegrid"]') as HTMLElement;
@@ -358,15 +358,15 @@ describe("paged canvases (#819)", () => {
         const grid = gridOf(container);
         // Window 0's rows, then the band for elements 601–1,000.
         expect(grid.getAttribute("aria-rowcount")).toBe("17");
-        expect(item(container, "b:tail").getAttribute("role")).toBe("row");
-        expect(item(container, "b:tail").getAttribute("aria-rowindex")).toBe("17");
+        expect(item(container, "b:0:tail").getAttribute("role")).toBe("row");
+        expect(item(container, "b:0:tail").getAttribute("aria-rowindex")).toBe("17");
         act(() => {
             held.state.openUpTo = 2;
             held.fire("w1");
         });
         expect(grid.getAttribute("aria-rowcount")).toBe("49");
         expect(item(container, "r:w1r00").getAttribute("aria-rowindex")).toBe("17");
-        expect(item(container, "b:tail").getAttribute("aria-rowindex")).toBe("49");
+        expect(item(container, "b:0:tail").getAttribute("aria-rowindex")).toBe("49");
         expect(announced(container)).toBe("Loaded elements 201–600 of 1,000");
     });
 });
@@ -536,7 +536,7 @@ describe("one tab stop, and the keyboard map (#819)", () => {
         expect(focusedItem()).toBe("r:w2r15");
         // Onto the band: it holds focus while the windows beside it are asked for.
         press("ArrowDown");
-        expect(focusedItem()).toBe("b:tail");
+        expect(focusedItem()).toBe("b:0:tail");
         act(() => {
             held.state.openUpTo = 5;
             held.fire("w3");
@@ -556,7 +556,7 @@ describe("one tab stop, and the keyboard map (#819)", () => {
         expect(focusedItem()).toBe("r:w0r15");
         // Asking for window 3 wants the source's rest: every window is in flight, no band stands.
         press("ArrowDown");
-        expect(item(container, "b:tail")).toBeNull();
+        expect(item(container, "b:0:tail")).toBeNull();
         expect(focusedItem()).toBe("r:w0r15");
         act(() => {
             held.state.openUpTo = 2;
@@ -570,7 +570,7 @@ describe("one tab stop, and the keyboard map (#819)", () => {
         const held = heldSource(5, 16, 4);
         const { container } = renderPlan(planRoot([], { source: held.source }), "plan-819-edges");
         await waitFor(() => expect(item(container, "r:w0r00")).toBeTruthy());
-        expect(item(container, "b:tail")).toBeTruthy();
+        expect(item(container, "b:0:tail")).toBeTruthy();
         act(() => gridOf(container).focus());
         press("End");
         await waitFor(() => expect(focusedItem()).toBe("r:w4r15"));

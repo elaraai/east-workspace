@@ -58,7 +58,7 @@
  * `PlanMessagesProvider` overrides the words for a subtree.
  */
 
-import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent } from "react";
+import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent, type ReactNode } from "react";
 import { Box, useSlotRecipe } from "@chakra-ui/react";
 import { equalFor, equivalentFor } from "@elaraai/east";
 import { Plan } from "@elaraai/east-ui/internal";
@@ -84,13 +84,12 @@ import type { PlanPart } from "./messages.js";
 import {
     bodyItemKey, canvasRowsOf, derivePlan, indexRows, linkedRowKeys, pinnedRows, pxOf, rowHeight, rowItemKey, rowKeyOf,
     rowKeyWords, visibleRows,
-    type PlanRootValue, type VisibleRow,
+    type PlanRootValue, type PlanRowValue, type VisibleRow,
 } from "./model.js";
 import { PlanNarrow, PLAN_NARROW_BELOW } from "./narrow/index.js";
 import type { PlanNarrowPaging } from "./narrow/demand.js";
 import { LinksOverlay } from "./shell/LinksOverlay.js";
-import { ribbonBody } from "./shell/ribbon-layout.js";
-import type { RibbonOff } from "./shell/ribbon-geometry.js";
+import { ribbonBody, type RibbonBeyond } from "./shell/ribbon-layout.js";
 import { PlanFooter } from "./shell/Footer.js";
 import type { PlanDiagnostics } from "./shell/Diagnostics.js";
 import { planReviewModel, DECISION_WIDTH } from "./shell/Review.js";
@@ -105,7 +104,7 @@ import { sameUiView, uiViewOf, useStableDerived, useStableVisible } from "./root
 import { usePlanWindow } from "./root/window.js";
 import { usePlanExpand, usePlanFocus } from "./root/focus.js";
 import { usePlanBody, usePlanRangeReport, usePlanScrollTarget } from "./root/body.js";
-import { PlanGapBand, renderPlanRow, type PlanRowContext } from "./root/rows.js";
+import { PlanGapBand, PlanStickyParent, renderPlanRow, type PlanRowContext } from "./root/rows.js";
 import { PlanHeader } from "./root/Header.js";
 import { usePlanCursorController } from "./root/cursor.js";
 import { usePlanDropTarget } from "./root/drop.js";
@@ -215,8 +214,9 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     // ── The rows: inline, or the paged source's resident ones (§3.8) ──────
     const paging = useControllerSelector(controller, selectPaging);
     const paged = data.rows.type === "paged";
-    // The inline arm is the canvas's row STREAM (#822) — its order is the
-    // render order — keyed for the canvas once per decoded array.
+    // The inline arm is the canvas's BLOCKS (#823), one after another — the
+    // stream's order is the render order (#822) — keyed for the canvas once
+    // per decoded array.
     const rows = useMemo(
         () => (data.rows.type === "inline" ? canvasRowsOf(data.rows.value) : paging.rows),
         [data.rows, paging.rows],
@@ -283,23 +283,23 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
         [data.review, controller]);
     // What the chrome tells the truth with (#567 D9). Counted in ELEMENTS —
     // the number `total()` reports — never canvas rows, since a series can
-    // emit any number of rows per element. `partial` says the source is not
-    // exhausted: counts across the canvas cover the loaded windows, and so
-    // does a top-level section's member count and strip. Every other parent
-    // derives from one entry's subtree, which a window holds whole, so its
-    // numbers are exact (`spansWindows`, #822).
+    // emit any number of rows per element; the count is the block the
+    // viewport is in (#823: each block pages on its own). `partial` says some
+    // block does not hold every element: counts across the canvas cover the
+    // loaded windows, and so does a top-level section's member count and
+    // strip. Every other parent derives from one entry's subtree, which a
+    // window holds whole, so its numbers are exact (`spansWindows`, #822).
     const transport = useMemo<PlanTransport | undefined>(() => {
         if (!paged) return undefined;
-        const loaded = paging.resident?.elements ?? 0;
         return {
-            loaded,
+            loaded: paging.resident?.elements ?? 0,
             from: paging.resident?.from ?? 0,
             to: paging.resident?.to ?? 0,
             total: paging.total,
             loading: paging.loading,
-            partial: paging.total === undefined || loaded < paging.total,
+            partial: !paging.complete,
         };
-    }, [paged, paging.resident, paging.total, paging.loading]);
+    }, [paged, paging.resident, paging.total, paging.loading, paging.complete]);
     // Key search is a capability of the SOURCE (`search` becomes seek — #567
     // D9): a jump rebases residency on the matched ELEMENT, and the canvas
     // positions on the first row that element placed, since a row's id starts
@@ -403,15 +403,56 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
     const ribbonRows = useMemo(
         () => (linksFocus ? ribbonBody(body.items, body.heights, index, geometry) : undefined),
         [linksFocus, body.items, body.heights, index, geometry]);
-    // A pinned row renders in the header, above every body row.
+    // A pinned row renders in the header, above every body row; a row of an
+    // evicted paged window sits where its window does in its block's band
+    // (#823) — a row never seen has no place, and its edges are not drawn.
     const pinnedKeys = useMemo(() => new Set(pinned.map((v) => v.row.key)), [pinned]);
-    const beyond = useCallback(
-        (key: string): RibbonOff | undefined => (pinnedKeys.has(key) ? "above" : undefined),
-        [pinnedKeys]);
+    // (A band moves only with the body, so the ribbons' body is what renews it.)
+    const beyond = useCallback((key: string): RibbonBeyond | undefined => {
+        if (pinnedKeys.has(key)) return { off: "above" };
+        const place = paged ? controller.placeOf(key) : undefined;
+        const top = place !== undefined ? ribbonRows?.bands.get(`${place.block}:${place.at}`) : undefined;
+        return place !== undefined && top !== undefined ? { y: top + place.px } : undefined;
+    }, [pinnedKeys, paged, controller, ribbonRows]);
     // What a bounded frame's view is read from — its scroll element and the
     // sticky chrome above its rows.
     const frameRefs = useMemo(() => ({ scrollElRef, headerRef }), [scrollElRef, headerRef]);
     const reportRange = usePlanRangeReport(body.items, controller);
+    // Scroll anchoring (#878): the row at the top of the view keeps its place
+    // when rows above it change height or count — a window landing above at a
+    // height its estimate missed. An unloaded band never anchors: rows landing
+    // below it move its top, and after a rebase the same band stands for other
+    // elements.
+    const anchorable = useCallback((i: number) => body.items[i]?.kind !== "band", [body.items]);
+    // The sticky parent (#823): while the row at the top of the view nests
+    // under a parent whose own row has scrolled off, that parent — and, on a
+    // deep tree, the path to it — is pinned under the header. The same inline
+    // and paged: a paged window holds its entries whole, and a section's
+    // header is a fixed block, so a row's parent is always on the canvas.
+    const itemIndex = useMemo(() => {
+        const m = new Map<string, number>();
+        body.items.forEach((it, i) => m.set(bodyItemKey(it), i));
+        return m;
+    }, [body.items]);
+    const stickyParent = useCallback((top: number): ReactNode => {
+        const item = body.items[top];
+        if (item?.kind !== "row" || item.row.row.parent.type !== "some") return null;
+        const parent = index.byKey.get(item.row.row.parent.value);
+        // Its own row still in view (or below): nothing to pin.
+        const at = parent !== undefined ? itemIndex.get(rowItemKey(parent.key)) : undefined;
+        if (parent === undefined || (at !== undefined && at >= top)) return null;
+        const path: PlanRowValue[] = [];
+        for (let up = parent.parent; up.type === "some";) {
+            const row = index.byKey.get(up.value);
+            if (row === undefined) break;
+            path.unshift(row);
+            up = row.parent;
+        }
+        return (
+            <PlanStickyParent parent={parent} path={path} styles={styles} gridTemplate={gridTemplate}
+                onGo={() => controller.focusItem(rowItemKey(parent.key), "start")} />
+        );
+    }, [body.items, index, itemIndex, styles, gridTemplate, controller]);
     // After EVERY commit: what the canvas now shows. A jump keeps the viewport
     // until its landed target has been on screen for a commit — the one in
     // which the frame scrolled to it — so the reports that commit's render made
@@ -426,14 +467,21 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
         (at: { index: number; offset: number }) => controller.anchorChanged(at, body.items),
         [controller, body.items]);
     // The narrow list's side of the paging loop (#812): it has no virtualizer,
-    // so it reports the last row card on screen, and its load-more asks for
-    // the window past the resident run.
-    const narrowPaging = useMemo<PlanNarrowPaging | undefined>(() => (!paged ? undefined : {
-        tail: paging.tail,
-        loading: paging.loading,
-        onViewport: (key: string) => controller.reportViewport({ kind: "row", key }, false),
-        onLoadMore: () => controller.reportViewport({ kind: "band", at: "tail" }, false),
-    }), [paged, paging.tail, paging.loading, controller]);
+    // so it reports the last row card on screen, and its load-more asks every
+    // block with more for the window past its resident run (#823) — the list
+    // ends with the last block's unloaded run.
+    const narrowPaging = useMemo<PlanNarrowPaging | undefined>(() => {
+        if (!paged) return undefined;
+        const more = paging.blocks.filter((b) => b.tail !== undefined);
+        return {
+            tail: more[more.length - 1]?.tail,
+            loading: paging.loading,
+            onViewport: (key: string) => controller.reportViewport({ kind: "row", key }, false),
+            onLoadMore: () => {
+                for (const b of more) controller.reportViewport({ kind: "band", block: b.index, at: "tail" }, false);
+            },
+        };
+    }, [paged, paging.blocks, paging.loading, controller]);
     // What the toolbar reports (#811) — everything the canvas carried on past.
     const diagnostics = useMemo<PlanDiagnostics>(() => ({
         skipped: derived.diagnostics.size,
@@ -493,14 +541,19 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
         pinned, pinnedHeights, items: body.items, heights: body.heights, index, chartsExpanded, focusCtx,
     }), [pinned, pinnedHeights, body.items, body.heights, index, chartsExpanded, focusCtx]);
     // What the grid knows of its source's ends — a pending band move waits
-    // while a window is in flight, and Home / End until the source's own
-    // first / last element is resident.
-    const navEdges = useMemo<PlanNavEdges>(() => ({
-        loading: paging.loading,
-        atStart: !paged || (paging.head === undefined && paging.resident?.from === 0),
-        atEnd: !paged || (paging.tail === undefined && paging.resident !== undefined
-            && paging.total !== undefined && paging.resident.to >= paging.total),
-    }), [paged, paging.loading, paging.head, paging.tail, paging.resident, paging.total]);
+    // while a window is in flight, and Home / End until the first block's
+    // first element / the last block's last element is resident (#823).
+    const navEdges = useMemo<PlanNavEdges>(() => {
+        const pagedBlocks = paging.blocks.filter((b) => !b.fixed);
+        const first = pagedBlocks[0];
+        const last = pagedBlocks[pagedBlocks.length - 1];
+        return {
+            loading: paging.loading,
+            atStart: !paged || first === undefined || (first.head === undefined && first.resident?.from === 0),
+            atEnd: !paged || last === undefined || (last.tail === undefined && last.resident !== undefined
+                && paging.total !== undefined && last.resident.to >= paging.total),
+        };
+    }, [paged, paging.loading, paging.blocks, paging.total]);
     // A keyboard move onto a band waits — on the band, or on the item it set
     // out from when the demand took the band away — for the rows, then goes
     // on to the row it was headed for (`resolveNavIntent`).
@@ -588,7 +641,9 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                 // focus then stays where it is until the rows land.
                 controller.reportViewport(move.demand, false);
                 const p = controller.getSnapshot().paging;
-                const stays = (move.demand.kind === "band" && move.demand.at === "head" ? p.head : p.tail) !== undefined;
+                const demand = move.demand;
+                const block = demand.kind === "band" ? p.blocks.find((b) => b.index === demand.block) : undefined;
+                const stays = demand.kind === "band" && (demand.at === "head" ? block?.head : block?.tail) !== undefined;
                 navIntent.current = { holder: stays ? move.key : from, intent: move.intent };
                 if (stays) controller.focusItem(move.key, move.align);
                 break;
@@ -812,6 +867,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                         virtualizeUnboundedAt={VIRTUALIZE_UNBOUNDED_AT}
                         scrollElRef={scrollElRef}
                         header={header}
+                        sticky={stickyParent}
                         footer={<PlanFooter styles={styles} items={data.footer} transport={transport} />}
                         // R1 ribbons — the K8 vocabulary over the gathered
                         // family (ribbons need width — never on the narrow
@@ -835,6 +891,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }
                         // rows — and the frame re-measures from these alone.
                         sizes={body.heights}
                         getItemKey={body.itemKey}
+                        anchorable={anchorable}
                         // Where the scroll rests, persisted and restored as a
                         // row (#813).
                         onAnchorChange={onAnchorChange}

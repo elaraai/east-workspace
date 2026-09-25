@@ -19,6 +19,7 @@ import { planGeometry } from "../geometry.js";
 import { appendAll } from "../reductions.js";
 import type { RowKey } from "../plan-state.js";
 import type { PlanController, PlanNavAlign, PlanPagingSnapshot, PlanScrollTarget } from "../controller/index.js";
+import type { PlanPagedBlock, PlanRowOrigin } from "../controller/paging.js";
 
 /** The body items, and what the frame measures and keys them by. */
 export interface PlanBody {
@@ -31,12 +32,75 @@ export interface PlanBody {
 }
 
 /**
+ * The body's items — BLOCK AFTER BLOCK (#823), each block's rows in stream
+ * order: a paged block's resident windows as one slab between its bands, with
+ * each failed window's band in its seam, and a fixed block's rows once.
+ *
+ * @remarks
+ * A paged block's bands stand for its unloaded windows, sized by its own
+ * ledger, so the rows that replace one occupy the same space and nothing below
+ * it moves (#577). A block nested under a section's header draws nothing —
+ * no rows, no bands — while that header is collapsed or hidden, as its rows
+ * would not. Under a links focus each block's run of unrelated rows elides on
+ * its own (R1): a gap never spans two blocks, inline or paged.
+ *
+ * @param visible - The visible rows
+ * @param index - The row index
+ * @param blocks - A paged canvas's blocks (`[]` inline — nothing unloaded)
+ * @param origin - Which block and window each paged row came from
+ * @param focusCtx - Which row is focused
+ * @returns The items
+ */
+export function planBodyItems(
+    visible: readonly VisibleRow[],
+    index: PlanRowIndex,
+    blocks: readonly PlanPagedBlock[],
+    origin: ReadonlyMap<string, PlanRowOrigin>,
+    focusCtx: PlanFocusCtx | undefined,
+): PlanBodyItem[] {
+    // A block's rows are contiguous in the stream, so its visible rows are too.
+    const perBlock = new Map<number, VisibleRow[]>();
+    for (const v of visible) {
+        const list = perBlock.get(v.row.block);
+        if (list !== undefined) list.push(v);
+        else perBlock.set(v.row.block, [v]);
+    }
+    // R1 at scale — the links-focus body elides runs of unrelated rows into
+    // gap bands (a lone straggler keeps its rail; see `elideForFocus`).
+    const itemsOf = (rows: readonly VisibleRow[]): PlanBodyItem[] => (focusCtx?.kind === "links"
+        ? elideForFocus(rows, index, focusCtx)
+        : rows.map((row) => ({ kind: "row", row })));
+    const out: PlanBodyItem[] = [];
+    if (blocks.length === 0) {
+        // Inline: the blocks one after another, nothing unloaded.
+        for (const rows of perBlock.values()) appendAll(out, itemsOf(rows));
+        return out;
+    }
+    const visibleByKey = new Map(visible.map((v) => [v.row.key, v]));
+    const windowOf = (key: RowKey): number | undefined => origin.get(key)?.w;
+    for (const b of blocks) {
+        // Under a header that is folded or hidden, the block draws nothing.
+        if (b.parent !== undefined) {
+            const header = visibleByKey.get(b.parent);
+            if (header === undefined || header.collapsed) continue;
+        }
+        // A window whose read failed is ONE band where its rows would be
+        // (#811) — every other window keeps landing around it.
+        const core = placeFailures(itemsOf(perBlock.get(b.index) ?? []), b.failures, windowOf);
+        if (b.head !== undefined) out.push({ kind: "band", band: b.head });
+        appendAll(out, core);
+        if (b.tail !== undefined) out.push({ kind: "band", band: b.tail });
+    }
+    return out;
+}
+
+/**
  * The body items and their geometry.
  *
  * @param visible - The visible rows
  * @param index - The row index
  * @param derived - The derivations (heights read them)
- * @param paging - The paged source's residency (inline: idle)
+ * @param paging - The paged source's blocks and where each row came from (inline: idle)
  * @param focusCtx - Which row is focused
  * @param heightCtx - The same, with the expand clamp
  * @param dense - The declared density
@@ -53,26 +117,10 @@ export function usePlanBody(
     dense: boolean,
     chartsExpanded: ReadonlySet<RowKey>,
 ): PlanBody {
-    const { failures, origin, head, tail } = paging;
-    // R1 at scale — the links-focus body elides runs of unrelated rows into
-    // gap bands (a lone straggler keeps its rail; see `elideForFocus`).
-    const items = useMemo<readonly PlanBodyItem[]>(() => {
-        const rowItems: PlanBodyItem[] = focusCtx?.kind === "links"
-            ? elideForFocus(visible, index, focusCtx)
-            : visible.map((row) => ({ kind: "row", row }));
-        // A window whose read failed is ONE band where its rows would be
-        // (#811) — every other window keeps landing around it.
-        const core = placeFailures(rowItems, failures, origin);
-        // The unloaded remainder of a paged source, above and below (#577).
-        // Each band is sized by the ledger, so the rows that replace it occupy
-        // the same space and nothing below moves.
-        if (head === undefined && tail === undefined) return core;
-        const out: PlanBodyItem[] = [];
-        if (head !== undefined) out.push({ kind: "band", band: head });
-        appendAll(out, core);
-        if (tail !== undefined) out.push({ kind: "band", band: tail });
-        return out;
-    }, [focusCtx, visible, index, failures, origin, head, tail]);
+    const { blocks, origin } = paging;
+    const items = useMemo<readonly PlanBodyItem[]>(
+        () => planBodyItems(visible, index, blocks, origin, focusCtx),
+        [focusCtx, visible, index, blocks, origin]);
     // The height SIGNATURE (#812): a row's kind, the density, a chart's toggle,
     // a focus and the expand clamp all reach it, so any of them changing a
     // height re-measures the frame — and a selection, which reaches none of
@@ -159,14 +207,14 @@ export function usePlanRangeReport(items: readonly PlanBodyItem[], controller: P
         if (item === undefined) return;
         if (item.kind === "band") {
             // `withinPx` is measured from the band's own top — the one origin
-            // the ledger can place exactly, whatever the resident rows above
-            // it rendered at.
-            controller.reportViewport({ kind: "band", at: item.band.at, px: center?.withinPx }, isScrolling);
+            // its block's ledger can place exactly, whatever the resident rows
+            // above it rendered at.
+            controller.reportViewport({ kind: "band", block: item.band.block, at: item.band.at, px: center?.withinPx }, isScrolling);
         } else if (item.kind === "row") {
             controller.reportViewport({ kind: "row", key: item.row.row.key }, isScrolling);
         } else if (item.kind === "failed") {
-            // A failed window's band names its own window (#811).
-            controller.reportViewport({ kind: "window", w: item.failure.w }, isScrolling);
+            // A failed window's band names its own block and window (#811).
+            controller.reportViewport({ kind: "window", block: item.failure.block, w: item.failure.w }, isScrolling);
         }
         // A links-focus gap band names no window — the demand stays where it is.
     }, [items, controller]);

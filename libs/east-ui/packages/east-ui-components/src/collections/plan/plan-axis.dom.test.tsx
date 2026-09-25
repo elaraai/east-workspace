@@ -21,7 +21,7 @@ import { UIStore } from "../../platform/state-store.js";
 import { EastChakraPlan, type PlanRootValue } from "./index.js";
 import type { PlanWireRow } from "./model.js";
 import type { PlanInstantValue } from "./instant.js";
-import { rowId, rowSel } from "./plan.test-utils.js";
+import { blocksSource, oneBlock, rowId, rowSel } from "./plan.test-utils.js";
 
 // A canvas persists its toggles under its storageKey (#813), and several tests
 // share one — nothing may carry from one test to the next.
@@ -90,7 +90,7 @@ function spanKind(runs: unknown[], opts?: { rollup?: string; unit?: string }) {
 
 function planRoot(rows: PlanWireRow[], opts?: { footer?: unknown[]; now?: Date | undefined; slice?: unknown; resolutions?: unknown[]; links?: unknown[]; popover?: unknown; hover?: unknown; expandRender?: unknown; source?: unknown; pick?: unknown; axis?: unknown; style?: { height?: string; maxHeight?: string }; clicks?: { onRunClick?: unknown; onEventClick?: unknown; onMarkClick?: unknown; onChipClick?: unknown; onCellClick?: unknown } }): PlanRootValue {
     return {
-        rows: opts?.source !== undefined ? variant("paged", opts.source) : variant("inline", rows),
+        rows: opts?.source !== undefined ? variant("paged", blocksSource(opts.source)) : variant("inline", oneBlock(rows)),
         links: opts?.links ?? [],
         // The TIME arm by default (#631); the typed-axis tests pass their own.
         axis: opts?.axis ?? variant("time", {

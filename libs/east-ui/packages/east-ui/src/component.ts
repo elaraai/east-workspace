@@ -953,8 +953,9 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
 
     // Plan — the axis-aligned composite canvas: one shared axis
     // ({ time | number | ordinal }, #631) over heterogeneous rows — span runs, bucket
-    // lanes, chart layers, heat / table cells, chips and event marks — an
-    // ordered row stream with typed ids (#822). Rows are PURE DATA (`PlanRowType` — no UI, no
+    // lanes, chart layers, heat / table cells, chips and event marks — the
+    // series' BLOCKS, one after another (#823), each an ordered row stream with
+    // typed ids (#822). Rows are PURE DATA (`PlanRowType` — no UI, no
     // functions; pageable), so the arm references the named types directly;
     // only the root's resolver slots (`popover` / `hover` / `expandRender` /
     // `expandGutter`) and the review summary ride the recursion `node`.
@@ -962,7 +963,8 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
     // renderer decodes through it — and `test/collections/plan.spec.ts` holds
     // the two to one East type (#814).
     Plan: StructType({
-        // Inline rows OR the derived paged source (§3.8) — pure data both ways.
+        // Inline blocks OR the derived paged source of them (§3.8, #823) —
+        // pure data both ways.
         rows: PlanRowsType,
         // Mirror `PlanRootType.links` — the R1 link graph.
         links: ArrayType(PlanLinkType),

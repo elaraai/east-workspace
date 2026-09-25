@@ -35,7 +35,7 @@ import { UIStore } from "../../platform/state-store.js";
 import { DragLayerProvider, useDragSourceItem, type DragEventValue } from "../../dnd/drag-layer";
 import { EastChakraPlan, type PlanRootValue } from "./index.js";
 import type { PlanWireRow } from "./model.js";
-import { rowId, rowIdEqual, rowKey, testKeyOf } from "./plan.test-utils.js";
+import { oneBlock, rowId, rowIdEqual, rowKey, testKeyOf } from "./plan.test-utils.js";
 
 afterEach(cleanup);
 
@@ -104,7 +104,7 @@ function axisOf(kind: PlanOpts["axis"]): unknown {
 
 function planRoot(rows: PlanWireRow[], opts: PlanOpts = {}): PlanRootValue {
     return {
-        rows: variant("inline", rows),
+        rows: variant("inline", oneBlock(rows)),
         links: [],
         axis: axisOf(opts.axis),
         grain: none, popover: none, hover: none,

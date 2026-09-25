@@ -49,9 +49,12 @@ export interface FocusGap {
  * Its height comes from the window ledger, so the band and the rows that
  * replace it occupy exactly the same space — scrolling in loads content without
  * moving anything below it, and eviction puts the band back with nothing
- * shifting either.
+ * shifting either. Each paged block has its own (#823): its rows' share of the
+ * elements the band covers.
  */
 export interface PlanBand {
+    /** The block the band belongs to (#823). */
+    block: number;
     at: "head" | "tail";
     /** First source element the band covers. */
     from: number;
@@ -66,9 +69,12 @@ export interface PlanBand {
  * window's rows would be, carrying the reason and a Retry.
  *
  * The failure belongs to its window: every other window keeps landing and
- * rendering around it.
+ * rendering around it. One read serves every block (#823), so a failed window
+ * is a band in each block that holds it.
  */
 export interface PlanWindowFailure {
+    /** The block the band stands in (#823). */
+    block: number;
     /** The window index. */
     w: number;
     /** First source element the window covers. */
@@ -83,8 +89,8 @@ export interface PlanWindowFailure {
 }
 
 /** One line of the canvas body: a row, the R2 developer render, an elided run
- *  (R1), an unloaded run of the source (#577), or a window whose read failed
- *  (#811).
+ *  (R1), an unloaded run of the source (#577, one per paged block's end —
+ *  #823), or a window whose read failed (#811).
  *
  *  The R2 developer render is NOT an item here — it renders inside the
  *  focused row, which grows to hold it (see {@link PlanFocusCtx.renderPx}).
@@ -98,11 +104,11 @@ export type PlanBodyItem =
 
 /**
  * A body item's identity (#812) — its row's key, its gap's first row, its
- * band's end, its failed window — prefixed by kind, so no two items of a body
- * share one. The virtualizer keys rows by it, so a row keeps its component
- * instance when a collapse, a focus or a landing window moves it; keyed by
- * index, the instance at a moved row's old index was handed whichever row now
- * sat there.
+ * band's block and end, its failed window's block and window — prefixed by
+ * kind, so no two items of a body share one. The virtualizer keys rows by it,
+ * so a row keeps its component instance when a collapse, a focus or a landing
+ * window moves it; keyed by index, the instance at a moved row's old index was
+ * handed whichever row now sat there.
  *
  * @param item - The body item
  * @returns Its key, unique within one body
@@ -111,8 +117,8 @@ export function bodyItemKey(item: PlanBodyItem): string {
     switch (item.kind) {
         case "row": return rowItemKey(item.row.row.key);
         case "gap": return `g:${item.gap.key}`;
-        case "band": return `b:${item.band.at}`;
-        case "failed": return `f:${item.failure.w}`;
+        case "band": return `b:${item.band.block}:${item.band.at}`;
+        case "failed": return `f:${item.failure.block}:${item.failure.w}`;
     }
 }
 
@@ -132,24 +138,20 @@ export function rowItemKey(key: RowKey): string {
  * last row that came from an EARLIER window, or first when none did.
  *
  * @remarks
- * Windows serve source elements in key order and the stream concatenates them
- * in window order (#822), so a window's rows sit between its neighbours' — its
- * band goes in the seam. A row every window re-serves (a hand-built row, a
- * section header) is attributed to the FIRST window that served it
- * (`originOf`), so it anchors no later seam. (Several series each place a
- * block per window, so a failed window there marks the seam of the last block
- * only — the per-block ledger of #823 is what gives each block its own.)
+ * A block's windows serve its entries in key order and its rows concatenate
+ * them in window order (#823), so a window's rows sit between its neighbours'
+ * — its band goes in the seam. Called once per block, over that block's items.
  *
- * @param items - The body items, rows in visible order
- * @param failures - The failed windows
- * @param origin - Which window each resident row came from
+ * @param items - One block's body items, rows in visible order
+ * @param failures - That block's failed windows
+ * @param windowOf - Which window a resident row came from
  * @returns The items with a `failed` band placed per failure (the same array
  *   when there are none)
  */
 export function placeFailures(
     items: readonly PlanBodyItem[],
     failures: readonly PlanWindowFailure[],
-    origin: ReadonlyMap<RowKey, number>,
+    windowOf: (key: RowKey) => number | undefined,
 ): readonly PlanBodyItem[] {
     if (failures.length === 0) return items;
     // Item index a failure's band goes AFTER (−1: before every item).
@@ -158,7 +160,7 @@ export function placeFailures(
         let at = -1;
         items.forEach((it, i) => {
             if (it.kind !== "row") return;
-            const w = origin.get(it.row.row.key);
+            const w = windowOf(it.row.row.key);
             if (w !== undefined && w < f.w) at = i;
         });
         const list = after.get(at);

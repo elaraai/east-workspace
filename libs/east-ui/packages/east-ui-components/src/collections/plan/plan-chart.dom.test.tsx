@@ -20,7 +20,7 @@ import { none, some, variant } from "@elaraai/east";
 import { system } from "../../theme/index.js";
 import { EastChakraPlan, type PlanRootValue } from "./index.js";
 import type { PlanWireRow } from "./model.js";
-import { rowId, rowSel } from "./plan.test-utils.js";
+import { oneBlock, rowId, rowSel } from "./plan.test-utils.js";
 import { numberInstant } from "./instant.js";
 import { maxOf, minOf } from "./reductions.js";
 
@@ -62,7 +62,7 @@ function planRow(key: string, kind: unknown): PlanWireRow {
 /** A canvas on a number axis `[0, n)` at step 1 — `n` columns, no now. */
 function planRoot(rows: PlanWireRow[], n: number): PlanRootValue {
     return {
-        rows: variant("inline", rows),
+        rows: variant("inline", oneBlock(rows)),
         links: [],
         axis: variant("number", { window: some({ min: 0, max: n }), step: 1, now: none, format: none }),
         grain: none, popover: none, hover: none, expandRender: none, review: none, pick: none,

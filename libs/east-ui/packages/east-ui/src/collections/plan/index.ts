@@ -13,9 +13,10 @@
  *
  * A canvas is DEFINED as `data` + `series`: a keyed source of entries, and a
  * list of `Plan.series.*` row recipes over them (`Plan.pick` makes the list
- * pickable). The list IS the layout — each series contributes one contiguous
- * block, in declared order — and the rows are an ordered STREAM
- * (`Array<PlanRow>`, #822), each parent followed by its subtree. The kind
+ * pickable). The list IS the layout — each series contributes its rows in
+ * declared order, as blocks (#823: a data series one block of its entries'
+ * rows, a section its header and then its members') — and the rows are an
+ * ordered STREAM (`Array<PlanRow>`, #822), each parent followed by its subtree. The kind
  * factories (`Plan.span` / `buckets` / … / `group`) build the rows no dataset
  * holds, placed by a `Plan.series.rows` entry.
  *
@@ -97,6 +98,8 @@ import {
     PlanRowKindType,
     PlanRowType,
     PlanRowsCollectionType,
+    PlanBlockType,
+    PlanBlocksType,
 } from "./types.js";
 import { PlanReviewType, PlanRootType } from "./ir.js";
 import {
@@ -251,6 +254,9 @@ export {
     PlanRowType,
     PlanRowsCollectionType,
     type PlanRowsValue,
+    PlanBlockType,
+    PlanBlocksType,
+    type PlanBlocksValue,
 } from "./types.js";
 
 // ── Public surface — re-exported from the split modules ─────────────────────
@@ -450,8 +456,13 @@ export interface PlanNamespace {
         Grain: typeof PlanGrainType;
         /** One canvas row. */
         Row: typeof PlanRowType;
-        /** The canvas's rows — an ordered stream (#822). */
+        /** One block's rows — an ordered stream (#822). */
         Rows: typeof PlanRowsCollectionType;
+        /** One block of the canvas's rows — a data series' entries, which a
+         *  paged canvas pages on its own, or fixed rows drawn once (#823). */
+        Block: typeof PlanBlockType;
+        /** The canvas's rows — its blocks, in layout order (#823). */
+        Blocks: typeof PlanBlocksType;
         /** A row's typed identity — `{ series, path }` (#822). */
         RowId: typeof PlanRowIdType;
         /** The eight-arm row kind. */
@@ -620,6 +631,8 @@ export const Plan: PlanNamespace = {
         Grain: PlanGrainType,
         Row: PlanRowType,
         Rows: PlanRowsCollectionType,
+        Block: PlanBlockType,
+        Blocks: PlanBlocksType,
         RowId: PlanRowIdType,
         RowKind: PlanRowKindType,
         Gutter: PlanGutterType,

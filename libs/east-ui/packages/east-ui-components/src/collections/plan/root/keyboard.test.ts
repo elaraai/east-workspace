@@ -142,18 +142,18 @@ describe("rails, strips and gap bands (#819)", () => {
 });
 
 describe("bands (#819)", () => {
-    const head: PlanBodyItem = { kind: "band", band: { at: "head", from: 0, to: 399, px: 12_800 } };
-    const tail: PlanBodyItem = { kind: "band", band: { at: "tail", from: 800, to: 4_999, px: 134_400 } };
+    const head: PlanBodyItem = { kind: "band", band: { block: 0, at: "head", from: 0, to: 399, px: 12_800 } };
+    const tail: PlanBodyItem = { kind: "band", band: { block: 0, at: "tail", from: 800, to: 4_999, px: 134_400 } };
     const PAGED = [head, vis(C1, 0), vis(C2, 0), tail];
 
     test("a step onto a band lands on it, asks for the adjacent window, and waits — no scroll", () => {
         const nav = items(PAGED);
         expect(planNavKey(nav, "r:c2", "ArrowDown", 0)).toEqual({
-            t: "band", key: "b:tail", align: undefined, demand: { kind: "band", at: "tail" },
+            t: "band", key: "b:0:tail", align: undefined, demand: { kind: "band", block: 0, at: "tail" },
             intent: { t: "step", from: "r:c2", dir: 1 },
         });
         expect(planNavKey(nav, "r:c1", "ArrowUp", 0)).toEqual({
-            t: "band", key: "b:head", align: undefined, demand: { kind: "band", at: "head" },
+            t: "band", key: "b:0:head", align: undefined, demand: { kind: "band", block: 0, at: "head" },
             intent: { t: "step", from: "r:c1", dir: -1 },
         });
     });
@@ -161,17 +161,26 @@ describe("bands (#819)", () => {
     test("Home and End onto a band go to the source's far edges — scrolled there, the far window asked for", () => {
         const nav = items(PAGED);
         expect(planNavKey(nav, "r:c1", "Home", 0)).toEqual({
-            t: "band", key: "b:head", align: "start", demand: { kind: "band", at: "head", px: 0 }, intent: { t: "first" },
+            t: "band", key: "b:0:head", align: "start", demand: { kind: "band", block: 0, at: "head", px: 0 }, intent: { t: "first" },
         });
         expect(planNavKey(nav, "r:c1", "End", 0)).toEqual({
-            t: "band", key: "b:tail", align: "end", demand: { kind: "band", at: "tail", px: 134_399 }, intent: { t: "last" },
+            t: "band", key: "b:0:tail", align: "end", demand: { kind: "band", block: 0, at: "tail", px: 134_399 }, intent: { t: "last" },
+        });
+    });
+
+    test("a band names its block — a move onto a later block's band asks that block (#823)", () => {
+        const second: PlanBodyItem = { kind: "band", band: { block: 2, at: "head", from: 0, to: 199, px: 640 } };
+        const nav = items([vis(C1, 0), vis(C2, 0), second]);
+        expect(planNavKey(nav, "r:c2", "ArrowDown", 0)).toEqual({
+            t: "band", key: "b:2:head", align: undefined, demand: { kind: "band", block: 2, at: "head" },
+            intent: { t: "step", from: "r:c2", dir: 1 },
         });
     });
 
     test("a page never jumps a band — it stops on it, headed past", () => {
         const nav = items(PAGED);
         expect(planNavKey(nav, "r:c1", "PageDown", 1000)).toEqual({
-            t: "band", key: "b:tail", align: "auto", demand: { kind: "band", at: "tail" },
+            t: "band", key: "b:0:tail", align: "auto", demand: { kind: "band", block: 0, at: "tail" },
             intent: { t: "step", from: "r:c2", dir: 1 },
         });
     });
@@ -213,9 +222,9 @@ describe("bands (#819)", () => {
     });
 
     test("a failed window is a row of its own — a move onto it resolves there", () => {
-        const failed: PlanBodyItem = { kind: "failed", failure: { w: 2, from: 400, to: 599, px: 64, error: "boom" } };
+        const failed: PlanBodyItem = { kind: "failed", failure: { block: 0, w: 2, from: 400, to: 599, px: 64, error: "boom" } };
         const nav = items([vis(C1, 0), failed, vis(C2, 0)]);
-        expect(planNavKey(nav, "r:c1", "ArrowDown", 0)).toEqual({ t: "focus", key: "f:2", align: "auto" });
-        expect(resolveNavIntent(nav, { t: "step", from: "r:c1", dir: 1 }, MIDDLE)).toEqual({ t: "resolved", key: "f:2" });
+        expect(planNavKey(nav, "r:c1", "ArrowDown", 0)).toEqual({ t: "focus", key: "f:0:2", align: "auto" });
+        expect(resolveNavIntent(nav, { t: "step", from: "r:c1", dir: 1 }, MIDDLE)).toEqual({ t: "resolved", key: "f:0:2" });
     });
 });

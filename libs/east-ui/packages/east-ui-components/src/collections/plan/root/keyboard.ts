@@ -50,8 +50,10 @@ export interface PlanNavItem {
     key: string;
     /** What it is. */
     kind: "row" | "group" | "gap" | "band" | "failed";
-    /** A band's side, and its pixel height (End reaches its far edge). */
-    band?: { at: "head" | "tail"; px: number } | undefined;
+    /** A band's block and side, and its pixel height (End reaches its far
+     *  edge) — a move onto it asks that block for the window beside its run
+     *  (#823). */
+    band?: { block: number; at: "head" | "tail"; px: number } | undefined;
     /** The parent row's item key, when the row nests — ← steps there. */
     parent?: string | undefined;
     /** Its section / chart toggle — what Space and ← / → dispatch — and
@@ -119,7 +121,10 @@ export function planNavItems(src: PlanNavSource): PlanNavItem[] {
                 key: bodyItemKey(item), kind: "gap", nests: false,
                 activate: { t: "focus.clear" }, activateLands: rowItemKey(item.gap.first), h,
             }); break;
-            case "band": out.push({ key: bodyItemKey(item), kind: "band", band: { at: item.band.at, px: item.band.px }, nests: false, h }); break;
+            case "band": out.push({
+                key: bodyItemKey(item), kind: "band",
+                band: { block: item.band.block, at: item.band.at, px: item.band.px }, nests: false, h,
+            }); break;
             case "failed": out.push({ key: bodyItemKey(item), kind: "failed", nests: false, h }); break;
         }
     });
@@ -170,7 +175,7 @@ export function planNavKey(items: readonly PlanNavItem[], from: string, key: str
         if (next.band === undefined) return focus(next);
         // The band's edge beside this item is already in view: no scroll —
         // the source is asked for the adjacent window directly.
-        return { t: "band", key: next.key, align: undefined, demand: { kind: "band", at: next.band.at },
+        return { t: "band", key: next.key, align: undefined, demand: { kind: "band", block: next.band.block, at: next.band.at },
             intent: { t: "step", from: cur.key, dir } };
     };
     const edge = (first: boolean): PlanNavMove => {
@@ -181,7 +186,7 @@ export function planNavKey(items: readonly PlanNavItem[], from: string, key: str
         // the window there.
         return {
             t: "band", key: target.key, align: first ? "start" : "end",
-            demand: { kind: "band", at: target.band.at, px: first ? 0 : Math.max(0, target.band.px - 1) },
+            demand: { kind: "band", block: target.band.block, at: target.band.at, px: first ? 0 : Math.max(0, target.band.px - 1) },
             intent: { t: first ? "first" : "last" },
         };
     };
@@ -194,7 +199,7 @@ export function planNavKey(items: readonly PlanNavItem[], from: string, key: str
             if (next === undefined) break;
             // A page never jumps a band: it stops on it, headed past.
             if (next.band !== undefined) {
-                return { t: "band", key: next.key, align: "auto", demand: { kind: "band", at: next.band.at },
+                return { t: "band", key: next.key, align: "auto", demand: { kind: "band", block: next.band.block, at: next.band.at },
                     intent: { t: "step", from: items[j]!.key, dir } };
             }
             j = k;

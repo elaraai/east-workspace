@@ -1,14 +1,14 @@
 {
   "version": 2,
   "stats": {
-    "totalEntries": 1187,
+    "totalEntries": 1188,
     "totalFiles": 197,
     "packages": {
       "east": 551,
       "east-node-std": 55,
       "east-node-io": 63,
       "east-py-datascience": 94,
-      "east-ui": 362,
+      "east-ui": 363,
       "e3-ui": 39,
       "e3": 11,
       "e3-ui-cli": 7,
@@ -31148,6 +31148,41 @@
         "tsx"
       ],
       "source": "// The paged canvas doing the thing it exists for — 1,000 source elements behind a 200-element page, so only the opening windows are ever built into canvas rows and everything below them is ONE band sized from the ledger, captioned with the elements it stands for. Scrolling walks the resident run forward a window at a time rather than materialising the source; the footer counts in ELEMENTS (never canvas rows, since a series may emit any number per element) and marks itself partial until the total is both known and reached. The keys sort by line, so canonical key order is deliberately not build order — the ordering a windowed keyed source has to preserve for a row to stay addressable\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        const UnitRow = StructType({ start: DateTimeType, end: DateTimeType, tonnes: FloatType });\n        const units = $.const(WIDE_UNITS, DictType(StringType, UnitRow));\n        const source = $.const(Paged.of(\"units\", units));\n        const series = $.const([\n            Plan.series.span(UnitRow, {\n                key: \"units\", title: \"Units\",\n                label: (_r, k) => k, id: true,\n                value: r => some(East.str`${East.Float.printFixed(r.tonnes, 0n)} t`),\n                runs: (r, k) => [Plan.run({\n                    key: \"run\", start: r.start, end: r.end,\n                    label: East.str`RUN · ${k}`,\n                    qty: r.tonnes, state: \"actual\",\n                })],\n            }),\n        ], ArrayType(Plan.Types.Series(UnitRow)));\n        const axis = $.const(Plan.axis({\n            window: { min: mondayOfWeek(27), max: mondayOfWeek(40) }, resolution: \"week\",\n            now: mondayOfWeek(31),\n        }));\n        // Bounded, so the canvas virtualizes: an unbounded paged canvas would\n        // mount every resident row at once and page purely on demand.\n        return <Plan axis={axis} data={source} series={series} style={{ maxHeight: \"420px\" }} />;\n    })"
+    },
+    {
+      "id": "east-ui:paged-source.examples.tsx:pagedSourceBlocks",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/paged-source.examples.tsx",
+      "suite": "",
+      "test": "Several series over ONE paged source lay out as BLOCKS, exactly as inline (#823) — every unit's jobs row, then every unit's loads row, never a window's jobs, then its loads, then the next window's. Each block pages on its own: its own bands, sized from its own ledger, its own resident run following the viewport, and its own rebase on a far jump — while one read of a window serves every block. 3,000 units, generated in East, behind the canvas's 200-element page",
+      "keywords": [
+        "Paged",
+        "of",
+        "paged",
+        "blocks",
+        "block",
+        "several series",
+        "series",
+        "layout",
+        "window",
+        "band",
+        "residency",
+        "rebase",
+        "one read",
+        "Plan",
+        "canvas",
+        "offline"
+      ],
+      "imports": [
+        "import {",
+        "import { UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Paged, Plan, Table, Text } from \"@elaraai/east-ui\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// Several series over ONE paged source lay out as BLOCKS, exactly as inline (#823) — every unit's jobs row, then every unit's loads row, never a window's jobs, then its loads, then the next window's. Each block pages on its own: its own bands, sized from its own ledger, its own resident run following the viewport, and its own rebase on a far jump — while one read of a window serves every block. 3,000 units, generated in East, behind the canvas's 200-element page\n// inputs: []\nEast.function([], UIComponentType, ($) => {\n        // Monday of ISO week n, 2026 — window W27–W39 (half-open), now W31.\n        const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {\n            const w1 = $.const(new Date(\"2025-12-29T00:00:00Z\"), DateTimeType);\n            return w1.addWeeks(n.subtract(1n));\n        }));\n        const UnitRow = StructType({ start: DateTimeType, end: DateTimeType, tonnes: FloatType });\n        // Generated in East, keyed U10000…U12999: fixed width, so key order is\n        // build order.\n        const units = $.let(East.Array.range(0n, 3_000n).toDict(\n            (_$, i) => East.str`U${i.add(10_000n)}`,\n            ($2, i) => $2.const({\n                start: week(i.remainder(10n).add(27n)),\n                end: week(i.remainder(10n).add(29n)),\n                tonnes: i.remainder(80n).add(40n).toFloat(),\n            }, UnitRow),\n        ), DictType(StringType, UnitRow));\n        const source = $.const(Paged.of(\"units\", units));\n        const series = $.const([\n            Plan.series.span(UnitRow, {\n                key: \"jobs\", title: \"Jobs\",\n                label: (_r, k) => k, id: true,\n                runs: (r, k) => [Plan.run({\n                    key: \"run\", start: r.start, end: r.end, label: East.str`RUN · ${k}`, state: \"actual\",\n                })],\n            }),\n            Plan.series.span(UnitRow, {\n                key: \"loads\", title: \"Loads\",\n                label: (_r, k) => East.str`${k} · load`,\n                runs: (r) => [Plan.run({\n                    key: \"run\", start: r.start, end: r.end, label: \"LOAD\", qty: r.tonnes, state: \"confirmed\",\n                })],\n            }),\n        ], ArrayType(Plan.Types.Series(UnitRow)));\n        const axis = $.const(Plan.axis({\n            window: { min: week(27n), max: week(39n) }, resolution: \"week\", now: week(31n),\n        }));\n        // Bounded, so the canvas virtualizes and each block pages by what is in view.\n        return <Plan axis={axis} data={source} series={series} style={{ maxHeight: \"420px\" }} />;\n    })"
     },
     {
       "id": "east-ui:paged-source.examples.tsx:pagedSnapshotRevision",

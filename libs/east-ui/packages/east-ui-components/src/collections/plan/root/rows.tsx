@@ -29,7 +29,7 @@ import { usePlanWords, type PlanWords } from "../words.js";
 import { usePlanGridRow } from "./grid.js";
 import {
     bodyItemKey, rowHeight,
-    type FocusGap, type LinkFamily, type PlanDerived, type PlanFocusCtx, type PlanRowIndex, type VisibleRow,
+    type FocusGap, type LinkFamily, type PlanDerived, type PlanFocusCtx, type PlanRowIndex, type PlanRowValue, type VisibleRow,
 } from "../model.js";
 import type { PlanEvent, RowKey } from "../plan-state.js";
 
@@ -144,6 +144,35 @@ export function renderPlanRow(v: VisibleRow, ctx: PlanRowContext): ReactNode {
 export function gapText(gap: FocusGap, w: PlanWords): string {
     const n = gap.rows > 0 ? gap.rows : gap.groups;
     return w.m.hiddenRows({ n, count: w.number(n), what: gap.rows > 0 ? "row" : "group" });
+}
+
+/**
+ * The sticky parent (#823) — pinned under a bounded frame's header while the
+ * rows in view belong to a parent whose own row has scrolled off: the
+ * parent's name — for a deep tree, the path of its ancestors down to it — in
+ * the group band's look. A click takes the reader to the parent's row. Not a
+ * row of the grid: a reader already hears each row's level, and ← walks to
+ * the parent.
+ */
+export function PlanStickyParent({ parent, path, styles, gridTemplate, onGo }: {
+    parent: PlanRowValue;
+    /** The parent's ancestors, outermost first. */
+    path: readonly PlanRowValue[];
+    styles: Styles;
+    gridTemplate: string;
+    /** Go to the parent's row. */
+    onGo: () => void;
+}) {
+    return (
+        <Box css={styles.stickyParent} gridTemplateColumns={gridTemplate}
+            data-plan-sticky={parent.key} aria-hidden="true" onClick={onGo}>
+            <Box css={styles.groupName}>
+                {path.map((a) => <Box as="span" key={a.key} css={styles.stickyPath}>{a.gutter.label}</Box>)}
+                <Box as="span">{parent.gutter.label}</Box>
+            </Box>
+            <Box />
+        </Box>
+    );
 }
 
 /**

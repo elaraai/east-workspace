@@ -146,10 +146,10 @@ export type SeekQueryType = typeof SeekQueryType;
  *
  * Parameterised on the COLLECTION, not on the row: a window of an `Array<R>`
  * dataset is an `Array<R>`, a window of a `Dict<K, V>` dataset is a
- * `Dict<K, V>`, and the Plan's canvas windows are `Dict<String, PlanRow>`
- * (#568). That is what `Data.bindPaged` already produces — it returns
- * `Option<T>` at the dataset's own type — so the contract matches the producer
- * instead of narrowing it to arrays.
+ * `Dict<K, V>`, and the Plan's canvas windows are its blocks — one
+ * `Array<PlanRow>` stream per series (#823). That is what `Data.bindPaged`
+ * already produces — it returns `Option<T>` at the dataset's own type — so the
+ * contract matches the producer instead of narrowing it to arrays.
  *
  * `page` and `total` follow the in-flight-is-`none` convention: a window still
  * being fetched reads `none` and the call re-fires when it lands, so the reads
@@ -228,9 +228,10 @@ export type PagedSource<C extends EastType> = ExprType<ReturnType<typeof PagedSo
  *
  * @remarks
  * Both arms speak the same COLLECTION type — inline is the whole of it, paged
- * is a window of it — so a component that keys its rows (the Plan's
- * `Dict<String, PlanRow>`) and one that positions them (`Array<Row>`) share one
- * vocabulary without either shape leaking into the arm names (#568).
+ * is a window of it — so a keyed source (a Sheet's `Dict<String, Row>`), a
+ * positional one (a Table's `Array<Row>`) and a composite one (the Plan's
+ * blocks, one row stream per series) share one vocabulary without any shape
+ * leaking into the arm names (#568).
  *
  * @typeParam C - The collection type.
  * @param c - The collection type value.
@@ -283,8 +284,8 @@ export type RowSourceInput<C extends EastType> =
  * element type recovered from it (an `Array`'s value, a `Set`'s key, a
  * `Dict`'s value), and its KEY type when it has one.
  *
- * `keyType` is what a keyed component checks: the Plan requires
- * `Dict<String, R>` because its canvas rows inherit the source's keys, so an
+ * `keyType` is what a keyed component checks: the Plan requires a `Dict`
+ * (any key type, #822) because a row's id starts with its entry's key, so an
  * unkeyed source is refused rather than silently re-keyed (#568).
  */
 export type ResolvedRowSource =
@@ -395,23 +396,20 @@ export function resolveRowSource(data: unknown, label: string): ResolvedRowSourc
  * component's rows inherit the source's keys, and flattening at the boundary
  * would throw away exactly what makes a window's rows addressable (#568). A
  * positional component (Table) receives its `Array<Row>`; a keyed one (Plan) a
- * `Dict<String, R>`.
+ * `Dict<K, R>`.
  *
  * @typeParam Out - The component's own row COLLECTION type.
  * @param resolved - The output of {@link resolveRowSource}
  * @param outType - The component's row collection type
  * @param make - The source collection → the component's row collection
- * @param idSuffix - Appended to the paged source's `id` — see below
  * @returns The `RowSourceType(outType)` value to store in the IR
  *
  * @remarks
- * `idSuffix` exists because `make` is part of what the derived source SERVES.
- * {@link PagedSourceType} requires that two sources sharing an `id` serve the
- * same rows, and a component whose `make` changes — a Plan whose series list was
- * narrowed by a pick — now serves different rows from the same underlying
- * handle. Since a window cache keys on `id` alone and resident windows are never
- * re-read, an unsigned id leaves the previous rows on screen forever. A
- * component that can vary its `make` must pass a signature of what varied.
+ * The derived source keeps the handle's `id`: `make` is part of what it
+ * serves, and a component whose `make` changes (a Plan whose series list a
+ * pick narrowed) serves other rows from the same handle — which a renderer
+ * tells apart by comparing the derived source whole, closures included
+ * (`equivalentFor`, #809), not by its id (#822).
  *
  * The derived `page` serves WHOLE windows (#829). A handle may answer
  * `(offset, limit)` with fewer than `limit` elements while it still has more —
@@ -430,7 +428,6 @@ export function buildRowSource<Out extends EastType>(
     resolved: ResolvedRowSource,
     outType: Out,
     make: (collection: ExprType<EastType>) => SubtypeExprOrValue<Out>,
-    idSuffix?: SubtypeExprOrValue<StringType>,
 ): RowSource<Out> {
     const sourceType = RowSourceType(outType);
     if (resolved.kind === "inline") {
@@ -521,10 +518,7 @@ export function buildRowSource<Out extends EastType>(
     // A source predating the contract carries no `id` / `seek`; fall back to a
     // constant identity (it still compares equal to itself) and no seek.
     const fields = structFields(Expr.type(resolved.source)) ?? {};
-    const baseId = fields["id"] !== undefined ? handle.id : East.value("", StringType);
-    const id = idSuffix !== undefined
-        ? East.str`${baseId}#${East.value(idSuffix, StringType)}`
-        : baseId;
+    const id = fields["id"] !== undefined ? handle.id : East.value("", StringType);
     const seek = fields["seek"] !== undefined
         ? handle.seek
         : East.value(none, OptionType(FunctionType([SeekQueryType], OptionType(SeekRangeType))));

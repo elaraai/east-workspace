@@ -179,6 +179,60 @@ export const pagedSourceWindows = example({
     inputs: [],
 });
 
+// ── Several series page as blocks (#823) ─────────────────────────────────
+// A canvas is its series list's blocks, one after another — inline and paged
+// alike. Two series over one paged source are two blocks: each pages on its
+// own over the same windows, and one read of a window serves both.
+
+export const pagedSourceBlocks = example({
+    keywords: [
+        "Paged", "of", "paged", "blocks", "block", "several series", "series", "layout",
+        "window", "band", "residency", "rebase", "one read", "Plan", "canvas", "offline",
+    ],
+    description: "Several series over ONE paged source lay out as BLOCKS, exactly as inline (#823) — every unit's jobs row, then every unit's loads row, never a window's jobs, then its loads, then the next window's. Each block pages on its own: its own bands, sized from its own ledger, its own resident run following the viewport, and its own rebase on a far jump — while one read of a window serves every block. 3,000 units, generated in East, behind the canvas's 200-element page",
+    fn: East.function([], UIComponentType, ($) => {
+        // Monday of ISO week n, 2026 — window W27–W39 (half-open), now W31.
+        const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
+            const w1 = $.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
+            return w1.addWeeks(n.subtract(1n));
+        }));
+        const UnitRow = StructType({ start: DateTimeType, end: DateTimeType, tonnes: FloatType });
+        // Generated in East, keyed U10000…U12999: fixed width, so key order is
+        // build order.
+        const units = $.let(East.Array.range(0n, 3_000n).toDict(
+            (_$, i) => East.str`U${i.add(10_000n)}`,
+            ($2, i) => $2.const({
+                start: week(i.remainder(10n).add(27n)),
+                end: week(i.remainder(10n).add(29n)),
+                tonnes: i.remainder(80n).add(40n).toFloat(),
+            }, UnitRow),
+        ), DictType(StringType, UnitRow));
+        const source = $.const(Paged.of("units", units));
+        const series = $.const([
+            Plan.series.span(UnitRow, {
+                key: "jobs", title: "Jobs",
+                label: (_r, k) => k, id: true,
+                runs: (r, k) => [Plan.run({
+                    key: "run", start: r.start, end: r.end, label: East.str`RUN · ${k}`, state: "actual",
+                })],
+            }),
+            Plan.series.span(UnitRow, {
+                key: "loads", title: "Loads",
+                label: (_r, k) => East.str`${k} · load`,
+                runs: (r) => [Plan.run({
+                    key: "run", start: r.start, end: r.end, label: "LOAD", qty: r.tonnes, state: "confirmed",
+                })],
+            }),
+        ], ArrayType(Plan.Types.Series(UnitRow)));
+        const axis = $.const(Plan.axis({
+            window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n),
+        }));
+        // Bounded, so the canvas virtualizes and each block pages by what is in view.
+        return <Plan axis={axis} data={source} series={series} style={{ maxHeight: "420px" }} />;
+    }),
+    inputs: [],
+});
+
 /** The immutable fixture lifecycle, matching mutable producers' method shape. */
 export const pagedSnapshotRevision = example({
     keywords: ["Paged", "of", "revision", "refresh", "snapshot", "immutable"],

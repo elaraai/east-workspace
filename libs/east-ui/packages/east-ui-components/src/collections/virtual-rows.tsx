@@ -88,7 +88,9 @@
  * container, and CSS pins a sticky header against the nearest one, never
  * against the page (#856). What moves the rows in each mode — the element
  * they scroll sideways in, and what scrolls them vertically — is reported
- * through `onViewport`.
+ * through `onViewport`. A bounded frame can also pin a strip under its header
+ * (`sticky`), drawn from the row at the top of the view and over the rows,
+ * taking no height of its own (#823).
  */
 
 import {
@@ -138,6 +140,15 @@ interface VirtualRowsBaseProps {
     fillParent?: boolean | undefined;
     /** Sticky-top header row; spans the full (min-)width and pins on scroll. */
     header?: ReactNode | undefined;
+    /**
+     * A strip pinned under a BOUNDED frame's header, over the rows — rendered
+     * from the index of the row showing at the top of the view, just under the
+     * header, on every render (the Plan's sticky parent, #823: which section
+     * or entry the rows in view belong to). It takes no layout height, so the
+     * rows sit where they would without it; return `null` for no strip. An
+     * unbounded frame's header scrolls with the page (#856), so it has none.
+     */
+    sticky?: ((topIndex: number) => ReactNode) | undefined;
     /** Trailing content after the rows (e.g. a legend); scrolls with the body. */
     footer?: ReactNode | undefined;
     /**
@@ -566,7 +577,7 @@ const FOLLOW_MS = 5_000;
  */
 export function VirtualRows(props: VirtualRowsProps): ReactNode {
     const {
-        header, footer, overlay, count, estimateSize, sizes, getItemKey, anchorable, renderRow, measureRows = true,
+        header, sticky, footer, overlay, count, estimateSize, sizes, getItemKey, anchorable, renderRow, measureRows = true,
         overscan = 4, minWidth, headerZIndex = 3, onScroll, rootCss, fillParent, scrollElRef,
         scrollToIndex, scrollNonce, scrollAlign = "center", onRangeChange, sizeVersion,
         virtualizeUnboundedAt, onAnchorChange, restoreAnchor, rowsProps, rowsRef, onViewport,
@@ -981,6 +992,14 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
         );
     }
 
+    // The row at the top of the view, just under the header — what the sticky
+    // strip is drawn from (item starts carry the header's height as the scroll
+    // margin, so the view's top in their terms is the offset plus it).
+    const topItem = sticky !== undefined && virtualized
+        ? virtualizer.getVirtualItemForOffset((virtualizer.scrollOffset ?? 0) + itemsOffset)
+        : undefined;
+    const stickyNode = sticky !== undefined && topItem !== undefined ? sticky(topItem.index) : null;
+
     return (
         <Box
             ref={(el: HTMLDivElement | null) => {
@@ -1011,6 +1030,15 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
                 // their own background — Calendar's don't).
                 <Box ref={setHeaderEl} position="sticky" top="0" zIndex={headerZIndex} minWidth={minWidth} background="bg.surface">
                     {header}
+                </Box>
+            )}
+            {stickyNode !== null && (
+                // Zero height, pinned just under the header: the strip draws
+                // over the rows without moving them (the rows' offset — the
+                // scroll margin — is the header's alone), below the header.
+                <Box position="sticky" top={`${itemsOffset}px`} height="0" zIndex={headerZIndex - 1}
+                    minWidth={minWidth} data-virtual-sticky="">
+                    {stickyNode}
                 </Box>
             )}
             {virtualWindow()}

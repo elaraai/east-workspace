@@ -44,18 +44,45 @@
  * so the caller keeps asking. The canvas never shows an empty frame between two
  * snapshots of its data: each window swaps to its new rows as they land.
  *
+ * # A window is the canvas's blocks (#823)
+ *
+ * The derived source serves every block's share of a window from one read:
+ * each data series' rows for the window's entries, and the fixed blocks (a
+ * section's header, hand-built rows) as ever. A read keeps them apart, keyed
+ * block by block — the driver pages each data series' block on its own.
+ *
  * @packageDocumentation
  */
 
-import { toCanvasRows, type PlanRowValue } from "./model.js";
+import { toCanvasRows, type PlanRowValue, type PlanWireBlock } from "./model.js";
+import { rowKeyOf } from "./row-key.js";
+import type { RowKey } from "./plan-state.js";
 import type { PlanPagedSourceValue } from "./use-plan-paging.js";
 
-/** One window's canvas rows, in stream order — keyed for the canvas once, when
- *  the window is read ({@link toCanvasRows}). */
+/** One block's canvas rows from one window, in stream order — keyed for the
+ *  canvas once, when the window is read ({@link toCanvasRows}). */
 export type WindowRows = readonly PlanRowValue[];
 
+/** A block's shape — the same in every window of a source (#823). */
+export interface BlockShape {
+    /** Whether no entry produces its rows (a section's header, hand-built rows):
+     *  every window serves them alike, and the canvas draws them once. */
+    readonly fixed: boolean;
+    /** The key of the row its top rows nest under — the header of the section
+     *  it sits in — or `undefined` at the top of the canvas. */
+    readonly parent: RowKey | undefined;
+}
+
+/** One window, read: each block's rows and shape, in layout order. */
+export interface WindowRead {
+    /** Each block's rows from this window. */
+    readonly blocks: readonly WindowRows[];
+    /** Each block's shape. */
+    readonly shape: readonly BlockShape[];
+}
+
 /** The caller-owned read-once cache, keyed by window index. */
-export type WindowCache = Map<number, WindowRows>;
+export type WindowCache = Map<number, WindowRead>;
 
 /** The caller-owned failure record — why each failed window's read threw,
  *  keyed by window index (#811). */
@@ -63,7 +90,7 @@ export type WindowFailures = Map<number, string>;
 
 export interface ReadResult {
     /** Every requested window that is resident, in request order. */
-    resident: { w: number; rows: WindowRows }[];
+    resident: { w: number; read: WindowRead }[];
     /** Whether any requested window is still in flight. */
     loading: boolean;
     /** Every requested window whose read failed, in request order. */
@@ -76,6 +103,23 @@ export interface ReadResult {
 /** One line naming why a source read failed. */
 function readFailure(err: unknown): string {
     return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * A landed window's blocks, keyed for the canvas — each block on its own
+ * (a repeat across blocks is the driver's to key, `keyAcrossBlocks`).
+ *
+ * @param blocks - The window's decoded blocks
+ * @returns The read
+ */
+export function readWindow(blocks: readonly PlanWireBlock[]): WindowRead {
+    return {
+        blocks: blocks.map((b, i) => toCanvasRows(b.rows, i)),
+        shape: blocks.map((b) => ({
+            fixed: b.fixed,
+            parent: b.parent.type === "some" ? rowKeyOf(b.parent.value) : undefined,
+        })),
+    };
 }
 
 /**
@@ -108,7 +152,7 @@ export function readWindows(
     failures: WindowFailures,
     stale?: WindowCache,
 ): ReadResult {
-    const resident: { w: number; rows: WindowRows }[] = [];
+    const resident: { w: number; read: WindowRead }[] = [];
     const failed: { w: number; error: string }[] = [];
     let loading = false;
     let servedStale = false;
@@ -116,7 +160,7 @@ export function readWindows(
     for (const w of windows) {
         const known = cache.get(w);
         if (known !== undefined) {
-            resident.push({ w, rows: known });
+            resident.push({ w, read: known });
             continue;
         }
         const recorded = failures.get(w);
@@ -141,60 +185,17 @@ export function readWindows(
             loading = true;
             const previous = stale?.get(w);
             if (previous !== undefined) {
-                resident.push({ w, rows: previous });
+                resident.push({ w, read: previous });
                 servedStale = true;
             }
             continue;
         }
-        const rows: WindowRows = toCanvasRows(win.value);
-        cache.set(w, rows);
-        resident.push({ w, rows });
+        const read = readWindow(win.value);
+        cache.set(w, read);
+        resident.push({ w, read });
     }
 
     return { resident, loading, failed, stale: servedStale };
-}
-
-/**
- * Merge windows into ONE stream — the windows' rows concatenated in window
- * order (#822).
- *
- * A row a later window re-serves — a hand-built row, or a section header,
- * which every window's series emit alike — keeps its first copy rather than
- * appearing twice; a window's own repeats were already made distinct when it
- * was read.
- *
- * @param windows - The resident windows, any order
- * @returns The merged stream
- */
-export function mergeWindows(windows: readonly { w: number; rows: WindowRows }[]): PlanRowValue[] {
-    const merged: PlanRowValue[] = [];
-    const seen = new Set<string>();
-    for (const { rows } of [...windows].sort((a, b) => a.w - b.w)) {
-        for (const row of rows) {
-            if (seen.has(row.key)) continue;
-            seen.add(row.key);
-            merged.push(row);
-        }
-    }
-    return merged;
-}
-
-/**
- * Which window each merged row came from — the row→window map the driver needs
- * to turn a mounted ROW range back into a window, and #582's missing piece.
- *
- * First window wins, matching {@link mergeWindows}: a row two windows both
- * serve is attributed to the earlier one, so the map and the rows always agree.
- *
- * @param windows - The resident windows, any order
- * @returns Window index by row key
- */
-export function originOf(windows: readonly { w: number; rows: WindowRows }[]): Map<string, number> {
-    const origin = new Map<string, number>();
-    for (const { w, rows } of [...windows].sort((a, b) => a.w - b.w)) {
-        for (const row of rows) if (!origin.has(row.key)) origin.set(row.key, w);
-    }
-    return origin;
 }
 
 /** Drop per-window entries outside the resident set — the memory half of

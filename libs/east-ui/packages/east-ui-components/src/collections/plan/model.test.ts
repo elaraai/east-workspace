@@ -13,9 +13,10 @@
 import { describe, test, expect } from "vitest";
 import { some, none, variant } from "@elaraai/east";
 import {
-    canvasRowsOf, indexRows, rowHeight, rowIdOfKey, rowKeyOf, pxOf, toCanvasRows, visibleRows, windowRestHeight,
+    canvasRowsOf, derivePlan, indexRows, keyAcrossBlocks, restUi, rowHeight, rowIdOfKey, rowKeyOf, pxOf,
+    skeletonHeight, toCanvasRows, visibleRows, windowRestHeight, windowSkeleton,
     HEAT_ROW_H, ROW_H, ROW_H_STACKED, GROUP_STRIP_H, GROUP_H, STRIP_H, RAIL_H,
-    type PlanRowValue, type PlanWireRow, type VisibleRow,
+    type PlanRowValue, type PlanWireBlock, type PlanWireRow, type SkeletonUi, type VisibleRow,
 } from "./model.js";
 import type { PlanInstantValue } from "./instant.js";
 import { rowId, rowIdEqual, rowKey } from "./plan.test-utils.js";
@@ -57,6 +58,11 @@ function wire(key: string, kind: unknown, opts?: RowOpts): PlanWireRow {
 /** One canvas row keyed `key` (default `r`). */
 function row(kind: unknown, opts?: RowOpts & { key?: string }): PlanRowValue {
     return toCanvasRows([wire(opts?.key ?? "r", kind, opts)])[0]!;
+}
+
+/** One WIRE block (#823) — a data series' rows unless `fixed`. */
+function block(rows: PlanWireRow[], opts?: { fixed?: boolean }): PlanWireBlock {
+    return { fixed: opts?.fixed === true, parent: none, rows } as unknown as PlanWireBlock;
 }
 
 function visible(r: PlanRowValue, opts?: { collapsed?: boolean }): VisibleRow {
@@ -274,6 +280,96 @@ describe("Plan windowRestHeight (#613)", () => {
     });
 });
 
+describe("win skeletons — the heights of evicted rows (#823)", () => {
+    const chart = variant("chart", {
+        layers: [], left: none, right: none, height: variant("spark", null), expandedHeight: none, expandable: some(true),
+    });
+    const strip = groupKind(variant("heat", { cells: [], min: none, max: none, warnAt: none }));
+    const win = toCanvasRows([
+        wire("g", strip),
+        wire("a", spanKind, { parent: "g" }),
+        wire("c", chart, { parent: "g" }),
+        wire("h", heatKind, { parent: "a", sub: "%" }),
+        wire("pin", chart, { pinned: true }),
+        wire("q", groupKind(), { collapsed: true }),
+        wire("qa", spanKind, { parent: "q" }),
+    ]);
+
+    /** What the canvas draws these rows at — the visible walk and `rowHeight`. */
+    function drawn(rows: readonly PlanRowValue[], ui: { grain: "group" | "resource"; collapsed: string[]; charts: string[] }, focus?: { kind: "expand"; key: string }): number {
+        const index = indexRows(rows);
+        const derived = derivePlan(index);
+        const collapsed = new Set(ui.collapsed.map((k) => rowKey(k)));
+        const charts = new Set(ui.charts.map((k) => rowKey(k)));
+        return visibleRows(index, { grain: ui.grain, collapsed })
+            .reduce((sum, v) => sum + rowHeight(v, false, charts, focus, derived), 0);
+    }
+
+    /** The same state as a skeleton reads it. */
+    function state(ui: { grain: "group" | "resource"; collapsed: string[]; charts: string[] }): SkeletonUi {
+        const collapsed = new Set(ui.collapsed.map((k) => rowKey(k)));
+        return { grain: ui.grain, collapsed: (key) => collapsed.has(key), chartsExpanded: new Set(ui.charts.map((k) => rowKey(k))) };
+    }
+
+    test("a skeleton measures exactly what its rows draw — under any collapse, grain, chart toggle or expand focus", () => {
+        const sk = windowSkeleton(win);
+        const states = [
+            { grain: "resource" as const, collapsed: [], charts: [] },
+            { grain: "resource" as const, collapsed: ["q"], charts: [] },
+            { grain: "resource" as const, collapsed: ["g"], charts: [] },
+            { grain: "resource" as const, collapsed: ["a"], charts: ["c"] },
+            { grain: "group" as const, collapsed: [], charts: [] },
+            { grain: "group" as const, collapsed: ["q"], charts: ["c"] },
+        ];
+        for (const ui of states) {
+            expect(skeletonHeight(sk, state(ui), false)).toBe(drawn(win, ui));
+            const focus = { kind: "expand" as const, key: rowKey("a") };
+            expect(skeletonHeight(sk, state(ui), false, focus)).toBe(drawn(win, ui, focus));
+        }
+        // Collapse ALL — the group grain folds both top groups to their bands.
+        expect(skeletonHeight(sk, state({ grain: "group", collapsed: [], charts: [] }), false)).toBe(GROUP_STRIP_H + GROUP_H);
+        // A links focus elides runs ACROSS windows, which no win can say:
+        // its windows measure as though unfocused.
+        const links = { kind: "links" as const, key: rowKey("a") };
+        expect(skeletonHeight(sk, state(states[0]!), false, links)).toBe(drawn(win, states[0]!));
+    });
+
+    test("at rest a skeleton measures the declared state — windowRestHeight is its rest", () => {
+        const sk = windowSkeleton(win);
+        expect(skeletonHeight(sk, restUi("resource"), false)).toBe(windowRestHeight(win, "resource", false));
+        expect(skeletonHeight(sk, restUi("resource"), false)).toBe(drawn(win, { grain: "resource", collapsed: ["q"], charts: [] }));
+    });
+
+    test("a block's top rows under a header no win holds stay open, and derive as the win's roots", () => {
+        const vmulti = variant("table", {
+            series: [
+                { cells: [{ at: t(W27), value: some(1), text: none, tone: none }], format: none, tone: none, strong: none, rollup: none },
+                { cells: [{ at: t(W27), value: some(2), text: none, tone: none }], format: none, tone: none, strong: none, rollup: none },
+                { cells: [{ at: t(W27), value: some(3), text: none, tone: none }], format: none, tone: none, strong: none, rollup: none },
+            ],
+            split: variant("vertical", null), aggregate: none, format: none, emphasis: variant("body", null),
+        });
+        const parent = variant("table", {
+            series: [], split: variant("vertical", null),
+            aggregate: some(variant("sum", null)), format: none, emphasis: variant("body", null),
+        });
+        // A section member's entries nest under the section's header — a
+        // fixed block, in no win.
+        const rows = toCanvasRows([
+            wire("p", parent, { parent: "hdr" }),
+            wire("x", vmulti, { parent: "p" }),
+            wire("g", groupKind(), { parent: "hdr" }),
+        ]);
+        const sk = windowSkeleton(rows);
+        // Both stack three DERIVED positions (6 + 3×11): the subtotal parent
+        // derives from its win-local subtree though its own parent is
+        // elsewhere. The group row is not at the canvas's top, so the group
+        // grain does not fold it.
+        expect(skeletonHeight(sk, restUi("resource"), false)).toBe(39 + 39 + GROUP_H);
+        expect(skeletonHeight(sk, restUi("group"), false)).toBe(39 + 39 + GROUP_H);
+    });
+});
+
 describe("the row stream (#822)", () => {
     test("each row keys by its id's canonical text, and nests under its parent's", () => {
         const [a, b] = toCanvasRows([wire("a", spanKind), wire("b", spanKind, { parent: "a" })]);
@@ -303,12 +399,44 @@ describe("the row stream (#822)", () => {
         expect(rowIdOfKey("m03")).toBeUndefined();
     });
 
-    test("canvasRowsOf keys a decoded stream once — the controller and the canvas share its rows", () => {
-        const stream = [wire("a", spanKind), wire("b", spanKind)];
-        const first = canvasRowsOf(stream);
-        expect(canvasRowsOf(stream)).toBe(first);
-        expect(canvasRowsOf([...stream])).not.toBe(first);
-        expect(canvasRowsOf([...stream])).toEqual(first);
+    test("canvasRowsOf keys a decoded canvas once — the controller and the canvas share its rows", () => {
+        const blocks = [block([wire("a", spanKind), wire("b", spanKind)])];
+        const first = canvasRowsOf(blocks);
+        expect(canvasRowsOf(blocks)).toBe(first);
+        expect(canvasRowsOf([...blocks])).not.toBe(first);
+        expect(canvasRowsOf([...blocks])).toEqual(first);
+    });
+
+    test("canvasRowsOf lays the blocks out one after another — each row names its block, keyed across them all (#823)", () => {
+        const rows = canvasRowsOf([
+            block([wire("a", spanKind), wire("b", spanKind)]),
+            block([wire("hdr", groupKind())], { fixed: true }),
+            block([wire("a", heatKind), wire("c", spanKind)]),
+        ]);
+        expect(rows.map((r) => r.block)).toEqual([0, 0, 1, 2, 2]);
+        // A later block repeating an earlier one's id is the diagnostic it
+        // is inline — whichever block it sits in.
+        expect(rows.map((r) => r.key)).toEqual([rowKey("a"), rowKey("b"), rowKey("hdr"), `${rowKey("a")}#1`, rowKey("c")]);
+        expect(rows[3]!.duplicateOf).toBe(rowKey("a"));
+    });
+
+    test("keyAcrossBlocks keys a paged canvas's rows as canvasRowsOf keys the same rows inline (#823)", () => {
+        // Each block's windows were keyed on their own, so a repeat across
+        // blocks arrives with the same key twice.
+        const paged = [
+            ...toCanvasRows([wire("a", spanKind), wire("b", spanKind)], 0),
+            ...toCanvasRows([wire("a", heatKind), wire("a", spanKind)], 1),
+        ];
+        const inline = canvasRowsOf([
+            block([wire("a", spanKind), wire("b", spanKind)]),
+            block([wire("a", heatKind), wire("a", spanKind)]),
+        ]);
+        const keyed = keyAcrossBlocks(paged);
+        expect(keyed.map((r) => r.key)).toEqual(inline.map((r) => r.key));
+        expect(keyed.map((r) => r.duplicateOf)).toEqual(inline.map((r) => r.duplicateOf));
+        // Nothing repeated: the same array, row for row.
+        const plain = toCanvasRows([wire("x", spanKind), wire("y", spanKind)], 0);
+        expect(keyAcrossBlocks(plain)).toBe(plain);
     });
 
     test("the walk follows the stream: a collapsed row hides exactly its descendants, wherever they sit", () => {

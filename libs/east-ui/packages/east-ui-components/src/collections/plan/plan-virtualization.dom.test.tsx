@@ -13,7 +13,7 @@
  */
 
 import { describe, test, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, cleanup, fireEvent, act } from "@testing-library/react";
+import { render, cleanup, fireEvent, act, waitFor } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { none, some, variant } from "@elaraai/east";
 import { system } from "../../theme/index.js";
@@ -23,7 +23,8 @@ import { EastChakraPlan, type PlanRootValue } from "./index.js";
 import type { PlanRowId, PlanWireRow } from "./model.js";
 import { setBodyRowMountProbe } from "./rows/BodyRow.js";
 import type { PlanInstantValue } from "./instant.js";
-import { rowId, rowSel, testKeyOf } from "./plan.test-utils.js";
+import { blocksSource, oneBlock, rowId, rowKey, rowSel, testKeyOf } from "./plan.test-utils.js";
+import { PLAN_GEOMETRY } from "./geometry.js";
 
 // Every virtualizer's `measure()` is counted — the rest of TanStack is the
 // real thing. (A re-measure is what a height change must cost and what a
@@ -115,12 +116,16 @@ const W27 = new Date("2026-06-29T00:00:00Z");
 const W39 = new Date("2026-09-21T00:00:00Z");
 const t = (d: Date): PlanInstantValue => variant("time", d) as PlanInstantValue;
 
-/** One WIRE row, as the source serves it — named by its test key (#822). */
-function planRow(key: string, kind: unknown, opts?: { parent?: string; expand?: unknown }): PlanWireRow {
+/** One WIRE row, as the source serves it — named by its test key (#822); a
+ *  `sub` line makes its gutter two lines (42px). */
+function planRow(key: string, kind: unknown, opts?: { parent?: string; expand?: unknown; sub?: string }): PlanWireRow {
     return {
         id: rowId(key),
         parent: opts?.parent !== undefined ? some(rowId(opts.parent)) : none,
-        gutter: { label: key, id: none, sub: none, value: none, meta: none, stacked: none, swatches: [] },
+        gutter: {
+            label: key, id: none, sub: opts?.sub !== undefined ? some(opts.sub) : none,
+            value: none, meta: none, stacked: none, swatches: [],
+        },
         kind,
         collapsed: none, pinned: none, height: none, status: none, approval: none,
         expand: opts?.expand !== undefined ? some(opts.expand) : none,
@@ -136,10 +141,10 @@ const chart = () => variant("chart", {
 const expandable = (px: string) => ({ height: some(px), axis: variant("keep", null) });
 const pad = (i: number, width: number) => String(i).padStart(width, "0");
 
-function planRoot(rows: PlanWireRow[], opts?: { height?: string; source?: unknown; expandRender?: boolean }): PlanRootValue {
+function planRoot(rows: PlanWireRow[], opts?: { height?: string; source?: unknown; expandRender?: boolean; links?: unknown[] }): PlanRootValue {
     return {
-        rows: opts?.source !== undefined ? variant("paged", opts.source) : variant("inline", rows),
-        links: [],
+        rows: opts?.source !== undefined ? variant("paged", blocksSource(opts.source)) : variant("inline", oneBlock(rows)),
+        links: opts?.links ?? [],
         axis: variant("time", {
             window: some({ min: W27, max: W39 }), resolution: variant("week", null),
             resolutions: [], now: none, format: none,
@@ -452,4 +457,208 @@ describe("Plan narrow paged demand (#812)", () => {
         await vi.waitFor(() => expect(container.querySelector(rowSel("u0600", "data-plan-card"))).toBeTruthy());
         expect(asked).toContain(3);
     }, 60_000);
+});
+
+// ── Paged canvases page by parents (#823) ───────────────────────────────────
+/** A paged canvas's transport line. */
+const transport = (c: HTMLElement) => c.querySelector('[data-slot="footerTransport"]')!.textContent;
+/** Where a mounted body item starts: its column's top, plus every mounted item
+ *  above it — a row's `data-plan-h`, a band's `data-plan-px`. */
+function topOf(c: HTMLElement, el: Element): number {
+    let at = columnOf(c).top;
+    for (const wrapper of c.querySelectorAll<HTMLElement>("[data-virtual-extent] [data-index]")) {
+        if (wrapper.contains(el)) return at;
+        const sized = wrapper.querySelector("[data-plan-h], [data-plan-px]")!;
+        at += Number(sized.getAttribute("data-plan-h") ?? sized.getAttribute("data-plan-px"));
+    }
+    throw new Error("the item is not mounted");
+}
+/** The frame scrolls through `scrollTo`, which jsdom lacks: a write lands on
+ *  scrollTop — and, when `notify`, sends its scroll event, as a browser's does. */
+function stubScrollTo(notify: boolean): () => void {
+    const proto = HTMLElement.prototype as unknown as { scrollTo?: (options: ScrollToOptions) => void };
+    const real = proto.scrollTo;
+    proto.scrollTo = function (this: HTMLElement, options: ScrollToOptions) {
+        if (options.top === undefined) return;
+        this.scrollTop = options.top;
+        if (notify) this.dispatchEvent(new Event("scroll"));
+    };
+    return () => {
+        if (real === undefined) delete proto.scrollTo;
+        else proto.scrollTo = real;
+    };
+}
+
+describe("the sticky parent (#823)", () => {
+    // Line 1 holds a cell of forty machines — a parent inside a parent — and
+    // line 2 ten. A band is 26px, a machine 32px.
+    const rows = () => [
+        planRow("L1", group()),
+        planRow("L1a", group(), { parent: "L1" }),
+        ...Array.from({ length: 40 }, (_u, i) => planRow(`L1a-m${pad(i, 2)}`, span(), { parent: "L1a" })),
+        planRow("L2", group()),
+        ...Array.from({ length: 10 }, (_u, i) => planRow(`L2-m${pad(i, 2)}`, span(), { parent: "L2" })),
+    ];
+    const INSIDE_L1A = 2 * 26 + 10 * 32 + 5;
+    const L2_TOP = 2 * 26 + 40 * 32;
+    // A scroll it asks for is clamped to the frame's scroll height, which
+    // jsdom reports as 0: the frame scrolls as far as it is asked.
+    const realScrollHeight = Object.getOwnPropertyDescriptor(Element.prototype, "scrollHeight")!;
+    let restore: () => void = () => {};
+    beforeEach(() => {
+        restore = stubScrollTo(true);
+        Object.defineProperty(Element.prototype, "scrollHeight", {
+            configurable: true,
+            get(this: Element) { return this.getAttribute("data-virtual-rows") === "bounded" ? 1_000_000 : 0; },
+        });
+    });
+    afterEach(() => {
+        restore();
+        Object.defineProperty(Element.prototype, "scrollHeight", realScrollHeight);
+    });
+    const sticky = (c: HTMLElement) => c.querySelector<HTMLElement>("[data-plan-sticky]");
+
+    for (const arm of ["inline", "paged"] as const) {
+        test(`${arm}: scrolled inside a parent whose band has gone, the band pins with its ancestors — and a click goes to it`, async () => {
+            const all = rows();
+            // Paged, both lines are entries of one window.
+            const source = {
+                id: "dom-823-sticky", page: (offset: bigint) => (offset === 0n ? some(all) : some([])),
+                total: () => some(2n), seek: none, revision: () => none, refresh: () => null,
+            };
+            const { container } = renderPlan(
+                planRoot(all, { height: "400px", ...(arm === "paged" ? { source } : {}) }), `plan-823-sticky-${arm}`);
+            await waitFor(() => expect(container.querySelector(rowSel("L1", "data-plan-group"))).toBeTruthy());
+            // At the top, the first row is line 1's own band: nothing to pin.
+            expect(sticky(container)).toBeNull();
+            // Ten machines into the cell: its band and line 1's have scrolled
+            // off. The strip names the cell, after the path down to it.
+            scrollFrame(container, INSIDE_L1A);
+            const strip = sticky(container)!;
+            expect(strip.getAttribute("data-plan-sticky")).toBe(rowKey("L1a"));
+            expect([...strip.querySelectorAll("span")].map((x) => x.textContent)).toEqual(["L1", "L1a"]);
+            expect(strip.getAttribute("aria-hidden")).toBe("true");
+            // Line 2's own band at the top: nothing to pin; inside it, line 2.
+            scrollFrame(container, L2_TOP);
+            expect(sticky(container)).toBeNull();
+            scrollFrame(container, L2_TOP + 26 + 3 * 32);
+            expect(sticky(container)!.getAttribute("data-plan-sticky")).toBe(rowKey("L2"));
+            // A click on the strip goes to its parent's row: the cell's band is
+            // at the top of the view — and line 1, off the top above it, pins.
+            scrollFrame(container, INSIDE_L1A);
+            fireEvent.click(sticky(container)!);
+            await waitFor(() => expect(frameOf(container).scrollTop).toBe(26));
+            expect(sticky(container)!.getAttribute("data-plan-sticky")).toBe(rowKey("L1"));
+            expect([...sticky(container)!.querySelectorAll("span")].map((x) => x.textContent)).toEqual(["L1"]);
+        });
+    }
+});
+
+describe("a paged window drawing otherwise than its estimate (#823, #878)", () => {
+    // Window 0's rows draw 32px and every later window's 42px (a two-line
+    // gutter), so an unvisited window is described at 32px an element and
+    // lands 200 × 10px taller than its band.
+    const EST = 200 * 32;
+    const TALL = 200 * 42;
+    const source = {
+        id: "dom-823-varied",
+        page: (offset: bigint) => {
+            const w = Number(offset) / 200;
+            return some(Array.from({ length: 200 }, (_u, i) =>
+                planRow(`w${pad(w, 4)}r${pad(i, 3)}`, span(), w === 0 ? undefined : { sub: "two lines" })));
+        },
+        total: () => some(2_000n), seek: none, revision: () => none, refresh: () => null,
+    };
+    // The frame anchors through `scrollTo`: its writes land on scrollTop.
+    let restore: () => void = () => {};
+    beforeEach(() => { restore = stubScrollTo(false); });
+    afterEach(() => { restore(); });
+
+    test("lands above the rows in view and leaves them where they are — the view follows its rows, not the estimate", async () => {
+        const { container } = renderPlan(planRoot([], { height: "400px", source }), "plan-823-anchor");
+        await waitFor(() => expect(transport(container)).toBe("600 loaded of 2,000"));
+        // Windows 1 and 2 landed at their own height; the rest are estimates.
+        expect(extentOf(container)).toBe(EST + 2 * TALL + 7 * EST);
+        // Far down, over the tail band, where the estimate puts element 1,500:
+        // the run rebases to window 7 and grows to [6, 9].
+        scrollFrame(container, EST + 2 * TALL + 4 * EST + 100 * 32);
+        await waitFor(() => expect(transport(container)).toBe("elements 1,201–2,000 of 2,000"), { timeout: 10_000 });
+        // Windows 0–5 are the head band: 0–2 as they drew, 3–5 estimates.
+        const head = EST + 2 * TALL + 3 * EST;
+        // Up to window 6's first row, 10px into it. Once the scroll settles,
+        // window 5 above it is asked for — and lands 2,000px taller than its
+        // estimate.
+        scrollFrame(container, head + 10);
+        const first = () => container.querySelector(rowSel("w0006r000"))!;
+        expect(frameOf(container).scrollTop - topOf(container, first())).toBe(10);
+        await waitFor(() => expect(transport(container)).toBe("elements 1,001–2,000 of 2,000"), { timeout: 10_000 });
+        // The rows in view kept their places: the view moved with them, by
+        // exactly what window 5 drew beyond its estimate.
+        expect(frameOf(container).scrollTop).toBe(head + 10 + (TALL - EST));
+        expect(frameOf(container).scrollTop - topOf(container, first())).toBe(10);
+    }, 30_000);
+});
+
+describe("a link into an evicted window (#823, #818)", () => {
+    // Ten windows of twenty rows, each row with one run: every window draws 640px.
+    const W = 20 * 32;
+    const bar = variant("span", {
+        runs: [{
+            key: "x", start: t(W27), end: t(new Date("2026-07-13T00:00:00Z")), label: "X",
+            quantity: none, qty: none, state: variant("actual", null), status: none, moved: none, icon: none,
+        }],
+        decisions: [], ports: [], rollup: none, unit: none,
+    });
+    const source = {
+        id: "dom-823-links",
+        page: (offset: bigint) => {
+            const w = Number(offset) / 200;
+            return some(Array.from({ length: 20 }, (_u, i) => planRow(`w${pad(w, 4)}r${pad(i, 3)}`, bar)));
+        },
+        total: () => some(2_000n), seek: none, revision: () => none, refresh: () => null,
+    };
+    // A row of window 7 feeds a row of window 1.
+    const links = [{ fromRow: rowId("w0007r000"), fromRun: "x", toRow: rowId("w0001r000"), toRun: "x", quantity: 5, label: "5 t" }];
+    /** A triangle's tip — its second vertex. */
+    const tipOf = (d: string): [number, number] => {
+        const nums = d.trim().split(/[\sMLZ]+/).filter((x) => x !== "").map(Number);
+        return [nums[2]!, nums[3]!];
+    };
+    // The ribbons need the plot's width: the layer is the 168px gutter and a 1000px plot.
+    const realClientWidth = Object.getOwnPropertyDescriptor(Element.prototype, "clientWidth")!;
+    beforeEach(() => {
+        Object.defineProperty(Element.prototype, "clientWidth", {
+            configurable: true,
+            get(this: Element) { return this.hasAttribute("data-plan-ribbons") ? 1168 : 0; },
+        });
+    });
+    afterEach(() => { Object.defineProperty(Element.prototype, "clientWidth", realClientWidth); });
+
+    test("its end sits at that window's offset in the band — and clamps and stubs like any row out of view", async () => {
+        const { container } = renderPlan(planRoot([], { height: "400px", source, links }), "plan-823-links");
+        await waitFor(() => expect(transport(container)).toBe("600 loaded of 2,000"));
+        // Far down, to window 7: the run rebases to [6, 9] and windows 0–2 are
+        // evicted — w0001r000 with them.
+        scrollFrame(container, 7 * W + 10);
+        await waitFor(() => expect(transport(container)).toBe("elements 1,201–2,000 of 2,000"), { timeout: 10_000 });
+        expect(container.querySelector(rowSel("w0001r000"))).toBeNull();
+        fireEvent.click(container.querySelector(`${rowSel("w0007r000")} [data-plan-control="links"]`)!);
+        // Over the head band, 40px above window 1's place in it. (The scroll
+        // is read before it settles — a settled one would bring window 1 back.)
+        // The far end is drawn AT its window's offset, unclamped; the near
+        // end, below the view, stubs toward its row.
+        scrollFrame(container, W - 40);
+        const link = () => container.querySelector('[data-plan-link="0"]')!;
+        expect(link()).toBeTruthy();
+        const head = () => link().querySelector("[data-plan-ribbon-head]")!;
+        expect(head().hasAttribute("data-plan-stub")).toBe(false);
+        expect(tipOf(head().getAttribute("d")!)[1]).toBe(W + PLAN_GEOMETRY.default.bar / 2);
+        expect(link().querySelector('[data-plan-stub="below"]')).toBeTruthy();
+        // Down at the focused row, the far end is above the view: it clamps to
+        // the view's top and stubs up toward its window.
+        const near = 6 * W;
+        scrollFrame(container, near - 100);
+        expect(head().getAttribute("data-plan-stub")).toBe("above");
+        expect(tipOf(head().getAttribute("d")!)[1]).toBe(near - 100);
+    }, 30_000);
 });

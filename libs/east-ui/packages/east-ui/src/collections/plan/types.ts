@@ -14,8 +14,11 @@
  *
  * Rows are an ordered STREAM in the IR (`ArrayType(PlanRowType)`, #822): the
  * stream IS the render order. The top-level series list is the layout — each
- * series contributes one contiguous block, in declared order — and a parent is
- * followed by its descendants. A row has a TYPED identity
+ * series contributes its rows in declared order, as BLOCKS that travel apart
+ * ({@link PlanBlockType}, #823): a data series is one block of its entries'
+ * rows, which a paged canvas pages on its own, and a section's header and
+ * hand-built rows are fixed blocks drawn once — and a parent is followed by
+ * its descendants. A row has a TYPED identity
  * ({@link PlanRowIdType}: the series that made it and the path of entry keys
  * that leads to it), which is what `parent` references, what `links` address,
  * what every callback reports and what focus / collapse / selection state is
@@ -1192,26 +1195,74 @@ export type PlanRowsCollectionType = typeof PlanRowsCollectionType;
 export type PlanRowsValue<K extends PlanAxisKindLiteral = never> = PlanKinded<ExprType<PlanRowsCollectionType>, K>;
 
 /**
- * The paged source of a `data` + `series` canvas — the SHARED row-source
- * contract ({@link PagedSourceType}) instantiated at the canvas-row
- * COLLECTION (`Plan Data Interface.md` §3.8). The factory builds it from the
- * author's source (a `Data.bindPaged` handle, a `Paged.of` fixture) by
- * wrapping each window with the series' `derive` functions, so the renderer
- * only ever sees typed canvas-row windows — no bytes and no domain types. A
- * window is its entries' rows, each entry with its whole subtree, and windows
- * render in window order.
+ * One BLOCK of the canvas's rows (#823) — the unit a paged canvas pages.
+ *
+ * @remarks
+ * The series list lays the canvas out block by block, top to bottom. A data
+ * series (`span`, `buckets`, `chart`, `heat`, `table`, `cards`, `events`,
+ * `group`, `views`) is one block of its entries' rows, each entry's row
+ * followed by its subtree: a window of a paged source holds its entries'
+ * share, and a paged canvas pages each such block on its own over the one
+ * source. A section's header and a `Plan.series.rows` block are FIXED — no
+ * entry produces them, so every window serves them alike and the canvas draws
+ * them once. A section is its header's block followed by its members' blocks,
+ * so the series inside a section page on their own too: inline or paged, the
+ * canvas draws the same rows in the same order.
+ *
+ * @property fixed - `true` when no entry produces the rows — a section's header, hand-built rows — so every window serves them alike
+ * @property parent - The row the block's top rows nest under — the header of the section it sits in — or `none` at the top of the canvas
+ * @property rows - The block's rows, in stream order
  */
-export const PlanPagedSourceType = PagedSourceType(PlanRowsCollectionType);
+export const PlanBlockType = StructType({
+    fixed:  BooleanType,
+    parent: OptionType(PlanRowIdType),
+    rows:   PlanRowsCollectionType,
+});
+/** Type alias for {@link PlanBlockType}. */
+export type PlanBlockType = typeof PlanBlockType;
+
+/**
+ * The canvas's BLOCKS (#823), in layout order — the series list's blocks, one
+ * after another ({@link PlanBlockType}).
+ *
+ * @remarks
+ * The blocks travel apart rather than concatenated so a paged canvas can page
+ * each one on its own. A window of a paged source is every block's share of
+ * that window's entries, so ONE read of a window serves every block, while
+ * each block keeps its own residency over the source. Inline, the blocks are
+ * the whole canvas, drawn one after another: the same rows in the same order
+ * either way.
+ */
+export const PlanBlocksType = ArrayType(PlanBlockType);
+/** Type alias for {@link PlanBlocksType}. */
+export type PlanBlocksType = typeof PlanBlocksType;
+
+/** The canvas's blocks as an expression — what the series list applied to a source makes. */
+export type PlanBlocksValue = ExprType<PlanBlocksType>;
+
+/**
+ * The paged source of a `data` + `series` canvas — the SHARED row-source
+ * contract ({@link PagedSourceType}) instantiated at the canvas's BLOCKS
+ * (`Plan Data Interface.md` §3.8). The factory builds it from the author's
+ * source (a `Data.bindPaged` handle, a `Paged.of` fixture) by wrapping each
+ * window with the series' `derive` functions, so the renderer only ever sees
+ * typed canvas-row windows — no bytes and no domain types. A window is the
+ * canvas's blocks over that window's entries: each data series' block holds
+ * the rows it derives from them, every entry with its whole subtree, and each
+ * fixed block its rows as ever (#823).
+ */
+export const PlanPagedSourceType = PagedSourceType(PlanBlocksType);
 /** Type alias for {@link PlanPagedSourceType}. */
 export type PlanPagedSourceType = typeof PlanPagedSourceType;
 
 /**
- * The root's rows channel — the shared {@link RowSourceType} at the canvas-row
- * COLLECTION: `inline` rows (what a `data`+`series` canvas over a collection
- * collapses to) or a `paged` source of the same shape. One vocabulary across
- * every collection, so a component never sniffs shapes of its own (#567).
+ * The root's rows channel — the shared {@link RowSourceType} at the canvas's
+ * BLOCKS: `inline` blocks (what a `data`+`series` canvas over a collection
+ * collapses to) or a `paged` source serving a window of every block at once.
+ * One vocabulary across every collection, so a component never sniffs shapes
+ * of its own (#567).
  */
-export const PlanRowsType = RowSourceType(PlanRowsCollectionType);
+export const PlanRowsType = RowSourceType(PlanBlocksType);
 /** Type alias for {@link PlanRowsType}. */
 export type PlanRowsType = typeof PlanRowsType;
 

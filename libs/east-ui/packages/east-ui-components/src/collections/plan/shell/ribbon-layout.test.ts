@@ -81,14 +81,16 @@ describe("the ribbon body (#818)", () => {
         const a = spanRow("a");
         const b = spanRow("b", { sub: true });
         const items: PlanBodyItem[] = [
-            { kind: "band", band: { at: "head", from: 0, to: 199, px: 640 } },
+            { kind: "band", band: { block: 0, at: "head", from: 0, to: 199, px: 640 } },
             rowItem(a), gapItem("gap-x"), rowItem(b),
-            { kind: "band", band: { at: "tail", from: 400, to: 999, px: 900 } },
+            { kind: "band", band: { block: 0, at: "tail", from: 400, to: 999, px: 900 } },
         ];
         const body = ribbonBody(items, [640, 32, 22, 42, 900], indexRows([a, b]), G);
         expect(body.slots.get(rowKey("a"))).toEqual({ top: 640, height: 32, bar: G.bar });
         expect(body.slots.get(rowKey("b"))).toEqual({ top: 640 + 32 + 22, height: 42, bar: G.bar });
         expect(body.height).toBe(640 + 32 + 22 + 42 + 900);
+        // Each band's top, by block and end — where an evicted row is placed from (#823).
+        expect(body.bands).toEqual(new Map([["0:head", 0], ["0:tail", 640 + 32 + 22 + 42]]));
     });
 
     test("a collapsed span parent's runs ride its rollup bar; an open one's the full bar", () => {
@@ -257,7 +259,7 @@ describe("rows the body does not hold (#818)", () => {
     test("a pinned row sits past the rows' top — the ribbon meets it with a stub pointing up at the header", () => {
         const { ribbons } = layoutRibbons(input({
             links: [link("pin", "y", "a", "x")], body, runDates,
-            beyond: (key) => (key === rowKey("pin") ? "above" : undefined),
+            beyond: (key) => (key === rowKey("pin") ? { off: "above" } : undefined),
         }));
         expect(ribbons[0]!.from).toMatchObject({ off: "above", top: 0, bottom: G.bar });
         expect(ribbons[0]!.tail).not.toBe("");
@@ -266,6 +268,26 @@ describe("rows the body does not hold (#818)", () => {
     test("a row with no place is not drawn", () => {
         const { ribbons } = layoutRibbons(input({ links: [link("gone", "y", "a", "x")], body, runDates }));
         expect(ribbons).toEqual([]);
+    });
+
+    test("a row in an evicted window is placed in its band, then clamps and stubs like any row out of view (#823)", () => {
+        // A tail band 5,000px tall below `a`; the evicted row's window sits
+        // 3,000px into it.
+        const tall = ribbonBody(
+            [rowItem(a), { kind: "band", band: { block: 0, at: "tail", from: 200, to: 9_999, px: 5_000 } }],
+            [32, 5_000], indexRows([a]), G);
+        const place = { y: 32 + 3_000 };
+        const beyond = (key: string) => (key === rowKey("far") ? place : undefined);
+        const dates = runDatesOf({ "a|x": [at("2026-07-13"), at("2026-07-20")], "far|y": [at("2026-07-27"), at("2026-08-03")] });
+        // Unbounded: drawn AT its place.
+        const open = layoutRibbons(input({ links: [link("a", "x", "far", "y")], body: tall, runDates: dates, beyond })).ribbons[0]!;
+        expect(open.to).toMatchObject({ top: place.y, bottom: place.y + G.bar });
+        expect(open.to.off).toBeUndefined();
+        // In a bounded view above it: on the view's bottom edge, a stub pointing down.
+        const clamped = layoutRibbons(input({
+            links: [link("a", "x", "far", "y")], body: tall, runDates: dates, beyond, viewport: { top: 0, bottom: 400 },
+        })).ribbons[0]!;
+        expect(clamped.to).toMatchObject({ off: "below", bottom: 400 });
     });
 });
 

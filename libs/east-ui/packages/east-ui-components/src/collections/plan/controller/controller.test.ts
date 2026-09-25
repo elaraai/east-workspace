@@ -18,7 +18,7 @@ import type { PlanRootValue, PlanRowId, PlanWireRow } from "../model.js";
 import type { PlanPersisted } from "../persisted.js";
 import { PLAN_PAGE_SIZE } from "../use-plan-paging.js";
 import { createPlanController, reconciledUi, type PlanController } from "./index.js";
-import { rowId, rowIdEqual, rowKey } from "../plan.test-utils.js";
+import { blocksSource, oneBlock, rowId, rowIdEqual, rowKey } from "../plan.test-utils.js";
 
 const W27 = new Date("2026-06-29T00:00:00Z");           // Monday, ISO week 27
 const W39 = new Date("2026-09-21T00:00:00Z");           // exclusive max → 12 weeks
@@ -43,7 +43,7 @@ function planRow(key: string, kind: unknown = span(), parent?: string, series?: 
  *  callbacks as the decoder hands them over (plain functions inside `some`). */
 function root(rows: PlanWireRow[], opts: Partial<Record<string, unknown>> = {}): PlanRootValue {
     return {
-        rows: opts.source !== undefined ? variant("paged", opts.source) : variant("inline", rows),
+        rows: opts.source !== undefined ? variant("paged", blocksSource(opts.source)) : variant("inline", oneBlock(rows)),
         links: [],
         axis: variant("time", {
             window: some({ min: W27, max: W39 }), resolution: variant("week", null),
@@ -617,5 +617,65 @@ describe("a new source revision (#821)", () => {
         expect(c.getSnapshot().paging.revision).toBe("A");
         expect(c.getSnapshot().seek.sought).not.toBeNull();
         expect(c.getSnapshot().seek.epoch).toBe(0);
+    });
+});
+
+describe("paged heights follow the canvas (#823)", () => {
+    /** 50 windows, each ONE group entry with ten members — 346px at rest (a
+     *  26px band + 10 × 32px, above the ledger's 1px-per-element floor for its
+     *  200 elements), 26px folded. */
+    function groupedSource() {
+        return {
+            id: "c823-grouped",
+            page: (offset: bigint) => {
+                const w = Number(offset) / PLAN_PAGE_SIZE;
+                return some([
+                    planRow(`g${w}`, group()),
+                    ...Array.from({ length: 10 }, (_u, i) => planRow(`g${w}c${i}`, span(), `g${w}`)),
+                ]);
+            },
+            total: () => some(BigInt(50 * PLAN_PAGE_SIZE)),
+            seek: none,
+            revision: () => none,
+            refresh: () => null,
+        };
+    }
+    const headOf = (c: PlanController) => c.getSnapshot().paging.blocks[0]!.head!;
+
+    test("collapse all with rows in EVICTED windows moves the head band exactly — and back", () => {
+        const { c } = show(root([], { source: groupedSource() }));
+        // A jump to window 30 leaves windows 0–2 — seen at first paint —
+        // evicted into the head band with the 26 never-seen windows before 29.
+        c.search.jump(30 * PLAN_PAGE_SIZE);
+        c.committed(c.getSnapshot().paging);
+        expect(c.getSnapshot().paging.blocks[0]!.resident!.from).toBe(29 * PLAN_PAGE_SIZE);
+        const before = headOf(c).px;
+        expect(before).toBe(29 * 346);
+        // Collapse all: the group grain folds every entry to its band. The
+        // windows the canvas has seen draw at 26px now — exactly what their
+        // rows would draw inline — and the never-seen ones stay estimates.
+        c.dispatch({ t: "grain.set", grain: "group" });
+        expect(headOf(c).px).toBe(before - 3 * (346 - 26));
+        // And back.
+        c.dispatch({ t: "grain.set", grain: "resource" });
+        expect(headOf(c).px).toBe(before);
+    });
+
+    test("a collapse toggle re-measures the window its row sits in; a selection re-measures nothing", () => {
+        const { c } = show(root([], { source: groupedSource() }));
+        c.search.jump(30 * PLAN_PAGE_SIZE);
+        c.committed(c.getSnapshot().paging);
+        const before = c.getSnapshot().paging.blocks[0]!;
+        c.dispatch({ t: "row.select", key: rowKey("g30c1") });
+        expect(c.getSnapshot().paging.blocks[0]).toBe(before);
+        // Folding a RESIDENT entry changes no band — only evicted windows are
+        // bands — but it is measured, so the band follows once it leaves.
+        c.dispatch({ t: "group.toggle", key: rowKey("g30") });
+        expect(c.getSnapshot().paging.blocks[0]!.head).toBe(before.head);
+        c.search.jump(45 * PLAN_PAGE_SIZE);
+        c.committed(c.getSnapshot().paging);
+        // Windows 0–2 and 29–33 are evicted now; window 30 draws 26px.
+        const head = c.getSnapshot().paging.blocks[0]!.head!;
+        expect(head.px).toBe(44 * 346 - (346 - 26));
     });
 });

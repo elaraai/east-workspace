@@ -22,7 +22,7 @@ import { UIStore } from "../../platform/state-store.js";
 import { EastChakraPlan, type PlanRootValue } from "./index.js";
 import type { PlanRowId, PlanWireRow } from "./model.js";
 import type { PlanInstantValue } from "./instant.js";
-import { rowId, rowSel, sectionId, sectionSel, testKeyOf } from "./plan.test-utils.js";
+import { blocksSource, oneBlock, rowId, rowSel, sectionId, sectionSel, testKeyOf } from "./plan.test-utils.js";
 
 // A canvas persists its toggles under its storageKey (#813), and several tests
 // share one — nothing may carry from one test to the next.
@@ -97,7 +97,7 @@ function spanKind(runs: unknown[], opts?: { rollup?: string; unit?: string }) {
 
 function planRoot(rows: PlanWireRow[], opts?: { footer?: unknown[]; now?: Date | undefined; slice?: unknown; resolutions?: unknown[]; links?: unknown[]; popover?: unknown; hover?: unknown; expandRender?: unknown; source?: unknown; pick?: unknown; axis?: unknown; style?: { height?: string; maxHeight?: string }; clicks?: { onRunClick?: unknown; onEventClick?: unknown; onMarkClick?: unknown; onChipClick?: unknown; onCellClick?: unknown } }): PlanRootValue {
     return {
-        rows: opts?.source !== undefined ? variant("paged", opts.source) : variant("inline", rows),
+        rows: opts?.source !== undefined ? variant("paged", blocksSource(opts.source)) : variant("inline", oneBlock(rows)),
         links: opts?.links ?? [],
         // The TIME arm by default (#631); the typed-axis tests pass their own.
         axis: opts?.axis ?? variant("time", {
@@ -399,13 +399,20 @@ describe("Plan narrow layout (§10 / #570)", () => {
         // members ride in its own entry, which its window holds whole.
         const groupKind = variant("group", { summary: none, summaryAggregate: some(variant("mean", null)) });
         const sec = sectionId("sec");
+        // The canvas as the IR derives it (#823): the section's header is a
+        // FIXED block, its member series a block under it, and the group
+        // strips' series a block of its own.
         const w0 = [
-            planRow("sec", groupKind, { id: sec, gutter: gutter("Line 1") }),
-            planRow("s1", heatKind([40, 60]), { parentId: sec }),
-            planRow("s2", heatKind([50, 70]), { parentId: sec }),
-            planRow("g1", groupKind, { gutter: gutter("Line 2") }),
-            planRow("a", heatKind([70, 98]), { parent: "g1" }),
-            planRow("b", heatKind([60, 80]), { parent: "g1" }),
+            { fixed: true, parent: none, rows: [planRow("sec", groupKind, { id: sec, gutter: gutter("Line 1") })] },
+            { fixed: false, parent: some(sec), rows: [
+                planRow("s1", heatKind([40, 60]), { parentId: sec }),
+                planRow("s2", heatKind([50, 70]), { parentId: sec }),
+            ] },
+            { fixed: false, parent: none, rows: [
+                planRow("g1", groupKind, { gutter: gutter("Line 2") }),
+                planRow("a", heatKind([70, 98]), { parent: "g1" }),
+                planRow("b", heatKind([60, 80]), { parent: "g1" }),
+            ] },
         ];
         const source = {
             // Window 0 lands; 400 more elements have not.
@@ -416,7 +423,8 @@ describe("Plan narrow layout (§10 / #570)", () => {
             revision: () => none,
             refresh: () => null,
         };
-        const { container } = renderPlan(planRoot([], { source }), "plan-822-narrow-partial");
+        const { container } = renderPlan({ ...planRoot([]), rows: variant("paged", source) } as unknown as PlanRootValue,
+            "plan-822-narrow-partial");
         // The strips make Groups the landing: one card per group.
         await waitFor(() => expect(container.querySelector(sectionSel("sec", [], "data-plan-groupcard"))).toBeTruthy());
         expect(container.querySelector(sectionSel("sec", [], "data-plan-groupcard"))!.textContent).toContain("~2 rs");

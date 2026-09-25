@@ -10,8 +10,11 @@
  * says which entries it takes (`match`), what kind of row each becomes, and
  * how to read that row's content from the entry; several series over one
  * source give each entry several rows. The top-level list IS the layout: each
- * series contributes one contiguous block, in declared order, and the rows
- * are an ordered stream (`Array<PlanRow>`) in that order.
+ * series contributes its rows in declared order, as BLOCKS kept apart
+ * (`PlanBlockType`, #823) — a data series one block of its entries' rows (an
+ * ordered stream, `Array<PlanRow>`), which a paged canvas pages on its own; a
+ * section its header's fixed block, then its members' blocks; hand-built rows
+ * a fixed block.
  *
  * Hierarchy comes only from the data's own nesting. Every data series takes
  * `children`: a bare accessor returns more of THIS series' entries (to any
@@ -82,6 +85,9 @@ import {
     PlanRowKindType,
     PlanRowType,
     PlanRowsCollectionType,
+    PlanBlockType,
+    PlanBlocksType,
+    type PlanBlocksValue,
     type PlanTableSeriesType,
     type PlanTableSplitType,
     type PlanTableSplitLiteral,
@@ -95,7 +101,7 @@ import {
     type PlanTableCellsInput,
 } from "./types.js";
 import { resolveTag, resolveIcon, type PlanIconInput } from "./builders.js";
-import { planRow, planGutter, normalizeRows, emptyRows, REBASE_ROWS, type PlanRowsInput, type PlanGutterFields } from "./assemble.js";
+import { planRow, planGutter, normalizeRows, REBASE_ROWS, type PlanRowsInput, type PlanGutterFields } from "./assemble.js";
 import {
     spanKind,
     bucketsKind,
@@ -128,9 +134,10 @@ export type PlanSeriesArm =
  *
  * @remarks
  * Every arm carries the series' identity and `derive: Fn(Dict<K, R>) →
- * Array<PlanRow>` — the whole block the series contributes (its entries' rows,
- * each followed by its subtree), reified once by its builder. The arm is the
- * series' kind, which is all the series library reads beyond the identity.
+ * Array<PlanBlock>` — the blocks the series contributes (#823: a data series'
+ * one block of its entries' rows, each followed by its subtree; a section's
+ * header block, then its members'), reified once by its builder. The arm is
+ * the series' kind, which is all the series library reads beyond the identity.
  *
  * @param r - The entry type value
  * @param k - The entries' key type (default `StringType`)
@@ -142,7 +149,7 @@ const seriesShape = (r: EastType, k: EastType = StringType) => {
         title:    StringType,
         subtitle: OptionType(StringType),
         icon:     OptionType(IconType),
-        derive:   FunctionType([DictType(k, r)], PlanRowsCollectionType),
+        derive:   FunctionType([DictType(k, r)], PlanBlocksType),
     });
     return VariantType({
         span: arm, buckets: arm, chart: arm, heat: arm, table: arm, cards: arm, events: arm,
@@ -532,8 +539,10 @@ export interface PlanViewsSeriesConfig<R extends EastType, KT extends EastType =
 const PathType = ArrayType(StringType);
 const IdOptType = OptionType(PlanRowIdType);
 
-/** A series' block for entries of a collection: `(collection, prefix path, parent id) → rows`. */
+/** A series' rows for entries of a collection, as one stream: `(collection, prefix path, parent id) → rows`. */
 type EmitFn = ExprType<FunctionType<[EastType, ArrayType<StringType>, OptionType<PlanRowIdType>], PlanRowsCollectionType>>;
+/** A series' BLOCKS for entries of a collection (#823): `(collection, prefix path, parent id) → blocks`. */
+type BlocksFn = ExprType<FunctionType<[EastType, ArrayType<StringType>, OptionType<PlanRowIdType>], PlanBlocksType>>;
 /** One entry's row: `(value, key, id, parent, hasChildren, collapsed) → row`. */
 type EntryRowFn = ExprType<FunctionType<[EastType, EastType, PlanRowIdType, OptionType<PlanRowIdType>, BooleanType, OptionType<BooleanType>], PlanRowType>>;
 /** An entry's membership: `(value, key) → Boolean`. */
@@ -565,8 +574,12 @@ interface PlanSeriesSpec {
     readonly nested: readonly PlanSeriesSpec[];
     /** Whether the series declares `children`. */
     readonly nests: boolean;
-    /** This series' block, for entries of `collection`. */
+    /** This series' rows for entries of `collection`, as ONE stream — what an
+     *  entry's subtree holds when a step-down lays the series out below it. */
     emitter(collection: EastType, where: string): EmitFn;
+    /** This series' BLOCKS for entries of `collection` — how it lays out at
+     *  the top of the canvas, or inside a section there (#823). */
+    blocks(collection: EastType, where: string): BlocksFn;
     /** A `views` member's single-entry row functions (data kinds only). */
     entryParts?(entry: EastType, key: EastType, where: string): EntryParts;
     /** A data series' children rows for entries keyed by `key` (`views` reuses it for its own children). */
@@ -621,6 +634,23 @@ function segmentOf(keyType: EastType): (key: ExprType<EastType>) => ExprType<Str
     return (keyType as { type: string }).type === "String"
         ? (key) => key as unknown as ExprType<StringType>
         : (key) => East.print(key);
+}
+
+/**
+ * A series' rows as ONE block (#823) — a data series' entries (`fixed: false`),
+ * or rows no entry produces (`fixed: true`: hand-built rows), under the parent
+ * the block nests in.
+ *
+ * @param collection - The collection type the rows are built for
+ * @param rows - The series' rows emitter for that collection
+ * @param fixed - Whether no entry produces the rows
+ * @returns The block list's emitter
+ */
+function oneBlock(collection: EastType, rows: EmitFn, fixed: boolean): BlocksFn {
+    return East.function([collection, PathType, IdOptType], PlanBlocksType, ($, coll, prefix, parent) => {
+        const block = $.let(East.value({ fixed, parent, rows: rows(coll, prefix, parent) }, PlanBlockType), PlanBlockType);
+        return East.value([block], PlanBlocksType);
+    }) as unknown as BlocksFn;
 }
 
 /** A cache of built functions by East type. */
@@ -706,8 +736,9 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
     const kids = new ByType<ChildrenFn | undefined>();
     const walks = new ByType<ExprType<FunctionType<[EastType, ArrayType<StringType>, PlanRowIdType], PlanRowsCollectionType>>>();
     const emitters = new ByType<EmitFn>();
+    const blockLists = new ByType<BlocksFn>();
 
-    const rowFor = (kt: EastType): EntryRowFn => rows.get(kt, () => building(where, kt, () => East.function(
+    const rowFor =(kt: EastType): EntryRowFn => rows.get(kt, () => building(where, kt, () => East.function(
         [rowType, kt, PlanRowIdType, IdOptType, BooleanType, OptionType(BooleanType)], PlanRowType,
         ($, value, key, id, parent, hasChildren, collapsed) => {
             // The node every accessor reads, unwrapped once.
@@ -885,6 +916,10 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
                 }) as unknown as EmitFn;
             });
         },
+        // One block of the entries' rows — what a paged canvas pages (#823).
+        blocks(collection, at) {
+            return blockLists.get(collection, () => oneBlock(collection, spec.emitter(collection, at), false));
+        },
         entryParts(entry, kt, at) {
             assertEntry(entry, rowType, at);
             return { match: matchFor(kt), row: rowFor(kt) };
@@ -920,6 +955,7 @@ function viewsSpec(rowType: EastType, cfg: PlanViewsSeriesConfig<EastType, EastT
         ...(cfg.collapsed !== undefined ? { collapsed: cfg.collapsed } : {}),
     }, { arm: "views", kind: () => groupKind(none, none) });
     const emitters = new ByType<EmitFn>();
+    const blockLists = new ByType<BlocksFn>();
     const spec: PlanSeriesSpec = {
         key: cfg.key,
         title: cfg.title,
@@ -998,6 +1034,10 @@ function viewsSpec(rowType: EastType, cfg: PlanViewsSeriesConfig<EastType, EastT
                 }) as unknown as EmitFn;
             });
         },
+        // One block of the entries' view rows — what a paged canvas pages (#823).
+        blocks(collection, at) {
+            return blockLists.get(collection, () => oneBlock(collection, spec.emitter(collection, at), false));
+        },
     };
     return spec;
 }
@@ -1012,7 +1052,20 @@ function sectionSpec(cfg: PlanSectionSeriesConfig<PlanAxisKindLiteral>, members:
     const summaryAggregate = cfg.summaryAggregate !== undefined
         ? East.value(some(resolveTag(cfg.summaryAggregate, PlanAggregateType)), OptionType(PlanAggregateType))
         : East.value(none, OptionType(PlanAggregateType));
+    /** The header row — at `id`, nested under `parent`. */
+    const header = (id: ExprType<PlanRowIdType>, parent: ExprType<OptionType<PlanRowIdType>>) => planRow({
+        id, parent,
+        gutter: planGutter({
+            label: cfg.title,
+            ...(cfg.meta !== undefined ? { meta: some(cfg.meta) } : {}),
+            ...(cfg.value !== undefined ? { value: some(cfg.value) } : {}),
+        }),
+        kind:   groupKind(summary, summaryAggregate),
+        collapsed: cfg.collapsed !== undefined ? some(cfg.collapsed) : none,
+        ...(cfg.status !== undefined ? { status: some(resolveTag(cfg.status, StatusValueType)) } : {}),
+    });
     const emitters = new ByType<EmitFn>();
+    const blockLists = new ByType<BlocksFn>();
     return {
         key: cfg.key,
         title: cfg.title,
@@ -1025,21 +1078,27 @@ function sectionSpec(cfg: PlanSectionSeriesConfig<PlanAxisKindLiteral>, members:
                 return East.function([collection, PathType, IdOptType], PlanRowsCollectionType, ($, coll, prefix, parent) => {
                     const id = $.let(East.value(variant("section", { series: cfg.key, path: prefix }), PlanRowIdType), PlanRowIdType);
                     const under = $.let(East.value(some(id), IdOptType), IdOptType);
-                    const header = planRow({
-                        id, parent,
-                        gutter: planGutter({
-                            label: cfg.title,
-                            ...(cfg.meta !== undefined ? { meta: some(cfg.meta) } : {}),
-                            ...(cfg.value !== undefined ? { value: some(cfg.value) } : {}),
-                        }),
-                        kind:   groupKind(summary, summaryAggregate),
-                        collapsed: cfg.collapsed !== undefined ? some(cfg.collapsed) : none,
-                        ...(cfg.status !== undefined ? { status: some(resolveTag(cfg.status, StatusValueType)) } : {}),
-                    });
-                    const out = $.let(East.value([header], PlanRowsCollectionType), PlanRowsCollectionType);
+                    const out = $.let(East.value([header(id, parent)], PlanRowsCollectionType), PlanRowsCollectionType);
                     for (const block of blocks) $(out.append(block(coll, prefix, under)));
                     return out;
                 }) as unknown as EmitFn;
+            });
+        },
+        // The header is a FIXED block — no entry produces it, so every window
+        // serves it alike and the canvas draws it once — and each member lays
+        // out as its own blocks under it, so the series in a section page on
+        // their own (#823).
+        blocks(collection, at) {
+            return blockLists.get(collection, () => {
+                const members = memberSpecs.map((m) => m.blocks(collection, `${at} › ${where}`));
+                return East.function([collection, PathType, IdOptType], PlanBlocksType, ($, coll, prefix, parent) => {
+                    const id = $.let(East.value(variant("section", { series: cfg.key, path: prefix }), PlanRowIdType), PlanRowIdType);
+                    const under = $.let(East.value(some(id), IdOptType), IdOptType);
+                    const head = $.let(East.value({ fixed: true, parent, rows: [header(id, parent)] }, PlanBlockType), PlanBlockType);
+                    const out = $.let(East.value([head], PlanBlocksType), PlanBlocksType);
+                    for (const member of members) $(out.append(member(coll, prefix, under)));
+                    return out;
+                }) as unknown as BlocksFn;
             });
         },
     };
@@ -1048,16 +1107,21 @@ function sectionSpec(cfg: PlanSectionSeriesConfig<PlanAxisKindLiteral>, members:
 /** The build spec of a `rows` series — hand-built rows, named and placed. */
 function rowsSpec(identity: PlanSeriesIdentity, rows: PlanRowsValue): PlanSeriesSpec {
     const emitters = new ByType<EmitFn>();
+    const blockLists = new ByType<BlocksFn>();
+    const emitter = (collection: EastType): EmitFn => emitters.get(collection, () =>
+        East.function([collection, PathType, IdOptType], PlanRowsCollectionType,
+            (_$, _coll, prefix, parent) => REBASE_ROWS(rows, identity.key, prefix, parent)) as unknown as EmitFn);
     return {
         key: identity.key,
         title: identity.title,
         arm: "rows",
         nested: [],
         nests: false,
-        emitter(collection) {
-            return emitters.get(collection, () =>
-                East.function([collection, PathType, IdOptType], PlanRowsCollectionType,
-                    (_$, _coll, prefix, parent) => REBASE_ROWS(rows, identity.key, prefix, parent)) as unknown as EmitFn);
+        emitter,
+        // A FIXED block: no entry produces hand-built rows, so every window
+        // serves them alike and the canvas draws them once (#823).
+        blocks(collection) {
+            return blockLists.get(collection, () => oneBlock(collection, emitter(collection), true));
         },
     };
 }
@@ -1107,10 +1171,10 @@ function seriesValue(
     const kt = keyType ?? StringType;
     const source = DictType(kt, rowType);
     const where = `Plan.series.${spec.arm} "${spec.key}"`;
-    const block = spec.emitter(source, where);
-    const derive = East.function([source], PlanRowsCollectionType, ($, data) => {
+    const blocks = spec.blocks(source, where);
+    const derive = East.function([source], PlanBlocksType, ($, data) => {
         const top = $.let(East.value([], PathType), PathType);
-        return block(data, top, East.value(none, IdOptType));
+        return blocks(data, top, East.value(none, IdOptType));
     });
     const value = East.value(
         variant(spec.arm, {
@@ -1126,11 +1190,11 @@ function seriesValue(
     return value;
 }
 
-/** Apply one series value to a source (the exhaustive-arm call). */
+/** Apply one series value to a source (the exhaustive-arm call) — its blocks. */
 export function applySeriesValue(
     s: PlanSeriesValue<PlanAxisKindLiteral>,
     data: ExprType<EastType>,
-): PlanRowsValue {
+): PlanBlocksValue {
     const d = data as ExprType<DictType<EastType, EastType>>;
     return s.match({
         span:    (_$, v) => v.derive(d),
@@ -1144,7 +1208,7 @@ export function applySeriesValue(
         section: (_$, v) => v.derive(d),
         views:   (_$, v) => v.derive(d),
         rows:    (_$, v) => v.derive(d),
-    }) as PlanRowsValue;
+    }) as PlanBlocksValue;
 }
 
 /**
@@ -1162,38 +1226,39 @@ export function checkSeries(series: PlanSeriesInput, where: string): void {
 }
 
 /**
- * Apply the `series` input to the source — the canvas's row stream: each
- * series' block, in declared order.
+ * Apply the `series` input to the source — the canvas's BLOCKS (#823): every
+ * series' blocks, in declared order.
  *
  * @remarks
  * A TS array is built for the source's own collection type (so a source keyed
  * by any type works with series whose accessors ignore the key); an East
- * expression folds at evaluation, so a `$.const`-bound, picked or stored list
+ * expression maps at evaluation, so a `$.const`-bound, picked or stored list
  * works identically, its series built for their declared key type.
+ *
+ * The blocks stay apart so a paged canvas can page each data series on its
+ * own: applied to one window of a source, this is every block's share of that
+ * window, from one read of it.
  *
  * @param series - The `series` input
  * @param data - The source collection (a whole `Dict`, or one paged window of it)
- * @returns The row stream
+ * @returns The blocks
  */
-export function applySeries(series: PlanSeriesInput, data: ExprType<EastType>): PlanRowsValue {
+export function applySeries(series: PlanSeriesInput, data: ExprType<EastType>): PlanBlocksValue {
     const collection = Expr.type(data as unknown as Expr) as EastType;
     if (Array.isArray(series)) {
-        return series.reduce<PlanRowsValue>((acc, s) => {
+        const lists = series.map((s) => {
             const spec = specOf(s);
-            const part = spec !== undefined
-                ? spec.emitter(collection, `Plan.series.${spec.arm} "${spec.key}"`)(
-                    data, East.value([], PathType), East.value(none, IdOptType)) as PlanRowsValue
+            return spec !== undefined
+                ? spec.blocks(collection, `Plan.series.${spec.arm} "${spec.key}"`)(
+                    data, East.value([], PathType), East.value(none, IdOptType)) as PlanBlocksValue
                 : applySeriesValue(s, data);
-            return acc.concat(part) as PlanRowsValue;
-        }, emptyRows());
+        });
+        return lists.reduce<PlanBlocksValue>(
+            (acc, list) => acc.concat(list) as PlanBlocksValue,
+            East.value([], PlanBlocksType),
+        );
     }
-    return series.reduce(
-        ($, acc, s) => {
-            $((acc as PlanRowsValue).append(applySeriesValue(s as PlanSeriesValue, data)));
-            return acc;
-        },
-        emptyRows(),
-    ) as PlanRowsValue;
+    return series.map((_$, s) => applySeriesValue(s as PlanSeriesValue, data)).flatMap((_$, list) => list) as PlanBlocksValue;
 }
 
 // ============================================================================

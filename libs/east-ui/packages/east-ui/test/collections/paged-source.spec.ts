@@ -33,6 +33,7 @@ describeEast("Row-source contract (#567)", (test) => {
         pagedTableSource: ex.pagedTableSource,
         pagedSourceTrimmed: ex.pagedSourceTrimmed,
         pagedSourceWindows: ex.pagedSourceWindows,
+        pagedSourceBlocks: ex.pagedSourceBlocks,
         pagedSnapshotRevision: ex.pagedSnapshotRevision,
     });
 
@@ -290,13 +291,14 @@ describeEast("Row-source contract (#567)", (test) => {
         const axis = $.const(Plan.axis({ window: TRIM_WINDOW, resolution: "week" }));
         const plan = $.let(Plan.Root({ axis, data: src, series }));
         const derived = $.let(plan.unwrap().unwrap("Plan").rows.unwrap("paged"));
-        // One row per entry: a whole window is 20 rows, r00…r19 in key order.
-        const w0 = $.let(derived.page(0n, 20n));
-        $(Assert.equal(w0.unwrap("some").size(), 20n));
-        $(Assert.equal(w0.unwrap("some").get(0n).id, Plan.ref("entries", "r00")));
-        $(Assert.equal(w0.unwrap("some").get(19n).id, Plan.ref("entries", "r19")));
-        const w2 = $.let(derived.page(40n, 20n));
-        $(Assert.equal(w2.unwrap("some").size(), 10n));
+        // One row per entry: a whole window is 20 rows, r00…r19 in key order —
+        // the one series' block of it (#823: a window is the canvas's blocks).
+        const w0 = $.let(derived.page(0n, 20n).unwrap("some").get(0n).rows);
+        $(Assert.equal(w0.size(), 20n));
+        $(Assert.equal(w0.get(0n).id, Plan.ref("entries", "r00")));
+        $(Assert.equal(w0.get(19n).id, Plan.ref("entries", "r19")));
+        const w2 = $.let(derived.page(40n, 20n).unwrap("some").get(0n).rows);
+        $(Assert.equal(w2.size(), 10n));
     });
 
     test("a piece still in flight holds the whole derived window at `none`", $ => {
@@ -359,15 +361,17 @@ describe("Paged source lifecycle — revision and refresh (#744, #821)", () => {
         assert.deepEqual(source.revision(), some("snapshot"));
     });
 
-    hostTest("mapped row sources forward lifecycle methods with their original closure", () => {
+    hostTest("mapped row sources keep the handle's id and forward lifecycle methods with their original closure", () => {
         const program = East.function([Rows], Paged.Types.RowSource(Rows), ($, rows) => {
             const source = $.let(Paged.of("snapshot", rows));
-            return buildRowSource(resolveRowSource(source, "fixture"), Rows, r => r as never, "mapped");
+            return buildRowSource(resolveRowSource(source, "fixture"), Rows, r => r as never);
         });
         const value = East.compile(program, [])([{ id: "a", nested: [1n] }]);
         assert.equal(value.type, "paged");
         if (value.type !== "paged") return;
-        assert.equal(value.value.id, "snapshot#mapped");
+        // The id names the logical source; what `make` serves is told apart by
+        // comparing the derived source whole (#809), not by a signed id (#822).
+        assert.equal(value.value.id, "snapshot");
         assert.deepEqual(value.value.revision(), some("snapshot"));
         assert.throws(() => value.value.refresh(some("other")), /immutable snapshot/);
     });

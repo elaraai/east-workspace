@@ -19,8 +19,9 @@
  * clamps to the edge it lies past and ends in a stub pointing toward its row
  * (`routeRibbon`); a ribbon with both ends past the same edge is not drawn. An
  * unbounded frame shows every row, so nothing clamps there. A row the body
- * does not hold (a pinned row, above it in the header) sits past the rows'
- * top.
+ * does not hold is placed by the caller (`beyond`): a pinned row sits past the
+ * rows' top, and a row in an evicted paged window sits at that window's offset
+ * in its block's band (#823) — then clamps and stubs like any row out of view.
  *
  * Pure: no React, no DOM.
  *
@@ -54,6 +55,9 @@ export interface RibbonSlot {
 export interface RibbonBody {
     /** Each body row's slot, by key. */
     slots: ReadonlyMap<RowKey, RibbonSlot>;
+    /** Each unloaded band's top, by `block:at` (`"0:tail"`) — where a row in
+     *  an evicted window is placed from (#823). */
+    bands: ReadonlyMap<string, number>;
     /** The rule under every row, inside its height — a row's plot cell (where
      *  its bars centre) is the row less it. */
     rule: number;
@@ -62,6 +66,11 @@ export interface RibbonBody {
     /** The body's full height — the sum of every item's. */
     height: number;
 }
+
+/** Where a row the body does not hold is drawn: past an edge of the rows (a
+ *  pinned row is above them), or AT a place in them — a row in an evicted
+ *  paged window, at its window's offset in its block's band (#823). */
+export type RibbonBeyond = { off: RibbonOff } | { y: number };
 
 /**
  * The body's rows as slots.
@@ -79,6 +88,7 @@ export function ribbonBody(
     geometry: Readonly<PlanGeometry>,
 ): RibbonBody {
     const slots = new Map<RowKey, RibbonSlot>();
+    const bands = new Map<string, number>();
     let y = 0;
     items.forEach((item, i) => {
         const h = heights[i] ?? 0;
@@ -89,10 +99,12 @@ export function ribbonBody(
             const rolled = v.row.kind.type === "span" && v.collapsed
                 && (index.children.get(v.row.key)?.length ?? 0) > 0;
             slots.set(v.row.key, { top: y, height: h, bar: rolled ? geometry.rollBar : geometry.bar });
+        } else if (item.kind === "band") {
+            bands.set(`${item.band.block}:${item.band.at}`, y);
         }
         y += h;
     });
-    return { slots, rule: geometry.rule, bar: geometry.bar, height: y };
+    return { slots, bands, rule: geometry.rule, bar: geometry.bar, height: y };
 }
 
 /** The part of the rows a bounded frame shows, in the rows' own px. */
@@ -127,10 +139,9 @@ export interface RibbonLayoutInput {
      *  an edge with an end outside it is not drawn. */
     visibleKeys: ReadonlySet<RowKey>;
     body: RibbonBody;
-    /** The side of the rows a row the body does not hold lies past (a pinned
-     *  row is above them); `undefined` when it has no place — its edges are
-     *  not drawn. */
-    beyond: (key: RowKey) => RibbonOff | undefined;
+    /** Where a row the body does not hold is drawn ({@link RibbonBeyond});
+     *  `undefined` when it has no place — its edges are not drawn. */
+    beyond: (key: RowKey) => RibbonBeyond | undefined;
     /** A run's instants, by row and run key. */
     runDates: (rowKey: string, runKey: string) => { start: PlanInstantValue; end: PlanInstantValue } | undefined;
     scale: PlanScale;
@@ -186,10 +197,17 @@ function endpointOf(input: RibbonLayoutInput, rowKey: RowKey, runKey: string): E
         top = mid - slot.bar / 2;
         bottom = mid + slot.bar / 2;
     } else {
-        off = input.beyond(rowKey);
-        if (off === undefined) return undefined;
-        // Past the rows' top (or end), meeting them there.
-        top = off === "above" ? 0 : body.height - body.bar;
+        const place = input.beyond(rowKey);
+        if (place === undefined) return undefined;
+        if ("off" in place) {
+            // Past the rows' top (or end), meeting them there.
+            off = place.off;
+            top = off === "above" ? 0 : body.height - body.bar;
+        } else {
+            // In an evicted window (#823): at its window's offset in its
+            // block's band — the view clamps it below like any row.
+            top = Math.max(0, Math.min(body.height - body.bar, place.y));
+        }
         bottom = top + body.bar;
     }
     // ── The view: an endpoint past one of its edges sits ON that edge ──

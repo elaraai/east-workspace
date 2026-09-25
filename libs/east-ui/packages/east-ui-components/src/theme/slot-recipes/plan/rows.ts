@@ -23,6 +23,7 @@ export const rowsSlots = [
     "gutterValue", "gutterRight", "gutterMeta", "gutterSwatch", "caret", "statusDot",
     "rowControls", "rowControl", "focusTag", "rail", "focusGap", "focusGapInner", "ribbons", "expandRowBand",
     "expandRenderBody", "expandGutterBody", "toneCell", "groupBand", "groupName", "groupMeta",
+    "stickyParent", "stickyPath",
 ] as const;
 
 /** Their base styles. */
@@ -517,5 +518,31 @@ export const rowsBase = {
         whiteSpace: "nowrap",
         textTransform: "none",
         letterSpacing: "normal",
+    },
+
+    // ── Sticky parent (#823) ──
+    // The group band's look, pinned under the header while the rows in view
+    // belong to a parent whose own row has scrolled off — which section or
+    // entry they are. Opaque, so rows never paint through it; a hairline
+    // shadow lifts it off the row it covers. A click takes the reader to the
+    // parent's row.
+    stickyParent: {
+        display: "grid",
+        height: "var(--plan-group-h)",
+        background: "bg.panel",
+        borderBottomWidth: "1px",
+        borderBottomColor: "border.subtle",
+        boxShadow: "0 1px 0 {colors.border.subtle}, 0 2px 4px -2px color-mix(in srgb, {colors.fg} 18%, transparent)",
+        cursor: "pointer",
+        "&:hover": { background: "{colors.brandTint}" },
+    },
+    // An ancestor above the parent, on a deep tree — muted, then a separator.
+    stickyPath: {
+        color: "fg.subtle",
+        flexShrink: 1,
+        minWidth: 0,
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        "&::after": { content: "'›'", marginLeft: "6px" },
     },
 } satisfies Record<(typeof rowsSlots)[number], SystemStyleObject>;

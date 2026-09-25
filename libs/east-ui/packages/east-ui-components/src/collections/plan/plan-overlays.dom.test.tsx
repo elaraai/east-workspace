@@ -25,7 +25,7 @@ import { UIStore } from "../../platform/state-store.js";
 import { EastChakraPlan, type PlanRootValue } from "./index.js";
 import type { PlanRowId, PlanWireRow } from "./model.js";
 import type { PlanInstantValue } from "./instant.js";
-import { rowId, rowIdEqual, rowSel } from "./plan.test-utils.js";
+import { oneBlock, rowId, rowIdEqual, rowSel } from "./plan.test-utils.js";
 
 class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
 (globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverStub;
@@ -87,7 +87,7 @@ function planRow(key: string, kind: unknown, parent?: string, collapsed?: boolea
 
 function planRoot(rows: PlanWireRow[], opts: { popover?: unknown; hover?: unknown; onRunClick?: unknown } = {}): PlanRootValue {
     return {
-        rows: variant("inline", rows),
+        rows: variant("inline", oneBlock(rows)),
         links: [],
         axis: variant("time", {
             window: some({ min: W27, max: W39 }), resolution: variant("week", null),

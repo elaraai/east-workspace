@@ -2,8 +2,8 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  *
- * Reading a paged source's windows (#577) — once each, merged into one stream
- * in window order (#822).
+ * Reading a paged source's windows (#577) — once each, each window the
+ * canvas's blocks, keyed block by block (#823).
  *
  * "Once" is the property under test, and it is not an optimisation: re-reading
  * the loaded prefix on every evaluation is what made a long prefix evict its own
@@ -12,9 +12,9 @@
 
 import { describe, test, expect, vi } from "vitest";
 import { some, none } from "@elaraai/east";
-import { toCanvasRows, type PlanWireRow } from "./model.js";
+import type { PlanWireBlock, PlanWireRow } from "./model.js";
 import type { PlanPagedSourceValue } from "./use-plan-paging.js";
-import { readWindows, mergeWindows, originOf, pruneCache, type WindowCache, type WindowFailures } from "./window-reader.js";
+import { readWindow, readWindows, pruneCache, type WindowCache, type WindowFailures, type WindowRead } from "./window-reader.js";
 import { rowId, rowKey, testKeyOf } from "./plan.test-utils.js";
 
 const PAGE = 200;
@@ -30,9 +30,17 @@ function wire(key: string, parent?: string): PlanWireRow {
     } as unknown as PlanWireRow;
 }
 
-/** One window's rows as the reader keeps them — keyed for the canvas. */
-const win = (w: number, rows: PlanWireRow[]) => ({ w, rows: toCanvasRows(rows) });
+/** One wire block — a data series' rows unless `fixed`, under `parent` (#823). */
+function block(rows: PlanWireRow[], opts?: { fixed?: boolean; parent?: string }): PlanWireBlock {
+    return {
+        fixed: opts?.fixed === true,
+        parent: opts?.parent !== undefined ? some(rowId(opts.parent)) : none,
+        rows,
+    } as unknown as PlanWireBlock;
+}
 const keys = (rows: readonly { key: string }[]) => rows.map((r) => testKeyOf(r.key));
+/** A read's first block's rows. */
+const rowsOf = (read: WindowRead) => read.blocks[0]!;
 
 /**
  * A source whose windows land on demand. `landed` decides which windows answer;
@@ -46,7 +54,7 @@ function fakeSource(byWindow: ReadonlyMap<number, PlanWireRow[]>, landed: Set<nu
             const w = Number(offset) / PAGE;
             reads.push(w);
             if (!landed.has(w)) return none;
-            return some(byWindow.get(w) ?? []);
+            return some([block(byWindow.get(w) ?? [])]);
         },
         total: () => some(BigInt(10 * PAGE)),
         seek: none,
@@ -63,7 +71,7 @@ describe("window reader — once each", () => {
 
         const first = readWindows(source, [0, 1], cache, PAGE, failures);
         expect(first.resident.map((r) => r.w)).toEqual([0, 1]);
-        expect(keys(first.resident[0]!.rows)).toEqual(["a", "b"]);
+        expect(keys(rowsOf(first.resident[0]!.read))).toEqual(["a", "b"]);
         expect(reads).toEqual([0, 1]);
 
         // Every later evaluation reads NOTHING — the windows are immutable.
@@ -111,7 +119,7 @@ describe("window reader — once each", () => {
     test("a window is keyed for the canvas once, when read — its own repeated ids kept apart (#822)", () => {
         const data = new Map([[0, [wire("a"), wire("b", "a"), wire("a")]]]);
         const { source } = fakeSource(data, new Set([0]));
-        const rows = readWindows(source, [0], new Map(), PAGE, noFailures()).resident[0]!.rows;
+        const rows = rowsOf(readWindows(source, [0], new Map(), PAGE, noFailures()).resident[0]!.read);
         expect(rows.map((r) => r.key)).toEqual([rowKey("a"), rowKey("b"), `${rowKey("a")}#1`]);
         expect(rows[1]!.parent).toEqual(some(rowKey("a")));
         expect(rows[2]!.duplicateOf).toBe(rowKey("a"));
@@ -129,7 +137,7 @@ describe("window reader — a failure belongs to its window (#811)", () => {
                 const w = Number(offset) / PAGE;
                 reads.push(w);
                 if (w === 1 && state.failing) throw new Error("fetch failed: 503");
-                return some([wire(`k${w}`)]);
+                return some([block([wire(`k${w}`)])]);
             },
             total: () => some(2000n),
             seek: none,
@@ -179,54 +187,31 @@ describe("window reader — a failure belongs to its window (#811)", () => {
     });
 });
 
-describe("window reader — merge (#822)", () => {
-    test("windows concatenate in WINDOW order, whatever order they arrive — each keeps its stream order", () => {
-        // The stream is the render order: within a window it is the source's,
-        // and never re-sorted by key (`kc` stays ahead of `ka2`).
-        const merged = mergeWindows([win(2, [wire("kc"), wire("ka2")]), win(0, [wire("kb"), wire("ka")])]);
-        expect(keys(merged)).toEqual(["kb", "ka", "kc", "ka2"]);
-    });
-
-    test("a row two windows both serve appears ONCE — where the first window placed it", () => {
-        // A section header is re-served by every window its series emit into.
-        const merged = mergeWindows([
-            win(1, [wire("s"), wire("b", "s")]),
-            win(0, [wire("s"), wire("a", "s")]),
+describe("window reader — a window is the canvas's blocks (#823)", () => {
+    test("each block is kept apart and keyed on its own, and names its shape", () => {
+        const read = readWindow([
+            block([wire("hdr")], { fixed: true }),
+            block([wire("a", "hdr"), wire("b", "hdr")], { parent: "hdr" }),
+            block([wire("a"), wire("c")]),
         ]);
-        expect(keys(merged)).toEqual(["s", "a", "b"]);
-    });
-
-    test("every child's parent is present — any union of whole windows is a complete forest", () => {
-        const merged = mergeWindows([
-            win(9, [wire("s"), wire("z", "s")]),
-            win(3, [wire("s"), wire("c", "s")]),
+        expect(read.blocks.map(keys)).toEqual([["hdr"], ["a", "b"], ["a", "c"]]);
+        // Each row names the block it came from.
+        expect(read.blocks.map((rows) => rows.map((r) => r.block))).toEqual([[0], [1, 1], [2, 2]]);
+        // A repeat ACROSS blocks is the driver's to key (`keyAcrossBlocks`);
+        // within a block, the window keys it as ever.
+        expect(read.blocks[2]![0]!.key).toBe(rowKey("a"));
+        expect(read.shape).toEqual([
+            { fixed: true, parent: undefined },
+            { fixed: false, parent: rowKey("hdr") },
+            { fixed: false, parent: undefined },
         ]);
-        // Deliberately NON-adjacent windows, and no window 0.
-        const present = new Set(merged.map((r) => r.key));
-        for (const r of merged) {
-            if (r.parent.type === "some") expect(present.has(r.parent.value)).toBe(true);
-        }
-    });
-});
-
-describe("window reader — origin", () => {
-    test("each row is attributed to the window it came from, the first window winning", () => {
-        // The driver turns a mounted ROW range back into a window through this,
-        // so it must agree with the merge exactly.
-        const w0 = win(0, [wire("s"), wire("a", "s")]);
-        const w1 = win(1, [wire("s"), wire("b", "s")]);
-        const origin = originOf([w1, w0]);
-        expect(origin.get(rowKey("a"))).toBe(0);
-        expect(origin.get(rowKey("b"))).toBe(1);
-        // `s` is served by both; the merge keeps window 0's copy, so the origin
-        // must say 0 too — otherwise the map and the rows disagree.
-        expect(origin.get(rowKey("s"))).toBe(0);
     });
 });
 
 describe("window reader — pruning", () => {
     test("dropping evicted windows is what actually frees the memory", () => {
-        const cache: WindowCache = new Map([[0, []], [1, []], [2, []], [9, []]]);
+        const empty: WindowRead = { blocks: [], shape: [] };
+        const cache: WindowCache = new Map([[0, empty], [1, empty], [2, empty], [9, empty]]);
         const dropped = pruneCache(cache, new Set([1, 2]));
         expect(dropped).toBe(2);
         expect([...cache.keys()].sort((a, b) => a - b)).toEqual([1, 2]);

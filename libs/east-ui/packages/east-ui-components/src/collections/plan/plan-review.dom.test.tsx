@@ -23,7 +23,7 @@ import { initializeStore } from "../../platform/state-runtime.js";
 import { UIStore } from "../../platform/state-store.js";
 import { EastChakraPlan, type PlanRootValue } from "./index.js";
 import type { PlanRowId, PlanWireRow } from "./model.js";
-import { rowId, rowIdEqual, rowSel } from "./plan.test-utils.js";
+import { oneBlock, rowId, rowIdEqual, rowSel } from "./plan.test-utils.js";
 
 afterEach(cleanup);
 
@@ -72,7 +72,7 @@ const calledWithRow = (fn: { mock: { calls: unknown[][] } }, key: string) =>
 
 function planRoot(rows: PlanWireRow[], review: unknown): PlanRootValue {
     return {
-        rows: variant("inline", rows),
+        rows: variant("inline", oneBlock(rows)),
         links: [],
         axis: variant("time", {
             window: some({ min: W27, max: W39 }), resolution: variant("week", null),

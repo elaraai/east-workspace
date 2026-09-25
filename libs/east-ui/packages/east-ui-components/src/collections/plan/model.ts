@@ -9,15 +9,22 @@
  * × collapsed subtrees), and per-row height estimation for the virtualizer. No
  * React, no DOM.
  *
- * Rows arrive as an ordered STREAM (#822) — the IR's row collection is an
- * `Array`, and its order IS the render order: the series list's blocks, each
- * parent before its descendants. A row carries a typed id; {@link toCanvasRows}
- * keys every row by its id's canonical text, which is what every map, DOM
- * attribute and piece of view state here keys by. The visible walk follows the
- * STREAM and hides by the explicit `parent` keys — never a tree walk, because a
- * parent's descendants need not follow it directly (an entry's children under
- * `views` come after all of its view rows). The derivations still walk the
- * tree, since a bottom-up aggregate is the same in any order.
+ * Rows arrive as BLOCKS (#823) — the series list's blocks in layout order, each
+ * an ordered stream (#822) whose order IS the render order, each parent before
+ * its descendants — and the canvas draws the blocks one after another. A row
+ * carries a typed id and the block it came from; {@link toCanvasRows} keys
+ * every row by its id's canonical text, which is what every map, DOM attribute
+ * and piece of view state here keys by. The visible walk follows the STREAM and
+ * hides by the explicit `parent` keys — never a tree walk, because a parent's
+ * descendants need not follow it directly (an entry's children under `views`
+ * come after all of its view rows). The derivations still walk the tree, since
+ * a bottom-up aggregate is the same in any order.
+ *
+ * A row's height is a function of facts read off the row once
+ * ({@link heightFactsOf}) and of the UI state ({@link factsHeight}); a paged
+ * window keeps those facts, and nothing else, after its rows are evicted
+ * ({@link windowSkeleton}), so the bands that stand for evicted windows follow
+ * a collapse, a chart toggle or the grain exactly (#823).
  *
  * The derivations (`derive.ts`), the body items and link graph
  * (`body-items.ts`), the instant walks (`row-instants.ts`) and the tree walks
@@ -28,12 +35,13 @@
 
 import { none, some, type OptionType, type StringType, type ValueTypeOf } from "@elaraai/east";
 import { Plan } from "@elaraai/east-ui/internal";
-import { initialPlanState, type PlanGrain, type PlanUiState, type RowKey } from "./plan-state.js";
+import type { PlanGrain, PlanUiState, RowKey } from "./plan-state.js";
 import type { PlanAxisKind } from "./instant.js";
 import { ancestorsOf } from "./row-tree.js";
 import { rowKeyOf } from "./row-key.js";
 import { derivePlan, type PlanDerived } from "./derive.js";
 import { PLAN_GEOMETRY, planGeometry } from "./geometry.js";
+import { appendAll } from "./reductions.js";
 
 // The model's other halves, one import path for all of it (#815).
 export { forEachInstant, axisKindMismatches, type PlanAxisMismatch } from "./row-instants.js";
@@ -50,6 +58,10 @@ export {
 export type PlanRootValue = ValueTypeOf<typeof Plan.Types.Root>;
 /** One decoded WIRE row — the IR's `PlanRowType` value, as the source serves it. */
 export type PlanWireRow = ValueTypeOf<typeof Plan.Types.Row>;
+/** One decoded WIRE block — the IR's `PlanBlockType` value (#823): a data
+ *  series' rows, which a paged canvas pages on its own, or fixed rows no entry
+ *  produces (a section's header, hand-built rows). */
+export type PlanWireBlock = ValueTypeOf<typeof Plan.Types.Block>;
 export { rowKeyOf, rowIdOfKey, rowKeyWords, type PlanRowId } from "./row-key.js";
 /** One decoded link edge (the R1 graph / K8 ribbon shape). */
 export type PlanLinkValue = ValueTypeOf<typeof Plan.Types.Link>;
@@ -73,6 +85,8 @@ export type PlanRowValue = Omit<PlanWireRow, "parent"> & {
      *  row's key. The row keeps a unique key and renders as a diagnostic
      *  (#811) — never a silent drop. */
     readonly duplicateOf: RowKey | undefined;
+    /** The block the row came from — its place in the canvas's layout (#823). */
+    readonly block: number;
 };
 
 /**
@@ -87,10 +101,16 @@ export type PlanRowValue = Omit<PlanWireRow, "parent"> & {
  * `duplicateOf`, so it renders as a diagnostic in place.
  *
  * @param wire - The rows in stream order
+ * @param block - The block they came from (#823)
+ * @param seen - The ids keyed so far on the canvas, and how often — shared
+ *   across a canvas's blocks so a repeat in a later block is caught too
  * @returns The canvas rows, in the same order
  */
-export function toCanvasRows(wire: ReadonlyArray<PlanWireRow>): PlanRowValue[] {
-    const seen = new Map<RowKey, number>();
+export function toCanvasRows(
+    wire: ReadonlyArray<PlanWireRow>,
+    block: number = 0,
+    seen: Map<RowKey, number> = new Map(),
+): PlanRowValue[] {
     return wire.map((row): PlanRowValue => {
         const text = rowKeyOf(row.id);
         const repeats = seen.get(text) ?? 0;
@@ -100,31 +120,62 @@ export function toCanvasRows(wire: ReadonlyArray<PlanWireRow>): PlanRowValue[] {
             key: repeats === 0 ? text : `${text}#${repeats}`,
             parent: row.parent.type === "some" ? some(rowKeyOf(row.parent.value)) : none,
             duplicateOf: repeats === 0 ? undefined : text,
+            block,
         };
     });
 }
 
-/** Each decoded inline stream's canvas rows — keyed once per stream. */
-const canvasRowsCache = new WeakMap<ReadonlyArray<PlanWireRow>, readonly PlanRowValue[]>();
+/** Each decoded inline canvas's rows — keyed once per decoded block list. */
+const canvasRowsCache = new WeakMap<ReadonlyArray<PlanWireBlock>, readonly PlanRowValue[]>();
 
 /**
- * The canvas rows of an inline stream, keyed once per decoded array
- * ({@link toCanvasRows}).
+ * The canvas rows of an inline canvas — every block's rows in layout order,
+ * keyed across the whole canvas ({@link toCanvasRows}), once per decoded
+ * block list.
  *
  * @remarks
  * The controller and the canvas both read a root's inline rows. A decoded
  * value is never mutated, so its array's identity names its rows, and the two
  * share one keying — and one set of row objects.
  *
- * @param wire - A decoded inline row stream
+ * @param blocks - A decoded inline canvas's blocks
  * @returns Its canvas rows
  */
-export function canvasRowsOf(wire: ReadonlyArray<PlanWireRow>): readonly PlanRowValue[] {
-    const cached = canvasRowsCache.get(wire);
+export function canvasRowsOf(blocks: ReadonlyArray<PlanWireBlock>): readonly PlanRowValue[] {
+    const cached = canvasRowsCache.get(blocks);
     if (cached !== undefined) return cached;
-    const rows = toCanvasRows(wire);
-    canvasRowsCache.set(wire, rows);
+    const seen = new Map<RowKey, number>();
+    const rows: PlanRowValue[] = [];
+    blocks.forEach((b, i) => appendAll(rows, toCanvasRows(b.rows, i, seen)));
+    canvasRowsCache.set(blocks, rows);
     return rows;
+}
+
+/**
+ * Key a paged canvas's resident rows across its blocks — each block's windows
+ * were keyed on their own when they were read, so a later block repeating an
+ * id an earlier block carries (a bound series list naming one series twice)
+ * is re-keyed here, exactly as {@link canvasRowsOf} keys the same rows inline.
+ *
+ * @param rows - The resident rows, block by block
+ * @returns The same rows — the same array when nothing repeats
+ */
+export function keyAcrossBlocks(rows: readonly PlanRowValue[]): readonly PlanRowValue[] {
+    const counts = new Map<RowKey, number>();
+    let out: PlanRowValue[] | undefined;
+    rows.forEach((row, i) => {
+        const text = row.duplicateOf ?? row.key;
+        const n = counts.get(text) ?? 0;
+        counts.set(text, n + 1);
+        const key = n === 0 ? text : `${text}#${n}`;
+        if (key === row.key) {
+            out?.push(row);
+            return;
+        }
+        out ??= rows.slice(0, i);
+        out.push({ ...row, key, duplicateOf: n === 0 ? undefined : text });
+    });
+    return out ?? rows;
 }
 
 /**
@@ -335,27 +386,106 @@ export function pxOf(size: string): number | undefined {
 }
 
 /**
- * A visible row's pixel height — the virtualizer's size for it AND the height
- * it renders at (rows are fixed-height by kind), from the density's geometry
- * table ({@link planGeometry}).
+ * What a row's kind contributes to its height — the part of the kind a height
+ * reads, and nothing else (#823).
  *
- * @param v - The visible row
+ * - `group` — whether a collapsed band shows a summary strip.
+ * - `chart` — its declared fixed px, whether it is declared expanded, and the
+ *   px its expanded state opens to.
+ * - `table` — how many lines a vertical multi-position stack prints (0 when it
+ *   does not stack).
+ * - `buckets` — how many lanes its cells hold.
+ * - `heat`, `row` — every other kind: one height each.
+ */
+export type RowKindHeight =
+    | { t: "group"; strip: boolean }
+    | { t: "chart"; fixed: number | undefined; expanded: boolean; expandedPx: number | undefined }
+    | { t: "heat" }
+    | { t: "table"; lines: number }
+    | { t: "buckets"; lanes: number }
+    | { t: "row" };
+
+/**
+ * Everything a row's height depends on besides the UI state, read once from
+ * the row and its derived numbers (#823). With the UI state it gives the
+ * height ({@link factsHeight}), and it is what an evicted paged window keeps of
+ * each of its rows ({@link WindowSkeleton}): no content, only these.
+ */
+export interface RowHeightFacts {
+    /** The row's own declared px (`height`), when it is a px size. */
+    explicit: number | undefined;
+    /** It renders as a diagnostic row (#811) — its message, never its marks. */
+    diagnostic: boolean;
+    /** A two-line gutter (a sub line, or the stacked flag) — floors the row. */
+    twoLine: boolean;
+    /** What its kind contributes. */
+    kind: RowKindHeight;
+}
+
+/**
+ * A row's height facts.
+ *
+ * @param row - The canvas row
+ * @param derived - The derived numbers, when available. A subtotal parent
+ *   carries NO series of its own — its positions are derived — so without
+ *   this a vertical multi-position subtotal would measure as a single line and
+ *   render taller than the virtualizer was told.
+ * @returns Its facts
+ */
+export function heightFactsOf(row: PlanRowValue, derived?: PlanDerived): RowHeightFacts {
+    const explicit = row.height.type === "some" ? pxOf(row.height.value) : undefined;
+    const twoLine = (row.gutter.stacked.type === "some" && row.gutter.stacked.value) || row.gutter.sub.type === "some";
+    const diagnostic = derived?.diagnostics.has(row.key) === true;
+    const k = row.kind;
+    let kind: RowKindHeight;
+    switch (k.type) {
+        case "group":
+            kind = { t: "group", strip: k.value.summary.type === "some" || k.value.summaryAggregate.type === "some" };
+            break;
+        case "chart": {
+            const h = k.value.height;
+            kind = {
+                t: "chart",
+                fixed: h.type === "fixed" ? pxOf(h.value) : undefined,
+                expanded: h.type === "expanded",
+                expandedPx: k.value.expandedHeight.type === "some" ? pxOf(k.value.expandedHeight.value) : undefined,
+            };
+            break;
+        }
+        case "heat": kind = { t: "heat" }; break;
+        case "table": {
+            // A vertical multi-series stack grows the row, one line per series.
+            const n = derived?.tableSeries.get(row.key)?.length ?? k.value.series.length;
+            kind = { t: "table", lines: k.value.split.type === "vertical" && n > 1 ? n : 0 };
+            break;
+        }
+        case "buckets": kind = { t: "buckets", lanes: k.value.lanes.length }; break;
+        default: kind = { t: "row" };
+    }
+    return { explicit, diagnostic, twoLine, kind };
+}
+
+/**
+ * A row's pixel height from its facts and the UI state — the ONE height
+ * arithmetic: the rendered rows ({@link rowHeight}) and the paged ledger's
+ * windows ({@link skeletonHeight}) both come through here, so a band that
+ * stands for evicted rows is exactly as tall as those rows draw (#823).
+ *
+ * @param f - The row's facts
+ * @param key - The row's key
+ * @param collapsed - Whether its subtree is collapsed
  * @param dense - Whether the canvas is dense
  * @param chartsExpanded - The chart rows the user expanded
  * @param focus - The row focus, when one is active (R1 rails / R2 strips)
- * @param derived - The derived numbers, when available (see the parameter note)
  * @returns The height, px
  */
-export function rowHeight(
-    v: VisibleRow,
+export function factsHeight(
+    f: RowHeightFacts,
+    key: RowKey,
+    collapsed: boolean,
     dense: boolean,
     chartsExpanded: ReadonlySet<RowKey>,
     focus?: PlanFocusCtx,
-    /** The derived numbers, when available. A subtotal parent carries NO
-     *  series of its own — its positions are derived — so without this a
-     *  vertical multi-position subtotal would estimate as a single line and
-     *  render taller than the virtualizer was told. */
-    derived?: PlanDerived,
 ): number {
     // Row focus compresses the DATA rows it is not about; group bands always
     // fall through to their wayfinding height, because a wall of strips is
@@ -367,96 +497,200 @@ export function rowHeight(
     // the same axis. The FOCUSED row falls through to its normal kind height
     // in both cases — R2 grows the canvas under the row, not the row itself.
     const g = planGeometry(dense);
-    if (focus !== undefined && v.row.kind.type !== "group") {
+    if (focus !== undefined && f.kind.t !== "group") {
         if (focus.kind === "links") {
-            const inFamily = v.row.key === focus.key || (focus.family?.has(v.row.key) ?? false);
+            const inFamily = key === focus.key || (focus.family?.has(key) ?? false);
             if (!inFamily) return g.rail;
-        } else if (v.row.key !== focus.key) {
+        } else if (key !== focus.key) {
             return g.strip;
         } else if (focus.renderPx !== undefined && focus.renderPx > 0) {
             // The FOCUSED row grows by its render — the row's own marks keep
             // their band at the top, the render fills the rest, and the gutter
             // spans both. Recursing with the focus dropped gets the row's
             // natural kind height without duplicating the switch below.
-            return rowHeight(v, dense, chartsExpanded, undefined, derived) + focus.renderPx;
+            return factsHeight(f, key, collapsed, dense, chartsExpanded, undefined) + focus.renderPx;
         }
     }
-    const explicit = v.row.height.type === "some" ? pxOf(v.row.height.value) : undefined;
-    if (explicit !== undefined) return explicit;
-    const kind = v.row.kind;
-    // Any two-line gutter (a sub line, or the stacked flag) floors the row at
-    // 42px on every data kind — a one-line height would clip the sub text.
-    const twoLine = (v.row.gutter.stacked.type === "some" && v.row.gutter.stacked.value)
-        || v.row.gutter.sub.type === "some";
-    const floor = (h: number) => (twoLine ? Math.max(h, g.rowStacked) : h);
+    if (f.explicit !== undefined) return f.explicit;
+    // Any two-line gutter floors the row at 42px on every data kind — a
+    // one-line height would clip the sub text.
+    const floor = (h: number) => (f.twoLine ? Math.max(h, g.rowStacked) : h);
     // A diagnostic row (#811) draws its message, never its marks — one line
     // at the shared default; a diagnosed group keeps its band and drops the
     // strip it cannot place.
-    if (derived?.diagnostics.has(v.row.key) === true) {
-        return kind.type === "group" ? g.group : floor(g.row);
-    }
-    switch (kind.type) {
-        case "group": {
-            const hasStrip = v.collapsed
-                && (kind.value.summary.type === "some" || kind.value.summaryAggregate.type === "some");
-            return hasStrip ? g.groupStrip : g.group;
-        }
+    if (f.diagnostic) return f.kind.t === "group" ? g.group : floor(g.row);
+    switch (f.kind.t) {
+        case "group": return collapsed && f.kind.strip ? g.groupStrip : g.group;
         case "chart": {
-            const h = kind.value.height;
-            if (h.type === "fixed") {
-                const px = pxOf(h.value);
-                if (px !== undefined) return px;
-            }
-            const expanded = h.type === "expanded" || chartsExpanded.has(v.row.key);
+            if (f.kind.fixed !== undefined) return f.kind.fixed;
             // The two-line floor applies to a chart's DEFAULT heights like
             // every other kind: a spark row is 32px, and a 42px sub-line does
             // not fit in it — it clipped, which is what the floor exists to
             // prevent. A DECLARED px (`fixed`, `expandedHeight`) is the
             // author's word and stays unfloored, the same rule the row-level
             // `height` override above follows.
-            if (!expanded) return floor(g.chartSpark);
+            if (!f.kind.expanded && !chartsExpanded.has(key)) return floor(g.chartSpark);
             // A declared expandedHeight overrides the 88px expanded default —
             // an expandable spark can open to a full composition height.
-            const eh = kind.value.expandedHeight.type === "some" ? pxOf(kind.value.expandedHeight.value) : undefined;
-            return eh ?? floor(g.chartExpanded);
+            return f.kind.expandedPx ?? floor(g.chartExpanded);
         }
         case "heat": return floor(g.heatRow);
-        case "table": {
-            // A vertical multi-series stack grows the row, one line per series.
-            const n = derived?.tableSeries.get(v.row.key)?.length ?? kind.value.series.length;
-            if (kind.value.split.type === "vertical" && n > 1) return floor(Math.max(g.row, g.tablePad + n * g.tableLine));
-            return floor(g.row);
-        }
+        case "table":
+            return f.kind.lines > 1 ? floor(Math.max(g.row, g.tablePad + f.kind.lines * g.tableLine)) : floor(g.row);
         case "buckets": {
             // Laned rows grow — the Planner cell grid: a cell per lane, a gap
             // between, lane padding above and below (§4·K2).
-            const n = kind.value.lanes.length;
-            if (n > 1) return floor(2 * g.lanePad + n * g.laneCell + (n - 1) * g.laneGap);
-            return floor(g.row);
+            const n = f.kind.lanes;
+            return n > 1 ? floor(2 * g.lanePad + n * g.laneCell + (n - 1) * g.laneGap) : floor(g.row);
         }
-        default: return floor(g.row);
+        case "row": return floor(g.row);
     }
+}
+
+/**
+ * A visible row's pixel height — the virtualizer's size for it AND the height
+ * it renders at (rows are fixed-height by kind), from the density's geometry
+ * table ({@link planGeometry}).
+ *
+ * @param v - The visible row
+ * @param dense - Whether the canvas is dense
+ * @param chartsExpanded - The chart rows the user expanded
+ * @param focus - The row focus, when one is active (R1 rails / R2 strips)
+ * @param derived - The derived numbers, when available ({@link heightFactsOf})
+ * @returns The height, px
+ */
+export function rowHeight(
+    v: VisibleRow,
+    dense: boolean,
+    chartsExpanded: ReadonlySet<RowKey>,
+    focus?: PlanFocusCtx,
+    derived?: PlanDerived,
+): number {
+    return factsHeight(heightFactsOf(v.row, derived), v.row.key, v.collapsed, dense, chartsExpanded, focus);
+}
+
+// ── Window skeletons — the heights of evicted rows (#823) ──────────────────
+
+/**
+ * What a paged window keeps of one block's rows once they are evicted (#823):
+ * per row, in stream order, its key, where its parent sits, whether it is
+ * pinned, its declared collapse and its height facts. No content — enough to
+ * say exactly how tall the rows would draw under any UI state, so a band that
+ * stands for them follows a collapse, a chart toggle or the grain without the
+ * window being read again.
+ */
+export interface WindowSkeleton {
+    /** Each row's key. */
+    readonly keys: readonly RowKey[];
+    /** Each row's parent's index here — −1 when it nests under a row outside
+     *  the window (the section header its block sits under) or none. */
+    readonly parents: readonly number[];
+    /** Whether the row is at the top of the canvas (no parent at all) — the
+     *  group grain folds a group row there. */
+    readonly top: readonly boolean[];
+    /** Whether the row is pinned — pinned rows draw above the body. */
+    readonly pinned: readonly boolean[];
+    /** Whether the row declares itself collapsed. */
+    readonly declared: readonly boolean[];
+    /** Each row's height facts. */
+    readonly facts: readonly RowHeightFacts[];
+}
+
+/**
+ * One window's skeleton — computed ONCE, when the window lands.
+ *
+ * @remarks
+ * A window holds its entries whole (#823), so its own rows derive everything
+ * a height reads — a subtotal parent's derived positions, which rows are
+ * diagnostic rows. A block's top rows may nest under a row no window holds
+ * (a section's header, a fixed block): for the derivation they are the
+ * window's roots, and they stay open whatever that header does — when the
+ * header folds, the canvas hides the whole block, bands and all.
+ *
+ * @param rows - One block's rows from one window, in stream order
+ * @param axisKind - The axis kind — a row on another arm measures as the
+ *   diagnostic row it renders as
+ * @returns The skeleton
+ */
+export function windowSkeleton(rows: readonly PlanRowValue[], axisKind?: PlanAxisKind): WindowSkeleton {
+    const at = new Map<RowKey, number>();
+    rows.forEach((r, i) => at.set(r.key, i));
+    // Rows whose parent is outside the window root the derivation.
+    const rooted = rows.map((r) => (r.parent.type === "some" && !at.has(r.parent.value) ? { ...r, parent: none } : r));
+    const derived = derivePlan(indexRows(rooted), undefined, axisKind);
+    return {
+        keys: rows.map((r) => r.key),
+        parents: rows.map((r) => (r.parent.type === "some" ? at.get(r.parent.value) ?? -1 : -1)),
+        top: rows.map((r) => r.parent.type === "none"),
+        pinned: rows.map((r) => r.pinned.type === "some" && r.pinned.value),
+        declared: rows.map((r) => r.collapsed.type === "some" && r.collapsed.value),
+        facts: rows.map((r) => heightFactsOf(r, derived)),
+    };
+}
+
+/** The UI state a skeleton's height reads. */
+export interface SkeletonUi {
+    /** The active grain. */
+    grain: PlanGrain;
+    /** Whether a row's subtree is collapsed — given its key and whether it
+     *  declares itself collapsed (a paged row may not have been seeded yet). */
+    collapsed: (key: RowKey, declared: boolean) => boolean;
+    /** The chart rows the user expanded. */
+    chartsExpanded: ReadonlySet<RowKey>;
+}
+
+/** No chart expanded. */
+const NO_CHARTS: ReadonlySet<RowKey> = new Set();
+
+/**
+ * The UI state a window rests at — its declared collapse, no chart expanded,
+ * no focus — under a grain.
+ *
+ * @param grain - The DECLARED grain
+ * @returns The state
+ */
+export function restUi(grain: PlanGrain): SkeletonUi {
+    return { grain, collapsed: (_key, declared) => declared, chartsExpanded: NO_CHARTS };
+}
+
+/**
+ * How tall a window's rows draw under a UI state — the visible-row walk
+ * ({@link visibleRows}) and the height arithmetic ({@link factsHeight}) over
+ * the skeleton, so the number is the one the body would draw the same rows at.
+ *
+ * @param sk - The window's skeleton
+ * @param ui - The UI state
+ * @param dense - Whether the canvas is dense
+ * @param focus - An expand focus, when one is active — its context strips
+ *   (a links focus elides runs of rows across windows, which no window's
+ *   height can say; its windows measure as though unfocused)
+ * @returns The height, px
+ */
+export function skeletonHeight(sk: WindowSkeleton, ui: SkeletonUi, dense: boolean, focus?: PlanFocusCtx): number {
+    const closed = new Array<boolean>(sk.keys.length).fill(false);
+    let sum = 0;
+    for (let i = 0; i < sk.keys.length; i++) {
+        const p = sk.parents[i]!;
+        if ((p >= 0 && closed[p]) || sk.pinned[i]) {
+            closed[i] = true;
+            continue;
+        }
+        const key = sk.keys[i]!;
+        const f = sk.facts[i]!;
+        const collapsed = ui.collapsed(key, sk.declared[i]!) || (ui.grain === "group" && f.kind.t === "group" && sk.top[i]!);
+        sum += factsHeight(f, key, collapsed, dense, ui.chartsExpanded, focus?.kind === "expand" ? focus : undefined);
+        if (collapsed) closed[i] = true;
+    }
+    return sum;
 }
 
 /**
  * The pixel height a window's rows render AT REST (#613) — declared collapse
  * applied, chart expansion at its declared state, no focus context, pinned
- * rows excluded (they render in the header, not the body).
- *
- * The window ledger freezes a window's FIRST measurement, and seeds its
- * frozen slot rate from the first window ever measured — so the recorded
- * number must not depend on transient UI state. Measuring through the live
- * state recorded strip-compressed rows when a window landed during an expand
- * focus, full heights for rows an IR-collapsed group renders hidden, and
- * whatever a chart toggle happened to be at the moment — breaking the
- * band px == rendered px equality the eviction-moves-nothing invariant
- * rests on, and (worst) poisoning the slot rate for the life of the source
- * when the FIRST window landed mid-focus.
- *
- * A window is a complete forest (#577: any union of whole windows is
- * orphan-free), so its own index derives everything {@link rowHeight}
- * consults — including a subtotal parent's derived positions and which rows
- * are diagnostic rows (#811), which render at their own height.
+ * rows excluded (they render in the header, not the body). What the window
+ * ledger seeds its slot rate from: a rate taken from whatever the UI state
+ * happened to be when the first window landed (mid-focus, say) would describe
+ * every unvisited window wrongly for the life of the source.
  *
  * @param windowRows - One window's rows, as the source served them
  * @param grain - The DECLARED grain (`value.grain`; user grain is transient)
@@ -471,9 +705,5 @@ export function windowRestHeight(
     dense: boolean,
     axisKind?: PlanAxisKind,
 ): number {
-    const index = indexRows(windowRows);
-    const rest = initialPlanState(grain, index.initiallyCollapsed);
-    const derived = derivePlan(index, undefined, axisKind);
-    return visibleRows(index, rest).reduce(
-        (sum, v) => sum + rowHeight(v, dense, rest.chartsExpanded, undefined, derived), 0);
+    return skeletonHeight(windowSkeleton(windowRows, axisKind), restUi(grain), dense);
 }

@@ -43,12 +43,13 @@ const EXAMPLES = [
 ];
 
 /** Open one example's page and return its entry (the virtualized doc row
- *  holding its anchor and its live canvas). */
-async function openExample(page: Page, name: string): Promise<Locator> {
-    await page.goto(`/#collections/plan/${name}`);
+ *  holding its anchor and its live canvas) — a Plan example unless another
+ *  examples file is named. */
+async function openExample(page: Page, name: string, file = "collections/plan"): Promise<Locator> {
+    await page.goto(`/#${file}/${name}`);
     await page.waitForSelector("header", { timeout: 20_000 });
     await page.evaluate(() => document.fonts.ready.then(() => undefined));
-    const entry = page.locator("[data-index]", { has: page.locator(`a[href="#collections/plan/${name}"]`) });
+    const entry = page.locator("[data-index]", { has: page.locator(`a[href="#${file}/${name}"]`) });
     await entry.scrollIntoViewIfNeeded();
     await expect(entry.locator("[data-plan-body]").first()).toBeVisible({ timeout: 20_000 });
     // Charts and collections measure their containers before they settle.
@@ -288,5 +289,70 @@ test.describe("Plan link ribbons (#818)", () => {
         // Off the band: it dims again.
         await page.mouse.move(at.x, at.y + 40);
         await expect(g).not.toHaveAttribute("data-lit", "");
+    });
+});
+
+/**
+ * A paged canvas pages block by block, each window holding its entries whole
+ * (#823) — measured in a real layout. `pagedSourceBlocks` is two series over
+ * one source of 3,000 units: two blocks of 3,000 32px rows, and every row sits
+ * at its unit's offset in its block — its window's place in the ledger plus
+ * its place in the window. That holds from the first landing, through a far
+ * jump that evicts the head of the run into a band, and through a window
+ * landing above the rows in view: nothing on screen moves.
+ */
+test.describe("Plan paged blocks (#823)", () => {
+    test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "measured once, at the desktop width");
+
+    const ROW = 32;
+    /** One block: 3,000 rows. */
+    const BLOCK = 3_000 * ROW;
+
+    /** Every mounted row that is not where its unit puts it: the jobs block
+     *  first, the loads block after it. */
+    async function misplaced(entry: Locator): Promise<string[]> {
+        return entry.evaluate((root, { row, block }) => {
+            const extent = root.querySelector("[data-virtual-extent]")!;
+            const origin = extent.getBoundingClientRect().top;
+            return [...extent.querySelectorAll("[data-plan-row]")].flatMap((el) => {
+                const key = el.getAttribute("data-plan-row")!;
+                const series = /series="([^"]*)"/.exec(key)![1]!;
+                const unit = Number(/"U(\d+)"/.exec(key)![1]) - 10_000;
+                const want = (series === "loads" ? block : 0) + unit * row;
+                const got = el.getBoundingClientRect().top - origin;
+                return Math.abs(got - want) <= 0.5 ? [] : [`${series} U${unit + 10_000}: ${got} ≠ ${want}`];
+            });
+        }, { row: ROW, block: BLOCK });
+    }
+
+    test("every row sits at its unit's offset in its block — through a far jump that evicts the run's head, and a window landing above the rows in view", async ({ page }) => {
+        const entry = await openExample(page, "pagedSourceBlocks", "collections/paged-source");
+        const frame = entry.locator('[data-virtual-rows="bounded"]');
+        const extent = entry.locator("[data-virtual-extent]");
+        const transport = entry.locator('[data-slot="footerTransport"]');
+        const scrollTo = (top: number) => frame.evaluate((el, at) => { el.scrollTop = at; }, top);
+        await expect(transport).toHaveText("600 loaded of 3,000");
+        // The document is both blocks whole from the first landing.
+        await expect(extent).toHaveAttribute("data-virtual-extent", String(2 * BLOCK));
+        await expect.poll(() => misplaced(entry), "first landing").toEqual([]);
+
+        // Far into the jobs block's tail band, where the ledger puts unit
+        // 2,000: its run rebases to window 10, and windows 0–2 leave it for
+        // the head band.
+        const far = 2_000 * ROW;
+        await scrollTo(far);
+        await expect(transport).toHaveText("elements 1,801–2,600 of 3,000");
+        await expect(entry.locator(rowSel("jobs", "U10000"))).toHaveCount(0);
+        await expect.poll(() => misplaced(entry), "after the jump").toEqual([]);
+        await expect(extent).toHaveAttribute("data-virtual-extent", String(2 * BLOCK));
+        expect(await frame.evaluate((el) => el.scrollTop)).toBe(far);
+
+        // Up to the run's first row, 10px into it: once the scroll settles,
+        // window 8 lands above it — and the rows in view stay where they are.
+        const first = 1_800 * ROW + 10;
+        await scrollTo(first);
+        await expect(transport).toHaveText("elements 1,601–2,600 of 3,000");
+        await expect.poll(() => misplaced(entry), "after the landing").toEqual([]);
+        expect(await frame.evaluate((el) => el.scrollTop)).toBe(first);
     });
 });

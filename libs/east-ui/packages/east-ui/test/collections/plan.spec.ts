@@ -6,7 +6,7 @@
 import { ArrayType, BooleanType, DateTimeType, DictType, East, EastTypeType, FloatType, FunctionType, IntegerType, NullType, OptionType, RecursiveType, StringType, StructType, VariantType, isTypeEqual, none, some, toEastTypeValue, variant } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { CellRefType, Chart, Plan, Text, type PlanSeriesValue } from "@elaraai/east-ui/internal";
-import { EventStateType, Format, StatusValueType, UIComponentType } from "@elaraai/east-ui";
+import { EventStateType, Format, Paged, StatusValueType, UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./plan.examples.js";
 
 const W27 = new Date("2026-06-29T00:00:00Z");
@@ -82,7 +82,7 @@ describeEast("Plan", (test) => {
         $(Assert.equal(root.style.unwrap("some").height.unwrap("some"), "fill"));
         $(Assert.equal(root.style.unwrap("some").density.unwrap("some").hasTag("compact"), true));
         $(Assert.equal(root.style.unwrap("some").gutterWidth.unwrap("some"), "168px"));
-        // Empty data × no series ⇒ an empty inline canvas (an empty stream).
+        // Empty data × no series ⇒ an empty inline canvas: no blocks (#823).
         $(Assert.equal(root.rows.unwrap("inline").size(), 0n));
     });
 
@@ -737,7 +737,7 @@ describeEast("Plan", (test) => {
                 }),
             ],
         }));
-        const rows = $.let(p.unwrap().unwrap("Plan").rows.unwrap("inline"));
+        const rows = $.let(p.unwrap().unwrap("Plan").rows.unwrap("inline").flatMap((_$, b) => b.rows));
         // L1's strip + 2 members, then L2's strip + 1 member — pre-order.
         $(Assert.equal(rows.map((_$, r) => r.gutter.label), ["L1", "a", "b", "L2", "c"]));
         $(Assert.equal(rows.get(0n).id, Plan.ref("lines", "L1")));
@@ -783,7 +783,7 @@ describeEast("Plan", (test) => {
                 children: (a) => a.children,
             })],
         }));
-        const rows = $.let(p.unwrap().unwrap("Plan").rows.unwrap("inline"));
+        const rows = $.let(p.unwrap().unwrap("Plan").rows.unwrap("inline").flatMap((_$, b) => b.rows));
         // Pre-order to the fourth level: each parent, then its whole subtree.
         $(Assert.equal(rows.map((_$, r) => r.gutter.label),
             ["P&L", "Revenue", "Product", "Widgets", "Gadgets", "Services", "Costs"]));
@@ -823,7 +823,7 @@ describeEast("Plan", (test) => {
                 children: (r) => r.machines, rollup: "union", unit: "t",
             })],
         }));
-        const rows = $.let(p.unwrap().unwrap("Plan").rows.unwrap("inline"));
+        const rows = $.let(p.unwrap().unwrap("Plan").rows.unwrap("inline").flatMap((_$, b) => b.rows));
         $(Assert.equal(rows.map((_$, r) => r.gutter.label), ["A", "m1", "m2", "solo"]));
         // A row with child rows declares the rollup; a leaf — even a top-level
         // one — does not (its bands would only repeat its own runs).
@@ -879,7 +879,7 @@ describeEast("Plan", (test) => {
                 ],
             })],
         }));
-        const rows = $.let(p.unwrap().unwrap("Plan").rows.unwrap("inline"));
+        const rows = $.let(p.unwrap().unwrap("Plan").rows.unwrap("inline").flatMap((_$, b) => b.rows));
         $(Assert.equal(rows.map((_$, r) => r.id), [
             Plan.ref("lines", "L1"),
             Plan.sectionRef("machine-block", "L1"),
@@ -897,6 +897,10 @@ describeEast("Plan", (test) => {
         $(Assert.equal(rows.get(7n).parent.unwrap("some"), Plan.sectionRef("crew-block", "L1")));
         $(Assert.equal(rows.get(1n).gutter.label, "Machines"));
         $(Assert.equal(rows.get(1n).kind.hasTag("group"), true));
+        // A section below an entry is part of that entry's subtree, which a
+        // window carries whole — so the canvas is still the ONE block of the
+        // group series' entries (#823).
+        $(Assert.equal(p.unwrap().unwrap("Plan").rows.unwrap("inline").size(), 1n));
     });
 
     test("views: one row per member per entry, adjacent and in declared order; children under the first view row", $ => {
@@ -923,7 +927,7 @@ describeEast("Plan", (test) => {
                     cells: r => Plan.tableCells([{ at: W27, value: some(r.v) }]) }),
             ])],
         }));
-        const rows = $.let(p.unwrap().unwrap("Plan").rows.unwrap("inline"));
+        const rows = $.let(p.unwrap().unwrap("Plan").rows.unwrap("inline").flatMap((_$, b) => b.rows));
         // m03's three views adjacent, then its child; m04 has no jobs row, so
         // its first view row is the load row.
         $(Assert.equal(rows.map((_$, r) => r.id), [
@@ -972,7 +976,7 @@ describeEast("Plan", (test) => {
                 ]),
             ],
         }));
-        const rows = $.let(p.unwrap().unwrap("Plan").rows.unwrap("inline"));
+        const rows = $.let(p.unwrap().unwrap("Plan").rows.unwrap("inline").flatMap((_$, b) => b.rows));
         $(Assert.equal(rows.size(), 3n));
         // The hand-built row, named by its series.
         $(Assert.equal(rows.get(0n).id, Plan.ref("chrome", "ms")));
@@ -987,6 +991,11 @@ describeEast("Plan", (test) => {
         // A section adds no path segment — its member keeps its own.
         $(Assert.equal(rows.get(2n).id, Plan.ref("crew-shifts", "crewA")));
         $(Assert.equal(rows.get(2n).parent.unwrap("some"), Plan.sectionRef("crews")));
+        // The hand-built rows and the header are FIXED blocks; the member is a
+        // block of its own, nested under the header (#823).
+        const blocks = $.let(p.unwrap().unwrap("Plan").rows.unwrap("inline"));
+        $(Assert.equal(blocks.map((_$, b) => b.fixed), [true, true, false]));
+        $(Assert.equal(blocks.get(2n).parent.unwrap("some"), Plan.sectionRef("crews")));
     });
 
     // =========================================================================
@@ -1005,8 +1014,8 @@ describeEast("Plan", (test) => {
             cells: r => Plan.tableCells([{ at: W27, value: some(r.v) }]),
         });
         const axis = Plan.axis({ window: { min: W27, max: END }, resolution: "week" });
-        const forward = $.let(Plan.Root({ axis, data, series: [heat, table] }).unwrap().unwrap("Plan").rows.unwrap("inline"));
-        const reverse = $.let(Plan.Root({ axis, data, series: [table, heat] }).unwrap().unwrap("Plan").rows.unwrap("inline"));
+        const forward = $.let(Plan.Root({ axis, data, series: [heat, table] }).unwrap().unwrap("Plan").rows.unwrap("inline").flatMap((_$, b) => b.rows));
+        const reverse = $.let(Plan.Root({ axis, data, series: [table, heat] }).unwrap().unwrap("Plan").rows.unwrap("inline").flatMap((_$, b) => b.rows));
         // Each series is ONE contiguous block, its rows in source order.
         $(Assert.equal(forward.map((_$, r) => r.id), [
             Plan.ref("load", "a"), Plan.ref("load", "b"), Plan.ref("tonnes", "a"), Plan.ref("tonnes", "b"),
@@ -1014,13 +1023,69 @@ describeEast("Plan", (test) => {
         $(Assert.equal(reverse.map((_$, r) => r.id), [
             Plan.ref("tonnes", "a"), Plan.ref("tonnes", "b"), Plan.ref("load", "a"), Plan.ref("load", "b"),
         ]));
+        // The blocks travel apart (#823) — a data series is one block of its
+        // entries' rows, in the list's order — so a paged canvas can page each
+        // on its own.
+        const blocks = $.let(Plan.Root({ axis, data, series: [table, heat] }).unwrap().unwrap("Plan").rows.unwrap("inline"));
+        $(Assert.equal(blocks.size(), 2n));
+        $(Assert.equal(blocks.get(0n).rows.map((_$, r) => r.id), [Plan.ref("tonnes", "a"), Plan.ref("tonnes", "b")]));
+        $(Assert.equal(blocks.get(1n).rows.map((_$, r) => r.id), [Plan.ref("load", "a"), Plan.ref("load", "b")]));
+        $(Assert.equal(blocks.map((_$, b) => b.fixed), [false, false]));
+        $(Assert.equal(blocks.get(0n).parent.hasTag("none"), true));
         // The same holds for a list bound as an East value — a picked list is
         // one — whose order is its elements'.
         const bound = $.const([table, heat], ArrayType(Plan.Types.Series(Row)));
         const viaValue = $.let(Plan.Root({ axis, data, series: bound }).unwrap().unwrap("Plan").rows.unwrap("inline"));
-        $(Assert.equal(viaValue.map((_$, r) => r.id), [
+        $(Assert.equal(viaValue.size(), 2n));
+        $(Assert.equal(viaValue.flatMap((_$, b) => b.rows).map((_$, r) => r.id), [
             Plan.ref("tonnes", "a"), Plan.ref("tonnes", "b"), Plan.ref("load", "a"), Plan.ref("load", "b"),
         ]));
+    });
+
+    test("a section is its header's FIXED block, then its members' own blocks — so they page apart (#823)", $ => {
+        const Row = StructType({ v: FloatType });
+        const data = $.const(new Map([["a", { v: 1.0 }], ["b", { v: 2.0 }], ["c", { v: 3.0 }]]), DictType(StringType, Row));
+        const heat = Plan.series.heat(Row, {
+            key: "load", title: "Load", label: (_r, k) => k,
+            cells: r => Plan.heatCells([{ at: Plan.at.time(W27), value: some(r.v), label: none }]),
+        });
+        const table = Plan.series.table(Row, {
+            key: "tonnes", title: "Tonnes", label: (_r, k) => k,
+            cells: r => Plan.tableCells([{ at: W27, value: some(r.v) }]),
+        });
+        const series = [
+            Plan.series.section(Row, { key: "ops", title: "Operations" }, [heat, table]),
+            Plan.series.rows(Row, { key: "chrome", title: "Milestones" }, [Plan.events({ key: "ms", label: "MS" })]),
+        ];
+        const axis = Plan.axis({ window: { min: W27, max: END }, resolution: "week" });
+        const blocks = $.let(Plan.Root({ axis, data, series }).unwrap().unwrap("Plan").rows.unwrap("inline"));
+        // The header, each member, then the hand-built rows — four blocks. No
+        // entry produces the header or the hand-built rows: they are FIXED.
+        $(Assert.equal(blocks.map((_$, b) => b.fixed), [true, false, false, true]));
+        $(Assert.equal(blocks.get(0n).rows.map((_$, r) => r.id), [Plan.sectionRef("ops")]));
+        $(Assert.equal(blocks.get(1n).rows.map((_$, r) => r.id), [Plan.ref("load", "a"), Plan.ref("load", "b"), Plan.ref("load", "c")]));
+        $(Assert.equal(blocks.get(2n).rows.map((_$, r) => r.id), [Plan.ref("tonnes", "a"), Plan.ref("tonnes", "b"), Plan.ref("tonnes", "c")]));
+        $(Assert.equal(blocks.get(3n).rows.map((_$, r) => r.id), [Plan.ref("chrome", "ms")]));
+        // A member's block nests under the header, which sits at the top.
+        $(Assert.equal(blocks.get(0n).parent.hasTag("none"), true));
+        $(Assert.equal(blocks.get(1n).parent.unwrap("some"), Plan.sectionRef("ops")));
+        $(Assert.equal(blocks.get(2n).parent.unwrap("some"), Plan.sectionRef("ops")));
+        $(Assert.equal(blocks.get(3n).parent.hasTag("none"), true));
+        // Paged, a window holds each member's share of its entries and the
+        // fixed blocks as ever — so each member pages on its own and the
+        // header is one row, not one per window.
+        const source = $.let(Paged.of("ops", data));
+        const paged = $.let(Plan.Root({ axis, data: source, series }).unwrap().unwrap("Plan").rows.unwrap("paged"));
+        const w1 = $.let(paged.page(1n, 1n).unwrap("some"));
+        $(Assert.equal(w1.map((_$, b) => b.fixed), [true, false, false, true]));
+        $(Assert.equal(w1.get(0n).rows.map((_$, r) => r.id), [Plan.sectionRef("ops")]));
+        $(Assert.equal(w1.get(1n).rows.map((_$, r) => r.id), [Plan.ref("load", "b")]));
+        $(Assert.equal(w1.get(2n).rows.map((_$, r) => r.id), [Plan.ref("tonnes", "b")]));
+        $(Assert.equal(w1.get(3n).rows.map((_$, r) => r.id), [Plan.ref("chrome", "ms")]));
+        // A list bound as an East value lays out the same blocks.
+        const bound = $.const(series, ArrayType(Plan.Types.Series(Row)));
+        const viaValue = $.let(Plan.Root({ axis, data, series: bound }).unwrap().unwrap("Plan").rows.unwrap("inline"));
+        $(Assert.equal(viaValue, blocks));
     });
 
     test("two series over one source both keep every row — their ids differ by series", $ => {
@@ -1036,7 +1101,7 @@ describeEast("Plan", (test) => {
                 Plan.series.events(Row, { key: "alt-marks", title: "Marks", label: (_r, k) => k, marks: _r => [] }),
             ],
         }));
-        const rows = $.let(p.unwrap().unwrap("Plan").rows.unwrap("inline"));
+        const rows = $.let(p.unwrap().unwrap("Plan").rows.unwrap("inline").flatMap((_$, b) => b.rows));
         $(Assert.equal(rows.size(), 4n));
         $(Assert.equal(rows.get(0n).id, Plan.ref("marks", "m1")));
         $(Assert.equal(rows.get(2n).id, Plan.ref("alt-marks", "m1")));
@@ -1133,7 +1198,7 @@ describeEast("Plan", (test) => {
                 Plan.series.events(Row, { key: "marks", title: "Marks", label: _r => "M", marks: _r => [] }),
             ],
         }));
-        const rows = $.let(p.unwrap().unwrap("Plan").rows.unwrap("inline"));
+        const rows = $.let(p.unwrap().unwrap("Plan").rows.unwrap("inline").flatMap((_$, b) => b.rows));
         const one = $.const(1n, IntegerType);
         const twenty = $.const(20n, IntegerType);
         // Key ORDER is the source's (1 < 20 numerically), and the segment is
@@ -1160,7 +1225,7 @@ describeEast("Plan", (test) => {
                 cells: r => Plan.tableCells([{ at: W27, value: some(r.v) }]),
             })],
         }));
-        const rows = $.let(p.unwrap().unwrap("Plan").rows.unwrap("inline"));
+        const rows = $.let(p.unwrap().unwrap("Plan").rows.unwrap("inline").flatMap((_$, b) => b.rows));
         const first = $.const({ line: "L1", bin: 1n }, Key);
         // Struct keys sort field by field — bin 1 before bin 2.
         $(Assert.equal(rows.get(0n).id, Plan.ref("bins", East.print(first))));
@@ -1204,7 +1269,7 @@ describeEast("Plan", (test) => {
         }));
         // Per-row presence + display, derived from the raw fields in the
         // stored derive — nothing precomputed in the data.
-        const rows = $.let(p.unwrap().unwrap("Plan").rows.unwrap("inline"));
+        const rows = $.let(p.unwrap().unwrap("Plan").rows.unwrap("inline").flatMap((_$, b) => b.rows));
         $(Assert.equal(rows.get(0n).id, Plan.ref("machines", "m1")));
         $(Assert.equal(rows.get(0n).gutter.value.unwrap("some"), "120 t"));
         $(Assert.equal(rows.get(0n).status.unwrap("some").hasTag("warning"), true));
@@ -1278,7 +1343,7 @@ describeEast("Plan", (test) => {
                 }),
             ],
         }));
-        const rows = $.let(p.unwrap().unwrap("Plan").rows.unwrap("inline"));
+        const rows = $.let(p.unwrap().unwrap("Plan").rows.unwrap("inline").flatMap((_$, b) => b.rows));
         // The machines' block first (the crew filtered out by match), then the
         // crews' — though "c1" sorts before both machines in the source.
         $(Assert.equal(rows.map((_$, r) => r.id), [
@@ -1314,7 +1379,7 @@ describeEast("Plan", (test) => {
                 [Plan.events({ key: "ms", label: "MS" })]),
         ], ArrayType(Plan.Types.Series(OpsRow)));
         const p = $.let(Plan.Root({ axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }), data: ops, series }));
-        const rows = $.let(p.unwrap().unwrap("Plan").rows.unwrap("inline"));
+        const rows = $.let(p.unwrap().unwrap("Plan").rows.unwrap("inline").flatMap((_$, b) => b.rows));
         $(Assert.equal(rows.size(), 2n));
         $(Assert.equal(rows.get(0n).kind.unwrap("span").runs.length(), 1n));
         $(Assert.equal(rows.get(1n).id, Plan.ref("chrome", "ms")));
@@ -1498,24 +1563,30 @@ describeEast("Plan", (test) => {
         const p = $.let(Plan.Root({
             axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }),
             data: handle,
-            series: [Plan.series.span(OpsRow, {
-                key: "machines", title: "Machines",
-                label: (_r, k) => k,
-                runs: r => r.kind.unwrap("machine").jobs.map((_$, j) => Plan.run({
-                    key: j.batch, start: j.start, end: j.end,
-                    label: East.str`RUN · ${j.batch}`, state: j.state,
-                })),
-            })],
+            series: [
+                Plan.series.span(OpsRow, {
+                    key: "machines", title: "Machines",
+                    label: (_r, k) => k,
+                    runs: r => r.kind.unwrap("machine").jobs.map((_$, j) => Plan.run({
+                        key: j.batch, start: j.start, end: j.end,
+                        label: East.str`RUN · ${j.batch}`, state: j.state,
+                    })),
+                }),
+                Plan.series.events(OpsRow, { key: "marks", title: "Marks", label: (_r, k) => k, marks: _r => [] }),
+            ],
         }));
-        // The stored source is the DERIVED handle at the canvas-row type —
+        // The stored source is the DERIVED handle at the canvas's blocks —
         // each window's RAW entries flow through the same accessor derivations.
         const src = $.let(p.unwrap().unwrap("Plan").rows.unwrap("paged"));
         $(Assert.equal(src.total().unwrap("some"), 1n));
-        // A window is a slice of the canvas's STREAM — its entries' rows, in order.
-        const w0 = $.let(src.page(0n, 100n));
-        $(Assert.equal(w0.unwrap("some").size(), 1n));
-        $(Assert.equal(w0.unwrap("some").get(0n).id, Plan.ref("machines", "m1")));
-        $(Assert.equal(w0.unwrap("some").get(0n).kind.unwrap("span").runs.get(0n).label, "RUN · B-1"));
+        // A window is every block's share of its entries, from ONE read (#823):
+        // one block per data series, each its entries' rows in order.
+        const w0 = $.let(src.page(0n, 100n).unwrap("some"));
+        $(Assert.equal(w0.size(), 2n));
+        $(Assert.equal(w0.get(0n).rows.size(), 1n));
+        $(Assert.equal(w0.get(0n).rows.get(0n).id, Plan.ref("machines", "m1")));
+        $(Assert.equal(w0.get(0n).rows.get(0n).kind.unwrap("span").runs.get(0n).label, "RUN · B-1"));
+        $(Assert.equal(w0.get(1n).rows.map((_$, r) => r.id), [Plan.ref("marks", "m1")]));
         // A window the author's handle can't serve stays none (loading).
         $(Assert.equal(src.page(1n, 100n).hasTag("none"), true));
     });
@@ -1677,7 +1748,7 @@ describeEast("Plan", (test) => {
                 runs: (r, k) => [Plan.run({ key: k, start: r.start, end: r.end, label: k, state: r.state })],
             })],
         }));
-        const run = $.let(p.unwrap().unwrap("Plan").rows.unwrap("inline").get(0n).kind.unwrap("span").runs.get(0n));
+        const run = $.let(p.unwrap().unwrap("Plan").rows.unwrap("inline").flatMap((_$, b) => b.rows).get(0n).kind.unwrap("span").runs.get(0n));
         $(Assert.equal(run.start.unwrap("number"), 1.0));
         $(Assert.equal(run.end.unwrap("number"), 4.0));
     });

@@ -43,6 +43,13 @@ the data's nesting. The wire changes and every removal, each with its
 replacement, are in [Rows as a stream (#822)](#rows-as-a-stream-822) below.
 Positions are not reserved; stored `UIComponentType` values re-emit.
 
+**#823 breaks it once more**: a canvas's rows are its series' BLOCKS —
+`PlanBlockType` (`{ fixed, parent, rows }`) — and a series derives a list of
+them, so the inline arm, every paged window and every `derive` are
+`Array<PlanBlock>` rather than `Array<PlanRow>`. The wire and what it changes
+for a paged canvas are in [Blocks (#823)](#blocks-823) below. Authoring is
+unaffected. Stored `UIComponentType` values re-emit.
+
 The public API break alongside it: the `Gantt` / `Planner` / `AlignedStack`
 exports (tags, factories, `*.Types`) are gone from `@elaraai/east-ui` and
 `@elaraai/east-ui/internal`, as are `EastChakraGantt` / `EastChakraPlanner`
@@ -111,10 +118,8 @@ path.
   `groupToDicts` group per entry); `planNarrow`'s coverage KPI is a hand-built
   row placed by `Plan.series.rows`.
 - **Paged canvases.** A paged canvas reads its windows in window order, each
-  window its entries' rows with their whole subtrees; a row two windows both
-  serve (a section header) appears once, where the first placed it. Several
-  top-level series therefore repeat their blocks per window until #823 pages
-  each block separately.
+  window its entries' rows with their whole subtrees. (#823 lays several
+  top-level series out as blocks that page on their own — see below.)
 - **Partial marks.** While a paged source is not exhausted, only a TOP-LEVEL
   section's member count and strip print `~`-marked — its members are entries
   the windows share out. Every other parent's numbers are exact, so it draws
@@ -131,6 +136,74 @@ path.
   take the focused row's `label` (was `key`); `PlanPart`'s `row` arm carries
   `label` beside `key`, and `partName` names a row by it; `rollupCaption` loses
   `partial` (a rollup is always exact).
+
+## Blocks (#823)
+
+A canvas is its series list's blocks, one after another — inline and paged
+alike. Before #823 a paged canvas read each window as one stream, so two
+top-level series over one source drew a window's jobs, then its loads, then
+the next window's jobs: the layout depended on where the data came from. Now
+each data series is a BLOCK of its entries' rows, a paged canvas pages every
+block on its own over the same windows, and the canvas draws exactly as it
+does inline.
+
+### The wire
+
+| Type | Before | After |
+|---|---|---|
+| `PlanBlockType` (`Plan.Types.Block`) | — | `{ fixed: Boolean, parent: Option<PlanRowIdType>, rows: Array<PlanRow> }` |
+| the root's `rows` — inline arm | `Array<PlanRow>` | `Array<PlanBlock>`, block after block |
+| the root's `rows` — paged arm (`PlanPagedSourceType`) | windows of `Array<PlanRow>` | windows of `Array<PlanBlock>` — each block's share of the window |
+| `Plan.Types.Series(R).derive` | `Fn(Dict<K, R>) → Array<PlanRow>` | `Fn(Dict<K, R>) → Array<PlanBlock>` |
+
+- A data series (`span`, `buckets`, `chart`, `heat`, `table`, `cards`,
+  `events`, `group`, `views`) is ONE block of its entries' rows, each entry
+  followed by its subtree (`fixed: false`) — the part a paged canvas pages.
+- A section is its header's FIXED block, then its member series' blocks,
+  each nested under the header (`parent`). A section inside an entry (a
+  step-down's) stays rows of that entry.
+- `Plan.series.rows` is a FIXED block: no entry produces hand-built rows, so
+  every window serves them alike and the canvas draws them once.
+- A host that hand-builds a Plan root serves blocks too — one
+  `{ fixed: false, parent: none, rows }` block for a list of rows.
+
+### Behaviour
+
+- **Parents are the page unit.** A window is N top-level entries, each with
+  its whole subtree, so a parent never straddles two windows: its bands,
+  means, subtotals and member count are exact, and read on a partial canvas
+  exactly as inline. Group a flat paged source in its dataflow, so a group is
+  one entry holding its members; a parent is bounded by a page.
+- **Blocks page apart.** Each paged block keeps its own ledger, bands and
+  resident run; the viewport moves only the demand of the block it is in, and
+  a far jump rebases the block it lands in. One read of a window serves every
+  block (the window cache is shared), and a seek lands on the first block
+  that shows the sought entry.
+- **Bands follow the UI.** Every window a block has seen keeps its rows'
+  height facts (never their content), so an evicted window's band follows a
+  collapse, "collapse all", the grain, a chart toggle and an expand focus
+  exactly; the rest rate a never-visited window is estimated at comes from
+  the first window's height at rest. A links focus measures evicted windows as
+  unfocused (its elision spans windows).
+- **Nothing on screen moves.** The Plan anchors its bounded frame (#878): a
+  window landing above the rows in view at a height its estimate missed moves
+  the scroll by as much, not the rows.
+- **Sticky parent.** A bounded frame pins the parent of the rows in view —
+  and, on a deep tree, the path of its ancestors — under the header once the
+  parent's own row has scrolled off; a click goes to it. Inline and paged.
+- **Links into evicted windows.** A ribbon whose end sits in an evicted window
+  is drawn to that window's place in its block's band, then clamps and stubs
+  like any end out of view. A row never seen has no place, and its edges are
+  not drawn.
+
+### Renderer (`@elaraai/east-ui-components`)
+
+- A band's grid item names its block: `data-plan-item="b:{block}:{head|tail}"`,
+  a failed window's `f:{block}:{w}`.
+- The persisted scroll anchor (#813) records the block it rests in; an anchor
+  stored before #823 restores into every block's window.
+- `buildRowSource` (east-ui `contracts/source.ts`) loses its `idSuffix`
+  parameter: a derived source keeps the handle's id.
 
 ## Extracted contracts (do this first when migrating imports)
 

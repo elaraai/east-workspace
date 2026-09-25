@@ -22,7 +22,7 @@ import { UIStore } from "../../platform/state-store.js";
 import { registerReactiveTracker, type ReactiveTracker } from "../../reactive/tracker.js";
 import { EastChakraPlan, type PlanRootValue } from "./index.js";
 import type { PlanWireRow } from "./model.js";
-import { itemSel, rowId, rowSel } from "./plan.test-utils.js";
+import { blocksSource, itemSel, oneBlock, rowId, rowSel } from "./plan.test-utils.js";
 import { PlanMessagesProvider, planMessages, type PlanMessages } from "./messages.js";
 import { PLAN_PAGE_SIZE } from "./use-plan-paging.js";
 import type { PlanInstantValue } from "./instant.js";
@@ -84,7 +84,7 @@ function planRoot(rows: PlanWireRow[], opts: {
 } = {}): PlanRootValue {
     const window = opts.window === null ? none : some(opts.window ?? { min: W27, max: W39 });
     return {
-        rows: opts.source !== undefined ? variant("paged", opts.source) : variant("inline", rows),
+        rows: opts.source !== undefined ? variant("paged", blocksSource(opts.source)) : variant("inline", oneBlock(rows)),
         links: opts.links ?? [],
         axis: variant("time", {
             window, resolution: variant(opts.resolution ?? "week", null),
