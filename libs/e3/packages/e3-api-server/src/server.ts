@@ -13,7 +13,7 @@ import { createAuthMiddleware, type AuthConfig } from './middleware/auth.js';
 import { createOidcProvider, type OidcProvider, type OidcConfig } from './auth/index.js';
 import { sendError, sendSuccessWithStatus, sendSuccess } from './beast2.js';
 import { StringType, NullType, variant, ArrayType } from '@elaraai/east';
-import { errorToVariant } from './errors.js';
+import { errorToVariant, sendJsonError } from './errors.js';
 import { createPackageRoutes } from './routes/packages.js';
 import { createWorkspaceRoutes } from './routes/workspaces.js';
 import { createDatasetRoutes } from './routes/datasets.js';
@@ -251,8 +251,14 @@ export async function createServer(config: ServerConfig): Promise<Server> {
 
       const repo = c.req.param('repo')!;
 
-      // Check repo metadata for status
-      const metadata = await storage.repos.getMetadata(repo);
+      // Check repo metadata for status. A repo an older e3 created has none,
+      // and the refusal names the fix — send it, not a bare 500.
+      let metadata;
+      try {
+        metadata = await storage.repos.getMetadata(repo);
+      } catch (err) {
+        return sendJsonError(err);
+      }
       if (!metadata) {
         return c.json({ error: 'not_found', message: `Repository '${repo}' not found` }, 404);
       }
@@ -262,17 +268,6 @@ export async function createServer(config: ServerConfig): Promise<Server> {
       const statusMatch = reqPath.match(/^\/api\/repos\/[^/]+\/status$/);
       if (metadata.status === 'deleting' && !statusMatch) {
         return c.json({ error: 'not_found', message: `Repository '${repo}' not found` }, 404);
-      }
-
-      // Also validate the repo structure (for backwards compat with repos without metadata)
-      const repoPath = getRepoPath(repo);
-      try {
-        await storage.validateRepository(repoPath);
-      } catch (err) {
-        if (err instanceof RepoNotFoundError) {
-          return c.json({ error: 'not_found', message: `Repository '${repo}' not found` }, 404);
-        }
-        throw err;
       }
 
       await next();

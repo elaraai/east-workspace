@@ -160,15 +160,15 @@ describe('planning the pieces of an input', () => {
     for (const piece of pieces) assert.equal(piece[1], rates);
   });
 
-  it('cuts an input stored another way as the manifest the Writer writes for it', async () => {
-    // Segments of 500 rows, which no rule cut: the door re-cuts them first.
-    const value = table(0, 8000);
-    const blob = await storage.objects.write(repo, encodeInSegmentsOf(TableType, 500)(value));
-    const pieces = await planPieces(storage, repo,
-      [{ path: [variant('field', 'sales')], partition: some({ by: [] }) }], [blob], EVERY_SEGMENT);
-    const canonical = await datasetWrite(storage, repo, value, TableType);
-    assert.equal(pieces.length, (await entriesOf(canonical)).length);
-    assert.equal(await storeCollection(storage, repo, TableType, pieces.map(([piece]) => ({ stored: piece! }))), canonical);
+  it('refuses an input an older e3 stored as one blob, naming the fix', async () => {
+    const blob = await storage.objects.write(repo, encodeInSegmentsOf(TableType, 500)(table(0, 8000)));
+    await assert.rejects(
+      planPieces(storage, repo, [{ path: [variant('field', 'sales')], partition: some({ by: [] }) }], [blob], EVERY_SEGMENT),
+      {
+        message: `partitioned input 1 is not a stored collection: the collection ${blob} is stored as one blob: ` +
+          'an older e3 wrote this repository — re-create it: deploy again and import its data again',
+      },
+    );
   });
 
   it('cuts an Array by position', async () => {
@@ -209,9 +209,11 @@ describe('planning the pieces of an input', () => {
 
   it('splits a co-partitioned input at the keys the primary\'s pieces start at', async () => {
     const primary = await datasetWrite(storage, repo, table(0, 8000), TableType);
-    // Another range and another geometry, so most splits fall inside its segments.
-    const secondaryValue = table(1000, 6000);
-    const secondary = await storage.objects.write(repo, encodeInSegmentsOf(TableType, 700)(secondaryValue));
+    // Another range of other rows, so its segments end elsewhere and most
+    // splits fall inside them.
+    const secondaryValue = new SortedMap(
+      Array.from({ length: 5000 }, (_, i) => [BigInt(1000 + i), `return-${1000 + i}`] as [bigint, string]), compareFor(IntegerType));
+    const secondary = await datasetWrite(storage, repo, secondaryValue, TableType);
 
     const pieces = await planPieces(storage, repo, [
       { path: [variant('field', 'sales')], partition: some({ by: [] }) },
@@ -248,7 +250,7 @@ describe('planning the pieces of an input', () => {
     const secondaryType = DictType(SharedKeyType, IntegerType);
     const secondaryValue = new SortedMap<Shared, bigint>(groups.map((g) => [g, g.period] as [Shared, bigint]), compareFor(SharedKeyType));
     const primary = await datasetWrite(storage, repo, primaryValue, primaryType);
-    const secondary = await storage.objects.write(repo, encodeInSegmentsOf(secondaryType, 7)(secondaryValue));
+    const secondary = await datasetWrite(storage, repo, secondaryValue, secondaryType);
 
     const pieces = await planPieces(storage, repo, [
       { path: [variant('field', 'lines')], partition: some({ by: ['sku', 'period'] }) },

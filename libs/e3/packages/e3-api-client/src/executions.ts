@@ -202,9 +202,6 @@ export async function dataflowExecute(
   throw new Error('Dataflow execution timed out');
 }
 
-// Backward compatibility alias
-export { dataflowExecuteLaunch as dataflowStart };
-
 /**
  * Get the dependency graph for a workspace.
  *
@@ -315,9 +312,6 @@ export async function dataflowExecutePoll(
 
   return get(url, path, DataflowExecutionStateType, options);
 }
-
-// Backward compatibility alias
-export { dataflowExecutePoll as dataflowExecution };
 
 /**
  * Cancel a running dataflow execution.

@@ -13,9 +13,9 @@ import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { Hono } from 'hono';
 import { DictType, NullType, StringType, StructType, encodeBeast2For, decodeBeast2For, toEastTypeValue, variant, none } from '@elaraai/east';
-import { MockTaskRunner, BEAST2_CONTENT_TYPE, readRecordState, storeDatasetBytes, workspaceCreate, workspaceGetState } from '@elaraai/e3-core';
+import { MockTaskRunner, readRecordState, storeDatasetBytes, workspaceCreate, workspaceGetState } from '@elaraai/e3-core';
 import { InMemoryStorage } from '@elaraai/e3-core/test';
-import { PackageObjectType, RecordObjectType, RecordIndexObjectType, WorkspaceDeployRequestType } from '@elaraai/e3-types';
+import { BEAST2_CONTENT_TYPE, PackageObjectType, RecordObjectType, RecordIndexObjectType, WorkspaceDeployRequestType } from '@elaraai/e3-types';
 import { createWorkspaceRoutes } from '../routes/workspaces.js';
 import { ResponseType } from '../types.js';
 

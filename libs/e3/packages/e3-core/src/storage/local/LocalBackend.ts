@@ -101,9 +101,6 @@ export class LocalStorage implements StorageBackend {
   }
 }
 
-// Re-export as LocalBackend for backwards compatibility during migration
-export { LocalStorage as LocalBackend };
-
 /**
  * No-op implementation of RepoStore that throws on all operations.
  * Used when LocalStorage is created without a reposDir.

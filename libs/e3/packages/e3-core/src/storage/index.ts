@@ -8,7 +8,7 @@
  *
  * This module provides interfaces that enable e3-core logic to work against
  * different storage backends:
- * - LocalBackend: Filesystem (default, for CLI and local dev)
+ * - LocalStorage: Filesystem (default, for CLI and local dev)
  * - EfsBackend: AWS EFS (for Lambda/Fargate cloud deployment)
  * - S3DynamoBackend: S3 + DynamoDB (future optimization)
  */
@@ -46,7 +46,6 @@ export {
 // Local filesystem implementation
 export {
   LocalStorage,
-  LocalBackend,  // Backwards compatibility alias for LocalStorage
   LocalObjectStore,
   LocalRefStore,
   LocalLockService,

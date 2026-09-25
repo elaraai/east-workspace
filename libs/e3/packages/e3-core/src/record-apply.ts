@@ -196,11 +196,9 @@ export async function summarizeDelta(
  * @remarks
  * The target goes through the store's door as the runs of segments no op
  * touches, as they are stored, and each touched segment's elements with its
- * ops applied. A run cut by the current rule is carried over wherever the
- * edited value still starts a segment at it; one cut under another rule — an
- * earlier version of this one, or a legacy blob's own geometry — is read and
- * written again, so a target's first write lays it out under the current rule
- * and the writes after it are incremental.
+ * ops applied. A run is carried over wherever the edited value still starts a
+ * segment at it. A target an older e3 wrote — one blob, or a manifest cut
+ * under an earlier rule — is refused, by the opener or the door.
  *
  * @returns the new manifest object's hash
  */

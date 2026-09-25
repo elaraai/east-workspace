@@ -9,12 +9,11 @@
  * Stores per-dataset refs as .ref files in the workspace data directory:
  *   workspaces/<ws>/data/<path>.ref
  *
- * A current-format file is a 0xFF magic byte followed by a beast2-encoded
- * { revision, ref } struct, where `revision` is a unique token minted per write
- * — NOT a content digest, so two byte-identical refs still get distinct
- * revisions and the compare-and-swap can never miss a concurrent change (ABA).
- * Pre-revision files (a bare beast2 DatasetRef variant) are still read; their
- * revision is the content hash, and the next write upgrades them.
+ * A file is a 0xFF magic byte followed by a beast2-encoded { revision, ref }
+ * struct, where `revision` is a unique token minted per write — NOT a content
+ * digest, so two byte-identical refs still get distinct revisions and the
+ * compare-and-swap can never miss a concurrent change (ABA). A file an older e3
+ * wrote held the bare ref and is refused, naming the fix.
  *
  * Writes are atomic (write to .partial, then rename).
  */
@@ -24,32 +23,36 @@ import * as path from 'path';
 import { randomUUID } from 'crypto';
 import { encodeBeast2For, decodeBeast2For, variant, StructType, StringType } from '@elaraai/east';
 import { DatasetRefType, type DatasetRef } from '@elaraai/e3-types';
-import { computeHash } from '../../objects.js';
 import { DatasetRefConflictError } from '../../errors.js';
 import { acquireWorkspaceLock } from './LocalLockService.js';
 import { atomicWriteFile, isTransientFsError } from './localHelpers.js';
 import { withKeyedLock } from './keyedMutex.js';
 import type { DatasetRefStore } from '../interfaces.js';
 
-const decodeRef = decodeBeast2For(DatasetRefType);
-
-// Current ref-file format: a 0xFF magic byte (a bare DatasetRef variant always
-// begins with a small case-index byte 0x00/0x01/0x02, so 0xFF is unambiguous)
-// then a { revision, ref } struct.
+// The ref-file format: a 0xFF magic byte, then a { revision, ref } struct. The
+// bare ref an older e3 wrote was a beast2 blob, which never begins with 0xFF.
 const REVISIONED_MAGIC = 0xff;
 const RevisionedRefType = StructType({ revision: StringType, ref: DatasetRefType });
 const encodeRevisioned = encodeBeast2For(RevisionedRefType);
 const decodeRevisioned = decodeBeast2For(RevisionedRefType);
 
-/** Decode a stored ref file (either format) to its ref and revision. */
-function decodeStored(data: Buffer): { ref: DatasetRef; revision: string } {
-  if (data[0] === REVISIONED_MAGIC) {
-    const { revision, ref } = decodeRevisioned(data.subarray(1));
-    return { ref, revision };
+/**
+ * Decode a stored ref file to its ref and revision.
+ *
+ * @param data - the file's bytes
+ * @param filePath - the file, for the message
+ * @returns the ref and its revision
+ * @throws {Error} When the file holds a bare ref, as an older e3 wrote it:
+ *   its repository is re-created.
+ */
+function decodeStored(data: Buffer, filePath: string): { ref: DatasetRef; revision: string } {
+  if (data[0] !== REVISIONED_MAGIC) {
+    throw new Error(
+      `the dataset ref ${filePath} was written by an older e3, without a revision — re-create the repository: deploy again and import its data again`,
+    );
   }
-  // Legacy bare-DatasetRef file: its content hash is a stable revision, and the
-  // next write upgrades it to the revisioned format.
-  return { ref: decodeRef(data), revision: computeHash(data) };
+  const { revision, ref } = decodeRevisioned(data.subarray(1));
+  return { ref, revision };
 }
 
 /** Encode a ref + a freshly-minted unique revision in the current format. */
@@ -133,9 +136,10 @@ export class LocalDatasetRefStore implements DatasetRefStore {
 
   async read(repo: string, ws: string, datasetPath: string): Promise<DatasetRef | null> {
     return withKeyedLock(this.critKey(repo, ws, datasetPath), async () => {
-      const data = await this.readBytes(this.refPath(repo, ws, datasetPath));
+      const filePath = this.refPath(repo, ws, datasetPath);
+      const data = await this.readBytes(filePath);
       if (data === null || data.length === 0) return null;
-      return decodeStored(data).ref;
+      return decodeStored(data, filePath).ref;
     });
   }
 
@@ -153,9 +157,10 @@ export class LocalDatasetRefStore implements DatasetRefStore {
     datasetPath: string
   ): Promise<{ ref: DatasetRef; revision: string } | null> {
     return withKeyedLock(this.critKey(repo, ws, datasetPath), async () => {
-      const data = await this.readBytes(this.refPath(repo, ws, datasetPath));
+      const filePath = this.refPath(repo, ws, datasetPath);
+      const data = await this.readBytes(filePath);
       if (data === null || data.length === 0) return null;
-      return decodeStored(data);
+      return decodeStored(data, filePath);
     });
   }
 
@@ -191,7 +196,7 @@ export class LocalDatasetRefStore implements DatasetRefStore {
         // readBytes/writeBytes are the raw (non-keyed) helpers, so no re-entrancy.
         return await withKeyedLock(this.critKey(repo, ws, datasetPath), async () => {
           const current = await this.readBytes(filePath);
-          const currentRevision = current && current.length > 0 ? decodeStored(current).revision : null;
+          const currentRevision = current && current.length > 0 ? decodeStored(current, filePath).revision : null;
           if (currentRevision !== expectedRevision) {
             throw new DatasetRefConflictError(ws, datasetPath, expectedRevision, currentRevision);
           }

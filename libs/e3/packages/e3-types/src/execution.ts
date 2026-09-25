@@ -26,7 +26,6 @@ import {
   DateTimeType,
   ValueTypeOf,
   decodeBeast2For,
-  variant,
 } from '@elaraai/east';
 
 /** A running execution's process identification. */
@@ -99,8 +98,7 @@ const ErrorStatusType = StructType({
  * The `running` state includes process identification fields (pid, pidStartTime, bootId)
  * to enable detection of crashed executions. See design/e3-execution.md for details.
  *
- * Stored state: read it with {@link decodeExecutionStatus}, which also reads
- * the records written before `cancelled` and `interrupted` existed.
+ * Stored state: read it with {@link decodeExecutionStatus}.
  */
 export const ExecutionStatusType = VariantType({
   running: RunningStatusType,
@@ -133,47 +131,28 @@ export const ExecutionStatusType = VariantType({
 
 export type ExecutionStatus = ValueTypeOf<typeof ExecutionStatusType>;
 
-/** The status wire before `cancelled` and `interrupted` were cases of it: an
- *  `error` whose message began `cancelled:` or `interrupted:` said which. */
-const PreOutcomeExecutionStatusType = VariantType({
-  running: RunningStatusType,
-  success: SuccessStatusType,
-  failed: FailedStatusType,
-  error: ErrorStatusType,
-});
-
 const decodeCurrentStatus = decodeBeast2For(ExecutionStatusType);
-const decodePreOutcomeStatus = decodeBeast2For(PreOutcomeExecutionStatusType);
 
 /**
- * Decode an execution status, of any released form.
+ * Decode an execution status.
  *
  * @remarks
- * A record written before `cancelled` and `interrupted` were cases is an
- * `error` whose message said which, and reads back as that case, so a history
- * reads the same whichever e3 wrote it.
+ * Stored state, so it changes by hard cutover: a repository an older e3 wrote
+ * is re-created rather than read, and this says so.
  *
  * @param data - the stored bytes
  * @returns the status
- * @throws {Error} When the bytes are no known status shape — the current
- *   format's error.
+ * @throws {Error} When the bytes are not a current status — one an older e3
+ *   wrote, whose repository is re-created.
  */
 export function decodeExecutionStatus(data: Uint8Array): ExecutionStatus {
   try {
     return decodeCurrentStatus(data);
   } catch (err) {
-    let legacy: ValueTypeOf<typeof PreOutcomeExecutionStatusType>;
-    try {
-      legacy = decodePreOutcomeStatus(data);
-    } catch {
-      throw err;
-    }
-    if (legacy.type !== 'error') return legacy;
-    const { message, ...stopped } = legacy.value;
-    if (message.startsWith('cancelled: ')) return variant('cancelled', stopped);
-    const interrupted = /^interrupted: .*\(runner pid (-?\d+)\)$/.exec(message);
-    if (interrupted !== null) return variant('interrupted', { ...stopped, pid: BigInt(interrupted[1]!) });
-    return legacy;
+    throw new Error(
+      `the execution status does not decode: an older e3 wrote this repository — re-create it: deploy again and import its data again ` +
+      `(${err instanceof Error ? err.message : String(err)})`,
+    );
   }
 }
 

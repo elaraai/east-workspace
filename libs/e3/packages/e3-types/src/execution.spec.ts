@@ -4,8 +4,8 @@
  */
 
 /**
- * Execution status wire: the typed outcomes, and the records written before
- * `cancelled` and `interrupted` were cases of it, read back as those cases.
+ * Execution status wire: the typed outcomes, and the refusal of a record an
+ * older e3 wrote before `cancelled` and `interrupted` were cases of it.
  */
 
 import { describe, it } from 'node:test';
@@ -52,34 +52,20 @@ describe('ExecutionStatusType', () => {
     for (const status of statuses) assert.deepEqual(decodeExecutionStatus(encode(status)), status);
   });
 
-  it('reads an older record an e3 stopped as cancelled', () => {
-    for (const message of [
-      'cancelled: e3 stopped the runner because the run was aborted',
-      'cancelled: e3 did not start the runner because the run was aborted',
-    ]) {
-      assert.deepEqual(decodeExecutionStatus(encodeOlder(variant('error', { ...stopped, message }))), variant('cancelled', stopped));
+  it('refuses a record an older e3 wrote, naming the fix', () => {
+    const records = [
+      variant('error', { ...stopped, message: 'cancelled: e3 stopped the runner because the run was aborted' }),
+      variant('success', { ...stopped, outputHash: 'b'.repeat(64) }),
+    ] as const;
+    for (const record of records) {
+      assert.throws(
+        () => decodeExecutionStatus(encodeOlder(record)),
+        /^Error: the execution status does not decode: an older e3 wrote this repository — re-create it: deploy again and import its data again \(/,
+      );
     }
   });
 
-  it('reads an older record an exited orchestrator left as interrupted, with the runner pid it named', () => {
-    const older = encodeOlder(variant('error', {
-      ...stopped,
-      message: 'interrupted: the orchestrator exited before this execution finished (runner pid 31337)',
-    }));
-    assert.deepEqual(decodeExecutionStatus(older), variant('interrupted', { ...stopped, pid: 31337n }));
-  });
-
-  it('reads every other older record as it was written', () => {
-    const records = [
-      variant('error', { ...stopped, message: 'timed out: e3 stopped the runner after 50 ms' }),
-      variant('failed', { ...stopped, exitCode: 3n }),
-      variant('success', { ...stopped, outputHash: 'b'.repeat(64) }),
-      variant('running', { executionId: '0199-a', inputHashes: [], startedAt: new Date(1000), pid: 7n, pidStartTime: 9n, bootId: 'boot' }),
-    ] as const;
-    for (const record of records) assert.deepEqual(decodeExecutionStatus(encodeOlder(record)), record);
-  });
-
-  it('throws for bytes of no known status shape', () => {
-    assert.throws(() => decodeExecutionStatus(encodeBeast2For(IntegerType)(7n)));
+  it('throws for bytes of no status shape', () => {
+    assert.throws(() => decodeExecutionStatus(encodeBeast2For(IntegerType)(7n)), /the execution status does not decode/);
   });
 });

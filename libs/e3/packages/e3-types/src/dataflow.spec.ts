@@ -4,16 +4,16 @@
  */
 
 /**
- * The execution state's versions. A stored state is decoded against the whole
- * type it was written with, so each version here is a state that version's e3
- * wrote: a change to the state's type that is not a new version fails to read
- * it.
+ * The execution state's version. A stored state is decoded against the whole
+ * type it was written with, so each state here is one that version's e3 wrote:
+ * the current version reads, and an older or a newer one is refused, naming
+ * its version.
  */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { IntegerType, StringType, StructType, encodeBeast2For, equalFor, none, some } from '@elaraai/east';
-import { DataflowExecutionStateType, EXECUTION_STATE_VERSION, decodeDataflowExecutionState } from './dataflow.js';
+import { IntegerType, StringType, StructType, encodeBeast2For, some } from '@elaraai/east';
+import { EXECUTION_STATE_VERSION, decodeDataflowExecutionState } from './dataflow.js';
 
 /** Version 1, written by the released e3: task `double` completed, `sum`
  *  ready, and four events. */
@@ -65,20 +65,14 @@ const STATE_V2 = Buffer.from(
   'base64',
 );
 
-const NEW_VERSION = 'a change to the execution state\'s type is a new version: keep the old type\'s decoder, and add a state the new version writes here';
+const NEW_VERSION = 'a change to the execution state\'s type is a new version: raise EXECUTION_STATE_VERSION, move this state to the older-version refusal, and add one the new version writes';
 
 describe('decodeDataflowExecutionState', () => {
-  it('upgrades a version 1 state, its tasks without a plan', () => {
-    const state = decodeDataflowExecutionState(STATE_V1);
-    assert.equal(state.version, EXECUTION_STATE_VERSION);
-    assert.deepEqual([...state.tasks.keys()], ['double', 'sum']);
-    assert.equal(state.tasks.get('double')!.status, 'completed');
-    assert.deepEqual(state.tasks.get('double')!.outputHash, some('c3'));
-    assert.deepEqual(state.tasks.get('double')!.plan, none);
-    assert.deepEqual(state.tasks.get('sum')!.plan, none);
-    assert.deepEqual(state.events.map((event) => event.type), ['execution_started', 'task_started', 'task_completed', 'task_ready']);
-    assert.equal(state.eventSeq, 4n);
-    assert.ok(equalFor(DataflowExecutionStateType)(decodeDataflowExecutionState(encodeBeast2For(DataflowExecutionStateType)(state)), state));
+  it('refuses a version 1 state an older e3 wrote, naming the fix', () => {
+    assert.throws(
+      () => decodeDataflowExecutionState(STATE_V1),
+      { message: `the execution state was written by an older e3: it is version 1, and this e3 reads version ${EXECUTION_STATE_VERSION} — re-create the repository: deploy again and import its data again` },
+    );
   });
 
   it('reads a version 2 state', () => {
@@ -93,12 +87,12 @@ describe('decodeDataflowExecutionState', () => {
     const newer = encodeBeast2For(StructType({ version: IntegerType, id: StringType }))({ version: EXECUTION_STATE_VERSION + 1n, id: '7' });
     assert.throws(
       () => decodeDataflowExecutionState(newer),
-      { message: `the execution state was written by a newer e3: it is version ${EXECUTION_STATE_VERSION + 1n}, and this e3 reads versions up to ${EXECUTION_STATE_VERSION}` },
+      { message: `the execution state was written by a newer e3: it is version ${EXECUTION_STATE_VERSION + 1n}, and this e3 reads version ${EXECUTION_STATE_VERSION}` },
     );
   });
 
   it('refuses data that is not an execution state', () => {
     const other = encodeBeast2For(StructType({ id: StringType }))({ id: '7' });
-    assert.throws(() => decodeDataflowExecutionState(other), /not an execution state this e3 reads/);
+    assert.throws(() => decodeDataflowExecutionState(other), /not an execution state/);
   });
 });

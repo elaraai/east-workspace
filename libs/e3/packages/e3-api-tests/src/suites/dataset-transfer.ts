@@ -42,8 +42,9 @@ function incompressibleString(byteLength: number): string {
 
 import { ArrayType, BlobType, IntegerType, StringType, StructType, encodeBeast2For, decodeBeast2For, type EastType, type ValueTypeOf } from '@elaraai/east';
 import { some, variant } from '@elaraai/east';
-import { BEAST2_CONTENT_TYPE, computeHash } from '@elaraai/e3-core';
+import { computeHash } from '@elaraai/e3-core';
 import {
+  BEAST2_CONTENT_TYPE,
   ResponseType,
   TRANSFER_PROTOCOL_VERSION,
   TransferDoneResponseType,

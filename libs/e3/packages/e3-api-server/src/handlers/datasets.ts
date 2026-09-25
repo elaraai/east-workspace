@@ -4,7 +4,7 @@
  */
 
 import { NullType, ArrayType, StringType, compareFor, encodeBeast2For, openBeast2PagesFor, parseFor, some, none, variant, toEastTypeValue, isVariant, type EastTypeValue } from '@elaraai/east';
-import type { TreePath } from '@elaraai/e3-types';
+import { BEAST2_CONTENT_TYPE, type TreePath } from '@elaraai/e3-types';
 import {
   workspaceListTree,
   workspaceGetDatasetHash,
@@ -17,7 +17,7 @@ import {
   DatasetSegments,
   type TreeNode,
 } from '@elaraai/e3-core';
-import { BEAST2_CONTENT_TYPE, type StorageBackend, type TransferBackend } from '@elaraai/e3-core';
+import type { StorageBackend, TransferBackend } from '@elaraai/e3-core';
 import { sendSuccess, sendError } from '../beast2.js';
 import { errorToVariant, sendJsonError } from '../errors.js';
 import { DatasetStatusDetailType, ListEntryType, type ListEntry, type DatasetStatusDetail } from '../types.js';
@@ -163,9 +163,9 @@ export const PAGE_BYTE_BUDGET_DEFAULT = 4 * 1024 * 1024;
 /** Opened datasets cached per repository and content hash. Page requests are
  *  hash-pinned immutable, so entries never invalidate — the LRU only bounds
  *  memory. An entry holds the segment geometry (counts, prefix sums, and the
- *  fences a manifest carries or a bisect has probed), which is O(segments), so
- *  the cache is bounded by RETAINED BYTES rather than entry count: 64 entries
- *  of a 500k-segment dataset would otherwise pin hundreds of MB. */
+ *  fences its manifest carries), which is O(segments), so the cache is bounded
+ *  by RETAINED BYTES rather than entry count: 64 entries of a 500k-segment
+ *  dataset would otherwise pin hundreds of MB. */
 interface CachedSegments {
   segments: DatasetSegments;
   /** Approximate retained bytes (the geometry arrays, and a manifest's fences). */
@@ -225,9 +225,9 @@ async function cachedSegments(
     return cached.segments;
   }
   const segments = await DatasetSegments.open(storage, repoPath, hash, size);
-  // counts + prefix sums at 8 bytes each, plus a manifest's stored fences.
+  // counts + prefix sums at 8 bytes each, plus the manifest's stored fences.
   let bytes = 16 * segments.segmentCount;
-  for (const entry of segments.manifest?.entries ?? []) bytes += entry.fence.byteLength + 80;
+  for (const entry of segments.manifest.entries) bytes += entry.fence.byteLength + 80;
   segmentsCache.set(key, { segments, bytes });
   segmentsCacheBytes += bytes;
   evictSegments();
@@ -264,11 +264,9 @@ export interface DatasetPageWindow {
   hash?: string;
 }
 
-/** What a caller is told when a dataset object is neither a segment manifest
- *  nor a pageable blob: something wrote it outside the encoder door, and no
- *  read path can repair it — re-writing the dataset produces the layout. */
-const NOT_INDEXED_MESSAGE =
-  'Dataset carries no pageable segment index — re-write the dataset (re-run the producing task, or set the value again) to store it in the indexed form.';
+/** The opener's refusal of a collection stored as one blob, which an older
+ *  e3 wrote: answered as `dataset_not_indexed`, in the refusal's own words. */
+const BLOB_REFUSAL = /^the collection [0-9a-f]{64} is stored as one blob:/;
 
 function pageError(type: string, message: string, status: 400 | 404 | 409 = 400, headers?: Record<string, string>): Response {
   return new Response(JSON.stringify({ error: { type, message } }), {
@@ -287,11 +285,11 @@ function pageError(type: string, message: string, status: 400 | 404 | 409 = 400,
  * since v5 Set/Dict segments hold the canonical value in disjoint ascending
  * ranges. Segment windows return one writer batch verbatim.
  *
- * Collection datasets are stored segmented + indexed by every writer at
+ * Collection datasets are stored as segment manifests by every writer at
  * every size, so every window decodes only the touched segments (Set/Dict
- * windows verify the segment fences first and reject non-canonical blobs as
- * corrupt). A blob without a pageable index predates that contract and is
- * refused — there is no whole-decode fallback.
+ * windows verify the segment fences first and reject non-canonical ones as
+ * corrupt). A collection stored as one blob is an older e3's and is refused as
+ * `dataset_not_indexed`, naming the fix — there is no whole-decode fallback.
  */
 /** Server-side limits for {@link getDatasetPage}. */
 export interface DatasetPageLimits {
@@ -360,15 +358,12 @@ export async function getDatasetPage(
     try {
       segments = await cachedSegments(storage, repoPath, status.hash, objectSize);
     } catch (err) {
-      // Only the reader's own shape refusals mean "not indexed" — a blob
-      // predating the stored-segmented contract (or injected raw). Anything
-      // else (storage I/O, missing object) is a real failure and must surface
-      // as one, not masquerade as a re-write suggestion.
+      // Only the opener's refusal of a blob-stored collection means "not
+      // indexed". Anything else (storage I/O, a missing or corrupt object) is
+      // a real failure and must surface as one.
       const message = err instanceof Error ? err.message : String(err);
-      if (!/^(beast2 v5:|collection manifest:|Data too short for Beast2|Invalid Beast2)/.test(message)) {
-        throw err;
-      }
-      return pageError('dataset_not_indexed', NOT_INDEXED_MESSAGE);
+      if (!BLOB_REFUSAL.test(message)) throw err;
+      return pageError('dataset_not_indexed', message);
     }
 
     const segmentCount = segments.segmentCount;
@@ -673,10 +668,9 @@ function boundPredicate(leaves: KeyField[], values: unknown[]): (key: unknown) =
  * Rows address the canonical East key order — the same row space
  * {@link getDatasetPage} element windows serve — so the result plugs
  * straight into the paged preview's scroll position. The search
- * binary-searches the blob's segment fences (each segment's first key,
- * probed and cached per content hash) with the key type's East comparator,
- * then decodes at most the one owning segment (exact key) or the two edge
- * segments (prefix range).
+ * binary-searches the manifest's segment fences (each segment's first key)
+ * with the key type's East comparator, then decodes at most the one owning
+ * segment (exact key) or the two edge segments (prefix range).
  *
  * Responds with JSON `{ found, row, count }`: `row` is the match's global
  * element index (for a prefix, the range's first row; for a miss, the
@@ -821,10 +815,8 @@ export async function findDatasetKey(
       segments = await cachedSegments(storage, repoPath, searchHash, objectSize);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      if (!/^(beast2 v5:|collection manifest:|Data too short for Beast2|Invalid Beast2)/.test(message)) {
-        throw err;
-      }
-      return pageError('dataset_not_indexed', NOT_INDEXED_MESSAGE);
+      if (!BLOB_REFUSAL.test(message)) throw err;
+      return pageError('dataset_not_indexed', message);
     }
 
     // The fence-search surface: the segment geometry, a fence probe, and a

@@ -12,7 +12,7 @@
  * same file via executionGet. A non-atomic overwrite truncates the file to 0
  * bytes mid-write, which the reader decodes as "Data too short for Beast2
  * format: 0 bytes" → ExecutionCorruptError → API "internal" — the macOS CI
- * flake in the "dataflowStart triggers execution (non-blocking)" suite.
+ * flake in the "dataflowExecuteLaunch triggers execution (non-blocking)" suite.
  */
 
 import { describe, it, beforeEach, afterEach } from 'node:test';

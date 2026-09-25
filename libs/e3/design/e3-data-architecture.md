@@ -571,12 +571,14 @@ In three parts:
   3. **The stored forms an older e3 wrote** (D1, decided 2026-09-25):
      - the dual decoders: package objects, function objects, record objects, mutation objects and commits of every earlier shape, execution statuses from before typed outcomes, and the execution state's version 1;
      - GC's recognition of every earlier shape, and of task objects from before the cutover;
-     - dataset ref files written without a revision, and repositories without a metadata file;
+     - dataset ref files written without a revision;
+     - repositories without a metadata file. `repoInit`, which `e3 repo create` and the tests create a repository with, wrote none, so the metadata `getMetadata` made up for a repository without one served every repository the CLI made, not only an older e3's. `repoInit` now writes the file the API server's create writes, and `getMetadata` refuses a repository without one, naming the fix (decided 2026-09-26: the plan counted it an older e3's form only);
      - scratch directories named in the earlier form;
      - the fallback of the `$idem.commit` slot for a ref written before it;
      - collections stored as one blob: `DatasetSegments` reads manifests only, and refuses a blob-stored collection, naming the fix;
      - manifests cut under an earlier rule: the door and the apply refuse one, naming the fix, where they re-cut it;
-     - the API client's handling of servers from before this PR.
+     - the API client's handling of servers from before this PR;
+     - the names the e3 packages kept only for compatibility: e3-types' `DatasetSchemaType` and `PackageDatasetsType`, with their types; the API client's `dataflowStart`, `dataflowExecution`, `unwrap` and its `PlatformImpl` export; and e3-core's `LocalBackend` and its re-exports of `BEAST2_CONTENT_TYPE` and `LogChunk`. Every use moves to the current name, and e3-cloud's go on e3-cloud#187 (decided 2026-09-26: the plan listed stored forms only).
 
      `WIRE_MIGRATION.md` states the one rule (§3.12).
 

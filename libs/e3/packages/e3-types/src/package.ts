@@ -39,14 +39,6 @@ export type PackageDataType = typeof PackageDataType;
 
 export type PackageData = ValueTypeOf<typeof PackageDataType>;
 
-// Backwards compatibility alias
-/** @deprecated Use PackageDataType instead */
-export const PackageDatasetsType = PackageDataType;
-/** @deprecated Use PackageData instead */
-export type PackageDatasetsType = PackageDataType;
-/** @deprecated Use PackageData instead */
-export type PackageDatasets = PackageData;
-
 /**
  * Package object stored in the object store.
  *
@@ -112,73 +104,28 @@ export type PackageObjectType = typeof PackageObjectType;
 
 export type PackageObject = ValueTypeOf<typeof PackageObjectType>;
 
-/**
- * The pre-`sources` package object wire shape (tasks, data, functions,
- * records), kept only so {@link decodePackageObject} can read packages exported
- * before path-initialised inputs existed.
- */
-const RecordsEraPackageObjectType = StructType({
-  tasks: DictType(StringType, StringType),
-  data: PackageDataType,
-  functions: DictType(StringType, StringType),
-  records: DictType(StringType, StringType),
-});
-
-/**
- * The pre-`records` package object wire shape (tasks, data, functions), kept
- * only so {@link decodePackageObject} can read packages exported before records
- * existed.
- */
-const FunctionsEraPackageObjectType = StructType({
-  tasks: DictType(StringType, StringType),
-  data: PackageDataType,
-  functions: DictType(StringType, StringType),
-});
-
-/**
- * The pre-`functions` package object wire shape (tasks, data), kept only so
- * {@link decodePackageObject} can read packages exported before functions
- * existed.
- */
-const LegacyPackageObjectType = StructType({
-  tasks: DictType(StringType, StringType),
-  data: PackageDataType,
-});
-
 const decodeCurrent = decodeBeast2For(PackageObjectType);
-const decodeRecordsEra = decodeBeast2For(RecordsEraPackageObjectType);
-const decodeFunctionsEra = decodeBeast2For(FunctionsEraPackageObjectType);
-const decodeLegacy = decodeBeast2For(LegacyPackageObjectType);
 
 /**
- * Decode a `PackageObject` from BEAST2 bytes, tolerating the older wire
- * formats (dual-decode migration).
+ * Decode a `PackageObject` from BEAST2 bytes.
  *
- * Every package-read path — local AND cloud — must use this instead of
- * `decodeBeast2For(PackageObjectType)` directly, so packages exported before
- * the `sources`/`records`/`functions` fields existed keep decoding. Older
- * bytes decode with the missing maps defaulted to empty.
+ * @remarks
+ * A package-borne wire, so it changes by hard cutover: a package exported by
+ * an older SDK is re-exported with the current one, and this says so.
+ *
+ * @param data - the stored bytes
+ * @returns the package object
+ * @throws {Error} When the bytes are not a current package object — a package
+ *   exported by an older SDK, which is re-exported with the current one.
  */
 export function decodePackageObject(data: Uint8Array): PackageObject {
   try {
     return decodeCurrent(data);
   } catch (err) {
-    try {
-      const recEra = decodeRecordsEra(data);
-      return { ...recEra, sources: new Map() };
-    } catch {
-      try {
-        const fnEra = decodeFunctionsEra(data);
-        return { tasks: fnEra.tasks, data: fnEra.data, functions: fnEra.functions, records: new Map(), sources: new Map() };
-      } catch {
-        try {
-          const legacy = decodeLegacy(data);
-          return { tasks: legacy.tasks, data: legacy.data, functions: new Map(), records: new Map(), sources: new Map() };
-        } catch {
-          throw err; // no known shape — surface the current-format error
-        }
-      }
-    }
+    throw new Error(
+      `the package object does not decode: the package was exported by an older e3 SDK — re-export it with the current one ` +
+      `(${err instanceof Error ? err.message : String(err)})`,
+    );
   }
 }
 

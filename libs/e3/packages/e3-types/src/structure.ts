@@ -61,14 +61,6 @@ export type StructureType = typeof StructureType;
 
 export type Structure = ValueTypeOf<typeof StructureType>;
 
-// Backwards compatibility alias
-/** @deprecated Use StructureType instead */
-export const DatasetSchemaType = StructureType;
-/** @deprecated Use Structure instead */
-export type DatasetSchemaType = StructureType;
-/** @deprecated Use Structure instead */
-export type DatasetSchema = Structure;
-
 /**
  * Path segment for navigating data trees.
  *

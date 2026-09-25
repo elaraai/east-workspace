@@ -7,20 +7,16 @@
  * The opener door: how every reader reaches a stored collection dataset.
  *
  * A collection is stored as a {@link CollectionManifestType} naming standalone
- * segment objects. Readers that used to address one blob through its trailing
- * index — the paged window, the key search, the partition planner, the status
- * geometry, the whole download — now go through {@link DatasetSegments}, which
- * presents both shapes as one: the segment count, the per-segment element
- * counts and fences, and segment `i` (or a run of segments) as a standalone v5
- * blob any existing reader opens.
+ * segment objects. The paged window, the key search, the partition planner and
+ * the whole download reach it through {@link DatasetSegments}: the segment
+ * count, the per-segment element counts and fences, and segment `i` (or a run
+ * of segments) as a standalone v5 blob any existing reader opens.
  *
  * A manifest answers all of that from one small object read: the fences are
  * stored decoded-ready, so a key bisect probes no frames at all, and a page
- * reads exactly the segment objects its window touches. A bare segmented blob —
- * what a writer predating the layout left behind — answers the same questions
- * through ranged reads of its index and frames, so nothing on the read path has
- * two code paths to keep in step. Writing a collection is the store's door's
- * (`store-collection.ts`).
+ * reads exactly the segment objects its window touches. A collection stored as
+ * one blob is what an older e3 wrote, and is refused. Writing a collection is
+ * the store's door's (`store-collection.ts`).
  *
  * @packageDocumentation
  */
@@ -28,16 +24,12 @@
 import {
   decodeBeast2For,
   decodeBeast2ElementsFor,
-  carveBeast2Ranged,
   compareFor,
   decodeBeast2FenceFor,
-  openBeast2PagesFor,
   readBeast2Extents,
-  readBeast2ExtentsRanged,
   readBeast2Type,
   segmentKeyTypeOf,
   spliceBeast2Tail,
-  type Beast2RangedExtents,
   type EastTypeValue,
 } from '@elaraai/east';
 import {
@@ -57,17 +49,12 @@ import type { StorageBackend } from './storage/interfaces.js';
  *  this too. */
 const HEAD_PROBE_BYTES = 64 * 1024;
 
-/** Bytes per chunk when a whole dataset is streamed out of the store. */
-const SPLICE_CHUNK_BYTES = 8 * 1024 * 1024;
-
 /**
  * A stored collection, addressed by segment.
  *
  * @remarks
- * Holds the geometry, never the data: the segments a caller does not ask for
- * are never read. Both backings — a manifest naming segment objects, and a
- * bare segmented blob through ranged reads — answer the same questions, so a
- * reader written against this is written once.
+ * Holds the manifest, never the data: the segments a caller does not ask for
+ * are never read.
  */
 export class DatasetSegments {
   /** The collection object this opened — the dataset's own hash, unless that
@@ -82,30 +69,28 @@ export class DatasetSegments {
   /** Total elements (pairs) across every segment. */
   readonly elementCount: number;
   /** Stored bytes of the value: every segment object plus the manifest that
-   *  names them, or the blob when it is not stored as one. The header object
-   *  a manifest names is not counted — every segment carries those bytes
-   *  already, and counting it would cost a stat per open. */
+   *  names them. The header object the manifest names is not counted — every
+   *  segment carries those bytes already, and counting it would cost a stat
+   *  per open. */
   readonly bytes: number;
-  /** The manifest, when this dataset is stored as one. */
-  readonly manifest: CollectionManifest | null;
+  /** The manifest the dataset is stored as. */
+  readonly manifest: CollectionManifest;
 
-  private readonly backing: ManifestBacking | BlobBacking;
   private readonly fences = new Map<number, unknown>();
 
   private constructor(
+    private readonly storage: StorageBackend,
+    private readonly repo: string,
     hash: string,
-    typeValue: EastTypeValue,
-    counts: readonly number[],
+    manifest: CollectionManifest,
     bytes: number,
-    manifest: CollectionManifest | null,
-    backing: ManifestBacking | BlobBacking,
   ) {
+    const counts = manifest.entries.map((e) => Number(e.count));
     this.hash = hash;
-    this.typeValue = typeValue;
+    this.typeValue = manifest.type;
     this.counts = counts;
     this.bytes = bytes;
     this.manifest = manifest;
-    this.backing = backing;
     const cumulative: number[] = new Array(counts.length);
     let running = 0;
     for (let i = 0; i < counts.length; i++) {
@@ -121,38 +106,25 @@ export class DatasetSegments {
    *
    * @param storage - Storage backend
    * @param repo - Repository identifier
-   * @param hash - The dataset object's content hash (a manifest, or a blob)
+   * @param hash - The dataset object's content hash: a manifest, or a record
+   *   state naming one
    * @param size - The object's byte size, when the caller already has it
    * @returns The opened dataset
-   * @throws {Error} When the object is neither a manifest nor a segmented,
-   *   indexed, self-contained v5 collection blob.
+   * @throws {Error} When the object is not a manifest: a collection stored as
+   *   one blob, which an older e3 wrote.
    */
   static async open(storage: StorageBackend, repo: string, hash: string, size?: number): Promise<DatasetSegments> {
     const opened = await openDatasetObject(storage, repo, hash, size);
-    const manifest = opened.manifest;
-    const known = opened.hash === hash ? size : undefined;
-    hash = opened.hash;
-    if (manifest !== null) {
-      const counts = manifest.entries.map((e) => Number(e.count));
-      // What the dataset costs in the store: every segment object plus the
-      // manifest naming them. A page reports this as the value's total, and a
-      // status call reports the same number — the manifest object alone would
-      // say a 10 MiB dataset is 12 KiB.
-      const manifestBytes = known ?? (await storage.objects.stat(repo, hash)).size;
-      return new DatasetSegments(
-        hash, manifest.type, counts, manifestByteSize(manifest) + manifestBytes, manifest,
-        { kind: 'manifest', storage, repo, manifest },
-      );
+    if (opened.manifest === null) {
+      throw new Error(`the collection ${opened.hash} is stored as one blob: ` +
+        'an older e3 wrote this repository — re-create it: deploy again and import its data again');
     }
-
-    const objectSize = known ?? (await storage.objects.stat(repo, hash)).size;
-    const backing: BlobBacking = { kind: 'blob', storage, repo, hash, extents: null };
-    const extents = await readBeast2ExtentsRanged({ size: objectSize, read: blobReader(backing) });
-    if (!extents.selfContained) {
-      throw new Error('beast2 v5: blob has cross-segment aliasing — segments must decode independently');
-    }
-    backing.extents = extents;
-    return new DatasetSegments(hash, extents.typeValue, [...extents.counts], objectSize, null, backing);
+    // What the dataset costs in the store: every segment object plus the
+    // manifest naming them. A page reports this as the value's total, and a
+    // status call reports the same number — the manifest object alone would
+    // say a 10 MiB dataset is 12 KiB.
+    const manifestBytes = (opened.hash === hash ? size : undefined) ?? (await storage.objects.stat(repo, opened.hash)).size;
+    return new DatasetSegments(storage, repo, opened.hash, opened.manifest, manifestByteSize(opened.manifest) + manifestBytes);
   }
 
   /** Number of segments. */
@@ -162,38 +134,33 @@ export class DatasetSegments {
 
   /** The canonical header bytes every segment is written under. */
   async head(): Promise<Uint8Array> {
-    return this.backing.kind === 'manifest'
-      ? this.backing.storage.objects.read(this.backing.repo, this.backing.manifest.header)
-      : Promise.resolve(this.backing.extents!.head);
+    return this.storage.objects.read(this.repo, this.manifest.header);
   }
 
   /**
    * Segment `i`'s first key (Dict) or element (Set).
    *
    * @remarks
-   * Free from a manifest, which stores every fence; a bounded frame probe from
-   * a bare blob, memoized so a bisect reads each probed frame once.
+   * Read from the manifest, which stores every fence, and memoized so a bisect
+   * decodes each fence it probes once.
    *
    * @param i - zero-based segment index
    * @returns the decoded fence, or `undefined` for an Array root
    */
-  async fence(i: number): Promise<unknown> {
-    if (this.fences.has(i)) return this.fences.get(i);
-    const keyType = segmentKeyTypeOf(this.typeValue);
-    if (keyType === null) return undefined;
-    const value = this.backing.kind === 'manifest'
-      ? decodeBeast2FenceFor(keyType)(this.backing.manifest.entries[i]!.fence)
-      : openBeast2PagesFor(this.typeValue)(await this.segment(i)).fence(0);
-    this.fences.set(i, value);
-    return value;
+  fence(i: number): Promise<unknown> {
+    if (!this.fences.has(i)) {
+      const keyType = segmentKeyTypeOf(this.typeValue);
+      this.fences.set(i, keyType === null ? undefined : decodeBeast2FenceFor(keyType)(this.manifest.entries[i]!.fence));
+    }
+    return Promise.resolve(this.fences.get(i));
   }
 
   /**
    * Segment `i`'s last key (Dict) or element (Set).
    *
    * @remarks
-   * The one bound neither backing stores: a segment's keys end before the next
-   * segment's fence, and the last segment has no next. Costs a read and a
+   * The one bound a manifest does not store: a segment's keys end before the
+   * next segment's fence, and the last segment has no next. Costs a read and a
    * decode of the segment.
    *
    * @param i - zero-based segment index
@@ -211,8 +178,7 @@ export class DatasetSegments {
   }
 
   /**
-   * Segment `i`'s stored size in bytes: its object's, when a manifest names
-   * it, or its frame's in the blob.
+   * Segment `i`'s stored size in bytes: its object's, as the manifest names it.
    *
    * @param i - zero-based segment index
    * @returns the size
@@ -222,9 +188,7 @@ export class DatasetSegments {
     if (i < 0 || i >= this.counts.length) {
       throw new Error(`beast2 v5: segment ${i} out of range (${this.counts.length} segments)`);
     }
-    if (this.backing.kind === 'manifest') return Number(this.backing.manifest.entries[i]!.bytes);
-    const extents = this.backing.extents!;
-    return segmentEnd(extents, i) - extents.offsets[i]!;
+    return Number(this.manifest.entries[i]!.bytes);
   }
 
   /**
@@ -288,17 +252,10 @@ export class DatasetSegments {
     if (!Number.isInteger(from) || !Number.isInteger(to) || from < 0 || to < from || to > n) {
       throw new Error(`beast2 v5: segment range [${from}, ${to}) invalid (${n} segments)`);
     }
-    if (this.backing.kind === 'blob') {
-      const extents = this.backing.extents!;
-      const start = to > from ? extents.offsets[from]! : 0;
-      const end = to > from ? segmentEnd(extents, to - 1) : 0;
-      const frames = to > from ? await blobReader(this.backing)(start, end - start) : new Uint8Array(0);
-      return carveBeast2Ranged(extents, frames, from, to);
-    }
     // Segment objects are standalone blobs sharing one header, so a run of
     // them splices by concatenating their frame bytes under that header —
     // no value is decoded, and one segment is returned as it is stored.
-    const { storage, repo, manifest } = this.backing;
+    const { storage, repo, manifest } = this;
     if (to - from === 1) return storage.objects.read(repo, manifest.entries[from]!.hash);
     const head = await this.head();
     const parts: Uint8Array[] = [];
@@ -340,66 +297,18 @@ export class DatasetSegments {
     yield head;
     const segments: { offset: number; count: number }[] = [];
     let pos = head.length;
-    if (this.backing.kind === 'blob') {
-      const extents = this.backing.extents!;
-      const read = blobReader(this.backing);
-      for (let i = 0; i < extents.offsets.length; i++) {
-        segments.push({ offset: extents.offsets[i]! - extents.prefixEnd + pos, count: extents.counts[i]! });
+    for (const entry of this.manifest.entries) {
+      const bytes = await this.storage.objects.read(this.repo, entry.hash);
+      const extents = readBeast2Extents(bytes);
+      for (let s = 0; s < extents.offsets.length; s++) {
+        segments.push({ offset: extents.offsets[s]! - extents.prefixEnd + pos, count: extents.counts[s]! });
       }
-      const start = extents.prefixEnd;
-      const end = extents.segmentsEnd;
-      for (let at = start; at < end; at += SPLICE_CHUNK_BYTES) {
-        yield await read(at, Math.min(SPLICE_CHUNK_BYTES, end - at));
-      }
-      pos += end - start;
-    } else {
-      const { storage, repo, manifest } = this.backing;
-      for (const entry of manifest.entries) {
-        const bytes = await storage.objects.read(repo, entry.hash);
-        const extents = readBeast2Extents(bytes);
-        for (let s = 0; s < extents.offsets.length; s++) {
-          segments.push({ offset: extents.offsets[s]! - extents.prefixEnd + pos, count: extents.counts[s]! });
-        }
-        const frames = bytes.subarray(extents.prefixEnd, extents.segmentsEnd);
-        yield frames;
-        pos += frames.length;
-      }
+      const frames = bytes.subarray(extents.prefixEnd, extents.segmentsEnd);
+      yield frames;
+      pos += frames.length;
     }
     yield spliceBeast2Tail(segments, pos);
   }
-}
-
-/** A manifest-backed dataset: the segments are objects in the store. */
-interface ManifestBacking {
-  kind: 'manifest';
-  storage: StorageBackend;
-  repo: string;
-  manifest: CollectionManifest;
-}
-
-/** A blob-backed dataset: one object, addressed through ranged reads. */
-interface BlobBacking {
-  kind: 'blob';
-  storage: StorageBackend;
-  repo: string;
-  hash: string;
-  /** `null` only while the open is still reading the geometry. */
-  extents: Beast2RangedExtents | null;
-}
-
-/** Ranged access to a blob-backed dataset's object.
- *
- *  The object store is resolved on every read rather than captured at open:
- *  an opened dataset is cached by content hash and outlives the call that
- *  opened it, and a captured method would keep reading through whatever the
- *  backend was wearing then. */
-function blobReader(backing: BlobBacking): (offset: number, length: number) => Promise<Uint8Array> {
-  return (offset, length) => backing.storage.objects.readRange(backing.repo, backing.hash, offset, length);
-}
-
-/** The end offset of segment `i`'s frame. */
-function segmentEnd(extents: Beast2RangedExtents, i: number): number {
-  return i + 1 < extents.offsets.length ? extents.offsets[i + 1]! : extents.segmentsEnd;
 }
 
 /**

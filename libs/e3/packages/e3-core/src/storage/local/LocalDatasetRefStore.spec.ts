@@ -107,30 +107,23 @@ for (const [name, make] of Object.entries(backends)) {
       assert.ok(result.revision.length > 0);
     });
 
-    // Legacy ref files (written before the revision wrapper) are bare DatasetRef
-    // bytes with no 0xFF magic; the local store must still read them and upgrade
-    // them in place on the next conditional write. (Local-only: the in-memory
-    // backend has no on-disk format.)
+    // A ref file an older e3 wrote is a bare DatasetRef, with no 0xFF magic and
+    // no revision: its repository is re-created, and every read says so, a
+    // conditional write's included. (Local-only: the in-memory backend has no
+    // on-disk format.)
     if (name === 'local') {
-      it('reads a legacy bare-DatasetRef file and upgrades it on the next writeIf', async () => {
-        const legacyRef = variant('value', { hash: 'b'.padEnd(64, '0'), versions: new Map() });
+      it('refuses a bare-DatasetRef file an older e3 wrote, naming the fix', async () => {
         const refFile = join(fx.repo, 'workspaces', ws, 'data', `${path}.ref`);
         await fs.mkdir(dirname(refFile), { recursive: true });
-        // Bare beast2 DatasetRef — deliberately no 0xFF revision magic byte.
-        await fs.writeFile(refFile, encodeBeast2For(DatasetRefType)(legacyRef));
+        await fs.writeFile(refFile, encodeBeast2For(DatasetRefType)(variant('value', { hash: 'b'.padEnd(64, '0'), versions: new Map() })));
 
-        const read = await fx.store.readVersioned(fx.repo, ws, path);
-        assert.ok(read, 'legacy file decodes');
-        assertRefEqual(read.ref, legacyRef);
-        assert.ok(read.revision.length > 0, 'a stable revision is derived from the legacy bytes');
-
-        // A conditional write against the derived revision succeeds and rotates it,
-        // upgrading the file to the revisioned format.
-        const next = variant('value', { hash: 'c'.padEnd(64, '0'), versions: new Map() });
-        const { revision } = await fx.store.writeIf(fx.repo, ws, path, next, read.revision);
-        assert.notStrictEqual(revision, read.revision);
-        const after = await fx.store.readVersioned(fx.repo, ws, path);
-        assertRefEqual(after!.ref, next);
+        const message = `the dataset ref ${refFile} was written by an older e3, without a revision — re-create the repository: deploy again and import its data again`;
+        await assert.rejects(fx.store.read(fx.repo, ws, path), { message });
+        await assert.rejects(fx.store.readVersioned(fx.repo, ws, path), { message });
+        await assert.rejects(
+          fx.store.writeIf(fx.repo, ws, path, variant('value', { hash: 'c'.padEnd(64, '0'), versions: new Map() }), null),
+          { message },
+        );
       });
 
       // The cross-process guarantee, exercised by REAL separate OS processes.

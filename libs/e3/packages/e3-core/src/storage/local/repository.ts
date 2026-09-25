@@ -13,6 +13,28 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
+/** The file a repository's metadata is kept in, at its root. */
+export const REPO_METADATA_FILENAME = '.e3-metadata.json';
+
+/**
+ * Writes a new repository's metadata: its name, `active`, and the time.
+ *
+ * @remarks
+ * Every way a local repository is created writes it — `repoInit` for the CLI
+ * and the tests, and `LocalRepoStore.create` for the API server — and a
+ * repository without it is one an older e3 created, which is refused.
+ *
+ * @param repoPath - The repository's directory
+ * @param name - The repository's name
+ */
+export function writeNewRepoMetadata(repoPath: string, name: string): void {
+  const now = new Date().toISOString();
+  fs.writeFileSync(
+    path.join(repoPath, REPO_METADATA_FILENAME),
+    JSON.stringify({ name, status: 'active', createdAt: now, statusChangedAt: now }, null, 2),
+  );
+}
+
 /**
  * Result of initializing an e3 repository
  */
@@ -31,6 +53,8 @@ export interface InitRepositoryResult {
  * - packages/
  * - executions/
  * - workspaces/
+ *
+ * and its metadata file, named after the directory.
  *
  * The repository IS the specified directory - subdirectories are created directly within it.
  *
@@ -64,6 +88,8 @@ export function repoInit(repoPath: string): InitRepositoryResult {
 
     // Create workspaces directory (workspace state)
     fs.mkdirSync(path.join(targetPath, 'workspaces'), { recursive: true });
+
+    writeNewRepoMetadata(targetPath, path.basename(targetPath));
 
     return {
       success: true,

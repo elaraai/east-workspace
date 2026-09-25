@@ -64,7 +64,7 @@ The `plan` sidecar names the `$plan` of the stage a split task's execution is in
 | `cancelled` | e3 stopped the execution because the run was aborted, before its runner started or while it ran | `completedAt` |
 | `interrupted` | the orchestrator that owned the execution exited before it finished, and its runner is gone too | `completedAt`, `pid` (the runner's) |
 
-The status is stored state, read with `decodeExecutionStatus`: a record written before `cancelled` and `interrupted` were cases is an `error` whose message began `cancelled:` or `interrupted:`, and it reads back as that case.
+The status is stored state, read with `decodeExecutionStatus`, which refuses a record an older e3 wrote, saying to re-create the repository.
 
 `taskHash` is not stored in the status file since it is encoded in the directory path (while the input hashes are hashed together into a single hash in the path).
 
@@ -169,7 +169,7 @@ A task whose work is split over its inputs — an `east` body on a stock runner,
 
 ### Pieces
 
-`planPieces` (`execution/pieces.ts`) cuts the pieces. The first input `e3.partition` marks is the primary. It is taken through the store's door first, which leaves a current manifest as it is and re-cuts one stored any other way, so its pieces are runs of the segments the Writer writes.
+`planPieces` (`execution/pieces.ts`) cuts the pieces. The first input `e3.partition` marks is the primary, and its pieces are runs of the segments its manifest names, which the Writer wrote.
 
 A piece is a run of whole segments of the primary, closed by a rule over its manifest (`pieceBoundaries`). The segments are walked in order, with `b` the stored bytes of the open piece, the segment in hand included. A segment closes the piece after it when `b` reaches `max`, or when `b` is at least `min` and the first 32 bits of the segment's SHA-256 — the hash the store names it by — fall under `2^32 × s / D`, where `s` is the segment's stored bytes and `D` is `max` until the piece holds `target` and `min` after. The platform's sizes are 16, 64 and 256 MiB (`PIECE_SIZES`), and most pieces hold 64 to 100 MiB; a test sets `E3_TEST_PIECE_BYTES=n` for `n/4`, `n` and `4n` bytes. Whether a segment closes a piece depends on that segment and on `b` alone, so an insertion moves only the pieces around it.
 
@@ -261,13 +261,13 @@ A split task is planned when it becomes ready and is not cached: its pieces are 
 
 A yield stops the loop launching, suspends each split task in progress — its execution recorded `interrupted` — and resets the in-progress tasks to `pending`, keeping a split task's `plan`. The resumed run takes each stage up again from its plan, and finds the units that finished in the execution cache. A run whose host died is resumed the same way. An aborted run ends a split task whose next units never started `cancelled`, as its units in flight end.
 
-The execution state carries its version (`EXECUTION_STATE_VERSION`, 2: a task's `plan`, and a split task's events). `decodeDataflowExecutionState` reads every version up to its own — a version 1 state's tasks have no plan — and refuses a newer one, naming its version (see `docs/conventions/WIRE_MIGRATION.md`). A task's successful output is written to the workspace under the dataflow lock. `e3 watch` (e3-watch.md) re-runs a workspace as its sources change.
+The execution state carries its version (`EXECUTION_STATE_VERSION`, 2: a task's `plan`, and a split task's events). `decodeDataflowExecutionState` reads its own version and refuses any other, naming it: a newer one's, and an older one's, which is re-created with its repository (see `docs/conventions/WIRE_MIGRATION.md`). A task's successful output is written to the workspace under the dataflow lock. `e3 watch` (e3-watch.md) re-runs a workspace as its sources change.
 
 ## Garbage Collection Integration
 
 A recorded execution's `output` ref is a GC root, so its output object is kept, a unit's among them. Status files, owner sidecars and logs are files beside it, not objects. The `plan` sidecar is a root while it names a plan. GC walks a `$plan`: the task as a node, each piece's inputs and each group's entries as dataset values (a manifest among them names its segments), and each range as a leaf.
 
-GC dispatches a kind-tagged object — a manifest, a record state, a task object, a unit plan — on its tag, through one table that lists the field names of every released version of each kind and the objects a value of it names. An object is walked as a kind when its fields begin with one of the kind's versions and it carries the kind's tag, so a later version, which appends fields, is walked for the fields this build knows. Every other object is recognised by its shape, and each released version of each shape is pinned by a test. So every object a split task's execution can resume from is kept until the execution ends. After that, a piece or range no plan names is swept, and a later run cuts the same pieces again, with the same hashes, and finds its units in the cache.
+GC dispatches a kind-tagged object — a manifest, a record state, a task object, a unit plan — on its tag, through one table that lists each kind's field names and the objects a value of it names. An object is walked as a kind when its fields begin with the kind's and it carries the kind's tag, so a later version, which appends fields, is walked for the fields this build knows. Every other object is recognised by its current shape exactly, each pinned by a test; an object of an earlier shape, which only an older e3's repository holds, is a leaf. So every object a split task's execution can resume from is kept until the execution ends. After that, a piece or range no plan names is swept, and a later run cuts the same pieces again, with the same hashes, and finds its units in the cache.
 
 gc takes the repository's `#tasks` lock exclusively and every workspace's `#dataflow` lock before marking, and refuses while a run holds one; a dataflow run holds its workspace's `#dataflow` lock, and an ad-hoc `e3 run` holds `#tasks` shared for its execution (and refuses, in turn, while gc holds it). So gc never runs while a split task's pieces or its units' outputs are in use.
 

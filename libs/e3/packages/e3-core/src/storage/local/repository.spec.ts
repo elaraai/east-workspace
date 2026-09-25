@@ -9,9 +9,10 @@
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
-import { existsSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import {
+  REPO_METADATA_FILENAME,
   repoInit,
   repoFind,
   repoGet,
@@ -59,6 +60,18 @@ describe('repository', () => {
       // No config file should be created - runner config is in tasks
       assert.strictEqual(existsSync(join(repoDir, 'e3.east')), false);
       assert.strictEqual(existsSync(join(repoDir, 'e3.beast2')), false);
+    });
+
+    it('writes the metadata file, named after the directory', () => {
+      const repoDir = join(testDir, 'my-repo');
+      const result = repoInit(repoDir);
+
+      assert.strictEqual(result.success, true);
+
+      const metadata = JSON.parse(readFileSync(join(repoDir, REPO_METADATA_FILENAME), 'utf-8'));
+      assert.strictEqual(metadata.name, 'my-repo');
+      assert.strictEqual(metadata.status, 'active');
+      assert.strictEqual(metadata.statusChangedAt, metadata.createdAt);
     });
 
     it('returns repoPath in result', () => {

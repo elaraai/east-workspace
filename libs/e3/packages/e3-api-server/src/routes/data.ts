@@ -11,9 +11,8 @@ import { pipeline } from 'node:stream/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { variant } from '@elaraai/east';
-import { transferPartCount, transferPartRange } from '@elaraai/e3-types';
+import { BEAST2_CONTENT_TYPE, transferPartCount, transferPartRange } from '@elaraai/e3-types';
 import {
-  BEAST2_CONTENT_TYPE,
   ObjectNotFoundError,
   transferStagingDir,
   transferStagingPath,

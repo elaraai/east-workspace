@@ -21,7 +21,7 @@
 import {
   ArrayType, BooleanType, DateTimeType, DictType, EastTypeType, FunctionType, NullType,
   OptionType, PatchType, StringType, StructType, VariantType,
-  decodeBeast2For, dictPatchOpsType, none, setPatchOpsType, toEastTypeValue,
+  decodeBeast2For, dictPatchOpsType, setPatchOpsType, toEastTypeValue,
   type EastType, type EastTypeValue, type PatchTypeOf, type ValueTypeOf,
 } from '@elaraai/east';
 import { RunnerType } from './runner.js';
@@ -53,51 +53,34 @@ export const RecordCommitType = StructType({
    *  it. No state depends on it — every state past and present reads
    *  identically if every delta were deleted — but it is a collection like any
    *  other, a manifest naming segment objects, so a collector walks it as a
-   *  value rather than marking it as a leaf the way it marks `args`.
-   *
-   *  Appended LAST, per the positional rule: struct fields encode positionally
-   *  in declaration order, so a new field never goes between existing ones. */
+   *  value rather than marking it as a leaf the way it marks `args`. */
   delta: OptionType(StringType),
 });
 export type RecordCommitType = typeof RecordCommitType;
 export type RecordCommit = ValueTypeOf<typeof RecordCommitType>;
 
-/** The pre-`delta` commit shape, kept only so {@link decodeRecordCommit} can
- *  read the history of a record committed before deltas existed. */
-const PreDeltaRecordCommitType = StructType({
-  parent: OptionType(StringType),
-  state: StringType,
-  mutation: StringType,
-  args: OptionType(StringType),
-  actor: StringType,
-  at: DateTimeType,
-});
-
 const decodeCurrentCommit = decodeBeast2For(RecordCommitType);
-const decodePreDeltaCommit = decodeBeast2For(PreDeltaRecordCommitType);
 
 /**
- * Decode a `RecordCommit`, tolerating the shape that predates `delta`.
+ * Decode a `RecordCommit`.
  *
  * @remarks
- * Every commit-read path — the history walk, the collector, the cloud's —
- * must use this rather than `decodeBeast2For(RecordCommitType)`: a commit
- * written before deltas existed simply ends early, and a commit that fails to
- * decode is a chain that ends there, taking the states it names with it.
+ * Stored state, so it changes by hard cutover: a repository an older e3 wrote
+ * is re-created rather than read, and this says so.
  *
  * @param data - the stored bytes
- * @returns the commit, with an absent delta as `none`
- * @throws {Error} When the bytes are no known commit shape.
+ * @returns the commit
+ * @throws {Error} When the bytes are not a current commit — one an older e3
+ *   wrote, whose repository is re-created.
  */
 export function decodeRecordCommit(data: Uint8Array): RecordCommit {
   try {
     return decodeCurrentCommit(data);
   } catch (err) {
-    try {
-      return { ...decodePreDeltaCommit(data), delta: none };
-    } catch {
-      throw err;
-    }
+    throw new Error(
+      `the record commit does not decode: an older e3 wrote this repository — re-create it: deploy again and import its data again ` +
+      `(${err instanceof Error ? err.message : String(err)})`,
+    );
   }
 }
 
@@ -115,8 +98,7 @@ export const MutationObjectType = StructType({
   argTypes: ArrayType(EastTypeType),
   /** Author-chosen runtime the mutation's unit runs on. */
   runner: RunnerType,
-  /** Which write form this is — see {@link MutationForm}. Appended LAST, per
-   *  the positional rule. */
+  /** Which write form this is — see {@link MutationForm}. */
   form: StringType,
   /** Hash of the generated program's IR bundle: the one thing that actually
    *  runs, whatever the form. For the `patch` form `bodyIr` names it too,
@@ -144,41 +126,28 @@ export type MutationObject = ValueTypeOf<typeof MutationObjectType>;
  */
 export type MutationForm = 'reduce' | 'edit' | 'patch';
 
-/** The pre-`form` mutation shape, kept only so {@link decodeMutationObject}
- *  can read mutations deployed before the delta existed. */
-const PreDeltaMutationObjectType = StructType({
-  bodyIr: StringType,
-  argTypes: ArrayType(EastTypeType),
-  runner: RunnerType,
-});
-
 const decodeCurrentMutation = decodeBeast2For(MutationObjectType);
-const decodePreDeltaMutation = decodeBeast2For(PreDeltaMutationObjectType);
 
 /**
- * Decode a `MutationObject`, tolerating the shape that predates `form` and
- * `programIr`.
+ * Decode a `MutationObject`.
  *
  * @remarks
- * A mutation deployed before the delta existed is a `reduce` whose program is
- * its body: e3-core ran the reducer directly and diffed nothing, which is
- * exactly what `bodyIr` still does. Reading it back that way is what lets a
- * workspace deployed before this keep mutating.
+ * A package-borne wire, so it changes by hard cutover: a package exported by
+ * an older SDK is re-exported with the current one, and this says so.
  *
  * @param data - the stored bytes
  * @returns the mutation object
- * @throws {Error} When the bytes are no known mutation shape.
+ * @throws {Error} When the bytes are not a current mutation object — a package
+ *   exported by an older SDK, which is re-exported with the current one.
  */
 export function decodeMutationObject(data: Uint8Array): MutationObject {
   try {
     return decodeCurrentMutation(data);
   } catch (err) {
-    try {
-      const legacy = decodePreDeltaMutation(data);
-      return { ...legacy, form: 'reduce', programIr: '' };
-    } catch {
-      throw err;
-    }
+    throw new Error(
+      `the mutation object does not decode: the package was exported by an older e3 SDK — re-export it with the current one ` +
+      `(${err instanceof Error ? err.message : String(err)})`,
+    );
   }
 }
 
@@ -229,53 +198,34 @@ export const RecordObjectType = StructType({
   path: StringType,
   /** Mutations by name -> MutationObject hash. */
   mutations: DictType(StringType, StringType),
-  /** Secondary indexes by name -> RecordIndexObject hash.
-   *  BEAST2 encodes struct fields positionally in declaration order, so new
-   *  fields MUST be appended LAST — never inserted between existing fields. */
+  /** Secondary indexes by name -> RecordIndexObject hash. */
   indexes: DictType(StringType, StringType),
 });
 export type RecordObjectType = typeof RecordObjectType;
 export type RecordObject = ValueTypeOf<typeof RecordObjectType>;
 
-/**
- * The pre-`indexes` record object wire shape, kept only so
- * {@link decodeRecordObject} can read records deployed before secondary
- * indexes existed.
- */
-const MutationsEraRecordObjectType = StructType({
-  path: StringType,
-  mutations: DictType(StringType, StringType),
-});
-
 const decodeCurrentRecord = decodeBeast2For(RecordObjectType);
-const decodeMutationsEraRecord = decodeBeast2For(MutationsEraRecordObjectType);
 
 /**
- * Decode a `RecordObject`, tolerating the shapes that predate its appended
- * fields.
+ * Decode a `RecordObject`.
  *
  * @remarks
- * Every record-read path — local AND cloud — must use this rather than
- * `decodeBeast2For(RecordObjectType)`. A struct is encoded positionally, so a
- * record object written before `indexes` existed simply ends early; read
- * through the current decoder it fails, and a record that fails to decode is a
- * record whose mutations go unmarked by the collector and whose bodies the
- * next sweep deletes.
+ * A package-borne wire, so it changes by hard cutover: a package exported by
+ * an older SDK is re-exported with the current one, and this says so.
  *
  * @param data - the stored bytes
- * @returns the record object, with absent maps defaulted to empty
- * @throws {Error} When the bytes are no known record-object shape — the
- *   current format's error, not the oldest one's.
+ * @returns the record object
+ * @throws {Error} When the bytes are not a current record object — a package
+ *   exported by an older SDK, which is re-exported with the current one.
  */
 export function decodeRecordObject(data: Uint8Array): RecordObject {
   try {
     return decodeCurrentRecord(data);
   } catch (err) {
-    try {
-      return { ...decodeMutationsEraRecord(data), indexes: new Map() };
-    } catch {
-      throw err; // no known shape — surface the current-format error
-    }
+    throw new Error(
+      `the record object does not decode: the package was exported by an older e3 SDK — re-export it with the current one ` +
+      `(${err instanceof Error ? err.message : String(err)})`,
+    );
   }
 }
 

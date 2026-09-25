@@ -12,9 +12,6 @@
 
 import * as crypto from 'crypto';
 
-// Re-export from e3-types for backwards compatibility
-export { BEAST2_CONTENT_TYPE } from '@elaraai/e3-types';
-
 /**
  * Calculate SHA256 hash of data.
  *

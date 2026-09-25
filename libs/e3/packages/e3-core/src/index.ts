@@ -50,7 +50,7 @@ export {
 } from './storage/local/gc.js';
 
 // Object storage
-export { computeHash, BEAST2_CONTENT_TYPE } from './objects.js';
+export { computeHash } from './objects.js';
 
 // Local object storage functions (for backwards compatibility)
 export {

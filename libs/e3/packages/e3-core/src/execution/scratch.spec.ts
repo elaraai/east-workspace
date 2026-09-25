@@ -61,33 +61,27 @@ describe('scratch directories', () => {
   });
 
   it('removes the directories of exited owners and keeps the rest', async () => {
-    const hour = 60 * 60 * 1000;
-    const now = Date.now();
     const dead = deadPid();
     const live = path.basename(await executionScratchDir(repo, 'a'.repeat(64), 'b'.repeat(64), '01900000-0000-7000-8000-000000000001'));
     const names = {
       live,
       exitedOwner: `e3-exec-aaaaaaaa-bbbbbbbb-${dead}-12345-01900000000070008000000000000002`,
-      exitedOwnerTimeForm: `e3-exec-aaaaaaaa-bbbbbbbb-${dead}-12345-${now}`,
-      reusedPid: `e3-exec-aaaaaaaa-bbbbbbbb-${process.pid}-12345-${now}`,
-      oldFormExitedOld: `e3-exec-cccccccc-dddddddd-${dead}-${now - hour}`,
-      oldFormExitedYoung: `e3-exec-eeeeeeee-ffffffff-${dead}-${now}`,
-      oldFormLive: `e3-exec-11111111-22222222-${process.pid}-${now - hour}`,
-      unrelated: `e3-call-${dead}-${now - hour}-abcd`,
+      reusedPid: `e3-exec-aaaaaaaa-bbbbbbbb-${process.pid}-12345-01900000000070008000000000000003`,
+      unrelated: `e3-call-${dead}-${Date.now()}-abcd`,
     };
     for (const name of Object.values(names)) mkdirSync(path.join(root, name));
 
-    const removed = await sweepScratchDirs(repo, { minAge: 60_000 });
+    const removed = await sweepScratchDirs(repo);
 
     // Every platform but Windows reports a process's start time. Where none
     // is reported, a pid's existence decides, so there the reused pid — this
     // process, now running — still counts as the owner.
     const startTimes = process.platform !== 'win32';
     assert.equal((await getPidStartTime(process.pid)) !== 0, startTimes, 'this platform reports start times');
-    assert.equal(removed, startTimes ? 4 : 3);
+    assert.equal(removed, startTimes ? 2 : 1);
     assert.deepEqual(
       readdirSync(root).sort(),
-      [names.live, names.oldFormExitedYoung, names.oldFormLive, names.unrelated, ...(startTimes ? [] : [names.reusedPid])].sort(),
+      [names.live, names.unrelated, ...(startTimes ? [] : [names.reusedPid])].sort(),
     );
     assert.equal(existsSync(path.join(root, names.reusedPid)), !startTimes,
       startTimes ? 'a pid now running with another start time is not the owner' : 'with no start time, a live pid is the owner');
@@ -104,7 +98,7 @@ describe('scratch directories', () => {
     const dead = path.join(root, `e3-exec-cccccccc-dddddddd-${deadPid()}-0-${Date.now()}`);
     mkdirSync(dead);
 
-    await sweepScratchDirs(repo, { minAge: 0 });
+    await sweepScratchDirs(repo);
 
     assert.ok(existsSync(live), 'the live owner\'s directory stays');
     assert.ok(!existsSync(dead), 'the exited owner\'s directory goes');
@@ -112,6 +106,6 @@ describe('scratch directories', () => {
 
   it('removes nothing when there is no scratch root', async () => {
     process.env.E3_SCRATCH_DIR = path.join(root, 'absent');
-    assert.equal(await sweepScratchDirs(repo, { minAge: 0 }), 0);
+    assert.equal(await sweepScratchDirs(repo), 0);
   });
 });

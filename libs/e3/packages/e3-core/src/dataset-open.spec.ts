@@ -15,7 +15,7 @@ import assert from 'node:assert';
 import { dirname } from 'node:path';
 import {
   DictType, IntegerType, SetType, StringType, StructType, ArrayType,
-  SortedMap, SortedSet, compareFor, decodeBeast2For, openBeast2PagesFor,
+  SortedMap, SortedSet, compareFor, decodeBeast2For, encodeBeast2PagedFor, openBeast2PagesFor,
   SEGMENT_MAX_COUNT, SEGMENT_MIN_COUNT, SEGMENT_RULE_ARRAY, SEGMENT_RULE_KEYED,
   toEastTypeValue,
 } from '@elaraai/east';
@@ -223,26 +223,20 @@ describe('the segment-object layout', () => {
       }
     });
 
-    it('opens a bare segmented blob through the same shape', async () => {
-      // A blob written outside the door — what a repository written before
-      // the layout still holds.
-      const blob = openBeast2PagesFor;  // referenced so the intent is explicit
-      assert.ok(blob);
-      const value = table(5_000);
-      const bytes = (await import('@elaraai/east')).encodeBeast2PagedFor(TableType)(value);
-      const bare = await storage.objects.write(repo, bytes);
+    it('refuses a collection stored as one blob, naming the fix', async () => {
+      // A blob stored outside the door: what an older e3 wrote.
+      const bare = await storage.objects.write(repo, encodeBeast2PagedFor(TableType)(table(5_000)));
       assert.equal(await readManifest(storage, repo, bare), null);
-
-      const segments = await DatasetSegments.open(storage, repo, bare);
-      assert.equal(segments.elementCount, 5_000);
-      assert.equal(await segments.fence(0), 'k0000000');
-      assert.deepEqual(await readDatasetWhole(storage, repo, bare), bytes);
+      await assert.rejects(DatasetSegments.open(storage, repo, bare), {
+        message: `the collection ${bare} is stored as one blob: ` +
+          'an older e3 wrote this repository — re-create it: deploy again and import its data again',
+      });
     });
 
     it('stores a bare blob as the manifest the value path writes', async () => {
       const value = table(20_000);
       const direct = await datasetWrite(storage, repo, value, TableType);
-      const bytes = (await import('@elaraai/east')).encodeBeast2PagedFor(TableType)(value);
+      const bytes = encodeBeast2PagedFor(TableType)(value);
       const cut = await storeDatasetBytes(storage, repo, bytes);
       assert.equal(cut, direct, 'a rule-conforming blob must land on the door’s own manifest');
     });

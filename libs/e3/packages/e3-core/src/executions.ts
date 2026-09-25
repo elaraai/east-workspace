@@ -243,9 +243,6 @@ export interface LogReadOptions {
   limit?: number;
 }
 
-// Re-export LogChunk from storage interfaces for backwards compatibility
-export type { LogChunk };
-
 /**
  * Read execution logs with pagination support.
  *

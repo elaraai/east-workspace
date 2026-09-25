@@ -13,9 +13,10 @@ import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { Hono } from 'hono';
 import { IntegerType, encodeBeast2For, decodeBeast2For, toEastTypeValue, variant, some, none } from '@elaraai/east';
-import { MockTaskRunner, BEAST2_CONTENT_TYPE, recordHistory } from '@elaraai/e3-core';
+import { MockTaskRunner, recordHistory } from '@elaraai/e3-core';
 import { InMemoryStorage } from '@elaraai/e3-core/test';
 import {
+  BEAST2_CONTENT_TYPE,
   PackageObjectType,
   RecordObjectType,
   MutationObjectType,

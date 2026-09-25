@@ -76,14 +76,11 @@ const DEFAULT_MAX_RETRY_MS = 30_000;
 
 /** Reserved version-vector slot holding the last committed idempotency key. The
  *  `$`-prefix keeps it out of the structural keypath space, so change detection
- *  (snapshotInputVersions) never reads it and dataflow staleness is unaffected.
- *  Stored in the ref (not the commit) so adding it changes no persisted struct
- *  schema — old commit/ref blobs still decode. */
+ *  (snapshotInputVersions) never reads it and dataflow staleness is unaffected. */
 const IDEM_SLOT = '$idem';
 
 /** Reserved slot beside {@link IDEM_SLOT} naming the commit its key answers,
- *  which stops being the head once a reindex commits; a retry returns it. A
- *  ref written before this slot existed has the keyed commit as its head. */
+ *  which stops being the head once a reindex commits; a retry returns it. */
 const IDEM_COMMIT_SLOT = '$idem.commit';
 
 /**
@@ -379,7 +376,7 @@ export async function recordMutate(
       // under this key, return that commit, and the state it wrote, without
       // re-running the reducer.
       if (opts.idempotencyKey !== undefined && existing.ref.value.versions.get(IDEM_SLOT) === opts.idempotencyKey) {
-        const keyed = existing.ref.value.versions.get(IDEM_COMMIT_SLOT) ?? existing.ref.value.versions.get(resolved.selfKeypath);
+        const keyed = existing.ref.value.versions.get(IDEM_COMMIT_SLOT);
         if (keyed !== undefined) {
           return { kind: 'committed', commitHash: keyed, stateHash: decodeRecordCommit(await storage.objects.read(repo, keyed)).state };
         }
@@ -508,12 +505,12 @@ interface RunContext {
  *
  * @remarks
  * What a record whose collection has no delta addressed by key does — a
- * struct, a scalar or an Array, where "what changed" is the whole value — and
- * what a mutation deployed before deltas existed does, since its object names
- * no program. The reducer runs as a unit whose output is the new state, taken
- * into the store through its door. No such record has an index: only a Dict
- * record declares one, and every Dict record's mutation writes a delta. It is
- * O(state) per write, which is the cost the delta exists to remove.
+ * struct, a scalar or an Array, where "what changed" is the whole value — its
+ * mutation object naming no program. The reducer runs as a unit whose output
+ * is the new state, taken into the store through its door. No such record has
+ * an index: only a Dict record declares one, and every Dict record's mutation
+ * writes a delta. It is O(state) per write, which is the cost the delta exists
+ * to remove.
  */
 async function writeWholeState(
   storage: StorageBackend,

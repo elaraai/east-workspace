@@ -170,10 +170,9 @@ function cutOf(keyType: EastTypeValue, by: readonly string[], where: string): Cu
  * each piece's inputs.
  *
  * @remarks
- * The primary is taken through the door first, which leaves a current
- * manifest as it is and re-cuts one stored any other way, so its pieces are
- * runs of the segments the Writer writes. Nothing is decoded but a segment
- * where a `by` group or another input's split has to be found.
+ * The primary's pieces are runs of the segments its manifest names. Nothing is
+ * decoded but a segment where a `by` group or another input's split has to be
+ * found.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
@@ -208,11 +207,10 @@ export async function planPieces(
     }
   };
 
-  // The primary, as the manifest the Writer writes for it.
   const first = marked[0]!;
-  const typeValue = (await open(first.index)).typeValue;
-  const primary = await storeCollection(storage, repo, typeValue, [{ stored: inputHashes[first.index]! }]);
-  const segments = await DatasetSegments.open(storage, repo, primary);
+  const segments = await open(first.index);
+  const typeValue = segments.typeValue;
+  const primary = segments.hash;
   const count = segments.segmentCount;
   const keyType = segmentKeyTypeOf(typeValue);
   if (keyType === null && (first.by.length > 0 || marked.length > 1)) {
@@ -244,7 +242,7 @@ export async function planPieces(
     }
     return s + 1 < count ? { seg: s + 1, offset: 0 } : null;
   };
-  const starts = await pieceBoundaries(segments.manifest!.entries, sizes, groupEnd);
+  const starts = await pieceBoundaries(segments.manifest.entries, sizes, groupEnd);
   if (starts.length === 1) return [[...inputHashes]];
   const end: SplitPoint = { seg: count, offset: 0 };
 

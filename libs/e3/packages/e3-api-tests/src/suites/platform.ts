@@ -21,7 +21,6 @@ import {
   workspaceRemove,
   packageImport,
   Platform,
-  PlatformImpl,
 } from '@elaraai/e3-api-client';
 import { StringType, IntegerType, NullType, ArrayType, East } from '@elaraai/east';
 
@@ -60,7 +59,7 @@ export function platformTests(setup: TestSetup<TestContext>): void {
       );
 
       // Compile with platform implementation
-      const compiled = East.compileAsync(getStatus, PlatformImpl);
+      const compiled = East.compileAsync(getStatus, Platform.Implementation);
 
       // Run the compiled function with token from context
       const status = await compiled(ctx.config.baseUrl, ctx.repoName, (await ctx.opts()).token!);
@@ -89,7 +88,7 @@ export function platformTests(setup: TestSetup<TestContext>): void {
       );
 
       // Compile with platform implementation
-      const compiled = East.compileAsync(listWorkspaces, PlatformImpl);
+      const compiled = East.compileAsync(listWorkspaces, Platform.Implementation);
 
       // Run the compiled function
       const workspaces = await compiled(ctx.config.baseUrl, ctx.repoName, (await ctx.opts()).token!);
@@ -119,7 +118,7 @@ export function platformTests(setup: TestSetup<TestContext>): void {
       );
 
       // Compile with platform implementation
-      const compiled = East.compileAsync(createAndList, PlatformImpl);
+      const compiled = East.compileAsync(createAndList, Platform.Implementation);
 
       // Run the compiled function
       const workspaces = await compiled(ctx.config.baseUrl, ctx.repoName, 'east-created-ws', (await ctx.opts()).token!);
@@ -137,7 +136,7 @@ export function platformTests(setup: TestSetup<TestContext>): void {
           return Platform.workspaceRemove(url, repo, name, token);
         }
       );
-      const compiledRemove = East.compileAsync(removeWs, PlatformImpl);
+      const compiledRemove = East.compileAsync(removeWs, Platform.Implementation);
       await compiledRemove(ctx.config.baseUrl, ctx.repoName, 'east-created-ws', (await ctx.opts()).token!);
 
       // Verify removed
@@ -161,7 +160,7 @@ export function platformTests(setup: TestSetup<TestContext>): void {
       );
 
       // Compile with platform implementation
-      const compiled = East.compileAsync(listAndCount, PlatformImpl);
+      const compiled = East.compileAsync(listAndCount, Platform.Implementation);
 
       // Run the compiled function
       const count = await compiled(ctx.config.baseUrl, ctx.repoName, (await ctx.opts()).token!);

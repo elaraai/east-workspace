@@ -47,7 +47,7 @@ export {
 export { materializeEnvironment } from './environment.js';
 
 // Scratch directories of local executions
-export { sweepScratchDirs, type SweepScratchOptions } from './scratch.js';
+export { sweepScratchDirs } from './scratch.js';
 
 // The jobs budget of a local run
 export { JobSlots, defaultJobs, cgroupCpuQuota, type ReleaseSlot } from './jobs.js';

@@ -17,18 +17,19 @@
  * What the door does with a source depends on what it can trust about the
  * source's bytes:
  *
- * - A manifest in the store, cut by the current rule under the canonical
- *   header, is the Writer's already: its segments are carried over by
- *   reference and never read, and only the seams between sources are re-cut.
+ * - A manifest in the store is the Writer's already: its segments are carried
+ *   over by reference and never read, and only the seams between sources are
+ *   re-cut. One cut under another rule or another header is an older e3's, and
+ *   is refused.
  * - A stock runner's output was written through the Writer, whose bytes the
  *   conformance corpus pins in every runtime, so its segments are stored as
  *   they stand, never decoded: a manifest directory's segment files are linked
  *   in under the hashes that name them, and a blob's segments are carved out of
  *   the file.
  * - Everything else is foreign: a delivered file, an upload, a custom task's
- *   output, a blob or a manifest written before the current rule. Its elements
- *   are read a segment of the source at a time and written again through the
- *   Writer, so nothing about the source's layout survives into the store.
+ *   output. Its elements are read a segment of the source at a time and
+ *   written again through the Writer, so nothing about the source's layout
+ *   survives into the store.
  * - Elements in memory are written through the Writer.
  *
  * No source is decoded whole: a foreign source is read front to back, and a
@@ -71,7 +72,7 @@ import {
 } from '@elaraai/e3-types';
 import { readDatasetFileType } from '@elaraai/e3';
 import { computeHash } from './objects.js';
-import { DatasetSegments, openDatasetObject } from './dataset-open.js';
+import { openDatasetObject } from './dataset-open.js';
 import type { StorageBackend } from './storage/interfaces.js';
 
 /** Bytes a stored blob or a file is read in when it is read front to back:
@@ -82,8 +83,9 @@ const READ_CHUNK_BYTES = 1024 * 1024;
  * One source of a collection, in order, as {@link storeCollection} takes it.
  */
 export type CollectionSource =
-  /** A collection in the store — a manifest, a record state naming one, or a
-   *  blob — or its segments `[from, to)`. */
+  /** A collection in the store — a manifest, or a record state naming one —
+   *  or its segments `[from, to)`; or a delivery, whole, stored as the object
+   *  it arrived as. */
   | { readonly stored: string; readonly from?: number; readonly to?: number }
   /** A beast2 blob in a file. `canonical` when the Writer wrote it — a stock
    *  runner's output — so its segments are stored as they stand; otherwise
@@ -124,7 +126,8 @@ export type CollectionSource =
  * @throws {TypeError} When `type` is not a collection type.
  * @throws {Error} When a source holds another type, its elements do not
  *   ascend, a foreign segment is larger than the limit a collection is read in,
- *   or a stored source is missing.
+ *   a stored source is missing, or a stored manifest was cut under another rule
+ *   or header, which an older e3 wrote.
  */
 export async function storeCollection(
   storage: StorageBackend,
@@ -170,13 +173,7 @@ export async function storeCollection(
     return refs;
   };
 
-  /** Segments `[from, to)` of a stored collection that cannot be carried,
-   *  read one segment object at a time. */
-  async function* segmentElements(segments: DatasetSegments, from: number, to: number): AsyncGenerator<unknown> {
-    for (let i = from; i < to; i++) yield* readElements([await segments.segment(i)]);
-  }
-
-  /** A stored blob, read front to back. */
+  /** A delivery stored whole, read front to back. */
   async function* objectChunks(hash: string): AsyncGenerator<Uint8Array> {
     const { size } = await storage.objects.stat(repo, hash);
     for (let at = 0; at < size; at += READ_CHUNK_BYTES) {
@@ -186,23 +183,22 @@ export async function storeCollection(
 
   const storedPiece = async (source: { stored: string; from?: number; to?: number }): Promise<CollectionPiece> => {
     const opened = await openDatasetObject(storage, repo, source.stored);
-    const ranged = source.from !== undefined || source.to !== undefined;
-    if (opened.manifest !== null) {
-      const manifest = opened.manifest;
-      checkType(`manifest ${opened.hash.slice(0, 8)}`, manifest.type);
-      const from = source.from ?? 0;
-      const to = source.to ?? manifest.entries.length;
-      if (manifest.rule === rule && manifest.header === headerHash) return { segments: manifestRefs(manifest, from, to) };
-      // Cut under another rule, or under another header: no segment of it is
-      // one the Writer writes now, so its elements go through.
-      return { elements: segmentElements(await DatasetSegments.open(storage, repo, opened.hash), from, to) };
+    const manifest = opened.manifest;
+    if (manifest === null) {
+      if (source.from !== undefined || source.to !== undefined) {
+        throw new Error(`store: object ${opened.hash.slice(0, 8)} is not a manifest, and only a manifest has segments to take a run of`);
+      }
+      return { elements: readElements(objectChunks(opened.hash)) };
     }
-    if (ranged) {
-      const segments = await DatasetSegments.open(storage, repo, opened.hash);
-      checkType(`object ${opened.hash.slice(0, 8)}`, segments.typeValue);
-      return { elements: segmentElements(segments, source.from ?? 0, source.to ?? segments.segmentCount) };
+    checkType(`manifest ${opened.hash.slice(0, 8)}`, manifest.type);
+    // No segment of a manifest cut under another rule or header is one the
+    // Writer writes now.
+    if (manifest.rule !== rule || manifest.header !== headerHash) {
+      const cut = manifest.rule !== rule ? `under ${manifest.rule}, not the current ${rule}` : 'under another header than the current one';
+      throw new Error(`store: manifest ${opened.hash.slice(0, 8)} was cut ${cut}: ` +
+        'an older e3 wrote this repository — re-create it: deploy again and import its data again');
     }
-    return { elements: readElements(objectChunks(opened.hash)) };
+    return { segments: manifestRefs(manifest, source.from ?? 0, source.to ?? manifest.entries.length) };
   };
 
   /** A stock runner's output: its segments carved out of the file as they

@@ -20,8 +20,8 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { tmpdir } from 'os';
-import { decodeBeast2, isEastDict, readBeast2Type, toEastTypeValue, variant, type EastTypeValue } from '@elaraai/east';
-import { COLLECTION_MANIFEST_KIND, CollectionManifestType, MutationObjectType, RECORD_STATE_KIND, RecordCommitType, RecordIndexObjectType, RecordObjectType, RecordStateType, TASK_OBJECT_KIND, TaskObjectType, UNIT_PLAN_KIND, UnitPlanType, type CollectionManifest, type RecordState, type TaskObject, type UnitPlan } from '@elaraai/e3-types';
+import { decodeBeast2, readBeast2Type, toEastTypeValue, variant, type EastType, type EastTypeValue } from '@elaraai/east';
+import { COLLECTION_MANIFEST_KIND, CollectionManifestType, EnvironmentSpecType, FunctionObjectType, MutationObjectType, PackageObjectType, RECORD_STATE_KIND, RecordCommitType, RecordIndexObjectType, RecordObjectType, RecordStateType, TASK_OBJECT_KIND, TaskObjectType, UNIT_PLAN_KIND, UnitPlanType, type CollectionManifest, type FunctionObject, type MutationObject, type PackageObject, type RecordCommit, type RecordIndexObject, type RecordObject, type RecordState, type TaskObject, type UnitPlan } from '@elaraai/e3-types';
 import type { RepoStore, GcObjectEntry, GcRootScanResult, LockHandle, StorageBackend } from '../interfaces.js';
 import { transferStagingDir } from './localHelpers.js';
 import { sweepScratchDirs } from '../../execution/scratch.js';
@@ -274,39 +274,43 @@ async function readHeadType(
 // For Struct: type.type === "Struct", type.value is Array<{ name: string, type: EastTypeValue }>
 // For Variant: type.type === "Variant", type.value is Array<{ name: string, type: EastTypeValue }>
 
-/**
- * Check if a decoded EastTypeValue represents a PackageObject.
- * PackageObject is a Struct with fields: tasks (Dict<String,String>), data (Struct)
- */
-function isPackageObjectShape(type: any): boolean {
-  if (type.type !== 'Struct') return false;
-  const fields = type.value as { name: string; type: any }[];
-  const names = new Set(fields.map(f => f.name));
-  return names.has('tasks') && names.has('data');
+/** A type's struct field names or variant case names, in wire order. */
+function namesOf(type: EastType): readonly string[] {
+  return (toEastTypeValue(type).value as { name: string }[]).map((f) => f.name);
 }
 
 /**
- * Check if a decoded EastTypeValue represents an EnvironmentSpec.
- *
- * EnvironmentSpec is a Variant whose cases are a subset of {python, node,
- * image, tools, workspace_node} and always include the original three. The
- * bounded predicate (⊇ the original 3, ⊆ all 5) accepts both pre-`tools`
- * specs (exactly 3 cases) and current specs (5 cases) without matching an
- * unrelated variant that merely happens to contain `python`/`node`/`image`.
+ * Whether a decoded type is a struct whose fields are exactly `fields`, in
+ * order: how an object without a kind tag is recognised, by its current shape
+ * alone.
  */
+function isStructOf(type: any, fields: readonly string[]): boolean {
+  if (type.type !== 'Struct') return false;
+  const names = (type.value as { name: string }[]).map((f) => f.name);
+  return names.length === fields.length && names.every((name, i) => name === fields[i]);
+}
+
+const PACKAGE_OBJECT_FIELDS = namesOf(PackageObjectType);
+const FUNCTION_OBJECT_FIELDS = namesOf(FunctionObjectType);
+const RECORD_OBJECT_FIELDS = namesOf(RecordObjectType);
+const RECORD_INDEX_OBJECT_FIELDS = namesOf(RecordIndexObjectType);
+const MUTATION_OBJECT_FIELDS = namesOf(MutationObjectType);
+const RECORD_COMMIT_FIELDS = namesOf(RecordCommitType);
+const ENVIRONMENT_SPEC_CASES = namesOf(EnvironmentSpecType);
+
+/** Whether a decoded type is an EnvironmentSpec: a variant of exactly its
+ *  cases, in order. */
 function isEnvironmentSpecShape(type: any): boolean {
   if (type?.type !== 'Variant' || !Array.isArray(type.value)) return false;
-  const names = new Set<string>(type.value.map((c: any) => c.name as string));
-  const known = new Set(['python', 'node', 'image', 'tools', 'workspace_node']);
-  return names.has('python') && names.has('node') && names.has('image')
-    && [...names].every((n) => known.has(n));
+  const names = (type.value as { name: string }[]).map((c) => c.name);
+  return names.length === ENVIRONMENT_SPEC_CASES.length && names.every((name, i) => name === ENVIRONMENT_SPEC_CASES[i]);
 }
 
 /** A kind of object that names other objects and carries a `kind` tag. */
 interface TaggedKind {
-  /** The field names of every released version of the kind, in wire order. A
-   *  later version appends fields, so its names begin with an earlier one's. */
-  readonly versions: readonly (readonly string[])[];
+  /** The kind's field names, in wire order. A later version appends fields,
+   *  so its names begin with these. */
+  readonly fields: readonly string[];
   /** The objects a value of the kind names, and how each is treated. */
   readonly children: (value: any) => { hash: string; kind: GcChildKind }[];
 }
@@ -315,19 +319,18 @@ interface TaggedKind {
  * Every kind-tagged object, by its tag: the mark dispatches on the tag.
  *
  * @remarks
- * An object is walked as a kind when its fields begin with one of the kind's
- * versions and its `kind` is the kind's tag. A struct of that shape carrying
- * another tag is a user value, and a leaf. A later version appends fields, so
- * it is walked for the fields this build knows. A new version of a kind is one
- * more entry in its `versions`, with a GC test; a new kind is one more entry
- * here, with its tests.
+ * An object is walked as a kind when its fields begin with the kind's and its
+ * `kind` is the kind's tag. A struct of that shape carrying another tag is a
+ * user value, and a leaf. A later version appends fields, so it is walked for
+ * the fields this build knows. A new kind is one more entry here, with its
+ * tests.
  *
  * A tagged object this does not recognise is a leaf: what it names goes
  * unmarked, and the next sweep deletes it.
  */
 const TAGGED_KINDS: ReadonlyMap<string, TaggedKind> = new Map<string, TaggedKind>([
   [COLLECTION_MANIFEST_KIND, {
-    versions: [(toEastTypeValue(CollectionManifestType).value as { name: string }[]).map(f => f.name)],
+    fields: namesOf(CollectionManifestType),
     children: (manifest: CollectionManifest) => [
       // The header bytes every segment is written under — what makes a splice
       // possible, and the one object an empty collection still names.
@@ -338,7 +341,7 @@ const TAGGED_KINDS: ReadonlyMap<string, TaggedKind> = new Map<string, TaggedKind
     ],
   }],
   [RECORD_STATE_KIND, {
-    versions: [(toEastTypeValue(RecordStateType).value as { name: string }[]).map(f => f.name)],
+    fields: namesOf(RecordStateType),
     children: (state: RecordState) => [
       { hash: state.primary, kind: 'value' },
       // The declaration an index was built under must outlive the package
@@ -350,7 +353,7 @@ const TAGGED_KINDS: ReadonlyMap<string, TaggedKind> = new Map<string, TaggedKind
     ],
   }],
   [TASK_OBJECT_KIND, {
-    versions: [(toEastTypeValue(TaskObjectType).value as { name: string }[]).map(f => f.name)],
+    fields: namesOf(TaskObjectType),
     children: (task: TaskObject) => {
       // The program or the command IR, and what the output folds with: every
       // one an IR blob or a value, which name nothing.
@@ -371,7 +374,7 @@ const TAGGED_KINDS: ReadonlyMap<string, TaggedKind> = new Map<string, TaggedKind
     },
   }],
   [UNIT_PLAN_KIND, {
-    versions: [(toEastTypeValue(UnitPlanType).value as { name: string }[]).map(f => f.name)],
+    fields: namesOf(UnitPlanType),
     children: (plan: UnitPlan) => {
       // The task, whose program the units run. A piece's inputs and a merge's
       // parts are dataset values, which may be manifests naming segment
@@ -393,9 +396,9 @@ const TAGGED_KINDS: ReadonlyMap<string, TaggedKind> = new Map<string, TaggedKind
 ]);
 
 /**
- * The tag of the kind an object of this type may be: the kind one of whose
- * versions its fields begin with. Only the `kind` the object carries, read
- * once it is decoded, makes it one.
+ * The tag of the kind an object of this type may be: the kind whose fields
+ * its fields begin with. Only the `kind` the object carries, read once it is
+ * decoded, makes it one.
  *
  * @param type - The object's root type
  * @returns The tag, or `null` when the type is no tagged kind's
@@ -404,136 +407,9 @@ function taggedKindOf(type: any): string | null {
   if (type.type !== 'Struct') return null;
   const names = (type.value as { name: string }[]).map(f => f.name);
   for (const [tag, kind] of TAGGED_KINDS) {
-    if (kind.versions.some((version) => version.length <= names.length && version.every((name, i) => name === names[i]))) return tag;
+    if (kind.fields.length <= names.length && kind.fields.every((name, i) => name === names[i])) return tag;
   }
   return null;
-}
-
-/**
- * Check if a decoded EastTypeValue represents a task object an e3 SDK wrote
- * before the typed task object: a Struct with fields commandIr, inputs and
- * output, which names its command IR and its environment.
- */
-function isPreCutoverTaskObjectShape(type: any): boolean {
-  if (type.type !== 'Struct') return false;
-  const fields = type.value as { name: string; type: any }[];
-  const names = new Set(fields.map(f => f.name));
-  return names.has('commandIr') && names.has('inputs') && names.has('output');
-}
-
-/**
- * Check if a decoded EastTypeValue represents a FunctionObject.
- * FunctionObject is a Struct with fields: bodyIr, inputTypes, outputType, runner
- */
-function isFunctionObjectShape(type: any): boolean {
-  if (type.type !== 'Struct') return false;
-  const fields = type.value as { name: string; type: any }[];
-  const names = new Set(fields.map(f => f.name));
-  return names.has('bodyIr') && names.has('inputTypes') && names.has('outputType') && names.has('runner');
-}
-
-/** `RecordObjectType`'s field names, in wire order, read from the type itself:
- *  every record-object shape a repository can hold is a PREFIX of this list,
- *  because struct fields encode positionally and the record object only ever
- *  grows by appending LAST. */
-const RECORD_OBJECT_FIELDS: readonly string[] =
-  (toEastTypeValue(RecordObjectType).value as { name: string }[]).map(f => f.name);
-
-/** The fields every record object has carried from the first vintage on. */
-const RECORD_OBJECT_MIN_FIELDS = 2;
-
-/**
- * Check if a decoded EastTypeValue represents a RecordObject — of any vintage:
- * a struct agreeing with {@link RECORD_OBJECT_FIELDS} on their common prefix,
- * which must reach {@link RECORD_OBJECT_MIN_FIELDS}.
- *
- * Both directions matter. A record object SHORTER than this build's type is
- * one an older e3 wrote; one LONGER is one a newer e3 wrote in a repository
- * this build is sweeping. Either way an unrecognised record object is treated
- * as a leaf, its mutation bodies and index objects are never extracted, and
- * the sweep deletes the things it is the only reference to.
- */
-function isRecordObjectShape(type: any): boolean {
-  if (type.type !== 'Struct') return false;
-  const names = (type.value as { name: string }[]).map(f => f.name);
-  const common = Math.min(names.length, RECORD_OBJECT_FIELDS.length);
-  if (common < RECORD_OBJECT_MIN_FIELDS) return false;
-  return RECORD_OBJECT_FIELDS.slice(0, common).every((name, i) => name === names[i]);
-}
-
-/** `RecordIndexObjectType`'s field names, in wire order, read from the type
- *  itself: an index object of any vintage BEGINS with these, because struct
- *  fields encode positionally and the index object only ever grows by
- *  appending LAST. */
-const RECORD_INDEX_OBJECT_FIELDS: readonly string[] =
-  (toEastTypeValue(RecordIndexObjectType).value as { name: string }[]).map(f => f.name);
-
-/**
- * Check if a decoded EastTypeValue represents a RecordIndexObject — the
- * declaration an index was built under, which a historical state keeps naming
- * long after the package that declared it is gone. Of any vintage: a struct
- * beginning with {@link RECORD_INDEX_OBJECT_FIELDS}, so one a NEWER e3 wrote
- * with a field appended is still recognised in a repository this build sweeps.
- *
- * An index object this does not recognise is a leaf: the key, projection and
- * build IR it names go unmarked, the next sweep deletes them, and the index is
- * left one no rebuild can ever run again.
- */
-function isRecordIndexObjectShape(type: any): boolean {
-  if (type.type !== 'Struct') return false;
-  const names = (type.value as { name: string }[]).map(f => f.name);
-  if (names.length < RECORD_INDEX_OBJECT_FIELDS.length) return false;
-  return RECORD_INDEX_OBJECT_FIELDS.every((name, i) => name === names[i]);
-}
-
-/** `MutationObjectType`'s field names, in wire order, read from the type
- *  itself: a mutation of any vintage is a PREFIX of this list. */
-const MUTATION_OBJECT_FIELDS: readonly string[] =
-  (toEastTypeValue(MutationObjectType).value as { name: string }[]).map(f => f.name);
-
-/** The fields every mutation has carried from the first vintage on. */
-const MUTATION_OBJECT_MIN_FIELDS = 3;
-
-/**
- * Check if a decoded EastTypeValue represents a MutationObject — of any
- * vintage: a struct agreeing with {@link MUTATION_OBJECT_FIELDS} on their
- * common prefix. Distinct from a FunctionObject, which has
- * inputTypes/outputType rather than argTypes.
- *
- * A mutation this does not recognise is a leaf, its body and program go
- * unmarked, and the next sweep deletes the IR the deployed package needs.
- */
-function isMutationObjectShape(type: any): boolean {
-  if (type.type !== 'Struct') return false;
-  const names = (type.value as { name: string }[]).map(f => f.name);
-  const common = Math.min(names.length, MUTATION_OBJECT_FIELDS.length);
-  if (common < MUTATION_OBJECT_MIN_FIELDS) return false;
-  return MUTATION_OBJECT_FIELDS.slice(0, common).every((name, i) => name === names[i]);
-}
-
-/** `RecordCommitType`'s field names, in wire order, read from the type itself:
- *  a commit of any vintage is a PREFIX of this list. */
-const RECORD_COMMIT_FIELDS: readonly string[] =
-  (toEastTypeValue(RecordCommitType).value as { name: string }[]).map(f => f.name);
-
-/** The fields every commit has carried from the first vintage on. */
-const RECORD_COMMIT_MIN_FIELDS = 6;
-
-/**
- * Check if a decoded EastTypeValue represents a RecordCommit — of any vintage:
- * a struct agreeing with {@link RECORD_COMMIT_FIELDS} on their common prefix,
- * which must reach {@link RECORD_COMMIT_MIN_FIELDS} so a user state struct
- * sharing a field name is not probed for hashes.
- *
- * A commit this does not recognise ends the chain there, taking every state
- * and delta the older commits name with it.
- */
-function isRecordCommitShape(type: any): boolean {
-  if (type.type !== 'Struct') return false;
-  const names = (type.value as { name: string }[]).map(f => f.name);
-  const common = Math.min(names.length, RECORD_COMMIT_FIELDS.length);
-  if (common < RECORD_COMMIT_MIN_FIELDS) return false;
-  return RECORD_COMMIT_FIELDS.slice(0, common).every((name, i) => name === names[i]);
 }
 
 /**
@@ -562,9 +438,9 @@ function isTreeObjectShape(type: any): boolean {
  */
 function isStructuralShape(type: EastTypeValue): boolean {
   const t = type as any;
-  return taggedKindOf(t) !== null || isPackageObjectShape(t) || isPreCutoverTaskObjectShape(t) || isFunctionObjectShape(t)
-    || isRecordObjectShape(t) || isMutationObjectShape(t) || isEnvironmentSpecShape(t)
-    || isRecordCommitShape(t) || isTreeObjectShape(t) || isRecordIndexObjectShape(t);
+  return taggedKindOf(t) !== null || isStructOf(t, PACKAGE_OBJECT_FIELDS) || isStructOf(t, FUNCTION_OBJECT_FIELDS)
+    || isStructOf(t, RECORD_OBJECT_FIELDS) || isStructOf(t, MUTATION_OBJECT_FIELDS) || isEnvironmentSpecShape(t)
+    || isStructOf(t, RECORD_COMMIT_FIELDS) || isTreeObjectShape(t) || isStructOf(t, RECORD_INDEX_OBJECT_FIELDS);
 }
 
 /**
@@ -586,71 +462,49 @@ function extractChildren(
     return (value as { kind?: unknown }).kind === tag ? TAGGED_KINDS.get(tag)!.children(value) : children;
   }
 
-  if (isPackageObjectShape(t)) {
-    const pkg = value as { tasks: Map<string, string>; data: { structure: unknown; refs?: Map<string, { type: string; value: any }> }; functions?: Map<string, string>; records?: Map<string, string> };
+  if (isStructOf(t, PACKAGE_OBJECT_FIELDS)) {
+    const pkg = value as PackageObject;
     for (const taskHash of pkg.tasks.values()) {
       children.push({ hash: taskHash, kind: 'node' });
     }
-    // Function objects (absent on pre-`functions` packages)
-    if (isEastDict(pkg.functions)) {
-      for (const fnHash of pkg.functions.values()) {
-        children.push({ hash: fnHash, kind: 'node' });
-      }
+    for (const fnHash of pkg.functions.values()) {
+      children.push({ hash: fnHash, kind: 'node' });
     }
-    // Record objects (absent on pre-`records` packages)
-    if (isEastDict(pkg.records)) {
-      for (const recHash of pkg.records.values()) {
-        children.push({ hash: recHash, kind: 'node' });
-      }
+    for (const recHash of pkg.records.values()) {
+      children.push({ hash: recHash, kind: 'node' });
     }
     // Extract value hashes from inline per-dataset refs. A collection's value
     // is a manifest naming other objects, so the ref's root is a `value`: it
     // is marked whatever happens to it, and walked only far enough to find
     // the segments it names.
-    if (isEastDict(pkg.data.refs)) {
-      for (const ref of pkg.data.refs.values()) {
-        if (ref.type === 'value' && typeof ref.value?.hash === 'string') {
-          children.push({ hash: ref.value.hash, kind: 'value' });
-        }
-      }
+    for (const ref of pkg.data.refs.values()) {
+      if (ref.type === 'value') children.push({ hash: ref.value.hash, kind: 'value' });
     }
     return children;
   }
 
-  if (isPreCutoverTaskObjectShape(t)) {
-    const task = value as { commandIr: string; environment?: { type: string; value: string } };
-    children.push({ hash: task.commandIr, kind: 'leaf' }); // IR is a leaf
-    if (task.environment?.type === 'some') {
-      children.push({ hash: task.environment.value, kind: 'node' }); // walk the spec's blobs
-    }
-    return children;
-  }
-
-  if (isFunctionObjectShape(t)) {
-    const fn = value as { bodyIr: string; environment?: { type: string; value: string } };
+  if (isStructOf(t, FUNCTION_OBJECT_FIELDS)) {
+    const fn = value as FunctionObject;
     children.push({ hash: fn.bodyIr, kind: 'leaf' }); // IR is a leaf
-    if (fn.environment?.type === 'some') {
+    if (fn.environment.type === 'some') {
       children.push({ hash: fn.environment.value, kind: 'node' }); // walk the spec's blobs
     }
     return children;
   }
 
-  if (isRecordObjectShape(t)) {
-    const rec = value as { mutations: Map<string, string>; indexes?: Map<string, string> };
+  if (isStructOf(t, RECORD_OBJECT_FIELDS)) {
+    const rec = value as RecordObject;
     for (const mutHash of rec.mutations.values()) {
       children.push({ hash: mutHash, kind: 'node' });
     }
-    // Absent on a record object written before indexes existed.
-    if (isEastDict(rec.indexes)) {
-      for (const indexHash of rec.indexes.values()) {
-        children.push({ hash: indexHash, kind: 'node' });
-      }
+    for (const indexHash of rec.indexes.values()) {
+      children.push({ hash: indexHash, kind: 'node' });
     }
     return children;
   }
 
-  if (isRecordIndexObjectShape(t)) {
-    const index = value as { keyIr: string; valueIr: { type: string; value: string }; buildIr: string };
+  if (isStructOf(t, RECORD_INDEX_OBJECT_FIELDS)) {
+    const index = value as RecordIndexObject;
     children.push(
       { hash: index.keyIr, kind: 'leaf' },
       { hash: index.buildIr, kind: 'leaf' },
@@ -659,13 +513,9 @@ function extractChildren(
     return children;
   }
 
-  if (isMutationObjectShape(t)) {
-    // A mutation written before the delta existed names no program.
-    const mut = value as { bodyIr: string; programIr?: string };
-    children.push({ hash: mut.bodyIr, kind: 'leaf' }); // IR is a leaf
-    if (typeof mut.programIr === 'string' && mut.programIr !== '') {
-      children.push({ hash: mut.programIr, kind: 'leaf' });
-    }
+  if (isStructOf(t, MUTATION_OBJECT_FIELDS)) {
+    const mut = value as MutationObject;
+    children.push({ hash: mut.bodyIr, kind: 'leaf' }, { hash: mut.programIr, kind: 'leaf' }); // IR is a leaf
     return children;
   }
 
@@ -696,14 +546,8 @@ function extractChildren(
     return children;
   }
 
-  if (isRecordCommitShape(t)) {
-    const commit = value as {
-      parent: { type: string; value: string };
-      state: string;
-      args: { type: string; value: string };
-      // Absent on a commit written before deltas existed.
-      delta?: { type: string; value: string };
-    };
+  if (isStructOf(t, RECORD_COMMIT_FIELDS)) {
+    const commit = value as RecordCommit;
     // The state may be a manifest naming segment objects, so it is marked and
     // then classified; a plain value blob is never read.
     children.push({ hash: commit.state, kind: 'value' });
@@ -715,7 +559,7 @@ function extractChildren(
     }
     // The delta is a collection like any other, so it may be a manifest naming
     // segment objects: marked, then classified, never read as a value.
-    if (commit.delta?.type === 'some') {
+    if (commit.delta.type === 'some') {
       children.push({ hash: commit.delta.value, kind: 'value' });
     }
     return children;
@@ -952,7 +796,7 @@ async function collectGarbage(
   // has exited (local-only concern)
   if (!dryRun) {
     try {
-      await sweepScratchDirs(repo, { minAge });
+      await sweepScratchDirs(repo);
     } catch {
       // Not a fatal error
     }

@@ -19,15 +19,14 @@ import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import {
-  ArrayType, DictType, IntegerType, SortedMap, StringType, StructType,
-  carveBeast2, compareFor, decodeBeast2For, encodeBeast2FenceFor, encodeBeast2For, encodeBeast2PagedFor,
-  openBeast2PagesFor, readBeast2Extents, toEastTypeValue, type ValueTypeOf,
+  ArrayType, DictType, IntegerType, SEGMENT_RULE_KEYED, SortedMap, StringType, StructType,
+  carveBeast2, compareFor, decodeBeast2For, encodeBeast2For, encodeBeast2PagedFor,
+  readBeast2Extents, type ValueTypeOf,
 } from '@elaraai/east';
-import { COLLECTION_MANIFEST_KIND, encodeCollectionManifest, type CollectionManifestEntry } from '@elaraai/e3-types';
 import { DatasetSegments } from './dataset-open.js';
 import { storeCollection, storeDatasetBytes, storeDatasetFile } from './store-collection.js';
 import { datasetWrite } from './trees.js';
-import { createTempDir, createTestRepo, encodeInSegmentsOf, removeTempDir, removeTestRepo } from './test-helpers.js';
+import { createTempDir, createTestRepo, encodeInSegmentsOf, removeTempDir, removeTestRepo, storeSegmentsOf } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
 import type { StorageBackend } from './storage/interfaces.js';
 
@@ -171,33 +170,21 @@ describe("the store's door", () => {
     assert.equal(stored, await datasetWrite(storage, repo, expected, TableType));
   });
 
-  it('lays out again a manifest cut under an earlier rule', async () => {
+  it('refuses a manifest cut under another rule, and a run of a blob\'s segments, naming the fix', async () => {
     const value = new SortedMap<string, Row>(
       Array.from({ length: 3_000 }, (_, i): [string, Row] => [`k${String(i).padStart(7, '0')}`, { id: BigInt(i), name: `row-${i}` }]),
       compareFor(StringType));
     const blob = encodeInSegmentsOf(TableType, 700)(value);
-    const extents = readBeast2Extents(blob);
-    const pages = openBeast2PagesFor(TableType)(blob);
-    const fenceOf = encodeBeast2FenceFor(StringType);
-    const entries: CollectionManifestEntry[] = [];
-    for (let i = 0; i < extents.counts.length; i++) {
-      const segment = carveBeast2(blob, i, i + 1, extents);
-      entries.push({
-        hash: await storage.objects.write(repo, segment),
-        fence: fenceOf(pages.fence(i)),
-        count: BigInt(extents.counts[i]!),
-        bytes: BigInt(segment.byteLength),
-      });
-    }
-    const older = await storage.objects.write(repo, encodeCollectionManifest({
-      kind: COLLECTION_MANIFEST_KIND,
-      level: 0n,
-      type: toEastTypeValue(TableType),
-      rule: 'cdc/fnv1a64/256-1024-4096/1',
-      header: await storage.objects.write(repo, blob.subarray(0, extents.prefixEnd)),
-      entries,
-    }));
-    assert.equal(await storeCollection(storage, repo, TableType, [{ stored: older }]), await datasetWrite(storage, repo, value, TableType));
+    const older = await storeSegmentsOf(storage, repo, blob);
+    await assert.rejects(storeCollection(storage, repo, TableType, [{ stored: older, from: 1 }]), {
+      message: `store: manifest ${older.slice(0, 8)} was cut under test/as-encoded, not the current ${SEGMENT_RULE_KEYED}: ` +
+        'an older e3 wrote this repository — re-create it: deploy again and import its data again',
+    });
+    // A delivery stored whole is read as it came; only a manifest has segments.
+    const bare = await storage.objects.write(repo, blob);
+    await assert.rejects(storeCollection(storage, repo, TableType, [{ stored: bare, from: 1 }]), {
+      message: `store: object ${bare.slice(0, 8)} is not a manifest, and only a manifest has segments to take a run of`,
+    });
   });
 
   it('stores the empty collection, and an Array in the order it was given', async () => {

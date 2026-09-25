@@ -59,7 +59,7 @@ export type {
 } from './types.js';
 
 // HTTP utilities and auth
-export { ApiError, AuthError, fetchWithAuth, fetchWithRetry, get, post, put, del, putEmpty, unwrap } from './http.js';
+export { ApiError, AuthError, fetchWithAuth, fetchWithRetry, get, post, put, del, putEmpty } from './http.js';
 export type { RequestOptions, RetryOptions, Response } from './http.js';
 
 // Repository
@@ -141,9 +141,6 @@ export {
   dataflowGraph,
   dataflowCancel,
   taskLogs,
-  // Backward compatibility aliases
-  dataflowStart,
-  dataflowExecution,
   type DataflowOptions,
   type DataflowPollOptions,
   type LogOptions,
@@ -153,7 +150,6 @@ export {
 // Platform functions
 export {
   Platform,
-  PlatformImpl,
   LogOptionsType,
   platform_repo_status,
   platform_repo_gc,

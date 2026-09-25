@@ -12,7 +12,7 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { DictType, IntegerType, SortedMap, compareFor } from '@elaraai/east';
 import { MERGE_TREE_FANIN, mergeComponents, mergeTreeGroups, mergeTreeLevels } from './steps.js';
-import { createTestRepo, removeTestRepo, encodeInSegmentsOf } from '../test-helpers.js';
+import { createTestRepo, removeTestRepo, encodeInSegmentsOf, storeSegmentsOf } from '../test-helpers.js';
 import { LocalStorage } from '../storage/local/index.js';
 import type { StorageBackend } from '../storage/interfaces.js';
 
@@ -42,7 +42,7 @@ describe('the merge fan-in', () => {
   });
 
   async function store(value: Out, batchSize = 4): Promise<string> {
-    return storage.objects.write(repo, encodeInSegmentsOf(OutType, batchSize)(value));
+    return storeSegmentsOf(storage, repo, encodeInSegmentsOf(OutType, batchSize)(value));
   }
 
   it('groups partials whose key ranges overlap into components, in key order', async () => {

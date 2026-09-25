@@ -66,16 +66,6 @@ export async function executionScratchDir(repo: string, taskHash: string, inHash
   );
 }
 
-/** Options for {@link sweepScratchDirs}. */
-export interface SweepScratchOptions {
-  /**
-   * Minimum age in milliseconds of a directory named without its owner's
-   * start time (the older `e3-exec-<task8>-<in8>-<pid>-<ms>` form) before it
-   * is removed: with no start time, a reused pid cannot be told apart.
-   */
-  minAge: number;
-}
-
 /** Whether a process with `pid` exists — signal 0 sends nothing.
  *
  *  EPERM is an existence answer, not a denial of one: the process is there,
@@ -99,16 +89,13 @@ function processExists(pid: number): boolean {
  * A directory's owner is gone when the pid in its name no longer has the
  * start time in its name. Where the platform reports no start time (Windows,
  * and any pid `/proc` cannot answer for), the pid's existence decides: a
- * directory is removed when its pid does not exist. A directory named in the
- * older form, without a start time, is removed when its pid does not exist
- * and the directory is older than `minAge`. Directories of live processes,
- * and anything else under the scratch root, are left alone.
+ * directory is removed when its pid does not exist. Directories of live
+ * processes, and anything else under the scratch root, are left alone.
  *
  * @param repo - Path to the e3 repository whose scratch root is swept
- * @param options - The age gate for directories named in the older form
  * @returns The number of directories removed
  */
-export async function sweepScratchDirs(repo: string, options: SweepScratchOptions): Promise<number> {
+export async function sweepScratchDirs(repo: string): Promise<number> {
   const root = scratchRoot(repo);
   let entries: string[];
   try {
@@ -116,32 +103,20 @@ export async function sweepScratchDirs(repo: string, options: SweepScratchOption
   } catch {
     return 0; // no scratch root yet
   }
-  const now = Date.now();
   let removed = 0;
   for (const entry of entries) {
     if (!entry.startsWith(SCRATCH_PREFIX)) continue;
+    // <task8>-<in8>-<pid>-<pidStartTime>-<executionId>
     const fields = entry.slice(SCRATCH_PREFIX.length).split('-');
-    let ownerGone: boolean;
+    if (fields.length !== 5) continue;
     const pid = Number(fields[2]);
     const startTime = await getPidStartTime(pid);
-    if (fields.length === 5) {
-      // <task8>-<in8>-<pid>-<pidStartTime>-<executionId>, or the creation
-      // time in its place from an older e3. Both start times must be
-      // known for the comparison to mean anything: the writer records 0 where
-      // its own platform could not answer, and comparing that against a start
-      // time this sweeper CAN resolve says "gone" about a live owner. With
-      // either unknown, existence decides, as it does for the older form.
-      const recorded = Number(fields[3]);
-      ownerGone = startTime !== 0 && recorded !== 0
-        ? startTime !== recorded
-        : !processExists(pid);
-    } else if (fields.length === 4) {
-      // <task8>-<in8>-<pid>-<ms>: with no start time, a reused pid cannot be
-      // told apart, so the directory must also be old.
-      ownerGone = startTime === 0 && !processExists(pid) && now - Number(fields[3]) > options.minAge;
-    } else {
-      continue;
-    }
+    // Both start times must be known for the comparison to mean anything: the
+    // writer records 0 where its own platform could not answer, and comparing
+    // that against a start time this sweeper CAN resolve says "gone" about a
+    // live owner. With either unknown, existence decides.
+    const recorded = Number(fields[3]);
+    const ownerGone = startTime !== 0 && recorded !== 0 ? startTime !== recorded : !processExists(pid);
     if (!ownerGone) continue;
     try {
       await fs.rm(path.join(root, entry), { recursive: true, force: true });

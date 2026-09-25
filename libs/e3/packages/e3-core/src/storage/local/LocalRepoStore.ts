@@ -23,6 +23,7 @@ import {
 import { decodeBeast2For } from '@elaraai/east';
 import { WorkspaceStateType } from '@elaraai/e3-types';
 import { refPathToKeypath } from '../../dataset-refs.js';
+import { REPO_METADATA_FILENAME, writeNewRepoMetadata } from './repository.js';
 
 /**
  * Metadata file format stored in each repository.
@@ -33,8 +34,6 @@ interface MetadataFile {
   createdAt: string;
   statusChangedAt: string;
 }
-
-const METADATA_FILENAME = '.e3-metadata.json';
 
 /**
  * Local filesystem implementation of RepoStore.
@@ -66,7 +65,7 @@ export class LocalRepoStore implements RepoStore {
    * Get the path to a repository's metadata file.
    */
   private getMetadataPath(repo: string): string {
-    return path.join(this.getRepoPath(repo), METADATA_FILENAME);
+    return path.join(this.getRepoPath(repo), REPO_METADATA_FILENAME);
   }
 
   /**
@@ -114,6 +113,12 @@ export class LocalRepoStore implements RepoStore {
     return this.isValidRepository(repoPath);
   }
 
+  /**
+   * The repository's metadata, or `null` when there is no repository.
+   *
+   * @throws {Error} When the repository has no metadata file: an older e3
+   *   created it, and it is re-created.
+   */
   async getMetadata(repo: string): Promise<RepoMetadata | null> {
     const repoPath = this.getRepoPath(repo);
 
@@ -122,32 +127,22 @@ export class LocalRepoStore implements RepoStore {
       return null;
     }
 
-    const metadataPath = this.getMetadataPath(repo);
+    let content: string;
     try {
-      const content = await fs.readFile(metadataPath, 'utf-8');
-      const metadata = JSON.parse(content) as MetadataFile;
-      return {
-        name: metadata.name,
-        status: metadata.status,
-        createdAt: metadata.createdAt,
-        statusChangedAt: metadata.statusChangedAt,
-      };
-    } catch {
-      // No metadata file - synthesize for legacy repos
-      // Get mtime from repo directory for createdAt
-      try {
-        const stat = await fs.stat(repoPath);
-        const createdAt = stat.birthtime.toISOString();
-        return {
-          name: repo,
-          status: 'active',
-          createdAt,
-          statusChangedAt: createdAt,
-        };
-      } catch {
-        return null;
-      }
+      content = await fs.readFile(this.getMetadataPath(repo), 'utf-8');
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+      throw new Error(
+        `the repository '${repo}' has no metadata file (${REPO_METADATA_FILENAME}): an older e3 created it — re-create it: deploy again and import its data again`,
+      );
     }
+    const metadata = JSON.parse(content) as MetadataFile;
+    return {
+      name: metadata.name,
+      status: metadata.status,
+      createdAt: metadata.createdAt,
+      statusChangedAt: metadata.statusChangedAt,
+    };
   }
 
   // ===========================================================================
@@ -169,18 +164,7 @@ export class LocalRepoStore implements RepoStore {
     await fs.mkdir(path.join(repoPath, 'executions'), { recursive: true });
     await fs.mkdir(path.join(repoPath, 'workspaces'), { recursive: true });
 
-    // Write metadata file
-    const now = new Date().toISOString();
-    const metadata: MetadataFile = {
-      name: repo,
-      status: 'active',
-      createdAt: now,
-      statusChangedAt: now,
-    };
-    await fs.writeFile(
-      this.getMetadataPath(repo),
-      JSON.stringify(metadata, null, 2)
-    );
+    writeNewRepoMetadata(repoPath, repo);
   }
 
   async setStatus(

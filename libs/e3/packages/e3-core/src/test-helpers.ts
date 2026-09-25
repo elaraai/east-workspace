@@ -13,8 +13,13 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import yauzl from 'yauzl';
-import { compareFor, encodeBeast2SegmentsFor, isVariant, toEastTypeValue, type EastType, type EastTypeValue } from '@elaraai/east';
+import {
+  carveBeast2, compareFor, encodeBeast2FenceFor, encodeBeast2SegmentsFor, isVariant, openBeast2PagesFor, readBeast2Extents,
+  readBeast2Type, segmentKeyTypeOf, toEastTypeValue, type EastType, type EastTypeValue,
+} from '@elaraai/east';
+import { COLLECTION_MANIFEST_KIND, encodeCollectionManifest, type CollectionManifestEntry } from '@elaraai/e3-types';
 import { repoInit } from './storage/local/repository.js';
+import type { StorageBackend } from './storage/interfaces.js';
 
 // Re-export InMemoryStorage for test consumers
 export { InMemoryStorage } from './storage/in-memory/InMemoryStorage.js';
@@ -51,6 +56,46 @@ export function encodeInSegmentsOf(type: EastType | EastTypeValue, size: number)
     }
     return encode(batches as never);
   };
+}
+
+/**
+ * Stores a segmented blob's segments as objects, under a manifest naming them
+ * as they stand.
+ *
+ * @remarks
+ * For a stored fixture whose geometry is the test's, as
+ * {@link encodeInSegmentsOf}'s is. The readers take any manifest, and the
+ * store's door refuses one the current rule did not cut, so the manifest names
+ * its rule `test/as-encoded`: a fixture never passes for the Writer's.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param blob - a segmented, indexed collection blob
+ * @returns the manifest's hash
+ */
+export async function storeSegmentsOf(storage: StorageBackend, repo: string, blob: Uint8Array): Promise<string> {
+  const extents = readBeast2Extents(blob);
+  const type = readBeast2Type(blob);
+  const keyType = segmentKeyTypeOf(type);
+  const pages = openBeast2PagesFor(type)(blob);
+  const entries: CollectionManifestEntry[] = [];
+  for (let i = 0; i < extents.counts.length; i++) {
+    const segment = carveBeast2(blob, i, i + 1, extents);
+    entries.push({
+      hash: await storage.objects.write(repo, segment),
+      fence: keyType === null ? new Uint8Array(0) : encodeBeast2FenceFor(keyType)(pages.fence(i)),
+      count: BigInt(extents.counts[i]!),
+      bytes: BigInt(segment.byteLength),
+    });
+  }
+  return storage.objects.write(repo, encodeCollectionManifest({
+    kind: COLLECTION_MANIFEST_KIND,
+    level: 0n,
+    type,
+    rule: 'test/as-encoded',
+    header: await storage.objects.write(repo, blob.subarray(0, extents.prefixEnd)),
+    entries,
+  }));
 }
 
 /**

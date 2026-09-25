@@ -25,7 +25,6 @@ import {
   decodeBeast2For,
   encodeBeast2For,
   printIdentifier,
-  readBeast2ExtentsRanged,
   readBeast2Type,
   StructType,
   variant,
@@ -741,12 +740,12 @@ export interface DatasetStatusResult {
   datasetType: EastTypeValue;
   /** Size in bytes (null for unassigned) */
   size: number | null;
-  /** Segment count of a stored collection, read from its manifest or its
-   *  blob's trailing index — `null` for a non-collection or an
-   *  unassigned/null ref. Costs two ranged reads, never the blob. */
+  /** Segment count of a stored collection, read from its manifest — `null`
+   *  for a non-collection or an unassigned/null ref. Costs one small read,
+   *  never the value. */
   segments?: number | null;
   /** Element count (pairs for a Dict) of a stored collection, from the same
-   *  index — so a re-pointed input is inspectable without decoding it. */
+   *  manifest — so a re-pointed input is inspectable without decoding it. */
   rows?: number | null;
   /** Bytes the VALUE occupies in the store. For a collection held as a
    *  segment manifest that is the segments plus the manifest, which `size` —
@@ -761,12 +760,12 @@ export interface DatasetStatusResult {
 export interface WorkspaceGetDatasetStatusOptions {
   /**
    * Also read a stored collection's segment and element counts from its
-   * trailing index.
+   * manifest.
    *
    * @remarks
-   * Off by default, and deliberately: two ranged reads is nothing next to
-   * decoding a blob, but this call sits in front of the paged-read and
-   * key-search endpoints, which are held to reading exactly the frames they
+   * Off by default, and deliberately: one small read is nothing next to
+   * decoding the value, but this call sits in front of the paged-read and
+   * key-search endpoints, which are held to reading exactly the segments they
    * decode. The geometry is for the places that DISPLAY a dataset.
    */
   geometry?: boolean;
@@ -821,11 +820,10 @@ export async function workspaceGetDatasetStatus(
 /**
  * Segment and element counts of a stored collection.
  *
- * One small object read for a manifest, which carries both; two ranged reads
- * (the tail, then the head) for a bare blob — never the value. A
- * non-collection root, or a blob whose index cannot be read, reports `null`
- * rather than failing a status call — the geometry is a convenience on top of
- * the hash and the size.
+ * One small object read: the manifest carries both, and the value is never
+ * read. A non-collection root, or a collection not stored as a manifest,
+ * reports `null` rather than failing a status call — the geometry is a
+ * convenience on top of the hash and the size.
  */
 async function datasetGeometry(
   storage: StorageBackend,
@@ -840,19 +838,13 @@ async function datasetGeometry(
     // collection hangs off that — so the geometry belongs to the object the
     // opener resolves to, never to the object the ref happened to point at.
     const opened = await openDatasetObject(storage, repo, hash, size);
+    if (opened.manifest === null) return { segments: null, rows: null, storedBytes: null };
     const collectionSize = opened.hash === hash ? size : (await storage.objects.stat(repo, opened.hash)).size;
-    if (opened.manifest !== null) {
-      return {
-        segments: opened.manifest.entries.length,
-        rows: manifestElementCount(opened.manifest),
-        storedBytes: manifestByteSize(opened.manifest) + collectionSize,
-      };
-    }
-    const extents = await readBeast2ExtentsRanged({
-      size: collectionSize,
-      read: (offset, length) => storage.objects.readRange(repo, opened.hash, offset, length),
-    });
-    return { segments: extents.offsets.length, rows: extents.elementCount, storedBytes: collectionSize };
+    return {
+      segments: opened.manifest.entries.length,
+      rows: manifestElementCount(opened.manifest),
+      storedBytes: manifestByteSize(opened.manifest) + collectionSize,
+    };
   } catch {
     return { segments: null, rows: null, storedBytes: null };
   }

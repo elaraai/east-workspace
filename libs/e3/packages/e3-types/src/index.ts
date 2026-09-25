@@ -95,9 +95,6 @@ export {
   parseDatasetPath,
   parsePackageRef,
   urlPathToTreePath,
-  // Backwards compatibility
-  DatasetSchemaType,
-  type DatasetSchema,
 } from './structure.js';
 
 // Runner wire types
@@ -150,9 +147,6 @@ export {
   DatasetSourceWireType,
   type DatasetSourceWire,
   decodePackageObject,
-  // Backwards compatibility
-  PackageDatasetsType,
-  type PackageDatasets,
   // Package transfer types
   PackageTransferInitRequestType,
   type PackageTransferInitRequest,

@@ -26,8 +26,8 @@ import {
   type TreeNode,
 } from '@elaraai/e3-core';
 import {
-  dataflowStart as dataflowStartRemote,
-  dataflowExecution as dataflowExecutionRemote,
+  dataflowExecuteLaunch as dataflowExecuteLaunchRemote,
+  dataflowExecutePoll as dataflowExecutePollRemote,
   dataflowCancel as dataflowCancelRemote,
   datasetListRecursive as datasetListRecursiveRemote,
   type DataflowEvent,
@@ -147,7 +147,7 @@ async function executeLocal(
 
   // Scratch directories an earlier run left behind when its process died.
   try {
-    await sweepScratchDirs(repoPath, { minAge: 60_000 });
+    await sweepScratchDirs(repoPath);
   } catch {
     // Not a reason to fail the run
   }
@@ -256,7 +256,7 @@ async function executeRemote(
   // Start the dataflow execution
   // The API carries the budget in its `concurrency` field; the server runs
   // it as its jobs budget.
-  await dataflowStartRemote(baseUrl, repo, ws, {
+  await dataflowExecuteLaunchRemote(baseUrl, repo, ws, {
     concurrency: options.jobs,
     force: options.force,
     filter: options.filter,
@@ -267,7 +267,7 @@ async function executeRemote(
   let lastStatus: DataflowExecutionState['status']['type'] | null = null;
 
   while (!isAborted()) {
-    const state = await dataflowExecutionRemote(baseUrl, repo, ws, {
+    const state = await dataflowExecutePollRemote(baseUrl, repo, ws, {
       offset: eventOffset,
     }, { token: await getValidToken(baseUrl) });
 

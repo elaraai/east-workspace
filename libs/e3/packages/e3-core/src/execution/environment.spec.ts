@@ -18,7 +18,7 @@ import {
 } from '@elaraai/e3-types';
 import { StructType, StringType, ArrayType, BlobType, OptionType, EastTypeType, toEastTypeValue, IntegerType } from '@elaraai/east';
 import { TreePathType, RunnerType } from '@elaraai/e3-types';
-import { LocalBackend } from '../storage/local/index.js';
+import { LocalStorage } from '../storage/local/index.js';
 import { repoInit } from '../storage/local/repository.js';
 import { materializeEnvironment } from './environment.js';
 
@@ -59,7 +59,7 @@ describe('task and function object decoders', () => {
     assert.strictEqual(decoded.environment.type === 'some' && decoded.environment.value, 'b'.repeat(64));
   });
 
-  it('decodes pre-environment function bytes with environment defaulted to none', () => {
+  it('refuses pre-environment function bytes, saying to re-export', () => {
     const PreEnvironmentFunctionObjectType = StructType({
       bodyIr: StringType,
       inputTypes: ArrayType(EastTypeType),
@@ -73,9 +73,7 @@ describe('task and function object decoders', () => {
       runner: variant('east_node', { platforms: [] }),
     });
 
-    const fn = decodeFunctionObject(legacyBytes);
-    assert.strictEqual(fn.bodyIr, 'c'.repeat(64));
-    assert.strictEqual(fn.environment.type, 'none');
+    assert.throws(() => decodeFunctionObject(legacyBytes), /exported by an older e3 SDK — re-export it with the current one/);
   });
 
   it('round-trips a current function with an environment hash', () => {
@@ -130,7 +128,7 @@ describe('environmentSpecObjectHashes', () => {
 describe('materializeEnvironment', () => {
   let tmpDir: string;
   let repo: string;
-  const storage = new LocalBackend();
+  const storage = new LocalStorage();
 
   before(async () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'e3-env-spec-'));

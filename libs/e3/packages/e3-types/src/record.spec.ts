@@ -4,19 +4,15 @@
  */
 
 /**
- * The record wire types' dual decoders.
- *
- * A commit, a mutation and a record object are all read by every vintage of
- * e3 that can see them, and a struct encodes positionally — so one written
- * before a field existed simply ends early. What is asserted here is that each
- * decoder reads both shapes and that what it fills the absent field with is a
- * real value of that field's type, not a look-alike: an option that is not a
- * variant passes `tsc` and fails wherever the runtime asks.
+ * The record wire types' decoders: each reads the current shape, and refuses
+ * an older one naming the fix — a commit an older e3 wrote, whose repository
+ * is re-created, and a mutation or record object an older SDK exported, whose
+ * package is re-exported.
  */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { DateTimeType, DictType, IntegerType, OptionType, StringType, StructType, ArrayType, EastTypeType, encodeBeast2For, isTypeValueEqual, isVariant, none, some, toEastTypeValue, variant } from '@elaraai/east';
+import { DateTimeType, DictType, IntegerType, OptionType, StringType, StructType, ArrayType, EastTypeType, encodeBeast2For, isTypeValueEqual, some, toEastTypeValue, variant } from '@elaraai/east';
 import { RunnerType } from './runner.js';
 import {
   MutationObjectType,
@@ -45,24 +41,20 @@ describe('decodeRecordCommit', () => {
     assert.deepEqual(decodeRecordCommit(encodeBeast2For(RecordCommitType)(commit)), commit);
   });
 
-  it('reads a commit written before deltas existed, with the delta absent', () => {
+  it('refuses a commit an older e3 wrote before deltas existed, naming the fix', () => {
     const PreDeltaCommitType = StructType({
       parent: OptionType(StringType), state: StringType, mutation: StringType,
       args: OptionType(StringType), actor: StringType, at: DateTimeType,
     });
     const { delta: _delta, ...older } = commit;
-    const read = decodeRecordCommit(encodeBeast2For(PreDeltaCommitType)(older));
-
-    assert.deepEqual(read, { ...older, delta: none });
-    // The absent delta is a real option, not a struct that reads like one:
-    // everything downstream — the re-encode a transfer does, an equality, a
-    // history page — asks the runtime, which asks the constructor's mark.
-    assert.ok(isVariant(read.delta), 'the filled-in delta is a variant');
-    assert.deepEqual(decodeRecordCommit(encodeBeast2For(RecordCommitType)(read)), read);
+    assert.throws(
+      () => decodeRecordCommit(encodeBeast2For(PreDeltaCommitType)(older)),
+      /^Error: the record commit does not decode: an older e3 wrote this repository — re-create it: deploy again and import its data again \(/,
+    );
   });
 
-  it('throws the current format\'s error for bytes of no commit shape', () => {
-    assert.throws(() => decodeRecordCommit(encodeBeast2For(IntegerType)(7n)));
+  it('refuses bytes of no commit shape', () => {
+    assert.throws(() => decodeRecordCommit(encodeBeast2For(IntegerType)(7n)), /the record commit does not decode/);
   });
 });
 
@@ -91,13 +83,15 @@ describe('decodeMutationObject', () => {
     assert.deepEqual(read(encodeBeast2For(MutationObjectType)(mutation)), expected);
   });
 
-  it('reads a mutation deployed before the delta as a reduce whose program is its body', () => {
+  it('refuses a mutation an older SDK exported before the delta, naming the fix', () => {
     const PreDeltaMutationType = StructType({
       bodyIr: StringType, argTypes: ArrayType(EastTypeType), runner: RunnerType,
     });
     const { form: _form, programIr: _programIr, argTypes: _argTypes, ...older } = mutation;
-    assert.deepEqual(read(encodeBeast2For(PreDeltaMutationType)({ ...older, argTypes: mutation.argTypes })),
-      { ...older, form: 'reduce', programIr: '' });
+    assert.throws(
+      () => decodeMutationObject(encodeBeast2For(PreDeltaMutationType)({ ...older, argTypes: mutation.argTypes })),
+      /^Error: the mutation object does not decode: the package was exported by an older e3 SDK — re-export it with the current one \(/,
+    );
   });
 });
 
@@ -120,12 +114,14 @@ describe('decodeRecordObject', () => {
       { path: record.path, mutations: [...record.mutations], indexes: [...record.indexes] });
   });
 
-  it('reads a record deployed before indexes existed, with none declared', () => {
+  it('refuses a record object an older SDK exported before indexes, naming the fix', () => {
     const MutationsEraRecordType = StructType({
       path: StringType, mutations: DictType(StringType, StringType),
     });
     const { indexes: _indexes, ...older } = record;
-    assert.deepEqual(read(encodeBeast2For(MutationsEraRecordType)(older)),
-      { path: record.path, mutations: [...record.mutations], indexes: [] });
+    assert.throws(
+      () => decodeRecordObject(encodeBeast2For(MutationsEraRecordType)(older)),
+      /^Error: the record object does not decode: the package was exported by an older e3 SDK — re-export it with the current one \(/,
+    );
   });
 });

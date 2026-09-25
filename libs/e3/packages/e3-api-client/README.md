@@ -111,10 +111,10 @@ const task = await taskGet(url, 'production', 'compute');
 ### Execution
 
 ```typescript
-import { dataflowStart, dataflowExecute, dataflowGraph, taskLogs } from '@elaraai/e3-api-client';
+import { dataflowExecuteLaunch, dataflowExecute, dataflowGraph, taskLogs } from '@elaraai/e3-api-client';
 
 // Start execution (non-blocking)
-await dataflowStart(url, 'production', { force: true });
+await dataflowExecuteLaunch(url, 'production', { force: true });
 
 // Execute and wait for result (blocking)
 const result = await dataflowExecute(url, 'production', { force: true });

@@ -25,13 +25,10 @@ import {
   BooleanType,
   DateTimeType,
   OptionType,
-  SortedMap,
   ValueTypeOf,
-  compareFor,
   decodeBeast2,
   decodeBeast2For,
   isTypeValueEqual,
-  none,
   readBeast2Type,
   toEastTypeValue,
 } from '@elaraai/east';
@@ -54,8 +51,12 @@ export type TaskStatus = 'pending' | 'ready' | 'in_progress' | 'completed' | 'fa
 // Task State
 // =============================================================================
 
-/** A task's state as version 1 of the execution state held it. */
-const TASK_STATE_V1_FIELDS = {
+/**
+ * Information about a task's execution state.
+ *
+ * Stored in the tasks Dict of DataflowExecutionStateType.
+ */
+export const TaskStateType = StructType({
   /** Task name */
   name: StringType,
   /** Current status (TaskStatus as string) */
@@ -74,15 +75,6 @@ const TASK_STATE_V1_FIELDS = {
   completedAt: OptionType(DateTimeType),
   /** Duration in milliseconds */
   duration: OptionType(IntegerType),
-};
-
-/**
- * Information about a task's execution state.
- *
- * Stored in the tasks Dict of DataflowExecutionStateType.
- */
-export const TaskStateType = StructType({
-  ...TASK_STATE_V1_FIELDS,
   /** The `$plan` object of the stage a task split into pieces is in, while
    *  it runs, and across a yield, so a resumed run takes the stage up where
    *  it stopped. */
@@ -124,8 +116,20 @@ export type DataflowGraph = ValueTypeOf<typeof DataflowGraphType>;
 // Event Types
 // =============================================================================
 
-/** The events version 1 of the execution state held. */
-const EXECUTION_EVENT_V1_CASES = {
+/**
+ * Execution events (VariantType for discriminated union).
+ *
+ * Events track the progress of a dataflow execution and are stored
+ * inline in the execution state (not as a separate JSONL file).
+ *
+ * @remarks
+ * Part of the execution state's wire, which changes only by version (see
+ * {@link EXECUTION_STATE_VERSION}): a reader decodes a state against the whole
+ * type it was written with, so a new event is a new version of the state.
+ * Each unit's progress is a callback, {@link PartitionProgress}, and is not
+ * persisted.
+ */
+export const ExecutionEventType = VariantType({
   /** Execution started */
   execution_started: StructType({
     /** Event sequence number */
@@ -259,23 +263,6 @@ const EXECUTION_EVENT_V1_CASES = {
     /** Path where version conflict was detected */
     conflictPath: StringType,
   }),
-};
-
-/**
- * Execution events (VariantType for discriminated union).
- *
- * Events track the progress of a dataflow execution and are stored
- * inline in the execution state (not as a separate JSONL file).
- *
- * @remarks
- * Part of the execution state's wire, which changes only by version (see
- * {@link EXECUTION_STATE_VERSION}): a reader decodes a state against the whole
- * type it was written with, so a new event is a new version of the state.
- * Each unit's progress is a callback, {@link PartitionProgress}, and is not
- * persisted.
- */
-export const ExecutionEventType = VariantType({
-  ...EXECUTION_EVENT_V1_CASES,
   /** A task was split into pieces: its units start as the pieces, and its
    *  `$plan` names them. */
   task_split: StructType({
@@ -355,9 +342,9 @@ export interface PartitionProgress {
  *
  * @remarks
  * A reader decodes a stored state against the whole type it was written with,
- * so the type changes only by version: each version's type keeps a decoder,
- * and {@link decodeDataflowExecutionState} upgrades an older state to this
- * version and refuses a newer one, naming it.
+ * so the type changes only by version, and
+ * {@link decodeDataflowExecutionState} reads this version alone, refusing any
+ * other and naming it.
  *
  * - 1: as first released, without a `version`.
  * - 2: a task's `plan`, and the events of a split task's stages.
@@ -373,8 +360,8 @@ export const EXECUTION_STATE_VERSION = 2n;
  * - Tasks are stored as a Dict (serializes as object, not array of tuples)
  * - Events are stored inline (not as separate JSONL file)
  * - Dates are Date objects (via DateTimeType)
- * - Read it back with {@link decodeDataflowExecutionState}, which reads every
- *   version up to {@link EXECUTION_STATE_VERSION}
+ * - Read it back with {@link decodeDataflowExecutionState}, which reads
+ *   {@link EXECUTION_STATE_VERSION} alone
  */
 export const DataflowExecutionStateType = StructType({
   /** The state's version: {@link EXECUTION_STATE_VERSION} */
@@ -444,70 +431,41 @@ export const DataflowExecutionStateType = StructType({
 });
 export type DataflowExecutionState = ValueTypeOf<typeof DataflowExecutionStateType>;
 
-/** The execution state as version 1 wrote it, the fields in its order. */
-const DataflowExecutionStateV1Type = StructType({
-  id: StringType,
-  repo: StringType,
-  workspace: StringType,
-  startedAt: DateTimeType,
-  concurrency: IntegerType,
-  force: BooleanType,
-  filter: OptionType(StringType),
-  graph: OptionType(DataflowGraphType),
-  graphHash: OptionType(StringType),
-  tasks: DictType(StringType, StructType(TASK_STATE_V1_FIELDS)),
-  executed: IntegerType,
-  cached: IntegerType,
-  failed: IntegerType,
-  skipped: IntegerType,
-  status: StringType,
-  completedAt: OptionType(DateTimeType),
-  error: OptionType(StringType),
-  versionVectors: DictType(StringType, DictType(StringType, StringType)),
-  inputSnapshot: DictType(StringType, StringType),
-  taskOutputPaths: ArrayType(StringType),
-  reexecuted: IntegerType,
-  events: ArrayType(VariantType(EXECUTION_EVENT_V1_CASES)),
-  eventSeq: IntegerType,
-});
-
 const STATE_TYPE = toEastTypeValue(DataflowExecutionStateType);
-const STATE_V1_TYPE = toEastTypeValue(DataflowExecutionStateV1Type);
 const decodeState = decodeBeast2For(DataflowExecutionStateType);
-const decodeStateV1 = decodeBeast2For(DataflowExecutionStateV1Type);
 
 /**
- * Decodes a stored execution state of any version this e3 reads.
+ * Decodes a stored execution state.
  *
- * The version is told by the type the state's header declares — a decoder
- * built for another version's type would misread it rather than fail — and an
- * older version is upgraded to {@link EXECUTION_STATE_VERSION}: a version 1
- * state's tasks have no `plan`.
+ * The version is told by the type the state's header declares, since a
+ * decoder built for another version's type would misread it rather than fail.
+ * Stored state changes by hard cutover, so a state of another version is
+ * refused, naming its version: an older e3's, whose repository is re-created,
+ * or a newer one's.
  *
  * @param data - the stored state
- * @returns the state, at {@link EXECUTION_STATE_VERSION}
- * @throws {Error} When a newer e3 wrote the state, naming its version, or the
- *   data is not an execution state.
+ * @returns the state
+ * @throws {Error} When an older or a newer e3 wrote the state, naming its
+ *   version, or the data is not an execution state.
  */
 export function decodeDataflowExecutionState(data: Uint8Array): DataflowExecutionState {
   const type = readBeast2Type(data);
   if (isTypeValueEqual(type, STATE_TYPE)) return decodeState(data);
-  if (isTypeValueEqual(type, STATE_V1_TYPE)) {
-    const state = decodeStateV1(data);
-    const tasks = new SortedMap<string, TaskState>(
-      [...state.tasks].map(([name, task]) => [name, { ...task, plan: none }]),
-      compareFor(StringType),
-    );
-    return { version: EXECUTION_STATE_VERSION, ...state, tasks };
-  }
   const { value } = decodeBeast2(data);
-  const version: unknown = typeof value === 'object' && value !== null ? value.version : undefined;
+  const state = typeof value === 'object' && value !== null ? value as Record<string, unknown> : null;
+  const version = state?.version;
   if (typeof version === 'bigint' && version > EXECUTION_STATE_VERSION) {
     throw new Error(
-      `the execution state was written by a newer e3: it is version ${version}, and this e3 reads versions up to ${EXECUTION_STATE_VERSION}`,
+      `the execution state was written by a newer e3: it is version ${version}, and this e3 reads version ${EXECUTION_STATE_VERSION}`,
     );
   }
-  throw new Error('the data is not an execution state this e3 reads: its type is not that of any version');
+  if (state !== null && 'workspace' in state && 'tasks' in state && 'events' in state) {
+    throw new Error(
+      `the execution state was written by an older e3: it is version ${typeof version === 'bigint' ? version : 1n}, and this e3 reads version ${EXECUTION_STATE_VERSION} — ` +
+      're-create the repository: deploy again and import its data again',
+    );
+  }
+  throw new Error('the data is not an execution state: its type is not the execution state\'s');
 }
 
 // =============================================================================

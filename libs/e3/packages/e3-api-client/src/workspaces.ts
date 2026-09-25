@@ -82,7 +82,7 @@ export async function workspaceGet(url: string, repo: string, name: string, opti
 /**
  * Get comprehensive workspace status including datasets, tasks, and lock info.
  *
- * Use this to poll for execution progress after calling dataflowStart().
+ * Use this to poll for execution progress after calling dataflowExecuteLaunch().
  *
  * @param url - Base URL of the e3 API server
  * @param repo - Repository name

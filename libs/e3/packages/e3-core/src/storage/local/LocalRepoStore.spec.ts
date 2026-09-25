@@ -13,6 +13,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { LocalRepoStore } from './LocalRepoStore.js';
 import { LocalStorage } from './LocalBackend.js';
+import { repoInit } from './repository.js';
 import {
   RepoNotFoundError,
   RepoAlreadyExistsError,
@@ -95,21 +96,30 @@ describe('LocalRepoStore', () => {
       assert.ok(metadata.statusChangedAt);
     });
 
-    it('synthesizes metadata for legacy repos without metadata file', async () => {
-      // Create a legacy repo structure without metadata file
-      const legacyDir = join(testDir, 'legacy-repo');
-      mkdirSync(legacyDir);
-      mkdirSync(join(legacyDir, 'objects'));
-      mkdirSync(join(legacyDir, 'packages'));
-      mkdirSync(join(legacyDir, 'executions'));
-      mkdirSync(join(legacyDir, 'workspaces'));
+    it('returns metadata for a repo repoInit created', async () => {
+      assert.strictEqual(repoInit(join(testDir, 'cli-repo')).success, true);
 
-      const metadata = await store.getMetadata('legacy-repo');
+      const metadata = await store.getMetadata('cli-repo');
 
       assert.ok(metadata);
-      assert.strictEqual(metadata.name, 'legacy-repo');
+      assert.strictEqual(metadata.name, 'cli-repo');
       assert.strictEqual(metadata.status, 'active');
-      assert.ok(metadata.createdAt);
+      assert.strictEqual(metadata.statusChangedAt, metadata.createdAt);
+    });
+
+    it('refuses a repo without a metadata file, naming the fix', async () => {
+      // The repo an older e3's repoInit left: the directories, no metadata file
+      const olderDir = join(testDir, 'older-repo');
+      mkdirSync(olderDir);
+      mkdirSync(join(olderDir, 'objects'));
+      mkdirSync(join(olderDir, 'packages'));
+      mkdirSync(join(olderDir, 'executions'));
+      mkdirSync(join(olderDir, 'workspaces'));
+
+      await assert.rejects(store.getMetadata('older-repo'), {
+        message: "the repository 'older-repo' has no metadata file (.e3-metadata.json): an older e3 created it — " +
+          're-create it: deploy again and import its data again',
+      });
     });
   });
 
