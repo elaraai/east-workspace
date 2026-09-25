@@ -29,7 +29,8 @@ Conventions used below:
 5. User message
 6. Assistant message
 7. Markdown
-8. Tool-result widgets (frame, chart, table, stats, proposal, tool call; query-backed widgets)
+8. Tool-result widgets (frame, chart, table, stats, proposal, tool call; the view catalog and
+   query-backed widgets)
 9. Composer
 10. Delete dialog
 11. Streaming, scrolling and timing
@@ -375,13 +376,19 @@ The row is laid out as follows:
    - **Send feedback.** Right-aligned. Height 28, padding `0 12`, `--rule-strong` border, radius 6,
      `--paper`, `--ink-2` 12.5px/500. It is disabled (opacity 0.45, `cursor: not-allowed`) until at
      least one reason is chosen. Sending closes the panel and shows the trailing label.
-10. **Follow-ups.** Last assistant message only, when it is done, no reply is running, and it has
-    suggestions. A column, gap 6:
+10. **Follow-ups.** Last assistant message only, once it is done in the UI (its turn is done and its
+    reveal has caught up, §11.1), while no reply is running, and when it has suggestions. At most 3
+    show: the engine keeps the first 3 after dropping empty, duplicate and over-long ones (issue).
+    A column, gap 6:
     - the label "FOLLOW UP" (0.14em);
     - a wrapping row (gap 6) of chips. Each chip: inline row, gap 7, height 28, padding `0 10`,
       `--rule-strong` border, radius 6, `--paper`, 12.5px `--ink-2`, hover border `--ink-3` and fill
       `--paper-2`. It holds the text (numerals styled) and a trailing `fa-arrow-right` (9px,
       `--ink-4`). Clicking one sends its text alone; the composer keeps its draft (§15).
+    - **Continue.** A done answer that stopped at the output limit (`limited`, issue) shows the same
+      row with one chip, "Continue", in place of follow-ups. Clicking it continues the same message:
+      the mark goes back to thinking, then writing, and the text grows in place. No user bubble is
+      added.
 
 ### 6.2 States
 
@@ -398,6 +405,12 @@ The row is laid out as follows:
 A stopped body keeps exactly the text revealed when Stop was pressed. In product the client sends
 the revealed length with the cancel, and the server cuts the stored answer there (issue);
 components placed after the cut are dropped.
+
+- **Limited.** An answer the output limit cut is done: the mark is idle, and the summary, trace,
+  sources and actions show as for done. Its follow-up row holds only the Continue chip (§6.1).
+- **Stop during the catch-up.** When the server has finished but the reveal is still behind, the
+  message is still streaming in the UI and Stop still shows (§11.1). Pressing it stops at the
+  revealed text. The server rewrites its stored answer to match and drops its follow-ups (issue).
 
 ## 7. Markdown
 
@@ -492,6 +505,13 @@ After a widget, a pending box, a rule or a table, it starts a new paragraph inst
 
 ## 8. Tool-result widgets
 
+In product every chart, table, stats, value, list, bars, calendar, timeline and map widget is a
+production east-ui component. That component's agent definition builds it from the query's resolved
+data (issue, "the view catalog"; §8.7).
+- §8.2–8.4 describe the mock's chart, table and stat tiles. Those looks become features of the
+  production `<Chart>`, `<Table>` and `<Stat>`, so every east-ui user gets them.
+- The chat owns the frame (§8.1), the proposal card (§8.5) and the panels (§8.6–8.7).
+
 ### 8.1 Frame
 
 - **Box.** Full width, 1px `--rule-strong` border, radius 8, `--paper` fill, overflow hidden.
@@ -512,8 +532,8 @@ The header then ends with two icon buttons:
 - **Copy data.** Icon button 28, 11px `fa-copy`, which becomes `fa-check` in `--pos` for 1 400 ms.
   `aria-label` and title "Copy data". It copies CSV (§8.6).
 
-A query-backed widget also fills the status cell and adds a Refresh button before these two. The
-value widget has its own header row. Both are product additions, specified in §8.7.
+The other views take their icon and eyebrow from the catalog (§8.7). Every view widget is
+query-backed, so it also fills the status cell and adds a Refresh button before these two (§8.7).
 
 A new spec for the widget (the mock's `uid`) resets its local state: the hover, hidden series,
 sort, selection, the open tool call panel and any unsaved proposal edits.
@@ -738,24 +758,46 @@ therefore shows it applied or overridden.
 | Proposal | `id,summary,status` |
 | Value | Not CSV: the value as East text (§8.7) |
 
+The rows above are the mock's. In product a view widget's CSV is built from its resolved binding
+columns (issue), one column per binding, in the order the component's roles list them. A column's
+header is the binding's jq when that is a simple path (`.window` → `window`), else the binding's
+pointer.
+
 A refreshed widget copies the data it currently shows (§8.7). A field holding a comma, quote or
 newline is quoted as RFC 4180 says; the mock never quotes (§15). The mock's proposal row is
 `P-118,move {n} pickers Tue late → Thu {window},{status}`.
 
-### 8.7 Product additions: query-backed widgets
+### 8.7 Product additions: the view catalog and query-backed widgets
 
-None of this is in the mock. Issue #883 specifies the behaviour (Decision 21, rules W12, W14 and
-W15); this section fixes the anatomy.
+None of this is in the mock. Issue #883 specifies the behaviour (the view catalog, Decision 21,
+rules W12, W14 and W15); this section fixes the anatomy.
 
-**Which widgets.** A chart, table, stats or value widget is *query-backed* when its spec carries a
-`source`: the jq program, the datasets it read, and the pinned hash of each input
-(`QuerySourceType`). An input's `name` is its dataset path as `workspaceStatus` reports it, for
+**The view catalog.** Each view is a production east-ui component with an agent definition beside its
+own types. The header's icon and eyebrow come from the definition, and the title is the call's
+`title`:
+
+| View | Component | Icon | Eyebrow |
+|---|---|---|---|
+| chart | `<Chart>` | by the first layer's mark: column `fa-chart-column`, line `fa-chart-line`, area `fa-chart-area`, bar `fa-chart-bar`, scatter or band `fa-chart-simple` | "CHART.{MARK}", for example "CHART.COLUMN" |
+| table | `<Table>` | `fa-table` | "TABLE" |
+| stats | a group of `<Stat>` tiles | `fa-gauge-high` | "STAT" |
+| value | `<ValueTree>` | `fa-folder-tree` | "VALUE" |
+| list | `<DataList>` | `fa-list` | "LIST" |
+| bars | `<BarStrip>` | `fa-chart-bar` | "BARS" |
+| calendar | `<Calendar>` | `fa-calendar-days` | "CALENDAR" |
+| timeline | `<Plan>` span rows | `fa-chart-gantt` | "TIMELINE" |
+| map | `<Map>` markers | `fa-map-location-dot` | "MAP" |
+
+**Which widgets.** Every view widget is *query-backed*: its component was built from a jq query,
+even when the query is a jq literal (`[{window: "06–10", demand: 1410}]`), which reads no dataset and
+is never stale. Its `source` holds the jq program, the datasets it read, and the pinned hash of each
+input (`QuerySourceType`). An input's `name` is its dataset path as `workspaceStatus` reports it, for
 example `.inputs.demand`. Proposals are never query-backed.
 
-**Value widget.** The mock has no value widget. It uses the §8.1 frame:
-
-- the icon is `fa-folder-tree`, the eyebrow "VALUE", and the title the spec title;
-- the body is the production `<ValueTree>`, read-only, over the result handle, and paged;
+**Value widget.** The mock has no value widget.
+- It uses the §8.1 frame.
+- Its body is the production `<ValueTree>`, read-only, over the whole output; long outputs are
+  paged through the result handle.
 - Copy data copies the value as East text, fetched through the handle.
 
 **Refresh status.** It fills the header's status cell, styled as in §8.1 (label style at 0.14em, a
@@ -796,9 +838,9 @@ the tree, the status never shows.
 - The stored message is unchanged. After a reload the widget shows the answer's own data again,
   and is stale if the inputs still differ.
 
-**Drag source.** Chart, table, stats and value widgets, query-backed or not, are drag sources on
-the shared grammar. They use `useDragSourceItem` from `east-ui-components/src/dnd/drag-layer.tsx`,
-and are draggable only when the page mounts a drag layer.
+**Drag source.** Every view widget is a drag source on the shared grammar. It uses
+`useDragSourceItem` from `east-ui-components/src/dnd/drag-layer.tsx`, and is draggable only when
+the page mounts a drag layer.
 
 - **Identity.** The library id is `chat-results:{surface id}`, for example
   `chat-results:brisbane`. The item key is `{message id}:{component id}`, for example `m12:c1`.
@@ -1023,6 +1065,10 @@ rule:
 - the caret shows while the reveal is behind the received text, or while the reply is still
   writing.
 
+A reply counts as **done in the UI** only when its turn is done and the reveal has caught up. Until
+then it is streaming: the caret shows, Stop stays, the mark writes, and sources, actions and
+follow-ups wait.
+
 ### 11.2 Following the bottom
 
 - **At bottom** means `scrollHeight − scrollTop − clientHeight < 48`. It is re-evaluated on scroll.
@@ -1119,15 +1165,14 @@ one. A message with a command and no text asks the command's description.
 | `check_query` | "check query" |
 | `run_query` | The call's `label`, for example "Thu demand by window" |
 | `call_function` | The function's name |
-| `render_chart` | "{kind} · {n} series", for example "column · 1 series" |
-| `render_table` | "{n} rows" |
-| `render_stats` | "{n} values" |
-| `render_value` | The title |
+| `render_<view>` (`render_chart`, `render_table`, …) | "{view} · {rows} rows", for example "chart · 4 rows" |
 | `propose_change` | The proposal id, for example "P-118" |
 | `read_context`, `edit_context` | The chip's label |
 | `search_examples`, `read_skill` | The query, or the skill's name |
 | `suggest_follow_ups` | No step |
 | The row shown while thinking (§6.1) | "Reasoning" |
+
+**Continue chip.** "Continue" (§6.1).
 
 **Placeholders**
 
@@ -1233,3 +1278,4 @@ demo shortcut or slips:
 | The link underline is 1px thick only in paragraphs and lists | 1px everywhere | One link style |
 | Copy data never quotes CSV fields | RFC 4180 quoting | Labels can hold commas |
 | The stepper's labels are "Fewer pickers" / "More pickers" | "Decrease {field}" / "Increase {field}" | Fields are generic |
+| The chart, table and stat tiles are the mock's own drawing | The production `<Chart>`, `<Table>` and `<Stat>`, which gain those looks | One implementation, shared by every east-ui user |
