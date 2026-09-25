@@ -197,19 +197,19 @@ describe("FileSystem.openBeast laziness and build-time checks", () => {
         const compiled = East.compile(fn, FileSystemImpl);
         const proto = Beast2Pages.prototype as unknown as Record<string, (...args: unknown[]) => unknown>;
         const originalGet = proto.get!;
-        const originalSegment = proto.segment!;
+        const originalSegment = proto.segmentDisjoint!;
         let keyed = 0;
         let segments = 0;
         proto.get = function (this: unknown, ...args: unknown[]) { keyed++; return originalGet.apply(this, args); };
-        proto.segment = function (this: unknown, ...args: unknown[]) { segments++; return originalSegment.apply(this, args); };
+        proto.segmentDisjoint = function (this: unknown, ...args: unknown[]) { segments++; return originalSegment.apply(this, args); };
         try {
             assert.equal(compiled(path), 37n + 435n);
         } finally {
             proto.get = originalGet;
-            proto.segment = originalSegment;
+            proto.segmentDisjoint = originalSegment;
         }
         assert.equal(keyed, 1, "one keyed read reaches the pager");
-        assert.equal(segments, 3, "the for loop streams each segment exactly once");
+        assert.equal(segments, 3, "the for loop streams each segment exactly once, checked against the next");
     });
 
     unitTest("the opened value is frozen and stays un-hydrated after served reads", () => {
