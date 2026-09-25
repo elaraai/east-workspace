@@ -11,7 +11,7 @@ import { Sheet } from "@elaraai/east-ui/internal";
 import * as ex from "./sheet-transactions.examples.js";
 
 describeEast("Sheet atomic batch examples", test => {
-    Assert.examples(test, { sheetApplyBatch: ex.sheetApplyBatch });
+    Assert.examples(test, { sheetApplyBatch: ex.sheetApplyBatch, sheetApplyEntries: ex.sheetApplyEntries });
 }, { platformFns: TestImpl });
 
 const Row = StructType({ id: StringType, qty: IntegerType, hidden: ArrayType(StringType) });

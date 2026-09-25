@@ -12,6 +12,7 @@ import {
     none, some, variant, type ExprType,
 } from "@elaraai/east";
 import * as ex from "./sheet.examples.js";
+import * as linkEx from "./sheet-link.examples.js";
 
 // ── The fixtures every test shares — declared at module scope so the tests
 // read as the examples do; the East bodies below bind them with `$.const`.
@@ -111,6 +112,7 @@ describeEast("Sheet", (test) => {
         sheetPaged: ex.sheetPaged,
         sheetSubRows: ex.sheetSubRows,
         sheetRules: ex.sheetRules,
+        sheetRegisters: ex.sheetRegisters,
         sheetStress: ex.sheetStress,
     });
 
@@ -346,6 +348,11 @@ describeEast("Sheet", (test) => {
         $(Assert.equal(canonicalDraft.machines.unwrap("value"), "Lathe 2140 > 4 x CNC lathe"));
         $(Assert.equal(typedDraft.machines.unwrap("value"), "M2140 > 4 x CNC lathe"));
         $(Assert.equal(typedDraft.status.hasTag("missing"), true));
+    });
+
+    Assert.examples(test, {
+        sheetLinkPrint: linkEx.sheetLinkPrint,
+        sheetLinkParse: linkEx.sheetLinkParse,
     });
 
     test("Sheet.link.print and Sheet.link.parse round-trip the planner's text", $ => {

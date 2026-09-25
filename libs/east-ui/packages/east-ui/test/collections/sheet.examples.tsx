@@ -15,7 +15,8 @@ import {
 // The Sheet corpus — the five slots of EXAMPLES_AUTHORING.md §8 (Sheet Spec.md §8 P1):
 // `sheetBasic` · `sheetVariants` (THE configurator) · `sheetPlan` (the flagship)
 // · the behavioural isolates `sheetCopilot` / `sheetLens` / `sheetWriteBack` /
-// `sheetPaged` / `sheetSubRows` / `sheetRules` · `sheetStress`. Every example is self-contained — types,
+// `sheetGrouped` / `sheetPaged` / `sheetReadiness` / `sheetInsertion` /
+// `sheetSubRows` / `sheetRules` / `sheetRegisters` · `sheetStress`. Every example is self-contained — types,
 // fixtures and constructors inside the body, bulk data derived East-side —
 // and the fixtures are the prototype's synthetic registers and rows: a
 // discrete manufacturing plant (machines on lines, work orders moving parts
@@ -1215,6 +1216,93 @@ export const sheetRules = example({
                     }))}
                     onUpdate={jobs.write}
                     blanks={4n}
+                />
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+/**
+ * Registers and the driver (§3.3) — a register is the grammar's vocabulary,
+ * projected from the host's rows by accessors: machines from an Array with a
+ * meta and a parent, lines from a Dict whose key rides as the accessors'
+ * second argument, and the machine families read off the same machines (the
+ * lathes fold into one member), joined into the one register the Machines
+ * column resolves against. The driver is the `lookup` column whose member
+ * decides what the row does: its row gives the quantity its unit and the End
+ * fill its duration.
+ */
+export const sheetRegisters = example({
+    keywords: ["Sheet", "register", "members", "concat", "driver", "lookup", "set", "kind", "key", "label", "aliases", "meta", "parent", "Dict", "fold", "duplicate", "uom", "fill", "DraftContext", "Reactive", "State"],
+    description: "Registers and the driver — members projected from Array and Dict rows (meta, parent, aliases, duplicate keys folded) and joined into one register a set column resolves against, beside a driver whose row gives each quantity its unit and a fill its duration",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const JobType = StructType({
+                id: StringType, activity: StringType, start: OptionType(DateTimeType), end: OptionType(DateTimeType),
+                qty: OptionType(FloatType), machines: Sheet.Types.Link,
+            });
+            const ActivityType = StructType({ name: StringType, uom: StringType, days: IntegerType });
+            const MachineType = StructType({ code: StringType, family: StringType, line: StringType });
+            const LineType = StructType({ name: StringType, aliases: ArrayType(StringType) });
+            const activities = $.const([
+                { name: "Machining", uom: "pcs", days: 4n },
+                { name: "Inspection", uom: "lots", days: 1n },
+            ], ArrayType(ActivityType));
+            const machines = $.const([
+                { code: "M2140", family: "CNC lathe", line: "L2" },
+                { code: "M2141", family: "CNC lathe", line: "L2" },
+                { code: "M3210", family: "5-axis mill", line: "L3" },
+            ], ArrayType(MachineType));
+            const lines = $.const(new Map([
+                ["L2", { name: "Line 2", aliases: ["l2", "line 2"] }],
+                ["L3", { name: "Line 3", aliases: ["l3", "line 3"] }],
+            ]), DictType(StringType, LineType));
+            const jobs = $.let(State.bind([ArrayType(JobType)], "sheet_registers_jobs", [
+                { id: "j1", activity: "Machining", start: some(new Date("2026-02-16T00:00:00Z")), end: none, qty: some(1200.0),
+                  machines: { from: [], to: [variant("counted", { n: 2n, key: "CNC lathe" })] } },
+            ]));
+            // The driver's row reaches a fill typed: End = Start + the activity's days.
+            const DateFill = OptionType(Sheet.Types.Fill(DateTimeType));
+            const endFromStart = $.const(East.function([Sheet.Types.DraftContext(JobType, ActivityType)], DateFill, ($, ctx) => {
+                const noFill = $.const(none, DateFill);
+                return ctx.row.start.match({
+                    value: (_$, supplied) => supplied.match({
+                        none: () => noFill,
+                        some: (_$, start) => ctx.driver.match({
+                            none: () => noFill,
+                            some: (_$, d) => some({ value: start.addDays(d.days), meta: East.str`+${d.days}d · ${d.name}` }),
+                        }),
+                    }),
+                }, () => noFill);
+            }));
+            const newJob = $.const(East.function([Sheet.Types.NewRow], Sheet.Types.Patch(JobType), () => Sheet.patch(JobType, { machines: { from: [], to: [] } })));
+            return (
+                <Sheet
+                    data={jobs}
+                    id="id"
+                    driver={Sheet.driver("activity", activities, { key: a => a.name, label: a => a.name, meta: a => some(a.uom) })}
+                    registers={{
+                        machines: Sheet.register.concat([
+                            Sheet.register.members(machines, { kind: "machine", key: m => m.code, label: m => m.code,
+                                meta: m => some(m.family), parent: m => some(m.line) }),
+                            // A Dict's key rides as the accessors' second argument.
+                            Sheet.register.members(lines, { kind: "line", key: (_l, code) => code, label: l => l.name, aliases: l => l.aliases }),
+                            // Both lathes name one family — duplicate keys fold, the first wins.
+                            Sheet.register.members(machines, { kind: "family", key: m => m.family, label: m => m.family, meta: _m => some("family") }),
+                        ]),
+                    }}
+                    columns={{
+                        activity: Sheet.column.lookup(JobType, { header: "Activity", width: "140px" }),
+                        start:    Sheet.column.date(JobType, { header: "Start", width: "96px" }),
+                        end:      Sheet.column.date(JobType, { header: "End", sub: "start + days", width: "96px", base: "start", fill: [endFromStart] }),
+                        qty:      Sheet.column.quantity(JobType, ActivityType, { header: "Qty", sub: "uom per activity", width: "112px", uom: d => d.uom }),
+                        machines: Sheet.column.set(JobType, "machines", { header: "Machines", sub: "M2140 · 2 x lathe · line 2", width: "240px",
+                                      members: [{ kind: "machine", identified: true }, { kind: "line", countable: true, resolvesTo: "machine" },
+                                                { kind: "family", countable: true, resolvesTo: "machine" }] }),
+                    }}
+                    newRow={newJob}
+                    onUpdate={jobs.write}
                 />
             );
         }}</Reactive>

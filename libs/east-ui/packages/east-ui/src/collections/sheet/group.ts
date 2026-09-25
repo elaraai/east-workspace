@@ -5,18 +5,17 @@
 
 /**
  * `Sheet.group` and `Sheet.group.cell.*` — grouped rows (#740): the group is
- * the row, its lines live in one field of its own type (`Array<L>` or
- * `Dict<String, L>`), and the band a group draws above its lines shows the
- * group's own fields under the line columns.
+ * the row, its lines live in one `Array<L>` field of its own type, and the
+ * band a group draws above its lines shows the group's own fields under the
+ * line columns.
  *
- * `Sheet.group(P, "lines", { title, sub?, cells?, folded? })` names the lines
- * field and the band; each `cells` entry is a group field declared over the
- * group's row with `Sheet.group.cell.<kind>(P, "field", cfg)` — the same
- * builders as `Sheet.column.<kind>` minus the header, keyed in `cells` by
- * the LINE column it sits under. A band cell edits like any cell and reaches
- * the host through the sheet's `onEdit` callback (`groupCommit`) or the
- * `onUpdate` rebuild; `editable: false` and a `value:` projection are
- * read-only.
+ * `Sheet.group(P, "lines", { title, sub?, cells?, folded?, noun? })` names
+ * the lines field and the band; each `cells` entry is a group field declared
+ * over the group's row with `Sheet.group.cell.<kind>(P, "field", cfg)` — the
+ * same builders as `Sheet.column.<kind>` minus the header, keyed in `cells`
+ * by the LINE column it sits under. A band cell edits like any cell: the
+ * edit joins the sheet's batch and reaches the host through `onUpdate` or
+ * `onApply`. `editable: false` and a `value:` projection are read-only.
  *
  * The builders only CAPTURE; the root describes each cell against the group's
  * row type and reifies the accessors (`root.ts`, `bridge.ts`).
@@ -224,12 +223,12 @@ export interface SheetGroupValue<P extends StructType, F extends string> {
 
 /**
  * Declares grouped rows — `Sheet.group(P, "lines", { title, sub?, cells?, folded?, noun? })`
- * (#740): the group is the row, `lines` names the field holding its lines
- * (an `Array<Line>` or a `Dict<String, Line>`), and the band draws the
- * title, the eyebrow and the `cells` under their line columns.
+ * (#740): the group is the row, `lines` names the `Array<Line>` field
+ * holding its lines, and the band draws the title, the eyebrow and the
+ * `cells` under their line columns.
  *
  * @typeParam P - The group's row type
- * @typeParam F - The lines field — an `Array<Line>` or `Dict<String, Line>` field of `P`
+ * @typeParam F - The lines field — an `Array<Line>` field of `P`
  * @param rowType - The group's row type value
  * @param lines - The lines field
  * @param config - The band ({@link SheetGroupConfig})

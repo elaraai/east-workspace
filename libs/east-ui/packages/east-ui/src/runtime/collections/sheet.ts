@@ -17,6 +17,7 @@ import {
     type SheetBindHandle,
     type SheetLinesField,
     type SheetLineOf,
+    type SheetNamespace,
 } from "../../collections/sheet/index.js";
 import type { DataRowType } from "../../collections/table/index.js";
 import { hasKeys } from "../combinators.js";
@@ -67,6 +68,11 @@ function SheetTag(
     );
 }
 
+// The tag IS the root, so `Root` is the one factory member it does not carry.
+// Derived, never hand-listed: a member added to `SheetNamespace` rides the tag
+// with no edit here (#862, as #814 did for the Plan).
+const { Root: _root, ...authoring } = SheetFactory;
+
 /**
  * The planning spreadsheet — rows are the host's records, columns are TYPED
  * (`Sheet.column.date` / `quantity` / `lookup` / `reference` / `enum` /
@@ -81,24 +87,30 @@ function SheetTag(
  * @example
  * ```tsx
  * // .tsx file with the `@jsxImportSource @elaraai/east-ui` pragma
- * import { East, ArrayType, DateTimeType, FloatType, OptionType, StringType, StructType, none } from "@elaraai/east";
+ * import { ArrayType, DateTimeType, East, FloatType, OptionType, StringType, StructType, none } from "@elaraai/east";
  * import { Reactive, Sheet, State, UIComponentType } from "@elaraai/east-ui";
  *
- * const JobType = StructType({ id: StringType, start: OptionType(DateTimeType), task: StringType, qty: OptionType(FloatType) });
- *
- * const jobs = East.function([], UIComponentType, (_$) => (
+ * const sheet = East.function([], UIComponentType, (_$) => (
  *     <Reactive>{$ => {
- *         const rows = $.let(State.bind([ArrayType(JobType)], "jobs", [{ id: "j1", start: none, task: "Machining", qty: none }]));
+ *         const JobType = StructType({
+ *             id:    StringType,
+ *             start: OptionType(DateTimeType),   // none = blank cell
+ *             task:  StringType,                 // "" = blank cell
+ *             qty:   OptionType(FloatType),
+ *         });
+ *         const jobs = $.let(State.bind([ArrayType(JobType)], "sheet_basic_jobs", [
+ *             { id: "j1", start: none, task: "Machining", qty: none },
+ *         ]));
  *         return (
  *             <Sheet
- *                 data={rows.read()}
+ *                 data={jobs}
  *                 id="id"
  *                 columns={{
- *                     start: Sheet.column.date(JobType, { header: "Start", sub: "d/m · fri · +3d" }),
+ *                     start: Sheet.column.date(JobType, { header: "Start", sub: "dd / mm / yyyy" }),
  *                     task:  Sheet.column.text(JobType, { header: "Task" }),
- *                     qty:   Sheet.column.quantity(JobType, { header: "Qty" }),
+ *                     qty:   Sheet.column.quantity(JobType, { header: "Qty" }),   // no driver on this sheet — the two-argument form
  *                 }}
- *                 onUpdate={rows.write}
+ *                 onUpdate={jobs.write}
  *             />
  *         );
  *     }}</Reactive>
@@ -106,33 +118,15 @@ function SheetTag(
  * ```
  *
  * @remarks
- * Carries the whole authoring namespace — `Sheet.column.*` (the builders),
- * `Sheet.register.members` / `.concat`, `Sheet.driver`, `Sheet.link.arity` /
- * `.check` / `.parse` / `.print`, `Sheet.patch`, `Sheet.group` /
- * `Sheet.group.cell.*` (grouped rows, #740), `Sheet.subRows` / `Sheet.subRow`
- * (sub rows, #844), and `Sheet.Types.*` (the
- * closed wire types plus the typed constructors `Context(R, D)` / `Fill(T)` /
- * `Patch(R)` / `Proposal(R)` / `Edit(R)` / `CheckContext(R)`). Desugars to
+ * Carries the factory namespace except `Root` (the tag is the root):
+ * `Sheet.column.*` (the builders), `Sheet.register.members` / `.concat`,
+ * `Sheet.driver`, `Sheet.link.arity` / `.check` / `.parse` / `.print`,
+ * `Sheet.patch`, `Sheet.apply` (a checked batch applied to a collection),
+ * `Sheet.group` / `Sheet.group.cell.*` (grouped rows, #740), `Sheet.subRows`
+ * / `Sheet.subRow` (sub rows, #844), and `Sheet.Types.*` (the closed wire
+ * types plus the typed constructors, among them `DraftContext(R, D)` /
+ * `Fill(T)` / `Patch(R)` / `Proposal(R)` / `CheckContext(R)` / `Draft(R)` /
+ * `PatchEvent(E)` / `ChangeSet(E)` / `Entry(G, "rows")`). Desugars to
  * `Sheet.Root(data, columns, options)`.
  */
-export const Sheet: typeof SheetTag & {
-    column: typeof SheetFactory.column;
-    register: typeof SheetFactory.register;
-    driver: typeof SheetFactory.driver;
-    link: typeof SheetFactory.link;
-    patch: typeof SheetFactory.patch;
-    subRows: typeof SheetFactory.subRows;
-    subRow: typeof SheetFactory.subRow;
-    group: typeof SheetFactory.group;
-    Types: typeof SheetFactory.Types;
-} = Object.assign(SheetTag, {
-    column: SheetFactory.column,
-    register: SheetFactory.register,
-    driver: SheetFactory.driver,
-    link: SheetFactory.link,
-    patch: SheetFactory.patch,
-    subRows: SheetFactory.subRows,
-    subRow: SheetFactory.subRow,
-    group: SheetFactory.group,
-    Types: SheetFactory.Types,
-});
+export const Sheet: typeof SheetTag & Omit<SheetNamespace, "Root"> = Object.assign(SheetTag, authoring);

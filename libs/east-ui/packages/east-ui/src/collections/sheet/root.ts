@@ -453,21 +453,63 @@ function buildKind(meta: SheetColumnMeta, bridge: SheetBridge, driver: SheetDriv
  * with their lines inside. onPatch observes one gesture; onApply confirms
  * an atomic checked batch.
  *
+ * In a `.tsx` file the `<Sheet>` tag calls this, with `data`, `columns` and
+ * the options as its props — as the example does for a grouped sheet whose
+ * rows are work packages.
+ *
  * @example
- * ```ts
- * import { East, ArrayType, DateTimeType, FloatType, OptionType, StringType, StructType, none } from "@elaraai/east";
- * import { Reactive, Sheet, State, UIComponentType } from "@elaraai/east-ui/internal";
+ * ```tsx
+ * // .tsx file with the `@jsxImportSource @elaraai/east-ui` pragma
+ * import { ArrayType, East, FloatType, OptionType, StringType, StructType, some, variant } from "@elaraai/east";
+ * import { Reactive, Sheet, State, Text, UIComponentType, VStack } from "@elaraai/east-ui";
  *
- * const JobType = StructType({ id: StringType, start: OptionType(DateTimeType), task: StringType, qty: OptionType(FloatType) });
- *
- * const example = East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
- *     const jobs = $.let(State.bind([ArrayType(JobType)], "jobs", [{ id: "j1", start: none, task: "Machining", qty: none }]));
- *     return Sheet.Root(jobs, {
- *         start: Sheet.column.date(JobType, { header: "Start" }),
- *         task:  Sheet.column.text(JobType, { header: "Task" }),
- *         qty:   Sheet.column.quantity(JobType, { header: "Qty" }),
- *     }, { id: "id", onUpdate: jobs.write });
- * })));
+ * const sheet = East.function([], UIComponentType, (_$) => (
+ *     <Reactive>{$ => {
+ *         const JobType = StructType({ task: StringType, qty: OptionType(FloatType), notes: StringType, createdBy: StringType });
+ *         const PackageType = StructType({ id: StringType, name: StringType, owner: StringType, jobs: ArrayType(JobType) });
+ *         const packages = $.let(State.bind([ArrayType(PackageType)], "sheet_grouped_packages", [
+ *             { id: "roughing", name: "P-40 · Roughing", owner: "planner", jobs: [
+ *                 { task: "Machine blanks", qty: some(1200.0), notes: "Four CNC lathes", createdBy: "planner" },
+ *                 { task: "Inspect lots", qty: some(4.0), notes: "Check before finishing", createdBy: "planner" },
+ *             ] },
+ *             { id: "finishing", name: "P-40 · Finishing", owner: "planner", jobs: [
+ *                 { task: "Finish housings", qty: some(1200.0), notes: "After inspection", createdBy: "planner" },
+ *                 { task: "Pack for assembly", qty: some(100.0), notes: "Twelve per carton", createdBy: "planner" },
+ *             ] },
+ *         ]));
+ *         const applied = $.let(packages.read());
+ *         return (
+ *             <VStack gap="3" align="stretch">
+ *                 <Text textStyle="caption" color="fg.muted">Edit a package name or task. Use the gutter + to insert a task, or the stacked-rows + button to create a package at a group boundary. Apply changes saves the batch; Undo and Redo retain each gesture.</Text>
+ *                 <Sheet
+ *                     data={packages}
+ *                     id="id"
+ *                     group={Sheet.group(PackageType, "jobs", { title: "name" })}
+ *                     ready={{ group: East.function([Sheet.Types.DraftGroup(PackageType, "jobs")], Sheet.Types.Readiness, ($, group) => {
+ *                         $.if(group.name.hasTag("value").and(() => group.name.unwrap("value").length().equal(0n)), $ => {
+ *                             $.return(East.value(variant("incomplete", [{ field: "name", message: "Name the work package" }]), Sheet.Types.Readiness));
+ *                         });
+ *                         return East.value(variant("ready", null), Sheet.Types.Readiness);
+ *                     }) }}
+ *                     columns={{
+ *                         task: Sheet.column.text(JobType, { header: "Task", width: "240px" }),
+ *                         qty: Sheet.column.quantity(JobType, { header: "Qty", width: "112px" }),
+ *                         notes: Sheet.column.text(JobType, { header: "Notes", width: "300px" }),
+ *                     }}
+ *                     newRow={East.function([Sheet.Types.NewRow], Sheet.Types.Patch(JobType), () => Sheet.patch(JobType, {
+ *                         notes: "", createdBy: "planner",
+ *                     }))}
+ *                     newGroup={East.function([Sheet.Types.NewGroup], Sheet.Types.Patch(PackageType), () => Sheet.patch(PackageType, {
+ *                         owner: "planner", jobs: [],
+ *                     }))}
+ *                     onUpdate={packages.write}
+ *                     style={{ height: "440px" }}
+ *                 />
+ *                 <Text.MonoLabel>{East.str`SAVED · ${applied.length()} packages · ${applied.map((_$, p) => p.jobs.length()).sum()} tasks`}</Text.MonoLabel>
+ *             </VStack>
+ *         );
+ *     }}</Reactive>
+ * ));
  * ```
  */
 export function createSheet<T extends SubtypeExprOrValue<ArrayType<StructType>>, F extends SheetLinesField<DataRowType<T>>>(

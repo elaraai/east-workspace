@@ -43,7 +43,9 @@ export function SheetDraftGroupTypeFor<G extends StructType, F extends SheetChil
     ]))) as SheetDraftGroupOf<G, F>;
 }
 /**
- * Constructs the union of groups carrying child rows and ungrouped rows.
+ * Constructs the union of groups carrying child rows and ungrouped rows. The
+ * child field is recorded with the type, so `Sheet.Types.DraftEntry(E)` and
+ * `Sheet.Types.PatchEvent(E)` find it without being told again.
  * @typeParam G - The group struct
  * @typeParam F - Its Array-of-structs child field
  * @param groupType - The group type
@@ -52,7 +54,34 @@ export function SheetDraftGroupTypeFor<G extends StructType, F extends SheetChil
  * @throws {Error} When the child field is not an Array of structs
  * @example
  * ```ts
- * const Entry = Sheet.Types.Entry(GroupType, "rows");
+ * import { ArrayType, East, OptionType, StringType, StructType, none, some, variant } from "@elaraai/east";
+ * import { Sheet } from "@elaraai/east-ui";
+ *
+ * const reordered = East.function([], ArrayType(StringType), ($) => {
+ *     const TaskType = StructType({ id: StringType, task: StringType });
+ *     const PackageType = StructType({ id: StringType, name: StringType, tasks: ArrayType(TaskType) });
+ *     const Entry = Sheet.Types.Entry(PackageType, "tasks");
+ *     const before = $.const(variant("group", { id: "p1", name: "P-40 roughing", tasks: [
+ *         { id: "t1", task: "Machine blanks" }, { id: "t2", task: "Inspect lots" },
+ *     ] }), Entry);
+ *     const after = $.const(variant("group", { id: "p1", name: "P-40 roughing", tasks: [
+ *         { id: "t2", task: "Inspect lots" }, { id: "t1", task: "Machine blanks" },
+ *     ] }), Entry);
+ *     const loose = $.const(variant("row", { id: "t9", task: "Pack for shipping" }), Entry);
+ *     const entries = $.const([before, loose], ArrayType(Entry));
+ *     const oldEntry = $.const(some(before), OptionType(Entry));
+ *     const newEntry = $.const(some(after), OptionType(Entry));
+ *     const batch = $.const({
+ *         requestId: "reorder-roughing", base: variant("snapshot", entries), label: "Move a task",
+ *         changes: [{ id: "p1", patch: East.diff(oldEntry, newEntry), place: none }],
+ *     }, Sheet.Types.ChangeSet(Entry));
+ *     const apply = $.const(Sheet.apply(Entry, "id"));
+ *     const applied = $.const(apply(entries, batch, none).unwrap("applied"));
+ *     return applied.map((_$, entry) => entry.match({
+ *         group: (_$2, p) => East.str`${p.name}: ${p.tasks.map((_$3, t) => t.task).stringJoin(" → ")}`,
+ *         row:   (_$2, t) => t.task,
+ *     }));
+ * });
  * ```
  */
 export function SheetEntryTypeFor<G extends StructType, F extends SheetChildrenField<G>>(groupType: G, field: F): VariantType<{ group: G; row: SheetChildOf<G, F> }> {

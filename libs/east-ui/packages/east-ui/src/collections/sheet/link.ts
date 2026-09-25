@@ -77,12 +77,15 @@ export const printMember = East.function([SheetMemberType], StringType, (_$, m) 
  *
  * @example
  * ```ts
- * import { East, StringType } from "@elaraai/east";
- * import { Sheet } from "@elaraai/east-ui/internal";
+ * import { East, StringType, variant } from "@elaraai/east";
+ * import { Sheet } from "@elaraai/east-ui";
  *
- * const example = East.function([], StringType, ($) => {
- *     const link = $.const({ from: [variant("identified", { key: "M2140" })], to: [variant("counted", { n: 4n, key: "CNC lathe" })] }, Sheet.Types.Link);
- *     return Sheet.link.print(link);   // "M2140 > 4 x CNC lathe"
+ * const printed = East.function([], StringType, ($) => {
+ *     const link = $.const({
+ *         from: [variant("identified", { key: "M2140" }), variant("range", { from: "M2141", to: "M2145" })],
+ *         to:   [variant("counted", { n: 4n, key: "CNC lathe" }), variant("placeholder", null)],
+ *     }, Sheet.Types.Link);
+ *     return Sheet.link.print(link);
  * });
  * ```
  */
@@ -236,12 +239,15 @@ const parseHalf = East.function([StringType, SheetRegisterMembersType], SheetMem
  *
  * @example
  * ```ts
- * import { East } from "@elaraai/east";
- * import { Sheet } from "@elaraai/east-ui/internal";
+ * import { East, none, some } from "@elaraai/east";
+ * import { Sheet } from "@elaraai/east-ui";
  *
- * const example = East.function([], Sheet.Types.Link, ($) => {
- *     const members = $.const([{ key: "M2140", label: "M2140", kind: "machine", aliases: [], meta: none, parent: none, tone: none }], Sheet.Types.RegisterMembers);
- *     return Sheet.link.parse("M2140 > 4 x lathe, TBC", members);
+ * const parsed = East.function([], Sheet.Types.Link, ($) => {
+ *     const members = $.const([
+ *         { key: "M2140", label: "M2140", kind: "machine", aliases: [], meta: some("CNC lathe"), parent: some("Line 2"), tone: none },
+ *         { key: "CNC lathe", label: "CNC lathe", kind: "family", aliases: ["lathe", "lathes"], meta: some("family"), parent: none, tone: none },
+ *     ], Sheet.Types.RegisterMembers);
+ *     return Sheet.link.parse("m2140 > 4 x lathe, M2141-45, TBC, paint shop", members);
  * });
  * ```
  */

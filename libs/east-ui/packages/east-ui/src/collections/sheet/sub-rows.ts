@@ -85,10 +85,79 @@ export interface SheetSubRowsValue<R extends StructType> {
  * @returns The declaration the `subRows` prop takes
  *
  * @example
- * ```ts
- * Sheet.subRows(JobType, {
- *     operations: (op) => Sheet.subRow({ code: op.code, name: op.name, chips: op.materials, id: op.id }),
- * })
+ * ```tsx
+ * // .tsx file with the `@jsxImportSource @elaraai/east-ui` pragma
+ * import { ArrayType, East, FloatType, IntegerType, OptionType, StringType, StructType, VariantType, none, some, variant } from "@elaraai/east";
+ * import { Reactive, Sheet, State, UIComponentType } from "@elaraai/east-ui";
+ *
+ * const sheet = East.function([], UIComponentType, (_$) => (
+ *     <Reactive>{$ => {
+ *         const OperationType = StructType({
+ *             id: StringType, code: StringType, name: StringType, materials: ArrayType(StringType),
+ *             station: OptionType(StringType), by: OptionType(StringType),
+ *         });
+ *         const BookingType = VariantType({
+ *             space:     StructType({ area: StringType, units: IntegerType }),
+ *             labour:    StructType({ team: StringType, people: IntegerType, hours: FloatType }),
+ *             equipment: StructType({ resource: StringType }),
+ *         });
+ *         const JobType = StructType({
+ *             task: StringType, qty: OptionType(FloatType), notes: StringType,
+ *             operations: ArrayType(OperationType),   // no column — shown as sub rows
+ *             bookings: ArrayType(BookingType),       // no column — shown as sub rows
+ *         });
+ *         const OrderType = StructType({ id: StringType, name: StringType, jobs: ArrayType(JobType) });
+ *         const orders = $.let(State.bind([ArrayType(OrderType)], "sheet_subrows_orders", [
+ *             { id: "wo-1042", name: "WO-1042 · Frames", jobs: [
+ *                 { task: "Assemble frames", qty: some(40.0), notes: "Two benches", operations: [
+ *                     { id: "WO-1042-1", code: "CUT", name: "Cut rails to length", materials: ["Rail stock × 80"], station: some("Saw 2"), by: none },
+ *                     { id: "WO-1042-2", code: "ASM", name: "Assemble frame", materials: ["M6 bolts × 12", "Frame kit"], station: some("Bench 7"), by: some("Assembly") },
+ *                 ], bookings: [
+ *                     variant("labour", { team: "Assembly", people: 2n, hours: 12.0 }),
+ *                     variant("equipment", { resource: "Torque driver" }),
+ *                 ] },
+ *                 { task: "Inspect frames", qty: some(40.0), notes: "", operations: [], bookings: [
+ *                     variant("space", { area: "Test bay", units: 2n }),
+ *                 ] },
+ *             ] },
+ *             { id: "wo-1043", name: "WO-1043 · Housings", jobs: [
+ *                 { task: "Paint housings", qty: some(250.0), notes: "Primer first", operations: [
+ *                     { id: "WO-1043-1", code: "PNT", name: "Prime and paint", materials: ["Primer", "Topcoat"], station: none, by: none },
+ *                 ], bookings: [] },
+ *             ] },
+ *         ]));
+ *         return (
+ *             <Sheet
+ *                 data={orders}
+ *                 id="id"
+ *                 group={Sheet.group(OrderType, "jobs", { title: "name", noun: { singular: "order", plural: "orders" } })}
+ *                 columns={{
+ *                     task:  Sheet.column.text(JobType, { header: "Task", width: "220px" }),
+ *                     qty:   Sheet.column.quantity(JobType, { header: "Qty", width: "96px" }),
+ *                     notes: Sheet.column.text(JobType, { header: "Notes", width: "240px" }),
+ *                 }}
+ *                 subRows={Sheet.subRows(JobType, {
+ *                     operations: (op) => Sheet.subRow({
+ *                         code:   op.code,
+ *                         name:   op.name,
+ *                         chips:  op.materials,
+ *                         facets: { station: op.station, by: op.by },   // a none drops out
+ *                         id:     op.id,
+ *                     }),
+ *                     bookings: (b) => b.match({
+ *                         space:     (_$2, s) => Sheet.subRow({ code: "CLAIM", name: East.str`${s.area} · ${s.units} units` }),
+ *                         labour:    (_$2, l) => Sheet.subRow({ code: "LABOUR", name: East.str`${l.team} · ${l.people} people · ${l.hours} person-hours` }),
+ *                         equipment: (_$2, e) => Sheet.subRow({ code: "EQUIPMENT", name: e.resource }),
+ *                     }),
+ *                 })}
+ *                 newRow={East.function([Sheet.Types.NewRow], Sheet.Types.Patch(JobType), () => Sheet.patch(JobType, { notes: "", operations: [], bookings: [] }))}
+ *                 newGroup={East.function([Sheet.Types.NewGroup], Sheet.Types.Patch(OrderType), () => Sheet.patch(OrderType, { jobs: [] }))}
+ *                 onUpdate={orders.write}
+ *                 style={{ height: "420px" }}
+ *             />
+ *         );
+ *     }}</Reactive>
+ * ));
  * ```
  */
 export function createSubRows<R extends StructType>(rowType: R, sources: SheetSubRowSources<R>): SheetSubRowsValue<R> {
@@ -144,8 +213,79 @@ function textOrBlank(v: SubtypeExprOrValue<StringType | OptionType<StringType>> 
  * @returns An expression of `Sheet.Types.SubRow`
  *
  * @example
- * ```ts
- * Sheet.subRow({ code: "ASM", name: op.name, chips: op.materials, facets: { station: op.station }, id: op.id })
+ * ```tsx
+ * // .tsx file with the `@jsxImportSource @elaraai/east-ui` pragma
+ * import { ArrayType, East, FloatType, IntegerType, OptionType, StringType, StructType, VariantType, none, some, variant } from "@elaraai/east";
+ * import { Reactive, Sheet, State, UIComponentType } from "@elaraai/east-ui";
+ *
+ * const sheet = East.function([], UIComponentType, (_$) => (
+ *     <Reactive>{$ => {
+ *         const OperationType = StructType({
+ *             id: StringType, code: StringType, name: StringType, materials: ArrayType(StringType),
+ *             station: OptionType(StringType), by: OptionType(StringType),
+ *         });
+ *         const BookingType = VariantType({
+ *             space:     StructType({ area: StringType, units: IntegerType }),
+ *             labour:    StructType({ team: StringType, people: IntegerType, hours: FloatType }),
+ *             equipment: StructType({ resource: StringType }),
+ *         });
+ *         const JobType = StructType({
+ *             task: StringType, qty: OptionType(FloatType), notes: StringType,
+ *             operations: ArrayType(OperationType),   // no column — shown as sub rows
+ *             bookings: ArrayType(BookingType),       // no column — shown as sub rows
+ *         });
+ *         const OrderType = StructType({ id: StringType, name: StringType, jobs: ArrayType(JobType) });
+ *         const orders = $.let(State.bind([ArrayType(OrderType)], "sheet_subrows_orders", [
+ *             { id: "wo-1042", name: "WO-1042 · Frames", jobs: [
+ *                 { task: "Assemble frames", qty: some(40.0), notes: "Two benches", operations: [
+ *                     { id: "WO-1042-1", code: "CUT", name: "Cut rails to length", materials: ["Rail stock × 80"], station: some("Saw 2"), by: none },
+ *                     { id: "WO-1042-2", code: "ASM", name: "Assemble frame", materials: ["M6 bolts × 12", "Frame kit"], station: some("Bench 7"), by: some("Assembly") },
+ *                 ], bookings: [
+ *                     variant("labour", { team: "Assembly", people: 2n, hours: 12.0 }),
+ *                     variant("equipment", { resource: "Torque driver" }),
+ *                 ] },
+ *                 { task: "Inspect frames", qty: some(40.0), notes: "", operations: [], bookings: [
+ *                     variant("space", { area: "Test bay", units: 2n }),
+ *                 ] },
+ *             ] },
+ *             { id: "wo-1043", name: "WO-1043 · Housings", jobs: [
+ *                 { task: "Paint housings", qty: some(250.0), notes: "Primer first", operations: [
+ *                     { id: "WO-1043-1", code: "PNT", name: "Prime and paint", materials: ["Primer", "Topcoat"], station: none, by: none },
+ *                 ], bookings: [] },
+ *             ] },
+ *         ]));
+ *         return (
+ *             <Sheet
+ *                 data={orders}
+ *                 id="id"
+ *                 group={Sheet.group(OrderType, "jobs", { title: "name", noun: { singular: "order", plural: "orders" } })}
+ *                 columns={{
+ *                     task:  Sheet.column.text(JobType, { header: "Task", width: "220px" }),
+ *                     qty:   Sheet.column.quantity(JobType, { header: "Qty", width: "96px" }),
+ *                     notes: Sheet.column.text(JobType, { header: "Notes", width: "240px" }),
+ *                 }}
+ *                 subRows={Sheet.subRows(JobType, {
+ *                     operations: (op) => Sheet.subRow({
+ *                         code:   op.code,
+ *                         name:   op.name,
+ *                         chips:  op.materials,
+ *                         facets: { station: op.station, by: op.by },   // a none drops out
+ *                         id:     op.id,
+ *                     }),
+ *                     bookings: (b) => b.match({
+ *                         space:     (_$2, s) => Sheet.subRow({ code: "CLAIM", name: East.str`${s.area} · ${s.units} units` }),
+ *                         labour:    (_$2, l) => Sheet.subRow({ code: "LABOUR", name: East.str`${l.team} · ${l.people} people · ${l.hours} person-hours` }),
+ *                         equipment: (_$2, e) => Sheet.subRow({ code: "EQUIPMENT", name: e.resource }),
+ *                     }),
+ *                 })}
+ *                 newRow={East.function([Sheet.Types.NewRow], Sheet.Types.Patch(JobType), () => Sheet.patch(JobType, { notes: "", operations: [], bookings: [] }))}
+ *                 newGroup={East.function([Sheet.Types.NewGroup], Sheet.Types.Patch(OrderType), () => Sheet.patch(OrderType, { jobs: [] }))}
+ *                 onUpdate={orders.write}
+ *                 style={{ height: "420px" }}
+ *             />
+ *         );
+ *     }}</Reactive>
+ * ));
  * ```
  */
 export function createSubRow(input: SheetSubRowInput): ExprType<SheetSubRowType> {

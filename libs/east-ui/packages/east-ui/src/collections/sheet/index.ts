@@ -14,9 +14,16 @@
  * The module is the namespace assembler over the split sources:
  * `types.ts` (the closed wire types + the typed constructors) ·
  * `columns.ts` (`Sheet.column.*`) · `registers.ts` (`Sheet.register.*`,
- * `Sheet.driver`) · `link.ts` (`Sheet.link.*`) · `bridge.ts` (the typed
- * bridge) · `root.ts` (`Sheet.Root`) · `sub-rows.ts` (`Sheet.subRows` /
- * `Sheet.subRow`).
+ * `Sheet.driver`) · `link.ts` (`Sheet.link.*`) · `group.ts` (`Sheet.group`,
+ * `Sheet.group.cell.*`) · `sub-rows.ts` (`Sheet.subRows` / `Sheet.subRow`) ·
+ * `transactions.ts` (`Sheet.apply` and the checked batch types) · `drafts.ts`
+ * (the draft entry types and the `onPatch` event) · `edits.ts` (the `edits`
+ * capabilities) · `bridge.ts` (the typed bridge) · `context-bridge.ts`,
+ * `draft-bridge.ts` and `seed-bridge.ts` (draft-aware contexts, draft
+ * decoding and the `newRow` / `newGroup` defaults) · `editing-bridge.ts` and
+ * `editing-types.ts` (the editing session's callbacks and their closed
+ * transport) · `apply-adapter.ts` and `request-store.ts` (the inline
+ * `onUpdate` adapter and its request ledger) · `root.ts` (`Sheet.Root`).
  *
  * One namespace object per category, the `Plan.series` / `Plan.at` /
  * `Plan.Types` split, so categories never mix as they grow.
@@ -265,9 +272,12 @@ export { type SheetColumnMeta, type SheetRuleCellMeta, describeColumn, describeG
 // ============================================================================
 
 /**
- * Builds a row patch — `Sheet.patch(R, { … })`: the fields a proposal sets,
- * every other field `none` (§3.6). Takes the literal-record form of `R`'s
- * fields, each a literal or an expression of the FIELD's type.
+ * Builds a row patch — `Sheet.patch(R, { … })`: the fields it sets, every
+ * other field `none`. A proposer returns patches as its proposed rows
+ * (§3.6), and `newRow` / `newGroup` return one as a new row's explicit
+ * defaults, including required fields no column shows — a field it leaves
+ * `none` starts missing. Takes the literal-record form of `R`'s fields, each
+ * a literal or an expression of the FIELD's type.
  *
  * @typeParam R - The host's row type
  * @param rowType - The row type value
@@ -275,8 +285,30 @@ export { type SheetColumnMeta, type SheetRuleCellMeta, describeColumn, describeG
  * @returns An expression of `Sheet.Types.Patch(R)`
  *
  * @example
- * ```ts
- * Sheet.patch(PlanRowType, { activity: "Machining", start: some(endAt.addDays(3n)), qty: ctx.row.qty })
+ * ```tsx
+ * // .tsx file with the `@jsxImportSource @elaraai/east-ui` pragma
+ * import { ArrayType, East, IntegerType, StringType, StructType } from "@elaraai/east";
+ * import { Reactive, Sheet, State, Text, UIComponentType, VStack } from "@elaraai/east-ui";
+ *
+ * const sheet = East.function([], UIComponentType, (_$) => (
+ *     <Reactive>{$ => {
+ *         const RowType = StructType({ id: StringType, task: StringType, qty: IntegerType, createdBy: StringType });
+ *         const jobs = $.const(State.bind([ArrayType(RowType)], "sheet_insertion_jobs", [
+ *             { id: "rough", task: "Rough machining", qty: 120n, createdBy: "planner" },
+ *             { id: "inspect", task: "Inspect lots", qty: 4n, createdBy: "planner" },
+ *             { id: "finish", task: "Finish housings", qty: 120n, createdBy: "planner" },
+ *         ]));
+ *         const saved = $.const(jobs.read());
+ *         return <VStack gap="3" align="stretch">
+ *             <Text textStyle="caption" color="fg.muted">Hover or focus a gutter to insert before a row. Select a row marker for Insert above/below, or use Alt+Insert and Alt+Shift+Insert. Name the draft and Apply to save it.</Text>
+ *             <Sheet data={jobs} id="id" columns={{ task: Sheet.column.text(RowType), qty: Sheet.column.integer(RowType) }}
+ *                 edits={{ insertRows: true, removeRows: false, moveRows: "none" }}
+ *                 newRow={East.function([Sheet.Types.NewRow], Sheet.Types.Patch(RowType), () => Sheet.patch(RowType, { qty: 1n, createdBy: "planner" }))}
+ *                 onUpdate={jobs.write} blanks={2n} />
+ *             <Text.MonoLabel>{East.str`SAVED · ${saved.map((_$, row) => row.task).stringJoin(" → ")}`}</Text.MonoLabel>
+ *         </VStack>;
+ *     }}</Reactive>
+ * ));
  * ```
  */
 export function createPatch<R extends StructType>(rowType: R, record: SheetPatchInput<R>): ExprType<SheetPatchOf<R>> {
@@ -346,7 +378,7 @@ export interface SheetNamespace {
         /** The grammar's print — a link value to the planner's text. */
         print: typeof printLink;
     };
-    /** A row patch — the fields a proposal sets (§3.6). */
+    /** A row patch — the fields a proposal or a new row's defaults set (§3.6). */
     patch: typeof createPatch;
     /** Sub rows (#844) — `Sheet.subRows(R, { field: (item, row) => Sheet.subRow({ … }) })`, keyed by `R`'s array fields. */
     subRows: typeof createSubRows;
@@ -355,9 +387,10 @@ export interface SheetNamespace {
     /** Applies a checked entry batch atomically to a collection. */
     apply: typeof applySheet;
     /**
-     * Grouped rows (#740) — `Sheet.group(P, "lines", { title, sub?, cells?, folded? })`
-     * declares the group's lines field and its band; `Sheet.group.cell.*`
-     * builds the band's cells over the group's fields.
+     * Grouped rows (#740) — `Sheet.group(P, "lines", { title, sub?, cells?, folded?, noun? })`
+     * declares the group's lines field (an `Array` of line structs) and its
+     * band; `Sheet.group.cell.*` builds the band's cells over the group's
+     * fields.
      */
     group: typeof createGroup & {
         /** The band cell builders — each takes the group's row type first. */
@@ -380,7 +413,7 @@ export interface SheetNamespace {
     };
     /** The Sheet East types — the closed wire types and the typed constructors. */
     Types: {
-        /** Entry type for source-bound editing. */
+        /** `Entry(G, "rows")` — the group-or-row union of a source holding groups beside ungrouped rows ({@link SheetEntryTypeFor}). */
         Entry: typeof SheetEntryTypeFor;
         /** DraftGroup type for source-bound editing. */
         DraftGroup: typeof SheetDraftGroupTypeFor;
@@ -532,11 +565,13 @@ export interface SheetNamespace {
  * `Sheet.Root` (the `<Sheet>` tag), declare columns with `Sheet.column.*`
  * (row type first), registers with `Sheet.register.members` / `.concat` and
  * the driver with `Sheet.driver`, link rules with `Sheet.link.*`, proposed
- * rows with `Sheet.patch`, grouped rows with `Sheet.group` (#740), sub rows
- * with `Sheet.subRows` / `Sheet.subRow` (#844), and reach
- * every East type — the closed wire types and the typed constructors
- * `Context(R, D)` / `Fill(T)` / `Patch(R)` / `Proposal(R)` / `PatchEvent(E)` /
- * `CheckContext(R)` — via `Sheet.Types.*`.
+ * rows and new-row defaults with `Sheet.patch`, grouped rows with
+ * `Sheet.group` (#740), sub rows with `Sheet.subRows` / `Sheet.subRow`
+ * (#844), apply a checked batch to a collection with `Sheet.apply`, and
+ * reach every East type — the closed wire types and the typed constructors
+ * `DraftContext(R, D)` / `Fill(T)` / `Patch(R)` / `Proposal(R)` /
+ * `PatchEvent(E)` / `ChangeSet(E)` / `Entry(G, "rows")` / `CheckContext(R)`
+ * — via `Sheet.Types.*`. The `<Sheet>` tag carries every member but `Root`.
  */
 export const Sheet: SheetNamespace = {
     Root: createSheet,

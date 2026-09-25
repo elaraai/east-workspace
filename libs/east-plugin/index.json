@@ -1,14 +1,14 @@
 {
   "version": 2,
   "stats": {
-    "totalEntries": 1182,
-    "totalFiles": 196,
+    "totalEntries": 1186,
+    "totalFiles": 197,
     "packages": {
       "east": 551,
       "east-node-std": 55,
       "east-node-io": 63,
       "east-py-datascience": 94,
-      "east-ui": 357,
+      "east-ui": 361,
       "e3-ui": 39,
       "e3": 11,
       "e3-ui-cli": 7,
@@ -32759,6 +32759,66 @@
       "source": "// Schematic interaction configurator — a tool axis (select / marquee / zone / move) plus multi-select, zoom-focus and movable switches; hover cards stay on; the aside logs five event lines\n// inputs: []\nEast.function([], UIComponentType, (_$) => {\n        const SCHEMATIC_INTERACTIONS_ITEMS = [\n            { id: \"CELL-A\", x: 3.0, y: 3.0 },\n            { id: \"CELL-B\", x: 9.0, y: 3.0 },\n            { id: \"M1\", x: 15.0, y: 3.0 },\n            { id: \"P1\", x: 6.0, y: 9.0 }, { id: \"P2\", x: 18.0, y: 9.0 },\n        ];\n        const SCHEMATIC_INTERACTIONS_ZONES = [\n            { id: \"hall-a\", name: \"Hall A\", x: 1.0, y: 1.0, w: 10.0, h: 4.5 },\n            { id: \"hall-b\", name: \"Hall B\", x: 12.5, y: 1.0, w: 10.5, h: 4.5 },\n            { id: \"dock\", name: \"Dock\", x: 1.0, y: 7.0, w: 22.0, h: 4.0 },\n        ];\n        return (\n        <Reactive>{$ => {\n            // The tool axis is a bare label array — the control and the\n            // per-tool prop mapping below read the same four keys.\n            const tools = $.const([\"select\", \"marquee\", \"zone\", \"move\"], ArrayType(StringType));\n            // Tool mode — select / marquee / zone / move.\n            const toolBind = $.let(State.bind([StringType], \"schematic_tool\", \"select\"));\n            const tool = $.let(toolBind.read());\n            const onToolChange = $.const(East.function([StringType], NullType, ($, next) => {\n                $(toolBind.write(next));\n            }));\n            // Event log binds + callbacks (verbatim from schematicInteractive).\n            const bind = $.let(State.bind([StringType], \"schematic_selected\", \"none\"));\n            const opened = $.let(State.bind([StringType], \"schematic_opened\", \"none\"));\n            const onSelect = $.const(East.function([StringType], NullType, ($, key) => {\n                $(bind.write(key));\n            }));\n            const onItemOpen = $.const(East.function([StringType], NullType, ($, key) => {\n                $(opened.write(key));\n            }));\n            const selected = $.let(bind.read());\n            const openedKey = $.let(opened.read());\n            // The full selected-key set is mirrored into State on every change\n            // (verbatim from schematicRangeSelect).\n            const keysBind = $.let(State.bind([ArrayType(StringType)], \"schematic_selected_keys\", []));\n            const onSelectionChange = $.const(East.function([Schematic.Types.SelectionEvent], NullType, ($, ev) => {\n                $(keysBind.write(ev.selectedKeys));\n            }));\n            const keys = $.let(keysBind.read());\n            const count = $.let(keys.size());\n            // Reactive toggle for the camera-on-select behaviour (schematicRangeSelect's\n            // switch, original State key) — applied under the marquee tool.\n            const focus = $.let(State.bind([BooleanType], \"ex.schematic.focus\", true));\n            const focusOn = $.let(focus.read());\n            const onFocus = $.const(East.function([BooleanType], NullType, ($, v) => { $(focus.write(v)); }));\n            // Multi-select switch (schematicRangeSelect's original key; the zone\n            // example's ex.zone.multi toggled the same selectionMode variant and\n            // folds into this one control).\n            const multi = $.let(State.bind([BooleanType], \"ex.schematic.multi\", true));\n            const multiOn = $.let(multi.read());\n            const onMulti = $.const(East.function([BooleanType], NullType, ($, v) => { $(multi.write(v)); }));\n            // Zone-selection log line (verbatim from schematicZoneSelect).\n            const readout = $.let(State.bind([StringType], \"schematic_zone_sel\", \"—\"));\n            const onZoneSelectionChange = $.const(East.function([Schematic.Types.ZoneSelectionEvent], NullType, ($, ev) => {\n                $(readout.write(East.str`${East.print(ev.selectedKeys.size())} zone(s) · ${East.print(ev.childItemKeys.size())} item(s) inside`));\n            }));\n            const zoneTxt = $.let(readout.read());\n            // Move log + movable switch (verbatim from schematicItemMove).\n            const log = $.let(State.bind([StringType], \"schematic_move_log\", \"—\"));\n            const onMoveItem = $.const(East.function([Schematic.Types.ItemMoveEvent], NullType, ($, ev) => {\n                $(log.write(East.str`moved ${East.print(ev.keys.size())} item(s) · ${ev.key} → ${East.Float.printFixed(ev.x, 1n)}, ${East.Float.printFixed(ev.y, 1n)}`));\n            }));\n            const movable = $.let(State.bind([BooleanType], \"ex.move.on\", true));\n            const mOn = $.let(movable.read());\n            const onM = $.const(East.function([BooleanType], NullType, ($, v) => { $(movable.write(v)); }));\n            const moveTxt = $.let(log.read());\n            // Debounced viewport line (verbatim from schematicViewport).\n            const viewportBind = $.let(State.bind([StringType], \"schematic_viewport\", \"—\"));\n            const onViewportChange = $.const(East.function([Schematic.Types.ViewportEvent], NullType, ($, ev) => {\n                $(viewportBind.write(East.str`zoom ${East.Float.printFixed(ev.zoom, 1n)} · x ${East.Float.printFixed(ev.minX, 1n)}..${East.Float.printFixed(ev.maxX, 1n)} · y ${East.Float.printFixed(ev.minY, 1n)}..${East.Float.printFixed(ev.maxY, 1n)}`));\n            }));\n            const viewportTxt = $.let(viewportBind.read());\n            // Hover cards (verbatim from schematicHover) — enabled in ALL modes;\n            // hover config is orthogonal to the tool.\n            const itemHover = $.const(East.function([StringType], UIComponentType, (_$, key) => (\n                <VStack gap=\"1\" align=\"flex-start\">\n                    <Text.MonoLabel>{East.str`${key} · throughput (7d)`}</Text.MonoLabel>\n                    <Sparkline data={[3.2, 4.1, 3.8, 5.0, 4.6, 5.4, 5.1]} type=\"area\" width=\"180px\" height=\"44px\" />\n                </VStack>\n            )));\n            const zoneHover = $.const(East.function([StringType], UIComponentType, (_$, key) => (\n                <Text.MonoLabel>{East.str`${key} — CIP window 14:00–15:00`}</Text.MonoLabel>\n            )));\n            const linkHover = $.const(East.function([StringType], UIComponentType, (_$, key) => (\n                <Text.MonoLabel>{East.str`${key} · 12.4 m³/h`}</Text.MonoLabel>\n            )));\n            // Per-tool prop mapping — where a prop differs per tool mode it is\n            // derived from the mode value with ifElse.\n            const selMode = $.let(\n                tool.equal(\"select\").ifElse(\n                    // Select — single-tap inspection.\n                    _$ => variant(\"single\", null),\n                    _$ => tool.equal(\"move\").ifElse(\n                        // Move — keeps `multiple` so dragging a SELECTED item moves\n                        // the whole selection rigidly (schematicItemMove).\n                        _$ => variant(\"multiple\", null),\n                        // Marquee / zone — honour the Multi-select switch (marquee\n                        // and Shift-extend need `multiple`).\n                        _$ => multiOn.ifElse(_$ => variant(\"multiple\", null), _$ => variant(\"single\", null)),\n                    ),\n                ),\n                Schematic.Types.SelectionMode,\n            );\n            // Camera-on-select only under the marquee tool: focus ON flies / fits,\n            // OFF leaves the camera put (schematicRangeSelect).\n            const zoomFocus = $.let(tool.equal(\"marquee\").ifElse(_$ => focusOn, _$ => false), BooleanType);\n            // Items reposition only under the move tool, gated by its switch.\n            const roItems = $.let(tool.equal(\"move\").ifElse(_$ => mOn.not(), _$ => true), BooleanType);\n            return (\n                <Configurator\n                    controls={[\n                        Configurator.Control(\"Tool\", tool,\n                            <Select value={tool} onChange={onToolChange} size=\"sm\"\n                                items={tools.map((_$, t) => Select.Item(t, t))} />),\n                        // Slots, not Controls: the switches report through the\n                        // aside's event log rather than as one value each.\n                        Configurator.Slot(\"Selection\",\n                            <HStack gap=\"5\" align=\"center\" wrap=\"wrap\">\n                                <Switch checked={multiOn} label=\"Multi-select (marquee/zone)\" onChange={onMulti} />\n                            </HStack>),\n                        Configurator.Slot(\"Camera\",\n                            <HStack gap=\"5\" align=\"center\" wrap=\"wrap\">\n                                <Switch checked={focusOn} label=\"Zoom focus (marquee)\" onChange={onFocus} />\n                            </HStack>),\n                        Configurator.Slot(\"Items\",\n                            <HStack gap=\"5\" align=\"center\" wrap=\"wrap\">\n                                <Switch checked={mOn} label=\"Movable (move)\" onChange={onM} />\n                            </HStack>),\n                    ]}\n                    preview={\n                        /* schematicZoneSelect's 24 × 12 extent — the zone bodies (and\n                           the M1 / P1 / P2 rows inside them) need the wider world rect. */\n                        <Schematic\n                            navigator={false}\n                            extent={{ width: 24, height: 12 }}\n                            height=\"440px\"\n                            items={SCHEMATIC_INTERACTIONS_ITEMS}\n                            item={r => ({ key: r.id, x: r.x, y: r.y, label: r.id, icon: \"industry\" })}\n                            zones={SCHEMATIC_INTERACTIONS_ZONES}\n                            zone={z => ({ key: z.id, label: z.name, x: z.x, y: z.y, width: z.w, height: z.h })}\n                            onSelect={onSelect}\n                            onItemOpen={onItemOpen}\n                            selectionMode={selMode}\n                            selectZoomFocus={zoomFocus}\n                            onSelectionChange={onSelectionChange}\n                            onZoneSelectionChange={onZoneSelectionChange}\n                            readOnlyItems={roItems}\n                            onMoveItem={onMoveItem}\n                            itemHover={itemHover}\n                            zoneHover={zoneHover}\n                            linkHover={linkHover}\n                            onViewportChange={onViewportChange}\n                        />\n                    }\n                    aside={{\n                        label: \"Event log · Reactive\",\n                        body: (\n                            <VStack gap=\"1\" align=\"stretch\">\n                                <Text fontFamily=\"mono\">{East.str`INSPECTING · ${selected} · OPENED · ${openedKey}`}</Text>\n                                <Text fontFamily=\"mono\">{East.str`SELECTED · ${East.print(count)}`}</Text>\n                                <Text fontFamily=\"mono\">{East.str`ZONES · ${zoneTxt}`}</Text>\n                                <Text fontFamily=\"mono\">{East.str`MOVE · ${moveTxt}`}</Text>\n                                <Text fontFamily=\"mono\">{East.str`VIEW · ${viewportTxt}`}</Text>\n                            </VStack>\n                        ),\n                    }}\n                />\n            );\n        }}</Reactive>\n    );\n    })"
     },
     {
+      "id": "east-ui:sheet-link.examples.ts:sheetLinkPrint",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/sheet-link.examples.ts",
+      "suite": "",
+      "test": "Print a link as the planner types it — from > to, members comma-separated, a range as from-to, a count as N x key and the placeholder as TBC",
+      "keywords": [
+        "Sheet",
+        "link",
+        "print",
+        "Link",
+        "Member",
+        "identified",
+        "range",
+        "counted",
+        "placeholder",
+        "grammar",
+        "text"
+      ],
+      "imports": [
+        "import { East, StringType, example, none, some, variant } from \"@elaraai/east\";",
+        "import { Sheet } from \"@elaraai/east-ui\";"
+      ],
+      "languages": [
+        "typescript"
+      ],
+      "source": "// Print a link as the planner types it — from > to, members comma-separated, a range as from-to, a count as N x key and the placeholder as TBC\n// inputs: []  returns: \"M2140, M2141-M2145 > 4 x CNC lathe, TBC\"\nEast.function([], StringType, ($) => {\n        const link = $.const({\n            from: [variant(\"identified\", { key: \"M2140\" }), variant(\"range\", { from: \"M2141\", to: \"M2145\" })],\n            to:   [variant(\"counted\", { n: 4n, key: \"CNC lathe\" }), variant(\"placeholder\", null)],\n        }, Sheet.Types.Link);\n        return Sheet.link.print(link);\n    })"
+    },
+    {
+      "id": "east-ui:sheet-link.examples.ts:sheetLinkParse",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/sheet-link.examples.ts",
+      "suite": "",
+      "test": "Parse the planner",
+      "keywords": [
+        "Sheet",
+        "link",
+        "parse",
+        "Link",
+        "RegisterMembers",
+        "register",
+        "alias",
+        "identified",
+        "counted",
+        "range",
+        "placeholder",
+        "text",
+        "grammar"
+      ],
+      "imports": [
+        "import { East, StringType, example, none, some, variant } from \"@elaraai/east\";",
+        "import { Sheet } from \"@elaraai/east-ui\";"
+      ],
+      "languages": [
+        "typescript"
+      ],
+      "source": "// Parse the planner\n// inputs: []  returns: {\n        from: [variant(\"identified\", { key: \"M2140\" })],\n        to: [variant(\"counted\", { n: 4n, key: \"CNC lathe\" }), variant(\"range\", { from: \"M2141\", to: \"M2145\" }), variant(\"placeholder\", null), variant(\"text\", \"paint shop\")],\n    }\nEast.function([], Sheet.Types.Link, ($) => {\n        const members = $.const([\n            { key: \"M2140\", label: \"M2140\", kind: \"machine\", aliases: [], meta: some(\"CNC lathe\"), parent: some(\"Line 2\"), tone: none },\n            { key: \"CNC lathe\", label: \"CNC lathe\", kind: \"family\", aliases: [\"lathe\", \"lathes\"], meta: some(\"family\"), parent: none, tone: none },\n        ], Sheet.Types.RegisterMembers);\n        return Sheet.link.parse(\"m2140 > 4 x lathe, M2141-45, TBC, paint shop\", members);\n    })"
+    },
+    {
       "id": "east-ui:sheet-transactions.examples.ts:sheetApplyBatch",
       "skill": "east-ui",
       "package": "east-ui",
@@ -32776,12 +32836,41 @@
       ],
       "imports": [
         "import { ArrayType, East, IntegerType, OptionType, StringType, StructType, example, none, some, variant } from \"@elaraai/east\";",
-        "import { Sheet } from \"@elaraai/east-ui/internal\";"
+        "import { Sheet } from \"@elaraai/east-ui\";"
       ],
       "languages": [
         "typescript"
       ],
       "source": "// Apply an entry patch against the complete inline snapshot\n// inputs: []  returns: [{ id: \"a\", task: \"Cut\", qty: 3n }]\nEast.function([], ArrayType(Job), ($) => {\n        const before = $.const({ id: \"a\", task: \"Cut\", qty: 2n }, Job);\n        const after = $.const({ id: \"a\", task: \"Cut\", qty: 3n }, Job);\n        const rows = $.const([before], ArrayType(Job));\n        const oldEntry = $.const(some(before), OptionType(Job));\n        const newEntry = $.const(some(after), OptionType(Job));\n        const batch = $.const({\n            requestId: \"example-request\", base: variant(\"snapshot\", rows), label: \"Set quantity\",\n            changes: [{ id: \"a\", patch: East.diff(oldEntry, newEntry), place: none }],\n        }, Sheet.Types.ChangeSet(Job));\n        const apply = $.const(Sheet.apply(Job, \"id\"));\n        return apply(rows, batch, none).unwrap(\"applied\");\n    })"
+    },
+    {
+      "id": "east-ui:sheet-transactions.examples.ts:sheetApplyEntries",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/sheet-transactions.examples.ts",
+      "suite": "",
+      "test": "Apply a batch to work packages and loose tasks in one collection — Sheet.Types.Entry names the group-or-row union by its child field, and one entry patch reorders a package",
+      "keywords": [
+        "Sheet",
+        "Types",
+        "Entry",
+        "group",
+        "row",
+        "child",
+        "variant",
+        "apply",
+        "ChangeSet",
+        "batch",
+        "atomic"
+      ],
+      "imports": [
+        "import { ArrayType, East, IntegerType, OptionType, StringType, StructType, example, none, some, variant } from \"@elaraai/east\";",
+        "import { Sheet } from \"@elaraai/east-ui\";"
+      ],
+      "languages": [
+        "typescript"
+      ],
+      "source": "// Apply a batch to work packages and loose tasks in one collection — Sheet.Types.Entry names the group-or-row union by its child field, and one entry patch reorders a package\n// inputs: []  returns: [\"P-40 roughing: Inspect lots → Machine blanks\", \"Pack for shipping\"]\nEast.function([], ArrayType(StringType), ($) => {\n        const TaskType = StructType({ id: StringType, task: StringType });\n        const PackageType = StructType({ id: StringType, name: StringType, tasks: ArrayType(TaskType) });\n        const Entry = Sheet.Types.Entry(PackageType, \"tasks\");\n        const before = $.const(variant(\"group\", { id: \"p1\", name: \"P-40 roughing\", tasks: [\n            { id: \"t1\", task: \"Machine blanks\" }, { id: \"t2\", task: \"Inspect lots\" },\n        ] }), Entry);\n        const after = $.const(variant(\"group\", { id: \"p1\", name: \"P-40 roughing\", tasks: [\n            { id: \"t2\", task: \"Inspect lots\" }, { id: \"t1\", task: \"Machine blanks\" },\n        ] }), Entry);\n        const loose = $.const(variant(\"row\", { id: \"t9\", task: \"Pack for shipping\" }), Entry);\n        const entries = $.const([before, loose], ArrayType(Entry));\n        const oldEntry = $.const(some(before), OptionType(Entry));\n        const newEntry = $.const(some(after), OptionType(Entry));\n        const batch = $.const({\n            requestId: \"reorder-roughing\", base: variant(\"snapshot\", entries), label: \"Move a task\",\n            changes: [{ id: \"p1\", patch: East.diff(oldEntry, newEntry), place: none }],\n        }, Sheet.Types.ChangeSet(Entry));\n        const apply = $.const(Sheet.apply(Entry, \"id\"));\n        const applied = $.const(apply(entries, batch, none).unwrap(\"applied\"));\n        return applied.map((_$, entry) => entry.match({\n            group: (_$2, p) => East.str`${p.name}: ${p.tasks.map((_$3, t) => t.task).stringJoin(\" → \")}`,\n            row:   (_$2, t) => t.task,\n        }));\n    })"
     },
     {
       "id": "east-ui:sheet.examples.tsx:sheetBasic",
@@ -33244,6 +33333,45 @@
         "tsx"
       ],
       "source": "// Column rules — an options rule narrowing an enum\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const JobType = StructType({\n                id: StringType, task: StringType, start: OptionType(DateTimeType), level: Sheet.Types.DateLevel,\n                started: OptionType(DateTimeType), status: StringType, orderCode: StringType, machines: Sheet.Types.Link,\n            });\n            const Ctx = Sheet.Types.DraftContext(JobType);\n            const StatusType = StructType({ word: StringType, tone: Status.Types.Value });\n            const statuses = $.const([\n                { word: \"PLANNED\", tone: variant(\"neutral\", null) }, { word: \"RELEASED\", tone: variant(\"info\", null) },\n                { word: \"IN PROGRESS\", tone: variant(\"warning\", null) }, { word: \"COMPLETE\", tone: variant(\"success\", null) },\n            ], ArrayType(StatusType));\n            const machines = $.const([\"M2140\", \"M2141\", \"M2142\", \"M2143\", \"M3210\", \"M3211\"], ArrayType(StringType));\n            const noMembers = $.const([], ArrayType(Sheet.Types.Member));\n            const jobs = $.let(State.bind([ArrayType(JobType)], \"sheet_rules_jobs\", [\n                { id: \"j1\", task: \"Rough blanks\", start: some(new Date(\"2026-02-16T00:00:00Z\")), level: variant(\"week\", null), started: none, status: \"PLANNED\", orderCode: \"\", machines: { from: [], to: [] } },\n                { id: \"j2\", task: \"Finish blanks\", start: some(new Date(\"2026-02-18T00:00:00Z\")), level: variant(\"day\", null), started: some(new Date(\"2026-02-19T07:30:00Z\")), status: \"IN PROGRESS\", orderCode: \"WO-26001\", machines: { from: [], to: [variant(\"range\", { from: \"M2140\", to: \"M2143\" })] } },\n                { id: \"j3\", task: \"Changeover\", start: some(new Date(\"2026-02-19T14:00:00Z\")), level: variant(\"time\", null), started: none, status: \"RELEASED\", orderCode: \"WO-26002\", machines: { from: [], to: [] } },\n            ]));\n            // Until a row has an order code it may only be planned or released.\n            const statusOptions = $.const(East.function([Ctx], OptionType(ArrayType(StringType)), ($, ctx) => {\n                const whole = $.const(none, OptionType(ArrayType(StringType)));\n                const early = $.const(some([\"PLANNED\", \"RELEASED\"]), OptionType(ArrayType(StringType)));\n                return ctx.row.orderCode.match({ value: (_$2, code) => code.length().equal(0n).ifElse(() => early, () => whole) }, () => early);\n            }));\n            return (\n                <Sheet\n                    data={jobs}\n                    id=\"id\"\n                    registers={{\n                        statuses: Sheet.register.members(statuses, { kind: \"status\", key: s => s.word, label: s => s.word, tone: s => some(s.tone) }),\n                        machines: Sheet.register.members(machines, { kind: \"machine\", key: m => m, label: m => m }),\n                    }}\n                    columns={{\n                        task:     Sheet.column.text(JobType, { header: \"Task\", width: \"180px\" }),\n                        start:    Sheet.column.date(JobType, { header: \"Start\", sub: \"at the row's level\", width: \"168px\", level: r => r.level, actual: r => r.started }),\n                        status:   Sheet.column.enum(JobType, \"statuses\", { header: \"Status\", width: \"132px\", options: statusOptions, detail: r => r.orderCode }),\n                        machines: Sheet.column.set(JobType, \"machines\", { header: \"Machines\", sub: \"M2140-43 · a run\", width: \"220px\",\n                                      members: [{ kind: \"machine\", identified: true, ranged: true }] }),\n                    }}\n                    newRow={East.function([Sheet.Types.NewRow], Sheet.Types.Patch(JobType), () => Sheet.patch(JobType, {\n                        level: variant(\"day\", null), started: none, orderCode: \"\", machines: { from: noMembers, to: noMembers },\n                    }))}\n                    onUpdate={jobs.write}\n                    blanks={4n}\n                />\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "east-ui:sheet.examples.tsx:sheetRegisters",
+      "skill": "east-ui",
+      "package": "east-ui",
+      "file": "east-ui/packages/east-ui/test/collections/sheet.examples.tsx",
+      "suite": "",
+      "test": "Registers and the driver — members projected from Array and Dict rows (meta, parent, aliases, duplicate keys folded) and joined into one register a set column resolves against, beside a driver whose row gives each quantity its unit and a fill its duration",
+      "keywords": [
+        "Sheet",
+        "register",
+        "members",
+        "concat",
+        "driver",
+        "lookup",
+        "set",
+        "kind",
+        "key",
+        "label",
+        "aliases",
+        "meta",
+        "parent",
+        "Dict",
+        "fold",
+        "duplicate",
+        "uom",
+        "fill",
+        "DraftContext",
+        "Reactive",
+        "State"
+      ],
+      "imports": [
+        "import {",
+        "import {"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// Registers and the driver — members projected from Array and Dict rows (meta, parent, aliases, duplicate keys folded) and joined into one register a set column resolves against, beside a driver whose row gives each quantity its unit and a fill its duration\n// inputs: []\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const JobType = StructType({\n                id: StringType, activity: StringType, start: OptionType(DateTimeType), end: OptionType(DateTimeType),\n                qty: OptionType(FloatType), machines: Sheet.Types.Link,\n            });\n            const ActivityType = StructType({ name: StringType, uom: StringType, days: IntegerType });\n            const MachineType = StructType({ code: StringType, family: StringType, line: StringType });\n            const LineType = StructType({ name: StringType, aliases: ArrayType(StringType) });\n            const activities = $.const([\n                { name: \"Machining\", uom: \"pcs\", days: 4n },\n                { name: \"Inspection\", uom: \"lots\", days: 1n },\n            ], ArrayType(ActivityType));\n            const machines = $.const([\n                { code: \"M2140\", family: \"CNC lathe\", line: \"L2\" },\n                { code: \"M2141\", family: \"CNC lathe\", line: \"L2\" },\n                { code: \"M3210\", family: \"5-axis mill\", line: \"L3\" },\n            ], ArrayType(MachineType));\n            const lines = $.const(new Map([\n                [\"L2\", { name: \"Line 2\", aliases: [\"l2\", \"line 2\"] }],\n                [\"L3\", { name: \"Line 3\", aliases: [\"l3\", \"line 3\"] }],\n            ]), DictType(StringType, LineType));\n            const jobs = $.let(State.bind([ArrayType(JobType)], \"sheet_registers_jobs\", [\n                { id: \"j1\", activity: \"Machining\", start: some(new Date(\"2026-02-16T00:00:00Z\")), end: none, qty: some(1200.0),\n                  machines: { from: [], to: [variant(\"counted\", { n: 2n, key: \"CNC lathe\" })] } },\n            ]));\n            // The driver's row reaches a fill typed: End = Start + the activity's days.\n            const DateFill = OptionType(Sheet.Types.Fill(DateTimeType));\n            const endFromStart = $.const(East.function([Sheet.Types.DraftContext(JobType, ActivityType)], DateFill, ($, ctx) => {\n                const noFill = $.const(none, DateFill);\n                return ctx.row.start.match({\n                    value: (_$, supplied) => supplied.match({\n                        none: () => noFill,\n                        some: (_$, start) => ctx.driver.match({\n                            none: () => noFill,\n                            some: (_$, d) => some({ value: start.addDays(d.days), meta: East.str`+${d.days}d · ${d.name}` }),\n                        }),\n                    }),\n                }, () => noFill);\n            }));\n            const newJob = $.const(East.function([Sheet.Types.NewRow], Sheet.Types.Patch(JobType), () => Sheet.patch(JobType, { machines: { from: [], to: [] } })));\n            return (\n                <Sheet\n                    data={jobs}\n                    id=\"id\"\n                    driver={Sheet.driver(\"activity\", activities, { key: a => a.name, label: a => a.name, meta: a => some(a.uom) })}\n                    registers={{\n                        machines: Sheet.register.concat([\n                            Sheet.register.members(machines, { kind: \"machine\", key: m => m.code, label: m => m.code,\n                                meta: m => some(m.family), parent: m => some(m.line) }),\n                            // A Dict's key rides as the accessors' second argument.\n                            Sheet.register.members(lines, { kind: \"line\", key: (_l, code) => code, label: l => l.name, aliases: l => l.aliases }),\n                            // Both lathes name one family — duplicate keys fold, the first wins.\n                            Sheet.register.members(machines, { kind: \"family\", key: m => m.family, label: m => m.family, meta: _m => some(\"family\") }),\n                        ]),\n                    }}\n                    columns={{\n                        activity: Sheet.column.lookup(JobType, { header: \"Activity\", width: \"140px\" }),\n                        start:    Sheet.column.date(JobType, { header: \"Start\", width: \"96px\" }),\n                        end:      Sheet.column.date(JobType, { header: \"End\", sub: \"start + days\", width: \"96px\", base: \"start\", fill: [endFromStart] }),\n                        qty:      Sheet.column.quantity(JobType, ActivityType, { header: \"Qty\", sub: \"uom per activity\", width: \"112px\", uom: d => d.uom }),\n                        machines: Sheet.column.set(JobType, \"machines\", { header: \"Machines\", sub: \"M2140 · 2 x lathe · line 2\", width: \"240px\",\n                                      members: [{ kind: \"machine\", identified: true }, { kind: \"line\", countable: true, resolvesTo: \"machine\" },\n                                                { kind: \"family\", countable: true, resolvesTo: \"machine\" }] }),\n                    }}\n                    newRow={newJob}\n                    onUpdate={jobs.write}\n                />\n            );\n        }}</Reactive>\n    ))"
     },
     {
       "id": "east-ui:table.examples.tsx:tableBasic",

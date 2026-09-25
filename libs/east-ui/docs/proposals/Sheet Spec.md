@@ -124,17 +124,21 @@ The established IR → renderer split with the repo's load-bearing rules
   to `Sheet.Root(data, columns, options)` exactly as `<Table>` does, with the column
   map typed as `SheetColumnSpec<R>` so a key that is not a data field is a type error,
   and a second overload for the paged arm (the `<Table>` precedent); built as
-  `Object.assign(SheetTag, { column, register, link, driver, patch, Types })` so the
-  namespace shows on hover, with full TypeDoc and a JSX `@example` mirrored in the
-  examples file (`STANDARDS.md`).
+  `Object.assign(SheetTag, authoring)` — the factory namespace minus `Root`,
+  derived and never listed, so a member added to the factory rides the tag with no
+  edit there (#862, as the Plan's #814) — so the namespace shows on hover, with full
+  TypeDoc and a JSX `@example`. Every Sheet `@example` is the verbatim body of a
+  tested example (`STANDARDS.md`), and `sheet-docs.spec.ts` holds them to it (#862).
 - **Namespace** — one object per category, the `Plan.series` / `Plan.at` /
   `Plan.Types` split, so categories never mix as they grow: `Sheet.column.<kind>`
   (the column builders — text · date · quantity · integer · lookup · reference ·
   enum · set · link · stamped · custom), `Sheet.register.members` /
   `Sheet.register.concat`, `Sheet.driver`, `Sheet.link.arity` / `Sheet.link.check` /
   `Sheet.link.parse` / `Sheet.link.print` (the link value's helpers), `Sheet.patch`
-  (a row patch — the `Plan.event` kind of value builder), `Sheet.Types.*` (the IR
-  types and the `(R, D)` constructors), `Sheet.Root`.
+  (a row patch — the `Plan.event` kind of value builder), `Sheet.group` /
+  `Sheet.group.cell.*` (grouped rows, #740), `Sheet.subRows` / `Sheet.subRow` (sub
+  rows, #844), `Sheet.apply` (a checked batch applied to a collection),
+  `Sheet.Types.*` (the IR types and the `(R, D)` constructors), `Sheet.Root`.
 
 **Behaviour as data.** What crosses the IR is *declaration* (kinds, registers,
 provider lists, views, the slice binding); what the renderer owns is *interaction
