@@ -881,9 +881,11 @@ const orders    = $.let(Data.bindPaged(ordersInput));     // a large collection:
 const customers = $.let(Data.bind(customersInput));
 const plan      = $.let(Record.bind(planRecord, []));      // a record is a data source too
 const sources   = { orders, customers, plan };
+// savedQueries = QueryEditor.savedQueries("saved_queries"): the record and its patch mutation (§12.2)
+const saved     = $.let(Record.bind(savedQueries.record, [savedQueries.patch]));
 
 <DataLibrary id="datasets" datasets={sources} />
-<QueryEditor id="main" datasets={sources} saved={savedQueries} sources={["datasets"]} />
+<QueryEditor id="main" datasets={sources} saved={saved} sources={["datasets"]} />
 ```
 
 - **The root is exactly these names** (`.orders`, `.customers`, `.plan`), typed from each binding. Nothing
@@ -1141,7 +1143,9 @@ system's guidelines (`libs/east-ui/app_design_system/guidelines/`). The children
   `EastUI.component(name, payload, { optional: true })` carrier, a factory (internal,
   `@elaraai/e3-ui/internal`), and a public JSX tag with its `Types`. Their renderers register with
   `implementUIComponent` in e3-ui-components and are imported for their side effect from that package's
-  barrel (#935, #939).
+  barrel (#935, #939). Once #746's moves land (two UI packages, one folder per component), each is one
+  folder in e3-ui instead — `types.ts`, `index.ts`, `tag.ts`, examples and spec, and `react/` for the
+  renderer and everything React-side (#746 D3, D4).
 - **Bound data sources only.** `datasets` is an object of name → binding (`BoundValue`, `PagedValue` or
   `BoundRecord`); the factory reads each binding's descriptor (`binding.source`, the paged handle's `id`, the
   record's `binding.name`) and its value type (from the handle's own East type), so the payload carries
@@ -1162,7 +1166,9 @@ system's guidelines (`libs/east-ui/app_design_system/guidelines/`). The children
 - **Slot recipes, registered centrally** in east-ui-components' theme (`theme/slot-recipes/`): `queryEditor`
   (frame, rail, steps column, step card, shape line, bottom bar, collapsed rail, status line, drop target),
   `queryResults` (rail, bars, states, footer) and `jqEditor` (gutter, code, tokens, completions, problems).
-  Semantic tokens only; no inline style objects or Chakra style props in the renderers.
+  Semantic tokens only; no inline style objects or Chakra style props in the renderers. Once #746's
+  theme step lands, each recipe lives in its component's `react/recipe.ts` and is used directly
+  (`useSlotRecipe({ recipe })`), not registered in the theme (#746 D6).
 - **State reaches styles through data attributes** (`data-mode`, `data-complete`, `data-empty`,
   `data-error`, `data-open`, `data-stale`, and the drag layer's `data-drop-valid` / `data-drop-active`), not
   through computed styles.
