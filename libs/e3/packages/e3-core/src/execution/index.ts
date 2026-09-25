@@ -12,11 +12,20 @@ export {
   type TaskExecuteOptions,
   type TaskResult,
   type TaskRunner,
+  type SplitUnit,
 } from './interfaces.js';
 
 // TaskRunner implementations
 export { LocalTaskRunner } from './LocalTaskRunner.js';
-export { MockTaskRunner, type MockTaskCall } from './MockTaskRunner.js';
+export { MockTaskRunner, type MockTaskCall, type MockUnitCall } from './MockTaskRunner.js';
+
+// The engine: a task split into pieces, as the stages its units run in
+export {
+  SplitTask,
+  isSplitTask,
+  type SplitStage,
+  type ThrownUnit,
+} from './engine.js';
 
 // Graph-free execution (functions / one-shot)
 export {

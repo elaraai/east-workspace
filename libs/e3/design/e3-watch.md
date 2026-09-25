@@ -25,7 +25,7 @@ e3 watch <repo> <workspace> <source.ts>
 | Option | Description |
 |--------|-------------|
 | `--start` | Also execute dataflow after each deploy |
-| `-j, --jobs <n>` | The jobs budget of the runs `--start` launches: runner processes in flight at once, tasks and partition units alike (default: the CPUs available to e3, or `E3_JOBS`); `--concurrency` is a deprecated alias |
+| `-j, --jobs <n>` | The jobs budget of the runs `--start` launches: runner processes in flight at once, tasks and partition units alike (default: the CPUs available to e3, or `E3_JOBS`) |
 | `--abort-on-change` | Abort running execution when file changes (default: queue reload) |
 
 ## Source File Requirements

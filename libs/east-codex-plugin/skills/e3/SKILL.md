@@ -938,8 +938,7 @@ After a successful run the output paths are printed in flat form, ready to read 
 processes e3 keeps in flight at once, across the dataflow's tasks and the
 partitions and merge units of its partitioned tasks alike (one slot per
 runner, first come first served). Default: the CPUs available to e3 (affinity
-mask, capped by a cgroup quota), or `E3_JOBS`. `--concurrency` and
-`--partition-concurrency` are deprecated aliases of the same budget.
+mask, capped by a cgroup quota), or `E3_JOBS`.
 
 **`E3_SCRATCH_DIR`** names the directory a local run's per-execution scratch
 directories (inputs marshalled, the output written before it is stored) are

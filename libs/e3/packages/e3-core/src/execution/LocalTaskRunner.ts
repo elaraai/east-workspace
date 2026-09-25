@@ -21,7 +21,7 @@ import { type ExecutionStatus, type PartitionProgress, type TaskObject, decodeTa
 import { inputsHash, evaluateCommandIr } from '../executions.js';
 import { uuidv7 } from '../uuid.js';
 import type { StorageBackend } from '../storage/interfaces.js';
-import type { TaskRunner, TaskExecuteOptions, TaskResult } from './interfaces.js';
+import type { SplitUnit, TaskRunner, TaskExecuteOptions, TaskResult } from './interfaces.js';
 import { getBootId, getPidStartTime, isProcessAlive } from './processHelpers.js';
 import { marshalInputsToDir, spawnAndCapture } from './processExec.js';
 import { storeDatasetFile } from '../store-collection.js';
@@ -30,7 +30,7 @@ import { runDetached, type DetachedSpec, type DetachedResult, type DetachedRunOp
 import { executionScratchDir } from './scratch.js';
 import type { JobSlots, ReleaseSlot } from './jobs.js';
 import { readUnitResult, stageMergeUnit, stageOutputMerge, stageRunUnit, storeUnitOutput, unitArgv, type MergeParts, type StagedUnit, type TaskUnit } from './units.js';
-import { executeSplitTask } from './engine.js';
+import { executeSplitTask, isSplitTask } from './engine.js';
 
 // Re-exported from processExec.js (where the implementation moved) for
 // backwards compatibility — exported for testing, not public API.
@@ -54,15 +54,12 @@ export interface ExecuteOptions {
   onStdout?: (data: string) => void;
   /** Stream stderr callback */
   onStderr?: (data: string) => void;
-  /** The most units of a split task in flight at once — its pool width.
-   *  Defaults to the jobs budget's capacity, else 4. Runtime-only: never
-   *  affects hashes or caching. */
-  partitionConcurrency?: number;
   /** The run's jobs budget: a runner spawns only while its execution holds
    *  one of the slots, and a split task's units take slots like any
    *  execution, so the budget bounds the runner processes of the whole run.
-   *  Runtime-only, and never seen by a remote backend. Absent, spawns are
-   *  not budgeted. */
+   *  A split task run on its own keeps as many units in flight as the budget
+   *  has slots. Runtime-only, and never seen by a remote backend. Absent,
+   *  spawns are not budgeted. */
   jobs?: JobSlots;
   /** Called as each unit of a split task (a piece, or a merge of their
    *  outputs) starts, and as it succeeds. Runtime-only progress reporting. */
@@ -109,36 +106,31 @@ export class LocalTaskRunner implements TaskRunner {
     inputHashes: string[],
     options?: TaskExecuteOptions
   ): Promise<TaskResult> {
-    const result = await taskExecute(storage, this.repo, taskHash, inputHashes, {
+    return toTaskResult(await taskExecute(storage, this.repo, taskHash, inputHashes, {
       force: options?.force,
       verbose: options?.verbose,
       signal: options?.signal,
       onStdout: options?.onStdout,
       onStderr: options?.onStderr,
-      partitionConcurrency: options?.partitionConcurrency,
       jobs: options?.jobs,
       onPartitionProgress: options?.onPartitionProgress,
-    });
+    }));
+  }
 
-    // Convert ExecutionResult to TaskResult
-    const taskResult: TaskResult = {
-      state: result.state,
-      cached: result.cached,
-      executionId: result.executionId,
-    };
-    if (result.cancelled) {
-      taskResult.cancelled = true;
-    }
-
-    if (result.state === 'success' && result.outputHash) {
-      taskResult.outputHash = result.outputHash;
-    } else if (result.state === 'failed') {
-      taskResult.exitCode = result.exitCode ?? undefined;
-    } else if (result.state === 'error') {
-      taskResult.error = result.error ?? undefined;
-    }
-
-    return taskResult;
+  async executeUnit(
+    storage: StorageBackend,
+    taskHash: string,
+    unit: SplitUnit,
+    options?: TaskExecuteOptions
+  ): Promise<TaskResult> {
+    return toTaskResult(await taskExecuteUnit(storage, this.repo, taskHash, unit, {
+      force: options?.force,
+      verbose: options?.verbose,
+      signal: options?.signal,
+      onStdout: options?.onStdout,
+      onStderr: options?.onStderr,
+      jobs: options?.jobs,
+    }));
   }
 
   async runDetached(spec: DetachedSpec, options?: DetachedRunOptions): Promise<DetachedResult> {
@@ -158,6 +150,26 @@ export class LocalTaskRunner implements TaskRunner {
       extraBins,
     });
   }
+}
+
+/** An execution's result, as a {@link TaskRunner} reports it. */
+function toTaskResult(result: ExecutionResult): TaskResult {
+  const taskResult: TaskResult = {
+    state: result.state,
+    cached: result.cached,
+    executionId: result.executionId,
+  };
+  if (result.cancelled) {
+    taskResult.cancelled = true;
+  }
+  if (result.state === 'success' && result.outputHash) {
+    taskResult.outputHash = result.outputHash;
+  } else if (result.state === 'failed') {
+    taskResult.exitCode = result.exitCode ?? undefined;
+  } else if (result.state === 'error') {
+    taskResult.error = result.error ?? undefined;
+  }
+  return taskResult;
 }
 
 /**
@@ -199,50 +211,84 @@ export async function taskExecute(
     if (cached !== null) return cached;
   }
 
-  // Step 2: Generate a new execution ID
-  const executionId = uuidv7();
+  // Step 2: Generate a new execution ID, and read the task object
+  const ids = { inHash, executionId: uuidv7(), startTime };
+  const task = await readTaskObject(storage, repo, taskHash, inputHashes, ids);
+  if (!('body' in task)) return task;
 
-  // Step 3: Read task object
-  let task: TaskObject;
-  try {
-    const taskData = await storage.objects.read(repo, taskHash);
-    const decoder = decodeTaskObject;
-    task = decoder(Buffer.from(taskData));
-  } catch (err) {
-    // Record error with executionId for audit trail
-    const status: ExecutionStatus = variant('error', {
-      executionId,
-      inputHashes,
-      startedAt: new Date(startTime),
-      completedAt: new Date(),
-      message: `Failed to read task object: ${err}`,
-    });
-    await storage.refs.executionWrite(repo, taskHash, inHash, executionId, status);
-
-    return {
-      inputsHash: inHash,
-      executionId,
-      cached: false,
-      state: 'error',
-      outputHash: null,
-      exitCode: null,
-      duration: Date.now() - startTime,
-      error: `Failed to read task object: ${err}`,
-      cancelled: false,
-    };
-  }
-
-  const ids = { inHash, executionId, startTime };
-  if (
-    task.body.type === 'east' &&
-    task.runner.type !== 'custom' &&
-    task.output.kind.type !== 'value' &&
-    task.inputs.some((input) => input.partition.type === 'some')
-  ) {
+  if (isSplitTask(task)) {
     return executeSplitTask(storage, repo, taskHash, task, inputHashes, ids, options,
       (unitInputs, unitIds, merge) => taskExecuteBody(storage, repo, taskHash, task, unitInputs, unitIds, options, merge));
   }
   return taskExecuteBody(storage, repo, taskHash, task, inputHashes, ids, options);
+}
+
+/**
+ * Execute one unit of a task split into pieces, which the caller planned: a
+ * piece, run as the task's program over the piece's inputs, or a merge of what
+ * the pieces wrote. Served from the execution cache when the unit ran before,
+ * unless `options.force`.
+ *
+ * The dataflow runs a split task's units through this, beside every other
+ * task's; `taskExecute` runs a task on its own through the engine instead.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param taskHash - Hash of the task object
+ * @param unit - The unit
+ * @param options - Execution options
+ * @returns The unit's execution result
+ */
+export async function taskExecuteUnit(
+  storage: StorageBackend,
+  repo: string,
+  taskHash: string,
+  unit: SplitUnit,
+  options: ExecuteOptions = {}
+): Promise<ExecutionResult> {
+  const inHash = inputsHash(unit.inputs);
+  if (!options.force) {
+    const cached = await probeExecutionCache(storage, repo, taskHash, inHash);
+    if (cached !== null) return cached;
+  }
+  const ids = { inHash, executionId: uuidv7(), startTime: Date.now() };
+  const task = await readTaskObject(storage, repo, taskHash, unit.inputs, ids);
+  if (!('body' in task)) return task;
+  return taskExecuteBody(storage, repo, taskHash, task, unit.inputs, ids, options, unit.merge);
+}
+
+/** Reads and decodes a task object; or, when it does not read, records the
+ *  execution `error`, naming why, and returns its result. */
+async function readTaskObject(
+  storage: StorageBackend,
+  repo: string,
+  taskHash: string,
+  inputHashes: string[],
+  ids: ExecutionIds,
+): Promise<TaskObject | ExecutionResult> {
+  try {
+    return decodeTaskObject(Buffer.from(await storage.objects.read(repo, taskHash)));
+  } catch (err) {
+    const message = `Failed to read task object: ${err}`;
+    await storage.refs.executionWrite(repo, taskHash, ids.inHash, ids.executionId, variant('error', {
+      executionId: ids.executionId,
+      inputHashes,
+      startedAt: new Date(ids.startTime),
+      completedAt: new Date(),
+      message,
+    }));
+    return {
+      inputsHash: ids.inHash,
+      executionId: ids.executionId,
+      cached: false,
+      state: 'error',
+      outputHash: null,
+      exitCode: null,
+      duration: Date.now() - ids.startTime,
+      error: message,
+      cancelled: false,
+    };
+  }
 }
 
 /**
@@ -324,8 +370,8 @@ async function repairInterruptedExecution(
   await storage.refs.executionWrite(repo, taskHash, inHash, running.executionId, status);
 }
 
-/** The identity of one execution attempt, computed by {@link taskExecute}
- *  before dispatch. @internal */
+/** The identity of one execution attempt: the execution-cache key it is
+ *  recorded under, and its own ID and start. */
 export interface ExecutionIds {
   /** Combined inputs hash. */
   inHash: string;

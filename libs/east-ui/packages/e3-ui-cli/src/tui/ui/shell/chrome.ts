@@ -143,7 +143,7 @@ export function commandStatus(state: TuiState): { text: string; keys: string; er
         workspace: ws,
         taskCount: status?.tasks.length ?? 0,
         running: execution?.state?.status.type === 'running' || execution?.settling === true,
-        concurrency: 4,
+        jobs: 4,
         dirty: dirtyCount(state),
     });
     if (completion !== null && (parsed.command.name === 'task' || parsed.command.name === 'input' || parsed.command.name === 'workspace' || parsed.command.name === 'dataset' || parsed.command.name === 'repo' || parsed.command.name === 'logs' || parsed.command.name === 'runs' || parsed.command.name === 'tag')) {

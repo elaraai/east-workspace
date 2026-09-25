@@ -435,24 +435,28 @@ export interface RefStore {
   executionOwnerRead(repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<ExecutionOwner | null>;
 
   /**
-   * Point a partitioned execution's `(taskHash, inputsHash)` at its partition
-   * plan object — the `plan` sidecar (issue #770), which a re-plan or a resume
-   * reads to reuse the slices it carved.
+   * Point the execution of a task split into pieces at the `$plan` of the
+   * stage it is in — the `plan` sidecar. It roots the plan for garbage
+   * collection while the execution can resume, and a run of the task takes
+   * the stage it names up again. An empty `planHash` clears it, when the
+   * execution ends.
    *
    * @param repo - Repository identifier
    * @param taskHash - Task object hash
    * @param inputsHash - Combined input hashes
-   * @param planHash - Hash of the `PartitionPlan` object
+   * @param planHash - Hash of the `$plan` object, or `''` to clear the sidecar
    */
   executionPlanWrite(repo: string, taskHash: string, inputsHash: string, planHash: string): Promise<void>;
 
   /**
-   * Read the partition plan object a partitioned execution last recorded.
+   * Read the plan the execution of a task split into pieces last recorded:
+   * a `$plan`, or the partition plan a released e3 recorded.
    *
    * @param repo - Repository identifier
    * @param taskHash - Task object hash
    * @param inputsHash - Combined input hashes
-   * @returns The plan object hash, or null when none is recorded
+   * @returns The plan object hash, or null when none is recorded or it was
+   *   cleared
    */
   executionPlanRead(repo: string, taskHash: string, inputsHash: string): Promise<string | null>;
 

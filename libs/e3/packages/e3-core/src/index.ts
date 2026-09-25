@@ -219,7 +219,9 @@ export { uuidv7, uuidv7Timestamp, isUuidv7 } from './uuid.js';
 // Local process execution (in execution/ directory)
 export {
   taskExecute,
+  taskExecuteUnit,
   type ExecuteOptions,
+  type ExecutionIds,
   type ExecutionResult,
 } from './execution/LocalTaskRunner.js';
 
@@ -269,6 +271,9 @@ export {
   stepGetReady,
   stepPrepareTask,
   stepTaskStarted,
+  stepTaskSplit,
+  stepTaskMergeStarted,
+  stepTaskMergeCompleted,
   stepTaskCompleted,
   stepTaskFailed,
   stepTasksSkipped,

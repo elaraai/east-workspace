@@ -304,7 +304,12 @@ class InMemoryRefStore implements RefStore {
   }
 
   async executionPlanWrite(repo: string, taskHash: string, inputsHash: string, planHash: string): Promise<void> {
-    this.plans.set(`${repo}/${this.makeInputsKey(taskHash, inputsHash)}`, planHash);
+    const key = `${repo}/${this.makeInputsKey(taskHash, inputsHash)}`;
+    if (planHash === '') {
+      this.plans.delete(key);
+    } else {
+      this.plans.set(key, planHash);
+    }
   }
 
   async executionPlanRead(repo: string, taskHash: string, inputsHash: string): Promise<string | null> {

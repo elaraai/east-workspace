@@ -589,9 +589,7 @@ e3 dataflow run <repo> <ws> [--filter <pattern>] [-j <n>] [--force] [-v]
 e3 keeps in flight at once, across the dataflow's tasks and the partitions and
 merge units of its partitioned tasks alike (every runner takes one slot, first
 come first served, whatever launched it). It defaults to the CPUs available to
-e3 — its affinity mask, capped by a cgroup quota — or to `E3_JOBS` when set. The
-older `--concurrency` and `--partition-concurrency` are accepted as deprecated
-aliases of the same budget.
+e3 — its affinity mask, capped by a cgroup quota — or to `E3_JOBS` when set.
 
 A local run gives every execution a scratch directory — its inputs are marshalled
 there and its output written there before it is stored — inside the repository,

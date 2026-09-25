@@ -12,7 +12,7 @@ The beast2 container itself is governed by
 | Kind | Examples | Rule |
 |---|---|---|
 | **Package-borne** — written by the SDK at export and carried in a package | task objects and their metadata, package objects, function objects, IR bundles | **Hard cutover.** Packages are re-exported with the new SDK. No read-compat decoder is kept, and a package from an older SDK fails with an error that says to re-export it. |
-| **Stored state** — written by e3 as it runs and kept in a repository | datasets (blobs and segment manifests), record states, commits and deltas, execution status, partition plans | **Readers accept every released form, forever; writers write only the current one.** Each type has exactly one read-compat decoder, which tries the current shape and then each older shape, with a test per form. |
+| **Stored state** — written by e3 as it runs and kept in a repository | datasets (blobs and segment manifests), record states, commits and deltas, execution status, the dataflow's execution state and its events, unit plans and partition plans | **Readers accept every released form, forever; writers write only the current one.** Each type has exactly one read-compat decoder, which tries the current shape and then each older shape, with a test per form. |
 
 A PR that changes a wire says which kind it is and follows the rule for that
 kind.
@@ -25,6 +25,13 @@ kind.
 - **A stored variant gains or loses a case:** treat it like a struct change.
   Released readers cannot decode a case they do not know, which is the lockstep
   upgrade the container already has.
+- **A stored type that carries a version changes:** the dataflow's execution
+  state (`EXECUTION_STATE_VERSION`) holds its events, so a new event changes it
+  too. The version goes up by one, and the type's read-compat decoder keeps a
+  decoder for each older version. It tells them apart by the type the stored
+  header declares, upgrades an older state to the current version, and refuses
+  a newer one, naming its version. A test pins each version by decoding a state
+  that version wrote.
 - **A package-borne type changes:** change it and re-export. Any read-compat
   decoder the type still carries goes in the same change. The task object and
   the partition and stream metadata carry such decoders today, and lose them at
@@ -44,5 +51,3 @@ new version of the thing, not an edit to it.
 - **The beast2 well-known type registry:** its ids are pinned.
 - **The segment manifest** (`$segments`): readers recognize it by its exact
   field set, so a changed struct is a different object to every released reader.
-- **The execution event wire** (`ExecutionEventType`): released readers fail on
-  an appended case, which is why partition progress is not persisted.

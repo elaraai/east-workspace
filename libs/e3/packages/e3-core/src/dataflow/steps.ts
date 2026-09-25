@@ -21,7 +21,7 @@
  */
 
 import { variant, some, none } from '@elaraai/east';
-import type { VersionVector, Structure } from '@elaraai/e3-types';
+import { EXECUTION_STATE_VERSION, type VersionVector, type Structure } from '@elaraai/e3-types';
 import type { StorageBackend } from '../storage/interfaces.js';
 import {
   dataflowGetGraph,
@@ -148,11 +148,13 @@ export async function stepInitialize(
       startedAt: none,
       completedAt: none,
       duration: none,
+      plan: none,
     } as TaskState);
   }
 
   // Create initial state
   const state = {
+    version: EXECUTION_STATE_VERSION,
     id: executionId,
     repo,
     workspace,
@@ -481,6 +483,7 @@ export function stepInvalidateTasks(
       taskState.outputHash = none;
       taskState.completedAt = none;
       taskState.duration = none;
+      taskState.plan = none;
 
       // Decrement counters
       if (wasCached) {
@@ -663,6 +666,113 @@ export function stepTaskStarted(
 }
 
 /**
+ * Record that a task was split into pieces: its units start as the pieces,
+ * and the task's state names their `$plan`, so a resumed run takes the stage
+ * up where it stopped.
+ *
+ * @param state - Execution state to mutate
+ * @param taskName - Name of the task
+ * @param plan - Hash of the pieces' `$plan` object
+ * @param pieces - The number of pieces
+ * @returns Event to record
+ */
+export function stepTaskSplit(
+  state: DataflowExecutionState,
+  taskName: string,
+  plan: string,
+  pieces: number
+): ExecutionEvent {
+  const taskState = state.tasks.get(taskName) as Mutable<TaskState> | undefined;
+  if (!taskState) {
+    throw new Error(`Task '${taskName}' not found in state`);
+  }
+  taskState.plan = some(plan);
+
+  const mutableState = state as Mutable<DataflowExecutionState>;
+  mutableState.eventSeq = state.eventSeq + 1n;
+  const event: ExecutionEvent = variant('task_split', {
+    seq: mutableState.eventSeq,
+    timestamp: new Date(),
+    task: taskName,
+    pieces: BigInt(pieces),
+  });
+  (mutableState.events as ExecutionEvent[]).push(event);
+  return event;
+}
+
+/**
+ * Record that a level of the merges assembling a split task's pieces started:
+ * the task's state names the level's `$plan`.
+ *
+ * @param state - Execution state to mutate
+ * @param taskName - Name of the task
+ * @param plan - Hash of the level's `$plan` object
+ * @param level - The level, from 1
+ * @param levels - The number of levels the merges take
+ * @param units - The merge units of the level
+ * @returns Event to record
+ */
+export function stepTaskMergeStarted(
+  state: DataflowExecutionState,
+  taskName: string,
+  plan: string,
+  level: number,
+  levels: number,
+  units: number
+): ExecutionEvent {
+  const taskState = state.tasks.get(taskName) as Mutable<TaskState> | undefined;
+  if (!taskState) {
+    throw new Error(`Task '${taskName}' not found in state`);
+  }
+  taskState.plan = some(plan);
+
+  const mutableState = state as Mutable<DataflowExecutionState>;
+  mutableState.eventSeq = state.eventSeq + 1n;
+  const event: ExecutionEvent = variant('task_merge_started', {
+    seq: mutableState.eventSeq,
+    timestamp: new Date(),
+    task: taskName,
+    level: BigInt(level),
+    levels: BigInt(levels),
+    units: BigInt(units),
+  });
+  (mutableState.events as ExecutionEvent[]).push(event);
+  return event;
+}
+
+/**
+ * Record that a level of the merges assembling a split task's pieces
+ * finished: every unit of it succeeded.
+ *
+ * @param state - Execution state to mutate
+ * @param taskName - Name of the task
+ * @param level - The level, from 1
+ * @param levels - The number of levels the merges take
+ * @returns Event to record
+ */
+export function stepTaskMergeCompleted(
+  state: DataflowExecutionState,
+  taskName: string,
+  level: number,
+  levels: number
+): ExecutionEvent {
+  if (!state.tasks.has(taskName)) {
+    throw new Error(`Task '${taskName}' not found in state`);
+  }
+  const mutableState = state as Mutable<DataflowExecutionState>;
+  mutableState.eventSeq = state.eventSeq + 1n;
+  const event: ExecutionEvent = variant('task_merge_completed', {
+    seq: mutableState.eventSeq,
+    timestamp: new Date(),
+    task: taskName,
+    level: BigInt(level),
+    levels: BigInt(levels),
+  });
+  (mutableState.events as ExecutionEvent[]).push(event);
+  return event;
+}
+
+/**
  * Mark a task as completed successfully.
  *
  * Mutates the execution state, computes the merged version vector for the
@@ -695,6 +805,7 @@ export function stepTaskCompleted(
   taskState.outputHash = some(outputHash);
   taskState.completedAt = some(now);
   taskState.duration = some(BigInt(duration));
+  taskState.plan = none;
 
   // Update counters
   if (cached) {
@@ -771,6 +882,7 @@ export function stepTaskFailed(
   taskState.exitCode = exitCode !== undefined ? some(BigInt(exitCode)) : none;
   taskState.completedAt = some(now);
   taskState.duration = some(BigInt(duration));
+  taskState.plan = none;
 
   // Update counters
   mutableState.failed = state.failed + 1n;
@@ -944,7 +1056,8 @@ export function stepCancel(
  * decision and the version-vector conflict may have resolved since; the
  * consistency check at re-launch re-defers if it genuinely persists.
  * The execution status stays 'running' — yield is a pause, not a
- * terminal state.
+ * terminal state. A split task keeps its `plan`: a resumed loop takes its
+ * stage up again, and finds the units that finished in the execution cache.
  *
  * @param state - Execution state to mutate
  * @returns Names of tasks that were reset to pending

@@ -62,8 +62,8 @@ describe('complete', () => {
     });
 
     test('/run completes its flags, skipping the ones already given', () => {
-        assert.deepEqual(complete('/run ', catalogue).map(x => x.cells[1]), ['--force', '--filter <glob>', '--concurrency <n>']);
-        assert.deepEqual(complete('/run --force ', catalogue).map(x => x.cells[1]), ['--filter <glob>', '--concurrency <n>']);
+        assert.deepEqual(complete('/run ', catalogue).map(x => x.cells[1]), ['--force', '--jobs <n>', '--filter <glob>']);
+        assert.deepEqual(complete('/run --force ', catalogue).map(x => x.cells[1]), ['--jobs <n>', '--filter <glob>']);
         assert.deepEqual(complete('/run --f', catalogue).map(x => x.insert), ['/run --force ', '/run --filter ']);
         assert.deepEqual(complete('/run fore', catalogue), []);
     });

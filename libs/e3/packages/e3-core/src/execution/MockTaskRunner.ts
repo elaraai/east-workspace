@@ -4,7 +4,7 @@
  */
 
 import type { StorageBackend } from '../storage/interfaces.js';
-import type { TaskRunner, TaskExecuteOptions, TaskResult } from './interfaces.js';
+import type { SplitUnit, TaskRunner, TaskExecuteOptions, TaskResult } from './interfaces.js';
 import type { DetachedSpec, DetachedResult, DetachedRunOptions } from './runDetached.js';
 
 /**
@@ -17,6 +17,15 @@ export interface MockTaskCall {
 }
 
 /**
+ * Record of a single unit execution call.
+ */
+export interface MockUnitCall {
+  taskHash: string;
+  unit: SplitUnit;
+  options?: TaskExecuteOptions;
+}
+
+/**
  * TaskRunner mock for testing dataflow orchestration without spawning processes.
  *
  * Allows configuring responses per task and records all calls for assertions.
@@ -25,6 +34,8 @@ export class MockTaskRunner implements TaskRunner {
   private results = new Map<string, TaskResult | ((inputHashes: string[]) => TaskResult | Promise<TaskResult>)>();
   private calls: MockTaskCall[] = [];
   private defaultResult: TaskResult = { state: 'success', cached: false, outputHash: 'mock-hash' };
+  private unitResults = new Map<string, (unit: SplitUnit) => TaskResult | Promise<TaskResult>>();
+  private unitCalls: MockUnitCall[] = [];
 
   /**
    * Set result for a specific task hash.
@@ -59,6 +70,7 @@ export class MockTaskRunner implements TaskRunner {
    */
   clearCalls(): void {
     this.calls = [];
+    this.unitCalls = [];
   }
 
   async execute(
@@ -74,6 +86,36 @@ export class MockTaskRunner implements TaskRunner {
       return typeof configured === 'function' ? await configured(inputHashes) : configured;
     }
     return this.defaultResult;
+  }
+
+  /**
+   * Set how the units of a task split into pieces execute.
+   *
+   * @param taskHash - The task hash to configure
+   * @param result - Computes a unit's result from the unit
+   */
+  setUnitResult(taskHash: string, result: (unit: SplitUnit) => TaskResult | Promise<TaskResult>): void {
+    this.unitResults.set(taskHash, result);
+  }
+
+  /**
+   * Get all recorded unit calls.
+   *
+   * @returns Readonly array of all executeUnit() calls
+   */
+  getUnitCalls(): readonly MockUnitCall[] {
+    return this.unitCalls;
+  }
+
+  async executeUnit(
+    _storage: StorageBackend,
+    taskHash: string,
+    unit: SplitUnit,
+    options?: TaskExecuteOptions
+  ): Promise<TaskResult> {
+    this.unitCalls.push({ taskHash, unit, options });
+    const configured = this.unitResults.get(taskHash);
+    return configured ? await configured(unit) : this.defaultResult;
   }
 
   private detachedResult: DetachedResult = {

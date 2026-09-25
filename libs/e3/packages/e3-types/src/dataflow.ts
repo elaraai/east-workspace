@@ -25,7 +25,15 @@ import {
   BooleanType,
   DateTimeType,
   OptionType,
+  SortedMap,
   ValueTypeOf,
+  compareFor,
+  decodeBeast2,
+  decodeBeast2For,
+  isTypeValueEqual,
+  none,
+  readBeast2Type,
+  toEastTypeValue,
 } from '@elaraai/east';
 
 // =============================================================================
@@ -46,12 +54,8 @@ export type TaskStatus = 'pending' | 'ready' | 'in_progress' | 'completed' | 'fa
 // Task State
 // =============================================================================
 
-/**
- * Information about a task's execution state.
- *
- * Stored in the tasks Dict of DataflowExecutionStateType.
- */
-export const TaskStateType = StructType({
+/** A task's state as version 1 of the execution state held it. */
+const TASK_STATE_V1_FIELDS = {
   /** Task name */
   name: StringType,
   /** Current status (TaskStatus as string) */
@@ -70,6 +74,19 @@ export const TaskStateType = StructType({
   completedAt: OptionType(DateTimeType),
   /** Duration in milliseconds */
   duration: OptionType(IntegerType),
+};
+
+/**
+ * Information about a task's execution state.
+ *
+ * Stored in the tasks Dict of DataflowExecutionStateType.
+ */
+export const TaskStateType = StructType({
+  ...TASK_STATE_V1_FIELDS,
+  /** The `$plan` object of the stage a task split into pieces is in, while
+   *  it runs, and across a yield, so a resumed run takes the stage up where
+   *  it stopped. */
+  plan: OptionType(StringType),
 });
 export type TaskState = ValueTypeOf<typeof TaskStateType>;
 
@@ -107,13 +124,8 @@ export type DataflowGraph = ValueTypeOf<typeof DataflowGraphType>;
 // Event Types
 // =============================================================================
 
-/**
- * Execution events (VariantType for discriminated union).
- *
- * Events track the progress of a dataflow execution and are stored
- * inline in the execution state (not as a separate JSONL file).
- */
-export const ExecutionEventType = VariantType({
+/** The events version 1 of the execution state held. */
+const EXECUTION_EVENT_V1_CASES = {
   /** Execution started */
   execution_started: StructType({
     /** Event sequence number */
@@ -247,25 +259,73 @@ export const ExecutionEventType = VariantType({
     /** Path where version conflict was detected */
     conflictPath: StringType,
   }),
-  // WIRE WARNING — this variant's case list is FROZEN by the persisted
-  // beast2 state (workspaces/<ws>/execution.beast2). beast2 v5 encodes
-  // variant cases POSITIONALLY against the reader's alphabetically-sorted
-  // case list, NOT by case name — adding a case that sorts before any
-  // existing one shifts every later case's index, so released readers
-  // mis-decode (or fail to decode) old states, and vice versa. Do not add
-  // cases here without a state-file version/migration story; runtime-only
-  // signals (e.g. partition progress) belong on callbacks, not in this
-  // persisted stream.
+};
+
+/**
+ * Execution events (VariantType for discriminated union).
+ *
+ * Events track the progress of a dataflow execution and are stored
+ * inline in the execution state (not as a separate JSONL file).
+ *
+ * @remarks
+ * Part of the execution state's wire, which changes only by version (see
+ * {@link EXECUTION_STATE_VERSION}): a reader decodes a state against the whole
+ * type it was written with, so a new event is a new version of the state.
+ * Each unit's progress is a callback, {@link PartitionProgress}, and is not
+ * persisted.
+ */
+export const ExecutionEventType = VariantType({
+  ...EXECUTION_EVENT_V1_CASES,
+  /** A task was split into pieces: its units start as the pieces, and its
+   *  `$plan` names them. */
+  task_split: StructType({
+    /** Event sequence number */
+    seq: IntegerType,
+    /** When the event occurred */
+    timestamp: DateTimeType,
+    /** Task name */
+    task: StringType,
+    /** The pieces the task was split into */
+    pieces: IntegerType,
+  }),
+  /** A level of the merges assembling a split task's pieces started. */
+  task_merge_started: StructType({
+    /** Event sequence number */
+    seq: IntegerType,
+    /** When the event occurred */
+    timestamp: DateTimeType,
+    /** Task name */
+    task: StringType,
+    /** The level, from 1 */
+    level: IntegerType,
+    /** The number of levels the merges take */
+    levels: IntegerType,
+    /** The merge units of the level */
+    units: IntegerType,
+  }),
+  /** A level of the merges assembling a split task's pieces finished. */
+  task_merge_completed: StructType({
+    /** Event sequence number */
+    seq: IntegerType,
+    /** When the event occurred */
+    timestamp: DateTimeType,
+    /** Task name */
+    task: StringType,
+    /** The level, from 1 */
+    level: IntegerType,
+    /** The number of levels the merges take */
+    levels: IntegerType,
+  }),
 });
 export type ExecutionEvent = ValueTypeOf<typeof ExecutionEventType>;
 
 /**
  * Progress notification for one unit of a task split into pieces — a piece,
  * or a unit merging or folding their outputs. Delivered through runner-layer
- * callbacks while the task runs. Deliberately NOT persisted as execution
- * events: {@link ExecutionEventType} is a frozen beast2 wire (see its wire
- * warning), and nothing consumes persisted partition progress — local
- * `[PART]`/`[MERGE]`/`[COMBINE]` lines come straight from this callback.
+ * callbacks while the task runs, and not persisted: the execution state records
+ * a split task's stages, not each unit, so it stays small however many pieces
+ * a task has. The local `[PART]`/`[MERGE]`/`[COMBINE]` lines come straight
+ * from this callback.
  */
 export interface PartitionProgress {
   /** Which phase the unit belongs to: a piece (`partition`), a merge of a set
@@ -291,6 +351,20 @@ export interface PartitionProgress {
 // =============================================================================
 
 /**
+ * The version of the execution state this e3 writes.
+ *
+ * @remarks
+ * A reader decodes a stored state against the whole type it was written with,
+ * so the type changes only by version: each version's type keeps a decoder,
+ * and {@link decodeDataflowExecutionState} upgrades an older state to this
+ * version and refuses a newer one, naming it.
+ *
+ * - 1: as first released, without a `version`.
+ * - 2: a task's `plan`, and the events of a split task's stages.
+ */
+export const EXECUTION_STATE_VERSION = 2n;
+
+/**
  * Persistent state for a dataflow execution.
  *
  * Stored in workspaces/<ws>/execution.beast2
@@ -299,8 +373,13 @@ export interface PartitionProgress {
  * - Tasks are stored as a Dict (serializes as object, not array of tuples)
  * - Events are stored inline (not as separate JSONL file)
  * - Dates are Date objects (via DateTimeType)
+ * - Read it back with {@link decodeDataflowExecutionState}, which reads every
+ *   version up to {@link EXECUTION_STATE_VERSION}
  */
 export const DataflowExecutionStateType = StructType({
+  /** The state's version: {@link EXECUTION_STATE_VERSION} */
+  version: IntegerType,
+
   // Identity
   /** Unique execution ID (local: auto-increment, cloud: UUID) */
   id: StringType,
@@ -364,6 +443,72 @@ export const DataflowExecutionStateType = StructType({
   eventSeq: IntegerType,
 });
 export type DataflowExecutionState = ValueTypeOf<typeof DataflowExecutionStateType>;
+
+/** The execution state as version 1 wrote it, the fields in its order. */
+const DataflowExecutionStateV1Type = StructType({
+  id: StringType,
+  repo: StringType,
+  workspace: StringType,
+  startedAt: DateTimeType,
+  concurrency: IntegerType,
+  force: BooleanType,
+  filter: OptionType(StringType),
+  graph: OptionType(DataflowGraphType),
+  graphHash: OptionType(StringType),
+  tasks: DictType(StringType, StructType(TASK_STATE_V1_FIELDS)),
+  executed: IntegerType,
+  cached: IntegerType,
+  failed: IntegerType,
+  skipped: IntegerType,
+  status: StringType,
+  completedAt: OptionType(DateTimeType),
+  error: OptionType(StringType),
+  versionVectors: DictType(StringType, DictType(StringType, StringType)),
+  inputSnapshot: DictType(StringType, StringType),
+  taskOutputPaths: ArrayType(StringType),
+  reexecuted: IntegerType,
+  events: ArrayType(VariantType(EXECUTION_EVENT_V1_CASES)),
+  eventSeq: IntegerType,
+});
+
+const STATE_TYPE = toEastTypeValue(DataflowExecutionStateType);
+const STATE_V1_TYPE = toEastTypeValue(DataflowExecutionStateV1Type);
+const decodeState = decodeBeast2For(DataflowExecutionStateType);
+const decodeStateV1 = decodeBeast2For(DataflowExecutionStateV1Type);
+
+/**
+ * Decodes a stored execution state of any version this e3 reads.
+ *
+ * The version is told by the type the state's header declares — a decoder
+ * built for another version's type would misread it rather than fail — and an
+ * older version is upgraded to {@link EXECUTION_STATE_VERSION}: a version 1
+ * state's tasks have no `plan`.
+ *
+ * @param data - the stored state
+ * @returns the state, at {@link EXECUTION_STATE_VERSION}
+ * @throws {Error} When a newer e3 wrote the state, naming its version, or the
+ *   data is not an execution state.
+ */
+export function decodeDataflowExecutionState(data: Uint8Array): DataflowExecutionState {
+  const type = readBeast2Type(data);
+  if (isTypeValueEqual(type, STATE_TYPE)) return decodeState(data);
+  if (isTypeValueEqual(type, STATE_V1_TYPE)) {
+    const state = decodeStateV1(data);
+    const tasks = new SortedMap<string, TaskState>(
+      [...state.tasks].map(([name, task]) => [name, { ...task, plan: none }]),
+      compareFor(StringType),
+    );
+    return { version: EXECUTION_STATE_VERSION, ...state, tasks };
+  }
+  const { value } = decodeBeast2(data);
+  const version: unknown = typeof value === 'object' && value !== null ? value.version : undefined;
+  if (typeof version === 'bigint' && version > EXECUTION_STATE_VERSION) {
+    throw new Error(
+      `the execution state was written by a newer e3: it is version ${version}, and this e3 reads versions up to ${EXECUTION_STATE_VERSION}`,
+    );
+  }
+  throw new Error('the data is not an execution state this e3 reads: its type is not that of any version');
+}
 
 // =============================================================================
 // Dataflow Run History

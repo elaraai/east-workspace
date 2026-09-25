@@ -413,8 +413,10 @@ export {
   ExecutionEventType,
   type ExecutionEvent,
   type PartitionProgress,
+  EXECUTION_STATE_VERSION,
   DataflowExecutionStateType,
   type DataflowExecutionState,
+  decodeDataflowExecutionState,
   // Dataflow run history
   DataflowRunStatusType,
   type DataflowRunStatus,
@@ -425,3 +427,16 @@ export {
   DataflowRunType,
   type DataflowRun,
 } from './dataflow.js';
+
+// A split task's unit graph, a stage at a time
+export {
+  UNIT_PLAN_KIND,
+  UnitPlanGroupType,
+  type UnitPlanGroup,
+  UnitPlanStageType,
+  type UnitPlanStage,
+  UnitPlanType,
+  type UnitPlan,
+  encodeUnitPlan,
+  decodeUnitPlan,
+} from './unit-plan.js';

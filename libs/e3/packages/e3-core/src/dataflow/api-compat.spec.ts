@@ -6,6 +6,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { variant, some, none } from '@elaraai/east';
+import { EXECUTION_STATE_VERSION } from '@elaraai/e3-types';
 import type { ExecutionEvent, DataflowExecutionState } from './types.js';
 import { coreEventToApiEvent, coreStateToApiState } from './api-compat.js';
 
@@ -17,6 +18,7 @@ const now = new Date('2025-01-15T12:00:00Z');
 
 function makeState(overrides: Partial<DataflowExecutionState> = {}): DataflowExecutionState {
   return {
+    version: EXECUTION_STATE_VERSION,
     id: '1',
     repo: 'test-repo',
     workspace: 'ws',
@@ -133,6 +135,15 @@ describe('coreEventToApiEvent', () => {
       seq: 5n, timestamp: now, reason: none,
     });
     assert.strictEqual(coreEventToApiEvent(event), null);
+  });
+
+  it('returns null for a split task\'s stages: the API\'s events are a task\'s', () => {
+    const events: ExecutionEvent[] = [
+      variant('task_split', { seq: 6n, timestamp: now, task: 'build', pieces: 4n }),
+      variant('task_merge_started', { seq: 7n, timestamp: now, task: 'build', level: 1n, levels: 1n, units: 2n }),
+      variant('task_merge_completed', { seq: 8n, timestamp: now, task: 'build', level: 1n, levels: 1n }),
+    ];
+    assert.deepStrictEqual(events.map(coreEventToApiEvent), [null, null, null]);
   });
 });
 

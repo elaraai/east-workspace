@@ -31,6 +31,6 @@
                                                                                                                         
                                                                                                                         
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
- › /run --force_                       run 6 tasks in main, ignoring the cache · concurrency 4      ⏎ run · esc         
+ › /run --force_                       run 6 tasks in main, ignoring the cache · jobs 4             ⏎ run · esc         
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
- --force  re-run everything    --filter <glob>  only matching tasks    --concurrency <n>                                
+ --force  re-run everything    --filter <glob>  only matching tasks    --jobs <n>                                       

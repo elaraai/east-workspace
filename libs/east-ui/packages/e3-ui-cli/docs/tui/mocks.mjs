@@ -213,8 +213,8 @@ write('S06-dashboard-running', dashboard({ running: true, footer: FOOTER('↑↓
 
 // S06b — run confirmation lives IN the command bar (no dialog)
 write('S06b-run-confirm', dashboard({
-  command: ' > /run --force_                       run 6 tasks in main, ignoring the cache · concurrency 4      ⏎ run · esc',
-  footer: FOOTER('--force  re-run everything    --filter <glob>  only matching tasks    --concurrency <n>', ''),
+  command: ' > /run --force_                       run 6 tasks in main, ignoring the cache · jobs 4             ⏎ run · esc',
+  footer: FOOTER('--force  re-run everything    --filter <glob>  only matching tasks    --jobs <n>', ''),
 }));
 
 // S07 — command completion (fzf-style list grows upward from the bar)

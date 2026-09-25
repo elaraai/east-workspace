@@ -78,10 +78,6 @@ export interface OrchestratorStartOptions {
   lock?: LockHandle;
   /** Task runner for executing individual tasks */
   runner?: TaskRunner;
-  /** The most units of a partitioned task in flight at once — its pool
-   *  width. Defaults to the jobs budget's capacity, else 4. Runtime-only:
-   *  never affects hashes or caching. */
-  partitionConcurrency?: number;
   /**
    * The run's jobs budget: the runner processes the local runner keeps in
    * flight at once, across every task of the run and the units of its
@@ -94,10 +90,9 @@ export interface OrchestratorStartOptions {
   onTaskStart?: (name: string) => void;
   /** Callback when a task completes */
   onTaskComplete?: (result: TaskCompletedCallback) => void;
-  /** Called as each unit of a partitioned task (a piece, or a merge of their
-   *  outputs) starts, and as it succeeds. Callback-only progress —
-   *  deliberately not persisted as execution events (the persisted event wire
-   *  is frozen; see `ExecutionEventType`'s wire warning). */
+  /** Called as each unit of a split task (a piece, or a merge of their
+   *  outputs) starts, and as it succeeds. Callback-only progress: the
+   *  execution state records a split task's stages, not each unit. */
   onPartitionProgress?: (taskName: string, progress: PartitionProgress) => void;
   /** Callback for task stdout */
   onStdout?: (taskName: string, data: string) => void;

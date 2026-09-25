@@ -16,7 +16,8 @@
 
 import { promises as fs } from 'node:fs';
 import { join, dirname } from 'node:path';
-import { encodeBeast2For, decodeBeast2For, some } from '@elaraai/east';
+import { encodeBeast2For, some } from '@elaraai/east';
+import { decodeDataflowExecutionState } from '@elaraai/e3-types';
 import type {
   ExecutionStateStore,
   TaskStatusDetails,
@@ -33,9 +34,9 @@ import {
 // violations); shared with the object/ref stores so the retry budget can't drift.
 import { renameWithRetry } from '../../storage/local/localHelpers.js';
 
-// Create encoder/decoder for beast2 serialization
+// The state is written at this e3's version, and read at any version it
+// reads (decodeDataflowExecutionState).
 const encode = encodeBeast2For(DataflowExecutionStateType);
-const decode = decodeBeast2For(DataflowExecutionStateType);
 
 // Type helper for mutable state (removes readonly)
 type Mutable<T> = { -readonly [P in keyof T]: T[P] extends object ? Mutable<T[P]> : T[P] };
@@ -98,7 +99,7 @@ export class FileStateStore implements ExecutionStateStore {
 
     try {
       const data = await fs.readFile(path);
-      const state = decode(data);
+      const state = decodeDataflowExecutionState(data);
 
       // Check if this is the requested execution
       if (state.id !== id) {
@@ -124,7 +125,7 @@ export class FileStateStore implements ExecutionStateStore {
 
     try {
       const data = await fs.readFile(path);
-      return decode(data);
+      return decodeDataflowExecutionState(data);
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
         return null;
@@ -139,7 +140,7 @@ export class FileStateStore implements ExecutionStateStore {
     if (state.status !== 'cancelled') {
       try {
         const existing = await fs.readFile(path);
-        const current = decode(existing);
+        const current = decodeDataflowExecutionState(existing);
         if (current.status === 'cancelled') {
           return;
         }

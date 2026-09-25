@@ -7,14 +7,13 @@
  * The jobs budget of a local run (issue #770).
  *
  * A run keeps at most `jobs` runner processes in flight at once, whatever
- * launched them: the dataflow's tasks and the units of its partitioned tasks
- * — partitions, merge units, combine steps — all pass through one budget,
- * one slot per spawned runner. The orchestrator's task loop and the step
- * interpreter's pools decide what is *ready*; the budget decides what
- * *runs*, first come first served. It is a runtime collaborator of a local
- * run, like its abort signal: never persisted, never part of an execution's
- * identity, and never seen by a remote backend (e3-cloud), whose capacity is
- * its own.
+ * launched them: the dataflow's tasks, the pieces and merges of its split
+ * tasks, and a record operation's units all pass through one budget, one slot
+ * per spawned runner. The dataflow's loop, and the pool of a task run on its
+ * own, decide what is *ready*; the budget decides what *runs*, first come
+ * first served. It is a runtime collaborator of a local run, like its abort
+ * signal: never persisted, never part of an execution's identity, and never
+ * seen by a remote backend (e3-cloud), whose capacity is its own.
  *
  * The default budget is the CPUs available to this process: its affinity
  * mask (`os.availableParallelism`) capped by the cgroup v2 CPU quota, the

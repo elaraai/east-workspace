@@ -20,8 +20,8 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { tmpdir } from 'os';
-import { decodeBeast2, isEastDict, readBeast2Type, toEastTypeValue, variant, type EastTypeValue } from '@elaraai/east';
-import { COLLECTION_MANIFEST_KIND, MutationObjectType, PartitionPlanType, RECORD_STATE_KIND, RecordCommitType, RecordIndexObjectType, RecordObjectType, TASK_OBJECT_KIND, TaskObjectType, isCollectionManifestType, isRecordStateType } from '@elaraai/e3-types';
+import { decodeBeast2, isEastDict, isTypeValueEqual, readBeast2Type, toEastTypeValue, variant, type EastTypeValue } from '@elaraai/east';
+import { COLLECTION_MANIFEST_KIND, MutationObjectType, PartitionPlanType, RECORD_STATE_KIND, RecordCommitType, RecordIndexObjectType, RecordObjectType, TASK_OBJECT_KIND, TaskObjectType, UNIT_PLAN_KIND, UnitPlanType, isCollectionManifestType, isRecordStateType, type UnitPlan } from '@elaraai/e3-types';
 import type { RepoStore, GcObjectEntry, GcRootScanResult, LockHandle, StorageBackend } from '../interfaces.js';
 import { transferStagingDir } from './localHelpers.js';
 import { sweepScratchDirs } from '../../execution/scratch.js';
@@ -504,6 +504,22 @@ function isPartitionPlanShape(type: any): boolean {
   return PARTITION_PLAN_FIELDS.slice(0, common).every((name, i) => name === names[i]);
 }
 
+/** `UnitPlanType` as a type value: a unit plan's header declares it exactly. */
+const UNIT_PLAN_TYPE = toEastTypeValue(UnitPlanType);
+
+/**
+ * Check if a decoded EastTypeValue represents a split task's unit plan — the
+ * `$plan` of a stage, naming the task, the pieces' inputs, and the parts a
+ * merge level merges and their key ranges.
+ *
+ * Exact type, as a kind this build introduced is. `kind` is checked when the
+ * children are extracted, so a struct of this shape carrying another tag is a
+ * leaf.
+ */
+function isUnitPlanShape(type: any): boolean {
+  return isTypeValueEqual(type as EastTypeValue, UNIT_PLAN_TYPE);
+}
+
 /**
  * Check if a field type is a DataRef (Variant with cases: unassigned, null, value, tree).
  */
@@ -532,7 +548,7 @@ function isStructuralShape(type: EastTypeValue): boolean {
   const t = type as any;
   return isPackageObjectShape(t) || isTaskObjectShape(t) || isPreCutoverTaskObjectShape(t) || isFunctionObjectShape(t)
     || isRecordObjectShape(t) || isMutationObjectShape(t) || isEnvironmentSpecShape(t)
-    || isRecordCommitShape(t) || isPartitionPlanShape(t) || isTreeObjectShape(t)
+    || isRecordCommitShape(t) || isPartitionPlanShape(t) || isUnitPlanShape(t) || isTreeObjectShape(t)
     || isCollectionManifestShape(t) || isRecordIndexObjectShape(t) || isRecordStateShape(t);
 }
 
@@ -746,6 +762,26 @@ function extractChildren(
     }
     for (const merge of plan.merges ?? []) {
       for (const range of merge.ranges) children.push({ hash: range, kind: 'value' });
+    }
+    return children;
+  }
+
+  if (isUnitPlanShape(t)) {
+    const plan = value as UnitPlan;
+    if (plan.kind !== UNIT_PLAN_KIND) return children; // a look-alike user struct
+    // The task, whose program the units run. A piece's inputs and a merge's
+    // parts are dataset values, which may be manifests naming segment objects;
+    // a merge's key range is a small value that names nothing.
+    children.push({ hash: plan.task, kind: 'node' });
+    if (plan.stage.type === 'pieces') {
+      for (const inputs of plan.stage.value) {
+        for (const input of inputs) children.push({ hash: input, kind: 'value' });
+      }
+    } else {
+      for (const group of plan.stage.value.groups) {
+        if (group.range.type === 'some') children.push({ hash: group.range.value, kind: 'leaf' });
+        for (const entry of group.entries) children.push({ hash: entry, kind: 'value' });
+      }
     }
     return children;
   }

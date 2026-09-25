@@ -46,11 +46,12 @@ describe('/run and /stop', () => {
         mounted = await mountApp({ api, view: dashboardView(), actions: await sixTasks(api) });
         await mounted.press('r');
         let lines = mounted.lines();
-        assert.match(lines[33]!, /^ › \/run _\s+run 6 tasks in main · concurrency 4\s+⏎ run · esc/);
-        assert.match(lines[35]!, /^ --force  re-run everything    --filter <glob>  only matching tasks    --concurrency <n>$/);
-        await mounted.type('--force --concurrency 2');
-        assert.match(mounted.lines()[33]!, /^ › \/run --force --concurrency 2_\s+run 6 tasks in main, ignoring the cache · concurrency 2\s+⏎ run · esc/);
+        assert.match(lines[33]!, /^ › \/run _\s+run 6 tasks in main · jobs 4\s+⏎ run · esc/);
+        assert.match(lines[35]!, /^ --force  re-run everything    --filter <glob>  only matching tasks    --jobs <n>$/);
+        await mounted.type('--force --jobs 2');
+        assert.match(mounted.lines()[33]!, /^ › \/run --force --jobs 2_\s+run 6 tasks in main, ignoring the cache · jobs 2\s+⏎ run · esc/);
         await mounted.press(KEY.enter);
+        // The API carries the jobs budget in its `concurrency` field.
         assert.ok(api.calls.includes('dataflowExecuteLaunch main --force --concurrency 2'), api.calls.join('\n'));
         lines = mounted.lines();
         assert.match(lines[33]!, /^ ›  ● Dataflow started · main · 6 tasks queued$/);

@@ -13,7 +13,7 @@ import { existsSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { East, ArrayType, BlobType, DictType, IntegerType, OptionType, StringType, StructType, SEGMENT_RULE_KEYED, decodeBeast2For, encodeBeast2For, fromEastTypeValue, variant, some, none, toEastTypeValue } from '@elaraai/east';
 import e3 from '@elaraai/e3';
-import { WorkspaceStateType, PackageObjectType, TASK_OBJECT_KIND, TaskObjectType, FunctionObjectType, DataRefType, DatasetRefType, RecordCommitType, RecordIndexObjectType, MutationObjectType, EnvironmentSpecType, PartitionPlanType, RunnerType, TreePathType, COLLECTION_MANIFEST_KIND, encodeCollectionManifest, decodeCollectionManifest, encodePartitionPlan } from '@elaraai/e3-types';
+import { WorkspaceStateType, PackageObjectType, TASK_OBJECT_KIND, TaskObjectType, FunctionObjectType, DataRefType, DatasetRefType, RecordCommitType, RecordIndexObjectType, MutationObjectType, EnvironmentSpecType, PartitionPlanType, RunnerType, TreePathType, COLLECTION_MANIFEST_KIND, UNIT_PLAN_KIND, encodeCollectionManifest, decodeCollectionManifest, encodePartitionPlan, encodeUnitPlan } from '@elaraai/e3-types';
 import type { WorkspaceState, PackageObject, TaskObject } from '@elaraai/e3-types';
 import { repoGc, collectAllRoots, markReachable, sweepBatch } from './storage/local/gc.js';
 import { readDatasetWhole } from './dataset-open.js';
@@ -449,6 +449,29 @@ describe('gc', () => {
       // Object still exists
       const loaded = await objectRead(testRepoPath, hash);
       assert.deepStrictEqual(new Uint8Array(loaded), data);
+    });
+
+    it('roots a split task\'s plan through its sidecar until the execution clears it', async () => {
+      const taskHash = 'a'.repeat(64);
+      const inputsHash = 'b'.repeat(64);
+      const piece = await objectWrite(testRepoPath, encodeBeast2For(StringType)('a piece of the input'));
+      const plan = await objectWrite(testRepoPath, encodeUnitPlan({
+        kind: UNIT_PLAN_KIND,
+        task: taskHash,
+        inputs: inputsHash,
+        stage: variant('pieces', [[piece]]),
+      }));
+      await storage.refs.executionPlanWrite(testRepoPath, taskHash, inputsHash, plan);
+
+      const kept = await repoGc(storage, testRepoPath, { minAge: 0 });
+      assert.strictEqual(kept.deletedObjects, 0, 'a plan the execution can resume from keeps what it names');
+      await objectRead(testRepoPath, plan);
+      await objectRead(testRepoPath, piece);
+
+      await storage.refs.executionPlanWrite(testRepoPath, taskHash, inputsHash, '');
+      assert.strictEqual(await storage.refs.executionPlanRead(testRepoPath, taskHash, inputsHash), null);
+      const swept = await repoGc(storage, testRepoPath, { minAge: 0 });
+      assert.strictEqual(swept.deletedObjects, 2, 'the plan and its piece go once the execution has ended');
     });
   });
 
@@ -954,6 +977,56 @@ describe('gc', () => {
           ['partitions', 'boundaries', 'splits', 'slices'],
           'a plan field must be APPENDED, never inserted or reordered — see isPartitionPlanShape',
         );
+      });
+
+      it('keeps what a unit plan names reachable: its task, the pieces\' inputs, and the merges\' parts and ranges', async () => {
+        const taskHash = 'b'.repeat(64);
+        const irHash = 'c'.repeat(64);
+        const pieces = [['1'.repeat(64), '2'.repeat(64)], ['3'.repeat(64), '2'.repeat(64)]];
+        const parts = ['4'.repeat(64), '5'.repeat(64)];
+        const passing = '6'.repeat(64);
+        const range = '7'.repeat(64);
+        const piecesPlan = 'd'.repeat(64);
+        const mergePlan = 'e'.repeat(64);
+        const objects = new Map<string, Uint8Array>([
+          [piecesPlan, encodeUnitPlan({ kind: UNIT_PLAN_KIND, task: taskHash, inputs: '9'.repeat(64), stage: variant('pieces', pieces) })],
+          [mergePlan, encodeUnitPlan({
+            kind: UNIT_PLAN_KIND,
+            task: taskHash,
+            inputs: '9'.repeat(64),
+            stage: variant('merge', { level: 1n, levels: 2n, groups: [{ range: some(range), entries: parts }, { range: none, entries: [passing] }] }),
+          })],
+          [taskHash, encodeBeast2For(TaskObjectType)({
+            kind: TASK_OBJECT_KIND,
+            body: variant('command', { commandIr: irHash }),
+            runner: variant('custom', { command: [] }),
+            inputs: [{ path: [variant('field', 'x')], partition: none }],
+            output: { path: [variant('field', 'y')], kind: variant('value', null) },
+            role: variant('data', null),
+            environment: none,
+          } as TaskObject)],
+        ]);
+        const store = tracedStore(objects);
+
+        const reachable = await markReachable(store.readObject, new Set([piecesPlan, mergePlan]), { readHead: store.readHead });
+
+        assert.deepStrictEqual(
+          [...reachable].sort(),
+          [...new Set([piecesPlan, mergePlan, taskHash, irHash, ...pieces.flat(), ...parts, passing, range])].sort(),
+        );
+        assert.deepStrictEqual(store.wholeReads.sort(), [piecesPlan, mergePlan, taskHash].sort(), 'what a plan names is marked without being read');
+      });
+
+      it('treats a unit-plan-shaped struct carrying another kind as a leaf', async () => {
+        const root = 'f'.repeat(64);
+        const input = '1'.repeat(64);
+        const store = tracedStore(new Map([[root, encodeUnitPlan({
+          kind: '$something-else', task: 'b'.repeat(64), inputs: '9'.repeat(64), stage: variant('pieces', [[input]]),
+        })]]));
+
+        const reachable = await markReachable(store.readObject, new Set([root]), { readHead: store.readHead });
+
+        assert.deepStrictEqual([...reachable], [root]);
       });
 
       it('grows the head while a type section does not fit, and never reads the dataset whole', async () => {

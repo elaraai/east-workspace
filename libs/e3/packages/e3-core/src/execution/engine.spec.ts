@@ -22,10 +22,12 @@ import {
   type EastType,
 } from '@elaraai/east';
 import e3, { type TaskDef } from '@elaraai/e3';
-import type { PartitionProgress } from '@elaraai/e3-types';
-import { taskExecute, type ExecuteOptions, type ExecutionResult } from './LocalTaskRunner.js';
+import { decodeTaskObject, decodeUnitPlan, type PartitionProgress } from '@elaraai/e3-types';
+import { taskExecute, taskExecuteBody, type ExecuteOptions, type ExecutionResult } from './LocalTaskRunner.js';
+import { executeSplitTask } from './engine.js';
 import { JobSlots } from './jobs.js';
 import { executionReadLog, inputsHash } from '../executions.js';
+import { uuidv7 } from '../uuid.js';
 import { datasetWrite } from '../trees.js';
 import { packageImport, packageRead } from '../packages.js';
 import { createTempDir, createTestRepo, removeTempDir, removeTestRepo } from '../test-helpers.js';
@@ -347,6 +349,54 @@ describe('a task split into pieces', () => {
     assert.equal(pieces.filter((event) => event.state === 'started').length, total);
     assert.deepEqual(pieces.filter((event) => event.state === 'completed').map((event) => event.completed), Array.from({ length: total }, (_, i) => i + 1));
     assert.deepEqual(events.filter((event) => event.phase === 'merge').map((event) => event.state), ['started', 'completed']);
+  });
+
+  it('roots each stage\'s plan through its sidecar until the task ends, and a later run takes up the stage it names', async () => {
+    const taskHash = await deploy(e3.streamTask('staged', {
+      inputs: [e3.partition(sales)],
+      output: e3.output.dict(IntegerType, IntegerType, { merge: (_$, _key, a, b) => a.add(b) }),
+    }, ($, sales, emit) => {
+      $.for(sales, ($, _amount, key) => {
+        $(emit(key.remainder(97n), 1n));
+      });
+    }));
+    const input = await datasetWrite(storage, repo, salesOf(8000), SalesType);
+    const plans: string[] = [];
+    const write = storage.refs.executionPlanWrite.bind(storage.refs);
+    storage.refs.executionPlanWrite = (repoPath, task, inputs, plan) => {
+      plans.push(plan);
+      return write(repoPath, task, inputs, plan);
+    };
+
+    const first = await taskExecute(storage, repo, taskHash, [input]);
+    assert.equal(first.state, 'success', first.error ?? '');
+    assert.equal(plans.length, 3, 'the pieces\' plan, the merge level\'s, and the clear');
+    assert.equal(plans[2], '');
+    assert.equal(await storage.refs.executionPlanRead(repo, taskHash, first.inputsHash), null, 'an execution that ended roots no plan');
+    const pieces = decodeUnitPlan(await storage.objects.read(repo, plans[0]!));
+    const merges = decodeUnitPlan(await storage.objects.read(repo, plans[1]!));
+    assert.deepEqual([pieces.task, pieces.inputs], [taskHash, first.inputsHash]);
+    assert.equal(pieces.stage.type, 'pieces');
+    assert.ok(pieces.stage.type === 'pieces' && pieces.stage.value.length > 4, 'the input was cut into many pieces');
+    assert.ok(merges.stage.type === 'merge' && merges.stage.value.level === 1n && merges.stage.value.levels === 1n);
+
+    // A run that stopped in its merges left the sidecar naming their plan:
+    // the next run takes the merges up, and runs none of its units again.
+    await write(repo, taskHash, first.inputsHash, plans[1]!);
+    const task = decodeTaskObject(await storage.objects.read(repo, taskHash));
+    const ran: string[][] = [];
+    const events: PartitionProgress[] = [];
+    const resumed = await executeSplitTask(storage, repo, taskHash, task, [input],
+      { inHash: first.inputsHash, executionId: uuidv7(), startTime: Date.now() },
+      { onPartitionProgress: (progress) => events.push(progress) },
+      (unitInputs, ids, merge) => {
+        ran.push(unitInputs);
+        return taskExecuteBody(storage, repo, taskHash, task, unitInputs, ids, {}, merge);
+      });
+    assert.equal(resumed.state, 'success', resumed.error ?? '');
+    assert.equal(resumed.outputHash, first.outputHash);
+    assert.deepEqual(ran, [], 'every unit of the stage ran before');
+    assert.deepEqual([...new Set(events.map((event) => event.phase))], ['merge'], 'the pieces were neither planned nor run again');
   });
 
   it('runs a task whose input fits in one piece as one unit, under the task\'s own identity', async () => {

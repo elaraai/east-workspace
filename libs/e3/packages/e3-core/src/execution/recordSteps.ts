@@ -69,7 +69,8 @@ export interface RecordOperation {
   /** Target carved-slice size in wire bytes; defaults to
    *  {@link RECORD_SLICE_BYTES}. */
   targetBytes?: number;
-  /** Runtime-only: cancellation, verbosity, the jobs budget, the pool width. */
+  /** Runtime-only: cancellation, verbosity, and the jobs budget, whose slots
+   *  are the pool's width. */
   options?: TaskExecuteOptions;
 }
 
@@ -82,8 +83,7 @@ export type RecordOperationResult =
   /** The run was aborted. */
   | { kind: 'cancelled' };
 
-/** The most units in flight at once, without a jobs budget or an explicit
- *  pool width. */
+/** The most units in flight at once, without a jobs budget. */
 const DEFAULT_CONCURRENCY = 4;
 
 /** Why a record operation cannot fan out. */
@@ -116,7 +116,7 @@ export async function executeRecordOperation(
   if (operation.runner.type === 'custom') {
     return { kind: 'failed', message: CUSTOM_RUNTIME_MESSAGE, exitCode: null };
   }
-  const concurrency = Math.max(1, options.partitionConcurrency ?? options.jobs?.capacity ?? DEFAULT_CONCURRENCY);
+  const concurrency = Math.max(1, options.jobs?.capacity ?? DEFAULT_CONCURRENCY);
 
   const map = await unitTask(storage, repo, operation.runner,
     streamCommandIr(operation.runner, { emit: 'dict', merge: 'none', stream: 'first' }));
