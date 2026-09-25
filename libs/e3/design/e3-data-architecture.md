@@ -18,7 +18,7 @@
 | D7 | **Cut rule v2:** content-defined for Arrays too, and size-aware for every collection (#788), provided every indexed and paged read keeps working. |
 | D8 | **Partition boundaries are content-defined.** |
 | D9 | **Authoring:** `e3.task` returns; `e3.streamTask` emits into an output kind; `e3.partition` marks an input the work may be split over. `partitionTask` is removed and `aggregateTask` is not built. |
-| D10 | **Automatic parallelism is part of the cutover.** |
+| D10 | **Automatic parallelism lands after this PR,** in a PR of its own from main (Stage 6); until then, `e3.streamTask` with `e3.partition` is how work splits. It adds no field to the task object, so it is no second cutover: a task it rewrites re-runs once, when its package is re-exported. |
 | D11 | **Runner protocol:** one machine-facing command, `exec <unit>`, with a typed result. |
 | D12 | **Scheduling:** one budget of cores and memory. |
 | D13 | **SDK namespaces for closed families only:** `e3.output.*` and `e3.mutation.*`. |
@@ -71,7 +71,7 @@ e3.recordIndex(name, record, spec)               // unchanged
 e3.package(...), e3.export(...)                  // unchanged
 ```
 
-**`e3.task`** runs one unit. Its inputs are datasets: passing `e3.partition(...)` is a type error, and is refused at definition. A large input opens lazily, and the returned value is written through the Writer segment by segment. When the body's shape allows, §3.9 runs it partitioned without the author asking.
+**`e3.task`** runs one unit. Its inputs are datasets: passing `e3.partition(...)` is a type error, and is refused at definition. A large input opens lazily, and the returned value is written through the Writer segment by segment. Once §3.9 lands, after this PR, a body whose shape allows runs partitioned without the author asking.
 
 **`e3.streamTask`** emits into an output kind. The kind fixes `emit`'s signature and how parts of the output combine:
 
@@ -274,12 +274,14 @@ One budget replaces the dataflow's `concurrency`, the partition pool's width and
 
 ### 3.9 Automatic parallelism
 
+This lands after this PR, in a PR of its own (D10, Stage 6).
+
 At export, after `East.importFunction` references are linked, the SDK examines each `e3.task` body's IR. When the body's result is built from one input through collection operations whose algebra is known, the task compiles to the explicit form:
 - that input is partitioned;
 - the output gets an output kind;
 - each piece's body emits instead of building the collection.
 
-Whatever the body does after the recognised operations runs once, in a final unit over the assembled output.
+Whatever the body does after the recognised operations runs once, as a second task the SDK writes over the assembled output, so the task object (§3.3) gains no field.
 
 Recognised `east` builtins:
 - **Element-wise**, over Array, Set and Dict: `Map`, `Filter`, `FilterMap`, `ToArray`, `ToSet`, `ToDict`, `FlattenToArray`, `FlattenToSet`, `FlattenToDict` and `DictKeys`, and chains of them.
@@ -329,12 +331,12 @@ For this cutover, stored datasets written under the `/1` rules or as blobs stay 
 
 ## 4. The plan
 
-Stages land in order on one branch, delivered as one PR against main, so CI runs over each stage as it lands; a stacked PR, based on another branch, runs none. Each stage leaves the branch green and carries its own docs (P10). Stage 8 is a separate repository and PR.
+Stages land in order on one branch, delivered as one PR against main, so CI runs over each stage as it lands; a stacked PR, based on another branch, runs none. Each stage leaves the branch green and carries its own docs (P10). Stage 6 is a PR of its own from main, once this one has merged (D10), and Stage 8 is a separate repository and PR.
 
 ```
 0 Specify ─► 1 Collection layer ─┬─► 2 Door ────────────┐
                                  └─► 3 Runner protocol ─┴─► 4 Task model and engine ─┬─► 5 Scheduler
-                                                                                     └─► 6 Automatic parallelism
+                                                                                     └─► 6 Automatic parallelism (its own PR, after this one)
                                                                      then 7 Docs sweep, 8 Cloud
 ```
 
@@ -541,6 +543,7 @@ In three parts:
      - The execution state and its events carry a version; a reader keeps a decoder for every older version and refuses a newer one, naming it. The timeline gains a split task's stages: its pieces planned, and each merge level started and finished. Each unit's progress stays a callback, and the API's events stay a task's until stage 8.
      - `TaskRunner` runs a unit as well as a task; e3-cloud's runners implement it in stage 8 (e3-cloud#187).
      - `docs/conventions/WIRE_MIGRATION.md` moves the execution event wire from the frozen wires to the stored state that changes by version.
+     - `--jobs` is the one knob a person sets. The deprecated `--concurrency` and `--partition-concurrency` aliases and the `partitionConcurrency` option are deleted, and the TUI's `/run` takes `--jobs`. A split task's units take the dataflow's slots, and a task run on its own sizes its pool to the jobs budget.
   4. **Kind tags, GC and 4a's acceptance tests.**
 - **4b — records.**
   - Index builds and mutations on the engine (§3.7).
@@ -580,7 +583,7 @@ Read first: `jobs.ts`, `LocalOrchestrator.ts`, `dataflow/steps.ts`, `processExec
 Changes:
 - `jobs.ts` becomes the budget (§3.8), with `--memory` / `E3_MEMORY` and a walk of the cgroup's `memory.max` beside `cgroupCpuQuota`.
 - Reservations come from `peakBytes` history, with probe-then-fan-out, the guard, and per-unit cgroups where delegation exists.
-- Remove `state.concurrency`, `partitionConcurrency` and the deprecated `--concurrency` and `--partition-concurrency` aliases (F33).
+- Remove `state.concurrency` and the API request's `concurrency`, which the budget replaces (F33). `partitionConcurrency` and the deprecated `--concurrency` and `--partition-concurrency` aliases went in stage 4a.
 - **The frame pool** (#841):
   - its memory becomes O(workers × segment): shared buffers reused per slot, and nothing allocated per frame that waits on a worker's GC;
   - then the store door frames on it again.
@@ -592,6 +595,8 @@ Acceptance:
 - With no memory pressure, throughput at the default `-j` is no worse than before.
 
 ### Stage 6 — Automatic parallelism (e3 SDK)
+
+A PR of its own from main, once this PR has merged (D10), carrying its own docs (P10). It adds no field to the task object: what a body does after the recognised operations becomes a second task the SDK writes.
 
 Read first: `east`'s `builtins.ts`, `ir.ts`, `analyze.ts` and `walker.ts`; e3 `export.ts`; and how `East.importFunction` is linked.
 
@@ -642,7 +647,7 @@ A benchmark harness in `libs/e3/test/`, alongside `partition-scale.spec.ts`, run
 - **Wide rows:** the 300 × 1 MiB Dict from #788.
 - **Narrow rows and edits:** a long collection of narrow rows, and one-row edits to it and to the wide rows: segment sizes, page-read time, compression, and bytes rewritten per edit. Built in stage 1 with the wide rows, where the two fix the cut rule's parameters.
 - **Deliveries:** two deliveries differing in one row (Stage 2 acceptance).
-- **Automatic:** the re-key written as `toDict` in an `e3.task` (Stage 6 acceptance).
+- **Automatic:** the re-key written as `toDict` in an `e3.task` (Stage 6 acceptance, in its own PR).
 
 The PR records each stage's numbers.
 
