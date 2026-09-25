@@ -246,11 +246,12 @@ Every task execution is a **unit graph**, built by one engine and persisted in t
 - Every unit, a piece with the merge of its own runs or a merge or fold over pieces, is cached on its own identity: kind, program or merge function, input hashes and output kind. A re-run after an append re-runs only the pieces it touched and the merges they reach. Because pieces are content-defined, the same holds for an insertion in the middle (F42).
 
 **Records run on the engine** (F1, F26):
-- **Index builds** are a partitioned unit graph over the record's primary, with a `dict` output and no merge. The generated build program emits in any order, with no per-slice sort (F38), and the never-called index merge function goes (F14).
-- **Mutations** run the generated program as one `run` unit through the same executor as tasks: execution records, logs, the budget and cancellation. The mutation API invokes it outside the dataflow graph.
-  - The program reads the record's manifest lazily (F25) and emits the delta as a `dict`.
-  - A stale write is a `$conflict` entry in the delta, which sorts first, instead of an error-message prefix read from stderr (F8).
-  - The delta is applied with the Merger and Recut over the touched segments, inside the existing compare-and-swap loop. Applies run through Recut from stage 1, which deletes `record-apply.ts`'s private re-cut (F24).
+- **Index builds** are split tasks over the record's primary. e3-core writes an index's build task from its index object: the build program as the body, on the index's runner, over one input, the primary, partitioned with no `by`, into a `dict` output with no merge. It runs as any task does, so a rebuild over an unchanged primary is served from the execution cache, and a larger one runs as pieces and merges with the engine's plan, logs, budget and cancellation. The build program emits each row's entries as it reads them, with no per-slice sort (F38). The never-called index merge function goes (F14): two pieces never emit one entry, since an entry's `k` is in one piece.
+- **Mutations** run as one unit through the same executor as tasks, with its execution records, logs, cancellation and a timeout. e3-core writes a mutation's task from its mutation object: the mutation's program, or an unkeyed record's reducer, as the body; the state and each argument as its inputs; and a `dict` output, the delta, or a `value`, the reducer's new state. The mutation API runs it outside the dataflow graph, and one that ran over the same state and arguments before is served from the execution cache.
+  - The state reaches the runner as the primary's manifest, its segments linked, and the program reads it lazily (F25). It emits the delta's entries as it computes them, in any order (F38).
+  - A stale write is a `$conflict` entry in the delta, keyed by what went stale, which sorts before every target, instead of an error-message prefix read from stderr (F8).
+  - The delta is applied over the touched segments inside the existing compare-and-swap loop, one target segment at a time: the apply holds that segment and its changes, and re-cuts through Recut, as it has since stage 1 deleted `record-apply.ts`'s private re-cut (F24). The Merger does not apply a delta, since a change can delete a row.
+  - A mutation's output is stored as segments and never read whole, so the result-size cap and the `too_large` outcome go.
 
 ### 3.8 Scheduling: cores and memory
 
@@ -550,22 +551,22 @@ In three parts:
      - The re-key acceptance test (§6), `rekey-bound.spec.ts` beside `partition-scale.spec.ts`: a `streamTask` over a partitioned collection of nested rows, emitting to a `dict` with `merge` in random key order, on every runner installed and at two input sizes. Every unit's peak stays under the runner's baseline plus the RunSorter's cap and does not grow with the input, e3 runs under a fixed heap, and the output is the Writer's manifest for the value, on every runner and at `--jobs` 1 and the default. It runs small in CI, where every piece but the input's last still closes more than one run, and at full scale by hand.
      - A crash resumes at the unit: `kill -9` of e3 once some pieces have finished, and the next run finds them in the execution cache and runs only the rest.
      - The other acceptance items of 4a are tested already: a yield resumes at the unit (the orchestration spec), an insertion re-runs only the pieces around it (the engine's spec), and GC keeps what a unit graph names (the GC spec).
-- **4b — records.**
-  - Index builds and mutations on the engine (§3.7).
-  - `$conflict` in the delta.
-  - The Merger for applies. Recut already applies them, from stage 1.
-- **4c — deletions:** what records use until 4b.
+- **4b — records.** It deletes the code it replaces, as 4a's parts do.
+  - Index builds on the engine (§3.7). The index object's `mergeIr` goes, with the merge program, and `executeRecordOperation` with `recordSteps.ts`.
+  - Mutations as units (§3.7). The detached run's state stream and `streaming` flags go, with the whole-state write's index rebuild, which no unkeyed record needs. `TaskExecuteOptions` gains `timeout`, which a mutation's `timeoutMs` sets. `sliceBytes` goes: tests size the pieces with `E3_TEST_PIECE_BYTES`.
+  - `$conflict` in the delta. `STALE_WRITE_PREFIX` goes.
+  - The apply streams the delta, one target segment at a time.
+  - The mutation API's `too_large` outcome goes, and a mutation ignores `maxResultBytes`, which function calls keep.
+- **4c — deletions:** what records used until 4b.
   - e3-types:
     - `stream.ts`;
     - `runnerOpensManifests` and `withRunnerVerbose`;
     - the partition plan's legacy decoder.
   - e3-core:
-    - `recordSteps.ts`;
     - `partitionIo.ts`'s virtual layout and `spliceChunks`;
     - `spliceBlobs`, `findSpliceViolation` and `SpliceOrderError`;
     - `buildRunnerArgv` and the splice branch of staging;
-    - the test hooks in production modules (F19);
-    - `STALE_WRITE_PREFIX`.
+    - the test hooks in production modules (F19).
   - Runners: the `run` mode flags and the `merge` command, with `generate_fixtures.mjs` and the fixtures their tests use.
 
 Acceptance:
@@ -671,7 +672,7 @@ What #786 guarantees holds through every stage. Each guarantee is pinned by a te
 | east-node, east-c and east-py write the same state and index manifests, skip a no-op write, and refuse a stale one in the same words | `records.spec.ts`, cross-runtime parity, over every runtime installed: all three on Linux and macOS, east-node and east-py on Windows |
 | Two patches on different keys both commit. A stale patch, update or whole-state replace is a conflict naming the key, and writes nothing | `records.spec.ts`; e3-api-tests `records-keyed` |
 | A patch on a record with no index runs no process | `records.spec.ts` |
-| The engine passes the runner the record as a stream of its segments, never materialised, and the local runner opens it lazily | `records.spec.ts` |
+| A mutation's runner gets the record as its manifest with the segments linked, never materialised, and opens it lazily | `records.spec.ts` |
 | An indexed record reads as its rows through every ordinary door, a task's input included | `records.spec.ts`; `processExec.spec.ts`; `records-keyed` |
 | A package or workspace export carries every object its records and collections consist of, so the import deploys, mutates and reads through its indexes | `records.spec.ts` |
 | A reserved `$` slot survives every commit that does not own it: a mutation, a compaction and a reindex, whether the reindex is run by hand or by a deploy | `records.spec.ts` |
