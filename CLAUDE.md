@@ -153,9 +153,9 @@ naming convention, they use `SCREAMING_SNAKE_CASE.md` to signal
   (readers accept every released version; writers are lockstep), and why the
   environment e2e uses a local stand-in registry rather than the last release.
 - [`docs/conventions/WIRE_MIGRATION.md`](docs/conventions/WIRE_MIGRATION.md)
-  — the one migration rule for e3's wires: package-borne types cut over hard
-  (re-export), stored state keeps one read-compat decoder per type, and the
-  list of frozen wires.
+  — the one migration rule for e3's wires: everything cuts over hard. Packages
+  are re-exported, a repository an older e3 wrote is re-created, no reader
+  keeps a decoder for an earlier form, and the list of frozen wires.
 - [`docs/conventions/SKILLS_STANDARD.md`](docs/conventions/SKILLS_STANDARD.md)
   — mandatory structure for `SKILL.md` + reference/example files.
 - [`docs/conventions/EAST_UI_PROP_PATTERNS.md`](docs/conventions/EAST_UI_PROP_PATTERNS.md)

@@ -9,7 +9,7 @@
 
 | | Decision |
 |---|---|
-| D1 | **Hard cutover.** Packages are re-exported and caches invalidate once. Readers keep reading every stored form ever released; writers write only the current one. |
+| D1 | **Hard cutover, for stored data too.** Packages are re-exported, caches invalidate once, and a repository an older e3 wrote is re-created rather than read: no such repository needs carrying forward. Readers read the current form only, as writers write it (decided 2026-09-25; until stage 4c, readers kept every released form). |
 | D2 | **#786 is folded into this PR.** The epic branch was started from #786's head and carries every one of its commits unchanged, and #779–#785 close with this PR. Its known gaps — the cutting door's whole decode (F20, F21) and task outputs stored as the runner wrote them (F3) — were Stage 2, and its guarantees are a gate every stage keeps (§7). |
 | D3 | **#790 is replaced by this plan.** Its per-element aliasing change is kept (Stage 1). |
 | D4 | **TypeScript and C both implement every primitive both runtimes need.** TypeScript runs in the browser. A written spec plus a generated conformance corpus is the source of truth for both. |
@@ -197,7 +197,7 @@ One function in e3-core, `storeCollection`, is the only way a collection reaches
 |---|---|
 | a stock runner's output directory (manifest and segments) | links the segments and writes the manifest; the runner's Writer is corpus-pinned, so its cuts are the rule's |
 | the runs of a unit graph | assembled by the engine (§3.7), re-cut at the seams, written as one manifest |
-| a beast2 byte stream: an external file, an API `PUT` body, a custom task's output, a pre-cutover blob | re-encoded through Recut in one streaming pass, a source segment at a time, never decoded whole. Each foreign segment is decoded under an explicit cap on its logical size, the RunSorter's; a larger one — a whole-value encode, a v4 blob or an oversized batch — is refused, naming the fix. Nothing from outside is byte-copied: checking a foreign segment costs a re-encode, since its cuts, aliasing, codec and compressor all enter its bytes, and a canonical one re-encodes to the same bytes |
+| a beast2 byte stream: an external file, an API `PUT` body, a custom task's output | re-encoded through Recut in one streaming pass, a source segment at a time, never decoded whole. Each foreign segment is decoded under an explicit cap on its logical size, the RunSorter's; a larger one — a whole-value encode, a v4 blob or an oversized batch — is refused, naming the fix. Nothing from outside is byte-copied: checking a foreign segment costs a re-encode, since its cuts, aliasing, codec and compressor all enter its bytes, and a canonical one re-encodes to the same bytes |
 | a small value in memory (`datasetWrite`, export defaults) | Writer → manifest |
 
 It checks the declared type, as `dataset-type.ts` does today, and never decodes a value whole (F21). Every door routes through it:
@@ -242,7 +242,7 @@ Every task execution is a **unit graph**, built by one engine and persisted in t
 - Each stage's units are a `$plan` object, written once and named by the task's entry in the execution state, which records the stage rather than each unit. So a state write grows with the tasks, not the units: a 10 TB input is some 160,000 pieces.
 - A yield or a crash resumes per unit (F2). The stage's `$plan` is read back and each of its units probed in the execution cache, so the units that finished are found without being recorded one by one, and only the rest run.
 - The run's timeline records a split task's stages: its pieces planned, and each merge level started and finished. Each unit's progress stays a callback, which the CLI prints, and the API's events stay a task's until stage 8.
-- The execution state and its events carry a version (F35). A reader keeps a decoder for every older version and refuses a newer one, naming it.
+- The execution state and its events carry a version (F35). A reader reads its own version and refuses any other, naming it.
 - Every unit, a piece with the merge of its own runs or a merge or fold over pieces, is cached on its own identity: kind, program or merge function, input hashes and output kind. A re-run after an append re-runs only the pieces it touched and the merges they reach. Because pieces are content-defined, the same holds for an insertion in the middle (F42).
 
 **Records run on the engine** (F1, F26):
@@ -319,16 +319,16 @@ The left column decides how work, and so floating-point folds, are grouped, whic
 
 ### 3.11 Object kinds and GC
 
-Every object this plan introduces or rewrites that names other objects carries a `kind` tag: task objects and unit graphs (`$plan`), alongside the existing `$segments` and `$record`. A piece merges its own runs (§3.7), so no object names a unit's runs. GC's `markReachable` dispatches on the tag through one table: for each tag, the field names of every released version of its kind, and the objects a value of it names. An object is walked as a kind when its fields begin with one of the kind's versions and its `kind` is the kind's tag. So a later version, which appends fields, is walked for the fields this build knows, and a new version is one entry in the table and a GC test. Pre-cutover shapes keep their shape recognition, each pinned by a test (F36). Every new kind lands with its GC test in the same PR.
+Every object this plan introduces or rewrites that names other objects carries a `kind` tag: task objects and unit graphs (`$plan`), alongside the existing `$segments` and `$record`. A piece merges its own runs (§3.7), so no object names a unit's runs. GC's `markReachable` dispatches on the tag through one table: for each tag, the field names of its kind, and the objects a value of it names. An object is walked as a kind when its fields begin with the kind's and its `kind` is the kind's tag, so a later version, which appends fields, is walked for the fields this build knows. Objects without a tag are recognised by their current shape (F36). Every new kind lands with its GC test in the same PR.
 
 ### 3.12 Migration
 
 `docs/conventions/WIRE_MIGRATION.md` (Stage 0) states one rule:
 - **Package-borne wires** (task objects, package objects, IR bundles): hard cutover. Packages are re-exported, with no dual decoders.
-- **Stored state** (datasets, manifests, record states and commits, execution history): readers accept every released form, through one read-compat decoder per type and a test per form. Writers write the current form only.
+- **Stored state** (datasets, manifests, record states and commits, execution history and state): hard cutover too. A repository an older e3 wrote is re-created, deployed again and its data imported again, rather than read. Readers read the current form only, as writers write it, and refuse any other, naming the fix. Until stage 4c they kept a decoder for every released form; no repository needs carrying forward, so 4c deleted them (D1).
 - **Frozen wires** are listed with the reason each is frozen: the beast2 container, whose index readers refuse unknown flags (F30). The execution event wire was frozen too until stage 4 gave the execution state a version (F35, §3.7).
 
-For this cutover, stored datasets written under the `/1` rules or as blobs stay readable. The first write to a manifest cut under an older rule re-cuts it whole, once (#788).
+For this cutover, a dataset stored under the `/1` rules or as one blob is not read: its repository is re-created, as is any other an older e3 wrote. The beast2 container keeps its own promise to read every released version (`docs/conventions/BEAST2_WIRE_VERSION.md`).
 
 ## 4. The plan
 
@@ -435,7 +435,7 @@ Acceptance:
   - record index pages;
   - lazy iteration;
   - e3-ui ValueTree and Sheet paging.
-- Every pre-cutover form still reads: `/1` cuts, blobs, and segment-scoped aliasing.
+- Every pre-cutover form still reads: `/1` cuts, blobs, and segment-scoped aliasing. (Stage 4c stopped e3 reading the stored forms an older e3 wrote, D1; east's readers still read every released container.)
 
 ### Stage 2 — One door (e3-core)
 
@@ -558,18 +558,24 @@ In three parts:
   - The apply streams the delta, one target segment at a time.
   - The mutation API's `too_large` outcome goes, with the CLI's messages for it and e3-ui's `RecordError` arm, and a mutation ignores `maxResultBytes`, which function calls keep. The client reads an older server's `too_large` as a failure that says so.
   - `TaskResult.error` carries a failed unit's stderr tail, as it does an errored one's, so an index build's failure says why.
-- **4c — deletions:** what records used until 4b.
-  - e3-types:
-    - `stream.ts`;
-    - `runnerOpensManifests` and `withRunnerVerbose`;
-    - the partition plan's legacy decoder.
-  - e3-core:
-    - `partitionIo.ts`, which nothing uses since 4b;
-    - in `partitionExec.ts`, all but `planMergeRanges`: `planPartitions`, `carvePartitionSlices`, `spliceBlobs`, `findSpliceViolation` and `SpliceOrderError`;
-    - the stock-runner branch of a `command` body's argv in `LocalTaskRunner`, which only record steps took;
-    - `buildRunnerArgv` and the splice branch of staging;
-    - the test hooks in production modules (F19).
-  - Runners: the `run` mode flags and the `merge` command, with `generate_fixtures.mjs` and the fixtures their tests use.
+- **4c — deletions**, in three parts, each deleting what nothing needs any more:
+  1. **What records used until 4b, and function calls on `exec`.**
+     - e3-types: `stream.ts`; `runnerToArgv`, `runnerOpensManifests` and `withRunnerVerbose`; the partition plan, whole: its types, its decoder and encoder, and GC's recognition of it.
+     - e3-core: `partitionIo.ts`, which nothing uses since 4b, with the test hooks it holds (F19); `partitionExec.ts`, whose `planMergeRanges` moves beside `mergeComponents` in `steps.ts`; and `LocalTaskRunner`'s stock-runner branch of a `command` body's argv, which only record steps took.
+     - Function calls run on `exec`, the one machine-facing command (D11). On a stock runner, `runDetached` runs a function as a unit, and a collection result, which `exec` writes as a manifest directory, is spliced back into one blob for the inline response. On the `custom` runtime it runs the command with `run`'s arguments, as a custom task runs. `buildRunnerArgv` and `marshalBytesToDir` go.
+     - Staging keeps its splice for the `custom` runtime. The plan had it deleted, but since stage 1 every stock runner reads a manifest, and what is left serves custom commands, which read one ordinary file (decided 2026-09-25).
+  2. **The runners' old commands:** `run`'s mode flags (`--emit`, `--merge`, `--union`, `--stream` and `--lazy-inputs`) and the `merge` command, in east-node, east-c and east-py, with the tests only they have and the fixtures only those tests read. `generate_fixtures.mjs` keeps the fixtures other tests read.
+  3. **The stored forms an older e3 wrote** (D1, decided 2026-09-25):
+     - the dual decoders: package objects, function objects, record objects, mutation objects and commits of every earlier shape, execution statuses from before typed outcomes, and the execution state's version 1;
+     - GC's recognition of every earlier shape, and of task objects from before the cutover;
+     - dataset ref files written without a revision, and repositories without a metadata file;
+     - scratch directories named in the earlier form;
+     - the fallback of the `$idem.commit` slot for a ref written before it;
+     - collections stored as one blob: `DatasetSegments` reads manifests only, and refuses a blob-stored collection, naming the fix;
+     - manifests cut under an earlier rule: the door and the apply refuse one, naming the fix, where they re-cut it;
+     - the API client's handling of servers from before this PR.
+
+     `WIRE_MIGRATION.md` states the one rule (§3.12).
 
 Acceptance:
 - A re-key of a long, wide collection through `streamTask`, `e3.partition` and a `dict` with `merge`, with keys emitted in random order:
