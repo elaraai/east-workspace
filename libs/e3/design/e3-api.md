@@ -503,6 +503,10 @@ const TaskListItemType = StructType({
 2. Spawns `dataflowExecute()` in background
 3. Returns immediately with 202 Accepted
 
+The request carries no parallelism: the server runs the dataflow under its own
+budget of cores and memory (`e3-api-server -j` / `--memory`), which every run
+and call it serves shares.
+
 Client polls `GET /status` to track progress:
 - `lock` field shows who holds the lock (PID, start time)
 - `tasks[].status` shows each task's state (`in-progress`, `up-to-date`, `failed`, etc.)
@@ -527,7 +531,6 @@ This is stateless - all execution state is persisted to filesystem by `dataflowE
 
 ```typescript
 const DataflowRequestType = StructType({
-  concurrency: OptionType(IntegerType),
   force: BooleanType,
   filter: OptionType(StringType),
 });

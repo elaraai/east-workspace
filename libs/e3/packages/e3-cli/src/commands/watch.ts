@@ -23,7 +23,6 @@ import {
   workspaceGetState,
   workspaceDeploy,
   DataflowAbortedError,
-  JobSlots,
   LocalStorage,
   LocalOrchestrator,
   InMemoryStateStore,
@@ -32,9 +31,10 @@ import {
 } from '@elaraai/e3-core';
 import { resolveRepo, formatError, exitError } from '../utils.js';
 import { loadPackageFile } from './load-package.js';
-import { resolveJobs, type JobsFlags } from './jobs.js';
+import { commandBudget, type BudgetFlags } from './budget.js';
+import { formatSize } from '../format.js';
 
-interface WatchOptions extends JobsFlags {
+interface WatchOptions extends BudgetFlags {
   start?: boolean;
   abortOnChange?: boolean;
   /** Function manifests resolving `East.importFunction` references (#628). */
@@ -62,7 +62,10 @@ export async function watchCommand(
 ): Promise<void> {
   const repoPath = resolveRepo(repoArg);
   const absoluteSourcePath = path.resolve(sourceFile);
-  const jobs = resolveJobs(options);
+  // One budget for the watch: the runner processes of its runs and of each
+  // deploy's index builds take from it.
+  const budget = commandBudget(options);
+  const runner = new LocalTaskRunner(repoPath, budget);
 
   // Validate source file exists
   if (!fs.existsSync(absoluteSourcePath)) {
@@ -73,7 +76,7 @@ export async function watchCommand(
   console.log(`Repository: ${repoPath}`);
   console.log(`Target workspace: ${workspace}`);
   if (options.start) {
-    console.log(`Auto-start: enabled (jobs: ${jobs})`);
+    console.log(`Auto-start: enabled (budget: ${budget.cores} ${budget.cores === 1 ? 'core' : 'cores'}, ${formatSize(budget.memory)})`);
     if (options.abortOnChange) {
       console.log(`Abort on change: enabled`);
     }
@@ -148,7 +151,7 @@ export async function watchCommand(
     // Deploy to workspace
     try {
       await workspaceDeploy(deployStorage, repoPath, workspace, pkg.name, pkg.version, {
-        runner: new LocalTaskRunner(repoPath),
+        runner,
         // A changed index declaration rebuilds the index on this save — the
         // part of a redeploy that can take minutes, so it is said up front.
         onRecordIndex: (plan) => {
@@ -178,8 +181,8 @@ export async function watchCommand(
 
     try {
       const handle = await orchestrator.start(storage, repoPath, workspace, {
-        concurrency: jobs,
-        jobs: new JobSlots(jobs),
+        runner,
+        width: budget.cores,
         signal,
         onTaskStart: (name) => {
           console.log(`  [START] ${name}`);

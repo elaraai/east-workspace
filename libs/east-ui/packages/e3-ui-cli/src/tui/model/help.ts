@@ -119,7 +119,6 @@ export function helpColumns(tab: HelpTab): HelpColumn[] {
                     rows: [
                         ['/run [--force]', 'run the dataflow'],
                         ['/run --filter <glob>', 'only matching tasks'],
-                        ['/run --jobs <n>', ''],
                         ['/stop', 'cancel the dataflow'],
                         ['/task  /input', 'open a row'],
                         ['/logs <task> [stderr]', 'a task\'s logs'],

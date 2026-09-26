@@ -85,6 +85,9 @@ static inline bool b2v5_chunk_exhausted(const B2V5Frames *f)
  * worker — and whether the writer actually started a pool. */
 size_t b2v5_writer_peak_inflight(const Beast2StreamWriter *w);
 bool b2v5_writer_pooled(const Beast2StreamWriter *w);
+/* The same of a segment writer, which frames on a pool of its own. */
+size_t b2v5_element_writer_peak_inflight(const Beast2ElementWriter *w);
+bool b2v5_element_writer_pooled(const Beast2ElementWriter *w);
 
 /* Append one frame carrying `logical` to buf. codec_id degrades to none for
  * tiny or incompressible payloads. */

@@ -687,10 +687,10 @@ describe('dataflow', () => {
 
       const controller = new AbortController();
 
-      // Start execution with concurrency 2 so both tasks start
+      // Start execution: the loop keeps four tasks in flight unless told
+      // otherwise, so both tasks start
       const executionPromise = dataflowExecute(storage, testRepo, 'test-ws', {
         signal: controller.signal,
-        concurrency: 2,
       });
 
       // Wait for fast task to complete, then abort

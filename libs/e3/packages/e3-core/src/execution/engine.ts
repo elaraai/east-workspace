@@ -35,7 +35,7 @@
  * here decodes a part whole: grouping reads each part's manifest and its last
  * segment, and a range is a small object the merge units read. The pieces, the
  * ranges and the tree come from the inputs and platform constants, never from
- * the pool width, the jobs budget or timing, so a task writes the same bytes on
+ * the pool width, the budget or timing, so a task writes the same bytes on
  * every machine at every `-j`.
  *
  * While the units run, the task's own execution is recorded `running` under
@@ -70,7 +70,7 @@ import { mergeComponents, mergeTreeGroups, mergeTreeLevels, planMergeRanges } fr
 import type { MergeParts } from './units.js';
 
 /** The pool width — the most units in flight at once — of a task run on its
- *  own without a jobs budget. */
+ *  own without a budget. */
 const DEFAULT_POOL_WIDTH = 4;
 
 /** The first of a merge unit's inputs as its execution records them — then its
@@ -657,9 +657,9 @@ export async function executeSplitTask(
   }
   const split = await SplitTask.open(storage, repo, taskHash, task, inputHashes, ids, options, plan);
   if (!(split instanceof SplitTask)) return split;
-  // The pool width. Under a jobs budget the pool is as wide as the budget,
-  // which, not the pool, bounds the runner processes.
-  const width = Math.max(1, options.jobs?.capacity ?? DEFAULT_POOL_WIDTH);
+  // The pool width. Under a budget the pool is as wide as its cores, and the
+  // budget, not the pool, bounds the runner processes.
+  const width = Math.max(1, options.budget?.cores ?? DEFAULT_POOL_WIDTH);
   for (;;) {
     const { units } = split.stage;
     const outcome = await runPool(units.length, width, options.signal, async (index) => {

@@ -582,14 +582,22 @@ units — the partitions and merge units, each an execution of its own, named by
 ### Dataflow Commands
 
 ```bash
-e3 dataflow run <repo> <ws> [--filter <pattern>] [-j <n>] [--force] [-v]
+e3 dataflow run <repo> <ws> [--filter <pattern>] [-j <n>] [--memory <size>] [--force] [-v]
 ```
 
-`-j` / `--jobs <n>` is the run's one budget of parallelism: the runner processes
-e3 keeps in flight at once, across the dataflow's tasks and the partitions and
-merge units of its partitioned tasks alike (every runner takes one slot, first
-come first served, whatever launched it). It defaults to the CPUs available to
-e3 — its affinity mask, capped by a cgroup quota — or to `E3_JOBS` when set.
+`-j` / `--jobs <n>` and `--memory <size>` are the budget of the runner processes
+e3 spawns. `-j` is its cores: the runners in flight at once, across the
+dataflow's tasks and the partitions and merge units of its partitioned tasks
+alike (every runner takes one, first come first served, whatever launched it).
+`--memory` is the memory those runners may reserve between them, as `8G` or
+`512M`. They default to `E3_JOBS` and `E3_MEMORY`, else to what e3 may use: the
+CPUs of its affinity mask, capped by a cgroup quota, and the cgroup's
+`memory.max` or else physical memory, less a reserve for e3 and the OS.
+
+`e3 watch`, `e3 run`, `e3 call`, `e3 mutate`, `e3 reindex` and
+`e3 workspace deploy` take the same two flags for a local repository. Against a
+server they are refused: it runs the work under its own budget
+(`e3-api-server -j` / `--memory`).
 
 A local run gives every execution a scratch directory — its inputs are marshalled
 there and its output written there before it is stored — inside the repository,
@@ -646,10 +654,10 @@ repository byte-for-byte unchanged.
 ### Watch / Live Development
 
 ```bash
-e3 watch <source.ts> <repo> <ws> [--start] [-j <n>] [--abort-on-change]
+e3 watch <source.ts> <repo> <ws> [--start] [-j <n>] [--memory <size>] [--abort-on-change]
 ```
 
-The source file is the first argument — that's the thing you're editing, the rest is plumbing. `-j` is the jobs budget of the runs `--start` launches, as for `e3 dataflow run`.
+The source file is the first argument — that's the thing you're editing, the rest is plumbing. `-j` and `--memory` are the budget its deploys and the runs `--start` launches share, as for `e3 dataflow run`.
 
 **Cancellation:** Press Ctrl-C in a running `e3 dataflow run` to abort it. In watch mode, `--abort-on-change` cancels in-flight runs when files change.
 

@@ -487,14 +487,13 @@ export const TaskDetailsType = StructType({
 // =============================================================================
 
 /**
- * Request to start dataflow execution.
+ * Request to start dataflow execution. The run takes the server's budget of
+ * cores and memory, which it shares with everything else the server runs.
  *
- * @property concurrency - Maximum parallel tasks (default: 4)
  * @property force - Force re-execution of all tasks
  * @property filter - Filter to specific task names (glob pattern)
  */
 export const DataflowRequestType = StructType({
-  concurrency: OptionType(IntegerType),
   force: BooleanType,
   filter: OptionType(StringType),
 });

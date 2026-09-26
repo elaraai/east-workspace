@@ -14,7 +14,6 @@
 import type { PartitionProgress } from '@elaraai/e3-types';
 import type { StorageBackend, LockHandle } from '../../storage/interfaces.js';
 import type { TaskRunner } from '../../execution/interfaces.js';
-import type { JobSlots } from '../../execution/jobs.js';
 import type { DataflowExecutionState, ExecutionEvent, FinalizeResult } from '../types.js';
 
 /**
@@ -59,8 +58,6 @@ export interface ExecutionStatus {
  * Options for starting a dataflow execution.
  */
 export interface OrchestratorStartOptions {
-  /** Maximum concurrent task executions (default: 4) */
-  concurrency?: number;
   /** Force re-execution even if cached (default: false) */
   force?: boolean;
   /** Filter to run only specific task(s) by exact name */
@@ -79,13 +76,13 @@ export interface OrchestratorStartOptions {
   /** Task runner for executing individual tasks */
   runner?: TaskRunner;
   /**
-   * The run's jobs budget: the runner processes the local runner keeps in
-   * flight at once, across every task of the run and the units of its
-   * partitioned tasks. The local CLI sets `concurrency` to the same number
-   * and lets the budget bound what actually spawns. A runtime collaborator
-   * like {@link signal}: never persisted, and ignored by a remote runner.
+   * The tasks and units the loop keeps in flight (default four): what is
+   * ready, of which the runner decides what runs. A caller whose runner holds
+   * a budget of cores sets it to them; a remote backend sets its own. A
+   * runtime setting like {@link signal}: never persisted, and a positive
+   * integer.
    */
-  jobs?: JobSlots;
+  width?: number;
   /** Callback when a task starts */
   onTaskStart?: (name: string) => void;
   /** Callback when a task completes */
@@ -118,9 +115,9 @@ export interface OrchestratorStartOptions {
 /**
  * Options for resuming a yielded (or crashed) execution.
  *
- * Execution config (concurrency, force, filter) comes from the persisted
- * state and cannot be changed; runtime collaborators (runner, callbacks,
- * signal, shouldYield) are provided fresh by the resuming host.
+ * Execution config (force, filter) comes from the persisted state and cannot
+ * be changed; runtime collaborators (runner, width, callbacks, signal,
+ * shouldYield) are provided fresh by the resuming host.
  */
 export interface ResumeOptions extends OrchestratorStartOptions {
   /**
@@ -172,6 +169,7 @@ export interface DataflowOrchestrator {
    * @throws {WorkspaceNotFoundError} If workspace doesn't exist
    * @throws {WorkspaceNotDeployedError} If workspace has no package deployed
    * @throws {WorkspaceLockError} If workspace is locked by another process
+   * @throws {RangeError} If `options.width` is not a positive integer
    */
   start(
     storage: StorageBackend,
@@ -198,6 +196,7 @@ export interface DataflowOrchestrator {
    * @throws {DataflowError} If there is no state store, the execution is
    *   unknown, or its status is not 'running'
    * @throws {WorkspaceLockError} If workspace is locked by another process
+   * @throws {RangeError} If `options.width` is not a positive integer
    */
   resume?(
     storage: StorageBackend,

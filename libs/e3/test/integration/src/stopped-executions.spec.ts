@@ -38,11 +38,12 @@ import e3, { type Runner } from '@elaraai/e3';
 import { DictType, IntegerType, SortedMap, StringType, compareFor, decodeBeast2For, equalFor, variant } from '@elaraai/east';
 import { FileSystem } from '@elaraai/east-node-std';
 import {
+  Budget,
   DataflowAbortedError,
   InMemoryStateStore,
-  JobSlots,
   LocalOrchestrator,
   LocalStorage,
+  LocalTaskRunner,
   readDatasetWhole,
   workspaceGetDatasetHash,
   workspaceGetTaskHash,
@@ -205,8 +206,8 @@ describe('stopped executions', () => {
       const orchestrator = new LocalOrchestrator(new InMemoryStateStore());
       const completed: TaskCompletedCallback[] = [];
       const handle = await orchestrator.start(storage, repo, 'ws', {
-        concurrency: 1,
-        jobs: new JobSlots(1),
+        runner: new LocalTaskRunner(repo, new Budget({ cores: 1, memory: 1024 ** 3 })),
+        width: 1,
         onTaskComplete: (result) => { completed.push(result); },
       });
       await waitFor(() => existsSync(started), 30_000);
@@ -222,17 +223,17 @@ describe('stopped executions', () => {
     await assertNextRunExecutes();
   });
 
-  /** kill -9 of e3 with `concurrency` pieces running on `runner`: every
-   *  running piece's runner exits with e3, the next run sweeps every scratch
+  /** kill -9 of e3 with `jobs` pieces running on `runner`: every running
+   *  piece's runner exits with e3, the next run sweeps every scratch
    *  directory the killed run left behind, and every stopped piece is
    *  recorded `interrupted`, naming its runner. */
-  async function assertKillMinusNine(runner: Runner, concurrency: number): Promise<void> {
+  async function assertKillMinusNine(runner: Runner, jobs: number): Promise<void> {
     await deploy(runner);
     const scratch = join(dir, 'scratch');
     mkdirSync(scratch);
     const env = { ...PIECES, E3_SCRATCH_DIR: scratch };
     writeFileSync(hold, '');
-    const run = spawnE3Command(['dataflow', 'run', repo, 'ws', '--jobs', String(concurrency)], dir, { env });
+    const run = spawnE3Command(['dataflow', 'run', repo, 'ws', '--jobs', String(jobs)], dir, { env });
     await waitFor(() => existsSync(started), 30_000);
 
     // Every running piece's record names its runner; the task's own names e3.
@@ -244,11 +245,11 @@ describe('stopped executions', () => {
           units.set(inputsHash, { inputsHash, executionId: status.value.executionId, pid: Number(status.value.pid) });
         }
       }
-      return units.size === concurrency;
+      return units.size === jobs;
     }, 30_000);
-    await waitFor(() => readdirSync(scratch).filter((name) => name.startsWith('e3-exec-')).length === concurrency, 30_000);
+    await waitFor(() => readdirSync(scratch).filter((name) => name.startsWith('e3-exec-')).length === jobs, 30_000);
     const leftBehind = readdirSync(scratch).filter((name) => name.startsWith('e3-exec-'));
-    assert.equal(leftBehind.length, concurrency, `${concurrency} piece(s) run: ${leftBehind.join(', ')}`);
+    assert.equal(leftBehind.length, jobs, `${jobs} piece(s) run: ${leftBehind.join(', ')}`);
 
     // Every process of each runner's tree: on Windows the shim and the runner.
     const trees = [...units.values()].map((unit) => processTree(unit.pid));

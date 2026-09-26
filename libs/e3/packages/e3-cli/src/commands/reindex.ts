@@ -21,6 +21,7 @@
 
 import { LocalStorage, LocalTaskRunner, recordReindex } from '@elaraai/e3-core';
 import { parseRepoLocation, formatError, exitError } from '../utils.js';
+import { commandBudget, type BudgetFlags } from './budget.js';
 
 function actor(): string {
   return `cli:${process.env.USER ?? process.env.USERNAME ?? 'unknown'}`;
@@ -30,7 +31,7 @@ function actor(): string {
 export async function reindexCommand(
   repoArg: string,
   record: string,
-  options: { workspace?: string; index?: string; verbose?: boolean },
+  options: BudgetFlags & { workspace?: string; index?: string; verbose?: boolean },
 ): Promise<void> {
   try {
     if (!options.workspace) {
@@ -47,7 +48,7 @@ export async function reindexCommand(
 
     const storage = new LocalStorage();
     const outcome = await recordReindex(
-      storage, new LocalTaskRunner(location.path), location.path, options.workspace, record,
+      storage, new LocalTaskRunner(location.path, commandBudget(options)), location.path, options.workspace, record,
       {
         actor: actor(),
         ...(options.index !== undefined && { index: options.index }),

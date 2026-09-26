@@ -515,7 +515,7 @@ export function createController(deps: ControllerDeps): Controller {
         const viewHooks = hooks.get(s.view.kind);
         const dirty = dirtyCount(s);
         if (dirty > 0 && LEAVES.has(command.name) && command.name !== 'repo') {
-            dispatch({ type: 'command/confirm', confirm: { question: `discard ${dirty} unsaved edit${dirty === 1 ? '' : 's'} and ${describe(command, { workspace: ws, taskCount: 0, running: false, jobs: 4, dirty }).text}?`, command: `/discard --then "${text.replace(/"/g, '')}"` } });
+            dispatch({ type: 'command/confirm', confirm: { question: `discard ${dirty} unsaved edit${dirty === 1 ? '' : 's'} and ${describe(command, { workspace: ws, taskCount: 0, running: false, dirty }).text}?`, command: `/discard --then "${text.replace(/"/g, '')}"` } });
             return;
         }
         if (viewHooks?.command !== undefined && await viewHooks.command(command, s, controller)) return;
@@ -568,7 +568,7 @@ export function createController(deps: ControllerDeps): Controller {
             case 'run': {
                 const here = viewWorkspace(s);
                 if (here === null) { controller.toast('open a workspace first', 'warn'); return; }
-                await startRun(controller, here, { force: command.force, filter: command.filter, jobs: command.jobs });
+                await startRun(controller, here, { force: command.force, filter: command.filter });
                 return;
             }
             case 'stop': {

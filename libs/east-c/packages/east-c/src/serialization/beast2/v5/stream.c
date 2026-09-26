@@ -542,6 +542,13 @@ void east_beast2_writer_free(Beast2StreamWriter *w)
 /*  Canonical element writer                                           */
 /* ================================================================== */
 
+/* A segment on a segment writer's pool: what its standalone blob and the sink
+ * need beside its frame. */
+typedef struct {
+    size_t count;
+    ByteBuffer *fence; /* the first key's canonical bytes; empty for an Array */
+} B2V5PendingSegment;
+
 struct Beast2ElementWriter {
     Beast2StreamWriter *stream; /* frames the segments this writer cuts */
     EastType *type;             /* borrowed from the stream writer */
@@ -559,6 +566,14 @@ struct Beast2ElementWriter {
     size_t first_key_len; /* the open segment's first key — its fence */
     size_t sink_segments; /* segments the sink has taken */
     bool failed;          /* the sink refused a segment, or one could not be built */
+    /* A segment writer asked to (set_parallel) frames its segments on a pool,
+     * as the blob writer does, and hands each over once its frame is done, in
+     * the order they were cut. */
+    bool parallel;
+    B2V5FramePool *pool;          /* started on the second segment */
+    B2V5PendingSegment *inflight; /* in cut order: segment seq in slot seq % pool->cap */
+    size_t segments_cut;
+    size_t peak_inflight; /* high-water mark of segments on the pool (gate) */
 };
 
 Beast2ElementWriter *east_beast2_element_writer_new(EastType *type, int32_t codec_id)
@@ -612,42 +627,49 @@ const uint8_t *east_beast2_element_writer_header(const Beast2ElementWriter *w, s
 
 void east_beast2_element_writer_set_parallel(Beast2ElementWriter *w, bool parallel)
 {
-    /* A segment writer frames each segment as it hands it over. */
-    if (w && !w->sink.segment) east_beast2_writer_set_parallel(w->stream, parallel);
+    if (!w) return;
+    /* Only before the pool starts, as for the blob writer. */
+    if (!w->sink.segment)
+        east_beast2_writer_set_parallel(w->stream, parallel);
+    else if (!w->pool)
+        w->parallel = parallel;
 }
 
-/* Writes the open segment — `len` bytes of its elements — into the blob, or
- * hands it to the sink as a standalone blob: the header, the segment's frame,
- * the terminator, and an index naming the one segment, byte for byte what
- * carving it out of the blob would give. */
-static bool element_writer_emit(Beast2ElementWriter *w, const uint8_t *elements, size_t len)
+size_t b2v5_element_writer_peak_inflight(const Beast2ElementWriter *w)
 {
-    if (w->count == 0) return true;
-    if (!w->sink.segment)
-        return east_beast2_writer_write_encoded(w->stream, w->count, elements, len);
+    return w ? w->peak_inflight : 0;
+}
 
-    ByteBuffer *logical = byte_buffer_new(len + 10);
-    ByteBuffer *blob = byte_buffer_new(w->header->len + len + 64);
-    if (!logical || !blob) {
-        byte_buffer_free(logical);
-        byte_buffer_free(blob);
+bool b2v5_element_writer_pooled(const Beast2ElementWriter *w)
+{
+    return w && w->pool != NULL;
+}
+
+/* Hands a segment to the sink as a standalone blob: the header, its frame —
+ * `logical` framed here, or `frame` as a worker framed it — the terminator,
+ * and an index naming the one segment, byte for byte what carving it out of
+ * the blob would give. */
+static bool element_writer_hand_over(Beast2ElementWriter *w, const ByteBuffer *logical,
+                                     const ByteBuffer *frame, size_t count, const uint8_t *fence,
+                                     size_t fence_len)
+{
+    size_t frame_len = frame ? frame->len : logical->len + B2V5_FRAME_HEADER_MAX;
+    ByteBuffer *blob = byte_buffer_new(w->header->len + frame_len + 64);
+    if (!blob) {
         east_builtin_error("beast2 v5: out of memory writing a segment");
         w->failed = true;
         return false;
     }
-    write_varint(logical, (uint64_t)w->count);
-    byte_buffer_write_bytes(logical, elements, len);
     byte_buffer_write_bytes(blob, w->header->data, w->header->len);
     size_t frame_at = blob->len;
-    b2v5_write_frame(blob, logical->data, logical->len, w->stream->codec);
+    if (frame)
+        byte_buffer_write_bytes(blob, frame->data, frame->len);
+    else
+        b2v5_write_frame(blob, logical->data, logical->len, w->stream->codec);
     static const uint8_t terminator = 0x00;
     b2v5_write_frame(blob, &terminator, 1, EAST_BEAST2_CODEC_NONE);
-    size_t count = w->count;
     b2v5_write_index_footer(blob, blob->len, &frame_at, &count, 1, true);
-    /* An Array has no key order, so its segments have no fence. */
-    size_t fence_len = w->type->kind == EAST_TYPE_ARRAY ? 0 : w->first_key_len;
-    bool ok = w->sink.segment(w->sink.ctx, blob->data, blob->len, count, elements, fence_len);
-    byte_buffer_free(logical);
+    bool ok = w->sink.segment(w->sink.ctx, blob->data, blob->len, count, fence, fence_len);
     byte_buffer_free(blob);
     if (!ok) {
         w->failed = true;
@@ -655,6 +677,128 @@ static bool element_writer_emit(Beast2ElementWriter *w, const uint8_t *elements,
     }
     w->sink_segments++;
     return true;
+}
+
+/* Hands over the segments at the head of the pool whose frames are done, in
+ * the order they were cut. wait_all: every segment on the pool; otherwise the
+ * ones already done, waiting for at most `min_delivered`. Once one could not
+ * be handed over, those after it are let go, never handed over. */
+static bool element_writer_deliver(Beast2ElementWriter *w, bool wait_all, size_t min_delivered)
+{
+    B2V5FramePool *pool = w->pool;
+    if (!pool) return !w->failed;
+    size_t delivered = 0;
+    east_mutex_lock(&pool->lock);
+    while (pool->appended < pool->submitted) {
+        B2V5FrameJob *job = &pool->ring[pool->appended % pool->cap];
+        if (!job->done) {
+            if (wait_all || delivered < min_delivered) {
+                east_cond_wait(&pool->progress, &pool->lock);
+                continue;
+            }
+            break;
+        }
+        ByteBuffer *frame = job->frame;
+        job->frame = NULL;
+        job->done = false;
+        B2V5PendingSegment *segment = &w->inflight[pool->appended % pool->cap];
+        pool->appended++;
+        east_mutex_unlock(&pool->lock);
+
+        delivered++;
+        if (!frame && !w->failed) {
+            east_builtin_error("beast2 v5: out of memory framing a segment");
+            w->failed = true;
+        }
+        if (!w->failed)
+            element_writer_hand_over(w, NULL, frame, segment->count, segment->fence->data,
+                                     segment->fence->len);
+        byte_buffer_free(frame);
+        byte_buffer_free(segment->fence);
+        segment->fence = NULL;
+        east_mutex_lock(&pool->lock);
+    }
+    east_mutex_unlock(&pool->lock);
+    return !w->failed;
+}
+
+/* Starts a segment writer's pool on its second segment, as the blob writer
+ * starts its own: one core, or a pool that could not start, keeps framing
+ * inline, and stops asking. */
+static void element_writer_start_pool(Beast2ElementWriter *w)
+{
+    int cpus = east_cpu_count();
+    if (cpus > B2V5_POOL_MAX_THREADS) cpus = B2V5_POOL_MAX_THREADS;
+    if (cpus >= 2) w->pool = b2v5_pool_new(w->stream->codec, cpus);
+    if (w->pool) {
+        w->inflight = calloc(w->pool->cap, sizeof(B2V5PendingSegment));
+        if (!w->inflight) {
+            b2v5_pool_free(w->pool);
+            w->pool = NULL;
+        }
+    }
+    if (!w->pool) w->parallel = false;
+}
+
+/* Writes the open segment — `len` bytes of its elements — into the blob, or
+ * hands it to the sink as a standalone blob, framed here or on the pool. */
+static bool element_writer_emit(Beast2ElementWriter *w, const uint8_t *elements, size_t len)
+{
+    if (w->count == 0) return true;
+    if (!w->sink.segment)
+        return east_beast2_writer_write_encoded(w->stream, w->count, elements, len);
+
+    size_t count = w->count;
+    /* An Array has no key order, so its segments have no fence. */
+    size_t fence_len = w->type->kind == EAST_TYPE_ARRAY ? 0 : w->first_key_len;
+    ByteBuffer *logical = byte_buffer_new(len + 10);
+    if (!logical) {
+        east_builtin_error("beast2 v5: out of memory writing a segment");
+        w->failed = true;
+        return false;
+    }
+    write_varint(logical, (uint64_t)count);
+    byte_buffer_write_bytes(logical, elements, len);
+    w->segments_cut++;
+    if (w->parallel && !w->pool && w->segments_cut >= 2) element_writer_start_pool(w);
+
+    if (!w->pool) {
+        bool ok = element_writer_hand_over(w, logical, NULL, count, elements, fence_len);
+        byte_buffer_free(logical);
+        return ok;
+    }
+
+    B2V5FramePool *pool = w->pool;
+    /* Back-pressure: with the ring full, hand over what is done until a slot
+     * frees, so memory stays O(threads x segment). */
+    while (pool->submitted - pool->appended >= pool->cap) {
+        if (!element_writer_deliver(w, false, 1)) {
+            byte_buffer_free(logical);
+            return false;
+        }
+    }
+    B2V5PendingSegment *segment = &w->inflight[pool->submitted % pool->cap];
+    segment->count = count;
+    segment->fence = byte_buffer_new(fence_len ? fence_len : 1);
+    if (!segment->fence) {
+        byte_buffer_free(logical);
+        east_builtin_error("beast2 v5: out of memory writing a segment");
+        w->failed = true;
+        return false;
+    }
+    byte_buffer_write_bytes(segment->fence, elements, fence_len);
+    east_mutex_lock(&pool->lock);
+    B2V5FrameJob *job = &pool->ring[pool->submitted % pool->cap];
+    job->logical = logical;
+    job->frame = NULL;
+    job->done = false;
+    pool->submitted++;
+    east_cond_signal(&pool->work);
+    size_t inflight = pool->submitted - pool->appended;
+    east_mutex_unlock(&pool->lock);
+    if (inflight > w->peak_inflight) w->peak_inflight = inflight;
+    /* The sink takes each segment as soon as its frame is done. */
+    return element_writer_deliver(w, false, 0);
 }
 
 /* Accounts for the element just appended to the open segment at `start`, and
@@ -783,9 +927,10 @@ bool east_beast2_element_writer_finish(Beast2ElementWriter *w)
     if (w->failed || !element_writer_emit(w, w->open->data, w->open->len)) return false;
     w->count = 0;
     w->open->len = 0;
-    /* A segment writer has handed every segment over; a blob writer ends its
-     * blob. */
-    return w->sink.segment ? true : east_beast2_writer_finish(w->stream);
+    /* A segment writer hands over every segment, those still framing on its
+     * pool included; a blob writer ends its blob. */
+    return w->sink.segment ? element_writer_deliver(w, true, 0)
+                           : east_beast2_writer_finish(w->stream);
 }
 
 size_t east_beast2_element_writer_segments(const Beast2ElementWriter *w)
@@ -797,6 +942,14 @@ size_t east_beast2_element_writer_segments(const Beast2ElementWriter *w)
 void east_beast2_element_writer_free(Beast2ElementWriter *w)
 {
     if (!w) return;
+    /* Workers first: they may still hold job buffers. */
+    if (w->pool) {
+        size_t cap = w->pool->cap;
+        b2v5_pool_free(w->pool);
+        for (size_t i = 0; i < cap; i++)
+            byte_buffer_free(w->inflight[i].fence);
+    }
+    free(w->inflight);
     east_beast2_writer_free(w->stream);
     b2v5_enc_ctx_free(&w->ctx);
     byte_buffer_free(w->open);

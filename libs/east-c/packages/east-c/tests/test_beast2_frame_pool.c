@@ -11,6 +11,10 @@
  *   - MEMORY. At most two frames per worker are ever in flight — the ring
  *     bound that keeps a writer's resident size O(threads x segment).
  *
+ * A segment writer frames on a pool of its own and hands its sink each
+ * segment in order as its frame is done: the gate holds it to the same two,
+ * over the segments its sink takes.
+ *
  * Throughput is not asserted (a CPU-budget assertion in CI is a flake).
  * Run under ASan/LSan for the pool's lifetimes: jobs, frames, threads.
  */
@@ -29,6 +33,8 @@
 /* Internal accounting (v5/internal_v5.h is private to the implementation). */
 size_t b2v5_writer_peak_inflight(const Beast2StreamWriter *w);
 bool b2v5_writer_pooled(const Beast2StreamWriter *w);
+size_t b2v5_element_writer_peak_inflight(const Beast2ElementWriter *w);
+bool b2v5_element_writer_pooled(const Beast2ElementWriter *w);
 
 /* B2V5_POOL_MAX_THREADS in stream.c: the most workers one writer starts. */
 #define POOL_MAX_THREADS 32
@@ -247,6 +253,150 @@ static void test_element_writer_free_in_flight(void)
     east_type_release(at);
 }
 
+/* What a segment writer's sink took: each segment's blob, count and fence, in
+ * the order they came; and the segment the sink refuses (SIZE_MAX: none). */
+typedef struct {
+    ByteBuffer *bytes;
+    size_t segments;
+    size_t refuse;
+} Collected;
+
+static bool collect_segment(void *ctx, const uint8_t *blob, size_t len, size_t count,
+                            const uint8_t *fence, size_t fence_len)
+{
+    Collected *c = ctx;
+    if (c->segments++ == c->refuse) {
+        east_builtin_error("the sink refuses the segment");
+        return false;
+    }
+    uint64_t sizes[3] = {len, count, fence_len};
+    byte_buffer_write_bytes(c->bytes, (const uint8_t *)sizes, sizeof(sizes));
+    byte_buffer_write_bytes(c->bytes, blob, len);
+    byte_buffer_write_bytes(c->bytes, fence, fence_len);
+    return true;
+}
+
+/* Adds an Array's or a Dict's elements to an element writer. */
+static bool add_all(Beast2ElementWriter *w, EastValue *value, EastType *type)
+{
+    bool ok = true;
+    if (type->kind == EAST_TYPE_ARRAY) {
+        for (size_t i = 0; ok && i < value->data.array.len; i++)
+            ok = east_beast2_element_writer_add(w, value->data.array.items[i]);
+    } else {
+        for (size_t i = 0; ok && i < value->data.dict.len; i++)
+            ok = east_beast2_element_writer_add_pair(w, east_dict_key_at(value, i),
+                                                     east_dict_val_at(value, i));
+    }
+    return ok;
+}
+
+/* The collection through a segment writer, on a pool or not: what its sink
+ * took, whether it pooled, and the most segments it had on the pool at once. */
+static Collected segment_encode(const char *name, EastValue *value, EastType *type, bool parallel,
+                                bool *pooled, size_t *peak)
+{
+    Collected c = {byte_buffer_new(1 << 16), 0, SIZE_MAX};
+    Beast2SegmentSink sink = {&c, collect_segment};
+    Beast2ElementWriter *w =
+        east_beast2_element_writer_new_segments(type, EAST_BEAST2_CODEC_DEFLATE, &sink);
+    east_beast2_element_writer_set_parallel(w, parallel);
+    CHECK(add_all(w, value, type) && east_beast2_element_writer_finish(w),
+          "%s: a segment encode failed", name);
+    CHECK(east_beast2_element_writer_segments(w) == c.segments,
+          "%s: the writer counts %zu segments, its sink took %zu", name,
+          east_beast2_element_writer_segments(w), c.segments);
+    *pooled = b2v5_element_writer_pooled(w);
+    *peak = b2v5_element_writer_peak_inflight(w);
+    east_beast2_element_writer_free(w);
+    return c;
+}
+
+static void check_segments_identical(const char *name, EastValue *value, EastType *type)
+{
+    bool pooled = false, serial_pooled = false;
+    size_t peak = 0, serial_peak = 0;
+    Collected on_pool = segment_encode(name, value, type, true, &pooled, &peak);
+    Collected serial = segment_encode(name, value, type, false, &serial_pooled, &serial_peak);
+    CHECK(on_pool.segments > 2, "%s: too few segments to exercise the pool", name);
+    CHECK(on_pool.segments == serial.segments && on_pool.bytes->len == serial.bytes->len &&
+              memcmp(on_pool.bytes->data, serial.bytes->data, serial.bytes->len) == 0,
+          "%s: the sink took other segments on the pool (%zu) than inline (%zu)", name,
+          on_pool.segments, serial.segments);
+    CHECK(!serial_pooled, "%s: a writer that did not opt in pooled", name);
+    int cpus = east_cpu_count();
+    if (cpus >= 2) {
+        int threads = cpus < POOL_MAX_THREADS ? cpus : POOL_MAX_THREADS;
+        CHECK(pooled, "%s: a multi-core segment writer that opted in should pool", name);
+        CHECK(peak <= (size_t)threads * 2,
+              "%s: %zu segments peaked on the pool, above the ring bound of %d", name, peak,
+              threads * 2);
+    } else {
+        CHECK(!pooled, "%s: a single-core host keeps the inline path", name);
+    }
+    byte_buffer_free(on_pool.bytes);
+    byte_buffer_free(serial.bytes);
+}
+
+static void test_segment_writer_bytes_identical(void)
+{
+    EastType *at = east_array_type(&east_string_type);
+    EastValue *strings = make_strings(6000, 0x5e95);
+    check_segments_identical("segments of Array<String>", strings, at);
+    east_value_release(strings);
+    east_type_release(at);
+
+    EastType *dt = east_dict_type(&east_integer_type, &east_string_type);
+    EastValue *dict = make_dict(20000, 0xfe7c);
+    check_segments_identical("segments of Dict<Integer, String>", dict, dt);
+    east_value_release(dict);
+    east_type_release(dt);
+}
+
+/* A segment writer abandoned with segments on its pool frees them. */
+static void test_segment_writer_free_in_flight(void)
+{
+    EastType *at = east_array_type(&east_string_type);
+    EastValue *strings = make_strings(4000, 0xf1ee);
+    Collected c = {byte_buffer_new(1 << 16), 0, SIZE_MAX};
+    Beast2SegmentSink sink = {&c, collect_segment};
+    Beast2ElementWriter *w =
+        east_beast2_element_writer_new_segments(at, EAST_BEAST2_CODEC_DEFLATE, &sink);
+    east_beast2_element_writer_set_parallel(w, true);
+    CHECK(add_all(w, strings, at), "an add failed");
+    east_beast2_element_writer_free(w); /* no finish */
+    byte_buffer_free(c.bytes);
+    east_value_release(strings);
+    east_type_release(at);
+}
+
+/* A segment the sink refuses fails the add or finish that hands it over, and
+ * no segment after it reaches the sink. */
+static void test_segment_writer_refusal(void)
+{
+    EastType *at = east_array_type(&east_string_type);
+    EastValue *strings = make_strings(6000, 0x7e5e);
+    Collected c = {byte_buffer_new(1 << 16), 0, 2};
+    Beast2SegmentSink sink = {&c, collect_segment};
+    Beast2ElementWriter *w =
+        east_beast2_element_writer_new_segments(at, EAST_BEAST2_CODEC_DEFLATE, &sink);
+    east_beast2_element_writer_set_parallel(w, true);
+    bool ok = add_all(w, strings, at) && east_beast2_element_writer_finish(w);
+    CHECK(!ok, "the refused segment failed the writer");
+    char *error = east_builtin_get_error();
+    CHECK(error && strcmp(error, "the sink refuses the segment") == 0,
+          "the failure is the sink's: %s", error ? error : "(none)");
+    free(error);
+    CHECK(east_beast2_element_writer_segments(w) == 2,
+          "the sink took %zu segments before it refused one",
+          east_beast2_element_writer_segments(w));
+    CHECK(c.segments == 3, "%zu segments reached the sink, the refused one included", c.segments);
+    east_beast2_element_writer_free(w);
+    byte_buffer_free(c.bytes);
+    east_value_release(strings);
+    east_type_release(at);
+}
+
 /* Seconds since an arbitrary epoch. */
 static double now_seconds(void)
 {
@@ -290,6 +440,9 @@ int main(void)
     test_single_segment_never_pools();
     test_free_with_frames_in_flight();
     test_element_writer_free_in_flight();
+    test_segment_writer_bytes_identical();
+    test_segment_writer_free_in_flight();
+    test_segment_writer_refusal();
     east_type_registry_clear();
 
     if (failures > 0) {

@@ -25,7 +25,8 @@ e3 watch <repo> <workspace> <source.ts>
 | Option | Description |
 |--------|-------------|
 | `--start` | Also execute dataflow after each deploy |
-| `-j, --jobs <n>` | The jobs budget of the runs `--start` launches: runner processes in flight at once, tasks and partition units alike (default: the CPUs available to e3, or `E3_JOBS`) |
+| `-j, --jobs <n>` | The cores of the budget its deploys and the runs `--start` launches share: runner processes in flight at once, a task or a unit each (default: `E3_JOBS`, else the CPUs available to e3) |
+| `--memory <size>` | The memory those runner processes may reserve between them, as `8G` or `512M` (default: `E3_MEMORY`, else the memory available to e3, less a reserve for e3 and the OS) |
 | `--abort-on-change` | Abort running execution when file changes (default: queue reload) |
 
 ## Source File Requirements

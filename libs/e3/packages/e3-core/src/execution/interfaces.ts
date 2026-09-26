@@ -14,7 +14,6 @@
 import type { PartitionProgress } from '@elaraai/e3-types';
 import type { StorageBackend } from '../storage/interfaces.js';
 import type { DetachedSpec, DetachedResult, DetachedRunOptions } from './runDetached.js';
-import type { JobSlots } from './jobs.js';
 import type { MergeParts } from './units.js';
 
 // =============================================================================
@@ -36,11 +35,6 @@ export interface TaskExecuteOptions {
   onStdout?: (data: string) => void;
   /** Callback for stderr data */
   onStderr?: (data: string) => void;
-  /** The local run's jobs budget (see {@link JobSlots}): every runner the
-   *  local runner spawns holds one of its slots, the units of a split task
-   *  included, and a split task run on its own keeps as many units in flight
-   *  as the budget has slots. Runtime-only; a remote runner ignores it. */
-  jobs?: JobSlots;
   /** Called as each unit of a split task (a piece, or a merge of their
    *  outputs) starts, and as it succeeds. Runtime-only progress reporting. */
   onPartitionProgress?: (progress: PartitionProgress) => void;

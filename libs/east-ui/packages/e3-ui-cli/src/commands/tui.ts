@@ -23,6 +23,10 @@ export interface TuiCommandOptions {
     /** `--no-mouse` → false; default true. */
     mouse?: boolean;
     ascii?: boolean;
+    /** `-j, --jobs <n>`: the embedded server's cores. */
+    jobs?: string;
+    /** `--memory <size>`: the embedded server's memory. */
+    memory?: string;
 }
 
 /** The resolved options the terminal UI starts from. */
@@ -39,20 +43,25 @@ export interface TuiOptions {
     mouse: boolean;
     /** Whether box-drawing is off (`--ascii` or `E3_UI_ASCII=1`). */
     ascii: boolean;
+    /** The embedded server's budget as given (`-j`, `--memory`), resolved
+     *  when a local repository opens. */
+    budget: { jobs?: string; memory?: string };
 }
 
 /**
  * Resolves the root action's arguments and options into {@link TuiOptions}.
  * Pure: the repository defaults to `$E3_REPO`, then `.` (e3-cli's
- * `defaultRepoArg` rule), `--task` and `--input` are mutually exclusive, and
- * `--ascii` is also switched on by `E3_UI_ASCII=1`.
+ * `defaultRepoArg` rule), `--task` and `--input` are mutually exclusive,
+ * `--ascii` is also switched on by `E3_UI_ASCII=1`, and `-j` and `--memory`
+ * need a local repository, whose embedded server they budget.
  *
  * @param repo - The `[repo]` positional, if given
  * @param workspace - The `[workspace]` positional, if given
  * @param options - The parsed flags
  * @param env - The environment (`process.env` in production)
  * @returns The resolved options
- * @throws {Error} When both `--task` and `--input` are given
+ * @throws {Error} When both `--task` and `--input` are given, or `-j` or
+ *   `--memory` with a remote repository
  */
 export function parseTuiArgs(
     repo: string | undefined,
@@ -65,13 +74,21 @@ export function parseTuiArgs(
     }
     const envRepo = env['E3_REPO'];
     const ascii = options.ascii === true || env['E3_UI_ASCII'] === '1';
+    const target = repo !== undefined && repo.length > 0 ? repo : (envRepo !== undefined && envRepo.length > 0 ? envRepo : '.');
+    if (/^https?:\/\//.test(target) && (options.jobs !== undefined || options.memory !== undefined)) {
+        throw new Error("-j and --memory budget the embedded server of a local repository: a remote one runs under its server's");
+    }
     return {
-        repo: repo !== undefined && repo.length > 0 ? repo : (envRepo !== undefined && envRepo.length > 0 ? envRepo : '.'),
+        repo: target,
         workspace: workspace !== undefined && workspace.length > 0 ? workspace : undefined,
         task: options.task,
         input: options.input,
         mouse: options.mouse !== false,
         ascii,
+        budget: {
+            ...(options.jobs !== undefined && { jobs: options.jobs }),
+            ...(options.memory !== undefined && { memory: options.memory }),
+        },
     };
 }
 

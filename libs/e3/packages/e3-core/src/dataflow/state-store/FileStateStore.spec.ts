@@ -37,7 +37,6 @@ function makeState(repo: string, workspace: string): DataflowExecutionState {
     repo,
     workspace,
     startedAt: new Date(),
-    concurrency: 4n,
     force: false,
     filter: none,
     graph: none,

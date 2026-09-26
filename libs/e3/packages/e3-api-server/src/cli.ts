@@ -5,6 +5,7 @@
  */
 
 import { Command } from 'commander';
+import { resolveBudget, type Budget } from '@elaraai/e3-core';
 import { createServer } from './server.js';
 
 const program = new Command();
@@ -24,6 +25,8 @@ program
   .option('--auth-key <path>', 'JWT public key path (external auth)')
   .option('--auth-issuer <iss>', 'Expected JWT issuer (external auth)')
   .option('--auth-audience <aud>', 'Expected JWT audience (external auth)')
+  .option('-j, --jobs <n>', 'Cores: runner processes to keep in flight across every run and call the server serves (default: $E3_JOBS, else the CPUs available)')
+  .option('--memory <size>', 'Memory those runner processes may reserve between them, as 8G or 512M (default: $E3_MEMORY, else the memory available, less a reserve for e3 and the OS)')
   .action(async (options: {
     repos?: string;
     repo?: string;
@@ -36,6 +39,8 @@ program
     authKey?: string;
     authIssuer?: string;
     authAudience?: string;
+    jobs?: string;
+    memory?: string;
   }) => {
     // Validate mutually exclusive options
     if (options.repos && options.repo) {
@@ -49,6 +54,14 @@ program
 
     const port = parseInt(options.port, 10);
     const host = options.host;
+
+    let budget: Budget;
+    try {
+      budget = resolveBudget({ jobs: options.jobs, memory: options.memory });
+    } catch (err) {
+      console.error(`Error: ${err instanceof Error ? err.message : String(err)}`);
+      process.exit(1);
+    }
 
     // Build auth config if all auth options provided (external provider)
     const auth = options.authKey && options.authIssuer && options.authAudience
@@ -76,6 +89,7 @@ program
       cors: options.cors,
       auth,
       oidc,
+      budget,
     });
 
     await server.start();
@@ -86,6 +100,7 @@ program
       console.log(`Serving single repository from: ${options.repo}`);
       console.log(`Access via: http://${host}:${server.port}/repos/default`);
     }
+    console.log(`Budget: ${budget.cores} ${budget.cores === 1 ? 'core' : 'cores'}, ${(budget.memory / 1024 ** 3).toFixed(1)} GiB`);
     if (oidc) {
       console.log(`OIDC provider enabled (token expiry: ${options.tokenExpiry})`);
       if (process.env.E3_AUTH_AUTO_APPROVE === '1') {

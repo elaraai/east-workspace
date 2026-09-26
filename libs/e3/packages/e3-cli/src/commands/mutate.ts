@@ -23,6 +23,7 @@ import {
   recordDescribe,
   LocalStorage,
   LocalTaskRunner,
+  type Budget,
   type MutationOutcome,
 } from '@elaraai/e3-core';
 import {
@@ -32,6 +33,7 @@ import {
 } from '@elaraai/e3-api-client';
 import { parseRepoLocation, formatError, exitError } from '../utils.js';
 import { encodeArg } from './call.js';
+import { commandBudget, refuseRemoteBudget, type BudgetFlags } from './budget.js';
 
 /** Split a `<record>.<mutation>` spec on its final dot. */
 function parseMutationSpec(spec: string): { record: string; mutation: string } {
@@ -90,7 +92,7 @@ function checkArity(mutation: string, mut: { form: string; argTypes: unknown[] }
   exitError(`Mutation '${mutation}' expects ${mut.argTypes.length} argument(s), got ${got}${what}`);
 }
 
-async function mutateLocal(repoPath: string, ws: string, record: string, mutation: string, rawArgs: string[], verbose?: boolean): Promise<void> {
+async function mutateLocal(repoPath: string, ws: string, record: string, mutation: string, rawArgs: string[], budget: Budget, verbose?: boolean): Promise<void> {
   const storage = new LocalStorage();
   const sig = await recordDescribe(storage, repoPath, ws, record);
   if (!sig) exitError(`Record '${record}' not found in workspace '${ws}'`);
@@ -105,7 +107,7 @@ async function mutateLocal(repoPath: string, ws: string, record: string, mutatio
   }
 
   const outcome: MutationOutcome = await recordMutate(
-    storage, new LocalTaskRunner(repoPath), repoPath, ws, record, mutation, args, { actor: actor(), verbose },
+    storage, new LocalTaskRunner(repoPath, budget), repoPath, ws, record, mutation, args, { actor: actor(), verbose },
   );
   renderOutcome(outcome);
 }
@@ -141,7 +143,7 @@ export async function mutateCommand(
   repoArg: string,
   spec: string,
   args: string[],
-  options: { workspace?: string; verbose?: boolean },
+  options: BudgetFlags & { workspace?: string; verbose?: boolean },
 ): Promise<void> {
   try {
     if (!options.workspace) {
@@ -150,8 +152,9 @@ export async function mutateCommand(
     const { record, mutation } = parseMutationSpec(spec);
     const location = await parseRepoLocation(repoArg);
     if (location.type === 'local') {
-      await mutateLocal(location.path, options.workspace, record, mutation, args, options.verbose);
+      await mutateLocal(location.path, options.workspace, record, mutation, args, commandBudget(options), options.verbose);
     } else {
+      refuseRemoteBudget(options);
       await mutateRemote(location.baseUrl, location.repo, location.token, options.workspace, record, mutation, args, options.verbose);
     }
   } catch (err) {

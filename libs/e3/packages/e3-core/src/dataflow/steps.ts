@@ -65,8 +65,6 @@ import type {
  * Options for initializing a dataflow execution.
  */
 export interface StepInitializeOptions {
-  /** Maximum concurrent task executions (default: 4) */
-  concurrency?: number;
   /** Force re-execution even if cached (default: false) */
   force?: boolean;
   /** Filter to run only specific task(s) by exact name */
@@ -97,7 +95,6 @@ export async function stepInitialize(
   executionId: string,
   options: StepInitializeOptions = {}
 ): Promise<InitializeResult> {
-  const concurrency = options.concurrency ?? 4;
   const force = options.force ?? false;
   const filter = options.filter ?? null;
 
@@ -159,7 +156,6 @@ export async function stepInitialize(
     repo,
     workspace,
     startedAt: new Date(),
-    concurrency: BigInt(concurrency),
     force,
     filter: filter !== null ? some(filter) : none,
     graph: some(graph),

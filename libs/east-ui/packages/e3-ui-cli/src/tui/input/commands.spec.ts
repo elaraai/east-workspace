@@ -33,10 +33,11 @@ describe('parseCommand', () => {
     });
 
     test('/run flags', () => {
-        assert.deepEqual(ok('/run'), { name: 'run', force: false, filter: undefined, jobs: undefined });
-        assert.deepEqual(ok('/run --force --filter fore* --jobs 8'), { name: 'run', force: true, filter: 'fore*', jobs: 8 });
-        assert.deepEqual(ok('/run --filter=fore* --jobs=2'), { name: 'run', force: false, filter: 'fore*', jobs: 2 });
-        assert.match(bad('/run --jobs x'), /positive integer/);
+        assert.deepEqual(ok('/run'), { name: 'run', force: false, filter: undefined });
+        assert.deepEqual(ok('/run --force --filter fore*'), { name: 'run', force: true, filter: 'fore*' });
+        assert.deepEqual(ok('/run --filter=fore*'), { name: 'run', force: false, filter: 'fore*' });
+        // The server's budget decides how much runs at once: a run sets none.
+        assert.match(bad('/run --jobs 2'), /unknown \/run flag --jobs/);
         assert.match(bad('/run --concurrency 2'), /unknown \/run flag --concurrency/);
         assert.match(bad('/run --filter'), /needs a glob/);
         assert.match(bad('/run --bogus'), /unknown \/run flag --bogus/);
@@ -99,10 +100,10 @@ describe('parseCommand', () => {
 });
 
 describe('describe', () => {
-    const ctx = { workspace: 'main', taskCount: 6, running: false, jobs: 4, dirty: 0 };
+    const ctx = { workspace: 'main', taskCount: 6, running: false, dirty: 0 };
     test('spells the /run consequence the design shows', () => {
-        assert.deepEqual(describeCommand(ok('/run --force'), ctx), { text: 'run 6 tasks in main, ignoring the cache · jobs 4', keys: '⏎ run · esc' });
-        assert.equal(describeCommand(ok('/run --filter fo* --jobs 2'), ctx).text, 'run tasks matching fo* in main · jobs 2');
+        assert.deepEqual(describeCommand(ok('/run --force'), ctx), { text: 'run 6 tasks in main, ignoring the cache', keys: '⏎ run · esc' });
+        assert.equal(describeCommand(ok('/run --filter fo*'), ctx).text, 'run tasks matching fo* in main');
         assert.equal(describeCommand(ok('/run'), { ...ctx, running: true }).text, 'a run is already in progress');
         assert.equal(describeCommand(ok('/stop'), { ...ctx, running: true }).text, 'cancel the run in main');
         assert.equal(describeCommand(ok('/stop'), ctx).text, 'no run in progress');

@@ -81,7 +81,10 @@ bool emit_writer_open_manifest(EmitWriter *w, EastType *type, const char *path)
     memset(w, 0, sizeof(*w));
     w->type = type;
     w->manifest = east_beast2_manifest_writer_new_dir(type, EAST_BEAST2_CODEC_DEFLATE, path);
-    return w->manifest != NULL;
+    if (!w->manifest) return false;
+    /* Frames deflate on worker threads, as for a blob. */
+    east_beast2_manifest_writer_set_parallel(w->manifest, true);
+    return true;
 }
 
 bool emit_writer_push(EmitWriter *w, EastValue *key, EastValue *value)

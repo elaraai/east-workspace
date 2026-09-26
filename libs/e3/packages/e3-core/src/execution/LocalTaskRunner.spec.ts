@@ -11,9 +11,9 @@ import * as path from 'node:path';
 import { ArrayType, East, IRType, StringType, encodeBeast2For, none, variant } from '@elaraai/east';
 import { TASK_OBJECT_KIND, TaskObjectType, type ExecutionOwner, type ExecutionStatus, type TaskObject } from '@elaraai/e3-types';
 
-import { probeExecutionCache, taskExecute } from './LocalTaskRunner.js';
+import { LocalTaskRunner, probeExecutionCache, taskExecute } from './LocalTaskRunner.js';
 import { collectNodeModulesBins } from './processExec.js';
-import { JobSlots } from './jobs.js';
+import { Budget } from './budget.js';
 import { getBootId, getPidStartTime } from './processHelpers.js';
 import { uuidv7 } from '../uuid.js';
 import { objectWrite } from '../storage/local/LocalObjectStore.js';
@@ -347,7 +347,7 @@ describe('stopped executions', () => {
   });
 });
 
-describe('the jobs budget', () => {
+describe('the budget', () => {
   let repo: string;
   let storage: StorageBackend;
 
@@ -383,13 +383,14 @@ describe('the jobs budget', () => {
     };
   }
 
-  it('keeps at most the budget of runners in flight across concurrent executions', async () => {
-    // Six executions started at once under a budget of two: each runner
+  it('keeps at most the budget\'s cores of runners in flight across the executions of a runner holding it', async () => {
+    // Six executions started at once under a budget of two cores: each runner
     // marks itself running while it sleeps, so the most marks present at
     // once is the most runners in flight.
-    const marks = mkdtempSync(path.join(tmpdir(), 'e3-jobs-'));
+    const marks = mkdtempSync(path.join(tmpdir(), 'e3-budget-'));
     try {
-      const jobs = new JobSlots(2);
+      const budget = new Budget({ cores: 2, memory: 1024 ** 3 });
+      const runner = new LocalTaskRunner(repo, budget);
       // Forward slashes, as e3 hands a custom runner its own paths: bash takes
       // a Windows backslash for an escape.
       const marksDir = marks.split(path.sep).join('/');
@@ -398,32 +399,32 @@ describe('the jobs budget', () => {
       const watcher = setInterval(() => { peakMarks = Math.max(peakMarks, readdirSync(marks).length); }, 10);
       const results = await Promise.all(Array.from({ length: 6 }, async (_, i) => {
         const { taskHash, inputHashes } = await bashTask(script, `run-${i}`);
-        return taskExecute(storage, repo, taskHash, inputHashes, { jobs });
+        return runner.execute(storage, taskHash, inputHashes);
       }));
       clearInterval(watcher);
       for (const result of results) assert.equal(result.state, 'success', result.error ?? '');
-      assert.equal(jobs.peak, 2, 'the budget was used in full');
+      assert.equal(budget.peak, 2, 'the budget was used in full');
       assert.ok(peakMarks <= 2, `runners in flight at once: ${peakMarks}`);
-      assert.equal(jobs.inFlight, 0);
+      assert.equal(budget.inFlight, 0);
     } finally {
       rmSync(marks, { recursive: true, force: true });
     }
   });
 
-  it('records an execution the run aborts while it waits for a slot as cancelled, without a runner', async () => {
-    const jobs = new JobSlots(1);
+  it('records an execution the run aborts while it waits for the budget as cancelled, without a runner', async () => {
+    const budget = new Budget({ cores: 1, memory: 1024 ** 3 });
     const abort = new AbortController();
     const holder = await bashTask('sleep 30; cp "$1" "$2"', 'holder');
     const waiter = await bashTask('cp "$1" "$2"', 'waiter');
-    // The first execution takes the one slot as soon as it spawns; the
+    // The first execution takes the one core as soon as it spawns; the
     // second then queues, and the abort reaches it there.
-    const first = taskExecute(storage, repo, holder.taskHash, holder.inputHashes, { jobs, signal: abort.signal, onStdout: () => {} });
+    const first = taskExecute(storage, repo, holder.taskHash, holder.inputHashes, { budget, signal: abort.signal, onStdout: () => {} });
     await new Promise<void>((resolve) => {
-      const poll = setInterval(() => { if (jobs.inFlight === 1) { clearInterval(poll); resolve(); } }, 10);
+      const poll = setInterval(() => { if (budget.inFlight === 1) { clearInterval(poll); resolve(); } }, 10);
     });
-    const second = taskExecute(storage, repo, waiter.taskHash, waiter.inputHashes, { jobs, signal: abort.signal });
+    const second = taskExecute(storage, repo, waiter.taskHash, waiter.inputHashes, { budget, signal: abort.signal });
     await new Promise<void>((resolve) => {
-      const poll = setInterval(() => { if (jobs.queued === 1) { clearInterval(poll); resolve(); } }, 10);
+      const poll = setInterval(() => { if (budget.queued === 1) { clearInterval(poll); resolve(); } }, 10);
     });
     abort.abort();
 
@@ -441,6 +442,27 @@ describe('the jobs budget', () => {
     const held = await first;
     assert.equal(held.cancelled, true);
     assert.equal(held.error, 'cancelled: e3 stopped the runner because the run was aborted');
-    assert.equal(jobs.inFlight, 0);
+    assert.equal(budget.inFlight, 0);
+  });
+
+  it('holds a function call through a runner holding the budget until it has a core', async () => {
+    const budget = new Budget({ cores: 1, memory: 1024 ** 3 });
+    const runner = new LocalTaskRunner(repo, budget);
+    const release = await budget.acquire();
+    const abort = new AbortController();
+    const call = runner.runDetached({
+      bodyIr: new Uint8Array([1]),
+      args: [],
+      runner: variant('custom', { command: ['false'] }),
+      limits: { timeoutMs: 10_000, maxResultBytes: 1024, maxLogBytes: 1024 },
+    }, { signal: abort.signal });
+    await new Promise<void>((resolve) => {
+      const poll = setInterval(() => { if (budget.queued === 1) { clearInterval(poll); resolve(); } }, 10);
+    });
+    // Aborted while it waits, it ends as an aborted call does, having spawned nothing.
+    abort.abort();
+    assert.deepEqual(await call, { kind: 'failed', exitCode: -1, stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false });
+    release();
+    assert.equal(budget.inFlight, 0);
   });
 });

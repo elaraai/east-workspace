@@ -29,7 +29,6 @@ import {
   inputsHash,
 } from './executions.js';
 import type { TaskRunner } from './execution/interfaces.js';
-import type { JobSlots } from './execution/jobs.js';
 import {
   workspaceGetDatasetHash,
 } from './trees.js';
@@ -165,8 +164,6 @@ export interface DataflowResult {
  * Options for dataflow execution.
  */
 export interface DataflowOptions {
-  /** Maximum concurrent task executions (default: 4) */
-  concurrency?: number;
   /** Force re-execution even if cached (default: false) */
   force?: boolean;
   /** Filter to run only specific task(s) by exact name */
@@ -177,8 +174,9 @@ export interface DataflowOptions {
   signal?: AbortSignal;
   /** Task runner for executing individual tasks. */
   runner?: TaskRunner;
-  /** The run's jobs budget (local runner only; see `JobSlots`). */
-  jobs?: JobSlots;
+  /** The tasks and units the run keeps in flight (default four); a runner
+   *  that holds a budget decides which of them spawn. */
+  width?: number;
   /** Callback when a task starts */
   onTaskStart?: (name: string) => void;
   /** Callback when a task completes */
@@ -318,13 +316,12 @@ export async function dataflowExecute(
   const taskResults: TaskExecutionResult[] = [];
 
   const handle = await orchestrator.start(storage, repo, ws, {
-    concurrency: options.concurrency,
     force: options.force,
     filter: options.filter,
     signal: options.signal,
     lock: options.lock,
     runner: options.runner,
-    jobs: options.jobs,
+    width: options.width,
     onTaskStart: options.onTaskStart,
     onTaskComplete: (result) => {
       taskResults.push({

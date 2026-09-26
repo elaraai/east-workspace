@@ -7,12 +7,14 @@ import * as path from 'node:path';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { serve, type ServerType } from '@hono/node-server';
-import { LocalStorage, LocalTaskRunner, RepoAlreadyExistsError, RepoNotFoundError, InMemoryTransferBackend } from '@elaraai/e3-core';
-import type { StorageBackend, TaskRunner, TransferBackend } from '@elaraai/e3-core';
+import {
+  Budget, DOOR_FRAME_WORKERS, LocalStorage, LocalTaskRunner, RepoAlreadyExistsError, RepoNotFoundError, InMemoryTransferBackend, resolveBudget,
+} from '@elaraai/e3-core';
+import type { BudgetSettings, StorageBackend, TaskRunner, TransferBackend } from '@elaraai/e3-core';
 import { createAuthMiddleware, type AuthConfig } from './middleware/auth.js';
 import { createOidcProvider, type OidcProvider, type OidcConfig } from './auth/index.js';
 import { sendError, sendSuccessWithStatus, sendSuccess } from './beast2.js';
-import { StringType, NullType, variant, ArrayType } from '@elaraai/east';
+import { StringType, NullType, variant, ArrayType, configureFramePool } from '@elaraai/east';
 import { errorToVariant, sendJsonError } from './errors.js';
 import { createPackageRoutes } from './routes/packages.js';
 import { createWorkspaceRoutes } from './routes/workspaces.js';
@@ -64,6 +66,13 @@ export interface ServerConfig {
    *  0 answers `processing` at once). Keep it under any proxy's request
    *  timeout. */
   transferCommitWaitMs?: number;
+  /** The server's budget of cores and memory, which every runner process it
+   *  spawns takes from: dataflow tasks and units, function calls, mutations
+   *  and index builds, across every run. A {@link Budget}, or the settings
+   *  to resolve one from, as `-j` and `--memory` give them (default:
+   *  `E3_JOBS` and `E3_MEMORY`, else what the process may use); settings
+   *  that do not resolve make `createServer` throw a `RangeError`. */
+  budget?: Budget | BudgetSettings;
 }
 
 /**
@@ -98,6 +107,9 @@ export async function createServer(config: ServerConfig): Promise<Server> {
     reposDir, singleRepoPath, port = 3000, host = 'localhost', cors: enableCors = false, auth, oidc, pageByteBudget,
     transferPartBytes, transferCommitWaitMs,
   } = config;
+  const budget = config.budget instanceof Budget ? config.budget : resolveBudget(config.budget);
+  // The store door frames on e3's own pool, whose workers take cores too.
+  configureFramePool({ workers: Math.min(DOOR_FRAME_WORKERS, budget.cores) });
 
   // Validate config: exactly one of reposDir or singleRepoPath must be specified
   if (reposDir && singleRepoPath) {
@@ -376,14 +388,15 @@ export async function createServer(config: ServerConfig): Promise<Server> {
   app.route('/api/repos/:repo', pkgTransfer.repoApi);
   app.route('/api/repos/:repo/packages', pkgTransfer.pkgApi);
 
-  // Per-repo task runner for every route that runs user East: function and
-  // one-shot calls, record mutations, and a deploy's index builds (cached —
-  // the runner is stateless apart from its repo anchor)
+  // Per-repo task runner for every route that runs user East: dataflows,
+  // function and one-shot calls, record mutations, and a deploy's index
+  // builds, all on the server's one budget (cached — the runner is stateless
+  // apart from its repo anchor and the budget)
   const runners = new Map<string, TaskRunner>();
   const getRunner = (repoPath: string): TaskRunner => {
     let runner = runners.get(repoPath);
     if (!runner) {
-      runner = new LocalTaskRunner(repoPath);
+      runner = new LocalTaskRunner(repoPath, budget);
       runners.set(repoPath, runner);
     }
     return runner;
@@ -419,7 +432,7 @@ export async function createServer(config: ServerConfig): Promise<Server> {
   app.route('/api/repos/:repo/workspaces/:ws/records', createWorkspaceRecordRoutes(storage, getRepoPath, getRunner));
 
   // Execution/Dataflow routes: /api/repos/:repo/workspaces/:ws/dataflow/*
-  app.route('/api/repos/:repo/workspaces/:ws/dataflow', createExecutionRoutes(storage, getRepoPath));
+  app.route('/api/repos/:repo/workspaces/:ws/dataflow', createExecutionRoutes(storage, getRepoPath, { getRunner, width: budget.cores }));
 
   // Object routes: /api/repos/:repo/objects/:hash
   app.route('/api/repos/:repo/objects', createObjectRoutes(storage, getRepoPath));

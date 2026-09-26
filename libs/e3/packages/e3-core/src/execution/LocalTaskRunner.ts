@@ -28,7 +28,7 @@ import { storeDatasetFile } from '../store-collection.js';
 import { materializeEnvironment } from './environment.js';
 import { runDetached, type DetachedSpec, type DetachedResult, type DetachedRunOptions } from './runDetached.js';
 import { executionScratchDir } from './scratch.js';
-import type { JobSlots, ReleaseSlot } from './jobs.js';
+import { unitThreads, type Budget, type ReleaseSlot } from './budget.js';
 import { readUnitResult, stageMergeUnit, stageOutputMerge, stageRunUnit, storeUnitOutput, unitArgv, type MergeParts, type StagedUnit, type TaskUnit } from './units.js';
 import { executeSplitTask, isSplitTask } from './engine.js';
 
@@ -50,13 +50,12 @@ export interface ExecuteOptions {
   onStdout?: (data: string) => void;
   /** Stream stderr callback */
   onStderr?: (data: string) => void;
-  /** The run's jobs budget: a runner spawns only while its execution holds
-   *  one of the slots, and a split task's units take slots like any
-   *  execution, so the budget bounds the runner processes of the whole run.
-   *  A split task run on its own keeps as many units in flight as the budget
-   *  has slots. Runtime-only, and never seen by a remote backend. Absent,
-   *  spawns are not budgeted. */
-  jobs?: JobSlots;
+  /** The process's budget (see {@link Budget}): a runner spawns only while
+   *  its execution holds a core, and a split task's units take cores like any
+   *  execution; each unit is granted threads from it. A split task run on its
+   *  own keeps as many units in flight as the budget has cores. Runtime-only,
+   *  and never seen by a remote backend. Absent, spawns are not budgeted. */
+  budget?: Budget;
   /** Called as each unit of a split task (a piece, or a merge of their
    *  outputs) starts, and as it succeeds. Runtime-only progress reporting. */
   onPartitionProgress?: (progress: PartitionProgress) => void;
@@ -99,7 +98,13 @@ export interface ExecutionResult {
  * Used by the local CLI and e3-api-server for task execution.
  */
 export class LocalTaskRunner implements TaskRunner {
-  constructor(private readonly repo: string) {}
+  /**
+   * @param repo - The repository the runner runs tasks of
+   * @param budget - The process's budget: every runner this spawns — a
+   *   task's, a unit's, a function call's — takes a core from it, and each
+   *   unit is granted threads from it. Absent, spawns are not budgeted.
+   */
+  constructor(private readonly repo: string, private readonly budget?: Budget) {}
 
   async execute(
     storage: StorageBackend,
@@ -113,7 +118,7 @@ export class LocalTaskRunner implements TaskRunner {
       signal: options?.signal,
       onStdout: options?.onStdout,
       onStderr: options?.onStderr,
-      jobs: options?.jobs,
+      budget: this.budget,
       onPartitionProgress: options?.onPartitionProgress,
     }));
   }
@@ -130,7 +135,7 @@ export class LocalTaskRunner implements TaskRunner {
       signal: options?.signal,
       onStdout: options?.onStdout,
       onStderr: options?.onStderr,
-      jobs: options?.jobs,
+      budget: this.budget,
     }));
   }
 
@@ -149,7 +154,7 @@ export class LocalTaskRunner implements TaskRunner {
       // project dir), matching the tracked path's walk-up in spawnAndCapture.
       runnerSearchDir: options?.runnerSearchDir ?? path.dirname(this.repo),
       extraBins,
-    });
+    }, this.budget);
   }
 }
 
@@ -466,8 +471,8 @@ export async function taskExecuteBody(
     let args: string[];
     if (merge !== null) {
       unit = merge.range === null
-        ? await stageMergeUnit(storage, repo, scratchDir, task, inputPaths, null)
-        : await stageMergeUnit(storage, repo, scratchDir, task, inputPaths.slice(1), inputPaths[0]!);
+        ? await stageMergeUnit(storage, repo, scratchDir, task, inputPaths, null, unitThreads(options.budget))
+        : await stageMergeUnit(storage, repo, scratchDir, task, inputPaths.slice(1), inputPaths[0]!, unitThreads(options.budget));
       args = unitArgv(unit.runner, unit, options.verbose);
     } else if (task.body.type === 'command') {
       // The e3 SDK's `customTask` wraps the user command in `["bash", "-c",
@@ -494,7 +499,7 @@ export async function taskExecuteBody(
       await storage.objects.materialize(repo, task.body.value.program, program, { link: false });
       args = [...task.runner.value.command, ...inputPaths.flatMap((input) => ['-i', input]), '-o', outputPath, program];
     } else {
-      unit = await stageRunUnit(storage, repo, scratchDir, task, inputPaths);
+      unit = await stageRunUnit(storage, repo, scratchDir, task, inputPaths, unitThreads(options.budget));
       args = unitArgv(unit.runner, unit, options.verbose);
     }
 
@@ -590,15 +595,16 @@ export async function taskExecuteBody(
       };
     };
 
-    // Step 7.5: the run's jobs budget. The runner spawns only once this
-    // execution holds a slot, first come first served beside the dataflow's
-    // other tasks, and holds it until its last runner process has exited. An
-    // execution the run aborts while it waits never spawns: it is recorded
-    // cancelled, with no `running` record ever written.
+    // Step 7.5: the process's budget. The runner spawns only once this
+    // execution holds a core, beside every other runner the process spawns,
+    // and holds it until its last runner process has exited. An execution the
+    // run aborts while it waits never spawns: it is recorded cancelled, with
+    // no `running` record ever written. Until reservations are measured, an
+    // execution reserves no memory.
     let releaseSlot: ReleaseSlot | undefined;
-    if (options.jobs !== undefined) {
+    if (options.budget !== undefined) {
       try {
-        releaseSlot = await options.jobs.acquire(options.signal);
+        releaseSlot = await options.budget.acquire({ signal: options.signal });
       } catch (err) {
         if (options.signal?.aborted) {
           return await stoppedResult('cancelled', 'cancelled: e3 did not start the runner because the run was aborted');

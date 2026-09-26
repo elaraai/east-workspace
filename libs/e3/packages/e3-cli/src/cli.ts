@@ -28,6 +28,8 @@
 
 import { createRequire } from 'node:module';
 import { Command } from 'commander';
+import { configureFramePool } from '@elaraai/east';
+import { DOOR_FRAME_WORKERS } from '@elaraai/e3-core';
 
 const require = createRequire(import.meta.url);
 const packageJson = require('../../package.json') as { version: string };
@@ -55,6 +57,15 @@ import { completionCommand } from './commands/completion.js';
 import { installCommand as completionInstall, uninstallCommand as completionUninstall } from './commands/completion-install.js';
 import { completeCommand } from './commands/complete.js';
 import { withDefaultRepo, defaultRepoArg } from './utils.js';
+
+// The store door frames on two workers; a command that runs units caps them
+// from its budget.
+configureFramePool({ workers: DOOR_FRAME_WORKERS });
+
+// The budget every command that runs units takes, for a local repository: a
+// server runs the work under its own.
+const JOBS = ['-j, --jobs <n>', 'Cores: runner processes to keep in flight, a task or a unit each (local repositories; default: $E3_JOBS, else the CPUs available to e3)'] as const;
+const MEMORY = ['--memory <size>', 'Memory those runner processes may reserve between them, as 8G or 512M (local repositories; default: $E3_MEMORY, else the memory available to e3, less a reserve for e3 and the OS)'] as const;
 
 const program = new Command();
 
@@ -165,6 +176,8 @@ program
       .option('--functions <path...>', 'Function manifests (east-py / east-node export-functions) for East.importFunction packages built elsewhere; a package of this uv or npm workspace is exported and linked by itself')
       .option('--skip-file-sources', "Deploy without reading the package's file sources; those inputs stay unset until `e3 dataset set --from-file`")
       .option('--quiet', 'Suppress progress and success output (errors only)')
+      .option(...JOBS)
+      .option(...MEMORY)
       .action(withDefaultRepo(workspaceCommand.deploy))
   )
   .addCommand(
@@ -285,7 +298,8 @@ program
       .argument('[repo]', 'Repository path or URL (default: $E3_REPO or .)')
       .argument('<ws>', 'Workspace name')
       .option('--filter <pattern>', 'Only run tasks matching pattern')
-      .option('-j, --jobs <n>', 'Runner processes to keep in flight across the run — tasks and the units of partitioned tasks alike (default: the CPUs available to e3, or $E3_JOBS)')
+      .option(...JOBS)
+      .option(...MEMORY)
       .option('--force', 'Force re-execution even if cached')
       .option('-v, --verbose', "Pass -v to each task's runner (timing/perf to stderr)")
       .action(withDefaultRepo(startCommand))
@@ -308,6 +322,8 @@ program
   .option('-o, --output <path>', 'Output file path')
   .option('--force', 'Force re-execution even if cached')
   .option('-v, --verbose', "Pass -v to the runner (timing/perf to stderr)")
+  .option(...JOBS)
+  .option(...MEMORY)
   .action(runCommand);
 
 // ---------------------------------------------------------------------------
@@ -322,6 +338,8 @@ program
   .option('-w, --workspace <ws>', 'Call against the package deployed in a workspace')
   .option('-o, --output <path>', 'Write the result to a .beast2 file instead of printing')
   .option('-v, --verbose', "Pass -v to the runner (timing/perf to stderr; local or remote)")
+  .option(...JOBS)
+  .option(...MEMORY)
   .action(callCommand);
 
 // ---------------------------------------------------------------------------
@@ -335,6 +353,8 @@ program
   .argument('[args...]', 'Arguments: .east literals or .beast2/.json/.east file paths')
   .option('-w, --workspace <ws>', 'Workspace holding the record (required)')
   .option('-v, --verbose', "Pass -v to the reducer's runner (timing/perf to stderr; local or remote)")
+  .option(...JOBS)
+  .option(...MEMORY)
   .action(mutateCommand);
 
 // ---------------------------------------------------------------------------
@@ -373,6 +393,8 @@ program
   .option('-w, --workspace <ws>', 'Workspace holding the record (required)')
   .option('--index <name>', 'Rebuild one index (default: every index the record declares)')
   .option('-v, --verbose', "Pass -v to the index programs' runner (timing/perf to stderr)")
+  .option(...JOBS)
+  .option(...MEMORY)
   .action(reindexCommand);
 
 // ---------------------------------------------------------------------------
@@ -385,7 +407,8 @@ program
   .argument('<repo>', 'Repository path or URL')
   .argument('<workspace>', 'Workspace name')
   .option('--start', 'Execute dataflow after each deploy')
-  .option('-j, --jobs <n>', 'Runner processes to keep in flight when using --start (default: the CPUs available to e3, or $E3_JOBS)')
+  .option(...JOBS)
+  .option(...MEMORY)
   .option('--abort-on-change', 'Abort running execution when file changes')
   .option('--functions <path...>', 'Function manifests (east-py / east-node export-functions) for East.importFunction packages built elsewhere; a package of this uv or npm workspace is exported and linked by itself')
   .action(watchCommand);

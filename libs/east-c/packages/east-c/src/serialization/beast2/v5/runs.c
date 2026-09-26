@@ -316,7 +316,9 @@ static bool run_sorter_open_run(Beast2RunSorter *s, B2V5RunOut *out)
         snprintf(path, need, "%s/%zu.beast2", s->dir, s->runs);
         out->dir = east_beast2_manifest_writer_new_dir(s->type, s->codec, path);
         free(path);
-        return out->dir != NULL;
+        if (!out->dir) return false;
+        east_beast2_manifest_writer_set_parallel(out->dir, s->parallel);
+        return true;
     }
     out->blob = east_beast2_element_writer_new(s->type, s->codec);
     if (!out->blob) return false;

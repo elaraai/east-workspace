@@ -23,7 +23,6 @@ function makeState(overrides: Partial<DataflowExecutionState> = {}): DataflowExe
     repo: 'test-repo',
     workspace: 'ws',
     startedAt: now,
-    concurrency: 4n,
     force: false,
     filter: none,
     graph: none,

@@ -521,7 +521,6 @@ const PlatformImpl: PlatformFunction[] = [
     async (url: string, repo: string, workspace: string, options: ValueTypeOf<typeof DataflowRequestType>, token: string) => {
       try {
         await dataflowExecuteLaunch(url, repo, workspace, {
-          concurrency: options.concurrency.value != null ? Number(options.concurrency.value) : undefined,
           force: options.force,
           filter: options.filter.value ?? undefined,
         }, { token });
@@ -539,7 +538,6 @@ const PlatformImpl: PlatformFunction[] = [
     async (url: string, repo: string, workspace: string, options: ValueTypeOf<typeof DataflowRequestType>, token: string) => {
       try {
         return await dataflowExecute(url, repo, workspace, {
-          concurrency: options.concurrency.value != null ? Number(options.concurrency.value) : undefined,
           force: options.force,
           filter: options.filter.value ?? undefined,
         }, { token });

@@ -24,8 +24,9 @@ import { tmpdir } from 'os';
 import { randomBytes } from 'crypto';
 import { encodeBeast2SegmentsFor, readBeast2Manifest, spliceBeast2 } from '@elaraai/east';
 import { manifestByteSize, type RunnerValue } from '@elaraai/e3-types';
-import { spawnAndCapture } from './processExec.js';
+import { spawnAndCapture, type SpawnAndCaptureResult } from './processExec.js';
 import { stageCallUnit, unitArgv } from './units.js';
+import { unitThreads, type Budget, type ReleaseSlot } from './budget.js';
 
 /**
  * Specification of a detached run.
@@ -93,10 +94,19 @@ export interface DetachedRunOptions {
  * however the call ends.
  *
  * NEVER writes to the object store, execution records, or logs.
+ *
+ * @param spec - The program, its arguments, the runner and the limits
+ * @param options - Cancellation, the runner's search path and verbosity
+ * @param budget - The budget of the local runner that runs the call: the
+ *   runner spawns only once it holds a core, and its unit is granted threads
+ *   from it. Absent, the spawn is not budgeted, and the unit is granted the
+ *   CPUs this process may use, up to four.
+ * @returns The call's value inline, or how it failed
  */
 export async function runDetached(
   spec: DetachedSpec,
-  options: DetachedRunOptions = {}
+  options: DetachedRunOptions = {},
+  budget?: Budget
 ): Promise<DetachedResult> {
   const scratchDir = path.join(
     tmpdir(),
@@ -121,20 +131,36 @@ export async function runDetached(
     const stdinLifeline = runner.type !== 'custom';
     const args = runner.type === 'custom'
       ? [...runner.value.command, ...inputs.flatMap((input) => ['-i', input]), '-o', outputPath, program]
-      : unitArgv(runner, await stageCallUnit(scratchDir, runner, program, inputs, outputPath), options.verbose);
+      : unitArgv(runner, await stageCallUnit(scratchDir, runner, program, inputs, outputPath, unitThreads(budget)), options.verbose);
 
     const searchDirs = options.runnerSearchDir
       ? [options.runnerSearchDir, process.cwd()]
       : [process.cwd()];
 
-    const result = await spawnAndCapture(args, scratchDir, {
-      timeoutMs: spec.limits.timeoutMs,
-      signal: options.signal,
-      maxLogBytes: spec.limits.maxLogBytes,
-      searchDirs,
-      extraBins: options.extraBins,
-      stdinLifeline,
-    });
+    // A call aborted while it waits for the budget never spawns, and ends as
+    // an aborted run does.
+    let release: ReleaseSlot | undefined;
+    try {
+      release = await budget?.acquire({ signal: options.signal });
+    } catch (err) {
+      if (options.signal?.aborted) {
+        return { kind: 'failed', exitCode: -1, stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false };
+      }
+      throw err;
+    }
+    let result: SpawnAndCaptureResult;
+    try {
+      result = await spawnAndCapture(args, scratchDir, {
+        timeoutMs: spec.limits.timeoutMs,
+        signal: options.signal,
+        maxLogBytes: spec.limits.maxLogBytes,
+        searchDirs,
+        extraBins: options.extraBins,
+        stdinLifeline,
+      });
+    } finally {
+      release?.();
+    }
 
     const streams = {
       stdout: result.stdoutTail,

@@ -348,8 +348,10 @@ export interface PartitionProgress {
  *
  * - 1: as first released, without a `version`.
  * - 2: a task's `plan`, and the events of a split task's stages.
+ * - 3: no `concurrency`: the budget of the process that runs it decides what
+ *   runs, and is never persisted.
  */
-export const EXECUTION_STATE_VERSION = 2n;
+export const EXECUTION_STATE_VERSION = 3n;
 
 /**
  * Persistent state for a dataflow execution.
@@ -378,8 +380,6 @@ export const DataflowExecutionStateType = StructType({
   startedAt: DateTimeType,
 
   // Config (immutable after initialization)
-  /** Maximum concurrent task executions */
-  concurrency: IntegerType,
   /** Force re-execution even if cached */
   force: BooleanType,
   /** Filter to run only specific task(s) by exact name */

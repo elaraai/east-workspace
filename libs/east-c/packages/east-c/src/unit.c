@@ -481,6 +481,9 @@ EastUnitSink *east_unit_sink_new(const EastUnitOutput *output, EastType *type,
             east_unit_sink_free(s);
             return NULL;
         }
+        /* Frames deflate on a pool the unit's grant sizes (east_set_thread_limit):
+         * one thread frames inline. */
+        east_beast2_manifest_writer_set_parallel(s->array, true);
         return s;
     }
     case EAST_UNIT_SET:
@@ -497,6 +500,7 @@ EastUnitSink *east_unit_sink_new(const EastUnitOutput *output, EastType *type,
             east_unit_sink_free(s);
             return NULL;
         }
+        east_beast2_run_sorter_set_parallel(s->runs, true);
         return s;
     default: {
         EastType *t = combine_fn ? combine_fn->fn_type : NULL;

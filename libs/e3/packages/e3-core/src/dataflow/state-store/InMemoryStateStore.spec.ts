@@ -36,7 +36,6 @@ function makeState(
     repo: overrides?.repo ?? '/tmp/test-repo',
     workspace: overrides?.workspace ?? 'test-ws',
     startedAt: new Date(),
-    concurrency: 4n,
     force: false,
     filter: none,
     graph: some(graph),

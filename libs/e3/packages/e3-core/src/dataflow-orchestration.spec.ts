@@ -233,7 +233,6 @@ describe('dataflow orchestration with MockTaskRunner', () => {
 
       const result = await dataflowExecute(storage, testRepo, 'test-ws', {
         runner: mockRunner,
-        concurrency: 4,
       });
 
       assert.strictEqual(result.success, true);
@@ -245,8 +244,8 @@ describe('dataflow orchestration with MockTaskRunner', () => {
     });
   });
 
-  describe('concurrency limit', () => {
-    it('respects concurrency limit with mock runner', async () => {
+  describe('width', () => {
+    it('runs within the loop\'s width with mock runner', async () => {
       // Create package with 4 independent tasks
       const structure: Structure = {
         type: 'struct',
@@ -298,7 +297,7 @@ describe('dataflow orchestration with MockTaskRunner', () => {
       let startCount = 0;
       await dataflowExecute(storage, testRepo, 'test-ws', {
         runner: mockRunner,
-        concurrency: 2,
+        width: 2,
         onTaskStart: () => {
           startCount++;
         },
@@ -312,6 +311,20 @@ describe('dataflow orchestration with MockTaskRunner', () => {
       // The key test is that all tasks were executed
       const calls = mockRunner.getCalls();
       assert.strictEqual(calls.length, 4);
+    });
+
+    it('refuses a width it could never launch under', async () => {
+      const orchestrator = new LocalOrchestrator(new InMemoryStateStore());
+      for (const width of [0, -1, 1.5, Number.NaN]) {
+        await assert.rejects(
+          orchestrator.start(storage, testRepo, 'test-ws', { runner: mockRunner, width }),
+          { name: 'RangeError', message: `width must be a positive integer, got ${width}` },
+        );
+        await assert.rejects(
+          orchestrator.resume(storage, testRepo, 'test-ws', '1', { runner: mockRunner, width }),
+          { name: 'RangeError', message: `width must be a positive integer, got ${width}` },
+        );
+      }
     });
   });
 
@@ -1224,7 +1237,6 @@ describe('dataflow orchestration with MockTaskRunner', () => {
 
       const result = await dataflowExecute(storage, testRepo, 'test-ws', {
         runner: mockRunner,
-        concurrency: 4,
       });
 
       assert.strictEqual(result.success, true);
@@ -1265,7 +1277,6 @@ describe('dataflow orchestration with MockTaskRunner', () => {
 
       const result = await dataflowExecute(storage, testRepo, 'test-ws', {
         runner: mockRunner,
-        concurrency: 4,
       });
 
       assert.strictEqual(result.success, true);
@@ -1301,7 +1312,6 @@ describe('dataflow orchestration with MockTaskRunner', () => {
 
       const result = await dataflowExecute(storage, testRepo, 'test-ws', {
         runner: mockRunner,
-        concurrency: 4,
       });
 
       assert.strictEqual(result.success, false);
@@ -1373,7 +1383,6 @@ describe('dataflow orchestration with MockTaskRunner', () => {
 
       const result = await dataflowExecute(storage, testRepo, 'test-ws', {
         runner: mockRunner,
-        concurrency: 4,
       });
 
       assert.strictEqual(result.success, true);
@@ -1411,7 +1420,6 @@ describe('dataflow orchestration with MockTaskRunner', () => {
 
       const result = await dataflowExecute(storage, testRepo, 'test-ws', {
         runner: mockRunner,
-        concurrency: 4,
       });
 
       assert.strictEqual(result.success, true);
@@ -1446,7 +1454,6 @@ describe('dataflow orchestration with MockTaskRunner', () => {
 
       const result = await dataflowExecute(storage, testRepo, 'test-ws', {
         runner: mockRunner,
-        concurrency: 4,
       });
 
       assert.strictEqual(result.success, true);
@@ -1518,7 +1525,6 @@ describe('dataflow orchestration with MockTaskRunner', () => {
 
       const result = await dataflowExecute(storage, testRepo, 'test-ws', {
         runner: mockRunner,
-        concurrency: 4,
       });
 
       assert.strictEqual(result.success, true);
@@ -1586,7 +1592,6 @@ describe('dataflow orchestration with MockTaskRunner', () => {
 
       const result = await dataflowExecute(storage, testRepo, 'test-ws', {
         runner: mockRunner,
-        concurrency: 4,
       });
 
       assert.strictEqual(result.success, true);
@@ -1837,7 +1842,6 @@ describe('dataflow orchestration with MockTaskRunner', () => {
 
       const result1 = await dataflowExecute(storage, testRepo, 'test-ws', {
         runner: mockRunner,
-        concurrency: 4,
       });
       assert.strictEqual(result1.success, true);
       assert.strictEqual(result1.executed, 2);
@@ -1864,7 +1868,6 @@ describe('dataflow orchestration with MockTaskRunner', () => {
       mockRunner.clearCalls();
       const result2 = await dataflowExecute(storage, testRepo, 'test-ws', {
         runner: mockRunner,
-        concurrency: 4,
       });
 
       assert.strictEqual(result2.success, true);
@@ -2144,7 +2147,7 @@ describe('dataflow orchestration with MockTaskRunner', () => {
       removeTempDir(tempDir);
     });
 
-    it('runs a split task\'s units through the runner, within the concurrency limit, and records its stages', async () => {
+    it('runs a split task\'s units through the runner, within the loop\'s width, and records its stages', async () => {
       const rows = e3.input('rows', DictType(IntegerType, IntegerType), variant('value', new SortedMap(
         Array.from({ length: 8000 }, (_, i) => [BigInt(i), BigInt(i)] as [bigint, bigint]), compareFor(IntegerType))));
       const total = e3.streamTask('total', {
@@ -2178,7 +2181,7 @@ describe('dataflow orchestration with MockTaskRunner', () => {
 
       const stateStore = new InMemoryStateStore();
       const orchestrator = new LocalOrchestrator(stateStore);
-      const handle = await orchestrator.start(storage, testRepo, 'test-ws', { runner: mockRunner, concurrency: 2 });
+      const handle = await orchestrator.start(storage, testRepo, 'test-ws', { runner: mockRunner, width: 2 });
       const result = await orchestrator.wait(handle);
       assert.strictEqual(result.success, true);
 
@@ -2188,7 +2191,7 @@ describe('dataflow orchestration with MockTaskRunner', () => {
       assert.ok(pieceCalls.length > 4, 'the input was cut into many pieces');
       assert.strictEqual(mergeCalls.length, 1);
       assert.deepStrictEqual(mergeCalls[0]!.unit.merge!.parts, Array.from({ length: pieces }, (_, i) => `piece-${i}`), 'the fold takes its partials in piece order');
-      assert.strictEqual(peak, 2, 'the units ran two at a time, as the dataflow\'s concurrency allows');
+      assert.strictEqual(peak, 2, 'the units ran two at a time, as the loop\'s width allows');
       assert.deepStrictEqual(mockRunner.getCalls().map((call) => [call.taskHash, call.inputHashes]), [[deployed.tasks.get('report')!, ['sum']]],
         'the split task never ran as one execution, and its output fed the task after it');
 
@@ -2243,7 +2246,7 @@ describe('dataflow orchestration with MockTaskRunner', () => {
       const orchestrator = new LocalOrchestrator(stateStore);
       const handle = await orchestrator.start(storage, testRepo, 'test-ws', {
         runner: mockRunner,
-        concurrency: 2,
+        width: 2,
         shouldYield: () => yieldRequested,
       });
       const yielded = await orchestrator.wait(handle);
@@ -2309,7 +2312,7 @@ describe('dataflow orchestration with MockTaskRunner', () => {
           : { state: 'success', cached: false, outputHash: `piece-${calls}` };
       });
 
-      const result = await dataflowExecute(storage, testRepo, 'test-ws', { runner: mockRunner, concurrency: 1 });
+      const result = await dataflowExecute(storage, testRepo, 'test-ws', { runner: mockRunner, width: 1 });
       assert.strictEqual(result.success, false);
       assert.strictEqual(result.failed, 1);
       assert.strictEqual(result.skipped, 1);

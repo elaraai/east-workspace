@@ -29,7 +29,6 @@
 
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { availableParallelism } from 'node:os';
 import {
   UnitResultType,
   UnitType,
@@ -103,6 +102,7 @@ const unitPath = (dir: string, file: string): string => path.relative(dir, file)
  * @param dir - The execution's scratch directory, holding the staged inputs
  * @param task - The task object: an East body, on a stock runner
  * @param inputs - The staged inputs, in the body's parameter order
+ * @param threads - The threads the runner may use (`unitThreads`)
  * @returns The staged unit
  * @throws {Error} When the task's body is a command, or its runner is the
  *   `custom` runtime, which executes no unit.
@@ -113,6 +113,7 @@ export async function stageRunUnit(
   dir: string,
   task: TaskObject,
   inputs: readonly string[],
+  threads: number,
 ): Promise<TaskUnit> {
   const runner = task.runner;
   if (task.body.type !== 'east' || runner.type === 'custom') {
@@ -150,9 +151,7 @@ export async function stageRunUnit(
       output,
     }),
     platforms: runner.value.platforms,
-    // Until scheduling grants cores, a runner sizes its pools to the machine,
-    // as it always has.
-    threads: BigInt(availableParallelism()),
+    threads: BigInt(threads),
     result: RESULT_FILE,
   };
   const file = path.join(dir, 'unit.beast2');
@@ -173,6 +172,7 @@ export async function stageRunUnit(
  *   output
  * @param parts - The staged parts, in piece order
  * @param range - The staged key range, or `null` to merge the parts whole
+ * @param threads - The threads the runner may use (`unitThreads`)
  * @returns The staged unit
  * @throws {Error} When the task's runner is the `custom` runtime, or its output
  *   is a value or an array, whose parts no unit merges.
@@ -184,6 +184,7 @@ export async function stageMergeUnit(
   task: TaskObject,
   parts: readonly string[],
   range: string | null,
+  threads: number,
 ): Promise<TaskUnit> {
   const runner = task.runner;
   if (runner.type === 'custom') {
@@ -222,7 +223,7 @@ export async function stageMergeUnit(
       output,
     }),
     platforms: runner.value.platforms,
-    threads: BigInt(availableParallelism()),
+    threads: BigInt(threads),
     result: RESULT_FILE,
   };
   const file = path.join(dir, 'unit.beast2');
@@ -240,6 +241,7 @@ export async function stageMergeUnit(
  * @param program - The program's file
  * @param inputs - The arguments' files, in the function's parameter order
  * @param output - The file the value is written to
+ * @param threads - The threads the runner may use (`unitThreads`)
  * @returns The staged unit
  */
 export async function stageCallUnit(
@@ -248,6 +250,7 @@ export async function stageCallUnit(
   program: string,
   inputs: readonly string[],
   output: string,
+  threads: number,
 ): Promise<StagedUnit> {
   const unit: Unit = {
     work: variant('run', {
@@ -256,7 +259,7 @@ export async function stageCallUnit(
       output: variant('value', unitPath(dir, output)),
     }),
     platforms: runner.value.platforms,
-    threads: BigInt(availableParallelism()),
+    threads: BigInt(threads),
     result: RESULT_FILE,
   };
   const file = path.join(dir, 'unit.beast2');

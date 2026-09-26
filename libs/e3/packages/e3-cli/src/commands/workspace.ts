@@ -21,6 +21,7 @@ import {
   WorkspaceExistsError,
   type WorkspaceStatusResult,
   LocalTaskRunner,
+  type Budget,
 } from '@elaraai/e3-core';
 import {
   workspaceCreate as workspaceCreateRemote,
@@ -45,6 +46,7 @@ import { parseRepoLocation, parsePackageSpec, formatError, exitError, type RepoL
 import { loadPackageFile } from './load-package.js';
 import { createProgress, formatBytes, type Progress } from '../progress.js';
 import { fileTransferSource } from '../file-transfer-source.js';
+import { commandBudget, refuseRemoteBudget, type BudgetFlags } from './budget.js';
 
 export const workspaceCommand = {
   /**
@@ -87,7 +89,7 @@ export const workspaceCommand = {
     repoArg: string,
     ws: string,
     pkgSpec: string | undefined,
-    options: { fromZip?: string; fromSource?: string; functions?: string[]; quiet?: boolean; skipFileSources?: boolean } = {},
+    options: BudgetFlags & { fromZip?: string; fromSource?: string; functions?: string[]; quiet?: boolean; skipFileSources?: boolean } = {},
   ): Promise<void> {
     try {
       const modes = [pkgSpec, options.fromZip, options.fromSource].filter(Boolean);
@@ -99,9 +101,13 @@ export const workspaceCommand = {
       }
 
       const location = await parseRepoLocation(repoArg);
+      if (location.type === 'remote') refuseRemoteBudget(options);
 
       const progress = createProgress({ quiet: options.quiet === true });
-      const target: DeployTarget = { location, repoArg, ws, progress, skipFileSources: options.skipFileSources === true };
+      const target: DeployTarget = {
+        location, repoArg, ws, progress, skipFileSources: options.skipFileSources === true,
+        ...(location.type === 'local' && { budget: commandBudget(options) }),
+      };
 
       // --from-source mode: bundle the TS source into a package, then import + deploy
       if (options.fromSource) {
@@ -121,7 +127,7 @@ export const workspaceCommand = {
         const storage = new LocalStorage();
         await workspaceDeploy(storage, location.path, ws, name, version, {
           resolveFileSources: !target.skipFileSources,
-          runner: new LocalTaskRunner(location.path),
+          runner: new LocalTaskRunner(location.path, target.budget),
           // What the deploy is about to do to each record's indexes: a build
           // over a large record is the part of a deploy that takes minutes.
           onRecordIndex: (plan) => {
@@ -408,6 +414,8 @@ interface DeployTarget {
   progress: Progress;
   /** Leave the package's `file` sources unset instead of reading them. */
   skipFileSources: boolean;
+  /** The budget a local deploy's index builds take from. */
+  budget?: Budget;
 }
 
 /** A package's path-initialised input, as a deploy completes it. */
@@ -571,7 +579,7 @@ async function deployFromZip(target: DeployTarget, zipPath: string): Promise<voi
     }
     await workspaceDeploy(storage, location.path, ws, name, version, {
       resolveFileSources: !target.skipFileSources,
-      runner: new LocalTaskRunner(location.path),
+      runner: new LocalTaskRunner(location.path, target.budget),
       onRecordIndex: (plan) => {
         if (plan.action !== 'keep') console.log(`  ${plan.action} index ${plan.record}.${plan.index}`);
       },

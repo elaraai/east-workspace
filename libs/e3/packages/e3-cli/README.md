@@ -67,14 +67,22 @@ e3 task logs <repo> <ws.task> --execution <taskHash>/<inputsHash>/<executionId> 
 ### Dataflow execution
 
 ```bash
-e3 dataflow run <repo> <ws> [--filter <p>] [-j <n>] [--force] [-v]
+e3 dataflow run <repo> <ws> [--filter <p>] [-j <n>] [--memory <size>] [--force] [-v]
 ```
 
-`-j` / `--jobs <n>` is the run's one budget of parallelism: the runner processes
-e3 keeps in flight at once, across the dataflow's tasks and the partitions and
-merge units of its partitioned tasks alike (every runner takes one slot, first
-come first served, whatever launched it). It defaults to the CPUs available to
-e3 — its affinity mask, capped by a cgroup quota — or to `E3_JOBS` when set.
+`-j` / `--jobs <n>` and `--memory <size>` are the budget of the runner processes
+e3 spawns. `-j` is its cores: the runners in flight at once, across the
+dataflow's tasks and the partitions and merge units of its partitioned tasks
+alike (every runner takes one, first come first served, whatever launched it).
+`--memory` is the memory those runners may reserve between them, as `8G` or
+`512M`. They default to `E3_JOBS` and `E3_MEMORY`, else to what e3 may use: the
+CPUs of its affinity mask, capped by a cgroup quota, and the cgroup's
+`memory.max` or else physical memory, less a reserve for e3 and the OS.
+
+`e3 watch`, `e3 run`, `e3 call`, `e3 mutate`, `e3 reindex` and
+`e3 workspace deploy` take the same two flags for a local repository. Against a
+server they are refused: it runs the work under its own budget
+(`e3-api-server -j` / `--memory`).
 
 A local run's per-execution scratch directories are created inside the
 repository, under `<repo>/tmp/scratch` — on the object store's filesystem, so
@@ -108,7 +116,7 @@ e3 run <repo> <pkg@1.0.0.task> <in.beast2> -o <out.beast2> [-v]
 ### Watch / live development
 
 ```bash
-e3 watch <source.ts> <repo> <ws> [--start] [-j <n>] [--abort-on-change]
+e3 watch <source.ts> <repo> <ws> [--start] [-j <n>] [--memory <size>] [--abort-on-change]
 ```
 
 ### Authentication

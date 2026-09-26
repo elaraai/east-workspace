@@ -66,6 +66,18 @@ import {
 } from '../steps.js';
 import type { Mutable } from '../types.js';
 
+/** The tasks and units the loop keeps in flight unless its caller sets a
+ *  width. */
+const DEFAULT_LOOP_WIDTH = 4;
+
+/** Refuses a width the loop could never launch under: it would report a run
+ *  it cannot start as stuck. */
+function checkWidth(width: number | undefined): void {
+  if (width !== undefined && !(Number.isInteger(width) && width >= 1)) {
+    throw new RangeError(`width must be a positive integer, got ${width}`);
+  }
+}
+
 // =============================================================================
 // Async Mutex for State Mutations
 // =============================================================================
@@ -193,9 +205,9 @@ interface RunningExecution {
    * immediately without racing the lock release.
    */
   yieldResult?: FinalizeResult;
-  /** What is in flight, each counting against the concurrency limit: a task
-   *  by its name, a split task's planning by its name, and each of its units
-   *  by a key of its own */
+  /** What is in flight, each counting against the loop's width: a task by
+   *  its name, a split task's planning by its name, and each of its units by
+   *  a key of its own */
   runningTasks: Map<string, Promise<void>>;
   /** Split tasks in progress, by name, in the order they started */
   splits: Map<string, SplitRun>;
@@ -246,6 +258,8 @@ export class LocalOrchestrator implements DataflowOrchestrator {
     workspace: string,
     options: OrchestratorStartOptions = {}
   ): Promise<ExecutionHandle> {
+    checkWidth(options.width);
+
     // Acquire locks if not provided externally.
     // Dual-lock model:
     //   - Shared lock on workspace (allows concurrent e3 set)
@@ -291,7 +305,6 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         workspace,
         executionId,
         {
-          concurrency: options.concurrency,
           force: options.force,
           filter: options.filter,
         }
@@ -335,6 +348,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
     if (!this.stateStore) {
       throw new DataflowError('Cannot resume: orchestrator has no state store');
     }
+    checkWidth(options.width);
 
     // Same dual-lock model as start()
     const externalLock = !!options.lock;
@@ -637,17 +651,18 @@ export class LocalOrchestrator implements DataflowOrchestrator {
         // that aren't in the stale readyTasks array.
         let hadSyncCompletion = false;
 
-        const concurrencyLimit = Number(state.concurrency);
+        // The loop keeps `width` tasks and units in flight; the runner
+        // decides which of them spawn.
+        const width = options.width ?? DEFAULT_LOOP_WIDTH;
 
         // The units of split tasks in progress launch first, in the order the
-        // tasks started, each counting against the concurrency limit as a
-        // task does. A split task in progress finishes, as a running task
-        // does, even once another task has failed; nothing starts once the
-        // run is aborted.
+        // tasks started, each counting against the width as a task does. A
+        // split task in progress finishes, as a running task does, even once
+        // another task has failed; nothing starts once the run is aborted.
         for (const [taskName, run] of execution.splits) {
           while (
             !checkAborted() &&
-            execution.runningTasks.size < concurrencyLimit &&
+            execution.runningTasks.size < width &&
             !run.stopped &&
             run.next < run.split.stage.units.length
           ) {
@@ -655,12 +670,12 @@ export class LocalOrchestrator implements DataflowOrchestrator {
           }
         }
 
-        // Launch tasks up to concurrency limit if no failure and not aborted
+        // Launch tasks up to the width if no failure and not aborted
         while (
           !execution.hasFailure &&
           !checkAborted() &&
           readyTasks.length > 0 &&
-          execution.runningTasks.size < concurrencyLimit
+          execution.runningTasks.size < width
         ) {
           const taskName = readyTasks.shift()!;
           const taskState = state.tasks.get(taskName);
@@ -1426,7 +1441,6 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       signal: execution.abortController.signal,
       onStdout: options.onStdout ? (data) => options.onStdout!(taskName, data) : undefined,
       onStderr: options.onStderr ? (data) => options.onStderr!(taskName, data) : undefined,
-      jobs: options.jobs,
     };
     if (!options.runner) {
       return taskExecuteUnit(storage, repo, taskHash, unit, execOptions);
@@ -1468,7 +1482,6 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       signal: execution.abortController.signal,
       onStdout: options.onStdout ? (data) => options.onStdout!(taskName, data) : undefined,
       onStderr: options.onStderr ? (data) => options.onStderr!(taskName, data) : undefined,
-      jobs: options.jobs,
       // Unit progress goes to the caller's callback only. The state records
       // a split task's stages, not each unit: a per-unit state rewrite would
       // make persistence O(units²) under the orchestrator mutex.

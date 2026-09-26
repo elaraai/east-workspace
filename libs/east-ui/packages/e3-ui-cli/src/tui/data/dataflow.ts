@@ -88,9 +88,9 @@ export function launchFailureText(err: unknown, ws: string, now: number, g: Glyp
  *
  * @param controller - The controller
  * @param ws - The workspace
- * @param options - `--force`, `--filter`, `--jobs`
+ * @param options - `--force`, `--filter`
  */
-export async function startRun(controller: Controller, ws: string, options: { force: boolean; filter: string | undefined; jobs: number | undefined }): Promise<void> {
+export async function startRun(controller: Controller, ws: string, options: { force: boolean; filter: string | undefined }): Promise<void> {
     const s = controller.state();
     const g = controller.deps.glyphs;
     if (isRunLive(s, ws)) {
@@ -104,8 +104,6 @@ export async function startRun(controller: Controller, ws: string, options: { fo
     }
     const dataflowOptions: DataflowOptions = { force: options.force };
     if (options.filter !== undefined) dataflowOptions.filter = options.filter;
-    // The API carries the jobs budget in its `concurrency` field.
-    if (options.jobs !== undefined) dataflowOptions.concurrency = options.jobs;
     controller.dispatch({ type: 'data/executionFlag', ws, settling: true });
     try {
         await api.dataflowExecuteLaunch(ws, dataflowOptions);

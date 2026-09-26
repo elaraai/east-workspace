@@ -31,6 +31,7 @@ import { initialState, taskView, type View } from './state/actions.js';
 import { createPersister, loadState, repoEntry, statePath, type Persister } from './state/persist.js';
 import { createStore, StoreContext } from './state/store.js';
 import { openSession, SessionRefusal, type Session } from './session.js';
+import { startRepoServer } from '../e3-server.js';
 import { suspendTerminal } from './suspend.js';
 import type { RepoFacts } from './ui/views/about.js';
 import './ui/views/all.js';
@@ -185,7 +186,10 @@ export async function runTui(options: TuiOptions): Promise<number> {
 
     const open = async (target: string): Promise<void> => {
         try {
-            const opened = await openSession(target, { onStep: (step) => store.dispatch({ type: 'view/launchStep', step }) });
+            const opened = await openSession(target, {
+                onStep: (step) => store.dispatch({ type: 'view/launchStep', step }),
+                startServer: (repoPath) => startRepoServer(repoPath, options.budget),
+            });
             if (exited) {
                 await opened.stop();
                 return;

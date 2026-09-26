@@ -45,6 +45,8 @@ e3-api-server --repo /path/to/repo --port 8080 --host 0.0.0.0
 | `--oidc` | Enable built-in OIDC authentication provider |
 | `--token-expiry <duration>` | Access token expiry, e.g., "5s", "15m", "1h" (default: 1h) |
 | `--refresh-token-expiry <duration>` | Refresh token expiry, e.g., "7d", "90d" (default: 90d) |
+| `-j, --jobs <n>` | Cores: runner processes in flight at once, across every run and call the server serves (default: `E3_JOBS`, else the CPUs available) |
+| `--memory <size>` | Memory those runner processes may reserve between them, as `8G` or `512M` (default: `E3_MEMORY`, else the memory available, less a reserve for e3 and the OS) |
 
 ## Programmatic Usage
 
@@ -128,6 +130,9 @@ interface ServerConfig {
   pageByteBudget?: number;        // Byte budget per dataset page (default: 4 MiB)
   transferPartBytes?: number;     // Part size for protocol-2 uploads (default: 64 MiB)
   transferCommitWaitMs?: number;  // How long a protocol-2 commit waits before answering `processing` (default: 5000)
+
+  // Runner processes (optional)
+  budget?: Budget | BudgetSettings;  // Cores and memory every runner the server spawns shares (default: from E3_JOBS / E3_MEMORY, else the machine)
 }
 ```
 

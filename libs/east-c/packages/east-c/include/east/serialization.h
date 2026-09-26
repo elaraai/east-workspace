@@ -278,7 +278,8 @@ bool east_beast2_element_writer_add_encoded(Beast2ElementWriter *w, const uint8_
 ByteBuffer *east_beast2_element_writer_take(Beast2ElementWriter *w);
 // Writes the open segment, then the terminator, index and footer.
 bool east_beast2_element_writer_finish(Beast2ElementWriter *w);
-// Segments written so far; the open one is not counted until it closes.
+// Segments written so far: the open one is not counted until it closes, nor,
+// for a segment writer, one still framing on its pool until the sink takes it.
 size_t east_beast2_element_writer_segments(const Beast2ElementWriter *w);
 void east_beast2_element_writer_free(Beast2ElementWriter *w);
 
@@ -288,9 +289,11 @@ void east_beast2_element_writer_free(Beast2ElementWriter *w);
 // segment's frame, the terminator, and an index naming the one segment — with
 // its element count and its fence, the first key's canonical bytes (a Set
 // element or a Dict key; empty for an Array). The sink returns false with the
-// message posted to fail the add or finish that wrote the segment. A segment
-// writer frames inline — set_parallel leaves it so — and take() returns
-// nothing.
+// message posted to fail the add or finish that wrote the segment. With
+// set_parallel a segment writer frames on a pool, as the blob writer does, and
+// hands each segment over once its frame is done, still in order: an add may
+// hand over segments cut before it, and finish() waits for the rest. take()
+// returns nothing.
 typedef struct {
     void *ctx;
     bool (*segment)(void *ctx, const uint8_t *blob, size_t len, size_t count, const uint8_t *fence,
@@ -616,16 +619,21 @@ Beast2ManifestWriter *east_beast2_manifest_writer_new(EastType *type, int32_t co
 // object in `<path>.segments/`, which is created when missing.
 Beast2ManifestWriter *east_beast2_manifest_writer_new_dir(EastType *type, int32_t codec_id,
                                                           const char *path);
+// Frames the segments on a pool, as east_beast2_element_writer_set_parallel
+// frames a segment writer's; the objects and the manifest are the same bytes.
+void east_beast2_manifest_writer_set_parallel(Beast2ManifestWriter *w, bool parallel);
 bool east_beast2_manifest_writer_add(Beast2ManifestWriter *w, EastValue *element);
 bool east_beast2_manifest_writer_add_pair(Beast2ManifestWriter *w, EastValue *key,
                                           EastValue *value);
 bool east_beast2_manifest_writer_add_encoded(Beast2ManifestWriter *w, const uint8_t *element,
                                              size_t len, size_t key_len);
 bool east_beast2_manifest_writer_finish(Beast2ManifestWriter *w);
-// Segments written so far; the open one is not counted until it closes.
+// Segments written so far: the open one is not counted until it closes, nor
+// one still framing on the pool until it is written.
 size_t east_beast2_manifest_writer_segments(const Beast2ManifestWriter *w);
 void east_beast2_manifest_writer_free(Beast2ManifestWriter *w);
-// One whole Array/Set/Dict value written as a manifest directory at `path`.
+// One whole Array/Set/Dict value written as a manifest directory at `path`,
+// its segments framed on a pool as a paged encode's are.
 bool east_beast2_write_manifest_dir(EastValue *value, EastType *type, int32_t codec_id,
                                     const char *path);
 

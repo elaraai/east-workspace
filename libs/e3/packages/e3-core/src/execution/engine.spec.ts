@@ -25,7 +25,7 @@ import e3, { type TaskDef } from '@elaraai/e3';
 import { decodeTaskObject, decodeUnitPlan, type PartitionProgress } from '@elaraai/e3-types';
 import { taskExecute, taskExecuteBody, type ExecuteOptions, type ExecutionResult } from './LocalTaskRunner.js';
 import { executeSplitTask } from './engine.js';
-import { JobSlots } from './jobs.js';
+import { Budget } from './budget.js';
 import { executionReadLog, inputsHash } from '../executions.js';
 import { uuidv7 } from '../uuid.js';
 import { datasetWrite } from '../trees.js';
@@ -327,7 +327,7 @@ describe('a task split into pieces', () => {
     assert.equal((await storage.refs.executionGetLatest(repo, taskHash, result.inputsHash))?.type, 'cancelled');
   });
 
-  it('takes a slot of the jobs budget for each unit, and reports each unit\'s progress', async () => {
+  it('takes a core of the budget for each unit, and reports each unit\'s progress', async () => {
     const taskHash = await deploy(e3.streamTask('budgeted', {
       inputs: [e3.partition(sales)],
       output: e3.output.dict(IntegerType, IntegerType, { merge: (_$, _key, a, b) => a.add(b) }),
@@ -337,12 +337,12 @@ describe('a task split into pieces', () => {
       });
     }));
 
-    const jobs = new JobSlots(2);
+    const budget = new Budget({ cores: 2, memory: 1024 ** 3 });
     const events: PartitionProgress[] = [];
-    const result = await run(taskHash, [[SalesType, salesOf(8000)]], { jobs, onPartitionProgress: (progress) => events.push(progress) });
+    const result = await run(taskHash, [[SalesType, salesOf(8000)]], { budget, onPartitionProgress: (progress) => events.push(progress) });
     assert.equal(result.state, 'success', result.error ?? '');
-    assert.equal(jobs.peak, 2, 'the units ran two at a time');
-    assert.equal(jobs.inFlight, 0);
+    assert.equal(budget.peak, 2, 'the units ran two at a time');
+    assert.equal(budget.inFlight, 0);
 
     const pieces = events.filter((event) => event.phase === 'partition');
     const total = pieces[0]!.total;

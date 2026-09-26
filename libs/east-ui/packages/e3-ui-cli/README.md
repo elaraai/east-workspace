@@ -32,14 +32,15 @@ e3-ui ./my-repo main --task forecast     # straight to a task (--input <name> fo
 e3-ui https://e3.example.com/repos/demo  # remote — after: e3-ui auth login https://e3.example.com
 e3-ui https://e3.example.com             # a bare origin: the repositories list
 e3-ui --no-mouse --ascii ./my-repo       # keyboard only, box-drawing off (also E3_UI_ASCII=1)
+e3-ui -j 8 --memory 16G ./my-repo        # the embedded server's budget, as for e3 dataflow run
 ```
 
-A local repository is served by an embedded `@elaraai/e3-api-server` for the session; a remote one is reached with the token `e3-ui auth login` saved (the same device flow and `~/.e3/credentials.json` store as `e3 auth`, so either login serves both). Everything is one screen at a time — repositories, workspaces, a workspace's dashboard, a task (`1 Output · 2 Stdout · 3 Stderr · 4 Runs`, plus `5 Reads` for a `ui()` task), an input — with a **command box** along the bottom:
+A local repository is served by an embedded `@elaraai/e3-api-server` for the session, whose runs go under the budget `-j` / `--memory` set (default: `E3_JOBS` / `E3_MEMORY`, else the machine's); a remote one is reached with the token `e3-ui auth login` saved (the same device flow and `~/.e3/credentials.json` store as `e3 auth`, so either login serves both). Everything is one screen at a time — repositories, workspaces, a workspace's dashboard, a task (`1 Output · 2 Stdout · 3 Stderr · 4 Runs`, plus `5 Reads` for a `ui()` task), an input — with a **command box** along the bottom:
 
 | Type | Effect |
 |---|---|
 | `/task <name>` · `/input <name>` · `/workspace <name>` · `/repo <path\|url>` | open things; plain text without `/` fuzzy-jumps to any of them |
-| `/run [--force] [--filter <glob>] [--jobs <n>]` · `/stop` | start / cancel the dataflow (`r` / `x` prefill them); the header pill and the execution panel follow it live |
+| `/run [--force] [--filter <glob>]` · `/stop` | start / cancel the dataflow (`r` / `x` prefill them); the header pill and the execution panel follow it live |
 | `/find <key>` · `/goto <row\|N%>` · `/save [file]` | in a value tree: exact `"key"`, prefix, or struct-key fields `a\|b`; jump; write the `.beast2` bytes |
 | `e` `a` `x` `t` · `⏎ APPLY` · `esc DISCARD` | in an input: edit a leaf, add, remove, tag / set; the commit bar sums the pending changes |
 | `?` | help for the page you are on; `q` quits, `esc` goes back |

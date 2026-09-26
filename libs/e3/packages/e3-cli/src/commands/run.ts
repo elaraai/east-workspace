@@ -23,6 +23,7 @@ import {
 } from '@elaraai/e3-core';
 import { decodeBeast2, variant } from '@elaraai/east';
 import { resolveRepo, parsePackageSpec, formatError, exitError, shortHash } from '../utils.js';
+import { commandBudget, type BudgetFlags } from './budget.js';
 
 /**
  * Parse task specifier: `pkg.task` or `pkg@version.task`.
@@ -60,11 +61,13 @@ export async function runCommand(
   repoArg: string,
   taskSpec: string,
   inputs: string[],
-  options: { output?: string; force?: boolean; verbose?: boolean }
+  options: BudgetFlags & { output?: string; force?: boolean; verbose?: boolean }
 ): Promise<void> {
   try {
     const repoPath = resolveRepo(repoArg);
     const storage = new LocalStorage();
+    // The budget a split task's units take from.
+    const budget = commandBudget(options);
 
     // Parse task specifier
     const { name, version, task } = parseTaskSpec(taskSpec);
@@ -117,6 +120,7 @@ export async function runCommand(
       result = await taskExecute(storage, repoPath, taskHash, inputHashes, {
         force: options.force,
         verbose: options.verbose,
+        budget,
       });
     } finally {
       await lock.release();

@@ -5,7 +5,7 @@
 
 /**
  * Task execution for e3: the `TaskRunner` interface, the local runner, and
- * the process, scratch and jobs-budget mechanics beneath it.
+ * the process, scratch and budget mechanics beneath it.
  */
 
 export {
@@ -49,5 +49,20 @@ export { materializeEnvironment } from './environment.js';
 // Scratch directories of local executions
 export { sweepScratchDirs } from './scratch.js';
 
-// The jobs budget of a local run
-export { JobSlots, defaultJobs, cgroupCpuQuota, type ReleaseSlot } from './jobs.js';
+// The budget of an e3 process: its cores and memory
+export {
+  Budget,
+  resolveBudget,
+  defaultCores,
+  defaultMemory,
+  parseMemory,
+  cgroupCpuQuota,
+  cgroupMemoryMax,
+  unitThreads,
+  UNIT_MAX_THREADS,
+  DOOR_FRAME_WORKERS,
+  type BudgetCapacity,
+  type BudgetRequest,
+  type BudgetSettings,
+  type ReleaseSlot,
+} from './budget.js';

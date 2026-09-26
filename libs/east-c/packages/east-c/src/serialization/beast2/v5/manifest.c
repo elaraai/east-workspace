@@ -382,6 +382,11 @@ Beast2ManifestWriter *east_beast2_manifest_writer_new_dir(EastType *type, int32_
     return w;
 }
 
+void east_beast2_manifest_writer_set_parallel(Beast2ManifestWriter *w, bool parallel)
+{
+    if (w) east_beast2_element_writer_set_parallel(w->writer, parallel);
+}
+
 bool east_beast2_manifest_writer_add(Beast2ManifestWriter *w, EastValue *element)
 {
     return w && east_beast2_element_writer_add(w->writer, element);
@@ -468,6 +473,9 @@ bool east_beast2_write_manifest_dir(EastValue *value, EastType *type, int32_t co
     }
     Beast2ManifestWriter *w = east_beast2_manifest_writer_new_dir(type, codec_id, path);
     if (!w) return false;
+    /* Frames deflate on worker threads, as a paged encode's do; the objects
+     * never depend on it. */
+    east_beast2_manifest_writer_set_parallel(w, true);
     bool ok = true;
     switch (type->kind) {
     case EAST_TYPE_ARRAY:
