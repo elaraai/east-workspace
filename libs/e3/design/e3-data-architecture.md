@@ -278,11 +278,14 @@ One budget, the one setting a person makes, replaces the dataflow's `concurrency
   - Each execution record stores its runner's `peakBytes` with its `success` or `failed` outcome, and a split task's own record the largest of its units'.
   - A unit of a split task reserves the largest peak a unit of its stage — the task's pieces, or one level of their merges — has reached in the run. A unit the execution cache serves counts, since its record holds its peak. Nothing is looked up from earlier runs, so a peak that a changed program or input no longer reaches never sizes a unit.
   - A stage runs its first unit alone, then fans out, while other work runs. A unit with no peak measured before it reserves nothing: a stage's first, a unit of a stage whose runners report no peak, a task run as one unit, a mutation, a function call.
-- **Guard.**
-  - e3 samples usage and admits nothing more near the budget.
-  - Past the budget, it kills the most recently started engine unit (a piece, merge or fold) and requeues it with its observed peak. Units are pure and content-addressed, so a killed unit leaves nothing behind and reruns to the same bytes.
-  - A user task, which may touch outside systems, is killed only when the machine would otherwise run out.
-- **cgroups.** Where delegation is available, each unit runs in its own cgroup with `memory.max` a margin above its reservation, so a runaway unit dies alone and `memory.peak` is exact.
+- **Guard,** on Linux and macOS; Windows keeps reservations alone (decided 2026-09-27).
+  - Every runner the local runner starts is watched while it runs. e3 measures its resident memory every quarter second: its cgroup's working set (`memory.current` less its inactive file cache) where it has one; else, on Linux, the resident memory of its process tree, walked through `/proc` from the runner down, and on macOS its process group's, from one `ps` of every process.
+  - Admission counts a running unit at the larger of its reservation and what it uses, so nothing more starts near the budget.
+  - Past the budget, the guard stops the most recently started engine unit — a piece, or a merge or fold, of a split task — that is not running alone, one at a time. The unit waits for the budget again, reserving the most it reached, and reruns under the same execution id from a clean output directory; its log says why. Units are pure and content-addressed, so a stopped unit leaves nothing behind and reruns to the same bytes.
+  - A user task — a task that runs as one unit, a mutation, a function call — may touch outside systems, so it is stopped only when the machine would otherwise run out: when no engine unit is left to stop and the machine's available memory is under 5% of it. It fails, naming the memory, and so does a unit running alone.
+- **cgroups** (decided 2026-09-27). On Linux, where e3's own cgroup is delegated to it, as `systemd-run --user --scope -p Delegate=yes` delegates one, and `E3_CGROUPS` is not `0`, e3 moves itself into a child cgroup of its own: the kernel requires that before its cgroup's children can take the memory controller. Each unit then runs in a cgroup of its own beside it, which its runner enters before it starts.
+  - A unit with a reservation is capped (`memory.max`) at the reservation plus half, and at least 64 MiB more, so a runaway unit dies alone. One its cap kills is requeued reserving its cap, so each requeue raises the cap by half, and one that needs more than the budget runs alone. A unit with nothing measured yet is not capped: the guard alone watches it.
+  - The peak a unit records stays its runner's own. `memory.peak` counts the page cache the unit's reads and writes fill, so a unit writing 1 GiB would record about 1 GiB more than it used, and every later unit of its stage would reserve that (decided 2026-09-27: the plan had `memory.peak` as the exact peak).
 - **Visibility.** The API serves what the budget is doing with a run's state, where the server has one, so a backend without one serves none: the cores and memory in use against its capacity, a unit waiting for room and how much it needs, and a unit the guard killed and requeued, with the peak it reached. A task's runs carry each execution's `peakBytes`. e3-ui's TUI shows them: the budget, the waits and the requeues in the execution panel, the peaks in the tasks table and the Runs tab, and the budget a run gets in `/run`'s confirmation.
 
 ### 3.9 Automatic parallelism
@@ -325,7 +328,7 @@ The recognizer lives in the e3 SDK (`libs/e3/packages/e3/src/parallel.ts`) as on
 | the piece rule's sizes: 16, 64 and 256 MiB of stored bytes (§3.7) | `--memory` |
 | the RunSorter's buffer cap, which is also the door's cap on a foreign segment | the scratch directory |
 | merge and fold fan-in, 32; merge range size, 64 MiB | the lazy-open threshold |
-| | cgroup use; verbosity |
+| | cgroup use (`E3_CGROUPS`); verbosity |
 
 The left column decides how work, and so floating-point folds, are grouped, which decides output bytes. The right column decides only when work runs (D15).
 
@@ -672,13 +675,19 @@ Built in five parts, in this order (decided 2026-09-26):
 3. **Reservations from measured peaks:** execution records store each unit's `peakBytes`; a split task's unit reserves the largest peak its stage has reached in the run, and a stage runs its first unit alone, then fans out (decided 2026-09-26).
 
    The repository's records (#945) land here, between parts 3 and 4.
-4. **The guard,** and per-unit cgroups where delegation exists.
+4. **The guard,** on Linux and macOS, and per-unit cgroups where e3's cgroup is delegated, on by default and off with `E3_CGROUPS=0`. A unit its cap kills is requeued with its cap raised by half, and a unit records its runner's own peak (decided 2026-09-27).
 5. **The scheduler in e3-ui's TUI:** the budget in use, units waiting for room, each execution's peak and the guard's requeues, served by the API and shown by the TUI, once parts 2–4 have made them.
+
+**Found while building part 4:**
+- Reading every process in `/proc` costs tens of milliseconds of CPU on a busy host: 25 ms read synchronously, and 160 ms read asynchronously, over 1,074 processes. Four times a second, that is a tenth of a core or more. The guard walks each runner's own tree instead, through each thread's list of the children it forked, at about 0.3 ms a runner.
+- Where the machine has swap, a unit's cgroup at its cap swaps rather than dies, and the unit crawls on where it should be killed and run again under a larger cap. A capped unit's cgroup has no swap (`memory.swap.max` 0).
+- In a container, `MemAvailable` is the host's. So the machine the guard protects is the tightest cgroup limit up e3's hierarchy, less that cgroup's working set, where that leaves less than the host has.
 
 Acceptance:
 - With `--memory` set below the sum of the units' peaks, a run completes without the kernel's OOM killer firing, and stays under the budget plus one unit's margin.
 - The frame pool's peak is the same at two output sizes, in a runner's emit sink and in the door.
 - A unit killed by the guard reruns to identical bytes.
+- A unit its cgroup's cap kills is requeued under a cap half as large again, and completes.
 - With no memory pressure, throughput at the default `-j` is no worse than before.
 - The TUI shows a run's budget in use, a unit waiting for room and how much it needs, each execution's peak, and a unit the guard requeued.
 
