@@ -438,11 +438,12 @@ export interface SpawnAndCaptureOptions {
    *  hashed and never logged. They may not set a variable e3 sets itself,
    *  `PATH` or `E3_RUNNER_SEARCH_DIRS`: the spawn refuses one that does. */
   extraEnv?: Readonly<Record<string, string>>;
-  /** Called once the child has spawned, with its pid (or null). The tracked
-   *  path uses this to write the `running` execution status. When it throws,
-   *  the child is stopped and waited for, and the spawn rejects with its
-   *  error. */
-  onSpawned?: (pid: number | null) => void | Promise<void>;
+  /** Called once the child has spawned, with its pid (or null) and the stop
+   *  an abort makes, which ends the child's process group and reports
+   *  `stoppedByE3`: the guard stops a runner with it. The tracked path uses
+   *  this to write the `running` execution status. When it throws, the child
+   *  is stopped and waited for, and the spawn rejects with its error. */
+  onSpawned?: (pid: number | null, stop: () => void) => void | Promise<void>;
 }
 
 /**
@@ -777,7 +778,7 @@ export async function spawnAndCapture(
   let spawnedFailure: { error: unknown } | null = null;
   if (options.onSpawned) {
     try {
-      await options.onSpawned(child.pid ?? null);
+      await options.onSpawned(child.pid ?? null, stopProcessGroup);
     } catch (error) {
       spawnedFailure = { error };
       stopProcessGroup();

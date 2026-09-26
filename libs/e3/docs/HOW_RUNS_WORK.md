@@ -130,6 +130,8 @@ The run's loop decides what is **ready**; the budget decides what **runs**.
   it exits: a task, a piece, a merge, a function call, a mutation or an index
   build. Requests are served first come, first served. One whose memory does
   not fit lets smaller ones pass for ten seconds, then waits for the room.
+  While a runner runs it counts at what it uses when that is more than it
+  reserved, on Linux and macOS, so nothing more starts near the budget.
 
 Work runs in parallel at three levels:
 
@@ -229,3 +231,19 @@ so on a busy server a call waits its turn.
     changed is measured afresh.
   - A task that runs as one unit, a mutation and a function call reserve
     nothing, since nothing before them measured what they need.
+- **The guard watches what runners use,** on Linux and macOS, four times a
+  second.
+  - When the runners together use more than the budget, it stops the unit of a
+    split task that started last, unless that unit runs alone. The unit runs
+    again once the most it reached fits. A unit is pure, so it writes the same
+    bytes the second time, and its log says why it ran twice.
+  - A task that runs as one unit, a mutation or a function call can touch
+    systems outside e3, so the guard stops one only when the machine is nearly
+    out of memory, and it then fails.
+  - On Windows the guard does not run, and units are admitted by what they
+    reserve.
+- **cgroups.** Where e3 runs in a cgroup delegated to it, as
+  `systemd-run --user --scope -p Delegate=yes e3 …` gives it one, each unit runs
+  in a cgroup of its own. A unit whose stage has been measured is capped at
+  half as much again as it reserves, so one that runs away is killed alone, and
+  runs again under a cap half as large again. `E3_CGROUPS=0` turns this off.

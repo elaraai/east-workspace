@@ -377,11 +377,13 @@ describe('a task split into pieces', () => {
     const acquire = budget.acquire.bind(budget);
     budget.acquire = async (request = {}) => {
       asked.push(request.memory ?? 0);
-      const release = await acquire(request);
-      return () => {
+      const grant = await acquire(request);
+      const release = grant.release.bind(grant);
+      grant.release = () => {
         asked.push('released');
         release();
       };
+      return grant;
     };
     const result = await run(taskHash, [[SalesType, salesOf(8000)]], { budget });
     assert.equal(result.state, 'success', result.error ?? '');

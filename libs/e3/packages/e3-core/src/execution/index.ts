@@ -57,20 +57,33 @@ export { materializeEnvironment, decodeEnvironmentFile, nodeLockFilename } from 
 // Scratch directories of local executions
 export { sweepScratchDirs } from './scratch.js';
 
-// The budget of an e3 process: its cores and memory
+// The budget of an e3 process: its cores and memory, and the guard that
+// watches what its runners use
 export {
   Budget,
   resolveBudget,
   defaultCores,
   defaultMemory,
   parseMemory,
-  cgroupCpuQuota,
-  cgroupMemoryMax,
   unitThreads,
   UNIT_MAX_THREADS,
   DOOR_FRAME_WORKERS,
   type BudgetCapacity,
+  type BudgetOptions,
   type BudgetRequest,
   type BudgetSettings,
-  type ReleaseSlot,
+  type Grant,
+  type GrantKind,
+  type GuardStop,
+  type WatchedRunner,
 } from './budget.js';
+export {
+  defaultMemorySampler,
+  type MachineMemory,
+  type MeasuredRunner,
+  type MemorySampler,
+} from './memory.js';
+
+// cgroup v2: the limits of the cgroups this process runs in, and a cgroup of
+// its own for each unit where its cgroup is delegated to e3
+export { cgroupCpuQuota, cgroupMemoryMax, unitCap } from './cgroups.js';

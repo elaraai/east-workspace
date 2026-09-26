@@ -5,7 +5,7 @@
 
 import { describe, it, before, after, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, readdirSync, realpathSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { ArrayType, East, IRType, StringType, encodeBeast2For, none, variant } from '@elaraai/east';
@@ -14,6 +14,7 @@ import { TASK_OBJECT_KIND, TaskObjectType, type ExecutionOwner, type ExecutionSt
 import { LocalTaskRunner, probeExecutionCache, taskExecute } from './LocalTaskRunner.js';
 import { collectNodeModulesBins } from './processExec.js';
 import { Budget } from './budget.js';
+import type { MemorySampler } from './memory.js';
 import { getBootId, getPidStartTime } from './processHelpers.js';
 import { uuidv7 } from '../uuid.js';
 import { inputsHash } from '../executions.js';
@@ -473,7 +474,7 @@ describe('the budget', () => {
   it('holds a function call through a runner holding the budget until it has a core', async () => {
     const budget = new Budget({ cores: 1, memory: 1024 ** 3 });
     const runner = new LocalTaskRunner(repo, budget);
-    const release = await budget.acquire();
+    const held = await budget.acquire();
     const abort = new AbortController();
     const call = runner.runDetached({
       bodyIr: new Uint8Array([1]),
@@ -487,7 +488,119 @@ describe('the budget', () => {
     // Aborted while it waits, it ends as an aborted call does, having spawned nothing.
     abort.abort();
     assert.deepEqual(await call, { kind: 'failed', exitCode: -1, stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false });
-    release();
+    held.release();
+    assert.equal(budget.inFlight, 0);
+  });
+});
+
+describe('the guard', () => {
+  let repo: string;
+  let storage: StorageBackend;
+  let marks: string;
+
+  beforeEach(() => {
+    repo = createTestRepo();
+    storage = new LocalStorage();
+    marks = mkdtempSync(path.join(tmpdir(), 'e3-guard-'));
+  });
+
+  afterEach(() => {
+    removeTestRepo(repo);
+    rmSync(marks, { recursive: true, force: true });
+  });
+
+  const MiB = 1024 ** 2;
+
+  /** A custom bash task that marks each attempt, holds on for `seconds`, and
+   *  copies its input to its output. */
+  async function markingTask(seconds: number, salt: string): Promise<{ taskHash: string; inputHashes: string[] }> {
+    // Forward slashes, as e3 hands a custom runner its own paths.
+    const script = `echo x >> "${marks.split(path.sep).join('/')}/attempts"; sleep ${seconds}; cp "$1" "$2"`;
+    const commandFn = East.function(
+      [ArrayType(StringType), StringType],
+      ArrayType(StringType),
+      ($, inputs, output) => ['bash', '-c', script, salt, inputs.get(0n), output],
+    );
+    const task: TaskObject = {
+      kind: TASK_OBJECT_KIND,
+      body: variant('command', { commandIr: await objectWrite(repo, encodeBeast2For(IRType)(commandFn.toIR().ir)) }),
+      runner: variant('custom', { command: [] }),
+      inputs: [],
+      output: { path: [], kind: variant('value', null) },
+      role: variant('data', null),
+      environment: none,
+    };
+    return {
+      taskHash: await objectWrite(repo, encodeBeast2For(TaskObjectType)(task)),
+      inputHashes: [await storage.objects.write(repo, new Uint8Array([1, 2, 3]))],
+    };
+  }
+
+  const attempts = (): number => readFileSync(path.join(marks, 'attempts'), 'utf8').split('\n').filter((line) => line !== '').length;
+
+  it('runs a unit it stopped past the budget again, reserving what the unit reached, under the same execution, to the same bytes', async () => {
+    // The first runner measured is past the budget; any later one is small.
+    let first: number | undefined;
+    const sampler: MemorySampler = {
+      sample: async (runners) => new Map(runners.map((runner) => {
+        first ??= runner.pid;
+        return [runner.pid, runner.pid === first ? 150 * MiB : MiB];
+      })),
+      machine: async () => null,
+    };
+    const budget = new Budget({ cores: 2, memory: 100 * MiB }, { sampler, sampleMs: 10 });
+    const { taskHash, inputHashes } = await markingTask(0.5, 'past the budget');
+    const result = await new LocalTaskRunner(repo, budget).executeUnit(storage, taskHash, { inputs: inputHashes, merge: null }, { expectedPeakBytes: 10 * MiB });
+
+    assert.equal(result.state, 'success', result.error ?? '');
+    assert.equal(attempts(), 2);
+    const stderr = (await storage.logs.read(repo, taskHash, inputsHash(inputHashes), result.executionId, 'stderr')).data;
+    assert.ok(stderr.includes('e3: the guard stopped the runner at 150 MiB, past the budget of 100 MiB: it runs again once 150 MiB fit\n'), stderr);
+    assert.deepEqual(await storage.refs.executionListIds(repo, taskHash, inputsHash(inputHashes)), [result.executionId], 'one execution, run twice');
+    assert.equal(result.outputHash, inputHashes[0], 'its output is the bytes it copies');
+    assert.equal(budget.inFlight, 0);
+  });
+
+  it('leaves a task past the budget running', async () => {
+    const sampler: MemorySampler = {
+      sample: async (runners) => new Map(runners.map((runner) => [runner.pid, 150 * MiB])),
+      machine: async () => null,
+    };
+    const budget = new Budget({ cores: 2, memory: 100 * MiB }, { sampler, sampleMs: 10 });
+    const { taskHash, inputHashes } = await markingTask(0.3, 'a task');
+    const result = await new LocalTaskRunner(repo, budget).execute(storage, taskHash, inputHashes);
+
+    assert.equal(result.state, 'success', result.error ?? '');
+    assert.equal(attempts(), 1);
+  });
+
+  it('fails a task it stopped with the machine nearly out of memory, and a function call', async () => {
+    const sampler: MemorySampler = {
+      sample: async (runners) => new Map(runners.map((runner) => [runner.pid, 20 * MiB])),
+      machine: async () => ({ available: 1, total: 100 }),
+    };
+    const budget = new Budget({ cores: 2, memory: 100 * MiB }, { sampler, sampleMs: 10 });
+    const runner = new LocalTaskRunner(repo, budget);
+    const { taskHash, inputHashes } = await markingTask(30, 'the machine');
+    const result = await runner.execute(storage, taskHash, inputHashes);
+
+    const cause = 'the guard stopped the runner at 20 MiB, with the machine nearly out of memory';
+    assert.equal(result.state, 'failed');
+    assert.equal(result.exitCode, -1);
+    assert.equal(result.error, `e3: ${cause}`);
+    const status = await storage.refs.executionGet(repo, taskHash, inputsHash(inputHashes), result.executionId);
+    assert.equal(status?.type, 'failed');
+    assert.equal(attempts(), 1, 'not run again');
+
+    const call = await runner.runDetached({
+      bodyIr: new Uint8Array([1]),
+      args: [],
+      runner: variant('custom', { command: ['bash', '-c', 'sleep 30', '--'] }),
+      limits: { timeoutMs: 60_000, maxResultBytes: 1024, maxLogBytes: 1024 },
+    });
+    assert.equal(call.kind, 'failed');
+    assert.equal(call.kind === 'failed' ? call.exitCode : null, -1);
+    assert.ok(call.stderr.endsWith(`e3: ${cause}`), call.stderr);
     assert.equal(budget.inFlight, 0);
   });
 });

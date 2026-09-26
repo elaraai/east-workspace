@@ -30,7 +30,8 @@ import { manifestByteSize, type RunnerValue } from '@elaraai/e3-types';
 import { spawnAndCapture, stageInput, type SpawnAndCaptureResult } from './processExec.js';
 import { callScratchDir } from './scratch.js';
 import { stageCallUnit, unitArgv } from './units.js';
-import { unitThreads, type Budget, type ReleaseSlot } from './budget.js';
+import { unitThreads, type Budget, type Grant } from './budget.js';
+import { unitCgroups } from './cgroups.js';
 import { uuidv7 } from '../uuid.js';
 
 /**
@@ -175,19 +176,25 @@ export async function runDetached(
       : [process.cwd()];
 
     // A call aborted while it waits for the budget never spawns, and ends as
-    // an aborted run does.
-    let release: ReleaseSlot | undefined;
+    // an aborted run does. It is a user task to the budget's guard, stopped
+    // only when the machine is nearly out of memory.
+    let grant: Grant | undefined;
     try {
-      release = await budget?.acquire({ signal: options.signal });
+      grant = await budget?.acquire({ signal: options.signal });
     } catch (err) {
       if (options.signal?.aborted) {
         return { kind: 'failed', exitCode: -1, stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false };
       }
       throw err;
     }
+    // Under a budget the call runs in a cgroup of its own, uncapped, where
+    // e3's cgroup is delegated to it.
+    const cgroups = budget === undefined ? null : await unitCgroups();
+    let cgroup: string | null = null;
     let result: SpawnAndCaptureResult;
     try {
-      result = await spawnAndCapture(args, scratchDir, {
+      if (cgroups !== null) cgroup = await cgroups.create(`call-${uuidv7().replaceAll('-', '')}`, null).catch(() => null);
+      result = await spawnAndCapture(cgroup === null ? args : cgroups!.enter(cgroup, args), scratchDir, {
         timeoutMs: spec.limits.timeoutMs,
         signal: options.signal,
         maxLogBytes: spec.limits.maxLogBytes,
@@ -195,9 +202,13 @@ export async function runDetached(
         extraBins: options.extraBins,
         stdinLifeline: stock,
         extraEnv: options.extraEnv,
+        onSpawned: (pid, stop) => {
+          if (pid !== null) grant?.watch({ pid, stop, ...(cgroup !== null && { cgroup }) });
+        },
       });
     } finally {
-      release?.();
+      grant?.release();
+      if (cgroup !== null) await cgroups!.remove(cgroup);
     }
 
     const streams = {
@@ -209,6 +220,14 @@ export async function runDetached(
 
     if (result.timedOut) {
       return { kind: 'timed_out', ms: spec.limits.timeoutMs, ...streams };
+    }
+
+    // Stopped by the guard, the machine nearly out of memory: failed, saying
+    // so as a stopped task's log does.
+    const stop = grant?.stopped ?? null;
+    if (result.stoppedByE3 && stop !== null && !options.signal?.aborted) {
+      const cause = `e3: the guard stopped the runner at ${Math.round(stop.peak / 1024 ** 2)} MiB, with the machine nearly out of memory`;
+      return { kind: 'failed', exitCode: -1, ...streams, stderr: streams.stderr === '' ? cause : `${streams.stderr}\n${cause}` };
     }
 
     // Stopped because the call was aborted: failed with exit code -1 however

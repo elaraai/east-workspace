@@ -24,18 +24,35 @@
  * alone: it starts once nothing else holds the budget, and nothing starts
  * beside it.
  *
+ * On Linux and macOS a guard watches what the runners use (`memory.ts`). A
+ * runner counts against the memory at the larger of its reservation and what
+ * it uses, so nothing more starts near the budget. Past the budget, the guard
+ * stops the most recently started engine unit — a piece, or a merge or fold,
+ * of a split task — that is not running alone, one at a time, and the unit's
+ * execution runs it again once the most it reached fits: a unit is pure and
+ * content-addressed, so it reruns to the same bytes. A user task — a task run
+ * as one unit, a mutation, a function call — may touch outside systems, so it
+ * is stopped only when the machine would otherwise run out. On Windows the
+ * guard does not run, and the budget admits by reservations alone.
+ *
  * The default capacity is what this process may use: the CPUs of its
  * affinity mask capped by the cgroup v2 CPU quota, the way east-c sizes its
  * own pools, and the tightest cgroup v2 `memory.max` up the hierarchy, else
  * physical memory, less a reserve for e3 itself and the OS.
  */
 
-import { readFileSync } from 'node:fs';
 import { availableParallelism, totalmem } from 'node:os';
-import { posix } from 'node:path';
+import { cgroupCpuQuota, cgroupMemoryMax } from './cgroups.js';
+import { defaultMemorySampler, type MeasuredRunner, type MemorySampler } from './memory.js';
 
-/** Releases what a grant holds; calling it again does nothing. */
-export type ReleaseSlot = () => void;
+/**
+ * What a grant runs, as the guard treats it: an engine unit (`unit`) — a
+ * piece, or a merge or fold, of a split task — which it stops past the budget
+ * and its execution runs again; or a user task (`task`), which may touch
+ * outside systems, and which it stops only when the machine would otherwise
+ * run out.
+ */
+export type GrantKind = 'unit' | 'task';
 
 /** A budget's capacity. */
 export interface BudgetCapacity {
@@ -51,11 +68,72 @@ export interface BudgetRequest {
   memory?: number;
   /** Aborting it while the request waits withdraws it. */
   signal?: AbortSignal;
+  /** What the grant runs (default `task`). */
+  kind?: GrantKind;
+}
+
+/** A runner a grant runs, as the guard watches it. */
+export interface WatchedRunner extends MeasuredRunner {
+  /** Stops the runner and every process it started. */
+  stop(): void;
+}
+
+/** Why the guard stopped a grant's runner. */
+export interface GuardStop {
+  /** `budget` when what the runners used went past the budget, `machine`
+   *  when the machine was nearly out of memory. */
+  readonly reason: 'budget' | 'machine';
+  /** The most the grant's runners were measured using, in bytes. */
+  readonly peak: number;
+}
+
+/** A core and a memory reservation, held for one execution's runners until
+ *  released. */
+export interface Grant {
+  /** The bytes reserved: all of the budget's for a grant that runs alone. */
+  readonly memory: number;
+  /** What the grant runs. */
+  readonly kind: GrantKind;
+  /** Whether it asked for more than the whole budget, and so runs alone. */
+  readonly alone: boolean;
+  /** Why the guard stopped its runner, or `null` while it has not. */
+  readonly stopped: GuardStop | null;
+  /**
+   * Watches a runner the grant runs, from its spawn, so what it uses counts
+   * and the guard may stop it.
+   *
+   * @param runner - The runner
+   */
+  watch(runner: WatchedRunner): void;
+  /** Stops watching the runner, once it has exited. */
+  unwatch(): void;
+  /** Releases the core and the memory; calling it again does nothing. */
+  release(): void;
+}
+
+/** How a budget admits and guards. */
+export interface BudgetOptions {
+  /** How long a request whose memory does not fit lets later ones pass, in
+   *  milliseconds (default ten seconds). */
+  bypassMs?: number;
+  /** What measures the runners and the machine: this platform's by default,
+   *  and none on Windows. `null` runs no guard. */
+  sampler?: MemorySampler | null;
+  /** How often the guard measures, in milliseconds (default a quarter
+   *  second); `0` leaves it to {@link Budget.check}. */
+  sampleMs?: number;
 }
 
 /** How long a request whose memory does not fit lets later ones pass, in
  *  milliseconds, before it holds the line. */
 const BYPASS_MS = 10_000;
+
+/** How often the guard measures, in milliseconds. */
+const SAMPLE_MS = 250;
+
+/** The share of the machine's memory under which the guard stops runners
+ *  that are not over the budget: user tasks, and units running alone. */
+const MACHINE_FLOOR = 0.05;
 
 /** The most the default memory budget keeps back for e3 and the OS; a
  *  smaller machine keeps back a quarter of its memory. */
@@ -79,6 +157,7 @@ export const DOOR_FRAME_WORKERS = 2;
 /** A request waiting for its grant. */
 interface Waiter {
   memory: number;
+  kind: GrantKind;
   /** When it was made, for the time it may let later requests pass. */
   since: number;
   grant: () => void;
@@ -87,17 +166,64 @@ interface Waiter {
   onAbort: (() => void) | undefined;
 }
 
+/** What a budget does for a grant it holds. */
+interface GrantHost {
+  watch(holder: Holder, runner: WatchedRunner): void;
+  unwatch(holder: Holder): void;
+  release(holder: Holder): void;
+}
+
+/** A grant, as the budget holding it keeps it. */
+class Holder implements Grant {
+  /** What its runner was last measured using, in bytes. */
+  usage = 0;
+  /** The most its runners were measured using, in bytes. */
+  measured = 0;
+  /** The runner it watches now. */
+  runner: WatchedRunner | null = null;
+  /** When the runner was watched, in the budget's order of watches. */
+  watchedAt = 0;
+  /** Why the guard stopped it. */
+  stop: GuardStop | null = null;
+  private released = false;
+
+  constructor(
+    private readonly host: GrantHost,
+    readonly memory: number,
+    readonly kind: GrantKind,
+    readonly alone: boolean,
+  ) {}
+
+  get stopped(): GuardStop | null {
+    return this.stop;
+  }
+
+  watch(runner: WatchedRunner): void {
+    if (!this.released) this.host.watch(this, runner);
+  }
+
+  unwatch(): void {
+    if (!this.released) this.host.unwatch(this);
+  }
+
+  release(): void {
+    if (this.released) return;
+    this.released = true;
+    this.host.release(this);
+  }
+}
+
 /**
  * A budget of cores and memory, handed out to runner processes.
  *
  * @example
  * ```ts
  * const budget = new Budget({ cores: 4, memory: 8 * 1024 ** 3 });
- * const release = await budget.acquire({ memory: 512 * 1024 ** 2, signal });
+ * const grant = await budget.acquire({ memory: 512 * 1024 ** 2, kind: 'unit', signal });
  * try {
- *   await spawnRunner();
+ *   await spawnRunner({ onSpawned: (pid, stop) => grant.watch({ pid, stop }) });
  * } finally {
- *   release();
+ *   grant.release();
  * }
  * ```
  */
@@ -107,21 +233,50 @@ export class Budget {
   /** Bytes of memory the runners may reserve between them. */
   readonly memory: number;
   private readonly bypassMs: number;
-  private held = 0;
+  private readonly sampler: MemorySampler | null;
+  private readonly sampleMs: number;
+  private readonly holders = new Set<Holder>();
   private reservedBytes = 0;
   /** Set while a request for more than the whole memory budget runs. */
   private alone = false;
   private peakHeld = 0;
   private readonly queue: Waiter[] = [];
+  private watches = 0;
+  private timer: ReturnType<typeof setInterval> | undefined;
+  private checking = false;
+  private readonly host: GrantHost = {
+    watch: (holder, runner) => {
+      holder.runner = runner;
+      holder.usage = 0;
+      holder.watchedAt = ++this.watches;
+      if (this.timer === undefined && this.sampler !== null && this.sampleMs > 0) {
+        this.timer = setInterval(() => void this.check(), this.sampleMs);
+        this.timer.unref();
+      }
+    },
+    unwatch: (holder) => {
+      holder.runner = null;
+      holder.usage = 0;
+      this.idle();
+      this.grantNext();
+    },
+    release: (holder) => {
+      if (!this.holders.delete(holder)) return;
+      this.reservedBytes -= holder.memory;
+      if (holder.alone) this.alone = false;
+      this.idle();
+      this.grantNext();
+    },
+  };
 
   /**
    * @param capacity - The cores and memory the budget hands out
    * @param options - How long a request that does not fit lets later ones
-   *   pass, in milliseconds (default ten seconds)
+   *   pass, and how the guard measures
    * @throws {RangeError} When the cores are not a positive integer, or the
    *   memory is not a positive number of bytes.
    */
-  constructor(capacity: BudgetCapacity, options: { bypassMs?: number } = {}) {
+  constructor(capacity: BudgetCapacity, options: BudgetOptions = {}) {
     if (!Number.isInteger(capacity.cores) || capacity.cores < 1) {
       throw new RangeError(`cores must be a positive integer, got ${capacity.cores}`);
     }
@@ -131,11 +286,13 @@ export class Budget {
     this.cores = capacity.cores;
     this.memory = capacity.memory;
     this.bypassMs = options.bypassMs ?? BYPASS_MS;
+    this.sampler = options.sampler === undefined ? defaultMemorySampler() : options.sampler;
+    this.sampleMs = options.sampleMs ?? SAMPLE_MS;
   }
 
   /** Runner processes holding the budget right now. */
   get inFlight(): number {
-    return this.held;
+    return this.holders.size;
   }
 
   /** Requests waiting for their grant. */
@@ -154,23 +311,34 @@ export class Budget {
     return this.reservedBytes;
   }
 
+  /** Bytes the grants hold right now, as admission counts them: each at the
+   *  larger of its reservation and what its runner was last measured using. */
+  get used(): number {
+    let bytes = 0;
+    for (const holder of this.holders) bytes += Math.max(holder.memory, holder.usage);
+    return bytes;
+  }
+
   /**
    * Takes a core and the memory asked for, waiting until both fit.
    *
-   * @param request - The memory to reserve, and a signal to withdraw by
-   * @returns The grant's release
+   * @param request - The memory to reserve, what the grant runs, and a signal
+   *   to withdraw by
+   * @returns The grant
    * @throws {Error} With name `AbortError` when the signal aborts before the
    *   grant; the request then holds nothing.
    * @throws {RangeError} When the memory asked for is negative or not a number.
    */
-  acquire(request: BudgetRequest = {}): Promise<ReleaseSlot> {
-    const { memory = 0, signal } = request;
+  acquire(request: BudgetRequest = {}): Promise<Grant> {
+    const { memory = 0, signal, kind = 'task' } = request;
     if (!(memory >= 0)) {
       return Promise.reject(new RangeError(`a request's memory must be a non-negative number of bytes, got ${memory}`));
     }
     if (signal?.aborted) return Promise.reject(abortError());
-    return new Promise<ReleaseSlot>((resolve, reject) => {
-      const waiter: Waiter = { memory, since: Date.now(), grant: () => resolve(this.take(memory)), refuse: reject, signal, onAbort: undefined };
+    return new Promise<Grant>((resolve, reject) => {
+      const waiter: Waiter = {
+        memory, kind, since: Date.now(), grant: () => resolve(this.take(memory, kind)), refuse: reject, signal, onAbort: undefined,
+      };
       if (signal !== undefined) {
         waiter.onAbort = () => {
           const at = this.queue.indexOf(waiter);
@@ -186,29 +354,91 @@ export class Budget {
     });
   }
 
-  /** Whether a request for `memory` bytes fits now. */
-  private fits(memory: number): boolean {
-    if (this.alone || this.held >= this.cores) return false;
-    if (memory > this.memory) return this.held === 0;
-    return this.reservedBytes + memory <= this.memory;
+  /**
+   * Measures the runners the grants watch, and acts on what it finds: admits
+   * what now fits, and past the budget, or with the machine nearly out of
+   * memory, stops one runner. The guard's timer calls it every
+   * {@link BudgetOptions.sampleMs}; a measurement still in progress makes a
+   * call return at once.
+   *
+   * @remarks
+   * One runner is stopped at a time: the next only once the stopped one's
+   * grant is released, its memory freed.
+   */
+  async check(): Promise<void> {
+    if (this.sampler === null || this.checking) return;
+    const watched = [...this.holders].filter((holder) => holder.runner !== null);
+    if (watched.length === 0) return;
+    this.checking = true;
+    try {
+      let usage: Map<number, number>;
+      try {
+        usage = await this.sampler.sample(watched.map((holder) => holder.runner!));
+      } catch {
+        return;
+      }
+      for (const holder of watched) {
+        // A runner that exited while it was measured is no longer counted.
+        const bytes = holder.runner === null ? undefined : usage.get(holder.runner.pid);
+        if (bytes === undefined) continue;
+        holder.usage = bytes;
+        holder.measured = Math.max(holder.measured, bytes);
+      }
+      if (![...this.holders].some((holder) => holder.stop !== null)) await this.guard();
+      this.grantNext();
+    } finally {
+      this.checking = false;
+    }
   }
 
-  private take(memory: number): ReleaseSlot {
+  /** Stops the runner the measurements call for, if any. */
+  private async guard(): Promise<void> {
+    const live = [...this.holders].filter((holder) => holder.runner !== null);
+    const newest = (eligible: (holder: Holder) => boolean): Holder | undefined =>
+      live.filter(eligible).reduce<Holder | undefined>((last, holder) => (last === undefined || holder.watchedAt > last.watchedAt ? holder : last), undefined);
+    const inUse = live.reduce((bytes, holder) => bytes + holder.usage, 0);
+    let target = inUse > this.memory ? newest((holder) => holder.kind === 'unit' && !holder.alone) : undefined;
+    let reason: GuardStop['reason'] = 'budget';
+    if (target === undefined && this.sampler !== null) {
+      let machine = null;
+      try {
+        machine = await this.sampler.machine();
+      } catch {
+        // Unread: the machine is left alone this time.
+      }
+      if (machine !== null && machine.available < machine.total * MACHINE_FLOOR) {
+        target = newest((holder) => holder.kind === 'unit') ?? newest(() => true);
+        reason = 'machine';
+      }
+    }
+    // The target may have exited while the machine was read.
+    if (target === undefined || target.runner === null) return;
+    target.stop = { reason, peak: target.measured };
+    target.runner.stop();
+  }
+
+  /** Stops the guard's timer once no grant watches a runner. */
+  private idle(): void {
+    if (this.timer === undefined || [...this.holders].some((holder) => holder.runner !== null)) return;
+    clearInterval(this.timer);
+    this.timer = undefined;
+  }
+
+  /** Whether a request for `memory` bytes fits now. */
+  private fits(memory: number): boolean {
+    if (this.alone || this.holders.size >= this.cores) return false;
+    if (memory > this.memory) return this.holders.size === 0;
+    return this.used + memory <= this.memory;
+  }
+
+  private take(memory: number, kind: GrantKind): Grant {
     const alone = memory > this.memory;
-    const reserved = alone ? this.memory : memory;
-    this.held++;
-    this.reservedBytes += reserved;
+    const holder = new Holder(this.host, alone ? this.memory : memory, kind, alone);
+    this.holders.add(holder);
+    this.reservedBytes += holder.memory;
     if (alone) this.alone = true;
-    this.peakHeld = Math.max(this.peakHeld, this.held);
-    let released = false;
-    return () => {
-      if (released) return;
-      released = true;
-      this.held--;
-      this.reservedBytes -= reserved;
-      if (alone) this.alone = false;
-      this.grantNext();
-    };
+    this.peakHeld = Math.max(this.peakHeld, this.holders.size);
+    return holder;
   }
 
   /** Grants the waiting requests that fit, in order. The first that does not
@@ -226,7 +456,7 @@ export class Budget {
         continue;
       }
       // Every request needs a core: with none free, nothing fits.
-      if (this.alone || this.held >= this.cores) return;
+      if (this.alone || this.holders.size >= this.cores) return;
       if (!blocked) {
         if (Date.now() - waiter.since >= this.bypassMs) return;
         blocked = true;
@@ -251,97 +481,6 @@ function abortError(): Error {
  */
 export function unitThreads(budget: Budget | undefined): number {
   return Math.min(UNIT_MAX_THREADS, budget?.cores ?? availableParallelism());
-}
-
-/** A file's text, or `null` when it cannot be read. */
-function readTextFile(path: string): string | null {
-  try {
-    return readFileSync(path, 'utf8');
-  } catch {
-    return null;
-  }
-}
-
-/**
- * The tightest of a cgroup v2 control file's limits, from the process's own
- * cgroup up to the root, or `null` when no level sets one.
- *
- * The paths are Linux paths, joined with `/` whatever the host, so the walk
- * reads the same files wherever it is exercised.
- */
-function tightestCgroupLimit(
-  read: (path: string) => string | null,
-  cgroupFile: string,
-  root: string,
-  file: string,
-  parse: (text: string) => number | null,
-): number | null {
-  const membership = read(cgroupFile);
-  if (membership === null) return null;
-  const line = membership.split('\n').find((entry) => entry.startsWith('0::'));
-  if (line === undefined) return null;
-  let relative = line.slice(3).trim();
-  if (relative === '') relative = '/';
-  let tightest: number | null = null;
-  for (;;) {
-    const text = read(posix.join(root, relative, file));
-    const limit = text === null ? null : parse(text.trim());
-    if (limit !== null && (tightest === null || limit < tightest)) tightest = limit;
-    if (relative === '/') break;
-    const slash = relative.lastIndexOf('/');
-    relative = slash <= 0 ? '/' : relative.slice(0, slash);
-  }
-  return tightest;
-}
-
-/**
- * The CPUs a cgroup v2 quota allows this process, or `null` without one.
- *
- * Walks from the process's own cgroup up to the root, reading each level's
- * `cpu.max` (`<quota> <period>` in microseconds, or `max`), and returns the
- * tightest ceiling of `quota / period` — as east-c's `east_cpu_count` does,
- * so e3 and its runners agree on a container's limit.
- *
- * @param read - Reads a file's text, or `null` when it cannot be read
- * @param cgroupFile - The process's cgroup membership (`/proc/self/cgroup`)
- * @param root - The cgroup filesystem's mount point
- * @returns The quota in whole CPUs, or `null` when no level sets one
- */
-export function cgroupCpuQuota(
-  read: (path: string) => string | null = readTextFile,
-  cgroupFile = '/proc/self/cgroup',
-  root = '/sys/fs/cgroup',
-): number | null {
-  return tightestCgroupLimit(read, cgroupFile, root, 'cpu.max', (text) => {
-    const [quota, period] = text.split(/\s+/);
-    if (quota === undefined || quota === 'max') return null;
-    const micros = Number(quota);
-    const per = Number(period ?? '100000');
-    return micros > 0 && per > 0 ? Math.ceil(micros / per) : null;
-  });
-}
-
-/**
- * The memory a cgroup v2 limit allows this process, or `null` without one.
- *
- * Walks from the process's own cgroup up to the root, reading each level's
- * `memory.max` (bytes, or `max`), and returns the tightest.
- *
- * @param read - Reads a file's text, or `null` when it cannot be read
- * @param cgroupFile - The process's cgroup membership (`/proc/self/cgroup`)
- * @param root - The cgroup filesystem's mount point
- * @returns The limit in bytes, or `null` when no level sets one
- */
-export function cgroupMemoryMax(
-  read: (path: string) => string | null = readTextFile,
-  cgroupFile = '/proc/self/cgroup',
-  root = '/sys/fs/cgroup',
-): number | null {
-  return tightestCgroupLimit(read, cgroupFile, root, 'memory.max', (text) => {
-    if (text === 'max') return null;
-    const bytes = Number(text);
-    return Number.isSafeInteger(bytes) && bytes > 0 ? bytes : null;
-  });
 }
 
 /**

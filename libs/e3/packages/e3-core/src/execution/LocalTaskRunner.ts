@@ -28,8 +28,12 @@ import { storeDatasetFile } from '../store-collection.js';
 import { materializeEnvironment } from './environment.js';
 import { runDetached, type DetachedSpec, type DetachedResult, type DetachedRunOptions } from './runDetached.js';
 import { executionScratchDir } from './scratch.js';
-import { unitThreads, type Budget, type ReleaseSlot } from './budget.js';
-import { readUnitResult, stageMergeUnit, stageOutputMerge, stageRunUnit, storeUnitOutput, unitArgv, type MergeParts, type StagedUnit, type TaskUnit } from './units.js';
+import { unitThreads, type Budget, type Grant, type GrantKind } from './budget.js';
+import { unitCap, unitCgroups } from './cgroups.js';
+import {
+  clearUnitOutput, readUnitResult, stageMergeUnit, stageOutputMerge, stageRunUnit, storeUnitOutput, unitArgv,
+  type MergeParts, type StagedUnit, type TaskUnit,
+} from './units.js';
 import { executeSplitTask, isSplitTask } from './engine.js';
 
 /** The pool width — the most units in flight at once — of a task run on its
@@ -56,9 +60,10 @@ export interface ExecuteOptions {
   onStderr?: (data: string) => void;
   /** The process's budget (see {@link Budget}): a runner spawns only while
    *  its execution holds a core, and a split task's units take cores like any
-   *  execution; each unit is granted threads from it. A split task run on its
-   *  own keeps as many units in flight as the budget has cores. Runtime-only,
-   *  and never seen by a remote backend. Absent, spawns are not budgeted. */
+   *  execution; each unit is granted threads from it, and on Linux and macOS
+   *  its guard watches what the runners use. A split task run on its own
+   *  keeps as many units in flight as the budget has cores. Runtime-only, and
+   *  never seen by a remote backend. Absent, spawns are not budgeted. */
   budget?: Budget;
   /** The memory, in bytes, the execution reserves from the budget while its
    *  runner runs: for a unit of a split task, the largest peak its stage has
@@ -256,7 +261,7 @@ export async function taskExecute(
     // owns the task's execution.
     return executeSplitTask(storage, repo, taskHash, task, inputHashes, ids, options,
       (unitInputs, unitIds, merge, expectedPeakBytes) =>
-        taskExecuteBody(storage, repo, taskHash, task, unitInputs, unitIds, { ...options, expectedPeakBytes }, merge),
+        taskExecuteBody(storage, repo, taskHash, task, unitInputs, unitIds, { ...options, expectedPeakBytes }, merge, 'unit'),
       { width: Math.max(1, options.budget?.cores ?? DEFAULT_POOL_WIDTH), owner: await processOwner() });
   }
   return taskExecuteBody(storage, repo, taskHash, task, inputHashes, ids, options);
@@ -293,7 +298,7 @@ export async function taskExecuteUnit(
   const ids = { inHash, executionId: uuidv7(), startTime: Date.now() };
   const task = await readTaskObject(storage, repo, taskHash, unit.inputs, ids);
   if (!('body' in task)) return task;
-  return taskExecuteBody(storage, repo, taskHash, task, unit.inputs, ids, options, unit.merge);
+  return taskExecuteBody(storage, repo, taskHash, task, unit.inputs, ids, options, unit.merge, 'unit');
 }
 
 /** Reads and decodes a task object; or, when it does not read, records the
@@ -415,6 +420,22 @@ export interface ExecutionIds {
   startTime: number;
 }
 
+/** One attempt at an execution's runners: its hold on the budget, the cgroup
+ *  they run in and the cap on it, and the memory the attempt reserves. */
+interface Attempt {
+  grant: Grant | null;
+  cgroup: string | null;
+  cap: number | null;
+  reservation: number;
+}
+
+/** An attempt the guard, or its cgroup's cap, stopped: the memory the next
+ *  attempt reserves, and why, for the execution's log. */
+interface Requeue {
+  requeue: number;
+  cause: string;
+}
+
 /** The standard execution body: scratch dir, input marshalling, the runner's
  *  argv, spawn, and the output through the store's door. The engine runs each
  *  unit of a split task through it.
@@ -429,6 +450,10 @@ export interface ExecutionIds {
  *  Given `merge`, the execution is a merge unit of a split task instead: the
  *  parts and the range are staged, and `inputHashes` are only the identity its
  *  record carries.
+ *
+ *  `kind` says what the execution is to the budget's guard: a split task's
+ *  piece or merge (`unit`), which it stops past the budget, and which then
+ *  runs again once the most it reached fits, or anything else (`task`).
  *  @internal */
 export async function taskExecuteBody(
   storage: StorageBackend,
@@ -439,6 +464,7 @@ export async function taskExecuteBody(
   ids: ExecutionIds,
   options: ExecuteOptions = {},
   merge: MergeParts | null = null,
+  kind: GrantKind = 'task',
 ): Promise<ExecutionResult> {
   const { inHash, executionId, startTime } = ids;
   // What spawns: a stock runner's `exec`, for an East body on a stock runtime;
@@ -575,11 +601,21 @@ export async function taskExecuteBody(
     // Step 7: Get boot ID for crash detection
     const bootId = await getBootId();
 
-    /** Spawns the runner, and resolves with the execution's record when it
-     *  did not end well — `null` when it did. A unit ends well only when
-     *  its runner recorded an `ok` result. */
-    const spawnRunner = async (argv: string[], staged: StagedUnit | null): Promise<ExecutionResult | null> => {
-      const result = await runCommand(storage, repo, taskHash, inHash, executionId, argv, inputHashes, bootId, scratchDir, options, envBins, stock);
+    // Under a budget, each attempt's runners run in a cgroup of their own
+    // where e3's cgroup is delegated to it.
+    const cgroups = options.budget === undefined ? null : await unitCgroups();
+    const mib = (bytes: number): string => `${Math.round(bytes / 1024 ** 2)} MiB`;
+
+    /** Spawns one attempt's runner, and resolves with the execution's record
+     *  when it did not end well — `null` when it did, and what to run again
+     *  with when the guard or the attempt's cap stopped it. A unit ends well
+     *  only when its runner recorded an `ok` result. */
+    const spawnRunner = async (argv: string[], staged: StagedUnit | null, attempt: Attempt): Promise<ExecutionResult | Requeue | null> => {
+      const { grant, cgroup, cap, reservation } = attempt;
+      const result = await runCommand(storage, repo, taskHash, inHash, executionId, cgroup === null ? argv : cgroups!.enter(cgroup, argv),
+        inputHashes, bootId, scratchDir, options, envBins, stock,
+        (pid, stop) => grant?.watch({ pid, stop, ...(cgroup !== null && { cgroup }) }));
+      grant?.unwatch();
       const recorded = staged === null ? null : await readUnitResult(staged);
       if (recorded !== null) peakBytes = Math.max(peakBytes ?? 0, Number(recorded.peakBytes));
       if (result.exitCode === 0) {
@@ -590,6 +626,22 @@ export async function taskExecuteBody(
       // cause, and so does the last line of the execution's stderr log.
       if (result.stoppedByE3 && options.signal?.aborted) {
         return await stoppedResult('cancelled', 'cancelled: e3 stopped the runner because the run was aborted');
+      }
+      // An engine unit the guard stopped runs again once the most it reached
+      // fits. A user task, or a unit running alone, is stopped only when the
+      // machine is nearly out of memory, which running it again would not
+      // change.
+      const stop = grant?.stopped ?? null;
+      if (stop !== null) {
+        if (kind === 'unit' && !(stop.reason === 'machine' && grant!.alone)) {
+          const again = Math.max(reservation, stop.peak);
+          const why = stop.reason === 'budget' ? `past the budget of ${mib(options.budget!.memory)}` : 'with the machine nearly out of memory';
+          return { requeue: again, cause: `the guard stopped the runner at ${mib(stop.peak)}, ${why}: it runs again once ${mib(again)} fit` };
+        }
+        return await stoppedResult('failed', `the guard stopped the runner at ${mib(stop.peak)}, with the machine nearly out of memory`);
+      }
+      if (cap !== null && await cgroups!.capKilled(cgroup!)) {
+        return { requeue: cap, cause: `the runner outgrew its cap of ${mib(cap)}: it runs again under a cap of ${mib(unitCap(cap))}` };
       }
       if (result.timedOut) {
         return await stoppedResult('error', `timed out: e3 stopped the runner after ${options.timeout} ms`);
@@ -625,29 +677,56 @@ export async function taskExecuteBody(
     // other runner the process spawns, and holds them until its last runner
     // process has exited. An execution the run aborts while it waits never
     // spawns: it is recorded cancelled, with no `running` record ever written.
-    let releaseSlot: ReleaseSlot | undefined;
-    if (options.budget !== undefined) {
-      try {
-        releaseSlot = await options.budget.acquire({ memory: options.expectedPeakBytes ?? 0, signal: options.signal });
-      } catch (err) {
-        if (options.signal?.aborted) {
-          return await stoppedResult('cancelled', 'cancelled: e3 did not start the runner because the run was aborted');
-        }
-        throw err;
-      }
-    }
-
+    //
     // Step 8: Execute the command: the unit, then the merge its output needs.
-    try {
-      const failure = await spawnRunner(args, unit);
-      if (failure !== null) return failure;
-      const merge = unit === null ? null : await stageOutputMerge(unit);
-      if (merge !== null) {
-        const mergeFailure = await spawnRunner(unitArgv(unit!.runner, merge, options.verbose), merge);
-        if (mergeFailure !== null) return mergeFailure;
+    // An attempt the guard or its cap stopped is run again from a clean
+    // directory, under the same execution, holding what it reached.
+    let reservation = options.expectedPeakBytes ?? 0;
+    for (let attempts = 1; ; attempts++) {
+      let grant: Grant | null = null;
+      if (options.budget !== undefined) {
+        try {
+          grant = await options.budget.acquire({ memory: reservation, kind, signal: options.signal });
+        } catch (err) {
+          if (options.signal?.aborted) {
+            return await stoppedResult('cancelled', 'cancelled: e3 did not start the runner because the run was aborted');
+          }
+          throw err;
+        }
       }
-    } finally {
-      releaseSlot?.();
+      let cgroup: string | null = null;
+      let ended: ExecutionResult | Requeue | null;
+      try {
+        // A unit its stage has measured is capped a margin above what it
+        // reserves; a unit measured by nothing yet, and a user task, are not.
+        const cap = kind === 'unit' && reservation > 0 ? unitCap(reservation) : null;
+        if (cgroups !== null) {
+          cgroup = await cgroups.create(`unit-${executionId.replaceAll('-', '')}-${attempts}`, cap).catch(() => null);
+        }
+        const attempt: Attempt = { grant, cgroup, cap: cgroup === null ? null : cap, reservation };
+        ended = await spawnRunner(args, unit, attempt);
+        if (ended === null && unit !== null) {
+          const merge = await stageOutputMerge(unit);
+          if (merge !== null) ended = await spawnRunner(unitArgv(unit.runner, merge, options.verbose), merge, attempt);
+        }
+      } finally {
+        grant?.release();
+        if (cgroup !== null) await cgroups!.remove(cgroup);
+      }
+      if (ended === null) break;
+      if (!('requeue' in ended)) return ended;
+      try {
+        await storage.logs.append(repo, taskHash, inHash, executionId, 'stderr', `e3: ${ended.cause}\n`);
+      } catch (err) {
+        console.warn(`Failed to append stderr log: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      if (unit !== null) {
+        await clearUnitOutput(unit);
+      } else {
+        await fs.rm(outputPath, { recursive: true, force: true });
+      }
+      reservation = ended.requeue;
+      peakBytes = undefined;
     }
 
     // Step 9: take the output into the store through its door: a collection a
@@ -748,6 +827,9 @@ function createLogAppender(append: (data: string) => Promise<void>, stream: 'std
  * Each stream's appends run one at a time and the chunks that queue behind one
  * are coalesced; a chunk counts as pending until its append settles, so a
  * runner that writes faster than the log is appended blocks on its pipe.
+ *
+ * `onRunner` is given the runner's pid and the stop an abort makes as soon as
+ * it has spawned, for the budget's guard to watch it by.
  */
 async function runCommand(
   storage: StorageBackend,
@@ -761,7 +843,8 @@ async function runCommand(
   scratchDir: string,
   options: ExecuteOptions,
   extraBins: string[] = [],
-  stdinLifeline = false
+  stdinLifeline = false,
+  onRunner?: (pid: number, stop: () => void) => void,
 ): Promise<{ exitCode: number | null; signal: NodeJS.Signals | null; stoppedByE3: boolean; timedOut: boolean; error: string | null }> {
   const stdoutLog = createLogAppender(
     (data) => storage.logs.append(repo, taskHash, inHash, executionId, 'stdout', data), 'stdout');
@@ -799,7 +882,8 @@ async function runCommand(
         return appended;
       },
       // Write running status with actual child PID
-      onSpawned: async (pid) => {
+      onSpawned: async (pid, stop) => {
+        if (pid !== null) onRunner?.(pid, stop);
         const pidStartTime = await getPidStartTime(pid ?? -1);
         const startedAt = new Date();
         const status: ExecutionStatus = variant('running', {

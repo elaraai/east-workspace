@@ -89,6 +89,12 @@ export interface MergeParts {
 /** The file a unit's result is recorded in, beside the unit. */
 const RESULT_FILE = 'result.beast2';
 
+/** The merge a run unit's output needs when it closed several runs: its unit
+ *  file, its result, and the directory its one run is written to. */
+const OUTPUT_MERGE_FILE = 'merge-unit.beast2';
+const OUTPUT_MERGE_RESULT = 'merge-result.beast2';
+const OUTPUT_MERGE_DIR = 'merged';
+
 /** A path a unit names: relative to the unit's directory, with forward slashes,
  *  which every runtime reads on every platform. */
 const unitPath = (dir: string, file: string): string => path.relative(dir, file).split(path.sep).join('/');
@@ -324,15 +330,36 @@ export async function stageOutputMerge(unit: TaskUnit): Promise<StagedUnit | nul
     work: variant('merge', {
       parts: runs,
       range: none,
-      output: output.type === 'set' ? variant('set', 'merged') : variant('dict', { dir: 'merged', merge: output.value.merge }),
+      output: output.type === 'set'
+        ? variant('set', OUTPUT_MERGE_DIR)
+        : variant('dict', { dir: OUTPUT_MERGE_DIR, merge: output.value.merge }),
     }),
     platforms: unit.unit.platforms,
     threads: unit.unit.threads,
-    result: 'merge-result.beast2',
+    result: OUTPUT_MERGE_RESULT,
   };
-  const file = path.join(unit.dir, 'merge-unit.beast2');
+  const file = path.join(unit.dir, OUTPUT_MERGE_FILE);
   await fs.writeFile(file, encodeBeast2For(UnitType)(merge));
-  return { file, result: path.join(unit.dir, 'merge-result.beast2') };
+  return { file, result: path.join(unit.dir, OUTPUT_MERGE_RESULT) };
+}
+
+/**
+ * Removes what a unit's runners wrote — its output, its result, and the merge
+ * its output needed with what that wrote — so the unit runs again from a clean
+ * directory, as it does once the guard, or its cgroup's cap, has stopped it: a
+ * runner writes its output directories only when they are empty.
+ *
+ * @param unit - The unit, staged
+ */
+export async function clearUnitOutput(unit: TaskUnit): Promise<void> {
+  const output = unit.unit.work.value.output;
+  const written = output.type === 'value' ? output.value
+    : output.type === 'fold' ? output.value.path
+      : output.type === 'dict' ? output.value.dir
+        : output.value;
+  for (const name of [written, `${written}.segments`, RESULT_FILE, OUTPUT_MERGE_FILE, OUTPUT_MERGE_RESULT, OUTPUT_MERGE_DIR]) {
+    await fs.rm(path.join(unit.dir, name), { recursive: true, force: true });
+  }
 }
 
 /**
@@ -377,7 +404,7 @@ export async function storeUnitOutput(storage: StorageBackend, repo: string, uni
     case 'set':
     case 'dict': {
       const runs = await outputRuns(unit);
-      if (runs.length > 1) return storeDatasetFile(storage, repo, at('merged/0.beast2'), { canonical: true });
+      if (runs.length > 1) return storeDatasetFile(storage, repo, at(`${OUTPUT_MERGE_DIR}/0.beast2`), { canonical: true });
       if (runs.length === 1) return storeDatasetFile(storage, repo, at(runs[0]!), { canonical: true });
       const program = decodeEastIR(await fs.readFile(at(work.value.program)));
       const signature = (program.ir as { value: { type: EastTypeValue } }).value.type.value as { inputs: EastTypeValue[] };
