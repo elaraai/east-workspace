@@ -10,7 +10,10 @@
  * runDetached: stage the program and its arguments → run them on a runner →
  * return the result value inline; write nothing durable. No task object, no
  * output object, no execution record, no logs, no dataset ref. The only disk
- * write is the transient scratch directory, removed on completion.
+ * write is the transient scratch directory, removed on completion: inside the
+ * repository for a local runner, as an execution's is, or the OS temp
+ * directory without one. An argument is a value, or a stored dataset, which is
+ * staged as a task input is and never read here.
  *
  * A stock runner runs the call as a unit through its `exec` (units.ts); a
  * `custom` runner runs its command with `run`'s arguments, as a custom task's
@@ -24,9 +27,17 @@ import { tmpdir } from 'os';
 import { randomBytes } from 'crypto';
 import { encodeBeast2SegmentsFor, readBeast2Manifest, spliceBeast2 } from '@elaraai/east';
 import { manifestByteSize, type RunnerValue } from '@elaraai/e3-types';
-import { spawnAndCapture, type SpawnAndCaptureResult } from './processExec.js';
+import { spawnAndCapture, stageInput, type SpawnAndCaptureResult } from './processExec.js';
+import { callScratchDir } from './scratch.js';
 import { stageCallUnit, unitArgv } from './units.js';
 import { unitThreads, type Budget, type ReleaseSlot } from './budget.js';
+import { uuidv7 } from '../uuid.js';
+
+/**
+ * An argument of a detached run: a value's beast2 bytes, or a stored dataset,
+ * by the hash of the object its ref names.
+ */
+export type DetachedArg = Uint8Array | { readonly dataset: string };
 
 /**
  * Specification of a detached run.
@@ -34,8 +45,12 @@ import { unitThreads, type Budget, type ReleaseSlot } from './budget.js';
 export interface DetachedSpec {
   /** function: from FunctionObject; one-shot: from request */
   bodyIr: Uint8Array;
-  /** positional arg values (beast2), already validated for arity */
-  args: Uint8Array[];
+  /** Positional arguments, already validated for arity. A stored dataset is
+   *  staged as a task input is — a collection as its manifest with the
+   *  segments linked, which a stock runner opens lazily, or spliced into one
+   *  file for a custom command — so a large one never passes through this
+   *  process. */
+  args: DetachedArg[];
   /** wire runner variant: a stock runner runs the call as a unit, a custom
    *  one its command */
   runner: RunnerValue;
@@ -75,9 +90,16 @@ export interface DetachedRunOptions {
   /** Executable dirs prepended to the child PATH (a materialized
    *  environment's bin dir). */
   extraBins?: string[];
-  /** Storage backend for materializing `spec.environment` (local runner);
-   *  required when the spec declares an environment. */
+  /** Storage backend for materializing `spec.environment` and staging a
+   *  stored dataset argument (local runner); required when the spec declares
+   *  an environment or has a dataset argument. */
   storage?: StorageBackend;
+  /** The repository a local runner runs the call for. The call runs in a
+   *  scratch directory under its scratch root, as an execution does, so a
+   *  dataset argument's segments are linked rather than copied; required,
+   *  with `storage`, when the spec has a dataset argument. Without it the
+   *  call runs in the OS temp directory. */
+  repo?: string;
   /** Pass `-v` to a stock runner's `exec`, so it prints where the time went
    *  and its peak memory to stderr. */
   verbose?: boolean;
@@ -86,7 +108,8 @@ export interface DetachedRunOptions {
 /**
  * Run a function on a runner, returning its value inline.
  *
- * The program and arguments are written to a scratch directory and the runner
+ * The program and arguments are staged in a scratch directory — a value
+ * written, a stored dataset staged as a task input is — and the runner
  * spawned, with bounded tails of stdout and stderr. On exit 0 the output is
  * sized before it is read, so a value over `maxResultBytes` is `too_large`
  * and never loaded. A collection, which `exec` writes as a manifest naming its
@@ -102,33 +125,42 @@ export interface DetachedRunOptions {
  *   from it. Absent, the spawn is not budgeted, and the unit is granted the
  *   CPUs this process may use, up to four.
  * @returns The call's value inline, or how it failed
+ * @throws {Error} When an argument is a stored dataset and `options` gives no
+ *   `storage` and `repo` to stage it from.
  */
 export async function runDetached(
   spec: DetachedSpec,
   options: DetachedRunOptions = {},
   budget?: Budget
 ): Promise<DetachedResult> {
-  const scratchDir = path.join(
-    tmpdir(),
-    `e3-call-${process.pid}-${Date.now()}-${randomBytes(4).toString('hex')}`
-  );
+  const scratchDir = options.repo !== undefined
+    ? await callScratchDir(options.repo, uuidv7().replaceAll('-', ''))
+    : path.join(tmpdir(), `e3-call-${process.pid}-${Date.now()}-${randomBytes(4).toString('hex')}`);
   await fs.mkdir(scratchDir, { recursive: true });
 
   try {
+    // A stock runner runs the call as a unit, and exits with this process: the
+    // stdin lifeline pipe below and `--exit-with-parent` on its command line.
+    // A custom command is given `run`'s arguments, and left alone.
+    const runner = spec.runner;
+    const stock = runner.type !== 'custom';
     const program = path.join(scratchDir, 'program.beast2');
     await fs.writeFile(program, spec.bodyIr);
     const inputs: string[] = [];
     for (const [i, arg] of spec.args.entries()) {
       const input = path.join(scratchDir, `input-${i}.beast2`);
-      await fs.writeFile(input, arg);
+      if (arg instanceof Uint8Array) {
+        await fs.writeFile(input, arg);
+      } else if (options.storage === undefined || options.repo === undefined) {
+        throw new Error(`argument ${i + 1} is a stored dataset, which is staged from a repository: runDetached needs options.storage and options.repo`);
+      } else {
+        // As a task input: a stock runner opens a manifest and reads only the
+        // segments it touches, and a command gets its own copy of one file.
+        await stageInput(options.storage, options.repo, arg.dataset, input, { link: stock, manifests: stock });
+      }
       inputs.push(input);
     }
     const outputPath = path.join(scratchDir, 'output.beast2');
-    // A stock runner runs the call as a unit, and exits with this process: the
-    // stdin lifeline pipe below and `--exit-with-parent` on its command line.
-    // A custom command is given `run`'s arguments, and left alone.
-    const runner = spec.runner;
-    const stdinLifeline = runner.type !== 'custom';
     const args = runner.type === 'custom'
       ? [...runner.value.command, ...inputs.flatMap((input) => ['-i', input]), '-o', outputPath, program]
       : unitArgv(runner, await stageCallUnit(scratchDir, runner, program, inputs, outputPath, unitThreads(budget)), options.verbose);
@@ -156,7 +188,7 @@ export async function runDetached(
         maxLogBytes: spec.limits.maxLogBytes,
         searchDirs,
         extraBins: options.extraBins,
-        stdinLifeline,
+        stdinLifeline: stock,
       });
     } finally {
       release?.();

@@ -175,9 +175,10 @@ A commit made during a run behaves like `e3 dataset set` during a run:
 ## Functions
 
 A call of an `e3.function` is one unit, never split, and is not part of the
-dataflow. e3 writes the program and its arguments to a temporary directory,
-starts the runner once it has a core, and returns the value inline. Nothing is
-stored (no output, no execution record, no cache), so every call runs.
+dataflow. e3 stages the program and its arguments in a scratch directory
+inside the repository, starts the runner once it has a core, and returns the
+value inline. Nothing is stored (no output, no execution record, no cache), so
+every call runs.
 
 Calls are sized for a request and its response:
 
@@ -191,8 +192,9 @@ Calls are sized for a request and its response:
   10 minutes, and a call the server answers synchronously is held to the
   server's own deadline.
 - **One-shot calls.** A one-shot call runs code the caller sends, and can name a
-  dataset as an argument. The server reads that dataset whole into its own
-  memory, so pass it only small ones.
+  dataset as an argument. The server never reads that dataset: the runner gets
+  it as a task gets an input, its manifest with the segments linked, and reads
+  only what it touches.
 
 Anything larger belongs in a task, whose output is a dataset.
 

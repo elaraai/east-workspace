@@ -12,12 +12,14 @@
  * from the manifest `exec` writes, a failure, and the size cap. A fake runner
  * planted in a temp node_modules/.bin, and reached via runnerSearchDir, drives
  * what depends only on the process: the command line and the stdin lifeline,
- * a runner that writes nothing, and slow runs.
+ * a runner that writes nothing, and slow runs. Through a local runner, a
+ * stored dataset argument is staged as a task input is, in the repository's
+ * scratch root.
  */
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readdirSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readdirSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { randomBytes } from 'node:crypto';
@@ -27,6 +29,11 @@ import {
 } from '@elaraai/east';
 import { collectVenvBins, spawnAndCapture } from './processExec.js';
 import { runDetached } from './runDetached.js';
+import { LocalTaskRunner } from './LocalTaskRunner.js';
+import { scratchRoot } from './scratch.js';
+import { readDatasetWhole } from '../dataset-open.js';
+import { LocalStorage } from '../storage/local/index.js';
+import { createTestRepo, encodeInSegmentsOf, removeTestRepo, storeSegmentsOf } from '../test-helpers.js';
 
 const isWindows = process.platform === 'win32';
 const venvBinSubdir = isWindows ? 'Scripts' : 'bin';
@@ -488,5 +495,88 @@ if (mode === 'sleep') setTimeout(() => {}, 30000);
     // A stopped call fails with exit code -1 on every platform.
     assert.equal(result.kind, 'failed');
     assert.equal((result as { exitCode: number }).exitCode, -1);
+  });
+});
+
+describe('runDetached over a repository', () => {
+  let repo: string;
+  let searchDir: string;
+  /** A custom command reporting how its input was staged. */
+  let reportInput: string;
+  /** A stored table of three thousand rows in three segments, each valued twice its key. */
+  let table: string;
+  const storage = new LocalStorage();
+  const limits = { timeoutMs: 60_000, maxResultBytes: 1024, maxLogBytes: 64 * 1024 };
+  const TableType = DictType(IntegerType, IntegerType);
+
+  before(async () => {
+    repo = createTestRepo();
+    const rows = new Map(Array.from({ length: 3_000 }, (_, i) => [BigInt(i), 2n * BigInt(i)] as [bigint, bigint]));
+    table = await storeSegmentsOf(storage, repo, encodeInSegmentsOf(TableType, 1_000)(rows));
+    searchDir = mkdtempSync(path.join(tmpdir(), 'e3-staging-runner-'));
+    const binDir = path.join(searchDir, 'node_modules', '.bin');
+    mkdirSync(binDir, { recursive: true });
+    // A stock runner reporting where it runs and the segments staged beside
+    // its input, writing an output beside its unit.
+    plantNodeBin(binDir, 'east-c', [
+      'const fs = require("fs");',
+      'const path = require("path");',
+      'const dir = path.dirname(process.argv.slice(2).find((a) => a.endsWith("unit.beast2")));',
+      'fs.writeFileSync(path.join(dir, "output.beast2"), Buffer.from([1]));',
+      'const segments = path.join(dir, "input-0.beast2.segments");',
+      'process.stdout.write(dir + "|" + (fs.existsSync(segments) ? fs.readdirSync(segments).length : "none"));',
+    ].join('\n'));
+    reportInput = plantNodeBin(binDir, 'report-input', [
+      'const fs = require("fs");',
+      'const args = process.argv.slice(2);',
+      'const input = args[args.indexOf("-i") + 1];',
+      'fs.writeFileSync(args[args.indexOf("-o") + 1], Buffer.from([1]));',
+      'process.stdout.write(fs.existsSync(input + ".segments") + "|" + fs.statSync(input).size);',
+    ].join('\n'));
+  });
+
+  after(() => {
+    removeTestRepo(repo);
+    rmSync(searchDir, { recursive: true, force: true });
+  });
+
+  it('stages a stored dataset argument as its manifest and segments, in the repository\'s scratch root', async () => {
+    const result = await new LocalTaskRunner(repo).runDetached(
+      { bodyIr: new Uint8Array([0]), args: [{ dataset: table }], runner: variant('east_c', { platforms: [] }), limits },
+      { storage, runnerSearchDir: searchDir },
+    );
+    assert.equal(result.kind, 'success', result.stderr);
+    const [dir, segments] = result.stdout.split('|');
+    assert.equal(segments, '3', 'the manifest, with its three segments beside it');
+    assert.equal(realpathSync(path.dirname(dir!)), realpathSync(scratchRoot(repo)));
+    assert.ok(path.basename(dir!).startsWith(`e3-call-${process.pid}-`), dir);
+    assert.deepEqual(readdirSync(scratchRoot(repo)), [], 'the call removed its scratch directory');
+  });
+
+  it('lets a stock runner read a stored dataset argument from its manifest', async () => {
+    // The real east-node, found from this package's node_modules.
+    const last = East.function([TableType], IntegerType, ($, t) => t.get(2_999n));
+    const result = await new LocalTaskRunner(repo).runDetached(
+      { bodyIr: encodeEastIR(last.toIR()), args: [{ dataset: table }], runner: variant('east_node', { platforms: [] }), limits },
+      { storage },
+    );
+    assert.equal(result.kind, 'success', result.stderr);
+    assert.equal(decodeBeast2For(IntegerType)((result as { value: Uint8Array }).value), 5_998n);
+  });
+
+  it('splices a stored dataset argument into one file for a custom command', async () => {
+    const result = await new LocalTaskRunner(repo).runDetached(
+      { bodyIr: new Uint8Array([0]), args: [{ dataset: table }], runner: variant('custom', { command: [reportInput] }), limits },
+      { storage, runnerSearchDir: searchDir },
+    );
+    assert.equal(result.kind, 'success', result.stderr);
+    assert.equal(result.stdout, `false|${(await readDatasetWhole(storage, repo, table)).byteLength}`);
+  });
+
+  it('refuses a stored dataset argument with no repository to stage it from', async () => {
+    await assert.rejects(
+      runDetached({ bodyIr: new Uint8Array([0]), args: [{ dataset: table }], runner: variant('east_c', { platforms: [] }), limits }, { runnerSearchDir: searchDir }),
+      { message: 'argument 1 is a stored dataset, which is staged from a repository: runDetached needs options.storage and options.repo' },
+    );
   });
 });

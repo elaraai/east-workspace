@@ -19,12 +19,11 @@
 import { ArrayType, variant, none } from '@elaraai/east';
 import {
   packageRead,
-  readDatasetWhole,
   workspaceGetPackage,
   workspaceGetDatasetHash,
   TaskNotFoundError,
 } from '@elaraai/e3-core';
-import type { StorageBackend, TaskRunner, DetachedResult } from '@elaraai/e3-core';
+import type { StorageBackend, TaskRunner, DetachedArg, DetachedResult } from '@elaraai/e3-core';
 import { type FunctionObject, type RunnerValue, type TreePath, decodeFunctionObject } from '@elaraai/e3-types';
 import { sendSuccess, sendError } from '../beast2.js';
 import { errorToVariant } from '../errors.js';
@@ -194,10 +193,11 @@ async function executeFunction(
 /**
  * Resolve one-shot args: inline values pass through; dataset paths are
  * resolved + pinned by content hash at launch (objects are immutable, so no
- * lock is needed — snapshot consistency) and read whole, so a collection,
- * whose ref names its manifest, reaches the runner as its value.
+ * lock is needed — snapshot consistency) and handed to the runner by that
+ * hash, which it stages as a task input is: never read here, whatever its
+ * size.
  *
- * @returns The arg bytes, or an `invalid` ExecuteResult if a dataset arg is
+ * @returns The args, or an `invalid` ExecuteResult if a dataset arg is
  *   unassigned.
  */
 async function resolveOneShotArgs(
@@ -205,12 +205,12 @@ async function resolveOneShotArgs(
   repoPath: string,
   workspace: string,
   args: OneShotRequest['args']
-): Promise<{ ok: true; bytes: Uint8Array[] } | { ok: false; invalid: ExecuteResult }> {
-  const bytes: Uint8Array[] = [];
+): Promise<{ ok: true; args: DetachedArg[] } | { ok: false; invalid: ExecuteResult }> {
+  const resolved: DetachedArg[] = [];
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
     if (arg.type === 'value') {
-      bytes.push(arg.value as Uint8Array);
+      resolved.push(arg.value as Uint8Array);
     } else {
       const path = arg.value as TreePath;
       const { refType, hash } = await workspaceGetDatasetHash(storage, repoPath, workspace, path);
@@ -220,10 +220,10 @@ async function resolveOneShotArgs(
           invalid: invalidResult(`Dataset argument ${i} is not assigned (ref type: ${refType})`),
         };
       }
-      bytes.push(await readDatasetWhole(storage, repoPath, hash));
+      resolved.push({ dataset: hash });
     }
   }
-  return { ok: true, bytes };
+  return { ok: true, args: resolved };
 }
 
 /** Execute a one-shot request (bodyIr from the request). */
@@ -245,11 +245,11 @@ async function executeOneShot(
   const result = await runner.runDetached(
     {
       bodyIr: req.bodyIr as Uint8Array,
-      args: resolved.bytes,
+      args: resolved.args,
       runner: req.runner,
       limits,
     },
-    { signal, verbose }
+    { signal, verbose, storage }
   );
   return detachedToExecuteResult(result);
 }

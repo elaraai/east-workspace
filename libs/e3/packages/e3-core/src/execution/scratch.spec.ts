@@ -4,8 +4,8 @@
  */
 
 /**
- * Scratch directories of local executions (issue #770): where they are
- * created, how they are named, and which ones a sweep removes.
+ * Scratch directories of local executions (issue #770) and calls: where they
+ * are created, how they are named, and which ones a sweep removes.
  */
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
@@ -13,7 +13,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
-import { executionScratchDir, scratchRoot, sweepScratchDirs } from './scratch.js';
+import { callScratchDir, executionScratchDir, scratchRoot, sweepScratchDirs } from './scratch.js';
 import { getPidStartTime } from './processHelpers.js';
 import { deadPid } from '../test-helpers.js';
 
@@ -51,6 +51,13 @@ describe('scratch directories', () => {
     assert.equal(path.basename(dir), `e3-exec-aaaaaaaa-bbbbbbbb-${process.pid}-${pidStartTime}-01900000000070008000000000000001`);
   });
 
+  it('names a call\'s directory after this process and the call', async () => {
+    const dir = await callScratchDir(repo, '01900000000070008000000000000001');
+    assert.equal(path.dirname(dir), root);
+    const pidStartTime = await getPidStartTime(process.pid);
+    assert.equal(path.basename(dir), `e3-call-${process.pid}-${pidStartTime}-01900000000070008000000000000001`);
+  });
+
   it('gives two attempts at one execution a directory each', async () => {
     // Two mutations of a record over the same state with the same arguments
     // are one execution, and they run at once: in one directory, each would
@@ -62,12 +69,13 @@ describe('scratch directories', () => {
 
   it('removes the directories of exited owners and keeps the rest', async () => {
     const dead = deadPid();
-    const live = path.basename(await executionScratchDir(repo, 'a'.repeat(64), 'b'.repeat(64), '01900000-0000-7000-8000-000000000001'));
     const names = {
-      live,
+      live: path.basename(await executionScratchDir(repo, 'a'.repeat(64), 'b'.repeat(64), '01900000-0000-7000-8000-000000000001')),
+      liveCall: path.basename(await callScratchDir(repo, '01900000000070008000000000000004')),
       exitedOwner: `e3-exec-aaaaaaaa-bbbbbbbb-${dead}-12345-01900000000070008000000000000002`,
+      exitedCall: `e3-call-${dead}-12345-01900000000070008000000000000005`,
       reusedPid: `e3-exec-aaaaaaaa-bbbbbbbb-${process.pid}-12345-01900000000070008000000000000003`,
-      unrelated: `e3-call-${dead}-${Date.now()}-abcd`,
+      unrelated: 'e3-other-directory',
     };
     for (const name of Object.values(names)) mkdirSync(path.join(root, name));
 
@@ -78,10 +86,10 @@ describe('scratch directories', () => {
     // process, now running — still counts as the owner.
     const startTimes = process.platform !== 'win32';
     assert.equal((await getPidStartTime(process.pid)) !== 0, startTimes, 'this platform reports start times');
-    assert.equal(removed, startTimes ? 2 : 1);
+    assert.equal(removed, startTimes ? 3 : 2);
     assert.deepEqual(
       readdirSync(root).sort(),
-      [names.live, names.unrelated, ...(startTimes ? [] : [names.reusedPid])].sort(),
+      [names.live, names.liveCall, names.unrelated, ...(startTimes ? [] : [names.reusedPid])].sort(),
     );
     assert.equal(existsSync(path.join(root, names.reusedPid)), !startTimes,
       startTimes ? 'a pid now running with another start time is not the owner' : 'with no start time, a live pid is the owner');

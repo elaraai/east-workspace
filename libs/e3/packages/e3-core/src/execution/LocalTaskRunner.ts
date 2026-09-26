@@ -154,6 +154,10 @@ export class LocalTaskRunner implements TaskRunner {
       // project dir), matching the tracked path's walk-up in spawnAndCapture.
       runnerSearchDir: options?.runnerSearchDir ?? path.dirname(this.repo),
       extraBins,
+      // The call runs in the repository's scratch root, as an execution does,
+      // and a dataset argument is staged from the repository.
+      storage: options?.storage,
+      repo: this.repo,
     }, this.budget);
   }
 }

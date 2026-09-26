@@ -111,20 +111,65 @@ export interface MarshalInputsOptions {
 }
 
 /**
- * Marshal input objects to staged `.beast2` files in a scratch directory.
+ * Stages one stored dataset at `inputPath`, for a runner to read.
  *
  * @remarks
  * The bytes never pass through this process's heap: the backend places each
  * object (`ObjectStore.materialize`), a backend whose objects are files by a
- * link or one kernel copy. Before #767 this read each object whole — measured
- * at 2.1 GB of orchestrator RSS on every execution over a 2 GB input, for
- * bytes the runner then opened lazily anyway.
+ * link or one kernel copy. Before #767 an input was read whole — measured at
+ * 2.1 GB of orchestrator RSS on every execution over a 2 GB input, for bytes
+ * the runner then opened lazily anyway.
  *
- * An input stored as a segment manifest is staged as the manifest plus one
+ * A dataset stored as a segment manifest is staged as the manifest plus one
  * linked file per segment for a runner that opens the layout, and spliced
  * into one file for a runner that does not. Peak memory is one segment
  * either way; for the first, no segment's bytes move at all. An indexed
  * record's `$record` state is never staged: its primary is, the rows.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param dataset - The hash of the object the dataset's ref names
+ * @param inputPath - Where the input is staged
+ * @param options - Whether it may share the object's storage, and whether the
+ *   runner opens a manifest
+ */
+export async function stageInput(
+  storage: StorageBackend,
+  repo: string,
+  dataset: string,
+  inputPath: string,
+  options: MarshalInputsOptions = {}
+): Promise<void> {
+  const link = options.link !== false;
+  const { hash, manifest } = await openDatasetObject(storage, repo, dataset);
+  if (manifest !== null && options.manifests === true) {
+    // The manifest itself, then its segments as sibling files named by
+    // hash — the convention every runtime's opener reads. Each segment is a
+    // link (or one kernel copy), so the bytes never move.
+    await storage.objects.materialize(repo, hash, inputPath, { link });
+    const segmentDir = `${inputPath}.segments`;
+    await fs.mkdir(segmentDir, { recursive: true });
+    for (const entry of manifest.entries) {
+      await storage.objects.materialize(repo, entry.hash, path.join(segmentDir, `${entry.hash}.beast2`), { link });
+    }
+  } else if (manifest !== null) {
+    // A runner that does not open manifests gets the value: the segments
+    // splice back under their shared header, one chunk at a time.
+    const segments = await DatasetSegments.open(storage, repo, hash);
+    const handle = await fs.open(inputPath, 'w');
+    try {
+      for await (const chunk of segments.splice()) await handle.write(chunk);
+    } finally {
+      await handle.close();
+    }
+  } else {
+    await storage.objects.materialize(repo, hash, inputPath, { link });
+  }
+}
+
+/**
+ * Marshal input objects to staged `.beast2` files in a scratch directory, each
+ * as {@link stageInput} stages it.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
@@ -140,34 +185,10 @@ export async function marshalInputsToDir(
   inputHashes: string[],
   options: MarshalInputsOptions = {}
 ): Promise<string[]> {
-  const link = options.link !== false;
   const inputPaths: string[] = [];
   for (let i = 0; i < inputHashes.length; i++) {
     const inputPath = path.join(scratchDir, `input-${i}.beast2`);
-    const { hash, manifest } = await openDatasetObject(storage, repo, inputHashes[i]!);
-    if (manifest !== null && options.manifests === true) {
-      // The manifest itself, then its segments as sibling files named by
-      // hash — the convention every runtime's opener reads. Each segment is a
-      // link (or one kernel copy), so the bytes never move.
-      await storage.objects.materialize(repo, hash, inputPath, { link });
-      const segmentDir = `${inputPath}.segments`;
-      await fs.mkdir(segmentDir, { recursive: true });
-      for (const entry of manifest.entries) {
-        await storage.objects.materialize(repo, entry.hash, path.join(segmentDir, `${entry.hash}.beast2`), { link });
-      }
-    } else if (manifest !== null) {
-      // A runner that does not open manifests gets the value: the segments
-      // splice back under their shared header, one chunk at a time.
-      const segments = await DatasetSegments.open(storage, repo, hash);
-      const handle = await fs.open(inputPath, 'w');
-      try {
-        for await (const chunk of segments.splice()) await handle.write(chunk);
-      } finally {
-        await handle.close();
-      }
-    } else {
-      await storage.objects.materialize(repo, hash, inputPath, { link });
-    }
+    await stageInput(storage, repo, inputHashes[i]!, inputPath, options);
     inputPaths.push(inputPath);
   }
   return inputPaths;

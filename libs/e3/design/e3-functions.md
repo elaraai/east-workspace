@@ -12,6 +12,11 @@
 > `custom` runtime the call runs the command with `run`'s arguments. §5's
 > `runnerToArgv` and §6's `marshalBytesToDir`, `readOutputFile` and
 > `buildRunnerArgv` are gone, and a one-shot's dataset argument is read whole.
+> **Amended 2026-09-26:** a one-shot's dataset argument is no longer read by
+> the server: it hands the runner the dataset's hash (`DetachedSpec.args` takes
+> `{ dataset }` beside a value's bytes), and a local runner stages it as a task
+> input is — its manifest with the segments linked, or spliced into one file
+> for a custom command — in a scratch directory inside the repository.
 > Audience: e3 maintainers + an implementing agent. This is the **local/shared**
 > spec (e3 monorepo). The AWS cloud implementation is specified in the companion
 > doc `e3-cloud/design/e3-functions-cloud.md`, which depends on the published
