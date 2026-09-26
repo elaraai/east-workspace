@@ -5,12 +5,12 @@
 
 import { memo, useMemo, Fragment } from "react";
 import { Kbd as ChakraKbd, type KbdProps, HStack, Text as ChakraText } from "@chakra-ui/react";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Kbd } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { useDensity } from "../../contracts/density";
 
-const kbdEqual = equalFor(Kbd.Types.Kbd);
+const kbdEqual = equivalentFor(Kbd.Types.Kbd);
 
 /** East Kbd value type. */
 export type KbdValue = ValueTypeOf<typeof Kbd.Types.Kbd>;

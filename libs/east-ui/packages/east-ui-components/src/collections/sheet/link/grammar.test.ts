@@ -6,9 +6,10 @@
  */
 
 import { describe, test, expect } from "vitest";
-import { none, some } from "@elaraai/east";
+import { none, some, variant } from "@elaraai/east";
 import { classifyToken, linkVocabulary, parseLinkText, printLinkText, usedKeys, memberMeta, parseRange } from "./grammar.js";
-import { indexColumns } from "../model.js";
+import { indexColumns, memberLabel } from "../model.js";
+import { SHEET_WORDS } from "../words.js";
 import type { SheetMemberValue, SheetRegisterMemberValue } from "../values.js";
 
 const member = (key: string, kind: string, extra: Partial<{ aliases: string[]; meta: string; parent: string; label: string }> = {}): SheetRegisterMemberValue => ({
@@ -34,19 +35,19 @@ const column = indexColumns([{
     kind: { type: "link", value: {
         register: "stations",
         members: [
-            { kind: "machine", identified: true, countable: false, resolvesTo: none },
-            { kind: "range", identified: true, countable: false, resolvesTo: none },
-            { kind: "line", identified: false, countable: true, resolvesTo: some("machine") },
-            { kind: "family", identified: false, countable: true, resolvesTo: some("machine") },
+            { kind: "machine", identified: true, countable: false, resolvesTo: none, ranged: false },
+            { kind: "range", identified: true, countable: false, resolvesTo: none, ranged: false },
+            { kind: "line", identified: false, countable: true, resolvesTo: some("machine"), ranged: false },
+            { kind: "family", identified: false, countable: true, resolvesTo: some("machine"), ranged: false },
         ],
         multiple: some({ forms: ["N x kind", "kind x N"], ops: ["x", "X", "*", "×"], appliesTo: "countable" }),
-        sides: none, arity: none, check: [], store: { type: "asTyped", value: null },
+        sides: none, arity: none, check: [], store: { type: "asTyped", value: null }, options: none,
     } },
-    dataType: null, payloadType: null, editable: true, fill: [],
+    dataType: null, payloadType: null, editable: true, fill: [], detailCell: none,
 }] as never).list[0]!;
 const vocab = linkVocabulary(column, MEMBERS);
 
-const m = (type: string, value: unknown): SheetMemberValue => ({ type, value }) as SheetMemberValue;
+const m = (type: string, value: unknown): SheetMemberValue => variant(type, value) as SheetMemberValue;
 
 describe("classify", () => {
     test.each<[string, SheetMemberValue[]]>([
@@ -92,8 +93,8 @@ describe("halves", () => {
         ["M2140-45 > mystery", ["M2140-M2145"], ["mystery"]],
     ])("%s", (text, from, to) => {
         const link = parseLinkText(text, vocab);
-        expect(link.from.map((x) => (x.type === "range" ? `${(x.value as { from: string }).from}-${(x.value as { to: string }).to}` : x.type === "counted" ? `${(x.value as { n: bigint }).n} × ${(x.value as { key: string }).key}` : x.type === "placeholder" ? "TBC" : x.type === "text" ? x.value : (x.value as { key: string }).key))).toEqual(from);
-        expect(link.to.map((x) => (x.type === "range" ? `${(x.value as { from: string }).from}-${(x.value as { to: string }).to}` : x.type === "counted" ? `${(x.value as { n: bigint }).n} × ${(x.value as { key: string }).key}` : x.type === "placeholder" ? "TBC" : x.type === "text" ? x.value : (x.value as { key: string }).key))).toEqual(to);
+        expect(link.from.map(memberLabel)).toEqual(from);
+        expect(link.to.map(memberLabel)).toEqual(to);
     });
 
     test("print is the planner's text — both halves, destination only, source only — and round-trips", () => {
@@ -102,18 +103,18 @@ describe("halves", () => {
         expect(parseLinkText(printLinkText(both), vocab)).toEqual(both);
         expect(printLinkText(parseLinkText("bay, TBC", vocab))).toBe("Test bay, TBC");
         expect(printLinkText(parseLinkText("M2141 >", vocab))).toBe("M2141 >");
-        expect(printLinkText({ from: [], to: [] } as never)).toBe("");
+        expect(printLinkText({ from: [], to: [] })).toBe("");
     });
 });
 
 describe("meta and used keys", () => {
     test("chip meta comes from the register; a counted member is unassigned; a range names its span", () => {
-        expect(memberMeta(m("identified", { key: "M2140" }), vocab)).toBe("CNC lathe");
-        expect(memberMeta(m("counted", { n: 4n, key: "CNC lathe" }), vocab)).toBe("unassigned");
-        expect(memberMeta(m("counted", { n: 2n, key: "Line 2" }), vocab)).toBe("unassigned");
-        expect(memberMeta(m("counted", { n: 2n, key: "nowhere" }), vocab)).toBe("");
-        expect(memberMeta(m("range", { from: "M2140", to: "M2145" }), vocab)).toBe("3 members");
-        expect(memberMeta(m("text", "x"), vocab)).toBe("");
+        expect(memberMeta(m("identified", { key: "M2140" }), vocab, SHEET_WORDS)).toBe("CNC lathe");
+        expect(memberMeta(m("counted", { n: 4n, key: "CNC lathe" }), vocab, SHEET_WORDS)).toBe("unassigned");
+        expect(memberMeta(m("counted", { n: 2n, key: "Line 2" }), vocab, SHEET_WORDS)).toBe("unassigned");
+        expect(memberMeta(m("counted", { n: 2n, key: "nowhere" }), vocab, SHEET_WORDS)).toBe("");
+        expect(memberMeta(m("range", { from: "M2140", to: "M2145" }), vocab, SHEET_WORDS)).toBe("3 machines");
+        expect(memberMeta(m("text", "x"), vocab, SHEET_WORDS)).toBe("");
     });
 
     test("a range's expansion counts as used", () => {

@@ -345,23 +345,31 @@ function bindData<T extends EastType>(
  * a window is not a value you can diff or stage. Bind the same dataset with
  * {@link Data.bind} when you need to edit it.
  *
+ * @property revision - Read the content hash shared by pages, total and seek.
+ * @property refresh - Refresh at some(hash), or discover current content with none.
  * @property page - Read one window: `(offset, limit)` → the window's elements
  *   as a value of the dataset's own type. `none` means the window is still in
  *   flight — the call re-fires when it lands (use inside `Reactive.Root`). An
  *   EMPTY window means the source is exhausted at that offset, so a reader
- *   that walks offsets terminates on `some([])`, never on `none`.
+ *   that walks offsets terminates on `some([])`, never on `none`. A window
+ *   whose fetch FAILED throws its reason rather than reading `none` (#811);
+ *   a read at least two seconds after the failure fetches it again (a
+ *   component's Retry), and a dataset that cannot be paged keeps throwing.
  * @property total - The source's total element count, once any window has
  *   landed; `none` until then.
  * @property seek - Key search over the dataset, backed by the server's fence
  *   search (`datasetFindKey`). `none` for an Array-typed dataset: stream order
  *   has nothing to binary-search. Decided at bind time from the dataset's own
- *   type, so a component renders the affordance only where it works.
+ *   type, so a component renders the affordance only where it works. A search
+ *   that failed throws its reason, like a failed window.
  */
 export const DataPagedHandleType = <T extends EastType | string>(t: T) => StructType({
     id:    StringType,
     page:  FunctionType([IntegerType, IntegerType], OptionType(t)),
     total: FunctionType([], OptionType(IntegerType)),
     seek:  OptionType(FunctionType([SeekQueryType], OptionType(SeekRangeType))),
+    revision: FunctionType([], OptionType(StringType)),
+    refresh: FunctionType([OptionType(StringType)], NullType),
 });
 
 /**
@@ -393,6 +401,8 @@ export const bindPagedPlatformFn = East.genericPlatform(
         page:  FunctionType([IntegerType, IntegerType], OptionType("T")),
         total: FunctionType([], OptionType(IntegerType)),
         seek:  OptionType(FunctionType([SeekQueryType], OptionType(SeekRangeType))),
+        revision: FunctionType([], OptionType(StringType)),
+        refresh: FunctionType([OptionType(StringType)], NullType),
     }),
     { optional: true },
 );
@@ -409,10 +419,15 @@ const data_page = East.genericPlatform(
 const data_page_total = East.genericPlatform(
     "data_page_total", ["T"], [...PAGED_DESCRIPTOR], OptionType(IntegerType), { optional: true });
 // Key search rides the SAME in-flight convention as a window: `none` while the
-// server's fence search is running, `some(range)` when it lands. The row it
-// returns is a global element index in the row space `data_page` windows serve.
+// server's fence search is running, `some(range)` when it lands — and, like a
+// window, a THROW when it failed (#811). The row it returns is a global
+// element index in the row space `data_page` windows serve.
 const data_page_seek = East.genericPlatform(
     "data_page_seek", ["T"], [...PAGED_DESCRIPTOR, SeekQueryType], OptionType(SeekRangeType), { optional: true });
+const data_page_revision = East.genericPlatform(
+    "data_page_revision", ["T"], [...PAGED_DESCRIPTOR], OptionType(StringType), { optional: true });
+const data_page_refresh = East.genericPlatform(
+    "data_page_refresh", ["T"], [...PAGED_DESCRIPTOR, OptionType(StringType)], NullType, { optional: true });
 
 /**
  * Low-level platform primitives that back {@link Data.bindPaged}'s handle
@@ -421,13 +436,19 @@ const data_page_seek = East.genericPlatform(
  * @internal Not for direct use — author against {@link Data.bindPaged}.
  */
 export const DataPagedPrimitives = {
-    /** `data_page([T], source, offset, limit) -> Option<T>` — one window (`none` = in flight). */
+    /** `data_page([T], source, offset, limit) -> Option<T>` — one window
+     *  (`none` = in flight; throws when the window's fetch failed). */
     page: data_page,
     /** `data_page_total([T], source) -> Option<Integer>` — total elements, once known. */
     total: data_page_total,
     /** `data_page_seek([T], source, query) -> Option<SeekRange>` — where a key
-     *  query lands in the source's row order (`none` = search in flight). */
+     *  query lands in the source's row order (`none` = search in flight;
+     *  throws when the search failed). */
     seek: data_page_seek,
+    /** Read the coherent source snapshot; none while discovering it. */
+    revision: data_page_revision,
+    /** Refresh all consumers at an exact snapshot, or discover current content. */
+    refresh: data_page_refresh,
 } as const;
 
 /**
@@ -442,14 +463,16 @@ export const DataPagedPrimitives = {
  * @typeParam T - The East type of the source dataset value (a collection type).
  * @param dataset - The dataset (or task) definition to bind.
  * @returns A handle struct described by {@link DataPagedHandleType} — `page`
- *   and `total`.
+ *   / `total` / `seek` / `revision` / `refresh`.
  *
  * @remarks
  * Each `page(offset, limit)` fetches exactly that window and decodes it
  * against the dataset's own type — no blobs, no beast2, no manual fetch in
  * user code. A window still in flight reads `none` and the call re-fires when
  * it lands, so use it inside `Reactive.Root`; an empty window means the source
- * is exhausted, which is how a walking reader terminates.
+ * is exhausted, which is how a walking reader terminates. A window whose fetch
+ * failed throws its reason (#811) — the Plan shows it as that window's error
+ * band with a Retry, and a Table as its "could not be read" message.
  *
  * Unlike {@link Data.bind}, a paged source is NOT preloaded or polled as a
  * whole value — it is declared in the UI task's manifest under `pages`, which
@@ -462,17 +485,21 @@ export const DataPagedPrimitives = {
  * import { Data } from "@elaraai/e3-ui";
  * import * as e3 from "@elaraai/e3";
  *
- * // KEYED, because the Plan's canvas rows inherit the dataset's keys — the
- * // same key space `page` windows and `seek` searches.
- * const ops = e3.input("ops", DictType(StringType, OpsRow), variant("value", new Map()));
+ * // KEYED, because a Plan row's id starts with its entry's key — the same key
+ * // space `page` windows and `seek` searches — and GROUPED by line where the
+ * // data is made (an e3 task): the canvas nests what the data nests (#822).
+ * const OpsLine = DictType(StringType, OpsRow);
+ * const ops = e3.input("ops", DictType(StringType, OpsLine), variant("value", new Map()));
  *
  * // Mirrors `dataBindPagedPlan` in test/bind/data/data.examples.tsx.
  * const dataBindPagedPlan = East.function([], UIComponentType, _$ => {
  *     return Reactive.Root(East.function([], UIComponentType, $ => {
  *         const paged = $.let(Data.bindPaged(ops));
- *         const series = $.const([…], ArrayType(Plan.Types.Series(OpsRow)));
- *         // A paged canvas DECLARES its window: fitting the axis to whatever
- *         // prefix has landed re-fits it on every window (#567 D8).
+ *         // In an event handler: $(paged.refresh(none)) discovers current content;
+ *         // $(paged.refresh(some(committedHash))) pins an acknowledged write.
+ *         const series = $.const([…], ArrayType(Plan.Types.Series(OpsLine)));
+ *         // Every canvas states its window, paged or inline — none is fitted
+ *         // to whatever has loaded (#822).
  *         const axis = $.const(Plan.axis({
  *             window: { min: week(24n), max: week(42n) }, resolution: "week",
  *         }));

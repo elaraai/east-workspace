@@ -77,6 +77,7 @@ interface SliceCohortLike {
     id:      string;
     name:    string;
     filters: variant[];
+    group:   variant;                    // option<string> — the cohort's family
 }
 
 const encodeState = encodeBeast2For(Slice.Types.State);

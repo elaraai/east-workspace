@@ -63,6 +63,14 @@
   --brand-l:    #94f9f9;
   --brand-tint: #e8f6f7;  /* selected / dirty fills — the ONLY tinted bg allowed */
 
+  /* Sheet membership — shared by gutter markers and rails. */
+  --sheet-group-1: var(--brand-d);
+  --sheet-group-2: #85739a;
+  --sheet-group-3: #9a7a4f;
+  --sheet-group-4: #6c859f;
+  --sheet-group-5: #8a8655;
+  --sheet-group-6: #a8757f;
+
   /* ===== SEMANTIC: valence (muted, never saturated) ===== */
   --pos:  #2f7a5b;
   --neg:  #b85a4a;
@@ -106,6 +114,12 @@
   --brand-d:    #5ba9b3;   /* interactive brand lifts one step in dark */
   --brand-dd:   #79c4cd;
   --brand-tint: #1f363d;
+
+  --sheet-group-2: #b6a3cf;
+  --sheet-group-3: #c9aa7f;
+  --sheet-group-4: #9ab3cd;
+  --sheet-group-5: #b9b585;
+  --sheet-group-6: #d7a4ae;
 
   --pos:  #4da583;
   --neg:  #d98a7c;

@@ -26,6 +26,10 @@
  * the first window to land and then FROZEN for the life of the source, so the
  * extent is revised only when a window is visited for the first time — never
  * re-estimated globally, never mid-gesture (demand is idle-gated by the caller).
+ * The one other revision is the caller's: when what a visited window's rows
+ * draw at changes (the Plan's collapse, grain or chart toggles, #823) it
+ * observes the window again at its new height, exactly as the rows would move
+ * on an inline canvas.
  *
  * **Eviction is free.** A visited window keeps its measured height forever, so
  * dropping its rows back to a spacer leaves the extent, and every offset below
@@ -42,10 +46,8 @@
 /** Fallback slot height per element, before any window has landed. */
 const DEFAULT_SLOT_PX = 32;
 
-/** Bounds on the seeded slot height. The upper bound also keeps the document
- *  under the browser's maximum element height on very large sources. */
+/** The least seeded slot height: an element never describes less than a pixel. */
 const MIN_SLOT_PX = 1;
-const MAX_SLOT_PX = 64;
 
 /**
   * The tallest UNVISITED extent to describe. Blink clamps element heights around
@@ -66,6 +68,15 @@ const MAX_DOC_PX = 8e6;
 export interface WindowMeasure {
     px: number;
     rows: number;
+    /**
+     * The window's height AT REST, when the caller measures `px` under a
+     * transient UI state (#823: the Plan measures under its CURRENT collapse,
+     * grain and charts, so an evicted window's band follows them). The slot
+     * rate is seeded from it rather than from `px`, so a first window that
+     * landed mid-collapse does not describe every unvisited window by that
+     * collapse. Omitted, `px` seeds it.
+     */
+    restPx?: number | undefined;
 }
 
 /** The immutable ledger state. */
@@ -146,7 +157,7 @@ export function createLedger(total: number, pageSize: number): WindowLedger {
 export function observeWindow(ledger: WindowLedger, w: number, measure: WindowMeasure): WindowLedger {
     if (w < 0 || w >= ledger.windows) return ledger;
     const prev = ledger.measured.get(w);
-    if (prev !== undefined && prev.px === measure.px && prev.rows === measure.rows) return ledger;
+    if (prev !== undefined && prev.px === measure.px && prev.rows === measure.rows && prev.restPx === measure.restPx) return ledger;
 
     const measured = new Map(ledger.measured);
     measured.set(w, measure);
@@ -154,13 +165,17 @@ export function observeWindow(ledger: WindowLedger, w: number, measure: WindowMe
     // Seed the slot rate from the first window we ever measure, then freeze it.
     // A later re-measure of the same window updates ITS height, never the rate:
     // re-deriving the rate would move every unvisited window at once, which is
-    // the global re-estimate this design exists to avoid.
+    // the global re-estimate this design exists to avoid. The rate is what
+    // that window's elements drew, however tall — a grouped sheet's element is
+    // its band and its lines (#855) — bounded only by the extent the browser
+    // can describe (`MAX_DOC_PX`). A fixed per-element cap sized such a
+    // sheet's unloaded windows at a third of their rows, and the extent grew
+    // under the scrollbar as each one landed.
     let slotPx = ledger.slotPx;
     if (ledger.measured.size === 0) {
         const elements = elementsIn(ledger, w);
-        const perElement = elements > 0 ? measure.px / elements : DEFAULT_SLOT_PX;
-        const ceiling = ledger.total > 0 ? Math.min(MAX_SLOT_PX, MAX_DOC_PX / ledger.total) : MAX_SLOT_PX;
-        slotPx = Math.max(MIN_SLOT_PX, Math.min(ceiling, perElement));
+        const perElement = elements > 0 ? (measure.restPx ?? measure.px) / elements : DEFAULT_SLOT_PX;
+        slotPx = Math.max(MIN_SLOT_PX, Math.min(MAX_DOC_PX / ledger.total, perElement));
     }
 
     const base: Omit<WindowLedger, "prefix"> = { ...ledger, measured, slotPx };

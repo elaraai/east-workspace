@@ -4,8 +4,12 @@
  */
 
 /**
- * Responsive validation suite (#357, epic #345) — drives the built showcase
- * (every east-ui + e3-ui catalog page) at desktop and mobile viewports.
+ * The responsive suite (#357, #833): DOM specs over the BUILT showcase.
+ * They cover every east-ui and e3-ui catalog page, the shell, the code
+ * reference, the Plan's geometry, the Sheet's ring under the keyboard and
+ * the load, at desktop and mobile viewports. It is one suite, run the same way everywhere:
+ * `make test-responsive` (libs/east-ui) locally, and in CI sharded with
+ * `SHARD=n/4`. Nothing here compares pixels.
  *
  * Browser resolution: `npx playwright install chromium` where supported;
  * on hosts Playwright can't provision (e.g. non-LTS Ubuntu) point
@@ -21,27 +25,26 @@ export default defineConfig({
     testDir: "./tests/responsive",
     timeout: 60_000,
     fullyParallel: true,
+    // A spec that is not deterministic under load is fixed, never retried.
+    retries: 0,
+    // A committed `test.only` would quietly shrink the CI run to one test.
+    forbidOnly: !!process.env.CI,
     reporter: [["list"]],
-    /* Visual goldens (goldens.spec.ts): committed per-component baselines.
-     * Tolerances absorb sub-pixel AA drift; animations are frozen and the
-     * caret hidden for determinism. */
-    snapshotPathTemplate: "{testDir}/__goldens__/{projectName}/{arg}{ext}",
-    expect: {
-        toHaveScreenshot: {
-            animations: "disabled",
-            caret: "hide",
-            maxDiffPixelRatio: 0.002,
-        },
-    },
     webServer: {
-        // Production build — dev-mode HMR/overlay noise excluded.
-        command: "pnpm run build && pnpm run preview -- --port 4173 --strictPort",
+        // The production build `make build` made; dev-mode HMR and overlay
+        // noise are excluded. `make test-responsive` builds it only when it
+        // is missing, and a server already on the port is reused.
+        command: "pnpm exec vite preview --port 4173 --strictPort",
         port: 4173,
         reuseExistingServer: true,
-        timeout: 180_000,
+        timeout: 60_000,
     },
     use: {
         baseURL: "http://localhost:4173",
+        // A failing spec leaves its screenshot and trace in test-results/,
+        // which CI uploads.
+        screenshot: "only-on-failure",
+        trace: "retain-on-failure",
         ...(executablePath
             ? { launchOptions: { executablePath, args: ["--no-sandbox"] } }
             : {}),
@@ -50,18 +53,6 @@ export default defineConfig({
         {
             name: "desktop",
             use: { viewport: { width: 1280, height: 800 } },
-        },
-        {
-            /* Dark-mode goldens (#362): the same catalog sweep with the
-             * showcase forced dark via `?theme=dark` (class-based Chakra v3
-             * colour mode — see theme-mode.ts). `colorScheme` keeps native
-             * chrome (scrollbars, form controls) consistent with the page. */
-            name: "dark",
-            // Goldens only: the catalog/shell behaviour sweeps are
-            // colour-mode-independent (and shell.spec keys "mobile" off the
-            // project name).
-            testMatch: /goldens\.spec\.ts/,
-            use: { viewport: { width: 1280, height: 800 }, colorScheme: "dark" },
         },
         {
             name: "mobile",

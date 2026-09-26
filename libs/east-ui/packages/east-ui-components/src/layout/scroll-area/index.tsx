@@ -8,13 +8,13 @@
 
 import { memo, useMemo } from "react";
 import * as RadixScrollArea from "@radix-ui/react-scroll-area";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { ScrollArea } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 import { useCoarsePointer } from "../../contracts/adaptive.js";
 
-const scrollAreaEqual = equalFor(ScrollArea.Types.ScrollArea);
+const scrollAreaEqual = equivalentFor(ScrollArea.Types.ScrollArea);
 
 /** East ScrollArea value type. */
 export type ScrollAreaValue = ValueTypeOf<typeof ScrollArea.Types.ScrollArea>;

@@ -35,13 +35,13 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode
 import { Box, Text, Menu, Portal, Spinner, useRecipe, useSlotRecipe } from '@chakra-ui/react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faArrowDown, faArrowUp, faCheck, faChevronDown, faPlus, faTriangleExclamation, faXmark } from '@fortawesome/free-solid-svg-icons';
-import { fromEastTypeValue, variant, some, none, equalFor, isEastSet, type EastType, type EastTypeValue, type ValueTypeOf } from '@elaraai/east';
+import { fromEastTypeValue, variant, some, none, equivalentFor, isEastSet, type EastType, type EastTypeValue, type ValueTypeOf } from '@elaraai/east';
 import { Experiment } from '@elaraai/e3-ui/internal';
 import {
     implementUIComponent,
     SlicePredicateBuilder, SliceEditPopover, formatPredicate,
-    getSomeorUndefined,
-    type SliceFieldValue, type PredicateValue,
+    getSomeorUndefined, useFormatters,
+    type Formatters, type SliceFieldValue, type PredicateValue,
 } from '@elaraai/east-ui-components';
 
 import { useBindingValue } from './bind-runtime.js';
@@ -265,10 +265,10 @@ export interface EastChakraExperimentProps {
     storageKey: string;
 }
 
-// Structural equality over the decoded payload — the MANDATORY memo+equalFor rule
-// (east-ui-components/CLAUDE.md). The payload is all data structs (binding
-// descriptors {name}, diff handles), so equalFor compares cleanly.
-const experimentValueEqual = equalFor(Experiment.Component.schema);
+// The MANDATORY memo comparer, `equivalentFor` (east-ui-components/CLAUDE.md,
+// #809). The payload is all data structs (binding descriptors {name}, diff
+// handles), so it compares exactly as `equalFor` would.
+const experimentValueEqual = equivalentFor(Experiment.Component.schema);
 
 const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastChakraExperimentProps) {
     const v = value as unknown as ValueTypeOf<typeof Experiment.Types.Payload>;
@@ -280,6 +280,8 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
     const bs = useSlotRecipe({ key: 'barStrip' })({});
     const statusR = useSlotRecipe({ key: 'status' });
     const es = useSlotRecipe({ key: 'eyebrowRow' })({});
+    // Every number and date the surface prints, in the app's locale (#850).
+    const words = useFormatters();
 
     const workspace = getReactiveDatasetCache().getConfig().workspace ?? '';
     const data = useBindingValue<Record<string, unknown>[]>(v.data as never);
@@ -464,8 +466,8 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
 
     const view = useMemo(() => {
         if (!config) return null;
-        return deriveView(config, ranConfig ?? config, columns, shownResult, journalBind.value, meta, nRows, now, subject);
-    }, [config, ranConfig, columns, shownResult, journalBind.value, meta, nRows, now, subject]);
+        return deriveView(config, ranConfig ?? config, columns, shownResult, journalBind.value, meta, nRows, now, subject, words);
+    }, [config, ranConfig, columns, shownResult, journalBind.value, meta, nRows, now, subject, words]);
 
     // Default design knobs — library-defaulted alpha/power/materiality, and offer
     // both an even split and a cost-saving 30% split so the alternate row shows.
@@ -497,9 +499,9 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
     // The painted design: a precomputed entry recipe (derived against the shown result),
     // else the live design result derived against its own SNAPSHOT generation.
     const vmDesign = useMemo(() => {
-        if (precomputedDesign !== null && shownResult !== null && config) return deriveDesign(precomputedDesign, shownResult, ranConfig ?? config, meta);
-        return design.result && designSnapRef.current ? deriveDesign(design.result, designSnapRef.current.result, designSnapRef.current.config, meta) : null;
-    }, [precomputedDesign, shownResult, config, ranConfig, design.result, meta]);
+        if (precomputedDesign !== null && shownResult !== null && config) return deriveDesign(precomputedDesign, shownResult, ranConfig ?? config, meta, words);
+        return design.result && designSnapRef.current ? deriveDesign(design.result, designSnapRef.current.result, designSnapRef.current.config, meta, words) : null;
+    }, [precomputedDesign, shownResult, config, ranConfig, design.result, meta, words]);
     // The Validate panel may paint when a precomputed recipe is present, or a live one
     // that corresponds to the CURRENT result and is settled.
     const designFresh = (precomputedDesign !== null && shownResult !== null)
@@ -628,7 +630,7 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
                 {readonly && <Box as="span" css={badge({ variant: 'plain', size: 'sm' })} textTransform="none" letterSpacing="normal">View only</Box>}
                 <Box as="span" css={dataStatus.root}>
                     <Box as="span" css={dataStatus.indicator} />
-                    <Box as="span" css={dataStatus.label}>{stale ? `${nRows} rows` : vs.dataLabel}</Box>
+                    <Box as="span" css={dataStatus.label}>{stale ? `${words.number(nRows)} rows` : vs.dataLabel}</Box>
                 </Box>
                 <GuidanceToggle on={guidance} onToggle={() => setGuidance(g => !g)} />
                 {canRun && <ActionButton button={button} variant="solid" label="Run" onClick={onRun} disabled={runDisabled} pulse={stale} />}
@@ -672,7 +674,7 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
                         </Box>
                     </Step>
                     <Step n={4} title={`Which ${subject.many}?`} help="step_population">
-                        <FilterRail fields={fields} population={population} onChange={editPopulation} chip={chip} button={button} readonly={readonly} subjectMany={subject.many} />
+                        <FilterRail fields={fields} population={population} onChange={editPopulation} chip={chip} button={button} readonly={readonly} subjectMany={subject.many} words={words} />
                     </Step>
                     <Box as="details" borderTopWidth="1px" borderColor="border.subtle">
                         <Box as="summary" textStyle="caption.eyebrow" cursor="pointer" px="4.5" py="2.5" display="flex" alignItems="center" gap="1.5"
@@ -747,10 +749,10 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
                     {activeTab === 'answer' && a && (
                         <AnswerNumeric a={a} verdict={verdict} narrative={view.narrative} checks={vr?.checks ?? null}
                             onGoTrust={() => setTab('trust')} subjectMany={subject.many}
-                            higherBetter={higherBetter} badge={badge} barList={barList} />
+                            higherBetter={higherBetter} badge={badge} barList={barList} words={words} />
                     )}
                     {activeTab === 'answer' && !a && ref && (
-                        <RefusalZone refusal={ref} overlap={ov} naiveValue={shownResult?.naive ?? 0} outcome={vs.outcomeLabel} />
+                        <RefusalZone refusal={ref} overlap={ov} naiveValue={shownResult?.naive ?? 0} outcome={vs.outcomeLabel} words={words} />
                     )}
 
                     {activeTab === 'trust' && vr && (
@@ -777,7 +779,7 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
                             {vr.sens && (
                                 <Card>
                                     <Cap help="sensitivity">Effect as a hidden cause is made stronger</Cap>
-                                    <AreaRange lo={vr.sens.lo} mid={vr.sens.mid} hi={vr.sens.hi} zero={0} tone="brand" xTicks={vr.sens.xTicks} yTicks={vr.sens.yTicks}
+                                    <AreaRange lo={vr.sens.lo} mid={vr.sens.mid} hi={vr.sens.hi} zero={0} tone="brand" xTicks={vr.sens.xTicks} xTickWords yTicks={vr.sens.yTicks}
                                         marks={vr.sens.marks} height={vr.sens.marks.length ? 148 : 132} />
                                 </Card>
                             )}
@@ -824,15 +826,15 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
                                     <Box display="flex" flexDirection="column" gap="0.5">
                                         <Text textStyle="caption.eyebrow">{vd.recoLabel}</Text>
                                         <Box display="flex" alignItems="baseline" gap="2">
-                                            <Text textStyle="mono-kpi" fontFamily="heading" color="brand.solid">{signed(vd.recoEffect)}</Text>
-                                            <Text textStyle="mono.sm" color="fg.muted">{vd.outcome} · {signed(vd.recoLo)} … {signed(vd.recoHi)}</Text>
+                                            <Text textStyle="mono-kpi" fontFamily="heading" color="brand.solid">{signed(vd.recoEffect, words)}</Text>
+                                            <Text textStyle="mono.sm" color="fg.muted">{vd.outcome} · {signed(vd.recoLo, words)} … {signed(vd.recoHi, words)}</Text>
                                         </Box>
                                     </Box>
                                     <Text textStyle="caption" mt="2.5" pt="2.5" borderTopWidth="1px" borderColor="border.subtle">{vd.tradeoff}</Text>
                                 </Box>
                                 <Box layerStyle="card" p="3.5" borderRadius="lg">
                                     <Cap help="dose_marginal">Extra {vd.outcome} per step</Cap>
-                                    <Box py="0.5" maxH="200px" overflowY="auto">{barList(vd.marginal.map((m, i) => ({ label: m.label, frac: m.frac, tone: i < 2 ? 'brand' : 'muted', value: signed(m.value) })))}</Box>
+                                    <Box py="0.5" maxH="200px" overflowY="auto">{barList(vd.marginal.map((m, i) => ({ label: m.label, frac: m.frac, tone: i < 2 ? 'brand' : 'muted', value: signed(m.value, words) })))}</Box>
                                 </Box>
                             </Box>
                         </Box>
@@ -859,7 +861,7 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
                         design.status === 'failed' && design.error
                             ? <Box px="4.5" pt="4.5"><RunError error={design.error} /></Box>
                             : designFresh && vmDesign
-                                ? <ValidatePanel vm={vmDesign} barList={barList} />
+                                ? <ValidatePanel vm={vmDesign} barList={barList} words={words} />
                                 : !hasDesign && precomputedDesign === null
                                     // The tab is visible because ANOTHER question carries a
                                     // precomputed trial recipe — this one has none and no
@@ -894,7 +896,7 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
                         {/* One flowing span: the eyebrowRow `meta` slot is inline-flex, which
                             treats each child as a flex item and DROPS the whitespace text
                             node between them (rendered "2ON RECORD"). */}
-                        <Box css={es.meta}><Text as="span"><Text as="span" color="fg.default" fontWeight="semibold">{journal.length}</Text>{' on record'}{journal.length > 50 ? ' · showing newest 50' : ''}</Text></Box>
+                        <Box css={es.meta}><Text as="span"><Text as="span" color="fg.default" fontWeight="semibold">{words.number(journal.length)}</Text>{' on record'}{journal.length > 50 ? ' · showing newest 50' : ''}</Text></Box>
                     </Box>
                     {journal.slice(0, 50).map((r, i) => (
                         <Box key={i} display="grid" gridTemplateColumns="2fr 1fr 1fr 1fr" gap="3" alignItems="center" px="4.5" py="2.5" borderTopWidth="1px" borderColor="border.subtle">
@@ -919,7 +921,7 @@ const EastChakraExperiment = memo(function EastChakraExperiment({ value }: EastC
 // ---------------------------------------------------------------------------
 // Answer tab — numeric (the engine produced an adjusted estimate).
 // ---------------------------------------------------------------------------
-function AnswerNumeric({ a, verdict, narrative, checks, onGoTrust, subjectMany, higherBetter, badge, barList }: {
+function AnswerNumeric({ a, verdict, narrative, checks, onGoTrust, subjectMany, higherBetter, badge, barList, words }: {
     a: NonNullable<ReturnType<typeof deriveView>['answer']>;
     verdict: ReturnType<typeof deriveView>['verdict'];
     narrative: ReturnType<typeof deriveView>['narrative'];
@@ -929,6 +931,7 @@ function AnswerNumeric({ a, verdict, narrative, checks, onGoTrust, subjectMany, 
     higherBetter: boolean | undefined;
     badge: ReturnType<typeof useRecipe>;
     barList: (rows: { label: string; frac: number; tone: string; value: string }[]) => ReactNode;
+    words: Formatters;
 }) {
     const dirUp = a.effect > 0;
     const statusWord = higherBetter === undefined ? (dirUp ? 'Higher' : 'Lower') : (dirUp === higherBetter ? 'Better' : 'Worse');
@@ -953,9 +956,9 @@ function AnswerNumeric({ a, verdict, narrative, checks, onGoTrust, subjectMany, 
                     <Text textStyle="mono.sm" color="fg.muted">{a.outcome}</Text>
                     <Box display="flex" alignItems="baseline" gap="2.5">
                         <Text textStyle="mono-kpi" fontFamily="heading" fontSize="32px" color={kpiColor}>
-                            <Help id="answer_effect">{signed(a.effect)}{a.unit ? <Text as="span" fontSize="16px" color="fg.muted">&nbsp;{a.unit}</Text> : null}</Help>
+                            <Help id="answer_effect">{signed(a.effect, words)}{a.unit ? <Text as="span" fontSize="16px" color="fg.muted">&nbsp;{a.unit}</Text> : null}</Help>
                         </Text>
-                        <Text textStyle="mono.sm" color="fg.muted"><Help id="answer_ci">likely between {signed(a.lo)} and {signed(a.hi)}</Help></Text>
+                        <Text textStyle="mono.sm" color="fg.muted"><Help id="answer_ci">likely between {signed(a.lo, words)} and {signed(a.hi, words)}</Help></Text>
                     </Box>
                 </Box>
                 <Box as="span" css={badge({ variant: badgeOk ? 'ok' : 'warn', size: 'md' })} alignSelf="flex-end" mb="1" display="inline-flex" alignItems="center" gap="1">
@@ -992,7 +995,7 @@ function AnswerNumeric({ a, verdict, narrative, checks, onGoTrust, subjectMany, 
             {a.flip && (
                 <Box layerStyle="banner.stale" display="flex" alignItems="flex-start" gap="2" mt="3">
                     <Box as="span" color="fg.warning" flexShrink="0" mt="0.5" fontSize="12px"><FontAwesomeIcon icon={faTriangleExclamation} /></Box>
-                    <Text textStyle="body.sm" color="fg.default"><Help id="answer_flip"><Text as="span" fontWeight="bold">Raw and like-for-like disagree.</Text></Help> In the plain average, the <Text as="span" fontWeight="semibold">{a.treatment}</Text> group sits <Text as="span" fontStyle="italic">{lowerWord}</Text> on <Text as="span" fontWeight="semibold">{a.outcome}</Text> ({signed(a.naive)}) — but they also differ most on <Text as="span" fontWeight="semibold">{top.label}</Text> ({top.display}). Adjusting for it reverses the result.</Text>
+                    <Text textStyle="body.sm" color="fg.default"><Help id="answer_flip"><Text as="span" fontWeight="bold">Raw and like-for-like disagree.</Text></Help> In the plain average, the <Text as="span" fontWeight="semibold">{a.treatment}</Text> group sits <Text as="span" fontStyle="italic">{lowerWord}</Text> on <Text as="span" fontWeight="semibold">{a.outcome}</Text> ({signed(a.naive, words)}) — but they also differ most on <Text as="span" fontWeight="semibold">{top.label}</Text> ({top.display}). Adjusting for it reverses the result.</Text>
                 </Box>
             )}
 
@@ -1027,7 +1030,7 @@ function AnswerNumeric({ a, verdict, narrative, checks, onGoTrust, subjectMany, 
             <Box mt="3.5">
                 <Help id="counts" display="inline-flex" gap="4">
                     {([[a.nTotal, subjectMany], [a.nCompared, 'compared like-for-like'], [a.nDropped, 'had no fair match']] as const).map(([n, label], i) => (
-                        <Text key={i} textStyle="mono.sm" color="fg.muted"><Text as="span" color="fg.default" fontWeight="semibold">{Number(n)}</Text> {label}</Text>
+                        <Text key={i} textStyle="mono.sm" color="fg.muted"><Text as="span" color="fg.default" fontWeight="semibold">{words.number(n)}</Text> {label}</Text>
                     ))}
                 </Help>
             </Box>
@@ -1038,10 +1041,10 @@ function AnswerNumeric({ a, verdict, narrative, checks, onGoTrust, subjectMany, 
 // ---------------------------------------------------------------------------
 // Answer tab — refusal (the engine returned adjusted = none).
 // ---------------------------------------------------------------------------
-function RefusalZone({ refusal, overlap, naiveValue, outcome }: {
+function RefusalZone({ refusal, overlap, naiveValue, outcome, words }: {
     refusal: NonNullable<ReturnType<typeof deriveView>['refusal']>;
     overlap: ReturnType<typeof deriveView>['overlap'];
-    naiveValue: number; outcome: string;
+    naiveValue: number; outcome: string; words: Formatters;
 }) {
     return (
         <Box p="4.5">
@@ -1065,7 +1068,7 @@ function RefusalZone({ refusal, overlap, naiveValue, outcome }: {
             </Box>
 
             <Text textStyle="caption" color="fg.subtle" mt="3.5" pt="3" borderTopWidth="1px" borderColor="border.subtle">
-                Raw average difference in {outcome} (context only, not an answer): <Text as="span" fontFamily="mono" color="fg.muted">{signed(naiveValue)}</Text>
+                Raw average difference in {outcome} (context only, not an answer): <Text as="span" fontFamily="mono" color="fg.muted">{signed(naiveValue, words)}</Text>
             </Text>
         </Box>
     );
@@ -1074,9 +1077,10 @@ function RefusalZone({ refusal, overlap, naiveValue, outcome }: {
 // ---------------------------------------------------------------------------
 // Validate tab — the real trial that would confirm the result.
 // ---------------------------------------------------------------------------
-function ValidatePanel({ vm, barList }: {
+function ValidatePanel({ vm, barList, words }: {
     vm: VMDesign;
     barList: (rows: { label: string; frac: number; tone: string; value: string }[]) => ReactNode;
+    words: Formatters;
 }) {
     // Shared design-system recipes for the head-count + split bar (no hand-rolled styles).
     const stat = useSlotRecipe({ key: 'stat' })({ size: 'lg' });
@@ -1092,7 +1096,7 @@ function ValidatePanel({ vm, barList }: {
                     {vm.faint ? (
                         <Text textStyle="body.sm" fontWeight="semibold" color="fg.warning" maxW="220px">Effect too faint to size — set a materiality threshold to size a trial.</Text>
                     ) : (
-                        <Text css={stat.valueText} color="brand.solid">{vm.primary.nTotal.toLocaleString()}</Text>
+                        <Text css={stat.valueText} color="brand.solid">{words.number(vm.primary.nTotal)}</Text>
                     )}
                 </Box>
                 <Box css={meter.root} flex="1" minW="220px">
@@ -1104,11 +1108,11 @@ function ValidatePanel({ vm, barList }: {
                     <Box css={meter.keyRow} justifyContent="space-between">
                         <Box css={meter.keyItem}>
                             <Box css={meter.keyDot} bg="brand.solid" />
-                            <span><Text as="span" css={meter.valueText}>{vm.primary.nTreated.toLocaleString()}</Text> {vm.holdback ? 'treated' : 'get it'}</span>
+                            <span><Text as="span" css={meter.valueText}>{words.number(vm.primary.nTreated)}</Text> {vm.holdback ? 'treated' : 'get it'}</span>
                         </Box>
                         <Box css={meter.keyItem}>
                             <Box css={meter.keyDot} bg="bg.emphasized" />
-                            <span><Text as="span" css={meter.valueText}>{vm.primary.nControl.toLocaleString()}</Text> {vm.holdback ? 'held back' : 'left alone'}</span>
+                            <span><Text as="span" css={meter.valueText}>{words.number(vm.primary.nControl)}</Text> {vm.holdback ? 'held back' : 'left alone'}</span>
                         </Box>
                     </Box>
                 </Box>
@@ -1139,7 +1143,7 @@ function ValidatePanel({ vm, barList }: {
                 <Box display="flex" flexDirection="column" gap="1.5" mt="3" pt="3" borderTopWidth="1px" borderColor="border.subtle">
                     {vm.alternates.map((o, i) => (
                         <Text key={i} textStyle="caption" color="fg.muted">
-                            <Text as="span" fontWeight="semibold" color="fg.default">{o.label}</Text> · {o.nTotal.toLocaleString()} total ({o.nTreated.toLocaleString()} / {o.nControl.toLocaleString()})
+                            <Text as="span" fontWeight="semibold" color="fg.default">{o.label}</Text> · {words.number(o.nTotal)} total ({words.number(o.nTreated)} / {words.number(o.nControl)})
                         </Text>
                     ))}
                 </Box>
@@ -1151,10 +1155,10 @@ function ValidatePanel({ vm, barList }: {
 // ---------------------------------------------------------------------------
 // Population filter rail — reuses Slice's predicate editor.
 // ---------------------------------------------------------------------------
-function FilterRail({ fields, population, onChange, chip, button, readonly, subjectMany }: {
+function FilterRail({ fields, population, onChange, chip, button, readonly, subjectMany, words }: {
     fields: SliceFieldValue[]; population: PredicateValue[]; onChange: (p: PredicateValue[]) => void;
     chip: ReturnType<typeof useRecipe>; button: ReturnType<typeof useRecipe>; readonly?: boolean;
-    subjectMany: string;
+    subjectMany: string; words: Formatters;
 }) {
     const [open, setOpen] = useState<'add' | number | null>(null);
     const replaceAt = (i: number, p: PredicateValue) => onChange(population.map((f, j) => (j === i ? p : f)));
@@ -1169,7 +1173,7 @@ function FilterRail({ fields, population, onChange, chip, button, readonly, subj
                     <Box css={chip({ tone: 'plain', numeric: true, shape: 'rounded' })}>all {subjectMany}</Box>
                 ) : population.map((pred, i) => (
                     <Box key={i} css={chip({ tone: 'brand', numeric: true, shape: 'rounded' })} flexShrink={0}>
-                        <Box as="span" whiteSpace="nowrap">{formatPredicate(pred)}</Box>
+                        <Box as="span" whiteSpace="nowrap">{formatPredicate(pred, words)}</Box>
                     </Box>
                 ))}
             </Box>
@@ -1183,7 +1187,7 @@ function FilterRail({ fields, population, onChange, chip, button, readonly, subj
                     footActions={done}
                     trigger={
                         <Box css={chip({ tone: 'brand', numeric: true, shape: 'rounded' })} cursor="pointer" flexShrink={0}>
-                            <Box as="span" whiteSpace="nowrap">{formatPredicate(pred)}</Box>
+                            <Box as="span" whiteSpace="nowrap">{formatPredicate(pred, words)}</Box>
                             <Box as="button" display="inline-flex" alignItems="center" cursor="pointer" color="brand.fg" flexShrink="0" fontSize="10px" onClick={e => { e.stopPropagation(); removeAt(i); }} aria-label="Remove filter"><FontAwesomeIcon icon={faXmark} /></Box>
                         </Box>
                     }>

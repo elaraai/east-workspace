@@ -24,8 +24,10 @@ import { Group } from '@visx/group';
 import { scaleLinear } from '@visx/scale';
 import { LinePath, Line, Circle, Area } from '@visx/shape';
 import { curveMonotoneX } from '@visx/curve';
+import { useFormatters } from '@elaraai/east-ui-components';
 import { Help } from './help-ui.js';
 import { type HelpId } from './help.js';
+import { fmt, signed } from './derive.js';
 
 /** A chart text label rendered as HTML in a `<foreignObject>` so the label
  *  *itself* can be a guidance hover trigger (same "mouse over the thing" model as
@@ -129,9 +131,6 @@ function useChartTheme(): ChartTheme {
     };
 }
 
-const fmt = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(1));
-const signed = (n: number) => (n > 0 ? '+' : '') + fmt(n);
-
 /** Round up to a clean step so axis ticks read as gridlines (not raw extents). */
 const niceCeil = (v: number): number => {
     if (v <= 1e-9) return 0;
@@ -168,6 +167,8 @@ export interface ForestPlotProps {
 /** Horizontal CI estimates with a dashed zero ("no effect") reference. */
 export function ForestPlot({ rows, min, max, unit, height, rowHelp }: ForestPlotProps): ReactElement {
     const t = useChartTheme();
+    // Estimates and ticks, in the app's locale (#850).
+    const words = useFormatters();
     const [ref, w] = useMeasuredWidth();
     const n = rows.length;
     const hPx = height ?? 26 + n * 38;
@@ -202,7 +203,7 @@ export function ForestPlot({ rows, min, max, unit, height, rowHelp }: ForestPlot
                                     <Circle cx={x(r.est)} cy={0} r={t.scatterRadius} fill={col} stroke={t.surface} strokeWidth={1.8} />
                                     <ChartLabel x={-padL + 2} y={-13} w={padL - 6} align="left" size={t.labelSize} weight={600} color={t.ink} family={t.body} {...(rowHelp?.[i] ? { help: rowHelp[i]! } : {})}>{r.label}</ChartLabel>
                                     {r.note && <text x={-padL + 2} y={9} style={svgText(9, t.faint, t.body)}>{r.note}</text>}
-                                    <text x={innerW + padR - 2} y={4} textAnchor="end" style={svgText(t.titleSize, col, t.mono, 700)}>{signed(r.est)}</text>
+                                    <text x={innerW + padR - 2} y={4} textAnchor="end" style={svgText(t.titleSize, col, t.mono, 700)}>{signed(r.est, words)}</text>
                                 </Group>
                             );
                         })}
@@ -210,7 +211,7 @@ export function ForestPlot({ rows, min, max, unit, height, rowHelp }: ForestPlot
                         {ticks.map((tk, i) => (
                             <Group key={`t${i}`} left={Math.max(0, Math.min(innerW, x(tk)))}>
                                 <Line from={{ x: 0, y: innerH }} to={{ x: 0, y: innerH + 4 }} stroke={t.ruleStrong} strokeWidth={1} />
-                                <text x={0} y={innerH + 14} textAnchor={anchorAt(tk)} style={svgText(t.labelSize, t.muted, t.mono)}>{signed(tk)}</text>
+                                <text x={0} y={innerH + 14} textAnchor={anchorAt(tk)} style={svgText(t.labelSize, t.muted, t.mono)}>{signed(tk, words)}</text>
                             </Group>
                         ))}
                         {unit && <text x={innerW / 2} y={innerH + 26} textAnchor="middle" style={svgText(t.labelSize, t.muted, t.mono)}>{unit}</text>}
@@ -238,6 +239,9 @@ export interface AreaRangeProps {
     mid: number[];
     hi: number[];
     xTicks?: string[];
+    /** The x ticks are words (`none` … `stronger`), not numbers: drawn in the
+     *  body face. (A localized number cannot be told from a word by its text.) */
+    xTickWords?: boolean;
     yTicks?: string[];
     zero?: number;
     tone?: Tone;
@@ -250,8 +254,10 @@ export interface AreaRangeProps {
 interface BandPoint { i: number; lo: number; hi: number; mid: number }
 
 /** Low-high CI ribbon + mid line with hairline axes, optional zero + markers. */
-export function AreaRange({ lo, mid, hi, xTicks = [], yTicks = [], zero, tone: toneName, marks = [], height, yFormat = 'signed' }: AreaRangeProps): ReactElement {
+export function AreaRange({ lo, mid, hi, xTicks = [], xTickWords = false, yTicks = [], zero, tone: toneName, marks = [], height, yFormat = 'signed' }: AreaRangeProps): ReactElement {
     const t = useChartTheme();
+    // Axis labels, in the app's locale (#850).
+    const words = useFormatters();
     const [ref, w] = useMeasuredWidth();
     const hPx = height ?? 100;
     const col = t.tone(toneName ?? 'brand');
@@ -276,7 +282,7 @@ export function AreaRange({ lo, mid, hi, xTicks = [], yTicks = [], zero, tone: t
     const yHiN = niceCeil(Math.max(dataMax, 0));
     const yLoN = dataMin < -0.08 * yHiN ? -niceCeil(-dataMin) : 0;
     const yScale = scaleLinear({ domain: [yLoN, yHiN], range: [innerH, 0] });
-    const yfmt = (v: number) => (yFormat === 'percent' ? `${Math.round(v)}%` : signed(v));
+    const yfmt = (v: number) => (yFormat === 'percent' ? words.percent(v / 100) : signed(v, words));
     const yLabels = [yfmt(yHiN), yfmt((yHiN + yLoN) / 2), yfmt(yLoN)];
     return (
         <Box ref={ref} width="100%" height={`${hPx}px`}>
@@ -316,7 +322,7 @@ export function AreaRange({ lo, mid, hi, xTicks = [], yTicks = [], zero, tone: t
                         })}
                         <Line from={{ x: 0, y: innerH }} to={{ x: innerW, y: innerH }} stroke={t.rule} strokeWidth={1} />
                         {xTicks.map((tk, i) => {
-                            const word = Number.isNaN(Number(tk));
+                            const word = xTickWords;
                             return (
                                 <text key={`x${i}`} x={(innerW * i) / Math.max(1, xTicks.length - 1)} y={innerH + 14} textAnchor={i === 0 ? 'start' : i === xTicks.length - 1 ? 'end' : 'middle'} style={svgText(word ? 9 : t.labelSize, word ? t.faint : t.muted, word ? t.body : t.mono)}>{tk}</text>
                             );
@@ -355,6 +361,8 @@ export interface OverlapHistogramProps {
  */
 export function OverlapHistogram({ treated, control, domain = [0, 1], supportLabel, positivityOk, height }: OverlapHistogramProps): ReactElement {
     const t = useChartTheme();
+    // The propensity ticks, in the app's locale (#850).
+    const words = useFormatters();
     const [ref, w] = useMeasuredWidth();
     const hPx = height ?? 150;
     const padL = 8, padR = 8, padT = 16, padB = 26;
@@ -396,7 +404,7 @@ export function OverlapHistogram({ treated, control, domain = [0, 1], supportLab
                         <Line from={{ x: 0, y: centerY }} to={{ x: innerW, y: centerY }} stroke={t.ruleStrong} strokeWidth={1} />
                         <text x={0} y={innerH + 4} style={svgText(9, t.faint, t.body)}>untreated ↓</text>
                         {ticks.map((tk, i) => (
-                            <text key={`x${i}`} x={x(tk)} y={innerH + 16} textAnchor={i === 0 ? 'start' : i === ticks.length - 1 ? 'end' : 'middle'} style={svgText(t.labelSize, t.muted, t.mono)}>{fmt(tk)}</text>
+                            <text key={`x${i}`} x={x(tk)} y={innerH + 16} textAnchor={i === 0 ? 'start' : i === ticks.length - 1 ? 'end' : 'middle'} style={svgText(t.labelSize, t.muted, t.mono)}>{fmt(tk, words)}</text>
                         ))}
                     </Group>
                 </svg>

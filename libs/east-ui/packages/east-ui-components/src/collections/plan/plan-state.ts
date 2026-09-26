@@ -5,14 +5,13 @@
 
 /**
  * THE Plan state machine (`Plan Spec.md` §6.1) — every piece of interaction
- * state in one pure reducer: no React, no DOM, no East values. The component
- * holds exactly one `useReducer(planStoreReducer)` (plus the shared review
- * controller, which stays separate — it is the cross-component review
- * contract); {@link planReducer} answers one event, and the store around it
- * carries the effect batch plus the declared-collapse bookkeeping that lets a
- * host data commit RECONCILE the UI state instead of resetting it (#610).
- * Side effects are returned as data (`PlanEffect[]`) and run in one place by
- * the component's post-commit drain; no reducer ever performs them.
+ * state in one pure reducer: no React, no DOM, no East values.
+ * {@link planReducer} answers one event, and the store around it carries the
+ * declared-collapse bookkeeping that lets a host data commit RECONCILE the UI
+ * state instead of resetting it (#610). Side effects are returned as data
+ * (`PlanEffect[]`) and run by the canvas controller INSIDE the action that
+ * produced them, right after the transition (#815) — no reducer ever performs
+ * them, and no batch waits for a later drain.
  *
  * The slice is the single source of truth for window / resolution / filters —
  * the machine holds only ephemeral UI state and emits `slice.*` effects for
@@ -57,7 +56,8 @@ export type PlanGrain = "group" | "resource";
 export interface PlanUiState {
     /** The active grain (initial from the IR; the toolbar segment drives it after). */
     grain: PlanGrain;
-    /** Collapsed group strips (keys present = COLLAPSED — rows carry the initial set). */
+    /** Collapsed rows — any row with children (#822; keys present = COLLAPSED —
+     *  rows carry the initial set). */
     collapsed: ReadonlySet<RowKey>;
     /** The selected row, if any (`--brand-tint`, the one selection colour). */
     selected: RowKey | null;
@@ -99,7 +99,9 @@ export type PlanEffect =
     | { t: "scroll.toNow" }
     | { t: "pan"; buckets: number };
 
-const GRAIN_CYCLE: PlanGrain[] = ["group", "resource"];
+/** The §5 grains, in the order the `g` key cycles them and the toolbar's
+ *  grain segment lists them (#632) — one list, so the two cannot drift. */
+export const PLAN_GRAINS: readonly PlanGrain[] = ["group", "resource"];
 
 /** The initial UI state for a decoded root. */
 export function initialPlanState(
@@ -164,9 +166,9 @@ export function planReducer(
         case "brush.down":
             return { state: { ...s, brush: { active: true } }, effects: [] };
         // NO brush.preview event: a mid-drag preview changes no machine state,
-        // and routing it through the store bumped `fx`/`fxSeq` — a full canvas
-        // render per pointer step with the OLD window, before the drain's
-        // write rendered it again with the new one (#609). The HorizonBrush
+        // and routing it through the store cost a full canvas render per
+        // pointer step with the OLD window, before the write rendered it again
+        // with the new one (#609). The HorizonBrush
         // applies previews directly to the slice, coalesced per animation
         // frame; only the state-bearing gesture events (down / commit /
         // clear / up — the esc rung) belong to the machine.
@@ -228,7 +230,7 @@ function keyEvent(s: PlanUiState, key: "esc" | "n" | "[" | "]" | "g"): { state: 
         case "]":
             return { state: s, effects: [{ t: "pan", buckets: 1 }] };
         case "g": {
-            const next = GRAIN_CYCLE[(GRAIN_CYCLE.indexOf(s.grain) + 1) % GRAIN_CYCLE.length]!;
+            const next = PLAN_GRAINS[(PLAN_GRAINS.indexOf(s.grain) + 1) % PLAN_GRAINS.length]!;
             return {
                 state: { ...s, grain: next, selected: null, focus: null },
                 effects: [{ t: "emit.grainChange", grain: next }],
@@ -237,18 +239,20 @@ function keyEvent(s: PlanUiState, key: "esc" | "n" | "[" | "]" | "g"): { state: 
     }
 }
 
-// ── The component-facing store (#610) ──────────────────────────────────────
+// ── The controller-facing store (#610) ─────────────────────────────────────
 //
-// `planReducer` answers one event. The STORE reducer is what the component's
-// single `useReducer` runs: it adds the effect batch — drained by the
-// component exactly once per `fxSeq` bump, post-commit — and the bookkeeping
-// that lets a host data commit RECONCILE the ephemeral UI state instead of
-// resetting it. An Approve click, a committed drop, any Reactive write the
+// `planReducer` answers one event. The STORE reducer is what the canvas
+// controller runs (#815): it adds the bookkeeping that lets a host data commit
+// RECONCILE the ephemeral UI state instead of resetting it, and hands each
+// transition's effects back to the controller, which runs them in the same
+// action. An Approve click, a committed drop, any Reactive write the
 // series read is "the data changed"; open groups, expanded charts, selection
 // and focus must all survive it, dropping only the entries whose rows are
-// actually gone.
+// actually gone. The user's own collapse toggles and expanded charts also
+// outlive the component: the canvas persists them under its `storageKey`, and
+// a remount restores them over the declaration (#813).
 
-/** The one `useReducer` store: UI state + effect batch + collapse seeding. */
+/** The UI store: UI state + collapse seeding + the user's toggles. */
 export interface PlanStore {
     /** The ephemeral UI state. */
     ui: PlanUiState;
@@ -260,20 +264,31 @@ export interface PlanStore {
      * returns it is a NEW row and re-seeds.
      */
     seeded: ReadonlySet<RowKey>;
+    /**
+     * The collapse of every row the USER toggled (`true` = collapsed) — what
+     * a remount restores (#813), and what a bound `ui` state's `collapsed` and
+     * `expanded` lists hold (#824). The declaration only seeds rows the user
+     * never touched; a toggle outranks it from then on, for rows resident or
+     * not. Kept apart from `collapsed` because a restored toggle must outlive
+     * the rows being absent (a paged window not yet landed).
+     */
+    overrides: ReadonlyMap<RowKey, boolean>;
     /** The declared initial grain, as of the last reconcile — a CHANGED
      *  declaration is adopted (it re-derives the rows, like `grain.set`);
      *  an unchanged one leaves the user's grain alone. */
     declaredGrain: PlanGrain;
-    /**
-     * The latest effectful event's batch — REPLACED per such event, never
-     * appended. The component drains it in a layout effect, which commits
-     * before the next event handler can dispatch, so at most one undrained
-     * batch ever exists.
-     */
-    fx: readonly PlanEffect[];
-    /** Bumps when an event yields effects; the component's drain gates on it. */
-    fxSeq: number;
 }
+
+/** One store transition: the next store, and the effects its action must run. */
+export interface PlanStoreStep {
+    /** The next store — the same object when nothing changed. */
+    store: PlanStore;
+    /** The effects to run, in order, after the transition. */
+    effects: readonly PlanEffect[];
+}
+
+/** No effects — one shared list. */
+const NO_EFFECTS: readonly PlanEffect[] = [];
 
 /** Everything the store reducer handles. */
 export type PlanAction =
@@ -287,7 +302,14 @@ export type PlanAction =
         t: "reconcile";
         /** Every row key the new value holds. */
         alive: ReadonlySet<RowKey>;
-        /** The new value's declared-collapsed group keys. */
+        /**
+         * Whether `alive` is EVERY row the canvas has (#813). An inline
+         * collection's keys are all here; a paged source's resident rows are
+         * not all its rows — a key missing from them may simply not have
+         * landed — so an incomplete set prunes nothing.
+         */
+        complete: boolean;
+        /** The new value's declared-collapsed row keys. */
         declaredCollapsed: ReadonlySet<RowKey>;
         /** The new value's declared initial grain. */
         declaredGrain: PlanGrain;
@@ -297,18 +319,71 @@ export type PlanAction =
      * never-seen declared collapse and drop nothing — eviction must not
      * erase state the user still owns.
      */
-    | { t: "seed"; declaredCollapsed: ReadonlySet<RowKey> };
-
-/** The initial store for a decoded root (declared collapse counts as seeded). */
-export function initialPlanStore(grain: PlanGrain, collapsedKeys: Iterable<RowKey>): PlanStore {
-    const seeded = new Set(collapsedKeys);
-    return {
-        ui: initialPlanState(grain, seeded),
-        seeded,
-        declaredGrain: grain,
-        fx: [],
-        fxSeq: 0,
+    | { t: "seed"; declaredCollapsed: ReadonlySet<RowKey> }
+    /**
+     * The host wrote the canvas's bound `ui` state (#824): its selection, the
+     * rows it folds or opens against their declaration, and its expanded
+     * charts replace the canvas's own. A row in neither fold list follows its
+     * declaration again. No callback fires — the host made the change, and
+     * echoing it back to the host would loop.
+     */
+    | {
+        t: "external";
+        /** The selected row, if any. */
+        selected: RowKey | null;
+        /** Each overridden row's collapse (`true` = folded, `false` = opened). */
+        collapse: ReadonlyMap<RowKey, boolean>;
+        /** The expanded chart rows. */
+        charts: ReadonlySet<RowKey>;
     };
+
+/** What a remount restores (#813) — the user's own toggles, nothing else. */
+export interface PlanRestored {
+    /** The collapse of each row the user toggled (`true` = collapsed). */
+    collapse: Iterable<readonly [RowKey, boolean]>;
+    /** The chart rows the user expanded. */
+    charts: Iterable<RowKey>;
+}
+
+/** Whether a row starts collapsed: the user's toggle if there is one, else
+ *  the declaration. */
+function collapsedBy(overrides: ReadonlyMap<RowKey, boolean>, key: RowKey, declared: boolean): boolean {
+    return overrides.get(key) ?? declared;
+}
+
+/**
+ * The initial store for a decoded root (declared collapse counts as seeded).
+ *
+ * @param grain - The declared grain
+ * @param collapsedKeys - The declared-collapsed row keys
+ * @param restored - The user's persisted toggles, when a remount restores them
+ *   (#813): a toggled row keeps its toggle, and only the rows the user never
+ *   touched take the declaration
+ * @returns The store
+ */
+export function initialPlanStore(grain: PlanGrain, collapsedKeys: Iterable<RowKey>, restored?: PlanRestored): PlanStore {
+    const seeded = new Set(collapsedKeys);
+    const overrides = new Map<RowKey, boolean>(restored?.collapse ?? []);
+    const collapsed = new Set<RowKey>();
+    for (const key of seeded) if (collapsedBy(overrides, key, true)) collapsed.add(key);
+    for (const [key, isCollapsed] of overrides) if (isCollapsed) collapsed.add(key);
+    return {
+        ui: { ...initialPlanState(grain, collapsed), chartsExpanded: new Set(restored?.charts ?? []) },
+        seeded,
+        overrides,
+        declaredGrain: grain,
+    };
+}
+
+/** `map` minus the keys `alive` lacks — the same identity when nothing drops. */
+function prunedMap<V>(map: ReadonlyMap<RowKey, V>, alive: ReadonlySet<RowKey>): ReadonlyMap<RowKey, V> {
+    let changed = false;
+    const next = new Map<RowKey, V>();
+    for (const [key, value] of map) {
+        if (alive.has(key)) next.set(key, value);
+        else changed = true;
+    }
+    return changed ? next : map;
 }
 
 /** `set` minus the keys `alive` lacks — the same identity when nothing drops. */
@@ -332,56 +407,114 @@ function grown(set: ReadonlySet<RowKey>, keys: readonly RowKey[]): ReadonlySet<R
 }
 
 /**
- * The store transition — pure, like everything here: StrictMode double-invokes
- * reducers, so the effect batch rides the RETURNED store and is run by the
- * component's seq-gated drain, never from inside a reducer.
+ * The store transition — pure, like everything here. The effects come back
+ * with the next store and the caller runs them; nothing waits in the store.
  *
  * @param store - The current store
  * @param a - The action
- * @returns The next store — `store` itself when nothing changed, so React
- *   skips the re-render
+ * @returns The next store — `store` itself when nothing changed — and the
+ *   effects the action must run
  */
-export function planStoreReducer(store: PlanStore, a: PlanAction): PlanStore {
+export function planStoreReducer(store: PlanStore, a: PlanAction): PlanStoreStep {
     switch (a.t) {
         case "event": {
             const { state, effects } = planReducer(store.ui, a.e);
-            if (state === store.ui && effects.length === 0) return store;
-            return effects.length === 0
-                ? { ...store, ui: state }
-                : { ...store, ui: state, fx: effects, fxSeq: store.fxSeq + 1 };
+            if (state === store.ui && effects.length === 0) return { store, effects: NO_EFFECTS };
+            // A toggle is the user's word on that row from now on (#813).
+            const overrides = a.e.t === "group.toggle"
+                ? new Map(store.overrides).set(a.e.key, state.collapsed.has(a.e.key))
+                : store.overrides;
+            const next = state === store.ui && overrides === store.overrides
+                ? store
+                : { ...store, ui: state, overrides };
+            return { store: next, effects };
         }
         case "reconcile": {
+            // Only a COMPLETE key set says a row is gone. A paged source's
+            // resident rows are not all its rows, so it prunes nothing: a toggle
+            // on a row in an unlanded window is kept for when it lands (#813).
+            const alive = a.alive;
             const fresh = [...a.declaredCollapsed].filter((key) => !store.seeded.has(key));
-            const collapsed = grown(pruned(store.ui.collapsed, a.alive), fresh);
-            const chartsExpanded = pruned(store.ui.chartsExpanded, a.alive);
+            const seedCollapsed = fresh.filter((key) => collapsedBy(store.overrides, key, true));
+            const collapsed = grown(a.complete ? pruned(store.ui.collapsed, alive) : store.ui.collapsed, seedCollapsed);
+            const chartsExpanded = a.complete ? pruned(store.ui.chartsExpanded, alive) : store.ui.chartsExpanded;
+            const overrides = a.complete ? prunedMap(store.overrides, alive) : store.overrides;
             const grainChanged = a.declaredGrain !== store.declaredGrain;
             // Selection / focus follow their row out; a changed declared grain
             // clears both (grain changes rows — the `grain.set` rule), with no
             // `emit.grainChange`: the HOST changed it, echoing it back loops.
-            const selected = !grainChanged && store.ui.selected !== null && a.alive.has(store.ui.selected)
+            const lives = (key: RowKey) => !a.complete || alive.has(key);
+            const selected = !grainChanged && store.ui.selected !== null && lives(store.ui.selected)
                 ? store.ui.selected : null;
-            const focus = !grainChanged && store.ui.focus !== null && a.alive.has(store.ui.focus.key)
+            const focus = !grainChanged && store.ui.focus !== null && lives(store.ui.focus.key)
                 ? store.ui.focus : null;
             const grain = grainChanged ? a.declaredGrain : store.ui.grain;
-            const seeded = grown(pruned(store.seeded, a.alive), fresh);
+            const seeded = grown(a.complete ? pruned(store.seeded, alive) : store.seeded, fresh);
             const uiSame = collapsed === store.ui.collapsed && chartsExpanded === store.ui.chartsExpanded
                 && selected === store.ui.selected && focus === store.ui.focus && grain === store.ui.grain;
-            if (uiSame && seeded === store.seeded && !grainChanged) return store;
+            if (uiSame && seeded === store.seeded && overrides === store.overrides && !grainChanged) {
+                return { store, effects: NO_EFFECTS };
+            }
             return {
-                ...store,
-                seeded,
-                declaredGrain: a.declaredGrain,
-                ui: uiSame ? store.ui : { ...store.ui, collapsed, chartsExpanded, selected, focus, grain },
+                store: {
+                    ...store,
+                    seeded,
+                    overrides,
+                    declaredGrain: a.declaredGrain,
+                    ui: uiSame ? store.ui : { ...store.ui, collapsed, chartsExpanded, selected, focus, grain },
+                },
+                effects: NO_EFFECTS,
             };
         }
         case "seed": {
             const fresh = [...a.declaredCollapsed].filter((key) => !store.seeded.has(key));
-            if (fresh.length === 0) return store;
+            if (fresh.length === 0) return { store, effects: NO_EFFECTS };
+            // A landed row the user already toggled keeps the toggle (#813).
+            const seedCollapsed = fresh.filter((key) => collapsedBy(store.overrides, key, true));
+            const collapsed = grown(store.ui.collapsed, seedCollapsed);
             return {
-                ...store,
-                seeded: grown(store.seeded, fresh),
-                ui: { ...store.ui, collapsed: grown(store.ui.collapsed, fresh) },
+                store: {
+                    ...store,
+                    seeded: grown(store.seeded, fresh),
+                    ui: collapsed === store.ui.collapsed ? store.ui : { ...store.ui, collapsed },
+                },
+                effects: NO_EFFECTS,
+            };
+        }
+        case "external": {
+            const overrides = sameToggles(store.overrides, a.collapse) ? store.overrides : a.collapse;
+            // Every row whose collapse could have moved: the ones overridden
+            // before or now, and the declared ones (a row no longer overridden
+            // falls back to its declaration — `seeded` holds the declared
+            // collapse already applied).
+            const candidates = new Set<RowKey>([...store.ui.collapsed, ...store.seeded, ...overrides.keys()]);
+            const nextCollapsed = new Set<RowKey>();
+            for (const key of candidates) if (collapsedBy(overrides, key, store.seeded.has(key))) nextCollapsed.add(key);
+            const collapsed = sameKeys(store.ui.collapsed, nextCollapsed) ? store.ui.collapsed : nextCollapsed;
+            const chartsExpanded = sameKeys(store.ui.chartsExpanded, a.charts) ? store.ui.chartsExpanded : a.charts;
+            const selected = a.selected;
+            if (overrides === store.overrides && collapsed === store.ui.collapsed
+                && chartsExpanded === store.ui.chartsExpanded && selected === store.ui.selected) {
+                return { store, effects: NO_EFFECTS };
+            }
+            return {
+                store: { ...store, overrides, ui: { ...store.ui, collapsed, chartsExpanded, selected } },
+                effects: NO_EFFECTS,
             };
         }
     }
+}
+
+/** Whether two sets hold the same keys. */
+function sameKeys(a: ReadonlySet<RowKey>, b: ReadonlySet<RowKey>): boolean {
+    if (a.size !== b.size) return false;
+    for (const key of a) if (!b.has(key)) return false;
+    return true;
+}
+
+/** Whether two toggle maps say the same of the same rows (in any order). */
+function sameToggles(a: ReadonlyMap<RowKey, boolean>, b: ReadonlyMap<RowKey, boolean>): boolean {
+    if (a.size !== b.size) return false;
+    for (const [key, v] of a) if (b.get(key) !== v) return false;
+    return true;
 }

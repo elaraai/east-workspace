@@ -5,13 +5,13 @@
 
 import { memo, useMemo, useCallback, type ReactNode } from "react";
 import { Dialog as ChakraDialog, Portal, Box as ChakraBox, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Dialog } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 
 // Pre-define equality function at module level
-const dialogEqual = equalFor(Dialog.Types.Dialog);
+const dialogEqual = equivalentFor(Dialog.Types.Dialog);
 
 const DIALOG_SIZE_MAX: Record<string, string> = {
     xs: "320px",

@@ -172,15 +172,18 @@ function predicateMatches(pred: variant, row: Record<string, unknown>): boolean 
 // Range — datetimePreset / datetime / integer / float
 // ---------------------------------------------------------------------------
 
+/** A preset's window ending at `now`, on UTC days: East's DateTime is a UTC
+ *  instant, so "today" starts at UTC midnight and the rows a preset keeps never
+ *  depend on the viewer's timezone. The range pill resolves the same way. */
 function resolveDateTimePreset(preset: variant, now: Date): { from: Date; to: Date } {
     const to = now;
     const from = new Date(now);
     switch (preset.type) {
-        case "today":   from.setHours(0, 0, 0, 0); return { from, to };
-        case "last7d":  from.setDate(from.getDate() - 7);  return { from, to };
-        case "last30d": from.setDate(from.getDate() - 30); return { from, to };
-        case "last90d": from.setDate(from.getDate() - 90); return { from, to };
-        case "ytd":     return { from: new Date(now.getFullYear(), 0, 1), to };
+        case "today":   from.setUTCHours(0, 0, 0, 0); return { from, to };
+        case "last7d":  from.setUTCDate(from.getUTCDate() - 7);  return { from, to };
+        case "last30d": from.setUTCDate(from.getUTCDate() - 30); return { from, to };
+        case "last90d": from.setUTCDate(from.getUTCDate() - 90); return { from, to };
+        case "ytd":     return { from: new Date(Date.UTC(now.getUTCFullYear(), 0, 1)), to };
         default: throw new Error(`unknown datetime preset: ${preset.type}`);
     }
 }
@@ -235,6 +238,14 @@ interface CohortLike {
     readonly id: string;
     readonly name: string;
     readonly filters: ReadonlyArray<variant>;
+    /** `option<string>` — the cohort's family; absent on a state built before the field existed. */
+    readonly group?: variant;
+}
+
+/** A cohort's family, or `undefined` for a standalone cohort (tolerates a pre-field state with no `group`). */
+export function cohortGroupOf(cohort: { readonly group?: variant | undefined }): string | undefined {
+    const g = cohort.group;
+    return g !== undefined && g.type === "some" ? (g.value as string) : undefined;
 }
 
 interface StateLike {
@@ -303,13 +314,23 @@ export function sliceMatches(state: StateLike, config: ConfigLike, row: Record<s
     for (const f of state.filters) {
         if (!predicateMatches(f, row)) return false;
     }
-    // Active cohorts — each cohort's filters AND-ed into the chain
+    // Active cohorts — a standalone cohort's filters AND into the chain; the
+    // active members of a GROUP are alternatives (the row passes the group when
+    // any of them matches), and the groups AND with each other.
+    const groups = new Map<string, boolean>();
     for (const cohortId of state.activeCohorts) {
         const cohort = state.cohorts.find(c => eqString(c.id, cohortId));
         if (!cohort) continue;
-        for (const f of cohort.filters) {
-            if (!predicateMatches(f, row)) return false;
+        const matched = cohort.filters.every(f => predicateMatches(f, row));
+        const group = cohortGroupOf(cohort);
+        if (group === undefined) {
+            if (!matched) return false;
+            continue;
         }
+        groups.set(group, (groups.get(group) ?? false) || matched);
+    }
+    for (const passed of groups.values()) {
+        if (!passed) return false;
     }
     // Search — case-insensitive substring across the searchable fields: string
     // fields by value, `text` fields through their projection. Resolve them the

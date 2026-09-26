@@ -131,7 +131,7 @@ test("an integer range narrows integer-field rows; the brush domain reports the 
 test("slice_define_cohort registers; a second define with the same id THROWS (#170)", () => {
     initializeStore(new UIStore());
     buildSliceHandle("c.def", cfg, initial, [{ id: "a" }], none);
-    const euCohort = () => ({ id: "eu", name: "EU", filters: [variant("string", { fieldId: "id", op: variant("eq", "a") })] });
+    const euCohort = () => ({ id: "eu", name: "EU", group: none, filters: [variant("string", { fieldId: "id", op: variant("eq", "a") })] });
 
     call("slice_define_cohort", "c.def", euCohort());
     const s = call("slice_read", "c.def") as { cohorts: Array<{ id: string; name: string; filters: unknown[] }> };
@@ -145,7 +145,7 @@ test("slice_define_cohort registers; a second define with the same id THROWS (#1
 test("slice_toggle_cohort flips activeCohorts ON then OFF — and activeCount follows (#170)", () => {
     initializeStore(new UIStore());
     buildSliceHandle("c.tog", cfg, initial, [{ id: "a" }], none);
-    call("slice_define_cohort", "c.tog", { id: "eu", name: "EU", filters: [variant("string", { fieldId: "id", op: variant("eq", "a") })] });
+    call("slice_define_cohort", "c.tog", { id: "eu", name: "EU", group: none, filters: [variant("string", { fieldId: "id", op: variant("eq", "a") })] });
 
     call("slice_toggle_cohort", "c.tog", "eu");
     assert.equal((call("slice_read", "c.tog") as { activeCohorts: Set<string> }).activeCohorts.has("eu"), true);
@@ -160,10 +160,10 @@ test("slice_toggle_cohort flips activeCohorts ON then OFF — and activeCount fo
 test("slice_update_cohort replaces in place; slice_remove_cohort drops it AND its active flag (#170)", () => {
     initializeStore(new UIStore());
     buildSliceHandle("c.upd", cfg, initial, [{ id: "a" }], none);
-    call("slice_define_cohort", "c.upd", { id: "eu", name: "EU", filters: [variant("string", { fieldId: "id", op: variant("eq", "a") })] });
+    call("slice_define_cohort", "c.upd", { id: "eu", name: "EU", group: none, filters: [variant("string", { fieldId: "id", op: variant("eq", "a") })] });
     call("slice_toggle_cohort", "c.upd", "eu");
 
-    call("slice_update_cohort", "c.upd", "eu", { id: "eu", name: "EU zone", filters: [
+    call("slice_update_cohort", "c.upd", "eu", { id: "eu", name: "EU zone", group: none, filters: [
         variant("string", { fieldId: "id", op: variant("eq", "a") }),
         variant("string", { fieldId: "id", op: variant("neq", "b") }),
     ] });
@@ -259,7 +259,7 @@ test("slice_fields merges auto-derived hints for hint-less string fields; slice_
     assert.equal(fields.length, 1);
     assert.deepEqual(fields[0]!.hints, ["a", "b"]);                     // distinct values, insertion order
 
-    call("slice_define_cohort", "d.fields", { id: "just-a", name: "Just A", filters: [variant("string", { fieldId: "id", op: variant("eq", "a") })] });
+    call("slice_define_cohort", "d.fields", { id: "just-a", name: "Just A", group: none, filters: [variant("string", { fieldId: "id", op: variant("eq", "a") })] });
     const counts = call("slice_cohort_counts", "d.fields") as Map<string, bigint>;
     assert.equal(counts.get("just-a"), 2n);                             // counted in isolation over bound rows
 });

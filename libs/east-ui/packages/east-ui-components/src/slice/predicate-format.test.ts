@@ -9,8 +9,9 @@
  * of joining every member into one unbounded chip (user-reported).
  */
 
-import { describe, test, expect } from "vitest";
+import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 import { variant } from "@elaraai/east";
+import { formatters } from "../format/index.js";
 import { formatPredicate, type PredicateValue } from "./predicate-format.js";
 
 describe("formatPredicate", () => {
@@ -44,5 +45,31 @@ describe("formatPredicate", () => {
         const nonEmpty = variant("string", { fieldId: "note", op: variant("isNotEmpty", null) }) as unknown as PredicateValue;
         expect(formatPredicate(empty)).toBe("note is empty");
         expect(formatPredicate(nonEmpty)).toBe("note is not empty");
+    });
+
+    test("a number is data — bare, with the locale's decimal separator, a year never grouped (#850)", () => {
+        const qty = variant("float", { fieldId: "qty", op: variant("gte", 1234.5) }) as unknown as PredicateValue;
+        const year = variant("integer", { fieldId: "year", op: variant("eq", 2026n) }) as unknown as PredicateValue;
+        expect(formatPredicate(qty, formatters("en-US"))).toBe("qty ≥ 1234.5");
+        expect(formatPredicate(qty, formatters("de-DE"))).toBe("qty ≥ 1234,5");
+        expect(formatPredicate(year, formatters("de-DE"))).toBe("year = 2026");
+    });
+});
+
+/** Late on Monday 29 June 2026, UTC — a zone east of UTC is already on the 30th. */
+const LATE = new Date(Date.UTC(2026, 5, 29, 22, 30));
+/** Early on 1 January 2026, UTC — a zone west of UTC is still on 31 December. */
+const EARLY = new Date(Date.UTC(2026, 0, 1, 1, 30));
+
+describe.each(["UTC", "Pacific/Kiritimati", "America/Los_Angeles"])("a date chip prints its UTC day in the app's locale — TZ=%s (#850)", (tz) => {
+    beforeEach(() => { vi.stubEnv("TZ", tz); });
+    afterEach(() => { vi.unstubAllEnvs(); });
+
+    test("after a date, and a between window", () => {
+        const after = variant("datetime", { fieldId: "day", op: variant("after", LATE) }) as unknown as PredicateValue;
+        const between = variant("datetime", { fieldId: "day", op: variant("between", { from: EARLY, to: LATE }) }) as unknown as PredicateValue;
+        expect(formatPredicate(after, formatters("en-US"))).toBe("day after 6/29/2026");
+        expect(formatPredicate(after, formatters("de-DE"))).toBe("day after 29.6.2026");
+        expect(formatPredicate(between, formatters("de-DE"))).toBe("day between 1.1.2026 – 29.6.2026");
     });
 });

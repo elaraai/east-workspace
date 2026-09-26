@@ -25,6 +25,14 @@ export default defineConfig({
         'process.argv': '[]',
     },
     resolve: {
+        // The shared page module (`scripts/snapshot-app.tsx`, at the lib root)
+        // imports the framework too, and a bare import resolves from its
+        // importer — outside every package, where pnpm's isolated layout has
+        // no `@chakra-ui/react`. The dependency scan failed there, so
+        // everything it would have found was discovered mid-load: a
+        // re-optimization, a stale-chunk 404 and a reload on every capture
+        // (#832). Resolve the framework from THIS package instead.
+        dedupe: ['@chakra-ui/react', 'react', 'react-dom'],
         alias: [
             // The example files `import * as e3 from '@elaraai/e3'` only to
             // call `e3.input(...)`. The full `@elaraai/e3` entry pulls in

@@ -41,7 +41,9 @@ import {
     DictType,
     FunctionType,
     IntegerType,
+    NullType,
     OptionType,
+    SetType,
     StringType,
     StructType,
     VariantType,
@@ -144,16 +146,37 @@ export type SeekQueryType = typeof SeekQueryType;
  *
  * Parameterised on the COLLECTION, not on the row: a window of an `Array<R>`
  * dataset is an `Array<R>`, a window of a `Dict<K, V>` dataset is a
- * `Dict<K, V>`, and the Plan's canvas windows are `Dict<String, PlanRow>`
- * (#568). That is what `Data.bindPaged` already produces — it returns
- * `Option<T>` at the dataset's own type — so the contract matches the producer
- * instead of narrowing it to arrays.
+ * `Dict<K, V>`, and the Plan's canvas windows are its blocks — one
+ * `Array<PlanRow>` stream per series (#823). That is what `Data.bindPaged`
+ * already produces — it returns `Option<T>` at the dataset's own type — so the
+ * contract matches the producer instead of narrowing it to arrays.
  *
  * `page` and `total` follow the in-flight-is-`none` convention: a window still
  * being fetched reads `none` and the call re-fires when it lands, so the reads
  * belong inside a tracked evaluation. An EMPTY window (`some([])`) means the
  * source is exhausted at that offset — a reader that walks offsets terminates
  * on an empty window, never on `none`.
+ *
+ * A window may also hold FEWER than `limit` elements while the source still
+ * has more: a source that bounds its pages serves what fits. e3 trims every
+ * page of a dataset to a byte budget — the same number of elements on every
+ * page of one dataset — so wide elements come back in short windows (#829).
+ * Only an EMPTY window means exhausted. Components never see a short window:
+ * {@link buildRowSource}'s derived `page` re-requests whatever a trimmed page
+ * left out, so every window it serves is whole.
+ *
+ * A window that CANNOT be read — a failed fetch, a page that does not decode —
+ * makes `page` THROW its reason; it never reads `none`, which means in flight,
+ * and a reader waiting on it would wait forever (#811). A component shows the
+ * failure where that window's rows would be and asks again when the user
+ * retries. A source may rate-limit repeat attempts (e3 relaunches a failed
+ * window on a read at least two seconds later), and an authoring error — a
+ * dataset that cannot be paged — keeps throwing. `seek` follows the same rule.
+ *
+ * @property revision - Coherent snapshot shared by pages, total and seek; none
+ *   while discovering it, or on a legacy immutable-id source.
+ * @property refresh - Install an exact revision (some(hash)), or discover the
+ *   current snapshot (none), invalidating windows, total and seek together.
  *
  * @typeParam C - The collection type one window carries.
  * @param c - The collection type value.
@@ -163,19 +186,23 @@ export type SeekQueryType = typeof SeekQueryType;
  *   compares every function as EQUAL, so a struct of nothing but closures is
  *   indistinguishable from any other — without this field a memoized component
  *   never re-renders when the source is swapped, and a window cache cannot key
- *   itself. Two sources with the same `id` must serve the same rows.
+ *   itself. The id names the logical source; revision names its snapshot.
  * @property page - `(offset, limit)` → that window's elements as a value of the
- *   collection type; `none` while in flight, an EMPTY collection at exhaustion.
+ *   collection type; `none` while in flight, an EMPTY collection at exhaustion,
+ *   and possibly fewer than `limit` elements before it (see above). Throws when
+ *   the window cannot be read.
  * @property total - The source's total element count, once known; `none` until then.
  * @property seek - The source's key-search capability ({@link SeekType}) —
  *   `none` when the source is not key-ordered (an Array-backed source cannot
- *   seek; there is nothing to binary-search).
+ *   seek; there is nothing to binary-search). A search that fails throws.
  */
 export const PagedSourceType = <C extends EastType>(c: C) => StructType({
     id:    StringType,
     page:  FunctionType([IntegerType, IntegerType], OptionType(c)),
     total: FunctionType([], OptionType(IntegerType)),
     seek:  OptionType(FunctionType([SeekQueryType], OptionType(SeekRangeType))),
+    revision: FunctionType([], OptionType(StringType)),
+    refresh: FunctionType([OptionType(StringType)], NullType),
 });
 
 /**
@@ -201,9 +228,10 @@ export type PagedSource<C extends EastType> = ExprType<ReturnType<typeof PagedSo
  *
  * @remarks
  * Both arms speak the same COLLECTION type — inline is the whole of it, paged
- * is a window of it — so a component that keys its rows (the Plan's
- * `Dict<String, PlanRow>`) and one that positions them (`Array<Row>`) share one
- * vocabulary without either shape leaking into the arm names (#568).
+ * is a window of it — so a keyed source (a Sheet's `Dict<String, Row>`), a
+ * positional one (a Table's `Array<Row>`) and a composite one (the Plan's
+ * blocks, one row stream per series) share one vocabulary without any shape
+ * leaking into the arm names (#568).
  *
  * @typeParam C - The collection type.
  * @param c - The collection type value.
@@ -256,12 +284,12 @@ export type RowSourceInput<C extends EastType> =
  * element type recovered from it (an `Array`'s value, a `Set`'s key, a
  * `Dict`'s value), and its KEY type when it has one.
  *
- * `keyType` is what a keyed component checks: the Plan requires
- * `Dict<String, R>` because its canvas rows inherit the source's keys, so an
+ * `keyType` is what a keyed component checks: the Plan requires a `Dict`
+ * (any key type, #822) because a row's id starts with its entry's key, so an
  * unkeyed source is refused rather than silently re-keyed (#568).
  */
 export type ResolvedRowSource =
-    | { kind: "inline"; rows: ExprType<EastType>; collectionType: EastType; elementType: EastType; keyType: EastType | undefined }
+    | { kind: "inline"; rows: ExprType<EastType>; collectionType: EastType; elementType: EastType; keyType: EastType | undefined; live?: ExprType<StructType> }
     | { kind: "paged"; source: ExprType<StructType>; collectionType: EastType; elementType: EastType; keyType: EastType | undefined };
 
 /** A struct expression's field types, or undefined when it isn't a struct. */
@@ -310,7 +338,7 @@ function keyTypeOf(t: EastType | undefined): EastType | undefined {
  *
  * @param data - The rows prop as the author passed it
  * @param label - Component name for the error message (`"Plan"`, `"Table"`)
- * @returns The resolved arm — see {@link ResolvedRowSource}
+ * @returns The resolved arm, retaining a live handle for invocation-time reads — see {@link ResolvedRowSource}
  * @throws Error when the expression is none of the accepted shapes
  */
 export function resolveRowSource(data: unknown, label: string): ResolvedRowSource {
@@ -343,7 +371,8 @@ export function resolveRowSource(data: unknown, label: string): ResolvedRowSourc
         // A whole-value bind handle (`Data.bind`) — read it here, in the
         // surrounding East expression, and resolve the result.
         const handle = expr as unknown as ExprType<StructType<{ read: FunctionType<[], ArrayType<EastType>> }>>;
-        return resolveRowSource(handle.read(), label);
+        const resolved = resolveRowSource(handle.read(), label);
+        return resolved.kind === "inline" ? { ...resolved, live: expr as unknown as ExprType<StructType> } : resolved;
     }
     throw new Error(
         `${label}: rows must be a collection, a paged source (\`{ id, page, total }\` — e.g. Data.bindPaged), ` +
@@ -367,29 +396,38 @@ export function resolveRowSource(data: unknown, label: string): ResolvedRowSourc
  * component's rows inherit the source's keys, and flattening at the boundary
  * would throw away exactly what makes a window's rows addressable (#568). A
  * positional component (Table) receives its `Array<Row>`; a keyed one (Plan) a
- * `Dict<String, R>`.
+ * `Dict<K, R>`.
  *
  * @typeParam Out - The component's own row COLLECTION type.
  * @param resolved - The output of {@link resolveRowSource}
  * @param outType - The component's row collection type
  * @param make - The source collection → the component's row collection
- * @param idSuffix - Appended to the paged source's `id` — see below
  * @returns The `RowSourceType(outType)` value to store in the IR
  *
  * @remarks
- * `idSuffix` exists because `make` is part of what the derived source SERVES.
- * {@link PagedSourceType} requires that two sources sharing an `id` serve the
- * same rows, and a component whose `make` changes — a Plan whose series list was
- * narrowed by a pick — now serves different rows from the same underlying
- * handle. Since a window cache keys on `id` alone and resident windows are never
- * re-read, an unsigned id leaves the previous rows on screen forever. A
- * component that can vary its `make` must pass a signature of what varied.
+ * The derived source keeps the handle's `id`: `make` is part of what it
+ * serves, and a component whose `make` changes (a Plan whose series list a
+ * pick narrowed) serves other rows from the same handle — which a renderer
+ * tells apart by comparing the derived source whole, closures included
+ * (`equivalentFor`, #809), not by its id (#822).
+ *
+ * The derived `page` serves WHOLE windows (#829). A handle may answer
+ * `(offset, limit)` with fewer than `limit` elements while it still has more —
+ * e3 trims every page to a byte budget — and every component addresses its
+ * windows at `w × size`, so a short window would silently drop its tail. The
+ * derived `page` therefore re-requests `(offset + served, limit − served)`
+ * until the window holds `limit` elements, the source is exhausted (an empty
+ * piece, or `offset + served` reaching a known `total()`), or a piece is still
+ * in flight — in which case the whole window reads `none` and re-fires when the
+ * piece lands. The pieces join in the collection's own order (arrays
+ * concatenate; dicts and sets union, their pieces being disjoint and ascending)
+ * and `make` runs once over the whole window. Each piece stays its own request,
+ * so a runtime caches them at the size the source chose to serve.
  */
 export function buildRowSource<Out extends EastType>(
     resolved: ResolvedRowSource,
     outType: Out,
     make: (collection: ExprType<EastType>) => SubtypeExprOrValue<Out>,
-    idSuffix?: SubtypeExprOrValue<StringType>,
 ): RowSource<Out> {
     const sourceType = RowSourceType(outType);
     if (resolved.kind === "inline") {
@@ -398,47 +436,148 @@ export function buildRowSource<Out extends EastType>(
             sourceType,
         ) as RowSource<Out>;
     }
-    const handle = resolved.source as unknown as ExprType<StructType<{
-        id: StringType;
-        page: FunctionType<[IntegerType, IntegerType], OptionType<EastType>>;
-        total: FunctionType<[], OptionType<IntegerType>>;
-        seek: OptionType<FunctionType<[SeekQueryType], OptionType<SeekRangeType>>>;
-    }>>;
+    const handle = pagedHandleOf(resolved);
     // Erased locally: the window type is `Out`, but TS cannot see through the
     // generic to unify `Option<Out>`'s arms — the East type is what types it.
     const winType: EastType = outType;
+    // The WHOLE window of the source's own collection, then `make` over it
+    // (#829) — reified once, and shared with anything that must read the very
+    // windows a component reads (the Plan's editing, #880).
+    const window = buildPagedWindow(resolved);
     const page = East.function([IntegerType, IntegerType], OptionType(winType), ($, offset, limit) => {
-        const empty = $.const(none, OptionType(winType));
-        const win = $.let(handle.page(offset, limit));
-        return win.match({
-            some: ($, window) => {
-                const built = $.let(make(window as ExprType<EastType>), outType);
-                return $.const(some(built), OptionType(winType));
+        const read = $.const(window);
+        const result = $.let(none, OptionType(winType));
+        const whole = $.let(read(offset, limit));
+        $.match(whole, {
+            some: ($, entries) => {
+                const built = $.let(make(entries as ExprType<EastType>), outType);
+                $.assign(result, some(built));
             },
-            none: (_$) => empty,
         });
+        return result;
     });
     // A source predating the contract carries no `id` / `seek`; fall back to a
     // constant identity (it still compares equal to itself) and no seek.
     const fields = structFields(Expr.type(resolved.source)) ?? {};
-    const baseId = fields["id"] !== undefined ? handle.id : East.value("", StringType);
-    const id = idSuffix !== undefined
-        ? East.str`${baseId}#${East.value(idSuffix, StringType)}`
-        : baseId;
+    const id = fields["id"] !== undefined ? handle.id : East.value("", StringType);
     const seek = fields["seek"] !== undefined
         ? handle.seek
         : East.value(none, OptionType(FunctionType([SeekQueryType], OptionType(SeekRangeType))));
+    const revision = fields["revision"] !== undefined
+        ? handle.revision
+        : East.function([], OptionType(StringType), () => none);
+    const refresh = fields["refresh"] !== undefined
+        ? handle.refresh
+        : East.function([OptionType(StringType)], NullType, $ => {
+            $.error("Paged: this legacy source cannot refresh — provide revision and refresh methods for mutable editing");
+        });
     return East.value(
-        variant("paged", { id, page, total: handle.total, seek }) as never,
+        variant("paged", { id, page, total: handle.total, seek, revision, refresh }) as never,
         sourceType,
     ) as RowSource<Out>;
+}
+
+/** A resolved paged source's handle, at the contract's shape. */
+function pagedHandleOf(resolved: Extract<ResolvedRowSource, { kind: "paged" }>) {
+    return resolved.source as unknown as ExprType<StructType<{
+        id: StringType;
+        page: FunctionType<[IntegerType, IntegerType], OptionType<EastType>>;
+        total: FunctionType<[], OptionType<IntegerType>>;
+        seek: OptionType<FunctionType<[SeekQueryType], OptionType<SeekRangeType>>>;
+        revision: FunctionType<[], OptionType<StringType>>;
+        refresh: FunctionType<[OptionType<StringType>], NullType>;
+    }>>;
+}
+
+/**
+ * The WHOLE window `(offset, limit)` of a paged source's own collection — the
+ * pieces a trimmed page left out asked for until the window holds `limit`
+ * elements, the source is exhausted, or a piece is in flight (the window then
+ * reads `none`, #829). What {@link buildRowSource}'s derived `page` maps its
+ * `make` over; a caller that must read the very windows a component reads —
+ * the Plan's editing reads its entries back (#880) — asks for them here, so
+ * each piece is the same request the component made.
+ *
+ * @param resolved - A resolved paged source ({@link resolveRowSource})
+ * @returns `(offset, limit)` → the window, `none` while a piece is in flight
+ */
+export function buildPagedWindow(
+    resolved: Extract<ResolvedRowSource, { kind: "paged" }>,
+): ExprType<FunctionType<[IntegerType, IntegerType], OptionType<EastType>>> {
+    const handle = pagedHandleOf(resolved);
+    // The source's own collection — every piece of a window is a value of it.
+    // Its size and the in-order join of two pieces are reified ONCE, outside
+    // the block, per collection kind, then CALLED. Both are pure: a piece may
+    // be the very window object a runtime holds in its cache.
+    const pieceType: EastType = resolved.collectionType;
+    const pieceKind = (pieceType as { type: string }).type;
+    const sizeOf = pieceKind === "Array"
+        ? East.function([pieceType], IntegerType, (_$, c) => (c as unknown as ExprType<ArrayType<EastType>>).length())
+        : pieceKind === "Dict"
+            ? East.function([pieceType], IntegerType, (_$, c) => (c as unknown as ExprType<DictType<EastType, EastType>>).size())
+            : East.function([pieceType], IntegerType, (_$, c) => (c as unknown as ExprType<SetType<EastType>>).size());
+    const joinOf = pieceKind === "Array"
+        ? East.function([pieceType, pieceType], pieceType, (_$, a, b) =>
+            (a as unknown as ExprType<ArrayType<EastType>>).concat(b as unknown as ExprType<ArrayType<EastType>>))
+        : pieceKind === "Dict"
+            // Pieces are disjoint, so the conflict arm never runs.
+            ? East.function([pieceType, pieceType], pieceType, (_$, a, b) =>
+                (a as unknown as ExprType<DictType<EastType, EastType>>).union(
+                    b as unknown as ExprType<DictType<EastType, EastType>>, (_$2, _mine, theirs) => theirs))
+            : East.function([pieceType, pieceType], pieceType, (_$, a, b) =>
+                (a as unknown as ExprType<SetType<EastType>>).union(b as unknown as ExprType<SetType<EastType>>));
+    return East.function([IntegerType, IntegerType], OptionType(pieceType), ($, offset, limit) => {
+        // Bound ONCE: the handle may be a platform call (`Data.bindPaged(…)`
+        // passed inline), and this body reads it up to three times.
+        const src = $.const(handle);
+        const size = $.const(sizeOf as unknown as ExprType<FunctionType<[EastType], IntegerType>>);
+        const join = $.const(joinOf as unknown as ExprType<FunctionType<[EastType, EastType], EastType>>);
+        const result = $.let(none, OptionType(pieceType));
+        const first = $.let(src.page(offset, limit));
+        $.match(first, {
+            some: ($, head) => {
+                const window = $.let(head, pieceType);
+                const served = $.let(size(head), IntegerType);
+                const inFlight = $.let(false, BooleanType);
+                // An empty first window is exhaustion. A short one — the
+                // source trimmed it — asks for the rest, piece by piece.
+                $.while(served.greater(0n).and(() => served.less(limit)), ($, label) => {
+                    // A known total says where the source ends: no piece past it.
+                    const total = $.let(src.total());
+                    $.match(total, {
+                        some: ($, t) => {
+                            $.if(offset.add(served).greaterEqual(t), ($) => { $.break(label); });
+                        },
+                    });
+                    const next = $.let(src.page(offset.add(served), limit.subtract(served)));
+                    $.match(next, {
+                        none: ($) => {
+                            // Still in flight: the whole window waits, and the
+                            // piece's landing re-fires this evaluation.
+                            $.assign(inFlight, true);
+                            $.break(label);
+                        },
+                        some: ($, piece) => {
+                            const n = $.let(size(piece), IntegerType);
+                            $.if(n.equal(0n), ($) => { $.break(label); });
+                            $.assign(window, join(window, piece));
+                            $.assign(served, served.add(n));
+                        },
+                    });
+                });
+                $.if(inFlight.not(), ($) => { $.assign(result, some(window)); });
+            },
+        });
+        return result;
+    });
 }
 
 // ============================================================================
 // Paged.of — the in-memory source
 // ============================================================================
 
-/** Options for the ARRAY form of {@link Paged.of}. */
+/** Options for {@link Paged.of} — `key` applies to the ARRAY form only,
+ *  `pageLimit` to both. */
 export interface PagedOfOptions<R extends EastType> {
     /**
      * Key accessor. Supplying it declares the rows are SORTED by that key and
@@ -450,6 +589,17 @@ export interface PagedOfOptions<R extends EastType> {
      * are the row order and the search space.
      */
     key?: (row: ExprType<R>) => SubtypeExprOrValue<StringType>;
+    /**
+     * Serve at most this many elements per window, whatever `limit` asks — the
+     * in-memory twin of a source that bounds its pages (e3 trims every page to
+     * a byte budget, so wide elements come back in short windows, #829).
+     *
+     * A component never sees the trim: `buildRowSource` re-requests what a
+     * short window left out, so every window it serves is whole. Set it to
+     * exercise that path in examples and tests. Must be a positive integer;
+     * omit it and a window is exactly what `limit` asks (clamped at the end).
+     */
+    pageLimit?: number;
 }
 
 /**
@@ -462,6 +612,8 @@ export interface PagedOfOptions<R extends EastType> {
  * whole paged path — windowing, exhaustion on `some([])`, totals, seek — with
  * no server, no platform function and no bind. `@elaraai/e3-ui`'s
  * `Data.bindPaged` is the same contract backed by real dataset windows.
+ * `pageLimit` adds the one thing a real server does that an in-memory source
+ * would not: short windows, as e3 serves wide elements under its byte budget.
  *
  * Windows follow the collection: an `Array` source serves array windows in
  * stream order, a `Dict` source serves DICT windows in canonical key order —
@@ -469,10 +621,16 @@ export interface PagedOfOptions<R extends EastType> {
  * is what a keyed component (the Plan) requires of its source (#568).
  *
  * @typeParam R - The row type (array form) / the value type (dict form).
- * @param id - Comparable identity for this source (see {@link PagedSourceType}).
+ * `Paged.of` captures an immutable copy at creation. Give changed content a
+ * new id: this fixture's revision is `some(id)`. Refreshing with `none` or
+ * that same token keeps the snapshot; another target throws.
+ *
+ * @param id - Unique snapshot identity (see {@link PagedSourceType}).
  * @param collection - The whole collection — an `Array<R>` or a `Dict<String, R>`.
- * @param options - {@link PagedOfOptions} — array form only; supply `key` to enable `seek`.
+ * @param options - {@link PagedOfOptions} — `key` (array form only) enables `seek`;
+ *   `pageLimit` trims every window, as a server bounding its pages does.
  * @returns A `PagedSourceType` at the collection it was given.
+ * @throws {Error} When `pageLimit` is not a positive integer.
  *
  * @example
  * ```tsx
@@ -480,6 +638,9 @@ export interface PagedOfOptions<R extends EastType> {
  * // real rows and a window's key range is a canvas key range.
  * const units = $.const(new Map([["UNIT-001", { … }]]), DictType(StringType, UnitRow));
  * const source = $.const(Paged.of("units", units));
+ * // The lifecycle is shared with mutable sources; fixtures retain this token.
+ * $(source.refresh(some("units")));
+ * const revision = $.let(source.revision()); // some("units")
  * // A paged canvas declares its window — fitting the axis to a partial
  * // prefix would re-fit it on every landed window (#567 D8).
  * const axis = $.const(Plan.axis({ window: { min: W27, max: W39 }, resolution: "week" }));
@@ -494,6 +655,7 @@ function createPagedOf<R extends EastType>(
 function createPagedOf<V extends EastType>(
     id: SubtypeExprOrValue<StringType>,
     entries: SubtypeExprOrValue<DictType<StringType, V>>,
+    options?: Pick<PagedOfOptions<V>, "pageLimit">,
 ): PagedSource<DictType<StringType, V>>;
 function createPagedOf(
     id: SubtypeExprOrValue<StringType>,
@@ -503,11 +665,41 @@ function createPagedOf(
     // `C`, so neither overload's return is assignable to a common one. The
     // overloads above are what callers see.
 ): any {
-    const collectionExpr = East.value(collection as SubtypeExprOrValue<ArrayType<EastType>>) as ExprType<ArrayType<EastType>>;
-    if ((Expr.type(collectionExpr) as { type: string }).type === "Dict") {
-        return keyedPagedOf(id, collectionExpr as unknown as ExprType<EastType>);
+    const pageLimit = options?.pageLimit;
+    if (pageLimit !== undefined && !(Number.isInteger(pageLimit) && pageLimit > 0)) {
+        throw new Error(`Paged.of: \`pageLimit\` must be a positive integer — the most elements one window serves (got ${pageLimit})`);
     }
-    return arrayPagedOf(id, collectionExpr, options);
+    const collectionExpr = East.value(collection as SubtypeExprOrValue<ArrayType<EastType>>) as ExprType<ArrayType<EastType>>;
+    const collectionType = Expr.type(collectionExpr) as EastType;
+    const keyed = collectionType.type === "Dict";
+    // Evaluate the input once when creating the source, then detach nested
+    // mutable values. Page and seek closures share that captured snapshot;
+    // passing a live read expression cannot make later pages drift. The copy
+    // is beast v2: v1 writes neither a recursive type nor a function, and an
+    // entry may be either (a Plan's entries, #822).
+    const capture = East.function([StringType, collectionType], PagedSourceType(collectionType), ($, snapshotId, input) => {
+        const snapshot = $.const(East.Blob.encodeBeast(input, "v2").decodeBeast(collectionType, "v2"), collectionType);
+        return keyed ? keyedPagedOf(snapshotId, snapshot, pageLimit)
+            : arrayPagedOf(snapshotId, snapshot as ExprType<ArrayType<EastType>>, options);
+    });
+    return East.value(capture)(id, collectionExpr);
+}
+
+/**
+ * The window size a source actually serves for a requested `limit` — the
+ * request itself, or `pageLimit` when that is smaller. Reified once as a real
+ * East function (the `shared/reify` rule), so a page body CALLS it instead of
+ * branching on host state. `none` ⇒ the source never trims.
+ */
+function servedLimitFn(pageLimit: number | undefined): ExprType<FunctionType<[IntegerType], IntegerType>> {
+    const capValue = pageLimit === undefined ? none : some(BigInt(pageLimit));
+    return East.function([IntegerType], IntegerType, ($, limit) => {
+        const cap = $.const(capValue, OptionType(IntegerType));
+        return cap.match({
+            some: (_$, c) => limit.less(c).ifElse(() => limit, () => c),
+            none: (_$) => limit,
+        });
+    });
 }
 
 /**
@@ -518,6 +710,7 @@ function createPagedOf(
 function keyedPagedOf(
     id: SubtypeExprOrValue<StringType>,
     collection: ExprType<EastType>,
+    pageLimit: number | undefined,
 ): PagedSource<EastType> {
     const all = collection as unknown as ExprType<DictType<StringType, EastType>>;
     const valueType: EastType = (Expr.type(all) as DictType<StringType, EastType>).value;
@@ -526,14 +719,16 @@ function keyedPagedOf(
     const entriesType = ArrayType(entryType);
     // Built OUTSIDE every block (an East macro inside one splices per use).
     const keyOfEntry = East.function([entryType], StringType, (_$, e) => e.key);
+    const servedLimit = servedLimitFn(pageLimit);
     const page = East.function([IntegerType, IntegerType], OptionType(dictType), ($, offset, limit) => {
         const src = $.const(all, dictType);
+        const served = $.const(servedLimit);
         // `toArray` walks the dictionary in key order, so the window a given
         // offset serves is the window a keyed dataset would serve.
         const entries = $.let(src.toArray(($2, v, k) => $2.const({ key: k, value: v }, entryType)), entriesType);
         const n = $.let(entries.length(), IntegerType);
         const start = $.let(offset.less(n).ifElse(() => offset, () => n), IntegerType);
-        const rawEnd = $.let(offset.add(limit), IntegerType);
+        const rawEnd = $.let(offset.add(served(limit)), IntegerType);
         const end = $.let(rawEnd.less(n).ifElse(() => rawEnd, () => n), IntegerType);
         // In-memory windows are never in flight; an exhausted offset yields
         // the EMPTY window, which is how a walking reader terminates.
@@ -592,7 +787,19 @@ function keyedPagedOf(
         });
     });
     const seek = some(find);
-    return East.value({ id, page, total, seek }, PagedSourceType(dictType)) as unknown as PagedSource<EastType>;
+    const revision = East.function([], OptionType(StringType), $ => some($.const(id, StringType)));
+    const refresh = East.function([OptionType(StringType)], NullType, ($, target) => {
+        $.match(target, {
+            some: ($2, hash) => {
+                $2.if(hash.notEqual($2.const(id, StringType)), $3 => {
+                    $3.error("Paged.of: immutable snapshot — create a source with the requested snapshot id");
+                });
+            },
+            none: () => {},
+        });
+        return null;
+    });
+    return East.value({ id, page, total, seek, revision, refresh }, PagedSourceType(dictType)) as unknown as PagedSource<EastType>;
 }
 
 /** The POSITIONAL in-memory source — array windows in stream order. */
@@ -610,11 +817,13 @@ function arrayPagedOf(
     const byFn = keyOf === undefined
         ? undefined
         : East.function([rowType], StringType, (_$, r) => keyOf(r));
+    const servedLimit = servedLimitFn(options?.pageLimit);
     const page = East.function([IntegerType, IntegerType], OptionType(rowsType), ($, offset, limit) => {
         const src = $.const(all, rowsType);
+        const served = $.const(servedLimit);
         const n = $.let(src.length(), IntegerType);
         const start = $.let(offset.less(n).ifElse(() => offset, () => n), IntegerType);
-        const rawEnd = $.let(offset.add(limit), IntegerType);
+        const rawEnd = $.let(offset.add(served(limit)), IntegerType);
         const end = $.let(rawEnd.less(n).ifElse(() => rawEnd, () => n), IntegerType);
         // In-memory windows are never in flight; an exhausted offset yields
         // the EMPTY window, which is how a walking reader terminates.
@@ -673,7 +882,19 @@ function arrayPagedOf(
     // against the row type recovered from the expression, which TS sees as the
     // erased `EastType` rather than the caller's `R`. The East-side type —
     // `PagedSourceType(rowsType)` — is what actually types the value.
-    return East.value({ id, page, total, seek }, PagedSourceType(rowsType)) as unknown as PagedSource<EastType>;
+    const revision = East.function([], OptionType(StringType), $ => some($.const(id, StringType)));
+    const refresh = East.function([OptionType(StringType)], NullType, ($, target) => {
+        $.match(target, {
+            some: ($2, hash) => {
+                $2.if(hash.notEqual($2.const(id, StringType)), $3 => {
+                    $3.error("Paged.of: immutable snapshot — create a source with the requested snapshot id");
+                });
+            },
+            none: () => {},
+        });
+        return null;
+    });
+    return East.value({ id, page, total, seek, revision, refresh }, PagedSourceType(rowsType)) as unknown as PagedSource<EastType>;
 }
 
 /**

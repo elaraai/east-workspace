@@ -18,8 +18,15 @@
  */
 
 import { memo, useCallback } from "react";
+import { equivalentFor, FunctionType, StringType } from "@elaraai/east";
+import { UIComponentType } from "@elaraai/east-ui/internal";
 import { EastReactiveComponent, useTrackedEvaluation, type ReactiveValue } from "./index.js";
 import { EastErrorDisplay, toEastErrorInfo } from "./error-display.js";
+
+/** Memo comparers for the two closures — a rebuilt Match whose `render` or
+ *  `tag` captured new data must re-evaluate with it (#809). */
+const renderEqual = equivalentFor(FunctionType([], UIComponentType));
+const tagEqual = equivalentFor(FunctionType([], StringType));
 
 /** The `Match` variant payload: the reactive `render` plus the active-case probe. */
 export interface MatchValue extends ReactiveValue {
@@ -38,12 +45,9 @@ export const EastChakraMatch = memo(function EastChakraMatch({ value, storageKey
         return <EastErrorDisplay title="East Render Error" message={info.message} stack={info.stack} context={storageKey} />;
     }
 
-    // `key` forces a fresh mount of the Match reactive node on tag change, so the
-    // active case swaps (bypassing the function-blind memo) AND mounts with fresh
-    // dependency subscriptions for the new case.
+    // `key` forces a fresh mount of the Match reactive node on tag change: the
+    // new case mounts with fresh local state and fresh dependency subscriptions.
     return <EastReactiveComponent key={`case:${result.value}`} value={value} storageKey={storageKey} />;
-    // The payload is two closures — equalFor treats functions as equal, so only
-    // storageKey is comparable (the Pages precedent, which compares its one data
-    // field). The closures re-read the live store on every call, so a bailed
-    // value swap still renders current state.
-}, (prev, next) => prev.storageKey === next.storageKey);
+}, (prev, next) => renderEqual(prev.value.render, next.value.render)
+    && tagEqual(prev.value.tag, next.value.tag)
+    && prev.storageKey === next.storageKey);

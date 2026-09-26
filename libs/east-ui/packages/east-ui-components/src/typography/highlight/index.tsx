@@ -5,13 +5,13 @@
 
 import { memo, useMemo } from "react";
 import { Highlight as ChakraHighlight, Box, type BoxProps } from "@chakra-ui/react";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Highlight } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { parseCssSize } from "../../style/parse-size.js";
 
 // Pre-define the equality function at module level
-const highlightEqual = equalFor(Highlight.Types.Highlight);
+const highlightEqual = equivalentFor(Highlight.Types.Highlight);
 
 /** East Highlight value type */
 export type HighlightValue = ValueTypeOf<typeof Highlight.Types.Highlight>;

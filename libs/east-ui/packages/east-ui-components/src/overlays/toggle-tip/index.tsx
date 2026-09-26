@@ -5,13 +5,13 @@
 
 import { memo, useMemo, useCallback } from "react";
 import { Popover as ChakraPopover, Portal, useSlotRecipe } from "@chakra-ui/react";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { ToggleTip } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 
 // Pre-define equality function at module level
-const toggleTipEqual = equalFor(ToggleTip.Types.ToggleTip);
+const toggleTipEqual = equivalentFor(ToggleTip.Types.ToggleTip);
 
 /** East ToggleTip value type */
 export type ToggleTipValue = ValueTypeOf<typeof ToggleTip.Types.ToggleTip>;

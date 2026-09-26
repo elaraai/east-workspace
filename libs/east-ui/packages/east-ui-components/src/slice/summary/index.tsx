@@ -7,6 +7,7 @@ import { memo } from "react";
 import { Box, chakra, useSlotRecipe } from "@chakra-ui/react";
 import { type ValueTypeOf } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui/internal";
+import { useFormatters } from "../../format/index.js";
 import { useSliceReactivity } from "../use-slice-reactivity";
 
 /** East Slice.Summary value type. */
@@ -29,15 +30,17 @@ export const EastChakraSliceSummary = memo(function EastChakraSliceSummary({ val
     const filterCount = Number(slice.activeCount());
     const resultCount = slice.resultCount();
     const totalCount = Number(slice.totalCount());
+    // The counts, in the app's locale (#850).
+    const words = useFormatters();
 
     const frame = useSlotRecipe({ key: "sliceFrame" })();
     return (
         <Box css={frame.frameFooter}>
             {resultCount !== undefined && (
                 <>
-                    <Box as="span" css={frame.frameFooterStat}>{Number(resultCount).toLocaleString()}</Box>
+                    <Box as="span" css={frame.frameFooterStat}>{words.number(Number(resultCount))}</Box>
                     {/* The denominator only reads when a total exists (bound rows). */}
-                    {totalCount > 0 && <Box as="span">{`of ${totalCount.toLocaleString()}`}</Box>}
+                    {totalCount > 0 && <Box as="span">{`of ${words.number(totalCount)}`}</Box>}
                     <Box as="span">{Number(resultCount) === 1 ? "result" : "results"}</Box>
                     <Box as="span">·</Box>
                 </>

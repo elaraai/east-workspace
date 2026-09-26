@@ -11,12 +11,12 @@ import {
 } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconName, IconPrefix } from "@fortawesome/fontawesome-common-types";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Banner } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 
-const bannerEqual = equalFor(Banner.Types.Banner);
+const bannerEqual = equivalentFor(Banner.Types.Banner);
 
 export type BannerValue = ValueTypeOf<typeof Banner.Types.Banner>;
 

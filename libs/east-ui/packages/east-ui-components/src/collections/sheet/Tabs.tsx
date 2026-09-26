@@ -12,6 +12,13 @@
  * tabs are chrome over the machine: every gesture is an event, every
  * change to the views leaves as `emit.views`.
  *
+ * The tabs are a WAI-ARIA tablist (#860), one tab stop on the active tab:
+ * ← / → move between the tabs and Home / End to the first and last, Enter
+ * or Space switches to the one focused, Delete closes it and F2 renames it —
+ * and a rename or a close by the keyboard leaves the focus on a tab. `+n`
+ * and `+ TAB` are buttons beside the tablist; a tab's × is the pointer's,
+ * and Delete is the keyboard's.
+ *
  * Under width pressure the strip never scrolls: it measures itself (the
  * rail's ladder) and folds its trailing tabs — the active one always
  * kept — into a `+n` menu that switches to the tab picked. At its floor
@@ -26,8 +33,12 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faChevronDown, faPlus, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { foldTabs } from "./lens.js";
 import { SheetTabsFoldContext } from "./fold-context.js";
+import { useSheetWords } from "./words.js";
 
 type Styles = Record<string, Record<string, unknown>>;
+
+/** The whole-sheet tab's key among the tabs. */
+const ALL = "all";
 
 /** One tab's facts. */
 export interface SheetTabView {
@@ -52,6 +63,8 @@ export interface SheetTabsProps {
     hasQuery: boolean;
     renaming: string | null;
     renameVal: string;
+    /** The element the tabs switch — the sheet's grid (`aria-controls`). */
+    panelId?: string | undefined;
     onSwitch: (id: string | null) => void;
     onCreate: () => void;
     onClose: (id: string) => void;
@@ -64,8 +77,11 @@ export interface SheetTabsProps {
 
 /** Renders the tab strip. */
 export const SheetTabs = memo(function SheetTabs(props: SheetTabsProps) {
-    const { styles, views, wholeCount, active, dirty, hasQuery, renaming, renameVal } = props;
+    const { styles, views, wholeCount, active, dirty, hasQuery, renaming, renameVal, panelId } = props;
     const menuStyles = useSlotRecipe({ key: "menu" })() as unknown as Styles;
+    // The tabs' words and counts, in the app's locale (#850, #861).
+    const words = useSheetWords();
+    const { m } = words;
     const dragging = useRef<string | null>(null);
     const renameRef = useRef<HTMLInputElement | null>(null);
     const skipBlur = useRef(false);
@@ -125,6 +141,54 @@ export const SheetTabs = memo(function SheetTabs(props: SheetTabsProps) {
     }, [signature]);
     const { visible, hidden } = foldTabs(views, active, folded);
 
+    // The tablist's keys (#860). The tabs in order, the whole sheet first; the
+    // one tab stop is the active tab.
+    const tabEls = useRef(new Map<string, HTMLElement>());
+    const tabRef = (key: string) => (el: HTMLElement | null) => {
+        if (el !== null) tabEls.current.set(key, el);
+        else tabEls.current.delete(key);
+    };
+    const order = [ALL, ...visible.map((v) => v.id)];
+    const current = active ?? ALL;
+    // A tab the focus goes to once the tabs have drawn — after a rename or a
+    // close by the keyboard; the whole-sheet tab when that one is gone.
+    const focusNext = useRef<string | undefined>(undefined);
+    useLayoutEffect(() => {
+        const key = focusNext.current;
+        if (key === undefined || renaming !== null) return;
+        focusNext.current = undefined;
+        (tabEls.current.get(key) ?? tabEls.current.get(ALL))?.focus();
+    });
+    const onTabKey = (key: string) => (e: KeyboardEvent<HTMLElement>) => {
+        const i = order.indexOf(key);
+        const n = order.length;
+        let to: string | undefined;
+        switch (e.key) {
+            case "ArrowRight": to = order[(i + 1) % n]; break;
+            case "ArrowLeft": to = order[(i - 1 + n) % n]; break;
+            case "Home": to = order[0]; break;
+            case "End": to = order[n - 1]; break;
+            case "Enter":
+            case " ":
+                if (key !== current) props.onSwitch(key === ALL ? null : key);
+                break;
+            case "Delete":
+                if (key === ALL) return;
+                focusNext.current = order[i + 1] ?? order[i - 1];
+                props.onClose(key);
+                break;
+            case "F2":
+                if (key === ALL) return;
+                props.onRenameStart(key);
+                break;
+            default:
+                return;
+        }
+        e.preventDefault();
+        e.stopPropagation();
+        if (to !== undefined) tabEls.current.get(to)?.focus();
+    };
+
     const onDragOver = (e: DragEvent) => e.preventDefault();
     const dropAt = (to: number) => (e: DragEvent) => {
         e.preventDefault();
@@ -134,96 +198,108 @@ export const SheetTabs = memo(function SheetTabs(props: SheetTabsProps) {
     };
     const onRenameKey = (e: KeyboardEvent<HTMLInputElement>) => {
         e.stopPropagation();
-        if (e.key === "Enter") { e.preventDefault(); skipBlur.current = true; props.onRenameCommit(); }
-        if (e.key === "Escape") { e.preventDefault(); skipBlur.current = true; props.onRenameCancel(); }
+        // Ended by the keyboard, the focus goes back to the tab.
+        if (e.key === "Enter") { e.preventDefault(); skipBlur.current = true; focusNext.current = renaming ?? undefined; props.onRenameCommit(); }
+        if (e.key === "Escape") { e.preventDefault(); skipBlur.current = true; focusNext.current = renaming ?? undefined; props.onRenameCancel(); }
     };
     const onRenameBlur = () => {
         if (skipBlur.current) { skipBlur.current = false; return; }
         props.onRenameCommit();
     };
     return (
-        <Box ref={stripRef} css={styles.tabs} data-slot="tabs" data-folded={hidden.length > 0 ? hidden.length : undefined} role="tablist">
-            <Box
-                as="span"
-                css={styles.tab}
-                data-slot="tab"
-                data-tab="all"
-                data-active={active === null ? "" : undefined}
-                role="tab"
-                aria-selected={active === null}
-                title="Every row — the whole sheet"
-                onMouseDown={(e: MouseEvent) => { if (e.button !== 0) return; e.preventDefault(); props.onSwitch(null); }}
-                onDragOver={onDragOver}
-                onDrop={dropAt(0)}
-            >
-                All
-                <Box as="span" css={styles.tabCount} data-slot="tabCount">{wholeCount}</Box>
-            </Box>
-            {visible.map((v) => {
-                const on = active === v.id;
-                const i = views.findIndex((x) => x.id === v.id);
-                if (renaming === v.id) {
+        <Box ref={stripRef} css={styles.tabs} data-slot="tabs" data-folded={hidden.length > 0 ? hidden.length : undefined}>
+            <Box css={styles.tabList} data-slot="tabList" role="tablist" aria-label={m.tabList()}>
+                <Box
+                    ref={tabRef(ALL)}
+                    as="span"
+                    css={styles.tab}
+                    data-slot="tab"
+                    data-tab="all"
+                    data-active={active === null ? "" : undefined}
+                    role="tab"
+                    aria-selected={active === null}
+                    aria-controls={panelId}
+                    tabIndex={current === ALL ? 0 : -1}
+                    title={m.tabAllTitle()}
+                    onMouseDown={(e: MouseEvent) => { if (e.button !== 0) return; e.preventDefault(); props.onSwitch(null); }}
+                    onKeyDown={onTabKey(ALL)}
+                    onDragOver={onDragOver}
+                    onDrop={dropAt(0)}
+                >
+                    {m.tabAll()}
+                    <Box as="span" css={styles.tabCount} data-slot="tabCount">{words.number(wholeCount)}</Box>
+                </Box>
+                {visible.map((v) => {
+                    const on = active === v.id;
+                    const i = views.findIndex((x) => x.id === v.id);
+                    if (renaming === v.id) {
+                        return (
+                            <Box key={v.id} as="span" css={styles.tab} data-slot="tab" data-tab={v.id} data-active="" data-renaming="" role="tab" aria-selected={on}>
+                                <chakra.input
+                                    ref={renameRef}
+                                    css={styles.tabRename}
+                                    data-slot="tabRename"
+                                    value={renameVal}
+                                    aria-label={m.tabRename()}
+                                    onChange={(e) => props.onRenameChange(e.target.value)}
+                                    onKeyDown={onRenameKey}
+                                    onBlur={onRenameBlur}
+                                />
+                            </Box>
+                        );
+                    }
                     return (
-                        <Box key={v.id} as="span" css={styles.tab} data-slot="tab" data-tab={v.id} data-active="" data-renaming="">
-                            <chakra.input
-                                ref={renameRef}
-                                css={styles.tabRename}
-                                data-slot="tabRename"
-                                value={renameVal}
-                                aria-label="Rename tab"
-                                onChange={(e) => props.onRenameChange(e.target.value)}
-                                onKeyDown={onRenameKey}
-                                onBlur={onRenameBlur}
-                            />
+                        <Box
+                            key={v.id}
+                            ref={tabRef(v.id)}
+                            as="span"
+                            css={styles.tab}
+                            data-slot="tab"
+                            data-tab={v.id}
+                            data-active={on ? "" : undefined}
+                            data-dirty={on && dirty ? "" : undefined}
+                            role="tab"
+                            aria-selected={on}
+                            aria-controls={panelId}
+                            tabIndex={current === v.id ? 0 : -1}
+                            title={v.title}
+                            draggable
+                            onMouseDown={(e: MouseEvent) => { if (e.button !== 0 || on) return; e.preventDefault(); props.onSwitch(v.id); }}
+                            onKeyDown={onTabKey(v.id)}
+                            onAuxClick={(e: MouseEvent) => { if (e.button === 1) { e.preventDefault(); props.onClose(v.id); } }}
+                            onDoubleClick={(e: MouseEvent) => { e.preventDefault(); props.onRenameStart(v.id); }}
+                            onDragStart={() => { dragging.current = v.id; }}
+                            onDragOver={onDragOver}
+                            onDrop={dropAt(i)}
+                        >
+                            <Box as="span" css={styles.tabLabel} data-slot="tabLabel">{v.name}</Box>
+                            <Box as="span" css={styles.tabCount} data-slot="tabCount">{words.number(v.count)}</Box>
+                            {on && dirty && (
+                                <Box as="span" css={styles.tabDot} data-slot="tabDot" title={m.tabDirty()} />
+                            )}
+                            {/* The pointer's close; the keyboard's is Delete on the tab. */}
+                            <Box
+                                as="span"
+                                css={styles.tabClose}
+                                data-slot="tabClose"
+                                aria-hidden="true"
+                                title={m.tabClose()}
+                                onMouseDown={(e: MouseEvent) => { e.preventDefault(); e.stopPropagation(); props.onClose(v.id); }}
+                            >
+                                <FontAwesomeIcon icon={faXmark} />
+                            </Box>
                         </Box>
                     );
-                }
-                return (
-                    <Box
-                        key={v.id}
-                        as="span"
-                        css={styles.tab}
-                        data-slot="tab"
-                        data-tab={v.id}
-                        data-active={on ? "" : undefined}
-                        data-dirty={on && dirty ? "" : undefined}
-                        role="tab"
-                        aria-selected={on}
-                        title={v.title}
-                        draggable
-                        onMouseDown={(e: MouseEvent) => { if (e.button !== 0 || on) return; e.preventDefault(); props.onSwitch(v.id); }}
-                        onAuxClick={(e: MouseEvent) => { if (e.button === 1) { e.preventDefault(); props.onClose(v.id); } }}
-                        onDoubleClick={(e: MouseEvent) => { e.preventDefault(); props.onRenameStart(v.id); }}
-                        onDragStart={() => { dragging.current = v.id; }}
-                        onDragOver={onDragOver}
-                        onDrop={dropAt(i)}
-                    >
-                        <Box as="span" css={styles.tabLabel} data-slot="tabLabel">{v.name}</Box>
-                        <Box as="span" css={styles.tabCount} data-slot="tabCount">{v.count}</Box>
-                        {on && dirty && (
-                            <Box as="span" css={styles.tabDot} data-slot="tabDot" title="Unsaved query — ⏎ updates this tab · esc reverts" />
-                        )}
-                        <Box
-                            as="span"
-                            css={styles.tabClose}
-                            data-slot="tabClose"
-                            role="button"
-                            aria-label={`Close ${v.name}`}
-                            title="Close tab"
-                            onMouseDown={(e: MouseEvent) => { e.preventDefault(); e.stopPropagation(); props.onClose(v.id); }}
-                        >
-                            <FontAwesomeIcon icon={faXmark} />
-                        </Box>
-                    </Box>
-                );
-            })}
+                })}
+            </Box>
             {hidden.length > 0 && (
                 <ChakraMenu.Root positioning={{ placement: "bottom-start" }} onSelect={(d) => props.onSwitch(d.value)}>
                     <ChakraMenu.Trigger asChild>
-                        <Box as="span" css={styles.tabMore} data-slot="tabMore" role="button" aria-label={`${hidden.length} more views`} title="More views">
-                            {`+${hidden.length}`}
+                        <chakra.button type="button" css={styles.tabMore} data-slot="tabMore"
+                            aria-label={m.tabMoreName({ n: hidden.length, count: words.number(hidden.length) })} title={m.tabMoreTitle()}>
+                            {m.tabMore({ n: hidden.length, count: words.number(hidden.length) })}
                             <FontAwesomeIcon icon={faChevronDown} style={{ fontSize: "8px", opacity: 0.7 }} />
-                        </Box>
+                        </chakra.button>
                     </ChakraMenu.Trigger>
                     <Portal>
                         <ChakraMenu.Positioner>
@@ -231,7 +307,7 @@ export const SheetTabs = memo(function SheetTabs(props: SheetTabsProps) {
                                 {hidden.map((v) => (
                                     <ChakraMenu.Item key={v.id} value={v.id} title={v.title}>
                                         {v.name}
-                                        <Box as="span" css={menuStyles.itemCommand}>{v.count}</Box>
+                                        <Box as="span" css={menuStyles.itemCommand}>{words.number(v.count)}</Box>
                                     </ChakraMenu.Item>
                                 ))}
                             </ChakraMenu.Content>
@@ -239,20 +315,21 @@ export const SheetTabs = memo(function SheetTabs(props: SheetTabsProps) {
                     </Portal>
                 </ChakraMenu.Root>
             )}
-            <Box
-                as="span"
+            <chakra.button
+                type="button"
                 css={styles.tabAdd}
                 data-slot="tabAdd"
-                role="button"
-                aria-label="New tab from this view"
-                title={hasQuery ? "New tab from this search — query, context and expanded bands, evaluated live" : "New tab — no filter yet; search inside it and ⏎ to scope it"}
+                aria-label={m.tabAddName()}
+                title={m.tabAddTitle({ query: hasQuery })}
                 onMouseDown={(e: MouseEvent) => { if (e.button !== 0) return; e.preventDefault(); props.onCreate(); }}
+                // Enter or Space on the focused button: a click with no pointer behind it.
+                onClick={(e: MouseEvent) => { if (e.detail === 0) props.onCreate(); }}
                 onDragOver={onDragOver}
                 onDrop={dropAt(views.length)}
             >
                 <FontAwesomeIcon icon={faPlus} style={{ fontSize: "8px" }} />
-                <Box as="span" data-slot="tabAddLabel">tab</Box>
-            </Box>
+                <Box as="span" data-slot="tabAddLabel">{m.tabAdd()}</Box>
+            </chakra.button>
         </Box>
     );
 });

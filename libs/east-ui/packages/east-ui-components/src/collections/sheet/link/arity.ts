@@ -12,6 +12,7 @@
 
 import { rangeMembers, type LinkVocabulary } from "./grammar.js";
 import type { SheetMemberValue } from "../values.js";
+import type { SheetWords } from "../words.js";
 
 /** A counted member the arity rule proposes. */
 export interface Counted {
@@ -25,21 +26,25 @@ export function namedCount(members: readonly SheetMemberValue[], vocab: LinkVoca
     for (const m of members) {
         switch (m.type) {
             case "identified": n += 1; break;
-            case "counted": n += Number((m.value as { n: bigint }).n); break;
-            case "range": {
-                const r = m.value as { from: string; to: string };
-                n += rangeMembers(r.from, r.to, vocab).length;
-                break;
-            }
+            case "counted": n += Number(m.value.n); break;
+            case "range": n += rangeMembers(m.value.from, m.value.to, vocab).length; break;
             default: break;
         }
     }
     return n;
 }
 
-/** The strip meta for the arity half — `""` when nothing is implied or named. */
-export function arityMeta(implied: Counted | undefined, named: number): string {
+/**
+ * The strip meta for the arity half, in the sheet's words (#861) — `""` when
+ * nothing is implied or named.
+ *
+ * @param implied - The count the arity rule implies
+ * @param named - How many members the half names
+ * @param w - The sheet's words
+ * @returns The line
+ */
+export function arityMeta(implied: Counted | undefined, named: number, w: SheetWords): string {
     if (implied === undefined || implied.n <= 0 || named <= 0) return "";
-    const word = named < implied.n ? "named so far" : named > implied.n ? "named — more than the quantity needs" : "named";
-    return `${implied.n} × ${implied.key} implied · ${named} ${word}`;
+    const state = named < implied.n ? "short" : named > implied.n ? "over" : "exact";
+    return w.m.arity({ count: w.number(implied.n), key: implied.key, named: w.number(named), state });
 }

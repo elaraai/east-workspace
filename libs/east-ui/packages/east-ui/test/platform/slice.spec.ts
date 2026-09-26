@@ -21,7 +21,7 @@ import {
     ArrayType,
 } from "@elaraai/east";
 import { type ExprType } from "@elaraai/east";
-import { Slice, SliceApplyImpl, sliceBreakdown, sliceFields, sliceFieldText, sliceSeries } from "@elaraai/east-ui/internal";
+import { Slice, SliceApplyImpl, sliceBreakdown, sliceFields, sliceFieldText, sliceMatches, sliceSeries } from "@elaraai/east-ui/internal";
 import { UIComponentType } from "@elaraai/east-ui";
 import * as ex from "./slice.examples.js";
 
@@ -171,7 +171,7 @@ describeEast("Slice", (test) => {
     // Cohort, Breakdown, State construction
     // -----------------------------------------------------------------------
 
-    test("SliceCohort holds typed AND-of-predicates", $ => {
+    test("SliceCohort holds typed AND-of-predicates and an optional group", $ => {
         const c = $.const(East.value({
             id:   "power-users",
             name: "Power users",
@@ -179,15 +179,28 @@ describeEast("Slice", (test) => {
                 variant("integer", { fieldId: "sessions", op: variant("gte", 10n) }),
                 variant("string",  { fieldId: "country",  op: variant("eq",  "US") }),
             ],
+            group: none,
         }, Slice.Types.Cohort));
         const intFilter = $.let(c.filters.get(0n).unwrap("integer"));
         const strFilter = $.let(c.filters.get(1n).unwrap("string"));
         $(Assert.equal(c.id,   "power-users"));
         $(Assert.equal(c.name, "Power users"));
+        $(Assert.equal(c.group.getTag(), "none"));
         $(Assert.equal(intFilter.fieldId, "sessions"));
         $(Assert.equal(intFilter.op.unwrap("gte"), 10n));
         $(Assert.equal(strFilter.fieldId, "country"));
         $(Assert.equal(strFilter.op.unwrap("eq"), "US"));
+    });
+
+    test("Slice.state takes a cohort's group as a bare string, and fills none in when it is omitted", $ => {
+        const s = $.const(Slice.state({
+            cohorts: [
+                { id: "scheduled", name: "Scheduled", group: "state", filters: [variant("string", { fieldId: "state", op: variant("eq", "SCHEDULED") })] },
+                { id: "mine",      name: "Mine",                      filters: [variant("string", { fieldId: "owner", op: variant("eq", "me") })] },
+            ],
+        }));
+        $(Assert.equal(s.cohorts.get(0n).group.unwrap("some"), "state"));
+        $(Assert.equal(s.cohorts.get(1n).group.getTag(), "none"));
     });
 
     test("SliceBreakdown carries fieldId + optional top-N", $ => {
@@ -876,6 +889,38 @@ describeEast("Slice", (test) => {
         $(Assert.equal(Slice.apply.matches([RowType], state, cfg, rUS5),  false));
     });
 
+    test("apply.matches: cohorts sharing a group OR with each other; groups AND with each other and with a standalone cohort", $ => {
+        const RowType = StructType({ state: StringType, status: StringType, owner: StringType });
+        const cfg = $.let(Slice.config(RowType, {
+            fields: { state: { label: "State" }, status: { label: "Status" }, owner: { label: "Owner" } },
+        }));
+        const cohorts = [
+            { id: "proposed",  name: "Proposed",  group: "state",  filters: [variant("string", { fieldId: "state",  op: variant("eq", "PROPOSED") })] },
+            { id: "scheduled", name: "Scheduled", group: "state",  filters: [variant("string", { fieldId: "state",  op: variant("eq", "SCHEDULED") })] },
+            { id: "ready",     name: "Ready",     group: "status", filters: [variant("string", { fieldId: "status", op: variant("eq", "READY") })] },
+            { id: "mine",      name: "Mine",                       filters: [variant("string", { fieldId: "owner",  op: variant("eq", "me") })] },
+        ];
+        const proposedReady   = $.const(East.value({ state: "PROPOSED",  status: "READY", owner: "me"  }, RowType));
+        const scheduledReady  = $.const(East.value({ state: "SCHEDULED", status: "READY", owner: "me"  }, RowType));
+        const scheduledHeld   = $.const(East.value({ state: "SCHEDULED", status: "HELD",  owner: "me"  }, RowType));
+        const doneReady       = $.const(East.value({ state: "DONE",      status: "READY", owner: "me"  }, RowType));
+        const scheduledReadyTheirs = $.const(East.value({ state: "SCHEDULED", status: "READY", owner: "you" }, RowType));
+        // Two members of one group: either state passes (OR within the group).
+        const twoStates = $.const(Slice.state({ cohorts, activeCohorts: new Set(["proposed", "scheduled"]) }));
+        $(Assert.equal(Slice.apply.matches([RowType], twoStates, cfg, proposedReady), true));
+        $(Assert.equal(Slice.apply.matches([RowType], twoStates, cfg, scheduledHeld), true));
+        $(Assert.equal(Slice.apply.matches([RowType], twoStates, cfg, doneReady),     false));
+        // A member of each group: both groups must pass (AND across groups).
+        const stateAndStatus = $.const(Slice.state({ cohorts, activeCohorts: new Set(["scheduled", "ready"]) }));
+        $(Assert.equal(Slice.apply.matches([RowType], stateAndStatus, cfg, scheduledReady), true));
+        $(Assert.equal(Slice.apply.matches([RowType], stateAndStatus, cfg, scheduledHeld),  false));
+        $(Assert.equal(Slice.apply.matches([RowType], stateAndStatus, cfg, proposedReady),  false));
+        // A standalone cohort ANDs with a group, as it always has.
+        const withMine = $.const(Slice.state({ cohorts, activeCohorts: new Set(["scheduled", "mine"]) }));
+        $(Assert.equal(Slice.apply.matches([RowType], withMine, cfg, scheduledReady),       true));
+        $(Assert.equal(Slice.apply.matches([RowType], withMine, cfg, scheduledReadyTheirs), false));
+    });
+
     test("apply.matches: inactive cohort is ignored", $ => {
         const RowType = StructType({ sessions: IntegerType });
         const cfg = $.let(Slice.config(RowType, { fields: { sessions: { label: "Sessions" } } }));
@@ -1501,4 +1546,39 @@ pureTest("sliceSeries applies the top-N limit roll-up identically to sliceBreakd
     const onlyOther = sliceSeries(visibleState, engineConfig, rows, "day", "sessions", now);
     nodeAssert.equal(onlyOther.length, 1);
     nodeAssert.equal(onlyOther[0]!.key, "other");
+});
+
+// ===========================================================================
+// Presets resolve on UTC days (#850). East's DateTime is a UTC instant, so a
+// preset keeps the same rows in every timezone. The `apply.matches` preset
+// tests above read the wall clock and run in the CI's own timezone, so they
+// cannot see this; here `now` is pinned and the process runs in Los Angeles,
+// where each window below starts earlier if read in local time.
+// ===========================================================================
+
+pureTest("datetime presets resolve on UTC days in a timezone west of UTC (#850)", () => {
+    const previous = process.env.TZ;
+    process.env.TZ = "America/Los_Angeles";
+    try {
+        const config: EngineConfig = { ...engineConfig, rangeFieldId: some("when") };
+        const keeps = (preset: string, now: string, when: string): boolean =>
+            sliceMatches(engineState({ range: some(variant("datetimePreset", variant(preset, null))) }), config, { when: new Date(when) }, new Date(now));
+
+        // The process really is in Los Angeles: 01:30 UTC on 29 June is still the 28th there.
+        nodeAssert.equal(new Date("2026-06-29T01:30:00Z").getDate(), 28);
+
+        // today starts at 00:00 UTC on the 29th; the 28th's local midnight is 07:00Z the day before.
+        nodeAssert.equal(keeps("today", "2026-06-29T01:30:00Z", "2026-06-29T00:00:00Z"), true);
+        nodeAssert.equal(keeps("today", "2026-06-29T01:30:00Z", "2026-06-28T23:00:00Z"), false);
+        // ytd starts at 00:00 UTC on 1 January 2026, while it is still 2025 in Los Angeles.
+        nodeAssert.equal(keeps("ytd", "2026-01-01T01:30:00Z", "2026-01-01T00:00:00Z"), true);
+        nodeAssert.equal(keeps("ytd", "2026-01-01T01:30:00Z", "2025-12-31T23:00:00Z"), false);
+        // last7d is seven UTC days, even across the end of daylight saving on 1 November:
+        // seven local days would be an hour longer, and start at 11:00Z.
+        nodeAssert.equal(keeps("last7d", "2026-11-03T12:00:00Z", "2026-10-27T12:00:00Z"), true);
+        nodeAssert.equal(keeps("last7d", "2026-11-03T12:00:00Z", "2026-10-27T11:30:00Z"), false);
+    } finally {
+        if (previous === undefined) delete process.env.TZ;
+        else process.env.TZ = previous;
+    }
 });

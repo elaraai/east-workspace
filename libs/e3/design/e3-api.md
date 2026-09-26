@@ -504,6 +504,11 @@ Client polls `GET /status` to track progress:
 - `tasks[].status` shows each task's state (`in-progress`, `up-to-date`, `failed`, etc.)
 - `datasets[].status` shows which outputs are complete
 
+Or it polls `GET /dataflow/execution` (`dataflowExecutePoll()`), the run's own
+state. Its `status` stays `running` until the run has released the workspace,
+so a terminal status means a gc, a deploy or the next run finds the workspace
+free; the summary's `duration` is the run's own (`completedAt − startedAt`).
+
 **Cancellation:**
 
 `POST /dataflow/cancel` cancels a running execution:

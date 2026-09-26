@@ -124,17 +124,23 @@ The established IR → renderer split with the repo's load-bearing rules
   to `Sheet.Root(data, columns, options)` exactly as `<Table>` does, with the column
   map typed as `SheetColumnSpec<R>` so a key that is not a data field is a type error,
   and a second overload for the paged arm (the `<Table>` precedent); built as
-  `Object.assign(SheetTag, { column, register, link, driver, patch, Types })` so the
-  namespace shows on hover, with full TypeDoc and a JSX `@example` mirrored in the
-  examples file (`STANDARDS.md`).
+  `Object.assign(SheetTag, authoring)` — the factory namespace minus `Root`,
+  derived and never listed, so a member added to the factory rides the tag with no
+  edit there (#862, as the Plan's #814) — so the namespace shows on hover, with full
+  TypeDoc and a JSX `@example`. Every Sheet `@example` is the verbatim body of a
+  tested example (`STANDARDS.md`), and `sheet-docs.spec.ts` holds them to it (#862).
 - **Namespace** — one object per category, the `Plan.series` / `Plan.at` /
   `Plan.Types` split, so categories never mix as they grow: `Sheet.column.<kind>`
   (the column builders — text · date · quantity · integer · lookup · reference ·
   enum · set · link · stamped · custom), `Sheet.register.members` /
   `Sheet.register.concat`, `Sheet.driver`, `Sheet.link.arity` / `Sheet.link.check` /
   `Sheet.link.parse` / `Sheet.link.print` (the link value's helpers), `Sheet.patch`
-  (a row patch — the `Plan.event` kind of value builder), `Sheet.Types.*` (the IR
-  types and the `(R, D)` constructors), `Sheet.Root`.
+  (a row patch — the `Plan.event` kind of value builder), `Sheet.group` /
+  `Sheet.group.cell.*` (grouped rows, #740 — with loose rows between the groups
+  over `Sheet.Types.Entry` entries, #846), `Sheet.subRows` / `Sheet.subRow` (sub
+  rows, #844), `Sheet.apply` (a checked batch applied to a collection — the
+  shared editing contract's `Editing.apply`, #879),
+  `Sheet.Types.*` (the IR types and the `(R, D)` constructors), `Sheet.Root`.
 
 **Behaviour as data.** What crosses the IR is *declaration* (kinds, registers,
 provider lists, views, the slice binding); what the renderer owns is *interaction
@@ -196,7 +202,7 @@ export const sheetBasic = East.function([], UIComponentType, (_$) => (
                 data={jobs.read()}
                 id="id"
                 columns={{
-                    start: Sheet.column.date(JobType, { header: "Start", sub: "d/m · fri · +3d" }),
+                    start: Sheet.column.date(JobType, { header: "Start", sub: "dd / mm / yyyy" }),
                     task:  Sheet.column.text(JobType, { header: "Task" }),
                     qty:   Sheet.column.quantity(JobType, { header: "Qty" }),          // no driver on this sheet — the two-argument form
                 }}
@@ -240,7 +246,7 @@ takes `d`, the typed driver row.
 
 ```tsx
 columns={{
-    start:     Sheet.column.date(PlanRowType, { header: "Start", sub: "d/m · fri · +3d" }),
+    start:     Sheet.column.date(PlanRowType, { header: "Start", sub: "dd / mm / yyyy" }),
     end:       Sheet.column.date(PlanRowType, {
                    header: "End", sub: "4d = start+4", base: "start",                // `4d` means start + 4 (B§3)
                    fill: [endFromStart] }),                                          // an author function (§3.5)
@@ -262,7 +268,7 @@ columns={{
 | Kind | Row field | Cell | Payload `T` (fills, parse) | Parse / display (B§3) | Latency |
 |---|---|---|---|---|---|
 | `text` | `String` / `Option<String>` | `String` | `String` | free text | idle |
-| `date` | `DateTime` / `Option<DateTime>` | `DateTime` | `DateTime` | `+3d` · `4d` from `base` · weekday · ISO · `d/m[/yy]` · `17 nov` ; display `17 Nov 26` | instant |
+| `date` | `DateTime` / `Option<DateTime>` | `DateTime` | `DateTime` | the common date field (`dd / mm / yyyy` segments); pasted text takes `+3d` · `4d` from `base` · weekday · ISO · `d/m[/yy]` · `17 nov` ; display `17 Nov 26` | instant |
 | `quantity` | `Float` / `Option<Float>` | `Float` | `Float` | digits + an optional `k` / `m` magnitude suffix (the unit is the column's, never typed), locale-grouped display, unit from the driver | idle |
 | `integer` | `Integer` / `Option<Integer>` | `Integer` | `Integer` | as quantity, no unit | instant |
 | `lookup` | `String` / `Option<String>` | `String` | `String` | scored register candidates (B§3.1); commit = exact → top → typed | instant |
@@ -882,7 +888,7 @@ export const sheetPlan = East.function([], UIComponentType, (_$) => (
                 driver={Sheet.driver("activity", activities, { key: a => a.name, label: a => a.name })}
                 registers={{ /* stations · sites · statuses — §3.3 */ }}
                 columns={{
-                    start:     Sheet.column.date(PlanRowType, { header: "Start", sub: "d/m · fri · +3d", width: "96px", fill: [nextSlot] }),
+                    start:     Sheet.column.date(PlanRowType, { header: "Start", sub: "dd / mm / yyyy", width: "96px", fill: [nextSlot] }),
                     end:       Sheet.column.date(PlanRowType, { header: "End", sub: "4d = start+4", width: "96px", base: "start", fill: [endFromStart] }),
                     activity:  Sheet.column.lookup(PlanRowType, { header: "Activity", sub: "activity register", width: "214px" }),
                     qty:       Sheet.column.quantity(PlanRowType, ActivityType, {
@@ -1216,13 +1222,14 @@ capture only data, bind handles and the author's functions:
 
 | Piece | Shape | Built from |
 |---|---|---|
-| `rowById` | `Fn([String, Integer], Option<R>)` | the source row by id: on the inline arm the captured bind handle's `read()` (or the captured collection, when `data` is a plain value) searched by the `id` accessor; on the paged arm the source's `page` at the wire context's `offset`. Built ONCE per sheet and shared by every wrapper, so the collection is captured once |
+| `rowById` | `Fn([String, Integer], Option<R>)` | the source row by id: on the inline arm the captured bind handle's `read()` (or the captured collection, when `data` is a plain value) — the row at the given offset first, else the nearest match outward from it, so a read is never a scan of the collection (#859); on the paged arm the source's `page` at the wire context's `offset`. Built ONCE per sheet and shared by every wrapper, so the collection is captured once |
 | `decode` | `Fn([String, Dict<String, Cell>, Option<R>], R)` | the id field from the wire id; the source row as the base (the row type's default when absent — an insert, a proposal), then each column's field from its cell by the static tag (`Null` → `none` on an `Option` field); a `Link` cell to a `Link` field, or split into the `from` / `to` arrays, or printed to a `String` field. A field with no column keeps the base row's value |
 | `encode` | `Fn([R], Dict<String, Cell>)` | the columns' reified accessors — the same projection §4.1 uses to make wire rows |
 | `lookupDriver` | `Fn([String], Option<D>)` | the driver's data and `key` accessor, folded once into a `Dict<String, D>` |
 | a fill provider | `Fn([SheetContext], Option<SheetFill>)` | `ctx => author({ rowIndex, row: decode(ctx.rowId, ctx.row, rowById(ctx.rowId, ctx.offset)), rows: ctx.rows.map((r, i) => decode(r.id, r.cells, rowById(r.id, ctx.rowsOffset + i))), partial, driver: ctx.driver.map(lookupDriver), today }).map(f => ({ value: cellOf(f.value), meta: f.meta }))` — the async arm awaits the author's `East.asyncFunction` the same way |
 | a proposer | `Fn([SheetContext], Array<SheetProposal>)` | the same context bridge; each `Patch(R)`'s `some` fields encoded to cells |
 | arity `implied`, a `custom` check, a `custom` kind's `parse` / `print` | closed twins | the context bridge; the member passes through; payloads to and from cells |
+| a row readiness check | `Fn([Blob], Array<Readiness>)` | one batch per evaluation (#882): the drafts, the rows and each check's place and driver. `bridgeReady` decodes the rows once, as the context bridge decodes `rows`, then gives each check its context over them: `row` is the draft at its place, and on a grouped sheet `group` is its group's draft and `rows` that group's lines — a loose row's (#846) `group` is `none`, `rows` the resident loose rows and `rowIndex` its place among them. The author's check runs once per check, and one that throws is that row's `invalid` result, so the other checks still report |
 | `onEdit` | `Fn([SheetEdit], Null)` | `e => author(e with its rows decoded)` |
 
 The bridge is the one place a string ever names a field — inside the factory,
@@ -1241,8 +1248,8 @@ behaviour lives and how it is tested.
 
 | # | Requirement (B§) | Lives in | Test |
 |---|---|---|---|
-| 1 | Date parsing: `+3`/`+3d`, `4d` from `base`, weekday prefix (next occurrence, never today), ISO, `d/m[/yy]`, `d.m`, `17 nov [26]`, year roll-forward; display `17 Nov 26`; edit form `17/11/26`; strip preview `Mon 17 Nov 26` + day span (B§3) | `parse/date.ts` | unit table |
-| 2 | Quantity parsing: digits, decimal, an optional `k` / `m` magnitude suffix (the unit is the column's, never typed), commas/spaces ignored, rounded integer; strip preview with the implied run when the driver has a rate (B§3) | `parse/quantity.ts` | unit table |
+| 1 | Dates: typed entry is the common date field — the segmented `dd / mm / yyyy` control the `Input` renderer uses; digits fill a segment, ↑ / ↓ step it, ⇥ leaves the last segment for the next cell, a printable key that opened the editor lands in the day segment. The B§3 grammar parses PASTED text — `+3`/`+3d`, `4d` from `base`, weekday prefix (next occurrence, never today), ISO, `d/m[/yy]`, `d.m`, `17 nov [26]`, year roll-forward — and every calendar form and printed form (display `17 Nov 26`; edit form `17/11/26`; strip preview `Mon 17 Nov 26` + day span; clipboard `17/11/2026`) is an East datetime pattern through East's own printer and parser | `parse/date.ts` + `Editor.tsx` | unit table + DOM |
+| 2 | Quantities: typed entry is the common number field — digits, a decimal point, a leading minus; ↑ / ↓ and the stepper column step by one; the unit is the column's, never typed. The B§3 grammar parses PASTED text — an optional `k` / `m` magnitude suffix, commas/spaces ignored, rounded integer; strip preview with the implied run when the driver has a rate | `parse/quantity.ts` + `Editor.tsx` | unit table + DOM |
 | 3 | Candidate scoring: prefix (0) → word prefix (1) → initials (2) → substring (3), ties by sheet frequency; only a prefix match ghosts inline; a non-prefix match previews `→ replacement`; empty buffer arms nothing (menu of what the field accepts, driver column ranked by what follows the row above); ⌥]/⌥[/⌥↓/⌥↑ cycle (B§3.1) | `candidates.ts` | unit + DOM |
 | 4 | Link grammar: identified codes (case-insensitive, bare digits try the prefix), ranges (`M2140-45`, short upper bound completed; hyphen = range only between unspaced bare numbers), countable by name/alias (leading "the" dropped), countable by attribute (`120t` / `120 T` — a number + unit the register knows, resolved by key or alias with the spacing normalised), counted members (`N x kind` / `kind x N`, declared ops, countable kinds only; trailing qualifier → text token; multiplying an identified member → text with reason), `TBC` placeholder, free text (never blocked), separators (B§4.1) — text ↔ `Sheet.Types.Link` value, the kind's parse / print pair; the renderer parses and prints with a register-aware TS twin of the East pair (`linkVocabulary`), the same rules | `link/grammar.ts` | unit table (round trips) |
 | 5 | Sides & locks: storage `a > b` / `b` / `a >`; single set = destination; the driver member's `sides` (the column's per-driver dictionary, §4.3) selects live halves (both/from/to/in; `in` draws a minus); locked half never predicted into, Tab skips it, typing allowed but flagged warn (B§4.2); a `set` column edits as a single To half | `link/sides.ts` + `cells/LinkCell.tsx` | unit + DOM |
@@ -1253,17 +1260,22 @@ behaviour lives and how it is tested.
 | 10 | Copilot runner: rebuilt against the row as it would be, after the kind's latency (150 / 1 100 ms); owned rows untouched; nothing into an occupied slot; first yielding provider wins — providers are the bridged wire functions of §4.8, the runner never sees `R`; provenance in the strip; fills as grey ghosts over the hatch; exactly one next Tab target (dotted underline); ✓ take on hover; gutter → fills the row (⌘⏎); memoised per (row, provisional row, column) (B§5, B§5.1); fills CHAIN in column order — a later column's providers and the proposers see the earlier fills as if taken (the prototype's `row.start \|\| fill.start`) | `suggest.ts` + `sheet-suggest-state.ts` | unit + DOM |
 | 11 | Async providers: a pending chip in the strip per in-flight provider; results land reactively; a newer context cancels the wait (latest wins); a rejected or thrown provider is skipped with a console diagnostic naming the column; sync providers never wait on async ones ahead of them in the list beyond the latency window — a later sync provider answers meanwhile and an earlier async one that lands replaces it (first that yields wins, by position); an in-flight promise is memoised so a re-run re-attaches instead of restarting | `suggest-async.ts` | unit (fake timers) + DOM |
 | 12 | Proposals (patches encoded to cells, §4.4): at most `ahead` rows, dashed-topped hatched rows with real numbers; ✓/⏎ adds into the first blank slot, ×/⌫ rejects and remembers the pairing; click selects (3px brand bar); esc deselects then dismisses all; taking re-anchors and looks forward; rejected fills remembered per row and key (B§5.2); a proposal lands in the blank slot below the anchor, else appended (blanks are padding) | `suggest.ts` + `Rows.tsx` | DOM |
-| 13 | Sheet keys: arrows/⇧arrows (↓ on the last row appends, not while a lens is active or a paged source is unexhausted); ⇥/⇧⇥ walk fills → take rows → move; ⏎ takes next suggestion else edits with the value selected; F2; printable char seeds a fresh edit; ⌘⏎ row fill (one undo step); ⌘⇧⏎ everything; esc ladder; ⌫ clears (never stamped) / deletes whole selected rows; ⌘⌫ deletes; click/⇧click/drag/dblclick; ⌘/ and ⌘F focus the rail's search (B§6) | `sheet-state.ts` | transition table + DOM |
-| 14 | Commit semantics: Tab, Enter, ↓ (down) / ↑ (stay), blur commit; esc cancels; unparseable keeps the editor open with the neg ring (blur discards); committing a `triggers` column rebuilds the copilot for that row (B§6) | `sheet-state.ts` | DOM |
+| 13 | Sheet keys: arrows/⇧arrows (↓ on the last row appends, not while a lens is active or a paged source is unexhausted); Home / End to the row's first or last column, ⌘Home / ⌘End to the sheet's first or last cell (the last row that is not blank padding), Page Up / Page Down a viewport of rows, ⇧ with any of them stretching the range (#860); on a paged sheet ↓ past the last resident row, ↑ above the first and ⌘Home / ⌘End toward an end not resident fetch the window there and the ring lands once it arrives — a gesture meanwhile keeps the ring where the viewer put it, and a key search meanwhile takes its place; a keyboard move keeps the ring's cell in view, sideways in every frame and down on a sheet whose rows render in flow; ⇥/⇧⇥ walk fills → take rows → move, and a ⇥ with nothing to do (the row's last column, nothing pending; ⇧⇥ on its first) is the browser's, so the focus leaves the grid; ⏎ takes next suggestion else edits with the value selected; F2; printable char seeds a fresh edit; ⌘⏎ row fill (one undo step); ⌘⇧⏎ everything; esc ladder; ⌫ clears (never stamped) / deletes whole selected rows; ⌘⌫ deletes; click/⇧click/drag/dblclick; ⌘/ and ⌘F focus the rail's search (B§6) | `sheet-state.ts` + `index.tsx` | transition table + DOM |
+| 14 | Commit semantics: Tab, Enter, ↓ (down) / ↑ (stay), blur commit; esc cancels; unparseable keeps the editor open with the neg ring (blur discards); committing a `triggers` column rebuilds the copilot for that row (B§6). A date or number cell's ↑ / ↓ belong to its field (they step), so from those fields only ⏎, ⇥ and esc reach the machine | `sheet-state.ts` + `Editor.tsx` | DOM |
 | 15 | Sheet model: `blanks` padding rows always below the last real row (paged: once the source is exhausted), never removed from under the cursor, not reported/counted/searchable; real row numbers under a lens and for proposals (B§7). Blank rows are padding, not rows: typing into any blank row inserts one row AFTER the last real one (source order is the only order) and the ring follows it; the initial ring sits on the first blank row's driver column | `model.ts` | unit |
-| 16 | The lens over the slice: hit = the slice narrowing matches the row (`sliceMatches` over filters / cohorts / search — String fields directly, other fields through their `printFor` text or the field's `text` projection); hits keep brand row numbers; count `n matches · m context`; ±0/±1/±3 context; collapsed bands (22px, dashed rule, *n hidden* pill) with hover controls `⌃ +1 · n hidden · +1 ⌄ · all` stepping 1, 3, 10, all from top/bottom/both; reveals are a set of indices so bands merge; a narrowing change resets reveals; no narrowing ⇒ no bands (B§8) | `lens.ts` + `Bands.tsx` | unit + DOM |
-| 17 | Views: lenses evaluated live; pinned whole-sheet tab (an empty narrowing) with the planned count; `+ TAB` snapshots the slice state, names from the query (16 chars) or *view n*; active = 2px ink underline; live match counts per view; dirty dot when the slice state differs from the view's, ⏎ updates / esc reverts (writes the snapshot back) / esc on a clean tab returns to the sheet; × (hover neg) or middle-click closes; double-click renames; drag reorders; closing the active tab falls back; leaving persists context + reveals (B§8) | `Tabs.tsx` + `sheet-state.ts` | DOM |
+| 16 | The lens over the slice: hit = the slice narrowing matches the row (`sliceMatches` over filters / cohorts / search — String fields directly, other fields through their `printFor` text or the field's `text` projection); hits keep brand row numbers; count `n matches · m context`; ±0/±1/±3 context — the context switch a radio group, one tab stop, ←/→ and Home/End moving and picking (#860); collapsed bands (22px, dashed rule, *n hidden* pill) with hover controls `⌃ +1 · n hidden · +1 ⌄ · all` stepping 1, 3, 10, all from top/bottom/both; reveals are a set of indices so bands merge; a narrowing change resets reveals; no narrowing ⇒ no bands (B§8) | `lens.ts` + `Bands.tsx` | unit + DOM |
+| 17 | Views: lenses evaluated live; pinned whole-sheet tab (an empty narrowing) with the planned count; `+ TAB` snapshots the slice state, names from the query (16 chars) or *view n*; active = 2px ink underline; live match counts per view; dirty dot when the slice state differs from the view's, ⏎ updates / esc reverts (writes the snapshot back) / esc on a clean tab returns to the sheet; × (hover neg) or middle-click closes; double-click renames; drag reorders; closing the active tab falls back; leaving persists context + reveals (B§8). By the keyboard alone (#860) the tabs are a WAI-ARIA tablist with one tab stop, on the active tab: ←/→ and Home/End move between them, Enter or Space switches, Delete closes and F2 renames (the whole-sheet tab does neither), the focus staying on a tab; `+n` and `+ TAB` are buttons beside the tablist, and × is the pointer's | `Tabs.tsx` + `sheet-state.ts` | DOM |
 | 18 | Strip states (six) with their label · chips · meta · keys, plus the pending chip; nothing ever floats over the sheet (B§9) | `Strip.tsx` | DOM |
 | 19 | Footer: counts · state-sensitive key hint · right-aligned `aria-live` message for every action · the paged transport line (B§9) | `Footer.tsx` | DOM |
 | 20 | Clipboard: copy tab-separated, dates `d/m/yyyy`, numbers bare, a link cell (a `Link` value) as TWO columns printed through the grammar; paste lands at the selection appending rows, each cell parsed by its kind (unparseable kept as typed), stamped skipped, a link consumes two cells and joins them; block left selected; suggestions cleared (B§10) | `clipboard.ts` | unit + DOM |
-| 21 | Paged arm: windows land on scroll through the Plan's ledger (residency, in-flight `none`, exhaustion from `total()` — every element resident; the resident run is the contiguous landed prefix, a positional row space carries no hole); the transport line counts source elements; the lens is scope-badged *loaded rows only*; the rail's search is a key search over `seek` when the source is keyed (jump rebases residency); appending needs exhaustion; `onEdit` only | `paging.ts` (adapter over the Plan stack) | DOM (Paged.of fixtures) |
+| 21 | Paged arm: windows land on scroll through the Plan's ledger (residency, in-flight `none`, exhaustion from `total()` — every element resident); the resident run is the stretch of windows that are in nearest the viewport's centre (#876): a failed window is a band where its rows would be (#853), and a window still loading ends the stretch, since a positional row space carries no hole — so a window loading beside the rows on screen never takes them off it, and landing it takes exactly its band's slot — a window is measured by what the body draws of its rows, an unvisited one at the rate the first window's rows drew (#855) — and one whose rows draw otherwise than that, landing above the rows on screen, leaves them where they are: a bounded frame anchors its scroll on a row, never on a band (#878); the transport line counts source elements; the lens is scope-badged *loaded rows only*; the rail's search is a key search over `seek` when the source is keyed (the jump rebases residency and owns the viewport until its target is shown, #854); appending needs exhaustion; `onEdit` only | `paging.ts` (adapter over the Plan stack) | DOM (Paged.of and held-source fixtures) |
 | 22 | Visual rules (B§11) | recipe `sheet.ts` | shot loop |
 | 23 | Controlled selection: with `selection` present the ring follows it and the row scrolls into view; every move reports `onSelect`; on the paged arm a non-resident `rowId` seeks when the source can (§3.14) | `sheet-state.ts` + `index.tsx` | DOM |
+| 24 | Frames: a sheet with a `height` / `maxHeight` scrolls its own rows and pins its header, with the group band and the open line sticking under it. With neither, it grows with its content and its header scrolls with the page, as every unbounded collection's does — the sheet scrolls sideways inside its own box, which CSS cannot pin a header out of (the author gives it a height to pin one). At 400 body items or more (the Plan's threshold, `VIRTUALIZE_UNBOUNDED_AT`) an unbounded sheet mounts only what the page shows; below it every row renders in flow, as before. The chrome that follows a scroll or the view's width — a seam's chips going, a sub row's well — reads the frame's viewport (`onViewport`) in every mode and through a switch between them (#856) | `index.tsx` + `virtual-rows.tsx` | DOM |
+| 25 | What the viewer arranged survives a remount (#857). Under the sheet's `storageKey` the renderer keeps the fold overrides (a group's or a line's id → folded; a line's `false` opens its sub rows) with the tab they were left on, and where a bounded frame's scroll rests — an item, never pixels: its body key, the px scrolled past it, its index and, on a paged sheet, its source element. Both are read back through a shape check. Folds come back when the sheet opens on the tab they were left on, before the first body build; a host that moves `activeView` later opens each view's own, and a sheet no one folded records no tab. The anchor restores by key once its item is in the body — on a paged sheet after its window is fetched, the way a key search jumps, the element clamped to the source's count. A band is a place in one run, never an item: over one, the element the band draws there is what persists. An anchor whose item is gone lands in its place — on a paged sheet the first item at or past its element, else its index clamped to the body. An unbounded sheet's place is its page's: it neither restores nor jumps. Never the ring, nor the lens's context and reveals (they follow the narrowing, which the slice owns) | `persisted.ts` + `index.tsx` | unit + DOM |
+| 26 | The grid to assistive tech (#860): a WAI-ARIA grid, one tab stop, naming the ring's cell as its active descendant; `aria-rowcount` the sheet's rows and the header — on a flat sheet the source's count (a paged source's `total()`, `-1` until it has counted itself) and the blank padding, on a grouped sheet the body's items; every row its `aria-rowindex` — a flat sheet's source position, where an unloaded band, a lens gap or a failed window stands for the rows from its first, a grouped sheet's place in the body (#819's rule) — and its gutter the `rowheader` at column 1; every cell its `aria-colindex`, the ring's and the range's `aria-selected`; a band's title the cell over its span, described by its sub line; no control inside the grid in the tab order but a failed window's Retry; the copies that stick under the header hidden (§6.3) | `index.tsx` + `Rows.tsx` + `Header.tsx` | DOM |
+| 27 | The sheet's words (#861): every word, title and accessible name the sheet says itself — the toolbar and the view tabs, the header, the rows, bands and gap pills, the strip and the editor, the link cells, the footer and the history bar, the insertion chips, and the message each gesture leaves — comes from ONE typed message table (`sheetMessages`, the Plan's #820 twin), its counts in the locale the shared formatters read (#850); `SheetMessagesProvider` overrides any subset for a subtree, providers nesting. The machine leaves a message as DATA — an id, raw counts, a row as its number, a noun only where the host names one — and the footer words it as it shows, so the reducer knows no locale and a new table re-words a message already shown. A group's noun is the host's when it names one, else the table's: the wire carries none rather than an English default. What the author wrote is data (headers, subs, nouns, register labels and metas, lock tags, footer items); the date and link grammars keep their forms; the issues a patch event carries to the host stay canonical English, and the sheet shows them in its words | `messages.ts` + `words.ts` + every component | unit + DOM |
+| 28 | Loose rows between the groups (#846): a grouped sheet over `Sheet.Types.Entry(P, "lines")` entries — each a group or a row of the line type, the wire's `loose` flag — draws a row entry as a plain row: no band, no rail, numbered in the groups' sequence, its own cells (on the wire, a row with no band). The seam above a band, beside a loose row, or on an empty sheet inserts a loose row; below a band, at a line's seam or at a group's blank line it is still a line, and the group chip a group. Loose rows delete, paste and count on their own: a paste onto one fills the run of loose rows from it, then new loose rows after the last; a range over loose rows and a band's lines deletes both, the band's own second ⌫ unchanged; the footer counts them (*2 groups · 3 lines · 3 loose rows*). Fold-all folds the groups and finds the ring's loose row again by its id; the sticky walk stops at a loose row, so no band sticks over one. Proposals under a loose row are loose rows, taken in one write. A new line there gets its `id` field — the field a loose row is identified by, so the author names one of both types — minted unless `newRow` supplied it; a loose row's draft is `variant("row", …)`, a group's `variant("group", …)` | `model.ts` + `insertion-gesture.ts` + `creation.ts` + `index.tsx` | unit + DOM |
 
 ---
 
@@ -1284,9 +1296,13 @@ sheet/
   sheet-state.test.ts           transition table (esc ladder, Tab ladder, commit directions, the copilot's table; tab dirty/revert in P5)
   use-links.ts           ~150   the link columns' wiring: vocabularies, halves and locks, checks per row value, the editor's context
   values.ts               ~40   the decoded value types, named once (`SheetRootValue`, `SheetRowValue`, `SheetCellValue`, …)
-  model.ts               ~200   decoded value → sheet model: real rows + blank padding (exhaustion-aware), column index, driver lookup, cell display
-  paging.ts              ~250   the paged arm over the Plan stack: window ledger / residency, a positional read-once reader, the contiguous landed run, `total()`-driven exhaustion, `jumpToElement` for the key search
-  paging.dom.test.tsx           the driver harness: first paint, the tail band, exhaustion, a held window, a jump, an unreadable source
+  messages.ts            ~800   every word the sheet says itself (#861): ONE typed message table, English by default; `SheetMessagesProvider` overrides it for a subtree
+  words.ts               ~190   the sheet's words: the table in effect and the shared formatters (#850); the machine's messages, and the renderer's own issues, worded at render
+  persisted.ts            ~90   what the sheet keeps under its `storageKey` (#857): the folds with their tab, the scroll anchor as an item; read back defensively
+  placement.ts            ~90   a batch's placements in one linear pass over a list linked through the ids (#859)
+  model.ts               ~200   decoded value → sheet model: real rows + blank padding (exhaustion-aware), column index, driver lookup, cell display, the drawn heights (`itemPx` / `drawnPx`, #855)
+  paging.ts              ~250   the paged arm over the Plan stack: window ledger / residency, a positional read-once reader, the run nearest the viewport (#876), windows measured by the caller's `heightOf` (#855), `total()`-driven exhaustion, `jumpToElement` for the key search
+  paging.dom.test.tsx           the driver harness: first paint, the tail band, exhaustion, a held window, a jump, an unreadable source, a failed window (#853), a pending jump (#854), a window loading beside the run (#876), a window measured by what its rows draw (#855)
   parse/date.ts          ~150   B§3 date grammar (UTC, East date tokens for display)
   parse/quantity.ts      ~60
   parse/index.ts         ~80    parse / print dispatch by kind (custom kinds call the compiled East pair)
@@ -1311,6 +1327,11 @@ sheet/
   Tabs.tsx               ~200   the view tabs
   Footer.tsx             ~100   counts · key hint · live message · transport line
   sheet.dom.test.tsx            per-behaviour DOM tests (§5)
+  sheet-render.dom.test.tsx     the rows each gesture renders (#858)
+  sheet-i18n.dom.test.tsx       every region speaks the message table; providers compose; a new table re-words the sheet (#861)
+  sheet-scale.dom.test.tsx      a paste at scale reads each source row's id a bounded number of times (#859)
+  sheet-loose.dom.test.tsx      loose rows between the groups: the body, insertion, edit, delete, paste, proposals, Apply, the sticky band (#846)
+  frame.test-utils.ts           the DOM tests' stand-ins for layout jsdom lacks: rows measured as they draw, a page that scrolls (#856)
 theme/slot-recipes/sheet.ts ~300 the B§11 vocabulary as recipe slots, light + dark via semantic tokens
 ```
 
@@ -1334,7 +1355,7 @@ interface SheetUiState {
     hover: Cell | null; hoverGap: string | null;
     lens: { ctx: 0 | 1 | 3; reveal: ReadonlySet<number>; steps: Record<string, number> };   // the query is SLICE state
     tabs: { active: string | null; dirty: boolean; renaming: string | null; renameVal: string };
-    msg: string;                                    // the footer's aria-live line
+    msg: SheetNotice | null;                        // the footer's aria-live line — a message's id and parameters, worded at render (#861)
 }
 type SheetEvent = /* key, cell.down, cell.dbl, editor.change, editor.key, editor.blur, strip.pick, gutter.*, band.*,
                      tab.*, clipboard.copy/paste, suggest.ready, suggest.landed (async), slice.changed, window.landed */;
@@ -1484,7 +1505,9 @@ arm and a cast.
 `decode → paging.ts (resident rows, exhaustion) → model.ts (real rows + blanks,
 column index) → lens.ts (hits from the slice state, visible rows + bands) →
 VirtualRows(estimateSize by row: 36 min, link cells measured) → Rows`. Toolbar
-and header sticky; strip and footer outside the scroll box; the editor overlays its
+and header sticky in a bounded frame (an unbounded sheet's header scrolls with the
+page, and at 400 body items it mounts only what the page shows — §5 row 24, #856);
+strip and footer outside the scroll box; the editor overlays its
 cell (position: absolute, z 10) and grows with wrapping chips. The whole sheet is
 one focusable region (`tabIndex=0`) that owns the keyboard; the editor stops
 propagation. Effects run in one place (`runEffects`); `useSliceReactivity(slice.key)`
@@ -1501,9 +1524,13 @@ is one `commit` event per changed cell, each carrying the row after it; typing
 into a blank row (or a paste past the padding) makes ONE inserted row — appended
 after the last real row, its id minted by `newRowId` or the renderer, its
 `insert` event naming the row it lands after — and the ring follows it, keeping
-whatever move the commit made. Rows are measured (a link cell wraps), the ledger
-is taught rows × the density row height, and the last column absorbs the frame's
-slack (the Table's stretch rule). A pasted cell a typed kind cannot carry is
+whatever move the commit made. Rows are measured (a link cell wraps); the ledger
+is taught what the body draws of each landed window's rows — one height
+function, `drawnPx`, shared with the body's own estimates: a row, or a group's
+band with, unless folded, its lines, their open sub rows and a blank line only
+when the sheet draws one — and describes an unvisited window at the rate the
+first window's rows drew, so an unloaded band is as tall as its rows will be
+(#855); the last column absorbs the frame's slack (the Table's stretch rule). A pasted cell a typed kind cannot carry is
 skipped and counted in the footer message; a stamped column is consumed and
 never written.
 
@@ -1543,7 +1570,8 @@ the component (`equalFor(Slice.Types.State)` between the active view's narrowing
 the slice's) and arrives in the context. The transitions (`sheet-lens-state.ts`): a
 tab switch persists the leaving tab's context and reveals (never an unsaved query),
 writes the target's narrowing as a `slice.write` effect and restores its lens; `tab.open`
-does the same without persisting (the initial `activeView`); `+ TAB` snapshots the
+does the same without persisting (the initial `activeView` — on the sheet's first open,
+with the folds the last session left on that tab, #857); `+ TAB` snapshots the
 narrowing named from the query (16 characters) or `view n`; ⏎ in the search updates a
 dirty tab, esc reverts it, esc on a clean tab returns to the sheet, esc on the sheet
 clears the search (the rail's combobox takes the first esc to close its suggestions,
@@ -1599,6 +1627,129 @@ the editor overlay reach 1 px outside their cell; on the row directly under the
 sticky header they stay inside it (`data-first`), so the header never covers
 the ring's top edge.
 
+**What survives a remount (#857).** A tab switch in the app shell remounts the
+sheet, and what the viewer arranged comes back under its `storageKey`
+(`persisted.ts`; the Plan's rule, #813 — §5 row 25). The folds are the machine's
+`lens.folds` with the tab they belong to: the store opens with them when the sheet
+opens on that tab, and `tab.open` carries them past the view's own lens on the first
+open. The scroll is `VirtualRows`' anchor. A bounded frame reports where it rests
+when a scroll settles (`onAnchorChange`) — never its first rest, so the top it mounts
+at never overwrites what it restores — and restores one (`restoreAnchor`). On a paged
+sheet a restore whose item is not resident jumps first (`jumpToElement`), owning the
+viewport until the frame has scrolled there, then hands it back (`clearJump`). The
+element is clamped to `total()` first: a jump past the end pins a window no demand
+makes resident, so it would never settle, and a pending jump owns the viewport.
+
+**Rows that hold still (#858).** A gesture re-renders only the rows it touches:
+moving the ring or the hover renders the rows it leaves and enters, and typing
+renders the edited row. The row memo compares its props by identity, so every prop
+is a primitive or a reference that holds still:
+- each item's rail membership is computed once per body;
+- a row's draft presentation is derived once per session change (the session's
+  readiness is held by value);
+- the insertion seam arrives as the side its chips take, and the row draws it;
+- discard is one stable callback that takes the row's id (and a line's key);
+- a line's sub rows arrive as their count and whether they show;
+- the range's columns and the editor are memoized.
+
+A test-only render probe (`setSheetRowRenderProbe`, the Plan's #815) lets the DOM
+tests assert which rows rendered.
+
+**Derivations at scale (#859).** The editing session stays linear in the rows and
+the drafts:
+- the inline `rowById` reads a row at its offset, then nearest outward (§4.8), so
+  every context — a fill's, a proposer's, a check's — builds in O(rows), and a
+  readiness evaluation reads each source row once;
+- readiness is derived once per change of the drafts or of the checks, however often
+  it is read (`SheetTransactions.readiness`). A gesture, an undo or redo, a discard
+  or a rebase drops it, and so does a new binding. The source rows' drafts are read
+  once per generation of the source;
+- a batch's placements apply in one pass over a list linked through the ids
+  (`placement.ts`), in the local layer and in readiness alike;
+- the session looks its rows up through one id index, and a paste mints its ids
+  against one set;
+- no spread into a call under `collections/sheet/` (lint, the Plan's #810 guard): a
+  batch of 250,000 failing rows returns its 250,000 issues;
+- a declared row check runs as one batch per evaluation (#882, §4.8). The rows
+  cross the wire once and the bridge builds them once; each check carries only its
+  place and its driver. Every check of the batch reads the same rows, so a check
+  that sorts or edits them in place changes what the checks after it see.
+
+**One editing session (#879).** The transaction session is every editable
+collection's, not the Sheet's alone: drafts, one undoable transaction per
+gesture, the checked batch and its serial apply, the gate and the history bar.
+- Its contract is `Editing` in `@elaraai/east-ui` (`contracts/editing.ts`), and
+  the Sheet names its values: `Sheet.apply` is `Editing.apply`,
+  `Sheet.Types.ChangeSet` is `Editing.Types.ChangeSet`.
+- Its renderer is `src/editing/`: `EditSession`, which `SheetTransactions`
+  names over the Sheet's wire rows; `useEditSession`, under `useSheetEditing`;
+  and `HistoryBar`, on the shared `editHistory` recipe, in the sheet's words.
+- A patch event's `origin` also names the Plan's gestures (`resize`, `drop` and
+  `verdict`), so the event's wire type changes with it. A sheet never reports
+  them.
+- The inline adapter's request ledger is the platform pair
+  `editing_requests_read` / `editing_requests_write`.
+
+**The grid, to assistive tech and the keyboard (#860).** The card is a WAI-ARIA grid
+and the one tab stop: the focus stays on it, and it names the ring's cell as its
+`aria-activedescendant` — each cell's id is the grid's `useId` with the row-space index
+and the column — so a reader hears the column, the value and the row as the ring moves.
+Positions describe the whole source, the Plan's rule (#819):
+- on a flat sheet `aria-rowcount` is the source's count (the paged `total()`, `-1`
+  until the source has counted itself) with the blank padding and the header, and a
+  row's `aria-rowindex` is its source position plus two. An unloaded band, a lens gap
+  or a failed window stands where its first row would be; a proposal, with no position
+  of its own, has none;
+- a grouped sheet counts its body in order, an unloaded run one row.
+
+Each row's gutter is its `rowheader` (column 1, named *Row n*, *Line n of …*, or the
+group and its line count), each cell a `gridcell` at its column plus two, and the ring's
+cell and the range's are `aria-selected`. A band's summary box is presentational: its
+title is the cell over the title's columns, its sub line that cell's description. The
+copies that stick under the header are hidden. No control inside the grid is in the tab
+order — a checkbox, a chevron, discard, the fold-all — because the grid's keys do what
+they do; a failed window's Retry stays in it, since nothing else asks that window again.
+A Tab the grid has no use for is left to the browser, so the grid is never a keyboard
+trap: the component asks the pure reducer, as a probe, whether the key would change
+anything. A key that crosses an unloaded run (`seek.step`, `seek.edge`) jumps the way a
+key search does (`jumpToElement`, #854). The component holds the move — the element,
+its window, where the ring lands, the column — and lands the ring (`select.move`) once
+the window is in the run, then hands the viewport back. A gesture since the key, or an
+open editor, abandons it. The driver holds one jump, so the sheet records who asked for
+it — a key's move, the key search, a remount's restore: a key's move gives way to a jump
+it did not ask for, and the search, which starts over on every new snapshot, drops only
+its own. After a keyboard move the ring's cell stays in view. The frame brings its row
+in wherever it virtualizes; the component brings in its column — the rows scroll
+sideways inside the card, and the column's header cell, always mounted, says where the
+column is, right of the sticky gutter — and, on a sheet whose rows render in flow, its
+row. The toolbar's view tabs are a WAI-ARIA tablist and its
+context switch a radio group, through `radioGroupKey` (`primitives/radio-group.ts`),
+which the Plan's segment control shares (#632).
+
+**The fields (review, 2026-09-12).** The ring is the field chrome; what sits
+inside it is the COMMON control for the column's kind, never a bespoke input:
+a `date` column mounts the segmented date field the `Input` renderer uses
+(react-aria segments, `dd / mm / yyyy`), a `quantity` / `integer` column the
+number field with its stepper column (Zag), a `text` / `custom` column the
+text input — each borderless under the ring. The machine still holds a STRING
+buffer: the date field reports its date in the edit form, the number field its
+text, so the commit parses exactly what the field shows and `parse/*` stays the
+one parser for typing, paste and the strip. The register kinds keep the typed
+buffer with the ghost mirror, a special case: their candidates live in the
+docked strip (B§9) and no popover ever opens. Two mechanics matter. The common
+fields start their machines and attach their listeners in PASSIVE effects, so
+the editor focuses — and types a seed into the day segment — from a passive
+effect after them; a layout-effect focus reaches a machine that has not
+started and is dropped. And the fields own their arrows (↑ / ↓ step a segment
+or the number), so only ⏎, ⇥ (at the date field's edge segments) and esc reach
+the machine from them. Every printed date and every calendar entry form is an
+East datetime pattern through East's own tokenizer, printer and parser
+(`formatDatePattern` / `parseDatePattern`, the chart axis pair); only the
+relative forms — `+3d`, `4d`, a weekday — are the grammar's, and they apply to
+pasted text. Cells and link members are built with `variant()` everywhere the
+renderer makes one (the brand the encoder needs), and the renderer narrows on
+the decoded `Sheet.Types.*` values rather than re-declaring their shapes.
+
 ---
 
 ## 7 · Visual compliance sheet
@@ -1620,8 +1771,8 @@ semantic token; dark theme for free.
 | Bands | 22px; 1px dashed `--rule-strong` at 50%; pill mono 9 `--ink-5` on `--paper` 1px `--rule` r-sm; open pill `--shadow-xs`, brand controls with `--brand-tint` hover |
 | Strip | `--paper-2` band, 6/20 padding, 1px `--rule` top; label mono 9/600/`.13em` uppercase `--brand-d`; chips mono 11 (armed: 600 `--brand-dd` on `--brand-tint` + inset 1px ring at 40%); pending chip = dashed `--rule-strong` with a mono `⋯`; meta mono 10 `--ink-3`; keys mono 9.5 `--ink-5` |
 | Footer | 8/20 padding, 1px `--rule` top; counts mono 11 `--ink-3`; key hint mono 10 `--ink-5` `.04em`; message mono 10.5 `--ink-2`, `aria-live="polite"`, right-aligned; transport line mono 10 `--ink-4` (paged) |
-| Tabs | 30px mono 10.5/600/`.12em` uppercase; active `inset 0 -2px 0 var(--ink)`; counts `--ink-4`; dirty dot 5px `--brand-d`; × 14px `--ink-5` → `--neg`; `+ TAB` 22px r-sm 1px `--rule-strong` mono 9.5/600 |
-| Context switch | r-md, options mono 10, active `--brand-tint` `--brand-dd` |
+| Tabs | 30px mono 10.5/600/`.12em` uppercase; active `inset 0 -2px 0 var(--ink)`; counts `--ink-4`; dirty dot 5px `--brand-d`; × 14px `--ink-5` → `--neg`; `+ TAB` 22px r-sm 1px `--rule-strong` mono 9.5/600; the keyboard's focus a 2px `--brand-d` ring inside the tab, `+n` and `+ TAB` (#860) |
+| Context switch | r-md, options mono 10, active `--brand-tint` `--brand-dd`; the keyboard's focus a 2px `--brand-d` ring (#860) |
 | Icons | FA6 solid: plus, xmark, check, arrow-right-long, minus, angle-up, angle-down (the search glyph is the rail's; the app bar's cloud icons are host chrome) |
 | Motion | none beyond hover steps; never lift or scale |
 

@@ -7,15 +7,18 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Box, chakra, useRecipe, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faGripVertical, faThumbtack, faTrashCan } from "@fortawesome/free-solid-svg-icons";
-import { equalFor, variant, some, none, type ValueTypeOf } from "@elaraai/east";
+import { equalFor, equivalentFor, variant, some, none, type ValueTypeOf } from "@elaraai/east";
 import { Blend } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
-import { useDragTarget, useDropCell, useDragEventChip, type DragEventValue, type DragMeta, type DragPayload } from "../../dnd/drag-layer";
-import { useIRCanDrop, canDropAllows, type CanDropFn } from "../../dnd/ir-can-drop";
+import { useDragTarget, useDropCell, useDragEventChip, type DragEventValue, type DragMeta, type DropCellOptions, type DropVeto } from "../../dnd/drag-layer";
+import { useIRCanDrop, type CanDropFn } from "../../dnd/ir-can-drop";
 import { DropHint } from "../../dnd/drop-hint";
 import { useContainerBelow } from "../../contracts/adaptive.js";
+import { useValueSync } from "../../hooks/useValueSync";
+import { useFormatters, type TickFormatOpt } from "../../format/index.js";
 
-const blendEqual = equalFor(Blend.Types.Blend);
+const blendEqual = equivalentFor(Blend.Types.Blend);
+const blendDataEqual = equalFor(Blend.Types.Blend);
 
 /** East Blend value type. */
 export type BlendValue = ValueTypeOf<typeof Blend.Types.Blend>;
@@ -39,10 +42,8 @@ function stateAttr(state: BlendAllocationValue["state"]): string {
     return state.value.type;
 }
 
-function compact(n: number): string {
-    if (Math.abs(n) >= 1000) return `${Math.round(n / 1000)}k`;
-    return `${Math.round(n)}`;
-}
+/** A compare row's difference: its sign always, three decimals at most. */
+const DELTA: TickFormatOpt = variant("number", { minimumFractionDigits: none, maximumFractionDigits: some(3n), signDisplay: none });
 
 // ============================================================================
 // Allocation row
@@ -63,6 +64,8 @@ function AllocationRow({ surface, targetKey, alloc, unit, capacity, styles, onAm
     const state = stateAttr(alloc.state);
     const proposed = alloc.state.type === "proposed";
     const draggable = proposed && !alloc.pinned;
+    // Amounts and shares, in the app's locale (#850).
+    const words = useFormatters();
     const [draft, setDraft] = useState(String(alloc.amount));
     useEffect(() => { setDraft(String(alloc.amount)); }, [alloc.amount]);
 
@@ -71,7 +74,9 @@ function AllocationRow({ surface, targetKey, alloc, unit, capacity, styles, onAm
         [surface, targetKey, alloc.source],
     );
     const ghost = useMemo(() => <Box css={styles.dragGhost}>{alloc.label}</Box>, [styles.dragGhost, alloc.label]);
-    const onPointerDown = useDragEventChip(from, ghost, !draggable);
+    // The row is its own drag handle — by pointer, or focused and picked up
+    // with Space / Enter (a key pressed in its amount input never is).
+    const drag = useDragEventChip(from, ghost, !draggable, alloc.label);
 
     const commitDraft = useCallback(() => {
         const next = Number(draft);
@@ -82,17 +87,17 @@ function AllocationRow({ surface, targetKey, alloc, unit, capacity, styles, onAm
         }
     }, [draft, alloc.amount, alloc.source, onAmount]);
 
-    const share = capacity > 0 ? Math.round((alloc.amount / capacity) * 100) : 0;
+    const share = capacity > 0 ? alloc.amount / capacity : 0;
     const sublabel = getSomeorUndefined(alloc.sublabel);
 
     return (
         <Box
             css={styles.allocRow}
             data-state={state}
-            onPointerDown={onPointerDown}
-            {...(draggable && onPointerDown ? { "data-draggable": "" } : {})}
+            {...drag}
+            {...(draggable && drag ? { "data-draggable": "" } : {})}
         >
-            {draggable && onPointerDown && (
+            {draggable && drag && (
                 <Box as="span" css={styles.allocGrip} data-drag-grip=""><FontAwesomeIcon icon={faGripVertical} /></Box>
             )}
             <Box css={styles.allocBody}>
@@ -118,9 +123,9 @@ function AllocationRow({ surface, targetKey, alloc, unit, capacity, styles, onAm
                     }}
                 />
             ) : (
-                <Box as="span" css={styles.amountText}>{compact(alloc.amount)}</Box>
+                <Box as="span" css={styles.amountText}>{words.compact(alloc.amount)}</Box>
             )}
-            <Box as="span" css={styles.share}>{unit} · {share}%</Box>
+            <Box as="span" css={styles.share}>{unit} · {words.percent(share)}</Box>
             {draggable && onRemove && (
                 <Box
                     as="button"
@@ -147,8 +152,8 @@ interface TargetPanelProps {
     mode: "single" | "compare" | "portfolio";
     badge?: string | undefined;
     styles: SlotStyles;
-    /** Per-cell veto builder from the root's IR `canDrop` (#261). */
-    vetoFor?: ((coord: { surface: string; row: string; slot: string }) => (payload: DragPayload) => boolean) | undefined;
+    /** The drop veto over the candidate event, from the root's IR `canDrop` (#261). */
+    veto?: DropVeto | undefined;
     onAmount?: ((source: string, amount: number) => void) | undefined;
     onRemove?: ((source: string) => void) | undefined;
     onAction?: ((action: ActionKind) => void) | undefined;
@@ -157,7 +162,7 @@ interface TargetPanelProps {
     compactActive?: boolean | undefined;
 }
 
-function TargetPanel({ surface, target, mode, badge, styles, vetoFor, onAmount, onRemove, onAction, compactActive }: TargetPanelProps) {
+function TargetPanel({ surface, target, mode, badge, styles, veto, onAmount, onRemove, onAction, compactActive }: TargetPanelProps) {
     // The action foot rides the shared `commitBar` LAYOUT slots (#266) so
     // apply/discard reads as the same chrome family as the shared review
     // foot + DecisionQueue staged footer. The BUTTONS come from the shared
@@ -167,9 +172,12 @@ function TargetPanel({ surface, target, mode, badge, styles, vetoFor, onAmount, 
     const commitRecipe = useSlotRecipe({ key: "commitBar" });
     const cs = useMemo(() => commitRecipe({}) as SlotStyles, [commitRecipe]);
     const btn = useRecipe({ key: "button" });
+    // Capacity, headroom and ticks, in the app's locale (#850).
+    const words = useFormatters();
     const coord = useMemo(() => ({ surface, row: target.key, slot: "alloc" }), [surface, target.key]);
-    const veto = useMemo(() => vetoFor?.(coord), [vetoFor, coord]);
-    const dropRef = useDropCell(coord, false, veto);
+    // A drag names the panel by its target.
+    const dropOptions = useMemo<DropCellOptions>(() => ({ name: () => target.label }), [target.label]);
+    const dropRef = useDropCell(coord, false, veto, undefined, dropOptions);
 
     const allocated = target.allocations.reduce((sum, a) => sum + a.amount, 0);
     const headroom = Math.max(0, target.capacity - allocated);
@@ -182,7 +190,7 @@ function TargetPanel({ surface, target, mode, badge, styles, vetoFor, onAmount, 
                 {badge !== undefined && <Box as="span" css={styles.panelBadge}>{badge}</Box>}
                 <Box as="span" css={styles.panelTitle}>{target.label}</Box>
                 <Box as="span" css={styles.panelCap}>
-                    cap {compact(target.capacity)} {target.unit} · {compact(headroom)} headroom
+                    cap {words.compact(target.capacity)} {target.unit} · {words.compact(headroom)} headroom
                 </Box>
             </Box>
             <Box css={styles.compositionBar}>
@@ -192,13 +200,13 @@ function TargetPanel({ surface, target, mode, badge, styles, vetoFor, onAmount, 
                         css={styles.segment}
                         data-state={stateAttr(alloc.state)}
                         style={{ width: `${target.capacity > 0 ? (alloc.amount / target.capacity) * 100 : 0}%` }}
-                        title={`${alloc.label} · ${compact(alloc.amount)} ${target.unit}`}
+                        title={`${alloc.label} · ${words.compact(alloc.amount)} ${target.unit}`}
                     />
                 ))}
                 <Box css={styles.headroom} style={{ width: `${target.capacity > 0 ? (headroom / target.capacity) * 100 : 100}%` }} />
             </Box>
             <Box css={styles.axis}>
-                {ticks.map(t => <Box key={t} as="span" css={styles.axisTick}>{compact(t)}</Box>)}
+                {ticks.map(t => <Box key={t} as="span" css={styles.axisTick}>{words.compact(t)}</Box>)}
             </Box>
             <Box css={styles.allocList}>
                 {target.allocations.map(alloc => (
@@ -227,7 +235,7 @@ function TargetPanel({ surface, target, mode, badge, styles, vetoFor, onAmount, 
                                 <Box as="span" css={styles.metricValue}>{m.value}</Box>
                                 {model !== undefined && <Box as="span" css={styles.trustChip}>{model}</Box>}
                                 {band !== undefined && (
-                                    <Box as="span" css={styles.bandText}>band {band.min}–{band.max}</Box>
+                                    <Box as="span" css={styles.bandText}>band {words.number(band.min)}–{words.number(band.max)}</Box>
                                 )}
                             </Box>
                         );
@@ -267,12 +275,16 @@ function TargetPanel({ surface, target, mode, badge, styles, vetoFor, onAmount, 
  */
 export const EastChakraBlend = memo(function EastChakraBlend({ value }: EastChakraBlendProps) {
     const styles = useSlotRecipe({ key: "blend" })() as SlotStyles;
+    // The compare deltas, in the app's locale (#850).
+    const words = useFormatters();
     const mode: "single" | "compare" | "portfolio" =
         value.targets.length <= 1 ? "single" : value.targets.length === 2 ? "compare" : "portfolio";
 
     const onDragFn = useMemo(() => getSomeorUndefined(value.onDrag), [value.onDrag]);
+    // The layer asks the veto at every point a drag rests, and once more of
+    // the event it delivers — with the candidate event, duplicate flag included.
     const canDropFn = useMemo(() => getSomeorUndefined(value.canDrop) as CanDropFn | undefined, [value.canDrop]);
-    const vetoFor = useIRCanDrop(canDropFn);
+    const veto = useIRCanDrop(canDropFn);
     const onAmountFn = useMemo(() => getSomeorUndefined(value.onAmountChange), [value.onAmountChange]);
     const onActionFn = useMemo(() => getSomeorUndefined(value.onAction), [value.onAction]);
     const verdict = getSomeorUndefined(value.verdict);
@@ -280,12 +292,9 @@ export const EastChakraBlend = memo(function EastChakraBlend({ value }: EastChak
     // Interactive-state pattern: drops / edits / removals apply locally;
     // callbacks persist; the prop sync reconciles authoritative data.
     const [targets, setTargets] = useState<BlendTargetValue[]>(() => [...value.targets]);
-    useEffect(() => { setTargets([...value.targets]); }, [value.targets]);
+    useValueSync(value, blendDataEqual, () => setTargets([...value.targets]));
 
     const handleDrag = useCallback((event: DragEventValue, meta?: DragMeta) => {
-        // Re-check the IR veto with the real event before mutating (the hover
-        // veto already gated the ⊘ stage; sink removes are always valid).
-        if (event.type === "add" && !canDropAllows(canDropFn, event)) return;
         let next = targets;
         if (event.type === "add") {
             const { from, into } = event.value;
@@ -310,7 +319,7 @@ export const EastChakraBlend = memo(function EastChakraBlend({ value }: EastChak
         }
         setTargets(next);
         if (onDragFn) queueMicrotask(() => onDragFn(event));
-    }, [targets, onDragFn, canDropFn]);
+    }, [targets, onDragFn]);
 
     const targetConfig = useMemo(() => ({
         id: value.id,
@@ -366,7 +375,7 @@ export const EastChakraBlend = memo(function EastChakraBlend({ value }: EastChak
             const na = ma !== undefined ? getSomeorUndefined(ma.numeric) : undefined;
             const nb = mb !== undefined ? getSomeorUndefined(mb.numeric) : undefined;
             const delta = typeof na === "number" && typeof nb === "number"
-                ? `${nb - na >= 0 ? "+" : ""}${Number((nb - na).toFixed(3))}`
+                ? words.value(nb - na, DELTA, true)
                 : "—";
             return [{
                 key,
@@ -376,7 +385,7 @@ export const EastChakraBlend = memo(function EastChakraBlend({ value }: EastChak
                 delta,
             }];
         });
-    }, [mode, targets, value.diff]);
+    }, [mode, targets, value.diff, words]);
 
     return (
         <Box ref={rootRef} css={styles.root} data-mode={mode}>
@@ -405,7 +414,7 @@ export const EastChakraBlend = memo(function EastChakraBlend({ value }: EastChak
                             mode={mode}
                             badge={badge}
                             styles={styles}
-                            vetoFor={vetoFor}
+                            veto={veto}
                             onAmount={handleAmount(target.key)}
                             onRemove={handleRemove(target.key)}
                             onAction={onActionFn ? handleAction(target.key) : undefined}

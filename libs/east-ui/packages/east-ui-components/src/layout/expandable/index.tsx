@@ -11,12 +11,12 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Box as ChakraBox, IconButton, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faExpand, faCompress } from "@fortawesome/free-solid-svg-icons";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Expandable } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 
-const expandableEqual = equalFor(Expandable.Types.Expandable);
+const expandableEqual = equivalentFor(Expandable.Types.Expandable);
 
 /** East Expandable value type. */
 export type ExpandableValue = ValueTypeOf<typeof Expandable.Types.Expandable>;
@@ -69,6 +69,12 @@ export const EastChakraExpandable = memo(function EastChakraExpandable({ value, 
     const zIndexOverride = style ? getSomeorUndefined(style.zIndex) : undefined;
     const background = style ? getSomeorUndefined(style.background) : undefined;
     const onExpandedChangeFn = useMemo(() => getSomeorUndefined(value.onExpandedChange), [value.onExpandedChange]);
+    // The Esc handler and the containment warning read the callback and label
+    // through a ref: a new `onExpandedChange` closure or label must not
+    // re-register an expanded instance, which would move it to the top of the
+    // expand stack past any region expanded inside it (#809).
+    const latestRef = useRef({ label, onExpandedChange: onExpandedChangeFn });
+    latestRef.current = { label, onExpandedChange: onExpandedChangeFn };
 
     // Interactive-state pattern: local state seeded from the East value,
     // synced when the prop changes (a State-driven `expanded` controls the
@@ -102,8 +108,9 @@ export const EastChakraExpandable = memo(function EastChakraExpandable({ value, 
         if (rootRef.current !== null) {
             const trap = findFixedContainingBlockAncestor(rootRef.current);
             if (trap !== null) {
+                const regionLabel = latestRef.current.label;
                 console.warn(
-                    `[east-ui] <Expandable>${label !== undefined ? ` ("${label}")` : ""} expanded inside an ancestor with ${trap.prop} — ` +
+                    `[east-ui] <Expandable>${regionLabel !== undefined ? ` ("${regionLabel}")` : ""} expanded inside an ancestor with ${trap.prop} — ` +
                     "that ancestor is the containing block for position: fixed, so the region fills it instead of the app container. " +
                     "Remove the property from the host wrapper (virtualized rows: offset with `top` instead of `transform`).",
                     trap.node,
@@ -117,7 +124,8 @@ export const EastChakraExpandable = memo(function EastChakraExpandable({ value, 
             if (event.defaultPrevented) return;
             if (expandStack[expandStack.length - 1] !== id) return;
             setExpanded(false);
-            if (onExpandedChangeFn) queueMicrotask(() => onExpandedChangeFn(false));
+            const onExpandedChange = latestRef.current.onExpandedChange;
+            if (onExpandedChange) queueMicrotask(() => onExpandedChange(false));
             controlRef.current?.focus();
         };
         document.addEventListener("keydown", onKeyDown);
@@ -126,7 +134,7 @@ export const EastChakraExpandable = memo(function EastChakraExpandable({ value, 
             const i = expandStack.indexOf(id);
             if (i !== -1) expandStack.splice(i, 1);
         };
-    }, [expanded, onExpandedChangeFn]);
+    }, [expanded]);
 
     const styles = useSlotRecipe({ key: "expandable" })({ expanded });
 

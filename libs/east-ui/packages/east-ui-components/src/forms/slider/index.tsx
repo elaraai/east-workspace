@@ -3,14 +3,16 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { memo, useMemo, useCallback, useState, useEffect } from "react";
+import { memo, useMemo, useCallback, useState } from "react";
 import { Slider as ChakraSlider, type ConditionalValue, type SliderRootProps, type SliderValueChangeDetails } from "@chakra-ui/react";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equalFor, equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Slider } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
+import { useValueSync } from "../../hooks/useValueSync";
 
 // Pre-define equality function at module level
-const sliderEqual = equalFor(Slider.Types.Slider);
+const sliderEqual = equivalentFor(Slider.Types.Slider);
+const sliderDataEqual = equalFor(Slider.Types.Slider);
 
 /** East Slider value type */
 export type SliderValue = ValueTypeOf<typeof Slider.Types.Slider>;
@@ -51,9 +53,7 @@ export const EastChakraSlider = memo(function EastChakraSlider({ value }: EastCh
     const onChangeFn = useMemo(() => getSomeorUndefined(value.onChange), [value.onChange]);
     const onChangeEndFn = useMemo(() => getSomeorUndefined(value.onChangeEnd), [value.onChangeEnd]);
 
-    useEffect(() => {
-        setProps(() => toChakraSlider(value))
-    }, [value]); // Re-run effect if value object reference changes
+    useValueSync(value, sliderDataEqual, () => setProps(toChakraSlider(value)));
 
     const handleValueChange = useCallback((details: SliderValueChangeDetails) => {
         setProps(prev => ({ ...prev, value: details.value }))

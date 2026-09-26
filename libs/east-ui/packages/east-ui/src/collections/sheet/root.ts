@@ -8,7 +8,7 @@
  * `component.ts` (`Sheet Spec.md` §4.6): resolves the row source (both
  * arms), describes every column against the row type, compiles the typed
  * bridge (§4.8), builds each column's wire value, compiles `onUpdate` into
- * the edit channel (§4.7), and refuses every mistake of §3.12 naming the
+ * the checked batch adapter (§4.7), and refuses every mistake naming the
  * column and the remedy.
  *
  * @packageDocumentation
@@ -18,6 +18,7 @@ import {
     type EastType,
     type ExprType,
     type SubtypeExprOrValue,
+    type VariantType,
     East,
     ArrayType,
     AsyncFunctionType,
@@ -29,6 +30,7 @@ import {
     OptionType,
     StringType,
     StructType,
+    isTypeEqual,
     toEastTypeValue,
     variant,
     some,
@@ -63,10 +65,19 @@ import {
     SheetSelectionType,
     SheetFooterItemType,
     SheetStyleType,
-    SheetEditType,
-    type SheetContextOf,
+    SheetGroupType,
+    SheetGroupCellType,
+    SheetNounType,
+    SheetOptionsRuleType,
+    SHEET_TITLE_CELL,
+    sheetLinesOf,
+    sheetRuleCell,
+    type SheetAnyContextOf,
     type SheetProposalOf,
-    type SheetEditOf,
+    type SheetPatchOf,
+    type SheetLinesField,
+    type SheetLineOf,
+    type SheetEntryOf,
     type SheetHalfLiteral,
     type SheetSidesLiteral,
 } from "./types.js";
@@ -74,19 +85,24 @@ import {
     type SheetColumnMeta,
     type SheetBridge,
     describeColumn,
+    describeGroupCell,
     buildBridge,
     wrapProvider,
     wrapProposer,
     wrapArity,
     wrapCheck,
+    wrapOptions,
     wrapCustomParse,
     wrapCustomPrint,
-    wrapOnEdit,
-    compileOnUpdate,
-    composeEditHandlers,
 } from "./bridge.js";
 import type { SheetColumn, SheetColumnSpec, SheetFieldKey, SheetMemberKindInput, SheetMultipleInput } from "./columns.js";
 import type { SheetDriverValue, SheetRegisterValue } from "./registers.js";
+import type { SheetGroupValue } from "./group.js";
+import type { SheetSubRowsValue } from "./sub-rows.js";
+import type { SheetEditsInput } from "./edits.js";
+import { buildSheetEditing } from "./editing-bridge.js";
+import { SheetApplyResultType, SheetNewRowType, SheetNewGroupType, SheetReadinessType, type SheetDraftOf, type SheetChangeSetTypeFor } from "./transactions.js";
+import type { SheetPatchEventTypeFor, SheetDraftEntryOf } from "./drafts.js";
 import { isExistsCheck, type SheetLocksInput } from "./link.js";
 
 // ============================================================================
@@ -103,11 +119,11 @@ export type SheetStringField<R extends StructType> = {
  * `Sheet.Types.Context(R, D)` to `Array<Sheet.Types.Proposal(R)>` (§3.6).
  * The driver type is checked at build time against the sheet's driver.
  *
- * @typeParam R - The host's row type
+ * @typeParam R - The host's row type (a grouped sheet: the line type)
  */
 export type SheetProposerInput<R extends StructType> =
-    | SubtypeExprOrValue<FunctionType<[SheetContextOf<R, any>], ArrayType<SheetProposalOf<R>>>>
-    | SubtypeExprOrValue<AsyncFunctionType<[SheetContextOf<R, any>], ArrayType<SheetProposalOf<R>>>>;
+    | SubtypeExprOrValue<FunctionType<[SheetAnyContextOf<R>], ArrayType<SheetProposalOf<R>>>>
+    | SubtypeExprOrValue<AsyncFunctionType<[SheetAnyContextOf<R>], ArrayType<SheetProposalOf<R>>>>;
 
 /**
  * The copilot's row-proposal declaration (B§5.2).
@@ -129,6 +145,22 @@ export interface SheetSuggestInput<R extends StructType> {
     propose: SheetProposerInput<R>[];
 }
 
+/** Business readiness checks add requirements without bypassing structural validity.
+ * @typeParam R - The row struct (a grouped sheet's child struct)
+ * @typeParam G - The group draft schema, when grouping is enabled
+ */
+export interface SheetReadyInput<R extends StructType, G extends EastType = never> {
+    /**
+     * Check a row draft and its current draft-aware context. Every check of
+     * one evaluation runs in one call over the same `rows` (#882): read
+     * them, never sort or edit them in place, or the checks after it see the
+     * change. A check that throws marks its own row invalid.
+     */
+    row?: SubtypeExprOrValue<FunctionType<[SheetDraftOf<R>, SheetAnyContextOf<R>], typeof SheetReadinessType>>;
+    /** Check the group's own draft fields; child issues are checked separately. */
+    group?: [G] extends [never] ? never : SubtypeExprOrValue<FunctionType<[G], typeof SheetReadinessType>>;
+}
+
 /**
  * The options of `Sheet.Root` / the `<Sheet>` tag's props beside `data` and
  * `columns` (§3).
@@ -145,10 +177,11 @@ export interface SheetSuggestInput<R extends StructType> {
  * @property activeView - The active view's id
  * @property onViewsChange - Views changed
  * @property onUpdate - The whole collection with the edit applied (inline arm only)
- * @property onEdit - The raw edit event, typed over the row (either arm)
  * @property onSelect - The ring moved
  * @property selection - Controlled selection (§3.14)
  * @property newRowId - Overrides the renderer's id minting for inserted rows
+ * @property group - Never on a flat sheet — grouped rows take {@link SheetGroupedOptions}
+ * @property subRows - Read-only sub rows under each row, from its array fields (`Sheet.subRows`, #844)
  * @property readOnly - The whole sheet is read-only
  * @property blanks - Padding rows below the last real one (default 18)
  * @property density - Row rhythm
@@ -156,6 +189,8 @@ export interface SheetSuggestInput<R extends StructType> {
  * @property style - Sizing and the gutter width
  */
 export interface SheetOptions<R extends StructType> {
+    /** Structural capabilities; defaults depend on grouping and source ordering. */
+    edits?: SheetEditsInput;
     /** The `String` field that identifies a row. */
     id?: SheetStringField<R>;
     /** Rows the upstream system owns — an accessor. */
@@ -178,14 +213,27 @@ export interface SheetOptions<R extends StructType> {
     onViewsChange?: SubtypeExprOrValue<FunctionType<[ArrayType<SheetViewType>], NullType>>;
     /** The whole collection with the edit applied (inline arm only). */
     onUpdate?: SubtypeExprOrValue<FunctionType<[ArrayType<R>], NullType>>;
-    /** The raw edit event, typed over the row. */
-    onEdit?: SubtypeExprOrValue<FunctionType<[SheetEditOf<R>], NullType>>;
+    /** Observe one gesture's draft and domain patches; this does not authorize writes. */
+    onPatch?: SubtypeExprOrValue<FunctionType<[ReturnType<typeof SheetPatchEventTypeFor<R>>], NullType>>;
+    /** Submit one checked, idempotent batch to the authoritative source. */
+    onApply?: SubtypeExprOrValue<FunctionType<[ReturnType<typeof SheetChangeSetTypeFor<R>>], typeof SheetApplyResultType>>
+        | SubtypeExprOrValue<AsyncFunctionType<[ReturnType<typeof SheetChangeSetTypeFor<R>>], typeof SheetApplyResultType>>;
+    /** Batch by default; auto submits complete gestures through the same checked protocol. */
+    applyMode?: "batch" | "auto";
     /** The ring moved. */
     onSelect?: SubtypeExprOrValue<FunctionType<[SheetSelectionType], NullType>>;
     /** Controlled selection. */
     selection?: SubtypeExprOrValue<OptionType<SheetSelectionType>>;
+    /** Additional author requirements; structural completeness always remains mandatory. */
+    ready?: SheetReadyInput<R>;
+    /** Explicit defaults for new rows, including required fields without columns. */
+    newRow?: SubtypeExprOrValue<FunctionType<[typeof SheetNewRowType], SheetPatchOf<R>>>;
     /** Overrides the renderer's id minting for inserted rows. */
     newRowId?: SubtypeExprOrValue<FunctionType<[], StringType>>;
+    /** Never on a flat sheet — grouped rows take {@link SheetGroupedOptions}. */
+    group?: never;
+    /** Read-only sub rows under each row, from its array fields. */
+    subRows?: SheetSubRowsValue<R>;
     /** The whole sheet is read-only. */
     readOnly?: SubtypeExprOrValue<BooleanType> | boolean;
     /** Padding rows below the last real one. */
@@ -210,8 +258,78 @@ export interface SheetOptions<R extends StructType> {
     };
 }
 
-/** A whole-value bind handle (`State.bind` / `Data.bind`) over `Array<R>` — accepted as `data`. */
-export interface SheetBindHandle<R extends StructType> {
+/**
+ * The options of a GROUPED sheet (#740) — `Sheet.Root(plans, lineColumns,
+ * { group: Sheet.group(P, "lines", …), … })`: the group `P` is the row,
+ * `columns` are declared over the line type its lines field holds, and the
+ * edit channel addresses lines within their group.
+ *
+ * @typeParam P - The group's row type
+ * @typeParam F - The lines field
+ * @property group - The group declaration (`Sheet.group`)
+ * @property suggest - The row-proposal declaration, over the LINE type
+ * @property onUpdate - The whole collection of groups with the edit applied (inline arm only)
+ * @property subRows - Read-only sub rows under each LINE, declared over the line type (#844)
+ */
+export interface SheetGroupedOptions<P extends StructType, F extends SheetLinesField<P>> extends Omit<SheetOptions<P>, "group" | "suggest" | "onPatch" | "newRow" | "ready" | "subRows"> {
+    /** Additional row and group requirements over complete field drafts. */
+    ready?: SheetReadyInput<SheetLineOf<P, F>, SheetDraftEntryOf<P, F>>;
+    /** Explicit defaults for each new child row. */
+    newRow?: SubtypeExprOrValue<FunctionType<[typeof SheetNewRowType], SheetPatchOf<SheetLineOf<P, F>>>>;
+    /** Explicit defaults for a new group. */
+    newGroup?: SubtypeExprOrValue<FunctionType<[typeof SheetNewGroupType], SheetPatchOf<P>>>;
+    /** The group declaration. */
+    group: SheetGroupValue<P, F>;
+    /** The row-proposal declaration, over the line type. */
+    suggest?: SheetSuggestInput<SheetLineOf<P, F>>;
+    /** Observe a gesture with drafts over this group's child array. */
+    onPatch?: SubtypeExprOrValue<FunctionType<[ReturnType<typeof SheetPatchEventTypeFor<P, F>>], NullType>>;
+    /** Read-only sub rows under each line, declared over the line type. */
+    subRows?: SheetSubRowsValue<SheetLineOf<P, F>>;
+}
+
+/**
+ * The options of a sheet with LOOSE rows between its groups (#846) —
+ * `Sheet.Root(entries, lineColumns, { group: Sheet.group(P, "lines", …), … })`
+ * over entries `Sheet.Types.Entry(P, "lines")`: each entry a group, or a row
+ * of the line type standing between the groups. Everything a grouped sheet
+ * takes, with `id`, `owned` and the write-back over the entry.
+ *
+ * @typeParam P - The group's row type
+ * @typeParam F - The lines field
+ * @property id - The `String` field that identifies an entry — a field of both the group type and the line type (a keyed paged source needs none: its key is the id)
+ * @property owned - Entries the upstream system owns — an accessor over the entry
+ * @property onUpdate - The whole collection of entries with the batch applied (inline arm only)
+ * @property onPatch - Observe one gesture's draft and domain patches over the entries
+ * @property onApply - Submit one checked, idempotent batch of entries
+ */
+export interface SheetEntriesOptions<P extends StructType, F extends SheetLinesField<P>> extends Omit<SheetGroupedOptions<P, F>, "id" | "owned" | "onUpdate" | "onPatch" | "onApply"> {
+    /** The `String` field that identifies an entry — a field of both the group type and the line type. */
+    id?: SheetStringField<P> & SheetStringField<SheetLineOf<P, F>>;
+    /** Entries the upstream system owns — an accessor over the entry. */
+    owned?: (entry: ExprType<SheetEntryOf<P, F>>) => SubtypeExprOrValue<BooleanType>;
+    /** The whole collection of entries with the batch applied (inline arm only). */
+    onUpdate?: SubtypeExprOrValue<FunctionType<[ArrayType<SheetEntryOf<P, F>>], NullType>>;
+    /** Observe one gesture's draft and domain patches over the entries; this does not authorize writes. */
+    onPatch?: SubtypeExprOrValue<FunctionType<[ReturnType<typeof SheetPatchEventTypeFor<SheetEntryOf<P, F>>>], NullType>>;
+    /** Submit one checked, idempotent batch of entries to the authoritative source. */
+    onApply?: SubtypeExprOrValue<FunctionType<[ReturnType<typeof SheetChangeSetTypeFor<SheetEntryOf<P, F>>>], typeof SheetApplyResultType>>
+        | SubtypeExprOrValue<AsyncFunctionType<[ReturnType<typeof SheetChangeSetTypeFor<SheetEntryOf<P, F>>>], typeof SheetApplyResultType>>;
+}
+
+/** Either arm's options, erased — what the implementation reads. */
+type SheetAnyOptions = Omit<SheetOptions<StructType>, "group" | "suggest" | "onPatch" | "newRow" | "ready" | "subRows"> & {
+    subRows?: SheetSubRowsValue<StructType>;
+    ready?: { row?: unknown; group?: unknown };
+    group?: SheetGroupValue<StructType, string>;
+    suggest?: SheetSuggestInput<StructType>;
+    onPatch?: unknown;
+    newRow?: unknown;
+    newGroup?: unknown;
+};
+
+/** A whole-value bind handle (`State.bind` / `Data.bind`) over `Array<R>` — accepted as `data`; `R` a row struct, or an entry `Sheet.Types.Entry(P, "lines")` (#846). */
+export interface SheetBindHandle<R extends EastType> {
     /** The handle's read. */
     read: (...args: never[]) => ExprType<ArrayType<R>>;
 }
@@ -227,6 +345,7 @@ function memberKinds(input: SheetMemberKindInput[] | undefined): ExprType<ArrayT
         identified: k.identified ?? false,
         countable:  k.countable ?? false,
         resolvesTo: k.resolvesTo !== undefined ? some(k.resolvesTo) : none,
+        ranged:     k.ranged ?? false,
     })), ArrayType(SheetMemberKindType));
 }
 
@@ -258,9 +377,18 @@ function optionOf<T extends EastType>(v: SubtypeExprOrValue<T> | undefined, type
         : East.value(none, OptionType(type));
 }
 
+/** The wire key of a column's rule cell, when the column declares that rule (#844). */
+function ruleCellKey(meta: SheetColumnMeta, rule: "level" | "actual" | "detail"): ExprType<OptionType<StringType>> {
+    const key = sheetRuleCell(rule, meta.key);
+    return optionOf((meta.ruleCells ?? []).some((c) => c.key === key) ? key : undefined, StringType);
+}
+
 /** Build one column's wire kind value. */
 function buildKind(meta: SheetColumnMeta, bridge: SheetBridge, driver: SheetDriverValue | undefined): ExprType<SheetColumnKindType> {
     const cfg = meta.config;
+    const options = cfg.options !== undefined
+        ? East.value(some(wrapOptions(bridge, meta, cfg.options)), OptionType(SheetOptionsRuleType))
+        : East.value(none, OptionType(SheetOptionsRuleType));
     const kindOf = (tag: string, payload: unknown): ExprType<SheetColumnKindType> =>
         East.value(variant(tag, payload) as unknown as SubtypeExprOrValue<SheetColumnKindType>, SheetColumnKindType);
     switch (meta.kind) {
@@ -269,6 +397,8 @@ function buildKind(meta: SheetColumnMeta, bridge: SheetBridge, driver: SheetDriv
         case "date":    return kindOf("date", {
             base:   optionOf(cfg.base as string | undefined, StringType),
             format: optionOf(cfg.format as SubtypeExprOrValue<StringType> | undefined, StringType),
+            level:  ruleCellKey(meta, "level"),
+            actual: ruleCellKey(meta, "actual"),
         });
         case "quantity": {
             let uom: ExprType<OptionType<DictType<StringType, StringType>>> = East.value(none, OptionType(DictType(StringType, StringType)));
@@ -287,9 +417,9 @@ function buildKind(meta: SheetColumnMeta, bridge: SheetBridge, driver: SheetDriv
                     : East.value(none, OptionType(TickFormatType)),
             });
         }
-        case "lookup":    return kindOf("lookup", { register: meta.register });
+        case "lookup":    return kindOf("lookup", { register: meta.register, options });
         case "reference": return kindOf("reference", { register: meta.register });
-        case "enum":      return kindOf("enum", { register: meta.register });
+        case "enum":      return kindOf("enum", { register: meta.register, options });
         case "set": return kindOf("set", {
             register: meta.register,
             members:  memberKinds(cfg.members),
@@ -320,6 +450,7 @@ function buildKind(meta: SheetColumnMeta, bridge: SheetBridge, driver: SheetDriv
                         ? East.value(variant("exists", null), SheetCheckType)
                         : wrapCheck(bridge, meta, c, i)), ArrayType(SheetCheckType)),
                 store: resolveTag(cfg.store ?? "asTyped", SheetStoreType),
+                options,
             });
         }
         case "stamped": return kindOf("stamped", { owner: optionOf(cfg.owner as SubtypeExprOrValue<StringType> | undefined, StringType) });
@@ -342,33 +473,106 @@ function buildKind(meta: SheetColumnMeta, bridge: SheetBridge, driver: SheetDriv
  *
  * @remarks
  * `id` is required on a positional source. `onUpdate` is refused on the
- * paged arm (there is no collection to rebuild — route `onEdit` events to
- * the dataset you page from). A `Dict` inline is refused: a sorted map would
+ * paged arm; use onApply with a revision-aware source. A `Dict` inline is refused: a sorted map would
  * sit rows in key order, not the planner's.
  *
+ * With `group` (#740) the rows are GROUPS: `columns` are declared over the
+ * line type the group's lines field holds, `onUpdate` rebuilds the groups
+ * with their lines inside. onPatch observes one gesture; onApply confirms
+ * an atomic checked batch. Rows of the line type may stand between the
+ * groups (#846): pass entries `Sheet.Types.Entry(GroupType, "lines")` — a
+ * group, or a LOOSE row, drawn as a plain row numbered in the groups'
+ * sequence — with an `id` that both types carry.
+ *
+ * In a `.tsx` file the `<Sheet>` tag calls this, with `data`, `columns` and
+ * the options as its props — as the example does for a grouped sheet whose
+ * rows are work packages.
+ *
  * @example
- * ```ts
- * import { East, ArrayType, DateTimeType, FloatType, OptionType, StringType, StructType, none } from "@elaraai/east";
- * import { Reactive, Sheet, State, UIComponentType } from "@elaraai/east-ui/internal";
+ * ```tsx
+ * // .tsx file with the `@jsxImportSource @elaraai/east-ui` pragma
+ * import { ArrayType, East, FloatType, OptionType, StringType, StructType, some, variant } from "@elaraai/east";
+ * import { Reactive, Sheet, State, Text, UIComponentType, VStack } from "@elaraai/east-ui";
  *
- * const JobType = StructType({ id: StringType, start: OptionType(DateTimeType), task: StringType, qty: OptionType(FloatType) });
- *
- * const example = East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
- *     const jobs = $.let(State.bind([ArrayType(JobType)], "jobs", [{ id: "j1", start: none, task: "Machining", qty: none }]));
- *     return Sheet.Root(jobs.read(), {
- *         start: Sheet.column.date(JobType, { header: "Start" }),
- *         task:  Sheet.column.text(JobType, { header: "Task" }),
- *         qty:   Sheet.column.quantity(JobType, { header: "Qty" }),
- *     }, { id: "id", onUpdate: jobs.write });
- * })));
+ * const sheet = East.function([], UIComponentType, (_$) => (
+ *     <Reactive>{$ => {
+ *         const JobType = StructType({ task: StringType, qty: OptionType(FloatType), notes: StringType, createdBy: StringType });
+ *         const PackageType = StructType({ id: StringType, name: StringType, owner: StringType, jobs: ArrayType(JobType) });
+ *         const packages = $.let(State.bind([ArrayType(PackageType)], "sheet_grouped_packages", [
+ *             { id: "roughing", name: "P-40 · Roughing", owner: "planner", jobs: [
+ *                 { task: "Machine blanks", qty: some(1200.0), notes: "Four CNC lathes", createdBy: "planner" },
+ *                 { task: "Inspect lots", qty: some(4.0), notes: "Check before finishing", createdBy: "planner" },
+ *             ] },
+ *             { id: "finishing", name: "P-40 · Finishing", owner: "planner", jobs: [
+ *                 { task: "Finish housings", qty: some(1200.0), notes: "After inspection", createdBy: "planner" },
+ *                 { task: "Pack for assembly", qty: some(100.0), notes: "Twelve per carton", createdBy: "planner" },
+ *             ] },
+ *         ]));
+ *         const applied = $.let(packages.read());
+ *         return (
+ *             <VStack gap="3" align="stretch">
+ *                 <Text textStyle="caption" color="fg.muted">Edit a package name or task. Use the gutter + to insert a task, or the stacked-rows + button to create a package at a group boundary. Apply changes saves the batch; Undo and Redo retain each gesture.</Text>
+ *                 <Sheet
+ *                     data={packages}
+ *                     id="id"
+ *                     group={Sheet.group(PackageType, "jobs", { title: "name" })}
+ *                     ready={{ group: East.function([Sheet.Types.DraftGroup(PackageType, "jobs")], Sheet.Types.Readiness, ($, group) => {
+ *                         $.if(group.name.hasTag("value").and(() => group.name.unwrap("value").length().equal(0n)), $ => {
+ *                             $.return(East.value(variant("incomplete", [{ field: "name", message: "Name the work package" }]), Sheet.Types.Readiness));
+ *                         });
+ *                         return East.value(variant("ready", null), Sheet.Types.Readiness);
+ *                     }) }}
+ *                     columns={{
+ *                         task: Sheet.column.text(JobType, { header: "Task", width: "240px" }),
+ *                         qty: Sheet.column.quantity(JobType, { header: "Qty", width: "112px" }),
+ *                         notes: Sheet.column.text(JobType, { header: "Notes", width: "300px" }),
+ *                     }}
+ *                     newRow={East.function([Sheet.Types.NewRow], Sheet.Types.Patch(JobType), () => Sheet.patch(JobType, {
+ *                         notes: "", createdBy: "planner",
+ *                     }))}
+ *                     newGroup={East.function([Sheet.Types.NewGroup], Sheet.Types.Patch(PackageType), () => Sheet.patch(PackageType, {
+ *                         owner: "planner", jobs: [],
+ *                     }))}
+ *                     onUpdate={packages.write}
+ *                     style={{ height: "440px" }}
+ *                 />
+ *                 <Text.MonoLabel>{East.str`SAVED · ${applied.length()} packages · ${applied.map((_$, p) => p.jobs.length()).sum()} tasks`}</Text.MonoLabel>
+ *             </VStack>
+ *         );
+ *     }}</Reactive>
+ * ));
  * ```
  */
+export function createSheet<P extends StructType, F extends SheetLinesField<P>>(
+    data: NoInfer<SubtypeExprOrValue<ArrayType<SheetEntryOf<P, F>>> | SheetBindHandle<SheetEntryOf<P, F>> | PagedSource<ArrayType<SheetEntryOf<P, F>>> | PagedSource<DictType<StringType, SheetEntryOf<P, F>>>>,
+    columns: SheetColumnSpec<SheetLineOf<P, F>>,
+    options: SheetEntriesOptions<P, F>,
+): ExprType<UIComponentType>;
+/** GROUPED rows — an `Array<P>` value or expression of groups. */
+export function createSheet<T extends SubtypeExprOrValue<ArrayType<StructType>>, F extends SheetLinesField<DataRowType<T>>>(
+    data: T,
+    columns: SheetColumnSpec<SheetLineOf<DataRowType<T>, F>>,
+    options: SheetGroupedOptions<DataRowType<T>, F>,
+): ExprType<UIComponentType>;
+/** GROUPED rows over a whole-value bind handle of groups. */
+export function createSheet<P extends StructType, F extends SheetLinesField<P>>(
+    data: SheetBindHandle<P>,
+    columns: SheetColumnSpec<SheetLineOf<P, F>>,
+    options: SheetGroupedOptions<P, F>,
+): ExprType<UIComponentType>;
+/** GROUPED rows over a paged source of groups. */
+export function createSheet<P extends StructType, F extends SheetLinesField<P>>(
+    data: PagedSource<ArrayType<P>> | PagedSource<DictType<StringType, P>>,
+    columns: SheetColumnSpec<SheetLineOf<P, F>>,
+    options: SheetGroupedOptions<P, F>,
+): ExprType<UIComponentType>;
+/** The inline arm — an `Array<R>` value or expression. */
 export function createSheet<T extends SubtypeExprOrValue<ArrayType<StructType>>>(
     data: T,
     columns: SheetColumnSpec<DataRowType<T>>,
     options: SheetOptions<DataRowType<T>>,
 ): ExprType<UIComponentType>;
-/** The whole-value bind handle — `data={jobs}` builds the same IR as `data={jobs.read()}`. */
+/** A whole-value bind handle retains its live reader for atomic onUpdate. */
 export function createSheet<R extends StructType>(
     data: SheetBindHandle<R>,
     columns: SheetColumnSpec<R>,
@@ -383,13 +587,39 @@ export function createSheet<R extends StructType>(
 export function createSheet(
     data: unknown,
     columns: unknown,
-    options?: SheetOptions<StructType>,
+    options?: unknown,
 ): ExprType<UIComponentType> {
-    const opts = options ?? {};
+    const opts = (options ?? {}) as SheetAnyOptions;
     const resolved = resolveRowSource(data, "Sheet");
-    const rowType = resolved.elementType as StructType;
-    if ((rowType as { type: string }).type !== "Struct") {
-        throw new Error(`Sheet: rows must be structs — got ${(rowType as { type: string }).type}`);
+    // The source's rows: structs — or, with LOOSE rows between the groups
+    // (#846), entries `Sheet.Types.Entry(P, "lines")`: a group, or a row of
+    // the line type.
+    const rowType = resolved.elementType;
+    const loose = rowType.type === "Variant";
+    const arms = loose ? (rowType as VariantType).cases as Record<string, EastType> : undefined;
+    if (arms !== undefined && (Object.keys(arms).length !== 2 || arms["group"]?.type !== "Struct" || arms["row"]?.type !== "Struct")) {
+        throw new Error(`Sheet: rows must be structs, or entries of a group or a row — Sheet.Types.Entry(GroupType, "lines") — got a variant of ${Object.keys(arms).join(", ")}`);
+    }
+    if (!loose && rowType.type !== "Struct") {
+        throw new Error(`Sheet: rows must be structs — got ${rowType.type}`);
+    }
+    // Grouped rows (#740): the group is the row; the columns are over its lines.
+    const groupDecl = opts.group;
+    if (arms !== undefined && groupDecl === undefined) {
+        throw new Error("Sheet: entries of groups and loose rows need their group declared — pass `group={Sheet.group(GroupType, \"lines\", …)}` over the entries' group type");
+    }
+    if (arms !== undefined && groupDecl !== undefined && !isTypeEqual(groupDecl.rowType, arms["group"]!)) {
+        throw new Error("Sheet: `group` was built over a different type than the entries' groups — pass the same StructType to `Sheet.Types.Entry(…)` and `Sheet.group(…)`");
+    }
+    if (arms === undefined && groupDecl !== undefined && groupDecl.rowType !== rowType) {
+        throw new Error("Sheet: `group` was built over a different row type than `data` holds — pass the same StructType to `Sheet.group(…)`");
+    }
+    // The group's type: the row, or the entries' group arm as the declaration holds it.
+    const groupType = groupDecl !== undefined ? groupDecl.rowType : rowType as StructType;
+    const shape = groupDecl !== undefined ? sheetLinesOf(groupType, groupDecl.lines) : undefined;
+    const lineType = shape?.lineType ?? groupType;
+    if (arms !== undefined && groupDecl !== undefined && !isTypeEqual(lineType, arms["row"]!)) {
+        throw new Error(`Sheet: an entry's loose row must be of the line type \`${groupDecl.lines}\` holds — build the entries' type with Sheet.Types.Entry(GroupType, "${groupDecl.lines}")`);
     }
     const collectionTag = (resolved.collectionType as { type: string }).type;
     if (resolved.kind === "inline" && collectionTag !== "Array") {
@@ -399,7 +629,7 @@ export function createSheet(
         );
     }
     const keyed = resolved.kind === "paged" && collectionTag === "Dict";
-    const fields = rowType.fields as Record<string, EastType>;
+    const fields = groupType.fields as Record<string, EastType>;
     const idField = opts.id as string | undefined;
     if (!keyed && idField === undefined) {
         throw new Error("Sheet: `id` is required — the String field that identifies a row (a keyed paged source needs none: its key is the id)");
@@ -409,19 +639,31 @@ export function createSheet(
         if (t === undefined || (t as { type: string }).type !== "String") {
             throw new Error(`Sheet: \`id\` must name a String field of the row — "${idField}" is ${t === undefined ? "not a field" : (t as { type: string }).type}`);
         }
+        // A loose row is an entry too (#846): its id field is its identity.
+        const own = loose ? (lineType.fields as Record<string, EastType>)[idField] : undefined;
+        if (loose && (own === undefined || own.type !== "String")) {
+            throw new Error(`Sheet: \`id\` must name a String field of both the group type and the line type — a loose row is an entry, identified like a group; "${idField}" is ${own === undefined ? "not a field" : own.type} of the line type`);
+        }
     }
 
-    // Pass 1 — every column against the row type.
+    // Pass 1 — every column against the row type (a grouped sheet: the line type).
     const columnEntries = Object.entries(columns as Record<string, SheetColumn<StructType, EastType> | undefined>)
         .filter((e): e is [string, SheetColumn<StructType, EastType>] => e[1] !== undefined);
     if (columnEntries.length === 0) throw new Error("Sheet: declare at least one column");
-    const metas = columnEntries.map(([key, col]) => describeColumn(key, col, rowType));
+    for (const [key, col] of columnEntries) {
+        if (col.rowType === undefined || col.rowType === lineType) continue;
+        throw new Error(groupDecl !== undefined && col.rowType === groupType
+            ? `Sheet: column "${key}" was built over the group's row type — columns are declared over the line type \`${groupDecl.lines}\` holds (Sheet.column.${col.kind}(LineType, …))`
+            : `Sheet: column "${key}" was built over a different row type than the sheet's — pass the same StructType to Sheet.column.${col.kind}(RowType, …) and \`data\``);
+    }
+    const metas = columnEntries.map(([key, col]) => describeColumn(key, col, lineType));
     const metaByKey = new Map(metas.map((m) => [m.key, m]));
     for (const m of metas) {
         if (m.otherField !== undefined && metaByKey.has(m.otherField)) {
             throw new Error(`Sheet: link column "${m.key}" names "${m.otherField}" as its other half, which is also a column — a half's field is written through the link column, never on its own`);
         }
-        if (m.key === idField) throw new Error(`Sheet: the id field "${idField}" cannot also be a column`);
+        // A flat row's id is its identity — and so is a loose row's (#846).
+        if ((groupDecl === undefined || loose) && m.key === idField) throw new Error(`Sheet: the id field "${idField}" cannot also be a column`);
     }
 
     // The driver — a lookup column on a String field.
@@ -451,12 +693,40 @@ export function createSheet(
         }
     }
 
+    // The band's cells (#740) — the title first, then each cell under its line column.
+    let cellMetas: SheetColumnMeta[] | undefined;
+    if (groupDecl !== undefined) {
+        const cfg = groupDecl.config;
+        const titleType = fields[cfg.title];
+        if (titleType === undefined || (titleType as { type: string }).type !== "String") {
+            throw new Error(`Sheet: \`group.title\` must name a String field of the row — "${cfg.title}" is ${titleType === undefined ? "not a field" : (titleType as { type: string }).type}`);
+        }
+        cellMetas = [describeGroupCell(SHEET_TITLE_CELL, { kind: "text", field: cfg.title, config: {} }, groupType)];
+        for (const [key, cell] of Object.entries(cfg.cells ?? {})) {
+            if (cell === undefined) continue;
+            const under = metaByKey.get(key);
+            if (under === undefined) {
+                throw new Error(`Sheet: band cell "${key}" is not a declared column — \`group.cells\` is keyed by the line columns the cells sit under (${[...metaByKey.keys()].join(", ")})`);
+            }
+            const meta = describeGroupCell(key, cell, groupType);
+            if (meta.payloadType !== under.payloadType) {
+                throw new Error(`Sheet: band cell "${key}" is a ${meta.kind} cell (${(meta.payloadType as { type: string }).type}) under a ${under.kind} column (${(under.payloadType as { type: string }).type}) — a band cell's payload must match the column it sits under`);
+            }
+            if (meta.register !== undefined && registers[meta.register] === undefined) {
+                throw new Error(`Sheet: band cell "${key}" names register "${meta.register}", which \`registers\` does not declare (${Object.keys(registers).join(", ") || "none declared"})`);
+            }
+            cellMetas.push(meta);
+        }
+    }
+
     // The bridge.
     const bridge = buildBridge({
         rowType, idField, metas, registers, driver,
         source: resolved.kind === "inline"
             ? { kind: "inline", rows: resolved.rows as ExprType<ArrayType<StructType>> }
             : { kind: "paged", source: resolved.source, keyed },
+        ...(groupDecl !== undefined && cellMetas !== undefined ? { group: { linesField: groupDecl.lines, cellMetas } } : {}),
+        ...(opts.subRows !== undefined ? { subRows: opts.subRows } : {}),
     });
 
     // Pass 2 — the wire columns.
@@ -470,23 +740,56 @@ export function createSheet(
         payloadType: toEastTypeValue(m.payloadType),
         editable:    m.editable,
         fill:        (m.config.fill ?? []).map((f, i) => wrapProvider(bridge, m, f, i)),
+        detailCell:  ruleCellKey(m, "detail"),
     }, SheetColumnType));
 
-    // The rows — the same projection on both arms.
+    // The rows — the same projection on both arms. A grouped sheet's row is
+    // the group: the band's cells, its lines and the band; a loose row between
+    // the groups (#846) is a row of the line type: its cells, no lines, no band.
     const ownedAccessor = opts.owned;
     const ownedFn = East.function([rowType], BooleanType, (_$, r) =>
-        ownedAccessor !== undefined ? ownedAccessor(r) : East.value(false, BooleanType));
+        ownedAccessor !== undefined ? ownedAccessor(r as ExprType<StructType>) : East.value(false, BooleanType));
+    const groupBridge = bridge.group;
+    const subAccessor = groupDecl?.config.sub;
+    const foldedAccessor = groupDecl?.config.folded;
+    const subFn = East.function([groupType], StringType, (_$, r) =>
+        subAccessor !== undefined ? subAccessor(r) : East.value("", StringType));
+    const foldedFn = East.function([groupType], BooleanType, (_$, r) =>
+        foldedAccessor !== undefined ? foldedAccessor(r) : East.value(false, BooleanType));
     const rowOf = East.function([rowType, StringType], SheetRowType, ($, r, id) => {
-        const project = $.const(bridge.projectRow);
         const ownedOf = $.const(ownedFn);
         const owned = $.let(ownedOf(r), BooleanType);
-        return $.let({ id, owned, cells: project(r) }, SheetRowType);
+        if (groupBridge === undefined) {
+            const project = $.const(bridge.projectRow);
+            const subRowsOf = $.const(bridge.projectSubRows);
+            return $.let({ id, owned, cells: project(r as ExprType<StructType>), lines: [], band: none, subRows: subRowsOf(r as ExprType<StructType>) }, SheetRowType);
+        }
+        const cellsOf = $.const(groupBridge.projectGroupCells);
+        const linesOf = $.const(groupBridge.projectLines);
+        const subOf = $.const(subFn);
+        const foldedOf = $.const(foldedFn);
+        if (!loose) {
+            const g = r as ExprType<StructType>;
+            return $.let({ id, owned, cells: cellsOf(g), lines: linesOf(g), band: some({ sub: subOf(g), folded: foldedOf(g) }), subRows: [] }, SheetRowType);
+        }
+        const project = $.const(bridge.projectRow);
+        const subRowsOf = $.const(bridge.projectSubRows);
+        return (r as unknown as ExprType<VariantType<{ group: StructType; row: StructType }>>).match({
+            group: ($2, g) => $2.let({ id, owned, cells: cellsOf(g), lines: linesOf(g), band: some({ sub: subOf(g), folded: foldedOf(g) }), subRows: [] }, SheetRowType),
+            row: ($2, l) => $2.let({ id, owned, cells: project(l), lines: [], band: none, subRows: subRowsOf(l) }, SheetRowType),
+        });
     });
     const makeKeyed = (collection: ExprType<EastType>) =>
-        (collection as unknown as ExprType<DictType<StringType, StructType>>).toArray((_$, v, k) => rowOf(v, k));
+        (collection as unknown as ExprType<DictType<StringType, EastType>>).toArray((_$, v, k) => rowOf(v, k));
+    // A positional row's id is its id field — an entry's, through whichever arm it holds (#846).
+    const idAt = (r: ExprType<EastType>): ExprType<StringType> => (loose
+        ? (r as unknown as ExprType<VariantType<{ group: StructType; row: StructType }>>).match({
+            group: (_$, g) => (g as unknown as Record<string, ExprType<StringType>>)[idField!] as ExprType<StringType>,
+            row: (_$, l) => (l as unknown as Record<string, ExprType<StringType>>)[idField!] as ExprType<StringType>,
+        })
+        : (r as unknown as Record<string, ExprType<StringType>>)[idField!] as ExprType<StringType>);
     const makePositional = (collection: ExprType<EastType>) =>
-        (collection as unknown as ExprType<ArrayType<StructType>>).map((_$, r) =>
-            rowOf(r, (r as unknown as Record<string, ExprType<StringType>>)[idField!] as ExprType<StringType>));
+        (collection as unknown as ExprType<ArrayType<EastType>>).map((_$, r) => rowOf(r, idAt(r)));
     const rowsValue = buildRowSource(resolved, SheetRowsCollectionType, keyed ? makeKeyed : makePositional);
 
     // The copilot's row proposals.
@@ -521,15 +824,25 @@ export function createSheet(
         throw new Error("Sheet: `affordances` needs `slice` — the rail mounts them on the bound slice");
     }
 
-    // Edits — `onUpdate` compiles to the wire channel; a typed `onEdit` is bridged; both compose.
-    if (opts.onUpdate !== undefined && resolved.kind === "paged") {
-        throw new Error("Sheet: `onUpdate` cannot be combined with a paged source — the whole-value rebuild needs the whole collection; use `onEdit` and route the events to the dataset you page from");
-    }
-    const observe = opts.onEdit !== undefined ? wrapOnEdit(bridge, opts.onEdit) : undefined;
-    const write = opts.onUpdate !== undefined && resolved.kind === "inline"
-        ? compileOnUpdate(bridge, resolved.rows as ExprType<ArrayType<StructType>>, idField!, opts.onUpdate)
-        : undefined;
-    const onEdit = composeEditHandlers(observe, write);
+    const editing = buildSheetEditing(resolved, bridge, idField, opts, driver?.column);
+    // The group declaration on the wire (#740).
+    const groupValue = groupBridge !== undefined && groupDecl !== undefined && cellMetas !== undefined
+        ? East.value(some({
+            lines: groupDecl.lines,
+            cells: East.value(cellMetas.map((m) => East.value({
+                key:         m.key,
+                field:       m.field,
+                kind:        buildKind(m, bridge, driver),
+                dataType:    toEastTypeValue(m.fieldType),
+                payloadType: toEastTypeValue(m.payloadType),
+                editable:    m.editable,
+            }, SheetGroupCellType)), ArrayType(SheetGroupCellType)),
+            // The host's word; with none, the renderer says its own (#861).
+            noun: optionOf(groupDecl.config.noun, SheetNounType),
+            // Loose rows between the groups (#846): a row without a band.
+            loose,
+        }), OptionType(SheetGroupType))
+        : East.value(none, OptionType(SheetGroupType));
 
     const footer = East.value((opts.footer ?? []).map((f) => ({
         text: f.text,
@@ -545,6 +858,7 @@ export function createSheet(
 
     return East.value(variant("Sheet", {
         rows:          rowsValue,
+        editing,
         columns:       East.value(columnValues, ArrayType(SheetColumnType)),
         registers:     East.value(new Map(Object.entries(registers).map(([name, members]) => [name, East.value({ members }, SheetRegisterType)])), DictType(StringType, SheetRegisterType)),
         driver:        driver !== undefined
@@ -557,12 +871,12 @@ export function createSheet(
         onViewsChange: opts.onViewsChange !== undefined
             ? some(East.value(opts.onViewsChange, FunctionType([ArrayType(SheetViewType)], NullType)))
             : none,
-        onEdit:        onEdit !== undefined ? some(onEdit) : East.value(none, OptionType(FunctionType([SheetEditType], NullType))),
         onSelect:      opts.onSelect !== undefined
             ? some(East.value(opts.onSelect, FunctionType([SheetSelectionType], NullType)))
             : none,
         selection:     opts.selection !== undefined ? East.value(opts.selection, OptionType(SheetSelectionType)) : East.value(none, OptionType(SheetSelectionType)),
         newRowId:      opts.newRowId !== undefined ? some(East.value(opts.newRowId, FunctionType([], StringType))) : none,
+        group:         groupValue,
         readOnly:      opts.readOnly !== undefined ? some(opts.readOnly) : none,
         blanks:        opts.blanks !== undefined ? some(typeof opts.blanks === "number" ? BigInt(opts.blanks) : opts.blanks) : none,
         density:       opts.density !== undefined ? some(resolveTag(opts.density, DensityType)) : none,

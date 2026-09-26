@@ -1,0 +1,577 @@
+/**
+ * Copyright (c) 2025 Elara AI Pty Ltd
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
+ *
+ * @vitest-environment jsdom
+ *
+ * Plan interaction DOM tests — selection and the esc ladder, the hover
+ * cursor as DOM chrome (#609), element clicks and the keyboard rungs (#569),
+ * the #615 interaction fixes, and the root's element resolvers (popover /
+ * hover).
+ *
+ * (Split out of `plan.dom.test.tsx`, #815: every test moved verbatim.)
+ */
+
+import { describe, test, expect, afterEach } from "vitest";
+import { Profiler } from "react";
+import { render, screen, cleanup, fireEvent, waitFor, act } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { ChakraProvider } from "@chakra-ui/react";
+import { variant, some, none } from "@elaraai/east";
+import { system } from "../../theme/index.js";
+import { buildSliceHandle } from "../../platform/slice/index.js";
+import { initializeStore } from "../../platform/state-runtime.js";
+import { UIStore } from "../../platform/state-store.js";
+import { EastChakraPlan, type PlanRootValue } from "./index.js";
+import type { PlanRowId, PlanWireRow } from "./model.js";
+import type { PlanInstantValue } from "./instant.js";
+import { blocksSource, oneBlock, rowId, rowSel } from "./plan.test-utils.js";
+
+// A canvas persists its toggles under its storageKey (#813), and several tests
+// share one — nothing may carry from one test to the next.
+afterEach(() => {
+    cleanup();
+    localStorage.clear();
+});
+
+// jsdom lacks ResizeObserver — the floating-ui positioner behind the
+// resolver popovers needs one; a no-op stub keeps positioning inert (the
+// slice / schematic dom-test convention).
+class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
+(globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverStub;
+
+const W27 = new Date("2026-06-29T00:00:00Z");           // Monday, ISO week 27
+const W39 = new Date("2026-09-21T00:00:00Z");           // exclusive max → 12 weeks
+const NOW = new Date("2026-08-12T00:00:00Z");
+/** Instants on each arm — REAL East variant values, as the decoder yields them (#631). */
+const t = (d: Date): PlanInstantValue => variant("time", d) as PlanInstantValue;
+
+function run(key: string, start: Date, end: Date, state: unknown, opts?: { quantity?: number; unit?: string; text?: string; stuck?: boolean }) {
+    return {
+        key, start: t(start), end: t(end), label: key.toUpperCase(),
+        quantity: opts?.quantity !== undefined
+            ? some({ value: opts.quantity, unit: opts.unit !== undefined ? some(opts.unit) : none, format: none, text: opts.text !== undefined ? some(opts.text) : none })
+            : none,
+        state,
+        status: opts?.stuck === true ? some(variant("warning", null)) : none,
+        moved: none, icon: none,
+    };
+}
+
+function gutter(label: string, opts?: { sub?: string; value?: string; meta?: string; id?: boolean }) {
+    return {
+        label,
+        id: opts?.id === true,
+        sub: opts?.sub !== undefined ? some(opts.sub) : none,
+        value: opts?.value !== undefined ? some(opts.value) : none,
+        meta: opts?.meta !== undefined ? some(opts.meta) : none,
+        stacked: false,
+        swatches: [],
+    };
+}
+
+/** One WIRE row, as the source serves it — named by its test key (#822). */
+function planRow(key: string, kind: unknown, opts?: { parent?: string; gutter?: unknown; expand?: unknown; collapsed?: boolean }): PlanWireRow {
+    return {
+        id: rowId(key),
+        parent: opts?.parent !== undefined ? some(rowId(opts.parent)) : none,
+        gutter: opts?.gutter ?? gutter(key),
+        kind,
+        collapsed: opts?.collapsed === true,
+        pinned: false, height: none, status: none, approval: none,
+        expand: opts?.expand !== undefined ? some(opts.expand) : none,
+    } as unknown as PlanWireRow;
+}
+
+function spanKind(runs: unknown[], opts?: { rollup?: string }) {
+    return variant("span", {
+        runs, decisions: [], ports: [],
+        rollup: opts?.rollup !== undefined ? some(variant(opts.rollup, null)) : none,
+    });
+}
+
+function planRoot(rows: PlanWireRow[], opts?: { footer?: unknown[]; now?: Date | undefined; slice?: unknown; resolutions?: unknown[]; links?: unknown[]; popover?: unknown; hover?: unknown; expandRender?: unknown; source?: unknown; pick?: unknown; axis?: unknown; style?: { height?: string; maxHeight?: string }; onElementClick?: unknown; ui?: unknown; onGrainChange?: unknown }): PlanRootValue {
+    return {
+        rows: opts?.source !== undefined ? variant("paged", blocksSource(opts.source)) : variant("inline", oneBlock(rows)),
+        links: opts?.links ?? [],
+        // The TIME arm by default (#631); the typed-axis tests pass their own.
+        axis: opts?.axis ?? variant("time", {
+            window: some({ min: W27, max: W39 }),
+            resolution: variant("week", null),
+            resolutions: opts?.resolutions ?? [],
+            now: opts?.now !== undefined ? some(opts.now) : (opts && "now" in opts ? none : some(NOW)),
+            format: none,
+        }),
+        grain: none,
+       
+        popover: opts?.popover !== undefined ? some(opts.popover) : none,
+        hover: opts?.hover !== undefined ? some(opts.hover) : none,
+        expandRender: opts?.expandRender !== undefined ? some(opts.expandRender) : none,
+        review: none,
+        pick: opts?.pick !== undefined ? some(opts.pick) : none,
+        slice: opts?.slice ?? none,
+        footer: opts?.footer ?? [],
+        id: none, sources: [], editing: none, canDrop: none,
+        onSelect: none,
+        onElementClick: opts?.onElementClick !== undefined ? some(opts.onElementClick) : none,
+        onGroupToggle: none,
+        onGrainChange: opts?.onGrainChange !== undefined ? some(opts.onGrainChange) : none,
+        ui: opts?.ui !== undefined ? some(opts.ui) : none,
+        style: opts?.style !== undefined
+            ? some({
+                height: opts.style.height !== undefined ? some(opts.style.height) : none,
+                maxHeight: opts.style.maxHeight !== undefined ? some(opts.style.maxHeight) : none,
+                density: none,
+                gutterWidth: none,
+            })
+            : none,
+    } as unknown as PlanRootValue;
+}
+
+function renderPlan(value: PlanRootValue, key = "plan") {
+    return render(
+        <ChakraProvider value={system}>
+            <EastChakraPlan value={value} storageKey={key} />
+        </ChakraProvider>,
+    );
+}
+
+describe("Plan selection + esc ladder", () => {
+    test("click selects (data-selected); re-clicking holds; esc deselects", () => {
+        const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))]));
+        const row = () => container.querySelector(rowSel("m1"))!;
+        fireEvent.click(row());
+        expect(row().hasAttribute("data-selected")).toBe(true);
+        fireEvent.click(row());
+        expect(row().hasAttribute("data-selected")).toBe(true);
+        const surface = container.querySelector('[tabindex="0"]')!;
+        fireEvent.keyDown(surface, { key: "Escape" });
+        expect(row().hasAttribute("data-selected")).toBe(false);
+    });
+});
+
+describe("Plan hover cursor is DOM chrome (#609)", () => {
+    const stubRect = (el: HTMLElement) => Object.defineProperty(el, "getBoundingClientRect", {
+        value: () => ({ left: 0, top: 0, right: 1000, bottom: 32, width: 1000, height: 32, x: 0, y: 0, toJSON: () => ({}) }),
+    });
+
+    test("the hairline + ruler chip track the pointer through DIRECT DOM writes, across rows", () => {
+        const { container } = renderPlan(planRoot([
+            planRow("m1", spanKind([])),
+            planRow("m2", spanKind([])),
+            planRow("m3", spanKind([])),
+        ]), "plan-609-cursor");
+        const body = container.querySelector("[data-plan-body]") as HTMLElement;
+        // One hairline element per data row, hidden until a plot is hovered —
+        // all of them position from the body's ONE `--plan-cursor-x` variable.
+        expect(container.querySelectorAll("[data-plan-cursorline]")).toHaveLength(3);
+        expect(body.hasAttribute("data-plan-cursor")).toBe(false);
+
+        const plot = container.querySelector(rowSel("m1"))!.children[1] as HTMLElement;
+        stubRect(plot);
+        fireEvent.pointerMove(plot, { clientX: 500 });
+        expect(body.hasAttribute("data-plan-cursor")).toBe(true);
+        expect(body.style.getPropertyValue("--plan-cursor-x")).toBe("0.5");
+        // The ruler chip names the hovered bucket: frac 0.5 of W27..W39 ⇒ W33.
+        const chip = container.querySelector("[data-plan-cursorchip]") as HTMLElement;
+        expect(chip.textContent).toBe("W33");
+        expect(chip.style.display).not.toBe("none");
+
+        // Crossing to ANOTHER row keeps tracking — same variable, same chip.
+        const plot2 = container.querySelector(rowSel("m3"))!.children[1] as HTMLElement;
+        stubRect(plot2);
+        fireEvent.pointerMove(plot2, { clientX: 250 });
+        expect(body.style.getPropertyValue("--plan-cursor-x")).toBe("0.25");
+        expect(chip.textContent).toBe("W30");
+
+        fireEvent.pointerLeave(plot2);
+        expect(body.hasAttribute("data-plan-cursor")).toBe(false);
+        expect(chip.style.display).toBe("none");
+    });
+
+    test("a pointermove COMMITS NOTHING — profiler-verified O(0) renders per event", () => {
+        // The issue's measurement: one full-canvas commit per pointermove,
+        // linear in mounted rows (91.5ms per move at 200 rows). The cursor is
+        // DOM chrome now, so the property under test is stronger than the
+        // O(1)-rows criterion: ZERO React commits per pointer event.
+        const commits: string[] = [];
+        const rows = Array.from({ length: 30 }, (_u, i) => planRow(`r${i}`, spanKind([])));
+        const { container } = render(
+            <ChakraProvider value={system}>
+                <Profiler id="plan-609" onRender={(_id, phase) => { commits.push(phase); }}>
+                    <EastChakraPlan value={planRoot(rows)} storageKey="plan-609-profiler" />
+                </Profiler>
+            </ChakraProvider>,
+        );
+        const plot = container.querySelector(rowSel("r0"))!.children[1] as HTMLElement;
+        stubRect(plot);
+        const before = commits.length;
+        for (let x = 100; x <= 900; x += 100) fireEvent.pointerMove(plot, { clientX: x });
+        expect(commits.length).toBe(before);
+        // ... and the chrome still tracked: the writes happened, renders did not.
+        const body = container.querySelector("[data-plan-body]") as HTMLElement;
+        expect(body.style.getPropertyValue("--plan-cursor-x")).toBe("0.9");
+    });
+});
+
+function bucketEvent(key: string, at: Date, state: unknown, opts?: { lane?: string; label?: string; stretch?: string; tone?: string }) {
+    return {
+        key, at: t(at),
+        lane: opts?.lane !== undefined ? some(opts.lane) : none,
+        label: opts?.label !== undefined ? some(opts.label) : none,
+        icon: none, state,
+        tone: opts?.tone !== undefined ? some(variant(opts.tone, null)) : none,
+        color: none, colorPalette: none,
+        stretch: opts?.stretch !== undefined ? some(variant(opts.stretch, null)) : none,
+        content: none, animation: none,
+    };
+}
+
+describe("Plan element clicks (#569, #824)", () => {
+    /** Click refs with each row id named by its path — the row is the row's
+     *  typed id (#822); the ref's tag says which element (#824). */
+    const named = (refs: readonly unknown[]) => refs.map((r) => {
+        const { type, value } = r as { type: string; value: { row: PlanRowId } };
+        const { row, ...rest } = value;
+        return { type, row: row.value.path.join("/"), ...rest };
+    });
+
+    test("every element kind reports its ref to the ONE onElementClick — and still selects", async () => {
+        const seen: unknown[] = [];
+        const at = new Date("2026-06-29Z");
+        const { container } = renderPlan(planRoot([
+            planRow("s", spanKind([run("r1", W27, new Date("2026-07-13Z"), variant("actual", null))])),
+            planRow("b", variant("buckets", {
+                lanes: [], events: [bucketEvent("e1", at, variant("confirmed", null))], markers: [],
+            })),
+            planRow("e", variant("events", {
+                marks: [{ key: "k1", at: t(at), kind: variant("milestone", null), icon: none, label: none }],
+            })),
+            planRow("c", variant("cards", {
+                chips: [{ key: "c1", from: t(W27), to: t(new Date("2026-07-13Z")), label: "D. OKAFOR",
+                    state: variant("confirmed", null), icon: none }],
+            })),
+            planRow("h", variant("heat", {
+                cells: variant("heat", {
+                    cells: [{ at: t(at), value: some(80), label: some("80") }],
+                    scale: { min: some(0), max: some(100), warnAt: none }, fold: variant("mean", null), format: none,
+                }),
+                aggregate: none, scale: none,
+            })),
+        ], {
+            onElementClick: (ref: unknown) => { seen.push(ref); },
+        }), "plan-clicks-569");
+
+        fireEvent.click(container.querySelector('[data-run="r1"]')!);
+        fireEvent.click(container.querySelector('[data-event="e1"]')!);
+        fireEvent.click(container.querySelector('[data-mark="k1"]')!);
+        fireEvent.click(container.querySelector('[data-chip="c1"]')!);
+        fireEvent.click(screen.getByText("80"));
+        await waitFor(() => expect(seen.length).toBe(5));
+
+        // One callback, one variant: the ref's own tag names the element kind.
+        expect(named(seen)).toEqual([
+            { type: "run", row: "s", run: "r1" },
+            { type: "event", row: "b", event: "e1" },
+            { type: "mark", row: "e", mark: "k1" },
+            { type: "chip", row: "c", chip: "c1" },
+            { type: "cell", row: "h", at: t(at) },
+        ]);
+        // The canvas behaviour is unchanged: the click also selected the row.
+        expect(container.querySelector(rowSel("h"))!.hasAttribute("data-selected")).toBe(true);
+    });
+});
+
+describe("Plan keyboard rungs (#569)", () => {
+    const sliceFixture = (key: string) => {
+        initializeStore(new UIStore());
+        const cfg = {
+            fields: new Map<string, unknown>([
+                ["at", variant("datetime", { label: "At", accessor: (r: { at: Date }) => r.at, format: none })],
+            ]),
+            rangeFieldId: some("at"), searchFieldIds: [], breakdownFieldIds: [],
+        };
+        const initial = {
+            range: some(variant("datetime", { from: W27, to: W39 })),
+            compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
+            breakdown: none, search: none, visible: none, selectedIndex: none,
+            resolution: some(variant("week", null)),
+        };
+        return buildSliceHandle(key, cfg as never, initial as never, [{ at: W27 }] as never, none) as never as {
+            read(): { range: { value: { value: { from: Date; to: Date } } } };
+        };
+    };
+
+    test("[ and ] PAN the window one period through the slice; n recenters on now — asserted on the WINDOW, not on emitted effects", () => {
+        const handle = sliceFixture("plan.kbd.pan");
+        const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], {
+            slice: some({ slice: handle, affordances: [] }),
+        }), "plan-kbd-pan");
+        const surface = container.querySelector('[tabindex="0"]')!;
+        const range = () => handle.read().range.value.value;
+
+        fireEvent.keyDown(surface, { key: "[" });
+        expect(range().from.toISOString()).toBe("2026-06-22T00:00:00.000Z");
+        expect(range().to.toISOString()).toBe("2026-09-14T00:00:00.000Z");
+        fireEvent.keyDown(surface, { key: "]" });
+        expect(range().from.toISOString()).toBe("2026-06-29T00:00:00.000Z");
+
+        // n re-derives the window on period edges with the same column count,
+        // now (Aug 12 → its Monday, W33) a third of the way in.
+        fireEvent.keyDown(surface, { key: "n" });
+        expect(range().from.toISOString()).toBe("2026-07-13T00:00:00.000Z");
+        expect(range().to.toISOString()).toBe("2026-10-05T00:00:00.000Z");
+    });
+
+    test("without a slice the pan rungs idle — the declared window is not writable", () => {
+        const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))]), "plan-kbd-unbound");
+        fireEvent.keyDown(container.querySelector('[tabindex="0"]')!, { key: "[" });
+        expect(screen.getByText("W27")).toBeTruthy();
+        expect(screen.queryByText("W26")).toBeNull();
+    });
+
+    test("g cycles the grain — the reducer arm is finally reachable", () => {
+        const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))]), "plan-kbd-grain");
+        expect(screen.getAllByText("RESOURCE").length).toBeGreaterThan(0);
+        fireEvent.keyDown(container.querySelector('[tabindex="0"]')!, { key: "g" });
+        expect(screen.getAllByText("GROUP").length).toBeGreaterThan(0);
+        fireEvent.keyDown(container.querySelector('[tabindex="0"]')!, { key: "g" });
+        expect(screen.getAllByText("RESOURCE").length).toBeGreaterThan(0);
+    });
+});
+
+describe("The toolbar's grain segment (#632)", () => {
+    const group = () => variant("group", { summary: variant("none", null) });
+    /** Two root groups, a row in each. */
+    const grouped = () => [
+        planRow("line1", group(), { gutter: gutter("Line 1") }),
+        planRow("m1", spanKind([]), { parent: "line1" }),
+        planRow("line2", group(), { gutter: gutter("Line 2") }),
+        planRow("m2", spanKind([]), { parent: "line2" }),
+    ];
+    const segment = (container: HTMLElement) => container.querySelector<HTMLElement>("[data-plan-seg='grain']");
+    const radio = (container: HTMLElement, name: string) =>
+        [...segment(container)!.querySelectorAll<HTMLElement>("[role='radio']")].find((r) => r.textContent === name)!;
+    /** The ruler's gutter caption — the active grain's name. */
+    const caption = (container: HTMLElement) => container.querySelector("[data-slot='ruler']")!.firstElementChild!.textContent;
+    const announced = (container: HTMLElement) => container.querySelector("[data-plan-announce]")!.textContent;
+
+    test("a canvas with a root group mounts it, slice or no slice; without one there is nothing to fold, and no segment", () => {
+        const { container } = renderPlan(planRoot(grouped()), "plan-632-mount");
+        // No slice, no search, no library: the segment alone mounts the bar.
+        expect(container.querySelector("[data-slot='toolbar']")).not.toBeNull();
+        const seg = segment(container)!;
+        expect(seg.getAttribute("role")).toBe("radiogroup");
+        expect(seg.getAttribute("aria-label")).toBe("Grain");
+        expect([...seg.querySelectorAll("[role='radio']")].map((r) => [r.textContent, r.getAttribute("aria-checked")]))
+            .toEqual([["GROUP", "false"], ["RESOURCE", "true"]]);
+
+        // Ungrouped: neither the segment nor a toolbar for it.
+        const flat = renderPlan(planRoot([planRow("f1", spanKind([])), planRow("f2", spanKind([]))]), "plan-632-flat");
+        expect(segment(flat.container)).toBeNull();
+        expect(flat.container.querySelector("[data-slot='toolbar']")).toBeNull();
+        // The grain folds ROOT groups: a group under another row gives it
+        // nothing to fold.
+        const nested = renderPlan(planRoot([
+            planRow("p", spanKind([])),
+            planRow("g", group(), { parent: "p" }),
+            planRow("n1", spanKind([]), { parent: "g" }),
+        ]), "plan-632-nested");
+        expect(segment(nested.container)).toBeNull();
+    });
+
+    test("GROUP folds every root group to its strip and RESOURCE brings the rows back — the swap g makes; onGrainChange reports it, the ruler caption follows", async () => {
+        const seen: unknown[] = [];
+        const { container } = renderPlan(planRoot(grouped(), { onGrainChange: (g: unknown) => { seen.push(g); } }), "plan-632-swap");
+        expect(caption(container)).toBe("RESOURCE");
+
+        fireEvent.click(radio(container, "GROUP"));
+        expect(container.querySelector(rowSel("m1"))).toBeNull();
+        expect(container.querySelector(rowSel("m2"))).toBeNull();
+        expect(container.querySelector(rowSel("line1", "data-plan-group"))!.getAttribute("aria-expanded")).toBe("false");
+        expect(container.querySelector(rowSel("line2", "data-plan-group"))!.getAttribute("aria-expanded")).toBe("false");
+        expect(caption(container)).toBe("GROUP");
+        expect(radio(container, "GROUP").getAttribute("aria-checked")).toBe("true");
+        await waitFor(() => expect(seen).toEqual([variant("group", null)]));
+
+        fireEvent.click(radio(container, "RESOURCE"));
+        expect(container.querySelector(rowSel("m1"))).not.toBeNull();
+        expect(container.querySelector(rowSel("m2"))).not.toBeNull();
+        expect(caption(container)).toBe("RESOURCE");
+        await waitFor(() => expect(seen).toEqual([variant("group", null), variant("resource", null)]));
+
+        // One control, two ways in: the segment follows the `g` key.
+        fireEvent.keyDown(container.querySelector("[data-plan-body]")!, { key: "g" });
+        expect(radio(container, "GROUP").getAttribute("aria-checked")).toBe("true");
+        expect(container.querySelector(rowSel("m1"))).toBeNull();
+    });
+
+    test("the segment is ONE tab stop; ← / → and Home / End move and pick, and the live region says so", () => {
+        const { container } = renderPlan(planRoot(grouped()), "plan-632-keys");
+        const groupRadio = radio(container, "GROUP");
+        const resourceRadio = radio(container, "RESOURCE");
+        // The tab stop is the checked segment.
+        expect(resourceRadio.tabIndex).toBe(0);
+        expect(groupRadio.tabIndex).toBe(-1);
+
+        act(() => resourceRadio.focus());
+        fireEvent.keyDown(resourceRadio, { key: "ArrowLeft" });
+        expect(document.activeElement).toBe(groupRadio);
+        expect(groupRadio.getAttribute("aria-checked")).toBe("true");
+        expect(groupRadio.tabIndex).toBe(0);
+        expect(resourceRadio.tabIndex).toBe(-1);
+        expect(container.querySelector(rowSel("m1"))).toBeNull();
+        expect(announced(container)).toBe("Grain: group");
+
+        // ← wraps from the first to the last; Home and End go to the ends.
+        fireEvent.keyDown(groupRadio, { key: "ArrowLeft" });
+        expect(document.activeElement).toBe(resourceRadio);
+        expect(resourceRadio.getAttribute("aria-checked")).toBe("true");
+        expect(announced(container)).toBe("Grain: resource");
+        fireEvent.keyDown(resourceRadio, { key: "Home" });
+        expect(document.activeElement).toBe(groupRadio);
+        expect(groupRadio.getAttribute("aria-checked")).toBe("true");
+        fireEvent.keyDown(groupRadio, { key: "End" });
+        expect(document.activeElement).toBe(resourceRadio);
+        expect(container.querySelector(rowSel("m1"))).not.toBeNull();
+    });
+
+    test("the resolution segment is the same radio group — → re-buckets through the slice", async () => {
+        initializeStore(new UIStore());
+        const cfg = {
+            fields: new Map<string, unknown>([
+                ["at", variant("datetime", { label: "At", accessor: (r: { at: Date }) => r.at, format: none })],
+            ]),
+            rangeFieldId: some("at"), searchFieldIds: [], breakdownFieldIds: [],
+        };
+        const initial = {
+            range: some(variant("datetime", { from: W27, to: W39 })),
+            compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
+            breakdown: none, search: none, visible: none, selectedIndex: none,
+            resolution: some(variant("week", null)),
+        };
+        const handle = buildSliceHandle("plan.632.resolution", cfg as never, initial as never, [{ at: W27 }] as never, none) as never as {
+            read(): { resolution: { type: string; value: { type: string } } };
+        };
+        const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], {
+            slice: some({ slice: handle, affordances: [] }),
+            resolutions: [variant("week", null), variant("day", null)],
+        }), "plan-632-resolution");
+        const seg = container.querySelector<HTMLElement>("[data-plan-seg='resolution']")!;
+        expect(seg.getAttribute("role")).toBe("radiogroup");
+        expect(seg.getAttribute("aria-label")).toBe("Resolution");
+        const [week, day] = [...seg.querySelectorAll<HTMLElement>("[role='radio']")];
+        expect(week!.getAttribute("aria-checked")).toBe("true");
+        expect(week!.tabIndex).toBe(0);
+
+        act(() => week!.focus());
+        fireEvent.keyDown(week!, { key: "ArrowRight" });
+        expect(document.activeElement).toBe(day);
+        expect(handle.read().resolution.value.type).toBe("day");
+        await waitFor(() => expect(day!.getAttribute("aria-checked")).toBe("true"));
+        expect(day!.tabIndex).toBe(0);
+    });
+});
+
+describe("Plan interaction fixes (#615)", () => {
+    test("neither a caption click nor a sub-threshold strip click leaves a phantom brush esc rung", () => {
+        initializeStore(new UIStore());
+        const cfg = {
+            fields: new Map<string, unknown>([
+                ["at", variant("datetime", { label: "At", accessor: (r: { at: Date }) => r.at, format: none })],
+            ]),
+            rangeFieldId: some("at"), searchFieldIds: [], breakdownFieldIds: [],
+        };
+        const initial = {
+            range: some(variant("datetime", { from: W27, to: W39 })),
+            compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
+            breakdown: none, search: none, visible: none, selectedIndex: none,
+            resolution: some(variant("week", null)),
+        };
+        const handle = buildSliceHandle("plan.brush.phantom", cfg as never, initial as never,
+            [{ at: W27 }, { at: W39 }] as never, none) as never;
+        const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], {
+            slice: some({ slice: handle, affordances: [variant("brush", null)] }),
+        }), "plan-brush-phantom");
+
+        // Select a row — the esc target a phantom rung would eat.
+        fireEvent.click(container.querySelector(rowSel("m1"))!);
+        expect(container.querySelector(rowSel("m1"))!.hasAttribute("data-selected")).toBe(true);
+
+        // A caption click is not a brush gesture...
+        const caption = screen.getByText(/^HORIZON/);
+        fireEvent.pointerDown(caption, { pointerId: 1, buttons: 1 });
+        fireEvent.pointerUp(caption, { pointerId: 1 });
+        // ... and a sub-threshold strip click releases as a noop — the strip
+        // emits neither commit nor clear, so the rung must settle on the UP.
+        const track = container.querySelector("[data-brush-track]") as HTMLElement;
+        Object.defineProperty(track, "getBoundingClientRect", {
+            value: () => ({ left: 0, top: 0, right: 1000, bottom: 32, width: 1000, height: 32, x: 0, y: 0, toJSON: () => ({}) }),
+        });
+        fireEvent.pointerDown(track, { clientX: 300, pointerId: 1, buttons: 1 });
+        fireEvent.pointerUp(track, { clientX: 302, pointerId: 1 });
+
+        // ONE Escape clears the selection — nothing ate it.
+        fireEvent.keyDown(container.querySelector('[tabindex="0"]')!, { key: "Escape" });
+        expect(container.querySelector(rowSel("m1"))!.hasAttribute("data-selected")).toBe(false);
+    });
+
+    test("the resolution segment does not mount without a bound slice — its write has nowhere to go", () => {
+        // A pick mounts the toolbar with no slice; the segment used to render
+        // on `resolutions` alone, and clicking it dispatched a slice write the
+        // effect runner drops. The unbound fallback story is #572's.
+        const pick = {
+            key: "plan.seg.gate",
+            state: { read: () => [] as string[], write: () => {}, has: () => true },
+            items: [{ id: "a", title: "Machine jobs", subtitle: none, icon: none, count: none, narrowed: false }],
+        };
+        const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], {
+            pick,
+            resolutions: [variant("week", null), variant("day", null)],
+        }), "plan-seg-gate");
+        expect(container.querySelector("[data-slot='toolbar']")).not.toBeNull();
+        expect(container.querySelector("[data-slot='seg']")).toBeNull();
+        expect(screen.queryByText("DAY")).toBeNull();
+    });
+});
+
+
+describe("Plan element resolvers (popover / hover)", () => {
+    test("the root popover resolver opens per ref — a some body for the named run, none opens nothing", async () => {
+        const refs: string[] = [];
+        const popover = (ref: { type: string; value: { row: PlanRowId; run?: string } }) => {
+            refs.push(`${ref.type}:${ref.value.row.value.path.join("/")}/${ref.value.run}`);
+            if (ref.type === "run" && ref.value.run === "b214") {
+                return some(variant("Text", { value: "RUN DETAIL · B-214", style: none }));
+            }
+            return none;
+        };
+        const { container } = renderPlan(planRoot([
+            planRow("m1", spanKind([
+                run("b214", W27, new Date("2026-07-27Z"), variant("actual", null)),
+                run("other", new Date("2026-07-27Z"), new Date("2026-08-10Z"), variant("confirmed", null)),
+            ])),
+        ], { popover }));
+        const user = userEvent.setup();
+        // The none-resolving run FIRST — the resolver ran, nothing opened
+        // (lazy per-ref presence; no empty surface ever flashes).
+        await user.click(container.querySelector('[data-run="other"]')!);
+        expect(refs).toContain("run:m1/other");
+        expect(screen.queryByText("RUN DETAIL · B-214")).toBeNull();
+        // The named run resolves some — the popover opens with the body, and
+        // the ref carried the element kind + row + run keys.
+        await user.click(container.querySelector('[data-run="b214"]')!);
+        expect(await screen.findByText("RUN DETAIL · B-214")).toBeTruthy();
+        expect(refs).toContain("run:m1/b214");
+    });
+
+    test("without declared resolvers no overlay machinery mounts", () => {
+        const { container } = renderPlan(planRoot([
+            planRow("m1", spanKind([run("r1", W27, new Date("2026-07-27Z"), variant("actual", null))])),
+        ]));
+        // The bar renders bare — no popover/hovercard trigger wrappers.
+        expect(container.querySelector('[data-run="r1"]')).toBeTruthy();
+        expect(container.querySelector("[data-scope=\"popover\"]")).toBeNull();
+        expect(container.querySelector("[data-scope=\"hover-card\"]")).toBeNull();
+    });
+});

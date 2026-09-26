@@ -103,7 +103,7 @@ test("#170 — a FULLY-populated SliceState survives the beast2 round-trip field
             variant("string",  { fieldId: "id", op: variant("eq", "a") }),
             variant("integer", { fieldId: "n",  op: variant("gte", 10n) }),
         ],
-        cohorts: [{ id: "eu", name: "EU", filters: [variant("string", { fieldId: "id", op: variant("in", new Set(["a", "b"])) })] }],
+        cohorts: [{ id: "eu", name: "EU", group: none, filters: [variant("string", { fieldId: "id", op: variant("in", new Set(["a", "b"])) })] }],
         activeCohorts: new Set(["eu"]),
         breakdown: some({ fieldId: "id", limit: some(2n) }),
         search: some("hello"),

@@ -20,10 +20,18 @@ const PKG_ROOT = path.resolve(__dirname, '..');
 export default defineConfig({
     root: __dirname,
     plugins: [react()],
-    // Resolve the renderer from its source so snapshots reflect uncommitted
-    // edits (no dist rebuild between iterations). Regex-anchored so subpaths
-    // (`/fonts`) keep their own mapping.
     resolve: {
+        // The shared page module (`scripts/snapshot-app.tsx`) lives at the lib
+        // root, outside every package, and a bare import resolves from its
+        // importer — where pnpm's isolated layout has no `@chakra-ui/react`.
+        // The dependency scan failed there, so everything it would have found
+        // was discovered mid-load: a re-optimization, a stale-chunk 404 and a
+        // reload on every capture (#832). Resolve the framework from THIS
+        // package instead — which also keeps React and Chakra single-instance.
+        dedupe: ['@chakra-ui/react', 'react', 'react-dom'],
+        // Resolve the renderer from its source so snapshots reflect uncommitted
+        // edits (no dist rebuild between iterations). Regex-anchored so subpaths
+        // (`/fonts`) keep their own mapping.
         alias: [
             { find: /^@elaraai\/east-ui-components$/, replacement: path.resolve(PKG_ROOT, 'src/index.ts') },
             { find: /^@elaraai\/east-ui-components\/fonts$/, replacement: path.resolve(PKG_ROOT, 'src/fonts.ts') },

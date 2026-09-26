@@ -26,47 +26,81 @@
  * brush does not mount: the window rides the slice range chip and the pan,
  * the resolution a Week chip. A paged source shows its resident prefix and
  * says so in the footer.
+ *
+ * Failures stay local here too (#811): a card whose row cannot be placed
+ * shows its diagnostic, a card whose plot throws shows its own fallback, a
+ * window whose read failed is a card with the reason and a Retry at the top
+ * of the list, and the chip row carries the diagnostics chips.
+ *
+ * A paged source pages around the LIST (#812). There is no virtualizer here
+ * to report a mounted range, so the cards report themselves: an
+ * `IntersectionObserver` watches every row card, and the last one on screen
+ * is the viewport the driver pages around — prefetching past it, keeping what
+ * is on screen resident. Once a list shows every resident row, its load-more
+ * becomes the canvas's tail band in list form: scrolling it into view, or
+ * tapping it, loads the next window.
+ *
+ * The cards (`cards.tsx`), the ruler and resolution chip (`chrome.tsx`), the
+ * list demand (`demand.ts`) and the row walks (`lists.ts`) live beside this
+ * shell (#815).
+ *
+ * The tabs are Chakra's `Tabs` (Zag, #819): a tablist with a roving tab stop,
+ * the arrow keys between tabs, and a tabpanel per tab — the list is the
+ * selected tab's panel.
  */
 
-import { useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type PointerEvent, type ReactNode } from "react";
-import { Box, Menu as ChakraMenu, Portal, useRecipe, useSlotRecipe } from "@chakra-ui/react";
+import { useMemo, useRef, useState, type ComponentProps, type PointerEvent, type ReactNode } from "react";
+import { Box, Tabs } from "@chakra-ui/react";
 import { type ValueTypeOf } from "@elaraai/east";
 import { Plan, Slice } from "@elaraai/east-ui/internal";
-import { EastChakraComponent } from "../../../component.js";
+import type { EastChakraComponent } from "../../../component.js";
 import { SliceRailCluster } from "../../../slice/rail/index.js";
 import { railAffordanceKinds } from "../../../slice/rail-kinds.js";
 import { useSliceReactivity } from "../../../slice/use-slice-reactivity.js";
-import { usePlanDispatch, usePlanScale } from "../context.js";
+import { usePlanDispatch, usePlanGeometry, usePlanScale } from "../context.js";
+import { usePlanSelector } from "../controller/react.js";
+import type { PlanSnapshot } from "../controller/index.js";
 import { GridSeparators } from "../rows/RowShell.js";
-import { KindPlot } from "../rows/KindPlot.js";
-import { ChartLeftTicks } from "../rows/ChartRow.js";
 import { HeatCells } from "../rows/HeatRow.js";
-import { derivedSummaryArm } from "../rows/GroupRow.js";
+import { PlanPartBoundary } from "../rows/PartBoundary.js";
+import { RowDiagnostic } from "../rows/RowDiagnostic.js";
+import { bandCaption, failureCaption } from "../rows/WindowBand.js";
+import { bandElements } from "../use-plan-paging.js";
 import { PlanFooter } from "../shell/Footer.js";
-import { PlanDecisionCell, tagOf, type PlanReview } from "../shell/Review.js";
+import { PlanDiagnosticChips, hasDiagnostics, type PlanDiagnostics } from "../shell/Diagnostics.js";
+import type { PlanReview } from "../shell/Review.js";
 import type { PlanTransport } from "../shell/transport.js";
-import { pxOf, rowHeight, type PlanDerived, type PlanRowIndex, type PlanRowValue } from "../model.js";
-import type { PlanUiState, RowKey } from "../plan-state.js";
+import {
+    rowHeight, spansWindows,
+    type PlanDerived, type PlanRowIndex, type PlanRowValue, type PlanWindowFailure,
+} from "../model.js";
+import { appendAll } from "../reductions.js";
+import { statusText } from "../a11y.js";
+import { usePlanWords } from "../words.js";
+import type { RowKey } from "../plan-state.js";
+import type { PlanUiView } from "../root/view.js";
+import type { PlanDraftMark } from "../use-plan-editing.js";
 import { feedTwoFingerPan, newTwoFingerPan } from "./pan.js";
+import { NarrowRowCard } from "./cards.js";
+import { NarrowRuler, ResolutionChip } from "./chrome.js";
+import { useListDemand, type PlanNarrowPaging } from "./demand.js";
+import { allDataRows, dataRowsUnder, peakOf, summaryArm } from "./lists.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 type SliceBindValue = ValueTypeOf<typeof Slice.Types.Bind>;
 type FooterItemValue = ValueTypeOf<typeof Plan.Types.FooterItem>;
-type HeatCellsValue = ValueTypeOf<typeof Plan.Types.HeatCells>;
 type UIValue = ComponentProps<typeof EastChakraComponent>["value"];
+
+export type { PlanNarrowPaging } from "./demand.js";
 
 /** The narrow breakpoint — the adaptive contract's compact class (#346). */
 export const PLAN_NARROW_BELOW = 480;
-/** §10: a drilled row expands to ~148pt in place, unless it declares a height. */
-const NARROW_RENDER_PX = 148;
 /** Cards shown before the `N more …` load-more, per list. */
 const PAGE_GROUPS = 6;
 const PAGE_ROWS = 8;
 /** A card body's inset from the list edge: 12px list padding + 1px card
  *  border + 12px body margin — the recipe's `narrowRuler` margin matches. */
 const BODY_INSET_PX = 25;
-/** The group card's summary strip height (18px cells + the 3px insets). */
-const GROUP_STRIP_H = 24;
 /** The Rows-tab scope for root data rows that belong to no group. */
 const OTHER_SCOPE = " other";
 
@@ -84,9 +118,9 @@ export interface PlanNarrowProps {
     styles: Styles;
     index: PlanRowIndex;
     derived: PlanDerived;
-    ui: PlanUiState;
+    /** The UI facts the cards read — the selection each list reads itself. */
+    view: PlanUiView;
     dense: boolean;
-    barHeight: number;
     storageKey: string;
     /** The bound slice handle, when the canvas carries slice chrome. */
     slice: SliceBindValue | undefined;
@@ -99,163 +133,60 @@ export interface PlanNarrowProps {
     footer: ReadonlyArray<FooterItemValue>;
     review: PlanReview | undefined;
     /** The focused row's developer render / gutter body (the root resolvers
-     *  called with `ui.focus`), or `null`. */
+     *  called with the focus), or `null`. */
     expandBody: UIValue | null;
     expandGutterBody: UIValue | null;
     /** Whether the root declares `expandRender` at all. */
     canExpand: boolean;
+    /** Whether the source is not yet exhausted (`PlanTransport.partial`) — the
+     *  tab counts, and a top-level section's member count, then cover only the
+     *  loaded windows (`spansWindows`, #822). */
     partial: boolean | undefined;
     /** A bounded frame — the list scrolls inside it. */
     fill: boolean;
+    /** What the canvas carried on past (#811) — the chip row states it. The
+     *  rows chip does not seek here: the narrow list has no scroll target. */
+    diagnostics?: PlanDiagnostics | undefined;
+    /** Windows whose read failed (#811) — a card each, with a Retry. */
+    failures?: readonly PlanWindowFailure[] | undefined;
+    /** Ask a failed window again. */
+    onRetry?: ((w: number) => void) | undefined;
+    /** A paged source's demand (#812) — absent on an inline canvas, which
+     *  has nothing to demand. */
+    paging?: PlanNarrowPaging | undefined;
+    /** The editing session's history bar (#880), when the canvas declares
+     *  editing — it rides the chip row, as it rides the canvas's toolbar. */
+    history?: ReactNode;
+    /** Each drafted row's mark, by row key (#880) — a card wears its row's. */
+    marks: ReadonlyMap<RowKey, PlanDraftMark>;
 }
 
-/** The DATA rows beneath a key, tree order, any depth (group bands skipped). */
-function dataRowsUnder(index: PlanRowIndex, key: RowKey): PlanRowValue[] {
-    const out: PlanRowValue[] = [];
-    const walk = (k: RowKey) => {
-        for (const child of index.children.get(k) ?? []) {
-            if (child.kind.type !== "group") out.push(child);
-            walk(child.key);
-        }
-    };
-    walk(key);
-    return out;
-}
-
-/** Every data row of the canvas, tree order. */
-function allDataRows(index: PlanRowIndex): PlanRowValue[] {
-    const out: PlanRowValue[] = [];
-    for (const root of index.roots) {
-        if (root.kind.type !== "group") out.push(root);
-        out.push(...dataRowsUnder(index, root.key));
-    }
-    return out;
-}
-
-/** A group's strip cells as a heat arm — its explicit `summary`, else the
- *  derived `summaryAggregate` cells on the scale they inherit (the desktop
- *  band's own builder, so both strips read the same way). */
-function summaryArm(row: PlanRowValue, derived: PlanDerived): HeatCellsValue | undefined {
-    if (row.kind.type !== "group") return undefined;
-    if (row.kind.value.summary.type === "some") return row.kind.value.summary.value;
-    const cells = derived.groupSummary.get(row.key);
-    if (cells === undefined || cells.length === 0) return undefined;
-    return derivedSummaryArm(cells, derived.groupSummaryScale.get(row.key));
-}
-
-/** The hottest value on a strip — what "hottest first" sorts by. */
-function peakOf(arm: HeatCellsValue | undefined): number {
-    if (arm === undefined) return -Infinity;
-    let peak = -Infinity;
-    if (arm.type === "heat") {
-        for (const c of arm.value.cells) if (c.value.type === "some" && c.value.value > peak) peak = c.value.value;
-    } else if (arm.type === "weight") {
-        for (const c of arm.value) if (c.fraction > peak) peak = c.fraction;
-    }
-    return peak;
-}
-
-/** Mono 9px: the width one label character takes, plus the gap two labels
- *  keep between them — what decides how many labels a track can carry. */
-const TICK_CHAR_PX = 5.6;
-const TICK_GAP_PX = 8;
-/** Labels printed when the track has not been measured yet (jsdom, the
- *  first frame): one per bucket up to twelve — the desktop ruler's density. */
-const TICK_FALLBACK_LABELS = 12;
-
-/**
- * The shared ruler — the LIST's sticky first row, not a row of the header.
- * It wears the desktop ruler's vocabulary (the panel surface, a separator
- * per bucket so its rhythm IS the card grids', a strong bottom rule) and
- * sits 10px under the tab baseline on the page, so it reads as the axis
- * over the cards rather than as a strip welded under the tab underline
- * (which is what a filled band directly beneath the tabs looked like). The
- * tick TRACK is inset to the card bodies' inset (25px) so the columns line
- * up down the page; labels are thinned to what the measured track can carry
- * (at day resolution a bucket is ~3px — a label per bucket clipped to
- * confetti), each centred over its bucket. The now bucket's label wears the
- * brand: a 28px band has no lane for the chip, and a chip laid over the
- * labels hid the two it straddled.
- */
-function NarrowRuler({ styles }: { styles: Styles }) {
-    const scale = usePlanScale();
-    const trackRef = useRef<HTMLDivElement | null>(null);
-    const [trackPx, setTrackPx] = useState(0);
-    useLayoutEffect(() => {
-        const el = trackRef.current;
-        if (el === null) return undefined;
-        const measure = () => setTrackPx(el.clientWidth);
-        measure();
-        if (typeof ResizeObserver === "undefined") return undefined;
-        const ro = new ResizeObserver(measure);
-        ro.observe(el);
-        return () => ro.disconnect();
-    }, []);
-    const nowIndex = scale.nowFrac === undefined ? undefined
-        : scale.buckets.find((b) => scale.nowFrac! >= b.x0 && scale.nowFrac! < b.x1)?.index;
-    // How many labels FIT: the widest label's width plus a gap, into the track.
-    const widest = scale.buckets.reduce((w, b) => Math.max(w, b.label.length), 1);
-    const maxLabels = trackPx > 0
-        ? Math.max(2, Math.floor(trackPx / (widest * TICK_CHAR_PX + TICK_GAP_PX)))
-        : TICK_FALLBACK_LABELS;
-    const every = Math.max(1, Math.ceil(scale.n / maxLabels));
-    // The cadence, plus the now bucket — which displaces a cadence label it
-    // would otherwise sit on top of. Every bucket keeps its separator.
-    const labelled = (i: number) => i === nowIndex
-        || (i % every === 0 && (nowIndex === undefined || Math.abs(i - nowIndex) >= every));
-    const columns = scale.buckets.map((b) => `${((b.x1 - b.x0) * 100).toFixed(4)}%`).join(" ");
-    return (
-        <Box css={styles.narrowRuler} data-slot="narrowRuler">
-            <Box ref={trackRef} css={styles.narrowRulerTrack} gridTemplateColumns={columns}>
-                {scale.buckets.map((b) => (
-                    <Box key={b.index} css={styles.narrowRulerTick} data-slot="narrowRulerTick"
-                        data-now={b.index === nowIndex ? "" : undefined}>
-                        {labelled(b.index) ? b.label : ""}
-                    </Box>
-                ))}
-                {scale.nowFrac !== undefined && <Box css={styles.nowLine} left={`${scale.nowFrac * 100}%`} />}
-            </Box>
-        </Box>
-    );
-}
-
-/** The `Week` chip — the resolution segment's narrow form (a slice write). */
-function ResolutionChip({ resolution, resolutions, onPick }: {
-    resolution: string;
-    resolutions: ReadonlyArray<string>;
-    onPick: (r: string) => void;
-}) {
-    const chip = useRecipe({ key: "chip" });
-    return (
-        <ChakraMenu.Root onSelect={(d) => onPick(d.value)}>
-            <ChakraMenu.Trigger asChild>
-                <Box as="button" css={chip({ tone: "neutral", numeric: true })} data-slot="narrowResolution" aria-label="Resolution">
-                    {resolution.toUpperCase()}
-                    <Box as="span" opacity={0.6} fontSize="9px">{"▾"}</Box>
-                </Box>
-            </ChakraMenu.Trigger>
-            <Portal>
-                <ChakraMenu.Positioner>
-                    <ChakraMenu.Content>
-                        {resolutions.map((r) => (
-                            <ChakraMenu.Item key={r} value={r}>{r.toUpperCase()}</ChakraMenu.Item>
-                        ))}
-                    </ChakraMenu.Content>
-                </ChakraMenu.Positioner>
-            </Portal>
-        </ChakraMenu.Root>
-    );
-}
+const selectSelected = (s: PlanSnapshot) => s.store.ui.selected;
 
 /** The narrow shell: chips · tabs · ruler · card list · footer. */
 export function PlanNarrow({
-    styles, index, derived, ui, dense, barHeight, storageKey,
+    styles, index, derived, view, dense, storageKey,
     slice, affordances, resolution, resolutions, transport, footer, review,
     expandBody, expandGutterBody, canExpand, partial, fill,
+    diagnostics, failures, onRetry, paging, history, marks,
 }: PlanNarrowProps) {
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
-    const tabsRecipe = useSlotRecipe({ key: "tabs" });
+    const geometry = usePlanGeometry();
+    const words = usePlanWords();
+    // A member count as a group's meta (#820) — `~` while it covers only the
+    // loaded windows.
+    const membersMeta = (count: number, over: boolean) =>
+        words.m.groupMeta({ n: count, count: words.number(count), partial: over });
+    // Whether a group's derived count covers only the loaded windows: a
+    // top-level section's, on a source not yet exhausted — every other
+    // group's members ride in its own entry (#822).
+    const countPartial = (row: PlanRowValue) => partial === true && spansWindows(row);
+    // The selection is read HERE, not passed down: a tap re-renders the list,
+    // and each card's memo lets through only the two whose selection moved.
+    const selected = usePlanSelector(selectSelected);
+    // Paged demand (#812): row cards and the load-more card enrol here.
+    const watch = useListDemand(paging);
     // The auto-appended cohort chip appears when the STORE moves (#611).
     const sliceVersion = useSliceReactivity(slice?.key);
     const railKinds = useMemo(
@@ -307,7 +238,11 @@ export function PlanNarrow({
         const out: RowSection[] = [];
         const other: PlanRowValue[] = [];
         for (const root of index.roots) {
-            if (root.kind.type !== "group") { other.push(root, ...dataRowsUnder(index, root.key)); continue; }
+            if (root.kind.type !== "group") {
+                other.push(root);
+                appendAll(other, dataRowsUnder(index, root.key));
+                continue;
+            }
             const members = derived.groupMembers.get(root.key);
             out.push({
                 key: root.key,
@@ -315,7 +250,7 @@ export function PlanNarrow({
                     scope: root.key,
                     label: root.gutter.label,
                     meta: root.gutter.meta.type === "some" ? root.gutter.meta.value
-                        : (members !== undefined && members > 0 ? `${partial === true ? "~" : ""}${members} rs` : undefined),
+                        : (members !== undefined && members > 0 ? membersMeta(members, countPartial(root)) : undefined),
                     value: root.gutter.value.type === "some" ? root.gutter.value.value : undefined,
                     tone: root.status.type === "some" ? root.status.value.type : undefined,
                 },
@@ -323,10 +258,15 @@ export function PlanNarrow({
             });
         }
         if (other.length > 0) {
-            out.push({ key: "other", header: { scope: OTHER_SCOPE, label: "Other rows", meta: `${other.length} rs`, value: undefined, tone: undefined }, rows: other });
+            out.push({
+                key: "other",
+                header: { scope: OTHER_SCOPE, label: words.m.otherRows(), meta: membersMeta(other.length, false), value: undefined, tone: undefined },
+                rows: other,
+            });
         }
         return out;
-    }, [scope, index, ungrouped, hasGroups, derived, partial]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- `membersMeta` reads only `words`, which is a dependency
+    }, [scope, index, ungrouped, hasGroups, derived, partial, words]);
 
     // ── Two-finger pan (§10) — one whole period per period width crossed ──
     const listRef = useRef<HTMLDivElement | null>(null);
@@ -350,84 +290,53 @@ export function PlanNarrow({
         ? <Box css={styles.nowLine} data-plan-axisline left={`${scale.nowFrac * 100}%`} />
         : null;
 
-    // One data row as a card: head = the gutter identity, body = the plot.
+    // One data row as a card — its facts computed here, its render memoized
+    // (`NarrowRowCard`), so a list that grows re-renders only what it adds.
     const renderRowCard = (row: PlanRowValue, measures: boolean) => {
-        const v = { row, depth: 0, collapsed: false };
         const isChart = row.kind.type === "chart";
         // Measures stack at EXPANDED density (§10): force the chart's expanded
         // branch (it still honours a declared fixed / expandedHeight).
-        const h = rowHeight(v, dense, measures && isChart ? new Set([row.key]) : ui.chartsExpanded, undefined, derived);
+        const h = rowHeight({ row, depth: 0, collapsed: false }, dense,
+            measures && isChart ? new Set([row.key]) : view.chartsExpanded, undefined, derived);
         const chartExpanded = row.kind.type === "chart" && (measures
-            || row.kind.value.height.type === "expanded" || ui.chartsExpanded.has(row.key));
-        const selected = ui.selected === row.key;
-        const drilled = ui.focus !== null && ui.focus.kind === "expand" && ui.focus.key === row.key && expandBody !== null;
-        const canDrill = canExpand && row.expand.type === "some";
-        const declaredPx = row.expand.type === "some" && row.expand.value.height.type === "some"
-            ? pxOf(row.expand.value.height.value)
-            : undefined;
-        const renderPx = declaredPx ?? NARROW_RENDER_PX;
-        const gutter = row.gutter;
-        const isId = gutter.id.type === "some" && gutter.id.value;
-        const sub = gutter.sub.type === "some" ? gutter.sub.value : undefined;
-        const value = gutter.value.type === "some" ? gutter.value.value : undefined;
-        const meta = gutter.meta.type === "some" ? gutter.meta.value : undefined;
-        const statusTone = row.status.type === "some" ? row.status.value.type : undefined;
+            || row.kind.value.height.type === "expanded" || view.chartsExpanded.has(row.key));
+        const drilled = view.focus !== null && view.focus.kind === "expand" && view.focus.key === row.key;
         return (
-            <Box key={row.key} css={styles.narrowCard} data-plan-card={row.key}
-                data-selected={selected ? "" : undefined}
-                data-expanded={drilled ? "" : undefined}
-                // Tap selects; a second tap on a selected row that declares
-                // `expand` drills it in place (and again returns) — §10.
-                onClick={() => dispatch(selected && canDrill
-                    ? { t: "focus.expand", key: row.key }
-                    : { t: "row.select", key: row.key })}
-            >
-                <Box css={styles.narrowCardHead}>
-                    <Box css={styles.narrowCardTitle} data-id={isId ? "" : undefined}>{gutter.label}</Box>
-                    {meta !== undefined && <Box as="span" css={styles.gutterMeta}>{meta}</Box>}
-                    <Box display="flex" alignItems="center" gap="6px" marginLeft="auto" flexShrink={0}>
-                        {value !== undefined && <Box as="span" css={styles.gutterValue}>{value}</Box>}
-                        {statusTone !== undefined && <Box as="span" css={styles.statusDot} data-tone={statusTone} />}
-                    </Box>
-                </Box>
-                {sub !== undefined && <Box css={styles.narrowCardSub}>{sub}</Box>}
-                {drilled && expandGutterBody !== null && (
-                    <Box css={styles.expandGutterBody} data-plan-expandgutter marginX="12px" marginBottom="8px">
-                        <EastChakraComponent value={expandGutterBody} storageKey={`${storageKey}.${row.key}.expandgutter`} />
-                    </Box>
-                )}
-                <Box css={styles.narrowCardBody} height={`${h}px`} data-plan-cardbody={row.kind.type}>
-                    {!isChart && <GridSeparators styles={styles} />}
-                    <KindPlot v={v} styles={styles} derived={derived} storageKey={storageKey}
-                        barHeight={barHeight} hasChildren={(index.children.get(row.key)?.length ?? 0) > 0}
-                        ctx={false} plotHeight={h} chartExpanded={chartExpanded} partial={partial} />
-                    {row.kind.type === "chart" && (
-                        <Box css={styles.narrowTicks}>
-                            <ChartLeftTicks kind={row.kind.value} styles={styles} height={h} />
-                        </Box>
-                    )}
-                    {nowLine}
-                </Box>
-                {drilled && (
-                    <Box css={styles.narrowRender} data-plan-expandrender height={`${renderPx}px`}>
-                        <EastChakraComponent value={expandBody} storageKey={`${storageKey}.${row.key}.expand`} />
-                    </Box>
-                )}
-                {review !== undefined && review.hasRowVerbs && (
-                    <Box css={styles.narrowCardFoot}>
-                        <PlanDecisionCell rowKey={row.key} tag={tagOf(row)} review={review} />
-                    </Box>
-                )}
-            </Box>
+            <NarrowRowCard key={row.key} row={row} h={h} chartExpanded={chartExpanded}
+                selected={selected === row.key}
+                canDrill={canExpand && row.expand.type === "some"}
+                drill={drilled && expandBody !== null ? { body: expandBody, gutter: expandGutterBody } : undefined}
+                hasChildren={(index.children.get(row.key)?.length ?? 0) > 0}
+                styles={styles} derived={derived} storageKey={storageKey}
+                review={review} watch={watch} draft={marks.get(row.key)} />
         );
     };
 
+    const revealMore = (key: NarrowTab) =>
+        setReveal((r) => ({ ...r, [key]: r[key] + (key === "groups" ? PAGE_GROUPS : PAGE_ROWS) }));
     const more = (key: NarrowTab, label: string) => (
-        <Box as="button" css={styles.narrowMore} data-plan-more={key}
-            onClick={() => setReveal((r) => ({ ...r, [key]: r[key] + (key === "groups" ? PAGE_GROUPS : PAGE_ROWS) }))}>
+        <Box as="button" css={styles.narrowMore} data-plan-more={key} onClick={() => revealMore(key)}>
             {label}
         </Box>
     );
+    // A list that shows every resident row while the source holds more
+    // (#812): the canvas's tail band in list form. Scrolling it into view (the
+    // list's observer) or tapping it demands the next window; the tap also
+    // opens the next page, so the landed rows show without a second tap. Keyed
+    // by where the unloaded run starts, so a landing that leaves it on screen
+    // re-arms the observer instead of stranding the list.
+    const loadMore = (key: NarrowTab) => {
+        const tail = paging?.tail;
+        if (paging === undefined || tail === undefined) return null;
+        return (
+            <Box key={`source-${tail.from}`} ref={watch} as="button" css={styles.narrowMore}
+                data-plan-more="source" data-plan-elements={bandElements(tail)}
+                aria-busy={paging.loading ? "true" : undefined}
+                onClick={() => { revealMore(key); paging.onLoadMore(); }}>
+                {bandCaption(tail, paging.loading, words)}
+            </Box>
+        );
+    };
 
     let list: ReactNode;
     if (activeTab === "groups") {
@@ -440,7 +349,7 @@ export function PlanNarrow({
                     const members = derived.groupMembers.get(row.key);
                     const meta = row.gutter.meta.type === "some"
                         ? row.gutter.meta.value
-                        : (members !== undefined && members > 0 ? `${partial === true ? "~" : ""}${members} rs` : undefined);
+                        : (members !== undefined && members > 0 ? membersMeta(members, countPartial(row)) : undefined);
                     const value = row.gutter.value.type === "some" ? row.gutter.value.value : undefined;
                     const statusTone = row.status.type === "some" ? row.status.value.type : undefined;
                     return (
@@ -450,27 +359,37 @@ export function PlanNarrow({
                                 <Box css={styles.narrowCardTitle} data-group="">{row.gutter.label}</Box>
                                 {meta !== undefined && <Box as="span" css={styles.gutterMeta}>{meta}</Box>}
                                 <Box display="flex" alignItems="center" gap="6px" marginLeft="auto" flexShrink={0}>
-                                    {statusTone !== undefined && <Box as="span" css={styles.statusDot} data-tone={statusTone} />}
+                                    {statusTone !== undefined && <Box as="span" css={styles.statusDot} data-tone={statusTone}
+                                        role="img" aria-label={statusText(statusTone, words)} />}
                                     {value !== undefined && <Box as="span" css={styles.gutterValue}>{value}</Box>}
                                 </Box>
                             </Box>
                             {arm !== undefined && (
-                                <Box css={styles.narrowCardBody} height={`${GROUP_STRIP_H}px`} data-plan-cardbody="group">
+                                <Box css={styles.narrowCardBody} height={`${geometry.narrowStrip}px`} data-plan-cardbody="group">
                                     <GridSeparators styles={styles} />
-                                    <HeatCells rowKey={row.key} cells={arm} styles={styles} onCellClick={() => openGroup(row.key)} />
+                                    {derived.diagnostics.has(row.key) ? (
+                                        <RowDiagnostic diagnostic={derived.diagnostics.get(row.key)!} styles={styles} />
+                                    ) : (
+                                        <PlanPartBoundary part={{ kind: "group", label: row.gutter.label }} resetKey={arm} styles={styles}>
+                                            <HeatCells rowKey={row.key} cells={arm} styles={styles} onCellClick={() => openGroup(row.key)} />
+                                        </PlanPartBoundary>
+                                    )}
                                     {nowLine}
                                 </Box>
                             )}
                         </Box>
                     );
                 })}
-                {hidden.length > 0 && more("groups",
-                    `${hidden.length} more group${hidden.length > 1 ? "s" : ""}${hiddenRs > 0 ? ` · ${hiddenRs} rs` : ""}`)}
+                {hidden.length > 0 ? more("groups", words.m.moreGroups({
+                    n: hidden.length,
+                    count: words.number(hidden.length),
+                    members: hiddenRs > 0 ? membersMeta(hiddenRs, false) : undefined,
+                })) : loadMore("groups")}
                 {ungrouped.length > 0 && (
                     <Box css={styles.narrowCard} data-plan-groupcard="other" onClick={() => openGroup(OTHER_SCOPE)}>
                         <Box css={styles.narrowCardHead}>
-                            <Box css={styles.narrowCardTitle} data-group="">Other rows</Box>
-                            <Box as="span" css={styles.gutterMeta}>{`${ungrouped.length} rs`}</Box>
+                            <Box css={styles.narrowCardTitle} data-group="">{words.m.otherRows()}</Box>
+                            <Box as="span" css={styles.gutterMeta}>{membersMeta(ungrouped.length, false)}</Box>
                         </Box>
                     </Box>
                 )}
@@ -496,14 +415,15 @@ export function PlanNarrow({
                         <Box css={styles.narrowSectionTitle}>{h.label}</Box>
                         {h.meta !== undefined && <Box as="span" css={styles.gutterMeta}>{h.meta}</Box>}
                         <Box display="flex" alignItems="center" gap="6px" marginLeft="auto" flexShrink={0}>
-                            {h.tone !== undefined && <Box as="span" css={styles.statusDot} data-tone={h.tone} />}
+                            {h.tone !== undefined && <Box as="span" css={styles.statusDot} data-tone={h.tone}
+                                role="img" aria-label={statusText(h.tone, words)} />}
                             {h.value !== undefined && <Box as="span" css={styles.gutterValue}>{h.value}</Box>}
                             <Box as="span" css={styles.narrowSectionGo} aria-hidden>{"›"}</Box>
                         </Box>
                     </Box>,
                 );
             }
-            body.push(...shown.map((row) => renderRowCard(row, false)));
+            for (const row of shown) body.push(renderRowCard(row, false));
         }
         const rest = total - (reveal.rows - Math.max(0, budget));
         list = (
@@ -513,18 +433,18 @@ export function PlanNarrow({
                         {hasGroups && (
                             <Box as="button" css={styles.narrowBack} data-plan-back=""
                                 onClick={() => { setScope(null); setTab(groupsIndex ? "groups" : "rows"); }}>
-                                {groupsIndex ? "← Groups" : "← All rows"}
+                                {groupsIndex ? words.m.backToGroups() : words.m.backToAllRows()}
                             </Box>
                         )}
-                        <Box css={styles.narrowScopeTitle}>{scopeGroup !== undefined ? scopeGroup.gutter.label : "Other rows"}</Box>
+                        <Box css={styles.narrowScopeTitle}>{scopeGroup !== undefined ? scopeGroup.gutter.label : words.m.otherRows()}</Box>
                         <Box css={styles.narrowScopeMeta}>
-                            {[members !== undefined && members > 0 ? `${members} rs` : undefined, scopeValue].filter(Boolean).join(" · ")}
+                            {[members !== undefined && members > 0 ? membersMeta(members, false) : undefined, scopeValue].filter(Boolean).join(" · ")}
                         </Box>
                     </Box>
                 )}
-                {total === 0 && <Box css={styles.narrowEmpty}>No rows</Box>}
+                {total === 0 && <Box css={styles.narrowEmpty}>{words.m.noRows()}</Box>}
                 {body}
-                {rest > 0 && more("rows", `${rest} more row${rest > 1 ? "s" : ""}`)}
+                {rest > 0 ? more("rows", words.m.moreRows({ n: rest, count: words.number(rest) })) : loadMore("rows")}
             </>
         );
     } else {
@@ -533,55 +453,82 @@ export function PlanNarrow({
         list = (
             <>
                 {shown.map((row) => renderRowCard(row, true))}
-                {rest > 0 && more("measures", `${rest} more measure${rest > 1 ? "s" : ""}`)}
+                {rest > 0 ? more("measures", words.m.moreMeasures({ n: rest, count: words.number(rest) })) : loadMore("measures")}
             </>
         );
     }
 
-    // The tab strip is the production `tabs` recipe (`<Tabs>`'s line
-    // variant) — underline only, no fill, the mono eyebrow grammar, the
-    // hairline baseline the active underline overlaps — so the strip cannot
-    // drift from the spec by re-declaring it. Counts ride each label as
-    // plain numerals (never a tinted pill); a paged prefix marks them `~`.
-    const tabStyles = tabsRecipe({ variant: "line", size: "md" }) as unknown as Styles;
+    // The tab strip is `<Tabs>` itself, in its line variant — underline only,
+    // no fill, the mono eyebrow grammar, the hairline baseline the active
+    // underline overlaps — so the strip cannot drift from the spec by
+    // re-declaring it, and brings Zag's keyboard and tabpanels (#819).
+    // Counts ride each label as plain numerals (never a tinted pill); a paged
+    // prefix marks them `~`.
     const rowCount = allDataRows(index).length;
     const tabs: Array<{ key: NarrowTab; label: string; count: number }> = [
-        ...(hasGroups ? [{ key: "groups" as const, label: "Groups", count: rootGroups.length }] : []),
-        { key: "rows" as const, label: "Rows", count: rowCount },
-        ...(hasMeasures ? [{ key: "measures" as const, label: "Measures", count: chartRows.length }] : []),
+        ...(hasGroups ? [{ key: "groups" as const, label: words.m.tabGroups(), count: rootGroups.length }] : []),
+        { key: "rows" as const, label: words.m.tabRows(), count: rowCount },
+        ...(hasMeasures ? [{ key: "measures" as const, label: words.m.tabMeasures(), count: chartRows.length }] : []),
     ];
 
+    // The narrow list has no virtualizer to scroll, so the rows chip states
+    // the count without offering to seek (#811).
+    const narrowDiagnostics = diagnostics !== undefined ? { ...diagnostics, onSeekSkipped: undefined } : undefined;
+    const sliceChips = slice !== undefined && (railKinds.length > 0 || resolutions.length > 0);
+
     return (
-        <Box css={styles.narrowRoot} data-plan-narrow data-plan-fill={fill ? "" : undefined}>
-            {slice !== undefined && (railKinds.length > 0 || resolutions.length > 0) && (
-                <Box css={styles.narrowChips} data-slot="narrowChips">
-                    {railKinds.length > 0 && <SliceRailCluster slice={slice} affordanceKinds={railKinds} />}
-                    {resolutions.length > 0 && (
-                        <ResolutionChip resolution={resolution} resolutions={resolutions}
-                            onPick={(r) => dispatch({ t: "resolution.set", resolution: r })} />
-                    )}
-                </Box>
-            )}
-            <Box css={tabStyles.list} role="tablist" data-slot="narrowTabs" data-part="list" flexShrink={0}>
-                {tabs.map((t) => (
-                    <Box key={t.key} as="button" role="tab" css={tabStyles.trigger} data-part="trigger"
-                        data-plan-tab={t.key} data-selected={activeTab === t.key ? "" : undefined}
-                        aria-selected={activeTab === t.key}
-                        onClick={() => setTab(t.key)}>
-                        {t.label}
-                        <Box as="span" css={styles.narrowTabCount} data-plan-tabcount={t.count}>
-                            {`${partial === true && t.key !== "groups" ? "~" : ""}${t.count}`}
-                        </Box>
+        <Tabs.Root asChild value={activeTab} onValueChange={(d) => setTab(d.value as NarrowTab)}
+            variant="line" size="md">
+            <Box css={styles.narrowRoot} data-plan-narrow data-plan-fill={fill ? "" : undefined}>
+                {(sliceChips || hasDiagnostics(narrowDiagnostics) || history !== undefined) && (
+                    <Box css={styles.narrowChips} data-slot="narrowChips">
+                        {slice !== undefined && railKinds.length > 0 && <SliceRailCluster slice={slice} affordanceKinds={railKinds} />}
+                        {slice !== undefined && resolutions.length > 0 && (
+                            <ResolutionChip resolution={resolution} resolutions={resolutions}
+                                onPick={(r) => dispatch({ t: "resolution.set", resolution: r })} />
+                        )}
+                        {hasDiagnostics(narrowDiagnostics) && <PlanDiagnosticChips diagnostics={narrowDiagnostics} styles={styles} />}
+                        {history}
                     </Box>
-                ))}
+                )}
+                <Tabs.List data-slot="narrowTabs" flexShrink={0}>
+                    {tabs.map((t) => (
+                        <Tabs.Trigger key={t.key} value={t.key} data-plan-tab={t.key}>
+                            {t.label}
+                            <Box as="span" css={styles.narrowTabCount} data-plan-tabcount={t.count}>
+                                {words.m.tabCount({
+                                    n: t.count, count: words.number(t.count), partial: partial === true && t.key !== "groups",
+                                })}
+                            </Box>
+                        </Tabs.Trigger>
+                    ))}
+                </Tabs.List>
+                {/* One tabpanel per tab; the selected one IS the list. Only it
+                    wears the list's styles: a recipe `display` outranks the
+                    `hidden` Zag puts on the others. */}
+                {tabs.map((t) => (t.key !== activeTab ? <Tabs.Content key={t.key} value={t.key} /> : (
+                    <Tabs.Content key={t.key} value={t.key} ref={listRef} css={styles.narrowList} data-slot="narrowList"
+                        onPointerDown={onPointerDown} onPointerMove={onPointerMove}
+                        onPointerUp={onPointerEnd} onPointerCancel={onPointerEnd}>
+                        <NarrowRuler styles={styles} />
+                        {/* A window whose read failed (#811) — its reason and a Retry,
+                            above whatever did land. */}
+                        {(failures ?? []).map((f) => (
+                            <Box key={`failed-${f.w}`} css={styles.narrowCard} data-plan-failed={f.w} role="alert">
+                                <Box css={styles.narrowCardHead}>
+                                    <Box css={styles.partError}>{failureCaption(f, words)}</Box>
+                                    <Box as="button" css={styles.windowRetry} data-plan-retry={f.w}
+                                        onClick={(e: React.MouseEvent) => { e.stopPropagation(); onRetry?.(f.w); }}>
+                                        {words.m.retry()}
+                                    </Box>
+                                </Box>
+                            </Box>
+                        ))}
+                        {list}
+                    </Tabs.Content>
+                )))}
+                <PlanFooter styles={styles} items={footer} transport={transport} />
             </Box>
-            <Box ref={listRef} css={styles.narrowList} data-slot="narrowList"
-                onPointerDown={onPointerDown} onPointerMove={onPointerMove}
-                onPointerUp={onPointerEnd} onPointerCancel={onPointerEnd}>
-                <NarrowRuler styles={styles} />
-                {list}
-            </Box>
-            <PlanFooter styles={styles} items={footer} transport={transport} />
-        </Box>
+        </Tabs.Root>
     );
 }

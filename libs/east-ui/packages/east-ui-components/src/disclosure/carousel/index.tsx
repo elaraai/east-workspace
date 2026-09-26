@@ -11,12 +11,12 @@ import {
 } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faChevronLeft, faChevronRight } from "@fortawesome/free-solid-svg-icons";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Carousel } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 
-const carouselEqual = equalFor(Carousel.Types.Carousel);
+const carouselEqual = equivalentFor(Carousel.Types.Carousel);
 
 /** East Carousel value type */
 export type CarouselValue = ValueTypeOf<typeof Carousel.Types.Carousel>;

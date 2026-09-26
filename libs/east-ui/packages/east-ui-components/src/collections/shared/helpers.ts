@@ -4,7 +4,7 @@
  */
 
 import { useCallback, useMemo } from "react";
-import { useToken } from "@chakra-ui/react";
+import { useToken, type SystemContext } from "@chakra-ui/react";
 
 /**
  * The shared density-driven control heights (px) — the column-header band and
@@ -30,15 +30,26 @@ export function alignToCss(tag: string | undefined): "flex-start" | "center" | "
 }
 
 /**
- * Convert a Chakra-style colour token (e.g. `"blue.400"`) to a CSS
- * variable reference (`"var(--chakra-colors-blue-400)"`). Non-token
- * values (hex, rgb, named colours) are returned unchanged. Used by
- * renderers that bypass Chakra's prop system but still want theme
- * awareness.
+ * Resolve a colour string against the Chakra system: the theme token it names
+ * (`"teal.solid"`, `"colors.teal.solid"`, `"{colors.teal.solid}"`) becomes
+ * that token's CSS variable, and anything else — `"#1a2b3c"`, `"var(--x)"`,
+ * `"rgb(…)"`, `"red"` — is raw CSS and comes back as it is.
+ *
+ * @remarks
+ * The one resolver renderers use instead of guessing token-vs-CSS from the
+ * string's shape (#817): a dot does not make a token (`"1.5"` is not one), and
+ * the system, not the spelling, knows which paths it holds.
+ *
+ * @param system - The Chakra system (`useChakraContext()`)
+ * @param color - A theme colour token path, or a CSS colour
+ * @returns A CSS colour value
  */
-export function tokenToCssVar(token: string): string {
-    if (!token.includes(".")) return token;
-    return `var(--chakra-colors-${token.split(".").join("-")})`;
+export function resolveColor(system: SystemContext, color: string): string {
+    const path = color.replace(/^\{|\}$/g, "");
+    // `token.var` — the token's CSS VARIABLE, so a semantic token keeps
+    // following the colour mode; `token()` would hand back one mode's value.
+    const ref = system.token.var(path.startsWith("colors.") ? path : `colors.${path}`, undefined) as unknown;
+    return typeof ref === "string" ? ref : color;
 }
 
 type StatusToken = { type?: string };

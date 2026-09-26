@@ -14,7 +14,7 @@ import {
     faCircleCheck, faTriangleExclamation, faCircleXmark, faCircleInfo, faCircle,
     type IconDefinition,
 } from "@fortawesome/free-solid-svg-icons";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Matrix } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { VirtualRows } from "../virtual-rows.js";
@@ -27,7 +27,7 @@ import { useDensityHeights } from "../shared/helpers";
 import { DensityProvider } from "../../contracts/density";
 import { usePlotGutter } from "../../contracts/plot-gutter.js";
 
-const matrixRootEqual = equalFor(Matrix.Types.Root);
+const matrixRootEqual = equivalentFor(Matrix.Types.Root);
 
 /** East Matrix root value (the `Matrix` variant's data). */
 export type MatrixRootValue = ValueTypeOf<typeof Matrix.Types.Root>;

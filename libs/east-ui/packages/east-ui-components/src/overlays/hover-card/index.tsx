@@ -5,14 +5,14 @@
 
 import { memo, useMemo, useCallback, useState } from "react";
 import { Box as ChakraBox, HoverCard as ChakraHoverCard, Portal, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { HoverCard } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 import { useHoverCapable } from "../../contracts/index.js";
 
 // Pre-define equality function at module level
-const hoverCardEqual = equalFor(HoverCard.Types.HoverCard);
+const hoverCardEqual = equivalentFor(HoverCard.Types.HoverCard);
 
 /** East HoverCard value type */
 export type HoverCardValue = ValueTypeOf<typeof HoverCard.Types.HoverCard>;

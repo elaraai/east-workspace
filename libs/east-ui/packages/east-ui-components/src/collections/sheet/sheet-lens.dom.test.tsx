@@ -29,6 +29,7 @@ import { UIStore } from "../../platform/state-store.js";
 import { getRegisteredPlatformImplementations } from "../../platform/registry.js";
 import "../../platform/slice/index.js";
 import { EastChakraSheet } from "./index.js";
+import { emulateWindowScroll, measureRowsAsDrawn } from "./frame.test-utils.js";
 import type { SheetRootValue, SheetViewValue } from "./values.js";
 
 afterEach(cleanup);
@@ -54,13 +55,13 @@ const ROWS = Array.from({ length: 12 }, (_x, i) => ({
     qty: some(100 + i * 10),
 }));
 const MACHINES = [{ code: "M2140", family: "CNC lathe" }, { code: "M2141", family: "CNC lathe" }];
-const NARROW = (search: string) => ({
+const NARROWING = {
     range: none, compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
-    breakdown: none, search: some(search), visible: none, selectedIndex: none, resolution: none,
-});
+    breakdown: none, visible: none, selectedIndex: none, resolution: none,
+};
 const VIEWS = [
-    { id: "paint", name: "PAINT", narrowing: NARROW("paint"), context: 0n, reveals: [] },
-    { id: "lathe", name: "LATHE", narrowing: NARROW("lathe"), context: 0n, reveals: [] },
+    { id: "paint", name: "PAINT", narrowing: { ...NARROWING, search: some("paint") }, context: 0n, reveals: [], folds: new Map<string, boolean>() },
+    { id: "lathe", name: "LATHE", narrowing: { ...NARROWING, search: some("lathe") }, context: 0n, reveals: [], folds: new Map<string, boolean>() },
 ];
 
 type SliceBindValue = ValueTypeOf<typeof Slice.Types.Bind>;
@@ -102,11 +103,14 @@ function buildLensSheet(): SheetRootValue {
 
 /** A keyed paged source of `n` rows whose ids sort as they stream, so `seek` addresses real positions. */
 function buildKeyed(n: number): SheetRootValue {
+    const count = BigInt(n);
+    const sourceId = `sheet_lens_keyed_${n}`;
     const program = East.function([], UIComponentType, ($) => {
-        const rows = $.let(East.Array.range(0n, BigInt(n)).map(($2, i) => $2.const({
+        const total = $.const(count);
+        const rows = $.let(East.Array.range(0n, total).map(($2, i) => $2.const({
             id: East.str`J${i.add(10000n)}`, activity: East.str`Task ${i}`, notes: "", stations: { from: [], to: [] }, qty: none,
         }, JobType)), ArrayType(JobType));
-        const source = $.const(Paged.of(`sheet_lens_keyed_${n}`, rows, { key: (r) => r.id }));
+        const source = $.const(Paged.of(sourceId, rows, { key: (r) => r.id }));
         return Sheet.Root(source, {
             activity: Sheet.column.text(JobType, { header: "Activity" }),
         }, { id: "id", blanks: 2 });
@@ -149,8 +153,8 @@ function mount(value: SheetRootValue) {
     return { ...utils, root, rows, numbers, hits, gaps, count, tab, tabs, searchInput, slice, flush };
 }
 
-/** A row's cell by key. */
-const cellOf = (container: HTMLElement, id: string, key: string) => container.querySelector(`[data-row-id="${id}"] [data-slot="cell"][data-key="${key}"]`) as HTMLElement;
+/** A row's cell by key — null while its row is not mounted. */
+const cellOf = (container: HTMLElement, id: string, key: string) => container.querySelector<HTMLElement>(`[data-row-id="${id}"] [data-slot="cell"][data-key="${key}"]`);
 
 describe("the lens (B§8)", () => {
     test("the active view's search draws hits with brand numbers, the rest collapse into bands; no blank tail; the count and the tabs", async () => {
@@ -279,29 +283,35 @@ describe("the view tabs (B§8)", () => {
 
 describe("the paged arm's key search (§3.13)", () => {
     test("a keyed source mounts the key search in the toolbar; a match jumps the source and lands the ring on the row; next steps to the following match", async () => {
-        const { container } = mount(buildKeyed(1_000));
-        await waitFor(() => {
-            expect(container.querySelectorAll('[data-slot="row"]:not([data-blank])').length).toBe(600);
-        }, { timeout: 15_000 });
-        const search = container.querySelector('[data-part="dataset-key-search"]')!;
-        expect(search).toBeTruthy();
-        const input = search.querySelector("input") as HTMLInputElement;
-        // Typed a key at a time (the control debounces into one prefix query): J10230 … J10239.
-        // Each keystroke is confirmed before the next: the combobox input is
-        // controlled, so a re-render that lands late leaves userEvent appending
-        // to a stale value, which swallows a character (a loaded CI runner typed
-        // "J123", which matches nothing).
-        for (const key of "J1023") {
-            const typed = input.value + key;
-            await userEvent.type(input, key);
-            await waitFor(() => expect(input.value).toBe(typed));
+        // 600 rows land, so the sheet mounts what the page shows (#856): the page scrolls to the ring.
+        const restoreRows = measureRowsAsDrawn();
+        const restore = emulateWindowScroll();
+        try {
+            const { container } = mount(buildKeyed(1_000));
+            await waitFor(() => expect(container.querySelector('[data-slot="footerTransport"]')!.textContent).toBe("600 loaded of 1,000"), { timeout: 15_000 });
+            const search = container.querySelector('[data-part="dataset-key-search"]')!;
+            expect(search).toBeTruthy();
+            const input = search.querySelector("input") as HTMLInputElement;
+            // Typed a key at a time (the control debounces into one prefix query): J10230 … J10239.
+            // Each keystroke is confirmed before the next: the combobox input is
+            // controlled, so a re-render that lands late leaves userEvent appending
+            // to a stale value, which swallows a character (a loaded CI runner typed
+            // "J123", which matches nothing).
+            for (const key of "J1023") {
+                const typed = input.value + key;
+                await userEvent.type(input, key);
+                await waitFor(() => expect(input.value).toBe(typed));
+            }
+            await waitFor(() => expect(search.textContent).toMatch(/10 matches/), { timeout: 5_000 });
+            fireEvent.keyDown(input, { key: "Enter" });
+            await waitFor(() => expect(cellOf(container, "J10230", "activity")?.hasAttribute("data-selected")).toBe(true), { timeout: 5_000 });
+            expect(search.textContent).toMatch(/1 of 10/);
+            fireEvent.click(search.querySelector('[aria-label="Next match"]')!);
+            await waitFor(() => expect(cellOf(container, "J10231", "activity")?.hasAttribute("data-selected")).toBe(true), { timeout: 5_000 });
+            expect(search.textContent).toMatch(/2 of 10/);
+        } finally {
+            restore();
+            restoreRows();
         }
-        await waitFor(() => expect(search.textContent).toMatch(/10 matches/), { timeout: 5_000 });
-        fireEvent.keyDown(input, { key: "Enter" });
-        await waitFor(() => expect(cellOf(container, "J10230", "activity").hasAttribute("data-selected")).toBe(true), { timeout: 5_000 });
-        expect(search.textContent).toMatch(/1 of 10/);
-        fireEvent.click(search.querySelector('[aria-label="Next match"]')!);
-        await waitFor(() => expect(cellOf(container, "J10231", "activity").hasAttribute("data-selected")).toBe(true), { timeout: 5_000 });
-        expect(search.textContent).toMatch(/2 of 10/);
     }, 30_000);
 });

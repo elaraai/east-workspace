@@ -122,14 +122,16 @@ export type ReviewStructType<S extends EastType, C extends EastType> = StructTyp
  *
  * @remarks
  * Every adopter's `review` field is `OptionType(reviewType(...))` with the
- * same fixed fields — only the subject varies: Planner / Gantt / Table /
- * Roster review rows (`{ rowIndex }`), the Plan canvas reviews keyed rows
- * (`{ key }`), while per-tile ghost-accept stays on the drag contract's
- * `CellRefType`. `componentType` is injected (rather than imported) so this
- * module stays importable from inside the `component.ts` module graph; a root
- * spelled inline in `component.ts` writes the same review struct as a literal
- * with the recursion `node` — never by calling this builder with the marker
- * (type-computing functions must not receive a `RecursiveType` node).
+ * same fixed fields — only the subject varies: Table / Roster / Board review
+ * rows (`{ rowIndex }`), while per-tile ghost-accept stays on the drag
+ * contract's `CellRefType`. The Plan wears the same chrome but drafts its
+ * verdicts through its editing session (#880), so its review config carries
+ * no verdict callbacks (`PlanReviewType`). `componentType` is injected
+ * (rather than imported) so this module stays importable from inside the
+ * `component.ts` module graph; a root spelled inline in `component.ts` writes
+ * the same review struct as a literal with the recursion `node` — never by
+ * calling this builder with the marker (type-computing functions must not
+ * receive a `RecursiveType` node).
  *
  * Semantics of the fields (identical across adopters):
  * - `columnLabel` — the decision-column header (builders default `"Decision"`).

@@ -3,12 +3,13 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { memo, useMemo, useCallback, useState, useEffect, useRef, type ChangeEvent, type FocusEvent, type KeyboardEvent } from "react";
+import { memo, useMemo, useCallback, useState, useRef, type ChangeEvent, type FocusEvent, type KeyboardEvent } from "react";
 import { Input as ChakraInput, NumberInput as ChakraNumberInput, type InputProps, type NumberInputRootProps, Box } from "@chakra-ui/react";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equalFor, equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Input } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { fieldChrome, fieldFocusRing } from "../../theme/field-chrome";
+import { useValueSync } from "../../hooks/useValueSync";
 
 /** Bordered shell wrapping the date/time segments — same chrome as every input. */
 const dateFieldShell = {
@@ -29,7 +30,8 @@ import {
 } from "./date";
 
 
-const stringInputEqual = equalFor(Input.Types.String);
+const stringInputEqual = equivalentFor(Input.Types.String);
+const stringInputDataEqual = equalFor(Input.Types.String);
 /** East StringInput value type */
 export type StringInputValue = ValueTypeOf<typeof Input.Types.String>;
 
@@ -83,9 +85,7 @@ export const EastChakraStringInput = memo(function EastChakraStringInput({ value
     const onBlurFn = useMemo(() => getSomeorUndefined(value.onBlur), [value.onBlur]);
     const onFocusFn = useMemo(() => getSomeorUndefined(value.onFocus), [value.onFocus]);
 
-    useEffect(() => {
-        setProps(() => toChakraStringInput(value));
-    }, [value]);
+    useValueSync(value, stringInputDataEqual, () => setProps(toChakraStringInput(value)));
 
     const handleChange = useCallback((e: ChangeEvent<HTMLInputElement>) => {
         const next = e.target.value;
@@ -116,7 +116,8 @@ export const EastChakraStringInput = memo(function EastChakraStringInput({ value
     />
 }, (prev, next) => stringInputEqual(prev.value, next.value));
 
-const integerInputEqual = equalFor(Input.Types.Integer);
+const integerInputEqual = equivalentFor(Input.Types.Integer);
+const integerInputDataEqual = equalFor(Input.Types.Integer);
 
 /** East IntegerInput value type */
 export type IntegerInputValue = ValueTypeOf<typeof Input.Types.Integer>;
@@ -170,9 +171,7 @@ export const EastChakraIntegerInput = memo(function EastChakraIntegerInput({ val
     const onBlurFn = useMemo(() => getSomeorUndefined(value.onBlur), [value.onBlur]);
     const onFocusFn = useMemo(() => getSomeorUndefined(value.onFocus), [value.onFocus]);
 
-    useEffect(() => {
-        setProps(() => toChakraIntegerInput(value));
-    }, [value]);
+    useValueSync(value, integerInputDataEqual, () => setProps(toChakraIntegerInput(value)));
 
     // Prevent invalid characters for integers (only digits, minus, and control keys)
     const handleKeyDown = useCallback((e: KeyboardEvent<HTMLInputElement>) => {
@@ -242,7 +241,8 @@ export const EastChakraIntegerInput = memo(function EastChakraIntegerInput({ val
 }, (prev, next) => integerInputEqual(prev.value, next.value));
 
 
-const floatInputEqual = equalFor(Input.Types.Float);
+const floatInputEqual = equivalentFor(Input.Types.Float);
+const floatInputDataEqual = equalFor(Input.Types.Float);
 
 /** East FloatInput value type */
 export type FloatInputValue = ValueTypeOf<typeof Input.Types.Float>;
@@ -281,9 +281,7 @@ export const EastChakraFloatInput = memo(function EastChakraFloatInput({ value }
     const onBlurFn = useMemo(() => getSomeorUndefined(value.onBlur), [value.onBlur]);
     const onFocusFn = useMemo(() => getSomeorUndefined(value.onFocus), [value.onFocus]);
 
-    useEffect(() => {
-        setProps(() => toChakraFloatInput(value));
-    }, [value]);
+    useValueSync(value, floatInputDataEqual, () => setProps(toChakraFloatInput(value)));
 
     const handleValueChange = useCallback((details: { value: string }) => {
         const raw = details.value;
@@ -329,16 +327,18 @@ export const EastChakraFloatInput = memo(function EastChakraFloatInput({ value }
 
 
 // Pre-define equality functions at module level
-const dateTimeInputEqual = equalFor(Input.Types.DateTime);
+const dateTimeInputEqual = equivalentFor(Input.Types.DateTime);
+const dateTimeInputDataEqual = equalFor(Input.Types.DateTime);
 
 /** East DateTimeInput value type */
 export type DateTimeInputValue = ValueTypeOf<typeof Input.Types.DateTime>;
 
 /**
  * Converts a JS Date (UTC) to a CalendarDate for the date field components.
- * East dates are UTC, so we use UTC methods.
+ * East dates are UTC, so we use UTC methods. Shared with every renderer that
+ * mounts the date field over an East date (the Sheet's date cells).
  */
-function dateToCalendarDate(date: Date): CalendarDate {
+export function dateToCalendarDate(date: Date): CalendarDate {
     return new CalendarDate(
         date.getUTCFullYear(),
         date.getUTCMonth() + 1, // CalendarDate months are 1-indexed
@@ -362,7 +362,7 @@ function dateToTime(date: Date): Time {
  * Converts a DateValue and optional Time back to a JS Date (UTC).
  * East dates are UTC, so we create a UTC date.
  */
-function dateValueToDate(dateValue: DateValue, time?: Time): Date {
+export function dateValueToDate(dateValue: DateValue, time?: Time): Date {
     return new Date(Date.UTC(
         dateValue.year,
         dateValue.month - 1, // JS Date months are 0-indexed
@@ -413,9 +413,7 @@ export const EastChakraDateTimeInput = memo(function EastChakraDateTimeInput({ v
     const propsRef = useRef(props);
     propsRef.current = props;
 
-    useEffect(() => {
-        setProps(() => toChakraDateTimeInput(value));
-    }, [value]);
+    useValueSync(value, dateTimeInputDataEqual, () => setProps(toChakraDateTimeInput(value)));
 
     // Handle date change
     const handleDateChange = useCallback((newDate: DateValue | null) => {

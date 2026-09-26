@@ -218,15 +218,12 @@ import {
     PlanLinkType,
     PlanRowsType,
     PlanElementRefType,
-    PlanRowRefType,
-    PlanRunClickEventType,
-    PlanEventClickEventType,
-    PlanMarkClickEventType,
-    PlanChipClickEventType,
-    PlanCellClickEventType,
+    PlanRowIdType,
     PlanGroupToggleEventType,
     PlanFooterItemType,
     PlanStyleType,
+    PlanUiBindType,
+    PlanEditingType,
 } from "./collections/plan/types.js";
 import {
     TableRowClickEventType,
@@ -894,7 +891,10 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
             width: OptionType(StringType),
             minWidth: OptionType(StringType),
             maxWidth: OptionType(StringType),
-            render: FunctionType([TableCellRenderContextType], node),
+            // Mirror `TableColumnType` (#874): without a render the renderer
+            // prints the cell itself, through `format` for a number.
+            render: OptionType(FunctionType([TableCellRenderContextType], node)),
+            format: OptionType(TickFormatType),
             // Row grouping (#317) — group-subtotal aggregate + optional
             // renderer for the aggregated value on group header rows.
             aggregate: OptionType(TableAggregateType),
@@ -950,21 +950,25 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
 
     // Plan — the axis-aligned composite canvas: one shared axis
     // ({ time | number | ordinal }, #631) over heterogeneous rows — span runs, bucket
-    // lanes, chart layers, heat / table cells, chips and event marks — flat
-    // rows with `parent` keys. Rows are PURE DATA (`PlanRowType` — no UI, no
+    // lanes, chart layers, heat / table cells, chips and event marks — the
+    // series' BLOCKS, one after another (#823), each an ordered row stream with
+    // typed ids (#822). Rows are PURE DATA (`PlanRowType` — no UI, no
     // functions; pageable), so the arm references the named types directly;
-    // only the root's resolver slots (`popover` / `hover` / `expandRender`)
-    // and the review summary ride the recursion `node` — mirror
-    // `PlanRootType` in `collections/plan/ir.ts`.
+    // only the root's resolver slots (`popover` / `hover` / `expandRender` /
+    // `expandGutter`) and the review summary ride the recursion `node`.
+    // `PlanRootType` (`collections/plan/ir.ts`) is this arm's named twin — the
+    // renderer decodes through it — and `test/collections/plan.spec.ts` holds
+    // the two to one East type (#814).
     Plan: StructType({
-        // Inline rows OR the derived paged source (§3.8) — pure data both ways.
+        // Inline blocks OR the derived paged source of them (§3.8, #823) —
+        // pure data both ways.
         rows: PlanRowsType,
         // Mirror `PlanRootType.links` — the R1 link graph.
         links: ArrayType(PlanLinkType),
         axis: PlanAxisType,
         grain: OptionType(PlanGrainType),
         // The generalized element resolvers (Plan Data Interface.md §3.3),
-        // over one element-ref variant — every ref carries the row key.
+        // over one element-ref variant — every ref carries the row's id.
         // Resolved lazily at interaction time; a `none` result opens no
         // surface. Naming per the Schematic / Flowchart `*Hover` resolver
         // convention (`on*` stays the action callbacks below).
@@ -972,43 +976,39 @@ const UIComponentTypeImpl = RecursiveType(node => VariantType({
         hover: OptionType(FunctionType([PlanElementRefType], OptionType(node))),
         // The R2 developer render for rows declaring `expand` (the row keeps
         // the `{ height, axis }` declaration; the render is ONE function).
-        expandRender: OptionType(FunctionType([PlanRowRefType], node)),
+        expandRender: OptionType(FunctionType([PlanRowIdType], node)),
         // The R2 gutter render — the expanded row's gutter grows with it, and
         // what fills the new space is the author's.
-        expandGutter: OptionType(FunctionType([PlanRowRefType], node)),
-        // Optional review chrome — mirror `reviewType(PlanRowRefType, ·)`
-        // (`contracts/approval.ts`), `summary` on the recursion `node`;
-        // subjects are keyed rows, never indices.
+        expandGutter: OptionType(FunctionType([PlanRowIdType], node)),
+        // Optional review chrome — mirror `PlanReviewType` (#880: the
+        // column's label, the foot's summary and Rerun; a verdict is a gesture
+        // of the editing session), `summary` on the recursion `node`.
         review: OptionType(StructType({
             columnLabel: StringType,
             summary: OptionType(node),
-            onApprove: OptionType(FunctionType([PlanRowRefType], NullType)),
-            onReject: OptionType(FunctionType([PlanRowRefType], NullType)),
-            onApproveAll: OptionType(FunctionType([], NullType)),
-            onRejectAll: OptionType(FunctionType([], NullType)),
             onRerun: OptionType(FunctionType([], NullType)),
             rerunLabel: StringType,
         })),
+        // The editing session (#880) — closed: entries cross as bytes.
+        editing: OptionType(PlanEditingType),
         // The series library (#590) — chrome, like the slice rail. The
         // NON-generic contract only: an arm must be a closed East type, so the
         // author's typed handle stays outside and only its `pick` half rides.
         pick: OptionType(PickBindType),
         slice: OptionType(SliceChromeType),
         footer: ArrayType(PlanFooterItemType),
-        // DnD target role — the shared grammar (`contracts/drag.ts`).
-        id: StringType,
+        // DnD target role — the shared grammar (`contracts/drag.ts`); no id,
+        // no drop target (#824). A drop is a gesture of the editing session.
+        id: OptionType(StringType),
         sources: ArrayType(StringType),
-        onDrag: OptionType(FunctionType([DragEventType], NullType)),
         canDrop: OptionType(FunctionType([DragEventType], BooleanType)),
-        // Selection + per-element clicks.
-        onSelect: OptionType(FunctionType([PlanRowRefType], NullType)),
-        onRunClick: OptionType(FunctionType([PlanRunClickEventType], NullType)),
-        onEventClick: OptionType(FunctionType([PlanEventClickEventType], NullType)),
-        onMarkClick: OptionType(FunctionType([PlanMarkClickEventType], NullType)),
-        onChipClick: OptionType(FunctionType([PlanChipClickEventType], NullType)),
-        onCellClick: OptionType(FunctionType([PlanCellClickEventType], NullType)),
+        // Selection + the one element click (#824).
+        onSelect: OptionType(FunctionType([PlanRowIdType], NullType)),
+        onElementClick: OptionType(FunctionType([PlanElementRefType], NullType)),
         onGroupToggle: OptionType(FunctionType([PlanGroupToggleEventType], NullType)),
         onGrainChange: OptionType(FunctionType([PlanGrainType], NullType)),
+        // The bound interaction state (#824) — `State.bind`'s handle.
+        ui: OptionType(PlanUiBindType),
         style: OptionType(PlanStyleType),
     }),
 

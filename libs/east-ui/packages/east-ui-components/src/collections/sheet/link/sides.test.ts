@@ -6,6 +6,7 @@
  */
 
 import { describe, test, expect } from "vitest";
+import { variant } from "@elaraai/east";
 import { halvesFor, startSide, halfWarns, type SidesDecl } from "./sides.js";
 import type { SheetMemberValue } from "../values.js";
 
@@ -17,7 +18,7 @@ const decl: SidesDecl = {
         { half: "to", when: "from", label: "external" },
     ],
 };
-const t = (s: string): SheetMemberValue => ({ type: "text", value: s }) as SheetMemberValue;
+const t = (s: string): SheetMemberValue => variant("text", s);
 
 describe("halves", () => {
     test("the driver's sides value selects the live halves and the lock tags", () => {

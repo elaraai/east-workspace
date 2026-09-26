@@ -145,6 +145,29 @@ A workspace-scoped reactive binding to a dataset — pass the `e3.input` def
 - `'staged'` — `write()` accumulates a patch; `commit()` applies it, `discard()`
   drops it.
 
+### `Data.bindPaged(dataset)`
+
+Bind an Array, Set or Dict dataset without fetching the complete value.
+The source has `id`, `page(offset, limit)`, `total()`, `seek`, `revision()`
+and `refresh(target)`. Read methods are tracked and return `none` while
+loading; an empty `some` page means exhaustion. `seek` is absent on arrays.
+
+One resolved content hash pins every page and key search. `revision()` reads
+that hash; `id` remains the logical source identity. In an event handler,
+`refresh(none)` discovers current content, while `refresh(some(hash))` pins
+an exact committed snapshot. Refresh invalidates all handles of that source,
+including old totals and search positions. Late results from prior snapshots
+are ignored. The handle's methods serialize as East closures and work with
+both scoped and global platforms. A paged handle does not itself write data.
+
+Rendered in a workspace, the handle follows its dataset: the workspace
+status poll that bound datasets share reports each new content hash (no
+content is fetched for it), and the source moves to that snapshot as if
+`refresh(some(hash))` had been called, so a `refresh` after your own write
+only gets there sooner. A read pinned to a snapshot the dataset has since
+moved past (409 `dataset_hash_mismatch`) rediscovers the current one; it is
+never that window's failure.
+
 ### `Func.bind(fn)`
 
 A workspace-scoped call handle for a named package function
@@ -343,6 +366,19 @@ the exact complement of the queue. Options: `heading`, `maxHeight`.
     disabled={t.status().hasTag('stale')}
 />
 ```
+
+### Numbers, dates and the locale
+
+Every e3-ui surface prints through east-ui's one formatter:
+- the queue's values and deadlines;
+- the journal's times and the constraint chips;
+- the experiment's effects and its journal;
+- a dataset preview's counts and sizes;
+- a diff's values.
+
+Numbers follow the viewer's locale, and every date prints its UTC day. A host sets the locale by wrapping the app in `<I18nProvider locale="de-DE">`, re-exported from `@elaraai/east-ui-components`; the browser's language stands in otherwise.
+
+A value that is data prints bare: every digit, never grouped, with the locale's decimal separator (a year stays `2026`). That covers a constraint's number and a diff's integer. A declared spec, such as a decision's `format`, prints as the east-ui skill's Formats branch describes.
 
 ## Examples
 

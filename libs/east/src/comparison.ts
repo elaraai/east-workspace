@@ -7,6 +7,9 @@ import type { EastType, ValueTypeOf } from "./types.js";
 import { isVariant, variant } from "./containers/variant.js";
 import { isFrozenValue } from "./frozen.js";
 import type { ref } from "./containers/ref.js";
+import { IRType, type AsyncFunctionIR, type FunctionIR } from "./ir.js";
+import { EAST_CAPTURES_SYMBOL, EAST_IR_SYMBOL } from "./function_symbols.js";
+import type { RuntimeContext } from "./compile.js";
 
 /** Map of comparers for recursive types, keyed by recursive type id (bigint) */
 type TypeContext = Map<bigint, any>;
@@ -157,14 +160,80 @@ export function isFor(type: EastTypeValue | EastType, typeCtx: TypeContext = new
   }
 }
 
+/**
+ * Builds the East equality comparer for a type — structural value equality,
+ * the `Equal` builtin's semantics.
+ *
+ * @remarks
+ * Every pair of functions compares EQUAL: function equality is undecidable,
+ * and for data the useful answer is to ignore them. Where a function's
+ * identity matters — a render memo or a cache keyed by a value that carries
+ * callbacks — use {@link equivalentFor}.
+ *
+ * @param type - the compared type
+ * @param typeCtx - recursive-type registry of comparers, keyed by wrapper id
+ *   (shared across one build)
+ * @returns the comparer
+ */
 export function equalFor(type: EastTypeValue, typeCtx?: TypeContext): (x: any, y: any, ctx?: ValueContext) => boolean
 export function equalFor<T extends EastType>(type: T): (x: ValueTypeOf<T>, y: ValueTypeOf<T>) => boolean
 export function equalFor(type: EastTypeValue | EastType, typeCtx: TypeContext = new Map()): (x: any, y: any, ctx?: ValueContext) => boolean {
   // Convert EastType to EastTypeValue if necessary
-  if (!isVariant(type)) {
-    type = toEastTypeValue(type);
-  }
+  const typeValue = isVariant(type) ? type as EastTypeValue : toEastTypeValue(type);
+  return equalForImpl(typeValue, typeCtx, "always");
+}
 
+/**
+ * Builds a comparer that is {@link equalFor} everywhere except on functions,
+ * where it looks inside: two function values are equivalent when they are the
+ * same function, or when both are compiled East functions whose IR is equal
+ * (the same node, or structurally equal) and whose captured values are
+ * pairwise equivalent.
+ *
+ * @remarks
+ * A host function — one carrying no East IR — is equivalent only to itself,
+ * and a captured MUTABLE variable only to the same variable (two boxes are two
+ * variables, whatever they hold right now). The comparison is sound, not
+ * complete: equivalent functions compute the same results, while two
+ * functions it calls different may still agree.
+ *
+ * Use it where a false "different" only costs work and a false "equal" costs
+ * correctness: a render memo over a value carrying callbacks, or a cache keyed
+ * by a value that carries the function it caches the output of. `equalFor`
+ * treats all functions as equal and would serve such a cache stale.
+ *
+ * @param type - the compared type
+ * @param typeCtx - recursive-type registry of comparers, keyed by wrapper id
+ *   (shared across one build)
+ * @returns the comparer
+ *
+ * @example
+ * ```ts
+ * const Counter = FunctionType([], IntegerType);
+ * const makeCounter = East.compile(
+ *   East.function([IntegerType], Counter, (_$, n) => East.function([], IntegerType, (_$2) => n)),
+ *   [],
+ * );
+ * const equivalent = equivalentFor(Counter);
+ * equivalent(makeCounter(1n), makeCounter(1n));   // true: same IR, equal captures
+ * equivalent(makeCounter(1n), makeCounter(2n));   // false: the captured n differs
+ * equalFor(Counter)(makeCounter(1n), makeCounter(2n));   // true: equalFor never looks inside
+ * ```
+ */
+export function equivalentFor(type: EastTypeValue, typeCtx?: TypeContext): (x: any, y: any, ctx?: ValueContext) => boolean
+export function equivalentFor<T extends EastType>(type: T): (x: ValueTypeOf<T>, y: ValueTypeOf<T>) => boolean
+export function equivalentFor(type: EastTypeValue | EastType, typeCtx: TypeContext = new Map()): (x: any, y: any, ctx?: ValueContext) => boolean {
+  // Convert EastType to EastTypeValue if necessary
+  const typeValue = isVariant(type) ? type as EastTypeValue : toEastTypeValue(type);
+  return equalForImpl(typeValue, typeCtx, "equivalent");
+}
+
+/** How the equality traversal treats Function / AsyncFunction values. */
+type FunctionEquality = "always" | "equivalent";
+
+/** The traversal behind {@link equalFor} and {@link equivalentFor}; `fns`
+ *  decides only the function arms, so the two cannot drift apart. */
+function equalForImpl(type: EastTypeValue, typeCtx: TypeContext, fns: FunctionEquality): (x: any, y: any, ctx?: ValueContext) => boolean {
   if (type.type === "Never") {
     return (_x: unknown, _y: unknown, _ctx?: ValueContext) => { throw new Error(`Attempted to compare values of type .Never`) };
   } else if (type.type === "Null") {
@@ -188,7 +257,7 @@ export function equalFor(type: EastTypeValue | EastType, typeCtx: TypeContext = 
       return true;
     }
   } else if (type.type === "Vector") {
-    const elemEqual = equalFor(type.value, typeCtx);
+    const elemEqual = equalForImpl(type.value, typeCtx, fns);
     return (x: any, y: any, _ctx?: ValueContext) => {
       if (Object.is(x, y)) return true;
       if (x.length !== y.length) return false;
@@ -198,7 +267,7 @@ export function equalFor(type: EastTypeValue | EastType, typeCtx: TypeContext = 
       return true;
     };
   } else if (type.type === "Matrix") {
-    const elemEqual = equalFor(type.value, typeCtx);
+    const elemEqual = equalForImpl(type.value, typeCtx, fns);
     return (x: any, y: any, _ctx?: ValueContext) => {
       if (Object.is(x, y)) return true;
       if (x.rows !== y.rows || x.cols !== y.cols) return false;
@@ -237,7 +306,7 @@ export function equalFor(type: EastTypeValue | EastType, typeCtx: TypeContext = 
       // Now do the actual comparison
       return value_comparer(x.value, y.value, ctx);
     };
-    value_comparer = equalFor(type.value as EastTypeValue, typeCtx);
+    value_comparer = equalForImpl(type.value as EastTypeValue, typeCtx, fns);
     return ret;
   } else if (type.type === "Array") {
     let value_comparer: (x: any, y: any, ctx?: ValueContext) => boolean;
@@ -273,7 +342,7 @@ export function equalFor(type: EastTypeValue | EastType, typeCtx: TypeContext = 
       }
       return true;
     };
-    value_comparer = equalFor(type.value as EastTypeValue, typeCtx);
+    value_comparer = equalForImpl(type.value as EastTypeValue, typeCtx, fns);
     return ret;
   } else if (type.type === "Set") {
     return (x: Set<any>, y: Set<any>, _ctx?: ValueContext) => {
@@ -317,7 +386,7 @@ export function equalFor(type: EastTypeValue | EastType, typeCtx: TypeContext = 
       }
       return true;
     }
-    value_comparer = equalFor(type.value.value, typeCtx);
+    value_comparer = equalForImpl(type.value.value, typeCtx, fns);
     return ret;
   } else if (type.type === "Struct") {
     const field_comparers: [string, (x: any, y: any, ctx?: ValueContext) => boolean][] = [];
@@ -353,7 +422,7 @@ export function equalFor(type: EastTypeValue | EastType, typeCtx: TypeContext = 
       return true;
     }
     for (const field of type.value) {
-      field_comparers.push([field.name, equalFor(field.type, typeCtx)] as const);
+      field_comparers.push([field.name, equalForImpl(field.type, typeCtx, fns)] as const);
     }
     return ret;
   } else if (type.type === "Variant") {
@@ -384,14 +453,14 @@ export function equalFor(type: EastTypeValue | EastType, typeCtx: TypeContext = 
       return case_comparers[x.type]!(x.value, y.value, ctx);
     };
     for (const { name, type: caseType } of type.value) {
-      case_comparers[name] = equalFor(caseType, typeCtx);
+      case_comparers[name] = equalForImpl(caseType, typeCtx, fns);
     }
     return ret;
   } else if (type.type === "Recursive" && (type.value as any).type === "wrapper") {
     let inner: (x: any, y: any, ctx?: ValueContext) => boolean;
     const ret = (x: any, y: any, ctx?: ValueContext) => inner(x, y, ctx);
     typeCtx.set((type.value as any).value.id as bigint, ret);
-    inner = equalFor((type.value as any).value.inner, typeCtx);
+    inner = equalForImpl((type.value as any).value.inner, typeCtx, fns);
     return ret;
   } else if (type.type === "Recursive") {
     const ret = typeCtx.get((type.value as any).value as bigint);
@@ -399,17 +468,79 @@ export function equalFor(type: EastTypeValue | EastType, typeCtx: TypeContext = 
       throw new Error(`Internal error: Recursive type context not found`);
     }
     return ret;
-  } else if (type.type === "Function") {
-    return (_x: any, _y: any, _ctx?: ValueContext) => {
-      return true; // Functions are always considered equal
+  } else if (type.type === "Function" || type.type === "AsyncFunction") {
+    if (fns === "always") {
+      return (_x: any, _y: any, _ctx?: ValueContext) => {
+        return true; // Functions are always considered equal
+      }
     }
-  } else if (type.type === "AsyncFunction") {
-    return (_x: any, _y: any, _ctx?: ValueContext) => {
-      return true; // Functions are always considered equal
-    }
+    return functionsEquivalent;
   } else {
     throw new Error(`Unhandled type ${(type satisfies never as EastTypeValue).type}`);
   }
+}
+
+
+/** Structural IR equality, built on first use. */
+let irEqual: ((x: any, y: any) => boolean) | undefined;
+
+/** Pairwise IR verdicts. A function value's IR is final once the value
+ *  exists, so a verdict holds for the pair's lifetime — and a value decoded
+ *  afresh on every change, whose functions carry fresh-but-equal IR, pays one
+ *  structural walk per pair instead of one per comparison. */
+const irVerdicts = new WeakMap<object, WeakMap<object, boolean>>();
+
+/** Whether two function IR nodes are the same node or structurally equal. */
+function irEquivalent(x: object, y: object): boolean {
+  if (x === y) return true;
+  let row = irVerdicts.get(x);
+  const known = row?.get(y);
+  if (known !== undefined) return known;
+  irEqual ??= equalFor(IRType);
+  const verdict = irEqual(x, y);
+  if (row === undefined) {
+    row = new WeakMap();
+    irVerdicts.set(x, row);
+  }
+  row.set(y, verdict);
+  return verdict;
+}
+
+/** Per-IR capture comparers — a function's captured variables and their
+ *  types are fixed by its IR. */
+const captureComparers = new WeakMap<object, readonly (readonly [string, (x: any, y: any, ctx?: ValueContext) => boolean])[]>();
+
+function captureComparersOf(ir: FunctionIR | AsyncFunctionIR): readonly (readonly [string, (x: any, y: any, ctx?: ValueContext) => boolean])[] {
+  let comparers = captureComparers.get(ir);
+  if (comparers === undefined) {
+    comparers = ir.value.captures.map(c => [c.value.name, equivalentFor(c.value.type)] as const);
+    captureComparers.set(ir, comparers);
+  }
+  return comparers;
+}
+
+/** The {@link equivalentFor} function arm (see there for the rules). */
+function functionsEquivalent(x: any, y: any, ctx?: ValueContext): boolean {
+  if (x === y) return true;
+  const xir = x?.[EAST_IR_SYMBOL] as FunctionIR | AsyncFunctionIR | undefined;
+  const yir = y?.[EAST_IR_SYMBOL] as FunctionIR | AsyncFunctionIR | undefined;
+  // A host function carries no IR: its identity is all there is to compare.
+  if (xir === undefined || yir === undefined) return false;
+  if (!irEquivalent(xir, yir)) return false;
+  // A free function (EastIR.compile's wrapper) carries no captures at all.
+  const xcaptures = x[EAST_CAPTURES_SYMBOL] as RuntimeContext | undefined;
+  const ycaptures = y[EAST_CAPTURES_SYMBOL] as RuntimeContext | undefined;
+  for (const [name, equivalent] of captureComparersOf(xir)) {
+    const xv = xcaptures?.[name];
+    const yv = ycaptures?.[name];
+    if (xv === yv) continue;
+    if (xv === undefined || yv === undefined) return false;
+    // A captured mutable variable is a shared box: two boxes are two
+    // variables, whatever they hold right now.
+    if (xv.type === "boxed" || yv.type === "boxed") return false;
+    if (!equivalent(xv.value, yv.value, ctx)) return false;
+  }
+  return true;
 }
 
 export function notEqualFor(type: EastTypeValue, typeCtx?: TypeContext): (x: any, y: any, ctx?: ValueContext) => boolean

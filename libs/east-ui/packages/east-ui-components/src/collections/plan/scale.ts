@@ -45,6 +45,8 @@
 import { utcDay, utcHour, utcMonday, utcMonth, utcYear, type TimeInterval } from "d3-time";
 import { formatDatePattern, tickFormatter, type TickFormat } from "../../charts/spec/index.js";
 import { numberInstant, ordinalInstant, timeInstant, type PlanAxisKind, type PlanInstantValue } from "./instant.js";
+import type { PlanPeriod } from "./fold.js";
+import { PLAN_WORDS, type PlanWords } from "./words.js";
 
 /** A concrete bucket resolution — the IR `TimeResolutionType` with `auto` resolved away. */
 export type PlanResolution = "hour" | "day" | "week" | "month" | "quarter" | "year";
@@ -60,8 +62,9 @@ export interface PlanWindow {
 const DAY_MS = 86_400_000;
 
 /** Hard ceiling on derived buckets — every bucket is a ruler tick and a grid
- *  column per row, so an absurd window × fine resolution truncates (with a
- *  warning) rather than locking the tab (the Planner convention). */
+ *  column per row, so an absurd window × fine resolution truncates rather than
+ *  locking the tab (the Planner convention). The scale says so
+ *  (`PlanScale.truncated`) and the toolbar shows it (#811). */
 export const MAX_PLAN_BUCKETS = 500;
 
 /** Whole periods rendered beyond each window edge (#619) — the slide distance
@@ -110,20 +113,58 @@ export function isoWeekUTC(d: Date): number {
     return Math.ceil(((t.getTime() - yearStart) / DAY_MS + 1) / 7);
 }
 
-/** The default tick label for a bucket start at a resolution — the spec ruler
- *  vocabulary: week ⇒ ISO week (`W27`), day ⇒ uppercase weekday (`MON`),
- *  hour ⇒ `HH:mm`, month ⇒ `MMM`, quarter ⇒ `Q3`, year ⇒ `YYYY`. Every
- *  date-pattern label goes through the shared East formatter
- *  (`formatDatePattern`); the ISO week and quarter have no East token, so
- *  they derive here. */
-export function defaultTickLabel(start: Date, res: PlanResolution): string {
+/** The quarter (1–4) a UTC instant falls in. */
+function quarterOf(d: Date): number {
+    return Math.floor(d.getUTCMonth() / 3) + 1;
+}
+
+/**
+ * The default tick label for a bucket start at a resolution — the spec ruler
+ * vocabulary, in the canvas's locale (#820): week ⇒ ISO week (`W27`), day ⇒
+ * uppercase short weekday (`MON`), hour ⇒ 24-hour `HH:mm`, month ⇒ uppercase
+ * short month (`JUN`), quarter ⇒ `Q3`, year ⇒ the year. The week and quarter
+ * prefixes are messages; the rest is the locale's own names and digits.
+ *
+ * @param start - The bucket start (UTC)
+ * @param res - The resolution
+ * @param w - The canvas's words
+ * @returns The label
+ */
+export function defaultTickLabel(start: Date, res: PlanResolution, w: PlanWords = PLAN_WORDS): string {
     switch (res) {
-        case "week": return `W${isoWeekUTC(start)}`;
-        case "day": return formatDatePattern("ddd", start).toUpperCase();
-        case "hour": return formatDatePattern("HH:mm", start);
-        case "month": return formatDatePattern("MMM", start).toUpperCase();
-        case "quarter": return `Q${Math.floor(start.getUTCMonth() / 3) + 1}`;
-        case "year": return formatDatePattern("YYYY", start);
+        case "week": return w.m.rulerWeek({ week: w.number(isoWeekUTC(start)) });
+        case "day": return w.weekday(start).toLocaleUpperCase(w.locale);
+        case "hour": return w.time(start);
+        case "month": return w.month(start).toLocaleUpperCase(w.locale);
+        case "quarter": return w.m.rulerQuarter({ quarter: w.number(quarterOf(start)) });
+        case "year": return w.year(start);
+    }
+}
+
+/** A UTC instant as words: the date, and the time when there is one. */
+function dateText(d: Date, withTime: boolean, w: PlanWords): string {
+    const time = withTime || d.getUTCHours() !== 0 || d.getUTCMinutes() !== 0;
+    return time ? w.dateTime(d) : w.date(d);
+}
+
+/**
+ * The period starting at a UTC instant as words, at a resolution — what a
+ * reader hears where the ruler only has a tick (#819), in the canvas's
+ * locale (#820).
+ *
+ * @param start - The period start (UTC)
+ * @param res - The resolution
+ * @param w - The canvas's words
+ * @returns `Week of Jun 29, 2026`, `Mon, Jun 29, 2026`, `June 2026`, `Q3 2026`, …
+ */
+export function periodText(start: Date, res: PlanResolution, w: PlanWords = PLAN_WORDS): string {
+    switch (res) {
+        case "hour": return w.dateTime(start);
+        case "day": return w.weekdayDate(start);
+        case "week": return w.m.periodWeek({ date: w.date(start) });
+        case "month": return w.monthYear(start);
+        case "quarter": return w.m.periodQuarter({ quarter: w.number(quarterOf(start)), year: w.year(start) });
+        case "year": return w.year(start);
     }
 }
 
@@ -149,14 +190,17 @@ export interface PlanBucket {
  * What a scale is built from — the decoded axis arm plus the resolved window
  * (slice range ▸ declared ▸ fitted), as plain values.
  *
+ * Every arm takes the canvas's `words` (#820) — the locale its ruler labels and
+ * its words for a reader format in ({@link PLAN_WORDS} when omitted).
+ *
  * @property time - A UTC window divided by a calendar resolution; `format` a date-token pattern
  * @property number - A numeric window divided by `step`; `format` the shared value format (`Chart.format.*`)
  * @property ordinal - The declared values, one bucket each
  */
 export type PlanScaleSpec =
-    | { kind: "time"; window: PlanWindow; resolution: PlanResolution; now?: Date | undefined; format?: string | undefined }
-    | { kind: "number"; window: { min: number; max: number }; step: number; now?: number | undefined; format?: TickFormat | undefined }
-    | { kind: "ordinal"; values: readonly string[]; now?: string | undefined };
+    | { kind: "time"; window: PlanWindow; resolution: PlanResolution; now?: Date | undefined; format?: string | undefined; words?: PlanWords | undefined }
+    | { kind: "number"; window: { min: number; max: number }; step: number; now?: number | undefined; format?: TickFormat | undefined; words?: PlanWords | undefined }
+    | { kind: "ordinal"; values: readonly string[]; now?: string | undefined; words?: PlanWords | undefined };
 
 /**
  * The one shared scale every row positions against — window, buckets, and the
@@ -173,6 +217,13 @@ export interface PlanScale {
     resolution: PlanResolution | undefined;
     /** Bucket count (`n = window ÷ period`, clipped buckets included). */
     n: number;
+    /**
+     * Set when the window holds more periods than {@link MAX_PLAN_BUCKETS}: the
+     * grid covers only the first `shown` buckets of it. The toolbar says so
+     * ("showing the first 500 buckets — zoom in", #811) — a silently
+     * truncated axis reads as data that stops.
+     */
+    truncated: { shown: number } | undefined;
     /** The buckets, in order. */
     buckets: ReadonlyArray<PlanBucket>;
     /** Continuous position: window fraction of an instant, clamped to [0, 1]. */
@@ -204,6 +255,13 @@ export interface PlanScale {
     snap(t: PlanInstantValue): PlanInstantValue;
     /** Period-align an instant downward (the period containing it). */
     floor(t: PlanInstantValue): PlanInstantValue;
+    /**
+     * The period this scale buckets by, as the fold reads it (#824) — ONE
+     * object per period, shared by every scale with the same resolution or
+     * step, so what depends on it (the folded cells) re-derives when the
+     * resolution changes and not when the window pans.
+     */
+    period: PlanPeriod;
     /** Shift an instant by `k` whole periods — pans, zooms, the one-period floor. */
     offset(t: PlanInstantValue, k: number): PlanInstantValue;
     /** The instant as a number on the scale's own domain (epoch ms / the value / the ordinal index; `NaN` off-arm). */
@@ -230,11 +288,41 @@ export interface PlanScale {
      * `[0, 1]`.
      */
     renderBucketOf(t: PlanInstantValue): PlanBucket | undefined;
+    /**
+     * An instant as words — what an accessible name says (#819): a full UTC
+     * date on a time axis in the canvas's locale (`Jun 29, 2026` in `en-US`,
+     * with the time when the instant has one or the axis runs at hour
+     * resolution), the axis's own number format, or the ordinal value. `""`
+     * for an instant of another arm.
+     */
+    instantText(t: PlanInstantValue): string;
+    /**
+     * A bucket as words (#819) — the period it covers, where the ruler label
+     * is only a tick (`W27`, `MON`): `Week of Jun 29, 2026`, `Mon, Jun 29,
+     * 2026`, `July 2026`, `Q3 2026` in `en-US`; the ruler label on a number or
+     * ordinal axis.
+     */
+    bucketText(b: PlanBucket): string;
+}
+
+/** The periods handed out so far, by key — one object per period (see `PlanScale.period`). */
+const PERIODS = new Map<string, PlanPeriod>();
+
+/** The period named `key`: the one already handed out, else `floor` under that name. */
+function periodOf(key: string, floor: (t: PlanInstantValue) => PlanInstantValue): PlanPeriod {
+    let period = PERIODS.get(key);
+    if (period === undefined) {
+        period = { key, floor };
+        PERIODS.set(key, period);
+    }
+    return period;
 }
 
 /** The three kinds, reduced to one numeric domain with a period function. */
 interface Domain {
     kind: PlanAxisKind;
+    /** Names the period — what `floor` depends on, and nothing else (never the window). */
+    periodKey: string;
     minN: number;
     maxN: number;
     /** Period-align a domain number downward. */
@@ -247,35 +335,42 @@ interface Domain {
     fromN(n: number): PlanInstantValue;
     /** The ruler label of the period starting at a domain number. */
     label(n: number): string;
+    /** A domain number as words — an accessible name's instant (#819). */
+    text(n: number): string;
+    /** The period starting at a domain number as words (#819). */
+    periodText(n: number): string;
     /** Whole periods overscanned each side. */
     overscan: number;
     /** Whether an interval END names its last bucket (inclusive) rather than an edge. */
     endInclusive: boolean;
     resolution: PlanResolution | undefined;
     now: number | undefined;
-    /** The period name for the truncation warning. */
-    unit: string;
 }
 
 function timeDomain(spec: Extract<PlanScaleSpec, { kind: "time" }>): Domain {
     const interval = resolutionInterval(spec.resolution);
     const format = spec.format;
+    const w = spec.words ?? PLAN_WORDS;
     return {
         kind: "time",
+        periodKey: `time:${spec.resolution}`,
         minN: spec.window.min.getTime(),
         maxN: spec.window.max.getTime(),
         floor: (n) => interval.floor(new Date(n)).getTime(),
         offset: (n, k) => interval.offset(new Date(n), k).getTime(),
         toN: (t) => (t.type === "time" ? t.value.getTime() : NaN),
         fromN: (n) => timeInstant(new Date(n)),
+        // An author's own pattern is the author's (East's date tokens); the
+        // default ruler speaks the canvas's locale.
         label: (n) => (format !== undefined
             ? formatDatePattern(format, new Date(n))
-            : defaultTickLabel(new Date(n), spec.resolution)),
+            : defaultTickLabel(new Date(n), spec.resolution, w)),
+        text: (n) => dateText(new Date(n), spec.resolution === "hour", w),
+        periodText: (n) => periodText(new Date(n), spec.resolution, w),
         overscan: PLAN_OVERSCAN_BUCKETS,
         endInclusive: false,
         resolution: spec.resolution,
         now: spec.now?.getTime(),
-        unit: spec.resolution,
     };
 }
 
@@ -284,9 +379,10 @@ function numberDomain(spec: Extract<PlanScaleSpec, { kind: "number" }>): Domain 
     if (!Number.isFinite(step) || !(step > 0)) return undefined;
     // A hair of tolerance so `floor(3 × 0.1)` is 0.3, not 0.2.
     const eps = step * 1e-9;
-    const fmt = tickFormatter(spec.format, "linear");
+    const fmt = tickFormatter(spec.format, "linear", (spec.words ?? PLAN_WORDS).locale);
     return {
         kind: "number",
+        periodKey: `number:${step}`,
         minN: spec.window.min,
         maxN: spec.window.max,
         floor: (n) => Math.floor((n + eps) / step) * step,
@@ -294,11 +390,12 @@ function numberDomain(spec: Extract<PlanScaleSpec, { kind: "number" }>): Domain 
         toN: (t) => (t.type === "number" ? t.value : NaN),
         fromN: (n) => numberInstant(n),
         label: (n) => fmt(n),
+        text: (n) => fmt(n),
+        periodText: (n) => fmt(n),
         overscan: PLAN_OVERSCAN_BUCKETS,
         endInclusive: false,
         resolution: undefined,
         now: spec.now,
-        unit: `step-${step}`,
     };
 }
 
@@ -312,6 +409,9 @@ function ordinalDomain(spec: Extract<PlanScaleSpec, { kind: "ordinal" }>): Domai
     const at = (n: number): string => values[Math.max(0, Math.min(last, Math.floor(n + 1e-9)))]!;
     return {
         kind: "ordinal",
+        // Every value is its own bucket: an ordinal period is the identity,
+        // whatever the list (`floor` below maps a value to itself).
+        periodKey: "ordinal",
         minN: 0,
         maxN: values.length,
         floor: (n) => Math.floor(n + 1e-9),
@@ -319,11 +419,12 @@ function ordinalDomain(spec: Extract<PlanScaleSpec, { kind: "ordinal" }>): Domai
         toN: (t) => (t.type === "ordinal" ? (index.get(t.value) ?? NaN) : NaN),
         fromN: (n) => ordinalInstant(at(n)),
         label: (n) => at(n),
+        text: (n) => at(n),
+        periodText: (n) => at(n),
         overscan: 0,
         endInclusive: true,
         resolution: undefined,
         now: spec.now !== undefined ? index.get(spec.now) : undefined,
-        unit: "value",
     };
 }
 
@@ -388,9 +489,6 @@ export function planScale(spec: PlanScaleSpec): PlanScale | undefined {
             label: dom.label(start),
         });
     }
-    if (truncated) {
-        console.warn(`[Plan] axis truncated at ${MAX_PLAN_BUCKETS} ${dom.unit} buckets — narrow the window or coarsen the resolution.`);
-    }
     if (buckets.length === 0) return undefined;
 
     // The number PAST which no bucket exists. Equal to `max` except on a
@@ -440,6 +538,11 @@ export function planScale(spec: PlanScaleSpec): PlanScale | undefined {
         const n = toN(t);
         return Number.isFinite(n) ? dom.fromN(dom.floor(n)) : t;
     };
+    // The fold's period (#824) — keyed by what `floor` depends on, so the
+    // first scale at a resolution lends its `floor` to every later one. An
+    // ordinal floor is the identity whatever the list: a value outside it
+    // stays itself, as it does here.
+    const period = periodOf(dom.periodKey, dom.kind === "ordinal" ? (t) => t : floor);
     const offset = (t: PlanInstantValue, k: number): PlanInstantValue => {
         const n = toN(t);
         return Number.isFinite(n) ? dom.fromN(dom.offset(n, k)) : t;
@@ -491,13 +594,24 @@ export function planScale(spec: PlanScaleSpec): PlanScale | undefined {
         ? fracOfN(dom.now)
         : undefined;
 
+    const instantText = (t: PlanInstantValue): string => {
+        const n = toN(t);
+        return Number.isFinite(n) ? dom.text(n) : "";
+    };
+    const bucketText = (b: PlanBucket): string => {
+        const n = toN(b.start);
+        return Number.isFinite(n) ? dom.periodText(n) : b.label;
+    };
+
     return {
         kind: dom.kind,
         window: { min: dom.fromN(minN), max: dom.fromN(maxN) },
         resolution: dom.resolution,
         n: buckets.length, buckets,
-        xOf, fracOf, endFracOf, bucketOf, bucketAtFrac, snap, floor, offset,
+        truncated: truncated ? { shown: buckets.length } : undefined,
+        xOf, fracOf, endFracOf, bucketOf, bucketAtFrac, snap, floor, period, offset,
         toNumber: toN, fromNumber: dom.fromN,
         nowFrac, renderMin, renderMax, renderBucketOf,
+        instantText, bucketText,
     };
 }

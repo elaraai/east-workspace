@@ -19,7 +19,7 @@ import { memo, useCallback, useEffect, type ReactNode } from "react";
 import { Box, Flex, chakra, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faChevronLeft, faChevronRight, faMoon, faSun } from "@fortawesome/free-solid-svg-icons";
-import { equalFor, none, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, none, type ValueTypeOf } from "@elaraai/east";
 import { AppValueType } from "@elaraai/east-ui/internal";
 import { EastChakraComponent } from "../../component";
 import { EastChakraImage } from "../../display/image";
@@ -38,7 +38,7 @@ export interface EastChakraAppProps {
     storageKey: string;
 }
 
-const appEqual = equalFor(AppValueType);
+const appEqual = equivalentFor(AppValueType);
 
 /**
  * Renders an East UI `App` shell — collapsible rail + breadcrumb app bar + routed
@@ -164,8 +164,8 @@ export const EastChakraApp = memo(function EastChakraApp({ value, storageKey }: 
             </Box>
         </Box>
     );
-    // Structural equality over the whole value: the rail's active row + the
-    // breadcrumb change on navigation → not equal → re-render. The body (a Pages
-    // node whose render fn compares equal) self-remounts via its own store
-    // subscription regardless.
+    // Equivalence over the whole value: the rail's active row + the breadcrumb
+    // change on navigation → not equivalent → re-render. The body (a Pages node)
+    // remounts on navigation through its own store subscription, and a rebuilt
+    // body whose `render` captured new data is not equivalent either (#809).
 }, (prev, next) => prev.storageKey === next.storageKey && appEqual(prev.value, next.value));

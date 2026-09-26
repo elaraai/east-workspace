@@ -57,7 +57,15 @@ Lib-specific extras (run `make help` in each):
 | `libs/e3` | `make fuzz` (Virtual Idiot fuzz; also `fuzz-quick`, `fuzz-stress`) |
 | `libs/east-c` | `make unit` (ctest gates), `make test-east-c`, `make test-east-c-std`, `make leak-check-all` (ASan/LSan), `make bench-cli` (the interpreter, emit-sink and paged-read benchmarks the CLI is profiled on) |
 | `libs/east-py` | `make typecheck` (mypy), `make check` (lint + typecheck + test), `make coverage`, `make test-conformance` (IR → python → IR round trip over the exported corpus + examples, #627) |
-| `libs/east-ui` | `make design` (serve `app_design_system/` on :5174), `make east-ui-examples-html-<key>` (per-example HTML snapshot), `make east-ui-examples-html-all` |
+| `libs/east-ui` | `make design` (serve `app_design_system/` on :5174), `make east-ui-examples-html-<key>` (per-example HTML snapshot), `make east-ui-examples-html-all`, `make test-responsive` (the showcase's Playwright suite over the built showcase, exactly as CI runs it; `SHARD=n/4` runs one CI shard) |
+
+**Every `make build` type-checks.** A package built by `tsc` type-checks as
+it builds. A package bundled by vite or esbuild strips types without
+checking them, so its `build` script runs `tsc` first — over its sources,
+tests and scripts (`tsconfig.typecheck.json` in `east-ui-components` and
+`e3-ui-components`; `tsconfig.json` in `east-ui-showcase`, the extension
+webview and the `create-*` entries). A type error anywhere in the package
+fails `make build`. A new bundled package does the same (#589).
 
 ---
 

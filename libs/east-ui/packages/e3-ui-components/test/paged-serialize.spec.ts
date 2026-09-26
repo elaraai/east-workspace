@@ -34,7 +34,7 @@ import {
 } from "@elaraai/east";
 import type { TreePath } from "@elaraai/e3-types";
 import { DataPagedHandleType } from "@elaraai/e3-ui/internal";
-import type { DatasetPage } from "@elaraai/e3-api-client";
+import type { DatasetFindResult, DatasetPage } from "@elaraai/e3-api-client";
 import { PagedRuntime, createScopedPagedPlatform, type PagedApi } from "../src/platform/paged-runtime.js";
 
 const ws = "ws";
@@ -52,13 +52,17 @@ const settle = () => new Promise<void>(res => setTimeout(res, 0));
 /** A `PagedApi` that answers immediately from a local array. */
 function localApi(elements: { id: string; v: number }[]): PagedApi {
     return {
+        async getRevision() { return "snapshot"; },
         async getPage(_workspace, _path, window): Promise<DatasetPage> {
             const slice = elements.slice(window.offset, window.offset + window.limit);
             const data = encodeRows(slice);
             return {
                 data, totalElements: elements.length, totalBytes: data.length, totalExact: true,
-                segmentCount: 0, offset: window.offset, count: slice.length, hash: "",
+                segmentCount: 0, offset: window.offset, count: slice.length, hash: "snapshot",
             };
+        },
+        async findKey(): Promise<DatasetFindResult> {
+            throw new Error("localApi: these tests never seek");
         },
     };
 }
@@ -97,7 +101,7 @@ test("#106 — page() round-trips and re-binds to the DECODER's runtime", async 
 
 test("#106 — createScopedPagedPlatform ships the backing primitives (e3 ui() task decode path)", () => {
     const names = new Set(createScopedPagedPlatform([opsPath]).map(p => p.name));
-    for (const name of ["data_bind_paged", "data_page", "data_page_total"]) {
+    for (const name of ["data_bind_paged", "data_page", "data_page_total", "data_page_seek", "data_page_revision", "data_page_refresh"]) {
         assert.ok(names.has(name), `scoped paged platform must include '${name}'`);
     }
 });

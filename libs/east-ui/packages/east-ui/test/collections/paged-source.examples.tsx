@@ -15,9 +15,10 @@ import {
     StructType,
     example,
     some,
+    none,
 } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
-import { Paged, Plan, Table } from "@elaraai/east-ui";
+import { Format, Paged, Plan, Table, Text } from "@elaraai/east-ui";
 
 // The row-source contract (#567/#574). A component's `data` takes the whole
 // collection or a WINDOWED source of it, and `Paged.of` is the in-memory
@@ -31,7 +32,7 @@ export const pagedSourceCanvas = example({
         "key", "prefix", "row-source", "contract", "in-memory", "Plan", "canvas",
         "keyed", "Dict", "key order", "offline",
     ],
-    description: "Window a collection already in hand — `Paged.of` over a KEYED dict serves DICT windows in canonical key order (the same shape and order a keyed dataset's windows arrive in), reports an exact total, and derives `seek` from the keys themselves, so a search result addresses a real canvas row; the canvas consumes it exactly as it consumes a bound source, which is what makes the whole paged path — windowing, exhaustion on an empty window, totals, key search — runnable with no server",
+    description: "Window a collection already in hand — `Paged.of` over a KEYED dict serves DICT windows in canonical key order (the same shape and order a keyed dataset's windows arrive in), reports an exact total, and derives `seek` from the keys themselves, so a search result addresses the rows its entry makes; the canvas consumes it exactly as it consumes a bound source, which is what makes the whole paged path — windowing, exhaustion on an empty window, totals, key search — runnable with no server",
     fn: East.function([], UIComponentType, ($) => {
         // Monday of ISO week n, 2026 — window W27–W39 (half-open), now W31.
         const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
@@ -39,9 +40,10 @@ export const pagedSourceCanvas = example({
             return w1.addWeeks(n.subtract(1n));
         }));
         const UnitRow = StructType({ start: DateTimeType, end: DateTimeType, tonnes: FloatType });
-        // KEYED, and the keys are the canvas keys: `page` windows this order,
-        // `seek` searches it, and a leaf row's key IS its data key (#568). The
-        // authored order is irrelevant — a Dict is canonical.
+        // KEYED: `page` windows this order, `seek` searches it, and a row's id
+        // path starts with its entry's key (#822), so a hit addresses the rows
+        // that entry makes. The authored order is irrelevant — a Dict is
+        // canonical.
         const units = $.const(new Map([
             ["L1-M07", { start: week(27n), end: week(30n), tonnes: 64.0 }],
             ["L1-M09", { start: week(28n), end: week(32n), tonnes: 112.0 }],
@@ -56,13 +58,13 @@ export const pagedSourceCanvas = example({
                 runs: (r, k) => [Plan.run({
                     key: "run", start: r.start, end: r.end,
                     label: East.str`RUN · ${k}`,
-                    quantity: East.str`${East.Float.printFixed(r.tonnes, 0n)} t`,
-                    qty: r.tonnes, state: "actual",
+                    quantity: Plan.quantity(r.tonnes, { unit: "t", format: Format.Number({ maximumFractionDigits: 0n }) }),
+                    state: "actual",
                 })],
             }),
         ], ArrayType(Plan.Types.Series(UnitRow)));
-        // A paged canvas DECLARES its window: fitting the axis to whatever
-        // prefix has landed would re-fit it on every landed window (#567 D8).
+        // Every canvas DECLARES its window (#822): a paged one could not fit to
+        // data that has not landed, so an inline one does not either.
         const axis = $.const(Plan.axis({
             window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n),
         }));
@@ -101,7 +103,7 @@ export const pagedTableSource = example({
         "Paged", "of", "paged", "source", "Table", "window", "page", "total",
         "row-source", "contract", "positional", "sort", "partial", "in-memory",
     ],
-    description: "The SAME row-source contract over a positional component — a `Table` takes `Paged.of` exactly as a Plan does, and the difference is only the collection: Table windows are ARRAYS that concatenate in stream order (rows are addressed by index, having no identity field), where a Plan's keyed windows merge by key. Client sort is withdrawn on a paged table and the footer says so, because sorting a loaded prefix sorts within whatever happened to land while looking like a sort of the whole table",
+    description: "The SAME row-source contract over a positional component — a `Table` takes `Paged.of` exactly as a Plan does, and the difference is only the collection: Table windows are ARRAYS that concatenate in stream order (rows are addressed by index, having no identity field), as a Plan's row windows do too, its rows carrying their own typed ids. Client sort is withdrawn on a paged table and the footer says so, because sorting a loaded prefix sorts within whatever happened to land while looking like a sort of the whole table",
     fn: East.function([], UIComponentType, ($) => {
         const UnitRow = StructType({ unit: StringType, line: StringType, tonnes: FloatType });
         const units = $.const([
@@ -113,6 +115,31 @@ export const pagedTableSource = example({
         // POSITIONAL: an array source, so no key accessor and no `seek` — an
         // Array's stream order has nothing to binary-search.
         const source = $.const(Paged.of("units", units));
+        return <Table data={source} columns={["unit", "line", "tonnes"]} />;
+    }),
+    inputs: [],
+});
+
+/** 120 positional units — six windows' worth at a 25-element trim, so the
+ *  derived windows below each re-request five pieces. Module scope, for the
+ *  same reason as {@link WIDE_UNITS}. */
+const TRIMMED_UNITS = Array.from({ length: 120 }, (_, i) => ({
+    unit: `L${1 + (i % 4)}-U${String(i).padStart(3, "0")}`,
+    line: `Line ${1 + (i % 4)}`,
+    tonnes: 40 + (i % 80),
+}));
+
+export const pagedSourceTrimmed = example({
+    keywords: [
+        "Paged", "of", "pageLimit", "trim", "trimmed", "short window", "byte budget",
+        "whole windows", "paged", "source", "Table", "row-source", "contract", "offline",
+    ],
+    description: "A source that serves SHORT windows still gives a component WHOLE ones — `pageLimit` trims every window the way e3 trims pages of wide elements to its byte budget, and the component's derived `page` re-requests whatever a trimmed window left out, so no element is ever skipped. Set `pageLimit` in examples and tests to exercise the path a dataset of wide rows takes in production",
+    fn: East.function([], UIComponentType, ($) => {
+        const UnitRow = StructType({ unit: StringType, line: StringType, tonnes: FloatType });
+        const units = $.const(TRIMMED_UNITS, ArrayType(UnitRow));
+        // At most 25 elements per window, whatever the table asks for.
+        const source = $.const(Paged.of("units", units, { pageLimit: 25 }));
         return <Table data={source} columns={["unit", "line", "tonnes"]} />;
     }),
     inputs: [],
@@ -131,13 +158,12 @@ export const pagedSourceWindows = example({
         const source = $.const(Paged.of("units", units));
         const series = $.const([
             Plan.series.span(UnitRow, {
-                key: "units-2", title: "Units",
+                key: "units", title: "Units",
                 label: (_r, k) => k, id: true,
                 value: r => some(East.str`${East.Float.printFixed(r.tonnes, 0n)} t`),
                 runs: (r, k) => [Plan.run({
                     key: "run", start: r.start, end: r.end,
-                    label: East.str`RUN · ${k}`,
-                    qty: r.tonnes, state: "actual",
+                    label: East.str`RUN · ${k}`, state: "actual",
                 })],
             }),
         ], ArrayType(Plan.Types.Series(UnitRow)));
@@ -148,6 +174,74 @@ export const pagedSourceWindows = example({
         // Bounded, so the canvas virtualizes: an unbounded paged canvas would
         // mount every resident row at once and page purely on demand.
         return <Plan axis={axis} data={source} series={series} style={{ maxHeight: "420px" }} />;
+    }),
+    inputs: [],
+});
+
+// ── Several series page as blocks (#823) ─────────────────────────────────
+// A canvas is its series list's blocks, one after another — inline and paged
+// alike. Two series over one paged source are two blocks: each pages on its
+// own over the same windows, and one read of a window serves both.
+
+export const pagedSourceBlocks = example({
+    keywords: [
+        "Paged", "of", "paged", "blocks", "block", "several series", "series", "layout",
+        "window", "band", "residency", "rebase", "one read", "Plan", "canvas", "offline",
+    ],
+    description: "Several series over ONE paged source lay out as BLOCKS, exactly as inline (#823) — every unit's jobs row, then every unit's loads row, never a window's jobs, then its loads, then the next window's. Each block pages on its own: its own bands, sized from its own ledger, its own resident run following the viewport, and its own rebase on a far jump — while one read of a window serves every block. 3,000 units, generated in East, behind the canvas's 200-element page",
+    fn: East.function([], UIComponentType, ($) => {
+        // Monday of ISO week n, 2026 — window W27–W39 (half-open), now W31.
+        const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
+            const w1 = $.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
+            return w1.addWeeks(n.subtract(1n));
+        }));
+        const UnitRow = StructType({ start: DateTimeType, end: DateTimeType, tonnes: FloatType });
+        // Generated in East, keyed U10000…U12999: fixed width, so key order is
+        // build order.
+        const units = $.let(East.Array.range(0n, 3_000n).toDict(
+            (_$, i) => East.str`U${i.add(10_000n)}`,
+            ($2, i) => $2.const({
+                start: week(i.remainder(10n).add(27n)),
+                end: week(i.remainder(10n).add(29n)),
+                tonnes: i.remainder(80n).add(40n).toFloat(),
+            }, UnitRow),
+        ), DictType(StringType, UnitRow));
+        const source = $.const(Paged.of("units", units));
+        const series = $.const([
+            Plan.series.span(UnitRow, {
+                key: "jobs", title: "Jobs",
+                label: (_r, k) => k, id: true,
+                runs: (r, k) => [Plan.run({
+                    key: "run", start: r.start, end: r.end, label: East.str`RUN · ${k}`, state: "actual",
+                })],
+            }),
+            Plan.series.span(UnitRow, {
+                key: "loads", title: "Loads",
+                label: (_r, k) => East.str`${k} · load`,
+                runs: (r) => [Plan.run({
+                    key: "run", start: r.start, end: r.end, label: "LOAD", state: "confirmed",
+                })],
+            }),
+        ], ArrayType(Plan.Types.Series(UnitRow)));
+        const axis = $.const(Plan.axis({
+            window: { min: week(27n), max: week(39n) }, resolution: "week", now: week(31n),
+        }));
+        // Bounded, so the canvas virtualizes and each block pages by what is in view.
+        return <Plan axis={axis} data={source} series={series} style={{ maxHeight: "420px" }} />;
+    }),
+    inputs: [],
+});
+
+/** The immutable fixture lifecycle, matching mutable producers' method shape. */
+export const pagedSnapshotRevision = example({
+    keywords: ["Paged", "of", "revision", "refresh", "snapshot", "immutable"],
+    description: "Read a fixture snapshot revision and refresh it at the same token. Mutable sources use refresh(none) to discover current content or refresh(some(hash)) to install an acknowledged write; a Paged.of fixture retains its immutable snapshot.",
+    fn: East.function([], UIComponentType, $ => {
+        const rows = $.const([{ id: "r1", quantity: 2.0 }], ArrayType(StructType({ id: StringType, quantity: FloatType })));
+        const source = $.let(Paged.of("orders:fixture-1", rows));
+        $(source.refresh(none));
+        $(source.refresh(some("orders:fixture-1")));
+        return <Text>{East.str`Snapshot: ${source.revision().unwrap("some")}`}</Text>;
     }),
     inputs: [],
 });

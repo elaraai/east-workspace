@@ -25,10 +25,10 @@
  * @packageDocumentation
  */
 
-import { some, none } from '@elaraai/east';
+import { some, none, variant } from '@elaraai/east';
 import type { ValueTypeOf, option } from '@elaraai/east';
 import { Experiment } from '@elaraai/e3-ui/internal';
-import { getSomeorUndefined } from '@elaraai/east-ui-components';
+import { formatters, getSomeorUndefined, type Formatters, type TickFormatOpt } from '@elaraai/east-ui-components';
 import type { HelpId } from './help.js';
 
 // ---------------------------------------------------------------------------
@@ -147,16 +147,19 @@ export interface VMJournalRow {
 // ---------------------------------------------------------------------------
 const arr = (v: Vec | undefined): number[] => (v ? Array.from(v, Number) : []);
 const arrI = (v: VecI | undefined): number[] => (v ? Array.from(v, Number) : []);
-const fmt = (x: number): string => {
-    // Normalise a `-0.0` (from `(-0.04).toFixed(1)`) to `0.0` — sign-confusing on
-    // exactly the degenerate results where clarity matters most.
-    const r = Number.isInteger(x) ? String(x) : x.toFixed(1);
-    return r === '-0.0' ? '0.0' : r;
-};
-const signed = (x: number): string => {
-    const f = fmt(x);
-    return f === '0' || f === '0.0' || f.startsWith('-') ? f : `+${f}`;
-};
+/** One decimal — how the surface speaks a number that is not whole. */
+const ONE_DECIMAL: TickFormatOpt = variant('number', { minimumFractionDigits: some(1n), maximumFractionDigits: some(1n), signDisplay: none });
+/** The format a number speaks in: a whole number as is, else one decimal. */
+const formatOf = (x: number): TickFormatOpt => (Number.isInteger(x) ? undefined : ONE_DECIMAL);
+/**
+ * A number as the surface speaks it, in the app's locale (#850): a whole number
+ * as is, else one decimal. A value that rounds to zero prints unsigned — a
+ * `-0.0` is sign-confusing on exactly the degenerate results where clarity
+ * matters most.
+ */
+const fmt = (x: number, words: Formatters): string => words.value(Math.abs(x) < 0.05 ? 0 : x, formatOf(x));
+/** A number with its sign — `+5.2`, `-5.2` — except one that rounds to zero (`0.0`). */
+const signed = (x: number, words: Formatters): string => words.value(x, formatOf(x), true);
 const clamp01 = (x: number): number => (x < 0 ? 0 : x > 1 ? 1 : x);
 const cap = (s: string): string => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
 
@@ -214,7 +217,7 @@ function treatmentKind(cols: Column[], treatment: string): string {
     }
 }
 
-function deriveSpec(config: ConfigValue, cols: Column[], result: ResultValue | null, meta: ColMeta | undefined, dataLen: number, subject: SubjectNouns): VMSpec {
+function deriveSpec(config: ConfigValue, cols: Column[], result: ResultValue | null, meta: ColMeta | undefined, dataLen: number, subject: SubjectNouns, words: Formatters): VMSpec {
     const outUnit = unitOf(meta, config.outcome);
 
     // Join the chosen confounders with their measured imbalance (if a result is
@@ -259,23 +262,23 @@ function deriveSpec(config: ConfigValue, cols: Column[], result: ResultValue | n
         // n_total belongs to the Answer-tab counts strip; labelling the header
         // with it desyncs from the data after a population edit (and reads
         // wrong whenever the two legitimately differ).
-        dataLabel: `${dataLen} ${subject.many}`,
+        dataLabel: `${words.number(dataLen)} ${subject.many}`,
     };
 }
 
 // ---------------------------------------------------------------------------
 // Result → Answer tab (numeric — adjusted present).
 // ---------------------------------------------------------------------------
-function balanceDisplay(b: BalanceValue, categorical: Set<string>): string {
+function balanceDisplay(b: BalanceValue, categorical: Set<string>, words: Formatters): string {
     // A one-hot level is a proportion (0..1) — format as %. Detect via the engine's
     // `base_column` so the level matches the original categorical confounder.
     const isProp = categorical.has(b.base_column) && b.treated_mean >= 0 && b.treated_mean <= 1 && b.control_mean >= 0 && b.control_mean <= 1;
     return isProp
-        ? `${Math.round(b.treated_mean * 100)}% vs ${Math.round(b.control_mean * 100)}%`
-        : `${b.treated_mean.toFixed(1)} vs ${b.control_mean.toFixed(1)}`;
+        ? `${words.percent(b.treated_mean)} vs ${words.percent(b.control_mean)}`
+        : `${words.value(b.treated_mean, ONE_DECIMAL)} vs ${words.value(b.control_mean, ONE_DECIMAL)}`;
 }
 
-function deriveAnswer(config: ConfigValue, result: ResultValue, adj: AdjustedValue, meta: ColMeta | undefined): VMAnswer {
+function deriveAnswer(config: ConfigValue, result: ResultValue, adj: AdjustedValue, meta: ColMeta | undefined, words: Formatters): VMAnswer {
     const ci = getSomeorUndefined(adj.ci);
     const nci = getSomeorUndefined(result.naive_ci);
     const categorical = new Set(getSomeorUndefined(config.categorical) ?? []);
@@ -286,7 +289,7 @@ function deriveAnswer(config: ConfigValue, result: ResultValue, adj: AdjustedVal
             col: b.column,
             label: b.column === b.base_column ? labelOf(meta, b.base_column) : `${labelOf(meta, b.base_column)}${b.column.startsWith(b.base_column) ? b.column.slice(b.base_column.length) : ` (${b.column})`}`,
             treated: b.treated_mean, control: b.control_mean,
-            display: balanceDisplay(b, categorical), frac: clamp01(Math.abs(b.std_diff)), tone: band(Math.abs(b.std_diff)).tone,
+            display: balanceDisplay(b, categorical, words), frac: clamp01(Math.abs(b.std_diff)), tone: band(Math.abs(b.std_diff)).tone,
         }));
     const lo = ci?.lower ?? adj.effect;
     const hi = ci?.upper ?? adj.effect;
@@ -313,7 +316,7 @@ function deriveAnswer(config: ConfigValue, result: ResultValue, adj: AdjustedVal
 // ---------------------------------------------------------------------------
 function deriveNarrative(
     result: ResultValue, a: VMAnswer | null, refute: VMRefute | null,
-    higherBetter: boolean | undefined, subject: SubjectNouns,
+    higherBetter: boolean | undefined, subject: SubjectNouns, words: Formatters,
 ): VMNarrative | null {
     // Refusals lead with their own explanatory zone — no second headline.
     if (a === null) return null;
@@ -324,7 +327,7 @@ function deriveNarrative(
     const verb = higherBetter === undefined
         ? (dirUp ? 'raises' : 'lowers')
         : (dirUp === higherBetter ? 'improves' : 'worsens');
-    const range = ` (likely between ${signed(a.lo)} and ${signed(a.hi)})`;
+    const range = ` (likely between ${signed(a.lo, words)} and ${signed(a.hi, words)})`;
     // The stress-test clause — only when checks actually ran.
     const passed = refute?.checks.filter(c => c.passed).length ?? 0;
     const total = refute?.checks.length ?? 0;
@@ -340,7 +343,7 @@ function deriveNarrative(
                 segments: [
                     { text: 'Yes — ', strong: true },
                     { text: `${a.treatment} genuinely ${verb} ${a.outcome}: about ` },
-                    { text: `${signed(a.effect)}${unit}`, strong: true },
+                    { text: `${signed(a.effect, words)}${unit}`, strong: true },
                     { text: ` per ${subject.one}${range}.${trustClause}` },
                 ],
             };
@@ -349,14 +352,14 @@ function deriveNarrative(
             // reasons, phrased with the echoed thresholds.
             const tags = new Set(result.verdict_reasons.map(v => v.type));
             const why = tags.has('not_material')
-                ? ` — the change (${signed(a.effect)}${unit}) is smaller than what would matter here (±${fmt(result.materiality_threshold)}${unit}).`
+                ? ` — the change (${signed(a.effect, words)}${unit}) is smaller than what would matter here (±${fmt(result.materiality_threshold, words)}${unit}).`
                 : tags.has('ci_spans_zero')
-                    ? ` — the likely range (${signed(a.lo)} to ${signed(a.hi)}) includes zero.`
+                    ? ` — the likely range (${signed(a.lo, words)} to ${signed(a.hi, words)}) includes zero.`
                     : tags.has('thin_support')
                         ? ' — too few treated and untreated look-alikes overlap to be confident.'
                         : tags.has('low_robustness')
                             ? ' — a fairly weak hidden factor could overturn it.'
-                            : (a.lo <= 0 && a.hi >= 0 ? ` — the likely range (${signed(a.lo)} to ${signed(a.hi)}) includes zero.` : '.');
+                            : (a.lo <= 0 && a.hi >= 0 ? ` — the likely range (${signed(a.lo, words)} to ${signed(a.hi, words)}) includes zero.` : '.');
             return {
                 tone: 'warn',
                 segments: [
@@ -371,7 +374,7 @@ function deriveNarrative(
                 tone: 'warn',
                 segments: [
                     { text: 'Don’t act on this yet — ', strong: true },
-                    { text: `we got a number (${signed(a.effect)}${unit}), but a stress test failed: something we didn’t adjust for may still be driving it.` },
+                    { text: `we got a number (${signed(a.effect, words)}${unit}), but a stress test failed: something we didn’t adjust for may still be driving it.` },
                 ],
             };
         default:
@@ -382,7 +385,7 @@ function deriveNarrative(
 // ---------------------------------------------------------------------------
 // Result → refusal zone (adjusted = none).
 // ---------------------------------------------------------------------------
-function deriveRefusal(config: ConfigValue, result: ResultValue, meta: ColMeta | undefined, subject: SubjectNouns): VMRefusal {
+function deriveRefusal(config: ConfigValue, result: ResultValue, meta: ColMeta | undefined, subject: SubjectNouns, words: Formatters): VMRefusal {
     const nT = Number(result.n_treated), nC = Number(result.n_control), nTot = Number(result.n_total);
     const treatment = labelOf(meta, config.treatment);
     if (result.verdict.type === 'not_estimable') {
@@ -392,22 +395,22 @@ function deriveRefusal(config: ConfigValue, result: ResultValue, meta: ColMeta |
             title: `Can’t estimate the effect of ${treatment}`,
             body: reason,
             evidence: [
-                { label: 'treated', value: String(nT) },
-                { label: 'untreated', value: String(nC) },
-                { label: subject.many, value: String(nTot) },
+                { label: 'treated', value: words.number(nT) },
+                { label: 'untreated', value: words.number(nC) },
+                { label: subject.many, value: words.number(nTot) },
             ],
         };
     }
     if (result.verdict.type === 'non_identifiable_positivity') {
-        const pct = Math.round(result.overlap.common_support_frac * 100);
+        const pct = words.percent(result.overlap.common_support_frac);
         return {
             kind: 'positivity',
             title: 'No like-for-like comparison exists',
-            body: `The treated and untreated groups barely overlap on the confounders — only ${pct}% sit in a range where both occur — so there is no fair comparison to adjust toward.`,
+            body: `The treated and untreated groups barely overlap on the confounders — only ${pct} sit in a range where both occur — so there is no fair comparison to adjust toward.`,
             evidence: [
-                { label: 'common support', value: `${pct}%` },
-                { label: 'treated', value: String(nT) },
-                { label: 'untreated', value: String(nC) },
+                { label: 'common support', value: pct },
+                { label: 'treated', value: words.number(nT) },
+                { label: 'untreated', value: words.number(nC) },
             ],
         };
     }
@@ -418,9 +421,9 @@ function deriveRefusal(config: ConfigValue, result: ResultValue, meta: ColMeta |
         title: `Can’t estimate the effect of ${treatment}`,
         body: 'The engine could not produce a like-for-like estimate for this configuration.',
         evidence: [
-            { label: 'treated', value: String(nT) },
-            { label: 'untreated', value: String(nC) },
-            { label: subject.many, value: String(nTot) },
+            { label: 'treated', value: words.number(nT) },
+            { label: 'untreated', value: words.number(nC) },
+            { label: subject.many, value: words.number(nTot) },
         ],
     };
 }
@@ -428,14 +431,13 @@ function deriveRefusal(config: ConfigValue, result: ResultValue, meta: ColMeta |
 // ---------------------------------------------------------------------------
 // Result → overlap diagnostic (the propensity histogram).
 // ---------------------------------------------------------------------------
-function deriveOverlap(o: OverlapValue): VMOverlap {
-    const pct = Math.round(o.common_support_frac * 100);
+function deriveOverlap(o: OverlapValue, words: Formatters): VMOverlap {
     return {
         treated: arr(o.treated_propensity),
         control: arr(o.control_propensity),
         commonSupportFrac: o.common_support_frac,
         positivityOk: o.positivity_ok,
-        supportLabel: `${pct}% common support`,
+        supportLabel: `${words.percent(o.common_support_frac)} common support`,
     };
 }
 
@@ -454,7 +456,7 @@ function zeroCrossing(xs: number[], ys: number[]): number | null {
     return null;
 }
 
-function deriveRefute(r: RefutationValue, adj: AdjustedValue | undefined, meta: ColMeta | undefined): VMRefute {
+function deriveRefute(r: RefutationValue, adj: AdjustedValue | undefined, meta: ColMeta | undefined, words: Formatters): VMRefute {
     const checks: VMRefuteCheck[] = [];
     const est = adj?.effect ?? 0;
 
@@ -469,7 +471,7 @@ function deriveRefute(r: RefutationValue, adj: AdjustedValue | undefined, meta: 
             // Speak the outcome, not the statistic: on fake labels the effect
             // should VANISH — say whether it did.
             value: placeboEffect !== undefined
-                ? (passed ? `vanished (${signed(placeboEffect)})` : `didn’t vanish (${signed(placeboEffect)})`)
+                ? (passed ? `vanished (${signed(placeboEffect, words)})` : `didn’t vanish (${signed(placeboEffect, words)})`)
                 : (passed ? 'vanished' : 'didn’t vanish'),
             passed,
             tip: some('Randomly re-label which rows were treated. A genuine effect should vanish.'),
@@ -484,7 +486,7 @@ function deriveRefute(r: RefutationValue, adj: AdjustedValue | undefined, meta: 
             name: 'Drop-some test',
             short: 'drop-some',
             desc: 'Re-estimate on random subsamples; a trustworthy effect stays put.',
-            value: passed ? `stayed at ${signed(ds)} ± ${fmt(dstd)}` : `moved to ${signed(ds)} ± ${fmt(dstd)}`,
+            value: passed ? `stayed at ${signed(ds, words)} ± ${fmt(dstd, words)}` : `moved to ${signed(ds, words)} ± ${fmt(dstd, words)}`,
             passed,
             tip: none,
             help: 'check_dropsome',
@@ -519,10 +521,10 @@ function deriveRefute(r: RefutationValue, adj: AdjustedValue | undefined, meta: 
                 ? (tip > strongest.strength
                     ? `flips only beyond ${labelOf(meta, strongest.column)}`
                     : `a cause weaker than ${labelOf(meta, strongest.column)} could flip it`)
-                : `would flip at ${fmt(tip)}`)
-            : evalue !== undefined ? `holds (E-value ${fmt(evalue)})` : 'holds throughout';
+                : `would flip at ${fmt(tip, words)}`)
+            : evalue !== undefined ? `holds (E-value ${fmt(evalue, words)})` : 'holds throughout';
         const scaleNote = strongest !== undefined
-            ? ` For scale, your strongest known factor (${labelOf(meta, strongest.column)}) sits at ${fmt(strongest.strength)} on this axis.`
+            ? ` For scale, your strongest known factor (${labelOf(meta, strongest.column)}) sits at ${fmt(strongest.strength, words)} on this axis.`
             : '';
         checks.push({
             name: 'Hidden cause',
@@ -564,7 +566,7 @@ function deriveRefute(r: RefutationValue, adj: AdjustedValue | undefined, meta: 
                 const at = atOf(b.strength);
                 return at === null ? [] : [{ at, label: `as strong as ${labelOf(meta, b.column)}`, tone: 'muted', help: 'sensitivity' as HelpId }];
             });
-            sensVM = { lo, mid, hi, xTicks: ['none', '', 'stronger'], yTicks: [fmt(yLo), fmt((yLo + yHi) / 2), fmt(yHi)], marks };
+            sensVM = { lo, mid, hi, xTicks: ['none', '', 'stronger'], yTicks: [fmt(yLo, words), fmt((yLo + yHi) / 2, words), fmt(yHi, words)], marks };
         }
     }
     return { checks, sens: sensVM };
@@ -573,7 +575,7 @@ function deriveRefute(r: RefutationValue, adj: AdjustedValue | undefined, meta: 
 // ---------------------------------------------------------------------------
 // Dose response → How-much tab.
 // ---------------------------------------------------------------------------
-function deriveDose(dose: DoseValue, config: ConfigValue, meta: ColMeta | undefined): VMDose {
+function deriveDose(dose: DoseValue, config: ConfigValue, meta: ColMeta | undefined, words: Formatters): VMDose {
     const grid = arr(dose.grid);
     const mid = arr(dose.effect);
     const lo = getSomeorUndefined(dose.lower) ? arr(getSomeorUndefined(dose.lower)) : mid.slice();
@@ -594,21 +596,21 @@ function deriveDose(dose: DoseValue, config: ConfigValue, meta: ColMeta | undefi
     }
 
     const xi = grid.length ? [0, Math.floor(grid.length / 2), grid.length - 1] : [];
-    const xTicks = xi.map(i => fmt(grid[i]!));
+    const xTicks = xi.map(i => fmt(grid[i]!, words));
     const yLo = Math.min(0, ...lo), yHi = Math.max(...hi, 0);
-    const yTicks = [fmt(yLo), fmt((yLo + yHi) / 2), fmt(yHi)];
+    const yTicks = [fmt(yLo, words), fmt((yLo + yHi) / 2, words), fmt(yHi, words)];
 
     // Trim the trailing flat tail (steps whose marginal gain is negligible) so
     // the strip shows only the decision-relevant range.
     const margSteps = marg.slice(1);
     let lastStep = margSteps.length - 1;
     while (lastStep > 0 && Math.abs(margSteps[lastStep]!) < 0.12 * maxMarg) lastStep--;
-    const marginal: VMMarginal[] = margSteps.slice(0, lastStep + 1).map((v, i) => ({ label: `${fmt(grid[i + 1]!)}`, value: v, frac: clamp01(Math.abs(v) / maxMarg) }));
+    const marginal: VMMarginal[] = margSteps.slice(0, lastStep + 1).map((v, i) => ({ label: fmt(grid[i + 1]!, words), value: v, frac: clamp01(Math.abs(v) / maxMarg) }));
 
     const stepFrom = here < sweet ? here : Math.max(0, sweet - 1);
     const gainToSweet = (mid[sweet] ?? 0) - (mid[stepFrom] ?? 0);
     const nextGain = sweet + 1 < mid.length ? mid[sweet + 1]! - mid[sweet]! : 0;
-    const tradeoff = `Going from ${fmt(grid[stepFrom] ?? 0)} to ${fmt(grid[sweet] ?? 0)} adds ${signed(gainToSweet)}; the next step adds only ${signed(nextGain)}.`;
+    const tradeoff = `Going from ${fmt(grid[stepFrom] ?? 0, words)} to ${fmt(grid[sweet] ?? 0, words)} adds ${signed(gainToSweet, words)}; the next step adds only ${signed(nextGain, words)}.`;
 
     const marks: VMDoseMark[] = [];
     if (sizes.length) marks.push({ at: here, label: 'you are here', tone: 'muted', help: 'dose_here' });
@@ -620,7 +622,7 @@ function deriveDose(dose: DoseValue, config: ConfigValue, meta: ColMeta | undefi
         feature: featureLabel, outcome: outcomeLabel, lo, mid, hi, xTicks, yTicks, marks,
         // Name the feature in the recommendation — a bare "≈ 5.5" doesn't say
         // 5.5 of WHAT.
-        recoLabel: `aim for ${featureLabel} ≈ ${fmt(grid[sweet] ?? 0)}${featureUnit ? ' ' + featureUnit : ''}`,
+        recoLabel: `aim for ${featureLabel} ≈ ${fmt(grid[sweet] ?? 0, words)}${featureUnit ? ' ' + featureUnit : ''}`,
         recoEffect: mid[sweet] ?? 0, recoLo: lo[sweet] ?? 0, recoHi: hi[sweet] ?? 0,
         tradeoff, marginal,
         framing: `A different question from the headline: how ${outcomeLabel} responds as ${featureLabel} itself moves.`,
@@ -630,11 +632,12 @@ function deriveDose(dose: DoseValue, config: ConfigValue, meta: ColMeta | undefi
 // ---------------------------------------------------------------------------
 // Journal.
 // ---------------------------------------------------------------------------
-function relTime(d: Date, now: Date): string {
+/** How long ago a row was committed — within the week, its UTC weekday in the app's locale (#850). */
+function relTime(d: Date, now: Date, words: Formatters): string {
     const days = Math.floor((now.getTime() - d.getTime()) / 86_400_000);
     if (days <= 0) return 'today';
     if (days === 1) return 'yesterday';
-    if (days < 7) return d.toLocaleDateString(undefined, { weekday: 'short' });
+    if (days < 7) return words.weekday(d);
     return 'last wk';
 }
 
@@ -647,15 +650,15 @@ const VERDICT_WORD: Record<VerdictTag, string> = {
     not_estimable: 'n/a',
 };
 
-function deriveJournalRow(row: JournalRowValue, now: Date, meta: ColMeta | undefined): VMJournalRow {
+function deriveJournalRow(row: JournalRowValue, now: Date, meta: ColMeta | undefined, words: Formatters): VMJournalRow {
     const adj = getSomeorUndefined(row.adjusted);
     return {
         treatment: labelOf(meta, row.config.treatment), outcome: labelOf(meta, row.config.outcome),
         confounders: row.config.common_causes.map(c => labelOf(meta, c)).join(', '),
-        effect: adj !== undefined ? signed(adj) : signed(row.naive),
+        effect: adj !== undefined ? signed(adj, words) : signed(row.naive, words),
         verdict: VERDICT_WORD[row.verdict.type],
         verdictTone: VERDICT_TONE[row.verdict.type],
-        who: row.committed_by, when: relTime(row.committed_at, now),
+        who: row.committed_by, when: relTime(row.committed_at, now, words),
         // The originating preset id (resolved to a label by the surface); `none` for a
         // free-form / pre-presets row.
         preset: row.preset,
@@ -693,6 +696,8 @@ export interface ExperimentView {
  * @param dataLen - Row count of the bound dataset (for the header label).
  * @param now - "Now" for relative journal timestamps (injected for determinism).
  * @param subject - The domain noun for one row (defaults to `record(s)`).
+ * @param words - The formatters every number and date prints through (#850);
+ *   the runtime locale's when omitted.
  */
 export function deriveView(
     config: ConfigValue,
@@ -704,26 +709,27 @@ export function deriveView(
     dataLen: number,
     now: Date,
     subject: SubjectNouns = { one: 'record', many: 'records' },
+    words: Formatters = formatters(),
 ): ExperimentView {
     const adj = result ? getSomeorUndefined(result.adjusted) : undefined;
     const refutation = result ? getSomeorUndefined(result.refutation) : undefined;
     const doseR = result ? getSomeorUndefined(result.dose_response) : undefined;
-    const answer = result && adj ? deriveAnswer(ranConfig, result, adj, meta) : null;
-    const refute = refutation ? deriveRefute(refutation, adj, meta) : null;
+    const answer = result && adj ? deriveAnswer(ranConfig, result, adj, meta, words) : null;
+    const refute = refutation ? deriveRefute(refutation, adj, meta, words) : null;
     const higherBetter = getSomeorUndefined(colMeta(meta, ranConfig.outcome)?.higherIsBetter);
     return {
         // The set-up rail reflects the LIVE config (the editor); the result deck
         // reflects RANCONFIG — the config that produced `result` — so the result
         // strings never drift ahead of the numbers on a live picker edit.
-        spec: deriveSpec(config, cols, result, meta, dataLen, subject),
+        spec: deriveSpec(config, cols, result, meta, dataLen, subject, words),
         verdict: result ? deriveVerdict(result.verdict) : null,
-        narrative: result ? deriveNarrative(result, answer, refute, higherBetter, subject) : null,
+        narrative: result ? deriveNarrative(result, answer, refute, higherBetter, subject, words) : null,
         answer,
-        refusal: result && !adj ? deriveRefusal(ranConfig, result, meta, subject) : null,
-        overlap: result ? deriveOverlap(result.overlap) : null,
+        refusal: result && !adj ? deriveRefusal(ranConfig, result, meta, subject, words) : null,
+        overlap: result ? deriveOverlap(result.overlap, words) : null,
         refute,
-        dose: doseR && doseR.effect.length ? deriveDose(doseR, ranConfig, meta) : null,
-        journal: journal ? journal.map(r => deriveJournalRow(r, now, meta)) : null,
+        dose: doseR && doseR.effect.length ? deriveDose(doseR, ranConfig, meta, words) : null,
+        journal: journal ? journal.map(r => deriveJournalRow(r, now, meta, words)) : null,
     };
 }
 
@@ -778,8 +784,18 @@ function deriveDesignOption(o: DesignValue['options'][number]): VMDesignOption {
     };
 }
 
-/** Design value → the "Validate" tab view-model (numbers → recipe + chart). */
-export function deriveDesign(d: DesignValue, result: ResultValue | null, ranConfig: ConfigValue, meta: ColMeta | undefined): VMDesign {
+/**
+ * Design value → the "Validate" tab view-model (numbers → recipe + chart).
+ *
+ * @param d - The design function's result
+ * @param result - The experiment result it sizes against, when there is one
+ * @param ranConfig - The config that produced `result`
+ * @param meta - Optional per-column display metadata
+ * @param words - The formatters every number prints through (#850); the
+ *   runtime locale's when omitted
+ * @returns The Validate tab's view-model
+ */
+export function deriveDesign(d: DesignValue, result: ResultValue | null, ranConfig: ConfigValue, meta: ColMeta | undefined, words: Formatters = formatters()): VMDesign {
     const basis = d.basis.type;
     const outcome = ranConfig.outcome;
     const unit = unitOf(meta, outcome);
@@ -812,9 +828,9 @@ export function deriveDesign(d: DesignValue, result: ResultValue | null, ranConf
         for (let i = 0; i < len; i++) { const dd = Math.abs(ns[i]! - target); if (dd < bd) { bd = dd; bi = i; } }
         return bi;
     };
-    const xTicks = len ? [String(ns[0]), String(ns[Math.floor((len - 1) / 2)]), String(ns[len - 1])] : [];
+    const xTicks = len ? [words.number(ns[0]!), words.number(ns[Math.floor((len - 1) / 2)]!), words.number(ns[len - 1]!)] : [];
     const marks: VMDoseMark[] = [];
-    if (len) marks.push({ at: nearest(primary.nTotal), label: `target ${(d.target_power * 100).toFixed(0)}%`, tone: 'pos', help: 'validate_power' });
+    if (len) marks.push({ at: nearest(primary.nTotal), label: `target ${words.percent(d.target_power)}`, tone: 'pos', help: 'validate_power' });
     // "you're here" — only when there's a comparison group to power from.
     const cp = getSomeorUndefined(d.current_power);
     if (cp !== undefined && len) {
@@ -823,7 +839,7 @@ export function deriveDesign(d: DesignValue, result: ResultValue | null, ranConf
             const offScale = curN >= (ns[len - 1] ?? 0);
             marks.push({
                 at: offScale ? len - 1 : nearest(curN),
-                label: offScale ? `you’re here · ${(cp * 100).toFixed(0)}% (off-scale)` : `you’re here ${(cp * 100).toFixed(0)}%`,
+                label: offScale ? `you’re here · ${words.percent(cp)} (off-scale)` : `you’re here ${words.percent(cp)}`,
                 tone: 'muted', help: 'validate_power',
             });
         }
@@ -841,8 +857,8 @@ export function deriveDesign(d: DesignValue, result: ResultValue | null, ranConf
         alternates: options.slice(1),
         matchOn,
         curve: { mid: powers.slice(0, len).map(p => p * 100), xTicks, marks },
-        targetLabel: `${signed(d.target_effect)}${unit ? ` ${unit}` : ''}`,
-        targetPctLabel: `${(d.target_power * 100).toFixed(0)}%`,
+        targetLabel: `${signed(d.target_effect, words)}${unit ? ` ${unit}` : ''}`,
+        targetPctLabel: words.percent(d.target_power),
         holdback: basis === 'create_control',
         showOverlap: basis === 'restrict_to_overlap',
         faint,

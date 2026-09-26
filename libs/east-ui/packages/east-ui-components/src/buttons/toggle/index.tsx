@@ -7,12 +7,12 @@ import { memo, useMemo, useCallback, useState, useEffect } from "react";
 import { Button as ChakraButton, type ButtonProps, Box as ChakraBox } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconName, IconPrefix } from "@fortawesome/fontawesome-common-types";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Toggle, Icon } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 
-const toggleEqual = equalFor(Toggle.Types.Toggle);
+const toggleEqual = equivalentFor(Toggle.Types.Toggle);
 
 export type ToggleValue = ValueTypeOf<typeof Toggle.Types.Toggle>;
 

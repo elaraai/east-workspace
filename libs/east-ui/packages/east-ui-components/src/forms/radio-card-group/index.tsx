@@ -5,11 +5,11 @@
 
 import { memo, useCallback, useState, useEffect } from "react";
 import { RadioCard as ChakraRadioCard, HStack, VStack } from "@chakra-ui/react";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { RadioCardGroup } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 
-const radioCardGroupEqual = equalFor(RadioCardGroup.Types.Root);
+const radioCardGroupEqual = equivalentFor(RadioCardGroup.Types.Root);
 
 export type RadioCardGroupValue = ValueTypeOf<typeof RadioCardGroup.Types.Root>;
 

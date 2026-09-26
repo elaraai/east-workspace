@@ -5,13 +5,13 @@
 
 import { Fragment, memo, useMemo, useCallback } from "react";
 import { Breadcrumb as ChakraBreadcrumb, Box } from "@chakra-ui/react";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Breadcrumb } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 
 // Pre-define equality functions at module level
-const breadcrumbRootEqual = equalFor(Breadcrumb.Types.Root);
-const breadcrumbItemEqual = equalFor(Breadcrumb.Types.Item);
+const breadcrumbRootEqual = equivalentFor(Breadcrumb.Types.Root);
+const breadcrumbItemEqual = equivalentFor(Breadcrumb.Types.Item);
 
 /** East Breadcrumb root value type */
 export type BreadcrumbRootValue = ValueTypeOf<typeof Breadcrumb.Types.Root>;

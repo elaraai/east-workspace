@@ -143,6 +143,19 @@ export {
     type PlanRootValue,
     type PlanRowValue,
     type EastChakraPlanProps,
+    // The Plan's words (#820)
+    PlanMessagesProvider,
+    planMessages,
+    type PlanMessages,
+    type PlanMessagesProviderProps,
+    type PlanAxisWord,
+    type PlanChartLayerWord,
+    type PlanFocusTagWord,
+    type PlanGrainWord,
+    type PlanHorizonUnit,
+    type PlanMarkWord,
+    type PlanPart,
+    type PlanStateWord,
     EastChakraLibrary,
     type LibraryValue,
     type LibraryItemValue,
@@ -179,6 +192,17 @@ export {
     type SheetRowValue,
     type SheetCellValue,
     type EastChakraSheetProps,
+    // The Sheet's words (#861)
+    SheetMessagesProvider,
+    sheetMessages,
+    type SheetMessages,
+    type SheetMessagesProviderProps,
+    type SheetArityWord,
+    type SheetHalfWord,
+    type SheetHistoryWord,
+    type SheetLevelWord,
+    type SheetScopeWord,
+    type SheetToneWord,
     EastChakraBlend,
     type BlendValue,
     type BlendTargetValue,
@@ -375,10 +399,12 @@ export {
     OverlayImpl,
 } from "./overlays/index.js";
 
-// Drag & drop layer (the renderer half of the drag grammar contract)
+// Drag & drop layer (the renderer half of the drag grammar contract), on
+// dnd-kit (#608): pointer, touch and keyboard drags, announced.
 export {
     DragLayerProvider,
     type DragLayerProviderProps,
+    type DragLayerState,
     useDragLayer,
     useDragLayerOptional,
     useDragTarget,
@@ -386,15 +412,29 @@ export {
     useDropSink,
     useDragSourceItem,
     useDragEventChip,
+    useDragEventEdge,
+    useDragMessages,
+    dropEvent,
     type DragEventValue,
+    type DragHandle,
+    type DragPayload,
+    type DropVeto,
+    type DropCellOptions,
     type CellCoord,
     type DragKinds,
+    type DragMeta,
     type DragTargetConfig,
 } from "./dnd/drag-layer.js";
+// The drag layer's words (#608) — `<DragLayerProvider messages={…}>` overrides any subset.
+export { dragMessages, type DragMessages } from "./dnd/messages.js";
 
 // Hooks
 export { usePersistedState, type PersistedStateResult } from "./hooks/usePersistedState.js";
 export { useColorMode, applyColorMode, type ColorMode } from "./hooks/useColorMode.js";
+// The #809 data gates — a renderer memoizes with `equivalentFor`, and these keep
+// its local state and derivations on DATA changes only.
+export { useValueSync } from "./hooks/useValueSync.js";
+export { useDataStable } from "./hooks/useDataStable.js";
 
 // Platform (State Management)
 export {
@@ -478,6 +518,19 @@ export {
 // tick-format primitives the in-package renderers use.
 export { getSomeorUndefined } from "./utils.js";
 export { formatTick, type TickFormatOpt } from "./typography/numeric/format-tick.js";
+// One formatter for every component (#850) — numbers and dates in the app's
+// locale, dates in UTC. The locale is react-aria's: wrap the app in
+// `<I18nProvider locale="de-DE">` (re-exported here, so a host needs no
+// react-aria dependency of its own); the browser's language stands in otherwise.
+export {
+    formatters,
+    useFormatters,
+    formatPattern,
+    tickFormatOf,
+    type Formatters,
+    type ValueFormat,
+} from "./format/index.js";
+export { I18nProvider, type I18nProviderProps } from "@react-aria/i18n";
 
 // Adaptive contract (#346) — container-width + pointer-capability hooks for
 // this package's renderers and sibling renderer packages (e3-ui-components).

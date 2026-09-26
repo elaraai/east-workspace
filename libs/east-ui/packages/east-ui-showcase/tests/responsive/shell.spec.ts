@@ -48,16 +48,16 @@ test("shell: nav drawer opens, navigates, closes @narrow", async ({ page }) => {
 test("splitter: collapseBelow stacks in a phone-width frame @narrow", async ({ page }) => {
     await page.goto("/#layout/splitter/splitterCollapseBelow");
     await page.waitForSelector("header");
-    await page.waitForTimeout(700);
     const stacked = page.locator("[data-splitter-stacked]");
     if (isMobileProject()) {
         // The example authors collapseBelow=480; the doc frame is ~350px on
         // a 390px viewport, so the panels stack.
         await expect(stacked).toHaveCount(1);
     } else {
-        // Desktop frames are ~1000px wide — the split renders.
-        await expect(stacked).toHaveCount(0);
+        // Desktop frames are ~1000px wide — the split renders (and only once
+        // it has can "not stacked" mean anything).
         await expect(page.locator('[data-part="resize-trigger"]').first()).toBeVisible();
+        await expect(stacked).toHaveCount(0);
     }
 });
 
@@ -65,8 +65,8 @@ test("chart: touch tap opens the tooltip", async ({ page }) => {
     test.skip(!isMobileProject(), "touch-only interaction");
     await page.goto("/#charts/chart");
     await page.waitForSelector("header");
-    await page.waitForTimeout(900);
-    // The first chart's transparent hover/tap overlay rect.
+    // The first chart's transparent hover/tap overlay rect. The tap waits
+    // for it to be visible and stable — the chart has measured its frame.
     const overlay = page.locator('svg rect[fill="transparent"]').first();
     await overlay.scrollIntoViewIfNeeded();
     await overlay.tap();

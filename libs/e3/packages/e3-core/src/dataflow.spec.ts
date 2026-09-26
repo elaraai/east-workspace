@@ -683,15 +683,19 @@ describe('dataflow', () => {
 
       const controller = new AbortController();
 
-      // Start execution with concurrency 2 so both tasks start
+      // Start execution with concurrency 2 so both tasks start, and abort the
+      // moment the fast task completes — while the slow one is still running.
+      // (A fixed 300 ms wait assumed the fast task's process had finished by
+      // then; on a loaded Windows runner it had not, and the abort beat it.)
+      // The orchestrator records a completion before it reports one, so the
+      // fast task is already in the state the partial results are built from.
       const executionPromise = dataflowExecute(storage, testRepo, 'test-ws', {
         signal: controller.signal,
         concurrency: 2,
+        onTaskComplete: (result) => {
+          if (result.name === 'fast-task') controller.abort();
+        },
       });
-
-      // Wait for fast task to complete, then abort
-      await new Promise(resolve => setTimeout(resolve, 300));
-      controller.abort();
 
       // Should throw with partial results
       try {

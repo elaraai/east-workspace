@@ -138,6 +138,20 @@ export const globalCss = defineGlobalStyles({
     "[data-drag-ghost]": {
         opacity: "0.8",
     },
+    /* The ghost's wrapper (dnd-kit's overlay, #608) takes no pointer: the
+     * layer hit-tests what lies UNDER the pointer, and the ghost must never be
+     * it. */
+    ".east-drag-ghost": {
+        pointerEvents: "none",
+    },
+    /* A draggable is a keyboard control (#608): focused, Space / Enter picks
+     * it up. The global reset below strips focus outlines, so it wears the
+     * brand ring the moment the keyboard reaches it. */
+    "[data-draggable]:focus-visible": {
+        outline: "2px solid",
+        outlineColor: "{colors.brand.500}",
+        outlineOffset: "2px",
+    },
     /* The shared trash sink (#267) — a fixed bottom-centre zone the drag
      * layer portals in during any `remove`-capable drag. Dashed = ephemeral
      * (the stage vocabulary); danger tones because the drop is a removal.

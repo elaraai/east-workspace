@@ -3,15 +3,18 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  *
  * The state machine's transition table (Sheet Spec §6.1, §5 rows 13–14):
- * the esc ladder, the commit directions, the unrecognised value that never
- * commits, the printable seed, whole-row deletion.
+ * the esc ladder, the commit directions, retained invalid draft input, the printable seed, whole-row deletion.
  */
 
 import { describe, test, expect } from "vitest";
+import { variant } from "@elaraai/east";
 import { sheetReducer, initialSheetState, sheetStoreReducer, initialSheetStore, type SheetMachineCtx, type SheetUiState, type SheetEvent, type SheetEffect } from "./sheet-state.js";
 import type { SheetCellValue } from "./values.js";
+import type { SheetNotice } from "./sheet-types.js";
+import { noticeText, SHEET_WORDS, sheetWords } from "./words.js";
+import { sheetMessages } from "./messages.js";
 
-const cell = (type: string, value: unknown): SheetCellValue => ({ type, value } as SheetCellValue);
+const cell = (type: string, value: unknown): SheetCellValue => variant(type, value) as SheetCellValue;
 
 /** A 4 × 3 sheet: text · date · stamped; `bad` never parses; row 3 is blank. */
 function ctxOf(over: Partial<SheetMachineCtx> = {}): SheetMachineCtx {
@@ -21,7 +24,7 @@ function ctxOf(over: Partial<SheetMachineCtx> = {}): SheetMachineCtx {
         lensActive: false,
         canAppend: true,
         editableAt: (_r, c) => c !== 2,
-        kindAt: (c) => (c === 0 ? "lookup" : c === 1 ? "date" : "stamped"),
+        kindAt: (_r, c) => (c === 0 ? "lookup" : c === 1 ? "date" : "stamped"),
         parse: (_r, _c, text) => text.trim() === "" ? { kind: "blank" } : text === "bad" ? { kind: "unrecognised" } : { kind: "cell", cell: cell("String", text) },
         candidates: (_r, _c, text) => (text.startsWith("ma") ? ["Machining", "Machining - Roughing"] : []),
         candidateAt: (_r, _c, text, hi) => (text.startsWith("ma") ? (hi > 0 ? "Machining - Roughing" : "Machining") : undefined),
@@ -34,6 +37,8 @@ const key = (k: string, mods: Partial<{ shift: boolean; meta: boolean; alt: bool
     ({ t: "key", key: k, shift: false, meta: false, alt: false, ...mods });
 const ekey = (k: string, mods: Partial<{ shift: boolean; meta: boolean; alt: boolean; atEnd: boolean }> = {}): SheetEvent =>
     ({ t: "editor.key", key: k, shift: false, meta: false, alt: false, atEnd: true, ...mods });
+/** The footer's line for the message a transition left — the machine leaves data, worded in English here (#861). */
+const said = (msg: SheetNotice | null): string => (msg === null ? "" : noticeText(msg, SHEET_WORDS));
 
 function run(s: SheetUiState, events: SheetEvent[], ctx = ctxOf()): { state: SheetUiState; effects: SheetEffect[] } {
     let state = s;
@@ -64,6 +69,58 @@ describe("movement", () => {
     test("esc clears a range — one rung per press", () => {
         const { state } = run(initialSheetState(), [key("ArrowRight", { shift: true }), key("Escape")]);
         expect(state.selEnd).toBeNull();
+    });
+});
+
+describe("the key map (#860)", () => {
+    type Mods = Partial<{ shift: boolean; meta: boolean }>;
+    /** Rows 0–3 of 3 columns, the last blank padding; a page is two rows. */
+    const inline = ctxOf({ rowKindAt: (r) => (r === 3 ? "blank" : "row"), pageRows: () => 2 });
+    /** A paged sheet's resident run, the source going on above and below it. */
+    const midRun = ctxOf({ canAppend: false, edges: { atStart: false, atEnd: false }, rowKindAt: () => "row", pageRows: () => 2 });
+    /** A paged sheet with both of its ends resident. */
+    const wholeRun = ctxOf({ canAppend: false, edges: { atStart: true, atEnd: true }, rowKindAt: () => "row", pageRows: () => 2 });
+    const moved = (r: number, c: number): SheetEffect[] => [{ t: "emit.select", r, c }, { t: "scroll.to", r }];
+    const cases: [string, { r: number; c: number }, string, Mods, SheetMachineCtx, { r: number; c: number }, { r: number; c: number } | null, SheetEffect[]][] = [
+        ["Home goes to the row's first column", { r: 2, c: 2 }, "Home", {}, inline, { r: 2, c: 0 }, null, moved(2, 0)],
+        ["End goes to the row's last column", { r: 2, c: 0 }, "End", {}, inline, { r: 2, c: 2 }, null, moved(2, 2)],
+        ["⇧End stretches a range to the row's last column", { r: 2, c: 0 }, "End", { shift: true }, inline, { r: 2, c: 0 }, { r: 2, c: 2 }, []],
+        ["⌘Home goes to the sheet's first cell", { r: 2, c: 2 }, "Home", { meta: true }, inline, { r: 0, c: 0 }, null, moved(0, 0)],
+        ["⌘End goes to the last cell of the last row that is not blank padding", { r: 0, c: 0 }, "End", { meta: true }, inline, { r: 2, c: 2 }, null, moved(2, 2)],
+        ["⇧⌘End stretches a range to that cell", { r: 0, c: 0 }, "End", { meta: true, shift: true }, inline, { r: 0, c: 0 }, { r: 2, c: 2 }, []],
+        ["PageDown moves a page of rows", { r: 0, c: 1 }, "PageDown", {}, inline, { r: 2, c: 1 }, null, moved(2, 1)],
+        ["PageDown stops at the last row", { r: 2, c: 1 }, "PageDown", {}, inline, { r: 3, c: 1 }, null, moved(3, 1)],
+        ["PageUp moves a page back", { r: 3, c: 1 }, "PageUp", {}, inline, { r: 1, c: 1 }, null, moved(1, 1)],
+        ["⇧PageDown stretches a range a page down", { r: 0, c: 1 }, "PageDown", { shift: true }, inline, { r: 0, c: 1 }, { r: 2, c: 1 }, []],
+        ["a frame not yet measured pages by ten rows", { r: 0, c: 1 }, "PageDown", {}, ctxOf(), { r: 3, c: 1 }, null, moved(3, 1)],
+        ["↓ on the last resident row asks for the window below", { r: 3, c: 1 }, "ArrowDown", {}, midRun, { r: 3, c: 1 }, null, [{ t: "seek.step", dir: 1, c: 1 }]],
+        ["↑ on the first resident row asks for the window above", { r: 0, c: 1 }, "ArrowUp", {}, midRun, { r: 0, c: 1 }, null, [{ t: "seek.step", dir: -1, c: 1 }]],
+        ["⌘End toward an end not resident jumps there, landing on its last column", { r: 1, c: 0 }, "End", { meta: true }, midRun, { r: 1, c: 0 }, null, [{ t: "seek.edge", edge: "last", c: 2 }]],
+        ["⌘Home toward an end not resident jumps there, landing on its first column", { r: 1, c: 2 }, "Home", { meta: true }, midRun, { r: 1, c: 2 }, null, [{ t: "seek.edge", edge: "first", c: 0 }]],
+        ["⇧⌘End stretches over the resident rows only", { r: 1, c: 0 }, "End", { meta: true, shift: true }, midRun, { r: 1, c: 0 }, { r: 3, c: 2 }, []],
+        ["⇧↓ on the last resident row stretches, and asks for nothing", { r: 3, c: 1 }, "ArrowDown", { shift: true }, midRun, { r: 3, c: 1 }, { r: 3, c: 1 }, []],
+        ["↓ on the last row of a source wholly resident stays", { r: 3, c: 1 }, "ArrowDown", {}, wholeRun, { r: 3, c: 1 }, null, []],
+        ["↑ on its first row stays", { r: 0, c: 1 }, "ArrowUp", {}, wholeRun, { r: 0, c: 1 }, null, []],
+        ["⌘End on it lands on its last row", { r: 0, c: 0 }, "End", { meta: true }, wholeRun, { r: 3, c: 2 }, null, moved(3, 2)],
+    ];
+    test.each(cases)("%s", (_what, from, k, mods, ctx, sel, selEnd, effects) => {
+        const t = run(initialSheetState(from), [key(k, mods)], ctx);
+        expect(t.state.sel).toEqual(sel);
+        expect(t.state.selEnd).toEqual(selEnd);
+        expect(t.effects).toEqual(effects);
+    });
+
+    test("a key's move asking for a window drops the range; the move landing once it arrives reports, scrolls and drops a picked proposal — never while an editor is open", () => {
+        const ranged = { ...initialSheetState({ r: 3, c: 1 }), selEnd: { r: 2, c: 1 } };
+        const asked = run(ranged, [key("ArrowDown")], midRun);
+        expect(asked.state.selEnd).toBeNull();
+        expect(asked.effects).toEqual([{ t: "seek.step", dir: 1, c: 1 }]);
+        const landed = run({ ...initialSheetState({ r: 3, c: 1 }), gsel: 0 }, [{ t: "select.move", r: 1, c: 2 }], midRun);
+        expect(landed.state.sel).toEqual({ r: 1, c: 2 });
+        expect(landed.state.gsel).toBeNull();
+        expect(landed.effects).toEqual(moved(1, 2));
+        const editing = run(initialSheetState({ r: 3, c: 1 }), [key("x")], midRun).state;
+        expect(run(editing, [{ t: "select.move", r: 1, c: 2 }], midRun).state).toBe(editing);
     });
 });
 
@@ -99,14 +156,43 @@ describe("editing", () => {
         }
     });
 
-    test("an unparseable value never commits — the editor stays with the neg ring; a blur discards it", () => {
+    test("an unparseable value is retained verbatim on Enter, Tab and blur; Escape still cancels", () => {
         const open = run(initialSheetState(), [key("b"), { t: "editor.change", val: "bad" }]).state;
-        const stuck = run(open, [ekey("Enter")]);
-        expect(stuck.state.edit).toMatchObject({ val: "bad", err: true });
-        expect(stuck.effects.some((e) => e.t === "write")).toBe(false);
-        const dropped = run(open, [{ t: "editor.blur" }]);
-        expect(dropped.state.edit).toBeNull();
-        expect(dropped.effects.some((e) => e.t === "write")).toBe(false);
+        for (const event of [ekey("Enter"), ekey("Tab"), { t: "editor.blur" } as SheetEvent]) {
+            const committed = run(open, [event]);
+            expect(committed.state.edit).toBeNull();
+            expect(committed.effects).toContainEqual({ t: "write", r: 0, c: 0, cell: variant("Invalid", "bad"), text: "bad" });
+        }
+        expect(run(open, [ekey("Escape")]).effects.some(effect => effect.t === "write")).toBe(false);
+    });
+
+    test("an editor closed on the text it opened with writes nothing, however it closes; a change or a seed writes (#852)", () => {
+        const wrote = (t: { effects: SheetEffect[] }) => t.effects.some((e) => e.t === "write");
+        const opened = run(initialSheetState({ r: 1, c: 1 }), [key("Enter")]).state;
+        expect(opened.edit).toMatchObject({ val: "v11", opened: "v11" });
+        for (const event of [ekey("Enter"), ekey("Tab"), ekey("ArrowUp"), { t: "editor.blur" } as SheetEvent, { t: "cell.down", r: 2, c: 0, shift: false } as SheetEvent]) {
+            const closed = run(opened, [event]);
+            expect(closed.state.edit).toBeNull();
+            expect(wrote(closed)).toBe(false);
+        }
+        // It still moves the way a commit does.
+        expect(run(opened, [ekey("Enter")]).state.sel).toEqual({ r: 2, c: 1 });
+        // Typed away and back: the same text, nothing to write.
+        expect(wrote(run(opened, [{ t: "editor.change", val: "v1" }, { t: "editor.change", val: "v11" }, ekey("Enter")]))).toBe(false);
+        expect(run(opened, [{ t: "editor.change", val: "w" }, ekey("Enter")]).effects).toContainEqual({ t: "write", r: 1, c: 1, cell: cell("String", "w"), text: "w" });
+        // A printable key replaced the cell: its commit always writes.
+        expect(run(initialSheetState({ r: 1, c: 1 }), [key("v"), { t: "editor.change", val: "v11" }]).state.edit?.opened).toBeUndefined();
+        expect(wrote(run(initialSheetState({ r: 1, c: 1 }), [key("v"), { t: "editor.change", val: "v11" }, ekey("Enter")]))).toBe(true);
+    });
+
+    test("an untouched register cell never takes the ghost its own value shows; a cycled candidate or a taken ghost writes (#852)", () => {
+        // The cell holds `ma`, which the candidates complete to Machining.
+        const ctx = ctxOf({ editTextAt: () => "ma" });
+        const opened = run(initialSheetState(), [key("Enter")], ctx).state;
+        expect(run(opened, [ekey("Enter")], ctx).effects.some((e) => e.t === "write")).toBe(false);
+        const cycled = run(opened, [ekey("]", { alt: true }), ekey("Enter")], ctx);
+        expect(cycled.effects).toContainEqual({ t: "write", r: 0, c: 0, cell: cell("String", "Machining - Roughing"), text: "Machining - Roughing" });
+        expect(run(opened, [ekey("Tab"), ekey("Enter")], ctx).effects.some((e) => e.t === "write")).toBe(true);
     });
 
     test("esc cancels and refocuses the sheet; an empty buffer commits a blank", () => {
@@ -170,6 +256,34 @@ describe("rows", () => {
         expect(shrunk.state.sel).toEqual({ r: 1, c: 0 });
         expect(shrunk.state.edit).toBeNull();
     });
+
+    test("a run that moved under the ring: the ring, a range, the editor, the hover and the armed fill follow their rows; a row that left keeps its index (#854)", () => {
+        const open = { ...run(initialSheetState({ r: 1, c: 1 }), [key("x")]).state, selEnd: { r: 2, c: 1 }, hover: { r: 2, c: 0 }, armed: { r: 1, c: 2 } };
+        // Two rows landed above: every row sits two further down; the row at 3 left.
+        const moved = (r: number): number | null => (r === 3 ? null : r + 2);
+        const after = run(open, [{ t: "rows.changed", moved }], ctxOf({ rowCount: 6 }));
+        expect(after.state.sel).toEqual({ r: 3, c: 1 });
+        expect(after.state.selEnd).toEqual({ r: 4, c: 1 });
+        expect(after.state.edit).toMatchObject({ r: 3, c: 1, val: "x" });
+        expect(after.state.hover).toEqual({ r: 4, c: 0 });
+        expect(after.state.armed).toEqual({ r: 3, c: 2 });
+        // A ring whose row left keeps its index, clamped as before.
+        expect(run(initialSheetState({ r: 3, c: 0 }), [{ t: "rows.changed", moved }], ctxOf({ rowCount: 6 })).state.sel).toEqual({ r: 3, c: 0 });
+        // Nothing moved: the same state.
+        expect(run(open, [{ t: "rows.changed", moved: (r) => r }]).state).toBe(open);
+    });
+
+    test("an open editor whose row left closes, uncommitted, and the footer says why; the ring keeps its index (#877)", () => {
+        const open = run(initialSheetState({ r: 3, c: 0 }), [key("x")]).state;
+        const moved = (r: number): number | null => (r === 3 ? null : r);
+        const left = run(open, [{ t: "rows.changed", moved }], ctxOf({ rowCount: 6 }));
+        expect(left.state.edit).toBeNull();
+        expect(left.state.sel).toEqual({ r: 3, c: 0 });
+        expect(said(left.state.msg)).toBe("The edited row left the sheet — its edit was not kept");
+        expect(left.effects).toEqual([{ t: "focus.sheet" }]);
+        // Nothing known of the row: the editor stays where it is.
+        expect(run(open, [{ t: "rows.changed", moved: () => undefined }], ctxOf({ rowCount: 6 })).state.edit).toMatchObject({ r: 3, c: 0, val: "x" });
+    });
 });
 
 describe("the store", () => {
@@ -181,8 +295,8 @@ describe("the store", () => {
         expect(s1.fx.map((e) => e.t)).toEqual(["emit.select", "scroll.to"]);
         const s2 = sheetStoreReducer(s1, { t: "event", e: key("Escape"), ctx });
         expect(s2).toBe(s1);
-        const s3 = sheetStoreReducer(s2, { t: "patch", patch: { msg: "hi" } });
-        expect(s3.ui.msg).toBe("hi");
+        const s3 = sheetStoreReducer(s2, { t: "patch", patch: { msg: { id: "text", text: "hi" } } });
+        expect(said(s3.ui.msg)).toBe("hi");
         expect(s3.fxSeq).toBe(1);
     });
 });
@@ -193,8 +307,8 @@ import type { LinkEditCtx, LinkGroups } from "./sheet-state.js";
 import type { LinkCandidate } from "./link/predict.js";
 import type { SheetMemberValue } from "./values.js";
 
-const id = (key: string): SheetMemberValue => ({ type: "identified", value: { key } }) as SheetMemberValue;
-const txt = (s: string): SheetMemberValue => ({ type: "text", value: s }) as SheetMemberValue;
+const id = (key: string): SheetMemberValue => variant("identified", { key });
+const txt = (s: string): SheetMemberValue => variant("text", s);
 const KEYS = ["M2140", "M2141", "M2145", "M7301"];
 
 /** A link column at c = 0 over four machine codes, with the driver's sides. */
@@ -206,7 +320,7 @@ function linkCtxOf(sides: "both" | "from" | "to" | "in", initial: LinkGroups = [
         sides,
     };
     const candidates = (text: string, groups: LinkGroups): LinkCandidate[] => {
-        const used = new Set([...groups[0], ...groups[1]].map((m) => (m.type === "identified" ? (m.value as { key: string }).key : "")));
+        const used = new Set([...groups[0], ...groups[1]].map((m) => (m.type === "identified" ? m.value.key : "")));
         const t = text.trim().toLowerCase();
         if (t === "") return [];
         return KEYS.filter((k) => !used.has(k) && k.toLowerCase().startsWith(t)).map((k) => ({ label: k, meta: "", members: [id(k)] }));
@@ -227,12 +341,12 @@ function linkCtxOf(sides: "both" | "from" | "to" | "in", initial: LinkGroups = [
     };
     return ctxOf({
         colCount: 2,
-        kindAt: (c) => (c === 0 ? "link" : "text"),
+        kindAt: (_r, c) => (c === 0 ? "link" : "text"),
         linkAt: (_r, c) => (c === 0 ? link : undefined),
     });
 }
 
-const labels = (g: readonly SheetMemberValue[]) => g.map((m) => (m.type === "identified" ? (m.value as { key: string }).key : m.type === "text" ? `~${m.value as string}` : m.type));
+const labels = (g: readonly SheetMemberValue[]) => g.map((m) => (m.type === "identified" ? m.value.key : m.type === "text" ? `~${m.value}` : m.type));
 
 describe("the link editor", () => {
     test("opens with the cell's chips, the caret in the first live empty half; a seed replaces the content", () => {
@@ -263,7 +377,7 @@ describe("the link editor", () => {
         expect(labels(arrowInTo.state.edit!.link!.groups[1])).toEqual(["M2141"]);   // `m21` resolved to its top FREE candidate — M2140 is already in From
         const locked = run(initialSheetState(), [key("m"), { t: "editor.change", val: "M2140 >" }], linkCtxOf("from"));
         expect(locked.state.edit!.link!.side).toBe(1);
-        expect(locked.state.msg).toMatch(/has no destination — kept, but flagged/);
+        expect(said(locked.state.msg)).toMatch(/has no destination — kept, but flagged/);
     });
 
     test("⇥ ladder: the armed candidate → a hop (a locked half skipped) → commit right", () => {
@@ -330,7 +444,7 @@ describe("the link editor", () => {
         const removed = run(two.state, [ekey("Backspace")], ctx);
         expect(labels(removed.state.edit!.link!.groups[0])).toEqual(["M2140"]);
         expect(removed.state.edit!.link!.groups[1]).toEqual([]);
-        expect(removed.state.msg).toBe("2 members removed");
+        expect(said(removed.state.msg)).toBe("2 members removed");
         const shrunk = run(one.state, [ekey("ArrowRight", { shift: true })], ctx);
         expect(shrunk.state.edit!.link!.chipSel).toBeNull();
     });
@@ -365,7 +479,7 @@ function suggestCtxOf(over: Partial<SheetMachineCtx> = {}): SheetMachineCtx {
     const cols: Record<string, number> = { activity: 0, start: 1, qty: 2 };
     return ctxOf({
         colCount: 3,
-        kindAt: (c) => (c === 0 ? "lookup" : c === 1 ? "date" : "quantity"),
+        kindAt: (_r, c) => (c === 0 ? "lookup" : c === 1 ? "date" : "quantity"),
         editableAt: () => true,
         rowOf: (id) => ids[id],
         idAt: (r) => ["a", "b", "c", " blank:3"][r],
@@ -397,7 +511,7 @@ describe("the copilot", () => {
         expect(armed.effects.some((e) => e.t === "write.many")).toBe(false);
         const took = run(armed.state, [key("Tab")], ctx);
         expect(took.effects).toContainEqual({ t: "write.many", r: 1, writes: [{ c: 1, cell: START.cell }], source: "fill" });
-        expect(took.state.msg).toBe("Took start — week after a");
+        expect(said(took.state.msg)).toBe("Took start — week after a");
         expect(took.state.sel).toEqual({ r: 1, c: 2 });
         expect(took.state.armed).toEqual({ r: 1, c: 2 });
         expect(took.state.sugg?.fill.has("start")).toBe(false);
@@ -418,20 +532,21 @@ describe("the copilot", () => {
         const both = run(at, [{ t: "suggest.ready", anchorId: "b", sugg: suggOn("b", { start: START, qty: QTY }, [proposal("Painting"), proposal("Packaging")]) }], ctx).state;
         const filled = run(both, [key("Enter")], ctx);
         expect(filled.effects).toContainEqual({ t: "write.many", r: 1, writes: [{ c: 1, cell: START.cell }, { c: 2, cell: QTY.cell }], source: "row" });
-        expect(filled.state.msg).toBe("Filled 2 cells on row 2");
+        expect(said(filled.state.msg)).toBe("Filled 2 cells on row 2");
         expect(filled.state.sugg?.rows).toHaveLength(2);
         expect(filled.state.edit).toBeNull();
         const took = run(filled.state, [key("Enter")], ctx);
         expect(took.effects).toContainEqual({ t: "insert.rows", anchorR: 1, rows: [proposal("Painting")], rest: [proposal("Packaging")] });
-        expect(took.state.msg).toBe("Took Painting — next one suggested below");
+        expect(said(took.state.msg)).toBe("Took Painting — next one suggested below");
         expect(took.state.sugg).toBeNull();
         // With nothing pending ⏎ edits.
         expect(run(took.state, [key("Enter")], ctx).state.edit).not.toBeNull();
         expect(run(both, [key("Enter", { meta: true })], ctx).effects.map((e) => e.t)).toEqual(["write.many"]);
         const all = run(both, [key("Enter", { meta: true, shift: true })], ctx);
         expect(all.effects.map((e) => e.t)).toEqual(["write.many", "insert.rows"]);
-        expect((all.effects[1] as { rows: PendingRow[]; rest: PendingRow[] }).rows).toHaveLength(2);
-        expect((all.effects[1] as { rest: PendingRow[] }).rest).toEqual([]);
+        const insertion = all.effects.find(effect => effect.t === "insert.rows");
+        expect(insertion?.rows).toHaveLength(2);
+        expect(insertion?.rest).toEqual([]);
         expect(run(both, [{ t: "fill.row" }], ctx).effects[0]).toMatchObject({ t: "write.many", source: "row" });
         // Rows only: ⇥ takes the next one.
         const rowsOnly = run(at, [{ t: "suggest.ready", anchorId: "b", sugg: suggOn("b", {}, [proposal("Painting")]) }], ctx).state;
@@ -447,11 +562,11 @@ describe("the copilot", () => {
         expect(picked.effects).toContainEqual({ t: "focus.sheet" });
         const one = run(picked.state, [key("Escape")], ctx);
         expect(one.state.gsel).toBeNull();
-        expect(one.state.msg).toBe("Deselected — esc again dismisses every suggestion");
+        expect(said(one.state.msg)).toBe("Deselected — esc again dismisses every suggestion");
         const two = run(one.state, [key("Escape")], ctx);
         expect(two.state.sugg?.fill.size).toBe(0);
         expect(two.state.sugg?.rows).toHaveLength(2);
-        expect(two.state.msg).toBe("Row fill dismissed — esc again for the suggested rows");
+        expect(said(two.state.msg)).toBe("Row fill dismissed — esc again for the suggested rows");
         const three = run(two.state, [key("Escape")], ctx);
         expect(three.state.sugg).toBeNull();
         expect(three.state.selEnd).toBeNull();
@@ -470,7 +585,7 @@ describe("the copilot", () => {
         expect(dismissed.state.rejected.fills.has("b|start")).toBe(true);
         expect(dismissed.state.sugg?.fill.has("start")).toBe(false);
         expect(dismissed.state.armed).toBeNull();
-        expect(dismissed.state.msg).toBe("Dismissed — start will not be suggested again on this row");
+        expect(said(dismissed.state.msg)).toBe("Dismissed — start will not be suggested again on this row");
         // ⌫ with nothing armed clears the cells as before.
         expect(run(both, [key("Backspace")], ctx).effects).toContainEqual({ t: "clear", r0: 1, r1: 1, c0: 0, c1: 0 });
         const picked = run(both, [{ t: "proposal.pick", i: 0 }], ctx).state;
@@ -478,7 +593,7 @@ describe("the copilot", () => {
         expect(rejected.state.rejected.follows.has("Machining>Painting")).toBe(true);
         expect(rejected.state.sugg?.rows).toEqual([]);
         expect(rejected.state.gsel).toBeNull();
-        expect(rejected.state.msg).toBe("Rejected — Painting will not be suggested after Machining again");
+        expect(said(rejected.state.msg)).toBe("Rejected — Painting will not be suggested after Machining again");
         // The × button on a proposal row does the same without a selection.
         expect(run(both, [{ t: "proposal.reject", i: 0 }], ctx).state.rejected.follows.has("Machining>Painting")).toBe(true);
     });
@@ -523,7 +638,8 @@ describe("the copilot", () => {
         expect(typing.effects).toContainEqual({ t: "schedule.suggest", latency: "idle" });
         // ⌘⏎ in the editor commits in place and takes the row fill.
         const filled = run(typing.state, [ekey("Enter", { meta: true })], ctx);
-        expect(filled.effects.map((e) => e.t)).toEqual(["write", "focus.sheet", "write.many"]);
+        const writes = filled.effects.filter(effect => effect.t === "write" || effect.t === "write.many");
+        expect(writes).toEqual([{ t: "write.many", r: 1, writes: [{ c: 1, cell: START.cell }], source: "row" }]);
         expect(filled.state.edit).toBeNull();
         expect(run(armed, [{ t: "clipboard.paste", text: "a\tb" }], ctx).state.sugg).toBeNull();
     });
@@ -542,14 +658,14 @@ const narrowingOf = (search: string | undefined): SliceStateValue => ({
 const EMPTY = narrowingOf(undefined);
 const PAINT = narrowingOf("paint");
 const LATHE = narrowingOf("lathe");
-const view = (id: string, name: string, narrowing: SliceStateValue, context = 0n, reveals: bigint[] = []): SheetViewValue => ({ id, name, narrowing, context, reveals });
+const view = (id: string, name: string, narrowing: SliceStateValue, context = 0n, reveals: bigint[] = []): SheetViewValue => ({ id, name, narrowing, context, reveals, folds: new Map() });
 const VIEWS = [view("paint", "PAINT", PAINT, 1n, [4n]), view("lathe", "LATHE", LATHE)];
 
 /** A sheet on the PAINT tab, the slice at `narrowing`, the views as given. */
 function lensCtxOf(narrowing: SliceStateValue, views: readonly SheetViewValue[] = VIEWS, dirty = false, over: Partial<SheetMachineCtx> = {}): SheetMachineCtx {
     return ctxOf({ rowCount: 6, lensActive: true, views, narrowing, emptyNarrowing: EMPTY, dirty, ...over });
 }
-const onPaint = (): SheetUiState => ({ ...initialSheetState({ r: 3, c: 1 }, "paint"), lens: { context: 1, reveals: new Set([4, 5]), steps: new Map([["a_b:top", 2]]) } });
+const onPaint = (): SheetUiState => ({ ...initialSheetState({ r: 3, c: 1 }, "paint"), lens: { context: 1, reveals: new Set([4, 5]), steps: new Map([["a_b:top", 2]]), folds: new Map() } });
 const viewsOf = (t: { effects: SheetEffect[] }): SheetViewValue[] | undefined => (t.effects.find((e) => e.t === "emit.views") as { views: SheetViewValue[] } | undefined)?.views;
 const written = (t: { effects: SheetEffect[] }): SliceStateValue | undefined => (t.effects.find((e) => e.t === "slice.write") as { state: SliceStateValue } | undefined)?.state;
 
@@ -564,7 +680,7 @@ describe("the lens", () => {
         const other = run(three.state, [{ t: "band.reveal", key: "h", from: 30, to: 31, where: "all" }], ctx);
         expect([...other.state.lens.reveals]).toEqual([10, 11, 12, 13, 30, 31]);
         const switched = run(other.state, [{ t: "lens.context", context: 3 }], ctx);
-        expect(switched.state.lens).toEqual({ context: 3, reveals: new Set(), steps: new Map() });
+        expect(switched.state.lens).toEqual({ context: 3, reveals: new Set(), steps: new Map(), folds: new Map() });
         const ranged = { ...other.state, sel: { r: 4, c: 2 }, selEnd: { r: 5, c: 2 } };
         const narrowed = run(ranged, [{ t: "lens.narrowed" }], ctx);
         expect(narrowed.state.lens.reveals.size).toBe(0);
@@ -584,7 +700,7 @@ describe("the view tabs", () => {
         const ctx = lensCtxOf(LATHE, VIEWS, true);
         const t = run(onPaint(), [{ t: "tab.switch", id: "lathe" }], ctx);
         expect(t.state.tabs.active).toBe("lathe");
-        expect(t.state.lens).toEqual({ context: 0, reveals: new Set(), steps: new Map() });
+        expect(t.state.lens).toEqual({ context: 0, reveals: new Set(), steps: new Map(), folds: new Map() });
         expect(t.state.sel).toEqual({ r: 0, c: 1 });
         const views = viewsOf(t)!;
         expect(views[0]).toEqual(view("paint", "PAINT", PAINT, 1n, [4n, 5n]));   // context + reveals persisted; the narrowing kept
@@ -598,7 +714,7 @@ describe("the view tabs", () => {
         // Opening a view (the initial `activeView`) never persists the tab it leaves.
         const opened = run(initialSheetState({ r: 0, c: 0 }, "paint"), [{ t: "tab.open", id: "paint" }], lensCtxOf(EMPTY));
         expect(viewsOf(opened)).toBeUndefined();
-        expect(opened.state.lens).toEqual({ context: 1, reveals: new Set([4]), steps: new Map() });
+        expect(opened.state.lens).toEqual({ context: 1, reveals: new Set([4]), steps: new Map(), folds: new Map() });
         expect(written(opened)).toBe(PAINT);
         // An unknown tab is ignored.
         expect(run(onPaint(), [{ t: "tab.switch", id: "zzz" }], ctx).state).toEqual(onPaint());
@@ -611,12 +727,12 @@ describe("the view tabs", () => {
         expect(views[2]).toEqual(view("view-1", "lathe", LATHE, 1n, [4n, 5n]));
         expect(t.state.tabs.active).toBe("view-1");
         expect(t.state.tabs.seq).toBe(2);
-        expect(t.state.msg).toMatch(/Saved tab "lathe" — a live view/);
+        expect(said(t.state.msg)).toMatch(/Saved tab "lathe" — a live view/);
         // No query: `view n`; an id already taken moves on.
         const taken = [...VIEWS, view("view-1", "x", EMPTY)];
         const blank = run(initialSheetState(), [{ t: "tab.create" }], lensCtxOf(EMPTY, taken));
         expect(viewsOf(blank)!.at(-1)).toEqual(view("view-2", "view 2", EMPTY));
-        expect(blank.state.msg).toMatch(/no filter/);
+        expect(said(blank.state.msg)).toMatch(/no filter/);
         // Without a slice there is nothing to snapshot.
         expect(run(initialSheetState(), [{ t: "tab.create" }]).effects).toEqual([]);
     });
@@ -626,7 +742,7 @@ describe("the view tabs", () => {
         expect(active.state.tabs.active).toBeNull();
         expect(viewsOf(active)!.map((v) => v.id)).toEqual(["lathe"]);
         expect(written(active)).toBe(EMPTY);
-        expect(active.state.msg).toBe('Closed "PAINT" — back to the whole sheet');
+        expect(said(active.state.msg)).toBe('Closed "PAINT" — back to the whole sheet');
         const other = run(onPaint(), [{ t: "tab.close", id: "lathe" }], lensCtxOf(PAINT));
         expect(other.state.tabs.active).toBe("paint");
         expect(viewsOf(other)!.map((v) => v.id)).toEqual(["paint"]);
@@ -638,11 +754,11 @@ describe("the view tabs", () => {
         const updated = run(onPaint(), [{ t: "search.key", key: "Enter" }], dirty);
         expect(viewsOf(updated)![0]).toEqual(view("paint", "PAINT", LATHE, 1n, [4n, 5n]));
         expect(updated.effects.map((e) => e.t)).toEqual(["emit.views", "focus.sheet"]);
-        expect(updated.state.msg).toBe('Tab "PAINT" now saves this search');
+        expect(said(updated.state.msg)).toBe('Tab "PAINT" now saves this search');
         const reverted = run(onPaint(), [{ t: "search.key", key: "Escape" }], dirty);
         expect(written(reverted)).toBe(PAINT);
-        expect(reverted.state.lens).toEqual({ context: 1, reveals: new Set([4]), steps: new Map() });
-        expect(reverted.state.msg).toBe("Reverted to the tab's saved search");
+        expect(reverted.state.lens).toEqual({ context: 1, reveals: new Set([4]), steps: new Map(), folds: new Map() });
+        expect(said(reverted.state.msg)).toBe("Reverted to the tab's saved search");
         const clean = run(onPaint(), [{ t: "search.key", key: "Escape" }], lensCtxOf(PAINT));
         expect(clean.state.tabs.active).toBeNull();
         expect(written(clean)).toBe(EMPTY);
@@ -674,5 +790,132 @@ describe("the view tabs", () => {
         expect(viewsOf(run(onPaint(), [{ t: "tab.reorder", id: "lathe", to: 0 }], ctx))!.map((v) => v.id)).toEqual(["lathe", "paint"]);
         expect(viewsOf(run(onPaint(), [{ t: "tab.reorder", id: "paint", to: 2 }], ctx))!.map((v) => v.id)).toEqual(["lathe", "paint"]);
         expect(run(onPaint(), [{ t: "tab.reorder", id: "paint", to: 0 }], ctx).effects).toEqual([]);
+    });
+});
+
+// ── Grouped rows (#740 — G4, G6, G7, G8) ───────────────────────────────────
+
+/** Two groups: p1 at 0, children 1–2, blank child 3; folded p2 at 4. The title spans columns 0–1. */
+function groupedCtxOf(over: Partial<SheetMachineCtx> = {}): SheetMachineCtx {
+    const kinds = ["group", "row", "row", "blank", "group"] as const;
+    return ctxOf({
+        rowCount: 5,
+        colCount: 3,
+        grouped: true,
+        canAppend: false,
+        editableAt: (r, c) => (c !== 2 || kinds[r] !== "group"),
+        rowKindAt: (r) => kinds[r],
+        groupAt: (r) => (r === 0 ? { id: "p1", folded: false, lines: { r0: 1, r1: 2 } } : r === 4 ? { id: "p2", folded: true, lines: undefined } : undefined),
+        spanAt: (r, c) => (kinds[r] === "group" && c < 2 ? { c0: 0, c1: 1 } : undefined),
+        ...over,
+    });
+}
+
+describe("grouped rows", () => {
+    test("Space on a band folds and opens it; the chevron too; the folds are lens state", () => {
+        const ctx = groupedCtxOf();
+        const folded = run(initialSheetState({ r: 0, c: 0 }), [key(" ")], ctx);
+        expect(folded.state.lens.folds.get("p1")).toBe(true);
+        expect(folded.state.edit).toBeNull();
+        const opened = run(initialSheetState({ r: 1, c: 0 }), [{ t: "fold.toggle", r: 4 }], ctx);
+        expect(opened.state.lens.folds.get("p2")).toBe(false);
+        expect(opened.state.sel).toEqual({ r: 4, c: 0 });
+        // Space on a line still starts an edit.
+        expect(run(initialSheetState({ r: 1, c: 0 }), [key(" ")], ctx).state.edit).not.toBeNull();
+    });
+
+    test("the band's gutter selects its lines; an empty or folded plan selects the band", () => {
+        const ctx = groupedCtxOf();
+        const lines = run(initialSheetState(), [{ t: "row.pick", r: 0, shift: false }], ctx);
+        expect(lines.state.sel).toEqual({ r: 1, c: 0 });
+        expect(lines.state.selEnd).toEqual({ r: 2, c: 2 });
+        const band = run(initialSheetState(), [{ t: "row.pick", r: 4, shift: false }], ctx);
+        expect(band.state.sel).toEqual({ r: 4, c: 0 });
+        expect(band.state.selEnd).toEqual({ r: 4, c: 2 });
+        expect(run(band.state, [key("Backspace")], ctx).effects).toContainEqual({ t: "delete.rows", r0: 4, r1: 4 });
+    });
+
+    test("a grouped sheet runs the lens and the view tabs too", () => {
+        const ctx = groupedCtxOf({ views: VIEWS, narrowing: PAINT, emptyNarrowing: EMPTY, lensActive: true });
+        const revealed = run(initialSheetState(), [{ t: "band.reveal", key: "g", from: 1_000_001, to: 1_000_002, where: "all" }], ctx);
+        expect([...revealed.state.lens.reveals]).toEqual([1_000_001, 1_000_002]);
+        const switched = run(initialSheetState(), [{ t: "tab.switch", id: "lathe" }], ctx);
+        expect(switched.state.tabs.active).toBe("lathe");
+        expect(written(switched)).toBe(LATHE);
+    });
+
+    test("fold-all folds every group, the hidden ones too, and keeps the ring on its group; ⇧Space and ⌥ on a chevron go the way that band goes", () => {
+        const ctx = groupedCtxOf({ groupIds: ["p1", "p2"], groupNoun: { singular: "order", plural: "orders" } });
+        const folded = run(initialSheetState({ r: 2, c: 1 }), [{ t: "fold.all", folded: true }], ctx);
+        expect(folded.state.lens.folds).toEqual(new Map([["p1", true], ["p2", true]]));
+        expect(folded.effects).toContainEqual({ t: "select.id", id: "p1", c: 1 });
+        expect(said(folded.state.msg)).toMatch(/^Folded 2 orders/);
+        // ⇧Space on p1's band (open) folds every group.
+        expect(run(initialSheetState({ r: 0, c: 0 }), [key(" ", { shift: true })], ctx).state.lens.folds).toEqual(new Map([["p1", true], ["p2", true]]));
+        // ⌥ on p2's chevron (folded) opens every group.
+        const opened = run(initialSheetState({ r: 0, c: 0 }), [{ t: "fold.toggle", r: 4, all: true }], ctx);
+        expect(opened.state.lens.folds).toEqual(new Map([["p1", false], ["p2", false]]));
+        expect(said(opened.state.msg)).toBe("Opened 2 orders");
+    });
+
+    test("fold-all passes a loose row by (#846): a ring on one is re-found as itself, never as the group above it", () => {
+        // p1 at 0 with lines 1–2 and its blank line 3; a loose row at 4; folded p2 at 5.
+        const kinds = ["group", "row", "row", "blank", "row", "group"] as const;
+        const ctx = groupedCtxOf({
+            rowCount: 6,
+            rowKindAt: (r) => kinds[r],
+            groupAt: (r) => (r === 0 ? { id: "p1", folded: false, lines: { r0: 1, r1: 2 } } : r === 5 ? { id: "p2", folded: true, lines: undefined } : undefined),
+            groupIds: ["p1", "p2"],
+            looseAt: (r) => r === 4,
+            idAt: (r) => ["p1", "p1\u001f0", "p1\u001f1", " blank:g:p1", "loose", "p2"][r],
+        });
+        const folded = run(initialSheetState({ r: 4, c: 1 }), [{ t: "fold.all", folded: true }], ctx);
+        expect(folded.state.lens.folds).toEqual(new Map([["p1", true], ["p2", true]]));
+        expect(folded.effects).toContainEqual({ t: "select.id", id: "loose", c: 1 });
+        // A line still goes with its group.
+        expect(run(initialSheetState({ r: 2, c: 1 }), [{ t: "fold.all", folded: true }], ctx).effects).toContainEqual({ t: "select.id", id: "p1", c: 1 });
+    });
+
+    test("the machine's messages are data — an id, raw counts, the host's noun or none — worded where they show, in the table in effect (#861)", () => {
+        const ctx = groupedCtxOf({ groupIds: ["p1", "p2"], groupNoun: { singular: "order", plural: "orders" } });
+        const folded = run(initialSheetState({ r: 2, c: 1 }), [{ t: "fold.all", folded: true }], ctx);
+        expect(folded.state.msg).toEqual({ id: "groupsFolded", n: 2, noun: "order", nouns: "orders" });
+        // No noun declared: none is stored, and the words supply their own when the message shows.
+        const plain = run(initialSheetState({ r: 2, c: 1 }), [{ t: "fold.all", folded: true }], groupedCtxOf({ groupIds: ["p1", "p2"] }));
+        expect(plain.state.msg).toEqual({ id: "groupsFolded", n: 2, noun: undefined, nouns: undefined });
+        expect(said(plain.state.msg)).toMatch(/^Folded 2 groups/);
+        const german = sheetWords("de-DE", { ...sheetMessages, groupNouns: () => "Gruppen", countNoun: ({ count, nouns }) => `${count} ${nouns}`, noticeGroupsFolded: ({ groups }) => `${groups} eingeklappt` });
+        expect(noticeText(plain.state.msg!, german)).toBe("2 Gruppen eingeklappt");
+        // A row's name is data too: its number, worded when it shows.
+        const filled = run(initialSheetState({ r: 1, c: 0 }), [{ t: "suggest.ready", anchorId: "b", sugg: suggOn("b", { start: START, qty: QTY }) }, key("Enter")], suggestCtxOf());
+        expect(filled.state.msg).toEqual({ id: "rowFilled", n: 2, row: { line: false, number: 2 } });
+    });
+
+    test("Space on a line with sub rows shows them, ⇧Space every line's in the group; the chevron does the same; a line without them still edits", () => {
+        const ctx = groupedCtxOf({
+            groupNoun: { singular: "order", plural: "orders" },
+            lineSubRowsAt: (r) => (r === 1 ? { id: "L1", count: 2, open: false, group: ["L1", "L2"] } : undefined),
+        });
+        const shown = run(initialSheetState({ r: 1, c: 0 }), [key(" ")], ctx);
+        expect(shown.state.lens.folds).toEqual(new Map([["L1", false]]));
+        expect(shown.state.edit).toBeNull();
+        expect(said(shown.state.msg)).toBe("Showing 2 sub rows under the line — Space hides them");
+        const all = run(initialSheetState({ r: 1, c: 0 }), [key(" ", { shift: true })], ctx);
+        expect(all.state.lens.folds).toEqual(new Map([["L1", false], ["L2", false]]));
+        expect(said(all.state.msg)).toMatch(/of the order/);
+        const chevron = run(initialSheetState({ r: 0, c: 0 }), [{ t: "subRows.toggle", r: 1 }], ctx);
+        expect(chevron.state.lens.folds).toEqual(new Map([["L1", false]]));
+        expect(chevron.state.sel.r).toBe(1);
+        expect(run(initialSheetState({ r: 2, c: 0 }), [key(" ")], ctx).state.edit).not.toBeNull();
+    });
+
+    test("arrows step over a spanned title and cannot reach an invisible new-group row", () => {
+        const ctx = groupedCtxOf();
+        expect(run(initialSheetState({ r: 4, c: 0 }), [key("ArrowDown")], ctx).state.sel).toEqual({ r: 4, c: 0 });
+        // → from the title (columns 0–1) lands on column 2; ← from column 2 lands back on the title.
+        expect(run(initialSheetState({ r: 0, c: 0 }), [key("ArrowRight")], ctx).state.sel).toEqual({ r: 0, c: 2 });
+        expect(run(initialSheetState({ r: 0, c: 2 }), [key("ArrowLeft")], ctx).state.sel).toEqual({ r: 0, c: 1 });
+        // A line's columns step one at a time.
+        expect(run(initialSheetState({ r: 1, c: 0 }), [key("ArrowRight")], ctx).state.sel).toEqual({ r: 1, c: 1 });
     });
 });

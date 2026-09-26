@@ -20,12 +20,24 @@
  * which is the point. Three kinds collapse into one vocabulary the canvas
  * already speaks, instead of three new ones.
  *
+ * Luminance is colour alone, so every block also carries its value as
+ * visually hidden text (#819).
+ *
  * @packageDocumentation
  */
 
-import { Box } from "@chakra-ui/react";
+import { Box, VisuallyHidden } from "@chakra-ui/react";
 import { usePlanScale } from "../context.js";
 import type { PlanInstantValue } from "../instant.js";
+import { maxOf, minOf } from "../reductions.js";
+import { cellName } from "../a11y.js";
+import { usePlanWords, type PlanWords } from "../words.js";
+
+/** A tone block's value in words — the number, what its tone adds, or no data. */
+function toneWords(d: ToneDatum, w: PlanWords): string {
+    if (d.value === undefined) return w.m.noData();
+    return w.m.toneValue({ value: w.number(d.value), warn: d.tone === "warn" });
+}
 
 type Styles = Record<string, Record<string, unknown>>;
 
@@ -63,9 +75,10 @@ export interface ToneStripProps {
  */
 export function ToneStrip({ data, styles }: ToneStripProps) {
     const scale = usePlanScale();
+    const words = usePlanWords();
     const nums = data.filter((d) => d.value !== undefined).map((d) => d.value as number);
-    const min = nums.length > 0 ? Math.min(...nums) : 0;
-    const max = nums.length > 0 ? Math.max(...nums) : 0;
+    const min = nums.length > 0 ? minOf(nums) : 0;
+    const max = nums.length > 0 ? maxOf(nums) : 0;
     const span = max - min;
     return (
         <>
@@ -90,7 +103,9 @@ export function ToneStrip({ data, styles }: ToneStripProps) {
                         background={d.tone === undefined && !nodata
                             ? `color-mix(in srgb, var(--chakra-colors-brand-600) ${Math.round(depth * 100)}%, transparent)`
                             : undefined}
-                    />
+                    >
+                        <VisuallyHidden>{cellName(scale, b, toneWords(d, words), words)}</VisuallyHidden>
+                    </Box>
                 );
             })}
         </>

@@ -7,14 +7,14 @@ import { memo, useMemo } from "react";
 import { Stat as ChakraStat, type StatRootProps, HStack, Box } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconName, IconPrefix } from "@fortawesome/fontawesome-svg-core";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Stat } from "@elaraai/east-ui/internal";
 import { EastChakraComponent } from "../../component";
 import { getSomeorUndefined } from "../../utils";
 import { useDensity } from "../../contracts/density";
-import { formatTick } from "../../typography/numeric/format-tick";
+import { useFormatters } from "../../format/index.js";
 
-const statEqual = equalFor(Stat.Types.Stat);
+const statEqual = equivalentFor(Stat.Types.Stat);
 
 /** East Stat value type. */
 export type StatValue = ValueTypeOf<typeof Stat.Types.Stat>;
@@ -68,22 +68,24 @@ export const EastChakraStat = memo(function EastChakraStat({ value, storageKey }
     const density = localDensity ?? inheritedDensity;
 
     // The value is a scalar `LiteralValueType` variant; numeric tags run
-    // through the shared tick formatter, strings render verbatim.
+    // through the shared formatter in the app's locale (#850), strings render
+    // verbatim.
+    const words = useFormatters();
     const formattedValue = useMemo(() => {
         const v = value.value as { type: string; value: unknown };
         const formatOpt = getSomeorUndefined(value.format);
         switch (v.type) {
             case "Float":
             case "Integer":
-                return formatTick(Number(v.value as number | bigint), formatOpt);
+                return words.value(Number(v.value as number | bigint), formatOpt);
             case "DateTime":
-                return formatTick(new Date(v.value as Date).getTime(), formatOpt);
+                return words.value(new Date(v.value as Date).getTime(), formatOpt);
             case "String":
                 return v.value as string;
             default:
                 return String(v.value);
         }
-    }, [value.value, value.format]);
+    }, [value.value, value.format, words]);
 
     const direction = indicator ? indicator.direction.type : undefined;
     const sentiment = indicator ? getSomeorUndefined(indicator.sentiment)?.type : undefined;

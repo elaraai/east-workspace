@@ -17,15 +17,16 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import { Box, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faArrowRight, faArrowDown, faBan, faRotateRight } from "@fortawesome/free-solid-svg-icons";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equalFor, equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Flowchart, Slice as SliceInternal, type UIComponentType } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
-import { formatDatePattern } from "../../charts/spec/index.js";
+import { useFormatters } from "../../format/index.js";
 import { SliceRailCluster } from "../../slice/rail";
 import { SliceDensityContext } from "../../slice/density";
 import { parseCssSize } from "../../style/parse-size.js";
 import { useSliceReactivity } from "../../slice/use-slice-reactivity";
+import { useDataStable } from "../../hooks/useDataStable";
 import {
     buildModel, type FlowchartModel, type FlowchartValue, type ModelLink,
 } from "./model.js";
@@ -36,7 +37,8 @@ import {
 } from "./layout.js";
 import { dropTargetAt, existingLink, laneAt } from "./connect.js";
 
-const flowchartEqual = equalFor(Flowchart.Types.Flowchart);
+const flowchartEqual = equivalentFor(Flowchart.Types.Flowchart);
+const flowchartDataEqual = equalFor(Flowchart.Types.Flowchart);
 
 export type { FlowchartValue };
 
@@ -151,7 +153,13 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
     const styles = useSlotRecipe({ key: "flowchart" })();
 
     // ── decode ────────────────────────────────────────────────────────────
-    const model = useMemo(() => buildModel(value), [value]);
+    // Keyed on the value's DATA identity (#809): a closure-only change
+    // re-renders with the new callbacks but keeps the model — and the routed
+    // layout derived from it.
+    const data = useDataStable(value, flowchartDataEqual);
+    // Badges, counts and dates, in the app's locale (#850).
+    const words = useFormatters();
+    const model = useMemo(() => buildModel(data, words), [data, words]);
     const orientationDefault = (getSomeorUndefined(value.orientation)?.type ?? "LR") as "LR" | "TD";
     const freshness = getSomeorUndefined(value.freshness);
     const legendOn = getSomeorUndefined(value.legend) ?? true;
@@ -498,7 +506,7 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
                         <Box as="span">{freshness.label}</Box>
                         {getSomeorUndefined(freshness.date) !== undefined && (
                             <Box as="span" css={styles.freshnessDate}>
-                                {formatDatePattern("DD MMM", getSomeorUndefined(freshness.date)!)}
+                                {words.monthDay(getSomeorUndefined(freshness.date)!)}
                             </Box>
                         )}
                     </Box>
@@ -514,17 +522,17 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
     const pct = narrowed ? Math.round((1 - sliceResult / sliceTotal) * 100) : undefined;
     const footer = (
         <Box css={styles.footer} data-flowchart-footer>
-            <Box as="span" css={styles.footerStrong}>{rowCount}</Box>
+            <Box as="span" css={styles.footerStrong}>{words.number(rowCount)}</Box>
             <Box as="span">{rowCount === 1 ? "link" : "links"}</Box>
             {narrowed && (
                 <>
-                    <Box as="span">· narrowed from {sliceTotal.toLocaleString()} ·</Box>
-                    <Box as="span" css={styles.footerNeg}>−{pct}%</Box>
+                    <Box as="span">· narrowed from {words.number(sliceTotal)} ·</Box>
+                    <Box as="span" css={styles.footerNeg}>−{words.percent((pct ?? 0) / 100)}</Box>
                 </>
             )}
             <Box css={styles.footerSplit}>
-                {model.counts.planned} planned · {model.counts.observed} observed
-                {model.counts.unresolved > 0 ? ` · ${model.counts.unresolved} unresolved` : ""}
+                {words.number(model.counts.planned)} planned · {words.number(model.counts.observed)} observed
+                {model.counts.unresolved > 0 ? ` · ${words.number(model.counts.unresolved)} unresolved` : ""}
             </Box>
         </Box>
     );
@@ -785,7 +793,7 @@ export const EastChakraFlowchart = memo(function EastChakraFlowchart({ value, st
                                 >
                                     <Box css={styles.nodeCode}>
                                         {rect.key}
-                                        {nm.members !== undefined && <Box as="span" css={styles.nodeBadge}>×{String(nm.members)}</Box>}
+                                        {nm.members !== undefined && <Box as="span" css={styles.nodeBadge}>×{words.number(nm.members)}</Box>}
                                         {nm.inPlaceKeys.length > 0 && (() => {
                                             // Folded self-loops have no route to click — the ↻
                                             // badge is their selection surface. Click selects

@@ -7,12 +7,12 @@ import { memo, useMemo, useCallback } from "react";
 import { Button as ChakraButton, type ButtonProps, Box as ChakraBox } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconName, IconPrefix } from "@fortawesome/fontawesome-common-types";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Button, Icon } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 
-const buttonEqual = equalFor(Button.Types.Button);
+const buttonEqual = equivalentFor(Button.Types.Button);
 
 /** East Button value type — rich label + icon slots + main-level state/behaviour. */
 export type ButtonValue = ValueTypeOf<typeof Button.Types.Button>;

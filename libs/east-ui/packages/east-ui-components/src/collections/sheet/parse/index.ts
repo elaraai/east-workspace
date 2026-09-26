@@ -7,17 +7,19 @@
  * Parse / print dispatch by column kind (`Sheet Spec.md` §6): typed text to
  * a wire cell, and a cell back to its edit form. A custom kind calls the
  * factory's compiled East pair; the register kinds resolve through the
- * scored candidates (exact → top → typed; an enum non-match clears).
+ * scored candidates (exact → top → typed; an enum non-match remains invalid).
  *
  * @packageDocumentation
  */
 
-import { parseDate, formatDateEdit } from "./date.js";
+import { variant } from "@elaraai/east";
+import type { Formatters } from "../../../format/index.js";
+import { parseDate, formatWhenEdit, type WhenLevel } from "./date.js";
 import { parseQuantity, formatNumberBare } from "./quantity.js";
 import { candidateList, type CandidateContext } from "../candidates.js";
 import { cellText, memberLabel, printLinkText, type SheetColumnMeta } from "../model.js";
 import { parseLinkText, type LinkVocabulary } from "../link/grammar.js";
-import type { SheetCellValue, SheetLinkValue } from "../values.js";
+import type { SheetCellValue, SheetContextValue, SheetLinkValue } from "../values.js";
 
 /** The outcome of parsing an editor buffer. */
 export type ParseOutcome =
@@ -25,29 +27,33 @@ export type ParseOutcome =
     | { kind: "blank" }
     /** A recognised value. */
     | { kind: "cell"; cell: SheetCellValue }
-    /** Unrecognised — the editor stays open with the neg ring. */
+    /** Unrecognised — retained as invalid draft text at the gesture boundary. */
     | { kind: "unrecognised" };
 
 /** What a parse may need beside the text and the column. */
 export interface ParseContext extends CandidateContext {
+    /** The viewer's formatters — a number reads with their separators, as the cells print (#852). */
+    words: Formatters;
     /** Today, UTC midnight. */
     today: Date;
     /** The base column's date for a date column with `base`, when the row holds one. */
     baseDate?: Date | undefined;
     /** The wire copilot context for a custom kind's `parse`. */
-    wireContext?: unknown;
+    wireContext?: SheetContextValue | undefined;
     /** A link / set column's vocabulary — the grammar resolves against it. */
     linkVocab?: LinkVocabulary | undefined;
 }
 
-/** A cell of a scalar tag. */
+/** A cell of one arm — built through `variant()`, so it carries the brand the encoder needs. */
+export function cellOf(tag: "Null", value: null): SheetCellValue;
+export function cellOf(tag: "Boolean", value: boolean): SheetCellValue;
 export function cellOf(tag: "String", value: string): SheetCellValue;
 export function cellOf(tag: "Float", value: number): SheetCellValue;
 export function cellOf(tag: "Integer", value: bigint): SheetCellValue;
 export function cellOf(tag: "DateTime", value: Date): SheetCellValue;
 export function cellOf(tag: "Link", value: SheetLinkValue): SheetCellValue;
 export function cellOf(tag: string, value: unknown): SheetCellValue {
-    return { type: tag, value } as SheetCellValue;
+    return variant(tag, value) as SheetCellValue;
 }
 
 /** Parse the editor buffer for a column. */
@@ -64,16 +70,16 @@ export function parseCell(meta: SheetColumnMeta, text: string, ctx: ParseContext
             return { kind: "cell", cell: cellOf("DateTime", d) };
         }
         case "quantity": {
-            const n = parseQuantity(text);
+            const n = parseQuantity(text, ctx.words.separators);
             if (n === undefined) return { kind: "blank" };
             if (n === null) return { kind: "unrecognised" };
             return { kind: "cell", cell: cellOf("Float", n) };
         }
         case "integer": {
-            const n = parseQuantity(text);
+            const n = parseQuantity(text, ctx.words.separators, false);
             if (n === undefined) return { kind: "blank" };
-            if (n === null) return { kind: "unrecognised" };
-            return { kind: "cell", cell: cellOf("Integer", BigInt(Math.round(n))) };
+            if (n === null || !Number.isSafeInteger(n)) return { kind: "unrecognised" };
+            return { kind: "cell", cell: cellOf("Integer", BigInt(n)) };
         }
         case "lookup":
         case "reference": {
@@ -87,30 +93,30 @@ export function parseCell(meta: SheetColumnMeta, text: string, ctx: ParseContext
             const list = candidateList(meta, trimmed.toUpperCase(), ctx);
             const exact = list.find((l) => l.toLowerCase() === trimmed.toLowerCase());
             const pick = exact ?? list[0];
-            // A non-match clears the cell (B§3).
-            return pick === undefined ? { kind: "blank" } : { kind: "cell", cell: cellOf("String", pick) };
+            // Preserve an unmatched enum as invalid draft text.
+            return pick === undefined ? { kind: "unrecognised" } : { kind: "cell", cell: cellOf("String", pick) };
         }
         case "set":
         case "link": {
             if (trimmed === "") return { kind: "blank" };
             // The grammar against the column's register; entry is never blocked —
             // without a vocabulary the text is kept as a text member.
-            const link = ctx.linkVocab !== undefined
+            const link: SheetLinkValue = ctx.linkVocab !== undefined
                 ? parseLinkText(trimmed, ctx.linkVocab)
-                : ({ from: [], to: [{ type: "text", value: trimmed }] } as unknown as SheetLinkValue);
+                : { from: [], to: [variant("text", trimmed)] };
             if (meta.kind === "set" && link.from.length > 0) {
-                return { kind: "cell", cell: cellOf("Link", { from: [], to: [...link.from, ...link.to] } as unknown as SheetLinkValue) };
+                return { kind: "cell", cell: cellOf("Link", { from: [], to: [...link.from, ...link.to] }) };
             }
             if (link.from.length === 0 && link.to.length === 0) return { kind: "blank" };
             return { kind: "cell", cell: cellOf("Link", link) };
         }
         case "custom": {
             if (trimmed === "") return { kind: "blank" };
-            if (meta.customParse === undefined) return { kind: "unrecognised" };
+            if (meta.customParse === undefined || ctx.wireContext === undefined) return { kind: "unrecognised" };
             try {
                 const out = meta.customParse(text, ctx.wireContext);
                 if (out.type !== "some") return { kind: "unrecognised" };
-                return { kind: "cell", cell: out.value as SheetCellValue };
+                return { kind: "cell", cell: out.value };
             } catch (err) {
                 // Fail-open: a throwing parse reads as unrecognised, never a stuck editor.
                 console.error(`[Sheet] custom parse failed on column "${meta.key}":`, err);
@@ -121,18 +127,30 @@ export function parseCell(meta: SheetColumnMeta, text: string, ctx: ParseContext
     return { kind: "unrecognised" };
 }
 
-/** A cell's EDIT form — what the editor opens with (dates `17/11/26`, numbers bare). */
-export function editText(cell: SheetCellValue | undefined, meta: SheetColumnMeta): string {
+/**
+ * A cell's EDIT form — what the editor opens with: dates `17/11/26`, numbers
+ * bare with the viewer's decimal separator (`1234,5` in German — the grammar
+ * reads it back, #852); a date at the time level, or one carrying a time of
+ * day, keeps it (`17/11/26 19:00`).
+ *
+ * @param cell - The cell
+ * @param meta - Its column
+ * @param words - The viewer's formatters
+ * @param level - A date column's level for the row
+ * @returns The text
+ */
+export function editText(cell: SheetCellValue | undefined, meta: SheetColumnMeta, words: Formatters, level?: WhenLevel): string {
     if (cell === undefined || cell.type === "Null") return "";
     switch (cell.type) {
-        case "DateTime": return formatDateEdit(cell.value as Date);
-        case "Float": return formatNumberBare(cell.value as number);
+        case "DateTime": return formatWhenEdit(cell.value, level);
+        case "Float": return formatNumberBare(cell.value, words);
         case "Integer": return String(cell.value);
-        case "String": return cell.value as string;
+        case "Invalid":
+        case "String": return cell.value;
         case "Boolean": return String(cell.value);
-        case "Link": return printLinkText(cell.value as SheetLinkValue);
+        case "Link": return printLinkText(cell.value);
     }
-    return cellText(cell, meta);
+    return cellText(cell, meta, words);
 }
 
 /** The labels of a link's members, for the clipboard's two-column form. */

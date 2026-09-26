@@ -26,10 +26,11 @@ import assert from 'node:assert';
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join, sep } from 'node:path';
+import { PassThrough } from 'node:stream';
 import crossSpawn from 'cross-spawn';
 import { East, FunctionType, IntegerType, NullType, encodeEastIR, variant } from '@elaraai/east';
 import { withRunnerLifeline } from '@elaraai/e3-types';
-import { adoptOutputFile, jobLauncher, marshalInputsToDir, quoteWindowsArgument, spawnAndCapture } from './processExec.js';
+import { adoptOutputFile, captureOutput, jobLauncher, marshalInputsToDir, quoteWindowsArgument, spawnAndCapture } from './processExec.js';
 import { createTestRepo, removeTestRepo, createTempDir, removeTempDir, processTree } from '../test-helpers.js';
 import { LocalStorage } from '../storage/local/index.js';
 import { objectPath } from '../storage/local/localHelpers.js';
@@ -589,6 +590,129 @@ describe('the stdin lifeline (#770)', () => {
           // Already gone
         }
       }
+    }
+  });
+});
+
+/** A stream callback whose promises settle only once released, counting the
+ *  chunks it is handed while more than `cap` of its bytes are unsettled. */
+function heldCallback(cap: number): {
+  callback: (data: string) => Promise<void>;
+  release: () => void;
+  text: () => string;
+  overCap: () => number;
+} {
+  const held: Array<() => void> = [];
+  let releasing = false;
+  let pending = 0;
+  let overCap = 0;
+  let text = '';
+  return {
+    callback: (data) => {
+      if (pending > cap) overCap++;
+      const bytes = Buffer.byteLength(data);
+      pending += bytes;
+      text += data;
+      return new Promise<void>((resolve) => {
+        const settle = (): void => {
+          pending -= bytes;
+          resolve();
+        };
+        if (releasing) settle();
+        else held.push(settle);
+      });
+    },
+    /** Settles every chunk handed over, and every chunk from now on. */
+    release: () => {
+      releasing = true;
+      for (const settle of held.splice(0)) settle();
+    },
+    text: () => text,
+    overCap: () => overCap,
+  };
+}
+
+/** A turn of the event loop: whatever a stream scheduled has run. */
+const turn = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
+
+describe('output backpressure', () => {
+  it('reads nothing past the cap, whoever resumes the stream', async () => {
+    // Node resumes every stdio stream of a child that exits (child_process's
+    // flushStdio): a stream paused for backpressure then ran on past the cap.
+    const stream = new PassThrough();
+    const sink = heldCallback(1024);
+    captureOutput(stream, 1024, () => {}, sink.callback);
+    stream.write('a'.repeat(4096));
+    await turn();
+    stream.write('b'.repeat(4096));
+    stream.resume();
+    await turn();
+    assert.equal(sink.text(), 'a'.repeat(4096), 'nothing is read while more than the cap is unsettled');
+
+    sink.release();
+    await turn();
+    assert.equal(sink.text(), 'a'.repeat(4096) + 'b'.repeat(4096), 'reading resumes once the callback settles');
+    assert.equal(sink.overCap(), 0);
+  });
+
+  it('reads nothing more once the stream is destroyed', async () => {
+    // A stop's drain closes the pipes from this side: what the stream still
+    // buffers then is not delivered.
+    const stream = new PassThrough();
+    const sink = heldCallback(1024);
+    captureOutput(stream, 1024, () => {}, sink.callback);
+    stream.write('a'.repeat(4096));
+    await turn();
+    stream.write('b'.repeat(4096));
+    await turn();
+    stream.destroy();
+    sink.release();
+    await turn();
+    assert.equal(sink.text(), 'a'.repeat(4096));
+  });
+
+  it('holds back what a runner wrote before it exited until the callback settles', async () => {
+    // With a cap of nothing, the runner's first part is held from the moment
+    // it is handed over; the runner then writes a second part and exits, and
+    // the second part stays unread until the first settles.
+    const dir = createTempDir();
+    const go = join(dir, 'go');
+    const script = [
+      "process.stdout.write('a'.repeat(4096));",
+      'const wait = setInterval(() => {',
+      `  if (!require('node:fs').existsSync(${JSON.stringify(go)})) return;`,
+      '  clearInterval(wait);',
+      "  process.stdout.write('b'.repeat(4096));",
+      '}, 10);',
+    ].join('\n');
+    const sink = heldCallback(0);
+    let pid: number | null = null;
+    const run = spawnAndCapture([process.execPath, '-e', script], dir, {
+      maxPendingBytes: 0,
+      onSpawned: (spawned) => {
+        pid = spawned;
+      },
+      onStdout: (data) => {
+        writeFileSync(go, '');
+        return sink.callback(data);
+      },
+    });
+    try {
+      assert.ok(pid !== null, 'the runner spawned');
+      // Bounded waits: the runner's exit, then the run's end.
+      assert.ok(await exitsWithin(pid, 30_000), 'the runner exited while its output was held back');
+      assert.ok(!sink.text().includes('b'), 'what the runner wrote last is unread');
+      sink.release();
+      const result = await Promise.race([run, new Promise<null>((resolve) => setTimeout(() => resolve(null), 30_000).unref())]);
+      assert.ok(result !== null, 'the run never finished once its output was released');
+      assert.equal(result.exitCode, 0, result.stderrTail);
+      assert.equal(sink.text(), 'a'.repeat(4096) + 'b'.repeat(4096));
+      assert.equal(sink.overCap(), 0, 'nothing was read while a chunk was unsettled');
+    } finally {
+      sink.release();
+      if (pid !== null && alive(pid)) process.kill(pid, 'SIGKILL');
+      await run;
+      removeTempDir(dir);
     }
   });
 });

@@ -17,6 +17,7 @@ import { type ValueTypeOf } from "@elaraai/east";
 import { Plan } from "@elaraai/east-ui/internal";
 import type { PlanScale } from "./scale.js";
 import type { PlanEvent } from "./plan-state.js";
+import { PLAN_GEOMETRY, type PlanGeometry } from "./geometry.js";
 
 /** One decoded element ref — the generalized resolvers' subject. */
 export type PlanElementRefValue = ValueTypeOf<typeof Plan.Types.ElementRef>;
@@ -26,20 +27,17 @@ export type PlanElementResolver =
     Extract<ValueTypeOf<typeof Plan.Types.Root>["popover"], { type: "some" }>["value"];
 
 /**
- * The root's generalized element resolvers, decoded — rows invoke them
- * lazily at interaction time with the clicked/hovered element's ref; a
- * `none` result opens no surface (`Plan Data Interface.md` §3.3).
+ * What an element reports its clicks to. Popovers and hover cards are not an
+ * element's business: the canvas's one overlay layer opens them from the
+ * element's DOM identity (#816), running the LATEST root's resolvers with the
+ * element's ref — a `none` result opens no surface (`Plan Data Interface.md`
+ * §3.3).
  */
 export interface PlanResolvers {
-    /** The click-popover resolver, when declared. */
-    popover?: PlanElementResolver | undefined;
-    /** The hovercard resolver, when declared. */
-    hover?: PlanElementResolver | undefined;
     /**
-     * The element-click funnel (#569) — routes a clicked element's ref to the
-     * root's `onRunClick` / `onEventClick` / `onMarkClick` / `onChipClick` /
-     * `onCellClick` by the ref's own tag (the click payloads ARE the ref
-     * arms). `undefined` when the root declares none of the five.
+     * The element-click funnel — the root's ONE `onElementClick` (#824), called
+     * with the clicked element's ref: a run, a tile, a mark, a chip, a cell or
+     * a link ribbon. `undefined` when the root declares none.
      */
     onElementClick?: ((ref: PlanElementRefValue) => void) | undefined;
 }
@@ -47,7 +45,7 @@ export interface PlanResolvers {
 /** The shared scale, provided once by the canvas. */
 export const PlanScaleContext = createContext<PlanScale | null>(null);
 
-/** The interaction dispatch channel (the one `useReducer` dispatch). */
+/** The interaction dispatch channel (the canvas controller's `dispatch`). */
 export const PlanDispatchContext = createContext<(e: PlanEvent) => void>(() => undefined);
 
 /**
@@ -62,16 +60,40 @@ export interface PlanCursor {
     move(frac: number): void;
     /** The pointer left a row plot. */
     leave(): void;
+    /**
+     * Follow the hovered BUCKET (#743) — the listener hears the bucket index
+     * each time the pointer crosses into another one (`-1` once it is over no
+     * bucket, or gone), and at once with the current one. A chart row's
+     * crosshair readout writes the DOM from it, so a hover still renders
+     * nothing.
+     *
+     * @param listener - Called with the hovered bucket index
+     * @returns Stop listening
+     */
+    subscribe(listener: (bucket: number) => void): () => void;
 }
 
 /** The cursor channel (inert by default — chrome simply never shows). */
 export const PlanCursorContext = createContext<PlanCursor>({
     move: () => undefined,
     leave: () => undefined,
+    subscribe: () => () => undefined,
 });
 
-/** The element-resolver channel (empty when the root declares none). */
+/** The element-click channel (no funnel when the root declares no `onElementClick`). */
 export const PlanResolversContext = createContext<PlanResolvers>({});
+
+/** The canvas's geometry — the one height table for its density (#817). */
+export const PlanGeometryContext = createContext<Readonly<PlanGeometry>>(PLAN_GEOMETRY.default);
+
+/**
+ * The canvas's geometry — every row and slot height, for its density.
+ *
+ * @returns The table (the default density outside a Plan)
+ */
+export function usePlanGeometry(): Readonly<PlanGeometry> {
+    return useContext(PlanGeometryContext);
+}
 
 /**
  * The shared scale — throws when mounted outside a Plan (row components are
@@ -104,9 +126,9 @@ export function usePlanCursor(): PlanCursor {
 }
 
 /**
- * The root's generalized element resolvers.
+ * What an element reports its clicks to.
  *
- * @returns The decoded `popover` / `hover` functions (absent when undeclared)
+ * @returns The click funnel, when the root declares `onElementClick`
  */
 export function usePlanResolvers(): PlanResolvers {
     return useContext(PlanResolversContext);

@@ -26,6 +26,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { StringType, toEastTypeValue, type EastTypeValue } from "@elaraai/east";
 import type { DatasetKeyMatchRange, DatasetKeyQuery } from "../key-search/index.js";
+import { pagedSnapshot, pagedSnapshotEqual, pagedSnapshotKey } from "./paged-snapshot.js";
 import { useTrackedEvaluation } from "../../reactive/index.js";
 import { soughtKeyOf, toSeekQuery } from "../plan/use-seek.js";
 import type { SheetPagedSourceValue, SheetRowValue } from "./values.js";
@@ -35,6 +36,8 @@ const KEY_TYPE: EastTypeValue = toEastTypeValue(StringType);
 
 /** What the toolbar needs to mount `<DatasetKeySearch>`. */
 export interface SheetSearch {
+    /** Source snapshot identity; remounts cached positional search results. */
+    resetKey: string;
     keyType: EastTypeValue;
     /** Locate a query — resolves when the tracked search lands. */
     find: (query: DatasetKeyQuery) => Promise<DatasetKeyMatchRange>;
@@ -60,7 +63,7 @@ export interface SheetSeekState {
  *
  * @param source - The decoded `paged` arm (undefined ⇒ inline sheet)
  * @param rows - The resident rows, in stream order
- * @param rowsOffset - The source position of `rows[0]`
+ * @param positions - Each resident row's source position — a failed window leaves a hole (#853)
  * @param jumpToElement - Ask the driver to rebase residency on a position
  * @param clearJump - Drop the driver's pending jump pin
  * @returns The search mount and the landing target
@@ -68,7 +71,7 @@ export interface SheetSeekState {
 export function useSheetSeek(
     source: SheetPagedSourceValue | undefined,
     rows: readonly SheetRowValue[],
-    rowsOffset: number,
+    positions: readonly number[],
     jumpToElement: (element: number) => void,
     clearJump: () => void,
 ): SheetSeekState {
@@ -76,8 +79,8 @@ export function useSheetSeek(
     const [target, setTarget] = useState<number | undefined>(undefined);
     // What `listRange` reads — refs: the control awaits `onFind` and then calls
     // the `onListRange` it captured before the state committed (#614).
-    const residentRef = useRef({ rows, rowsOffset });
-    useLayoutEffect(() => { residentRef.current = { rows, rowsOffset }; });
+    const residentRef = useRef({ rows, positions });
+    useLayoutEffect(() => { residentRef.current = { rows, positions }; });
     const pending = useRef<{ resolve: (r: DatasetKeyMatchRange) => void; reject: (e: unknown) => void } | null>(null);
 
     const seekFn = useMemo(() => {
@@ -86,10 +89,18 @@ export function useSheetSeek(
     }, [source]);
 
     const read = useCallback(() => {
-        if (seekFn === undefined || query === null) return undefined;
-        return seekFn(query as never) as { type: string; value?: { found: boolean; row: bigint; count: bigint } };
-    }, [seekFn, query]);
+        const revision = source?.revision?.();
+        const answer = seekFn === undefined || query === null ? undefined
+            : seekFn(query as never);
+        return { revision, answer };
+    }, [source, seekFn, query]);
     const { result } = useTrackedEvaluation(read);
+    const revision = result.ok && result.value.revision?.type === "some"
+        ? result.value.revision.value : undefined;
+    const snapshot = useMemo(() => pagedSnapshot(source?.id, revision), [source?.id, revision]);
+    const resetKey = pagedSnapshotKey(snapshot);
+    const previousSnapshot = useRef(snapshot);
+    const snapshotChanged = !pagedSnapshotEqual(previousSnapshot.current, snapshot);
 
     useEffect(() => {
         const waiting = pending.current;
@@ -99,7 +110,7 @@ export function useSheetSeek(
             waiting.reject(result.error);
             return;
         }
-        const answer = result.value;
+        const answer = result.value.answer;
         if (answer === undefined || answer.type !== "some" || answer.value === undefined) return;
         pending.current = null;
         waiting.resolve({ found: answer.value.found, row: Number(answer.value.row), count: Number(answer.value.count) });
@@ -115,14 +126,13 @@ export function useSheetSeek(
     const listRange = useCallback(async (row: number, limit: number): Promise<string[]> => {
         // The head of the match run, by POSITION: the resident rows at
         // `row` onward, as far as they have landed (a far match lists nothing
-        // until its window arrives; the count still shows).
-        const { rows: resident, rowsOffset: offset } = residentRef.current;
+        // until its window arrives; the count still shows) — and stopping at
+        // a failed window's hole (#853).
+        const { rows: resident, positions } = residentRef.current;
         const out: string[] = [];
-        for (let p = row; p < row + limit; p++) {
-            const r = resident[p - offset];
-            if (r === undefined) break;
-            out.push(r.id);
-        }
+        let i = positions.indexOf(row);
+        if (i < 0) return out;
+        for (let p = row; p < row + limit && i < resident.length && positions[i] === p; p++, i++) out.push(resident[i]!.id);
         return out;
     }, []);
 
@@ -141,10 +151,26 @@ export function useSheetSeek(
 
     const clearTarget = useCallback(() => setTarget(undefined), []);
 
+    // Clear positions before passive effects can settle an answer from the
+    // previous snapshot. A query can be repeated against the new source, but
+    // its old element index cannot be reused there.
+    useLayoutEffect(() => {
+        if (pagedSnapshotEqual(previousSnapshot.current, snapshot)) return;
+        previousSnapshot.current = snapshot;
+        clear();
+    }, [snapshot, clear]);
+    const clearJumpRef = useRef(clearJump);
+    useLayoutEffect(() => { clearJumpRef.current = clearJump; });
+    useEffect(() => () => {
+        pending.current?.reject(new Error("search source unmounted"));
+        pending.current = null;
+        clearJumpRef.current();
+    }, []);
+
     const search = useMemo<SheetSearch | undefined>(
-        () => (seekFn === undefined ? undefined : { keyType: KEY_TYPE, find, listRange, jump, clear }),
-        [seekFn, find, listRange, jump, clear],
+        () => (seekFn === undefined ? undefined : { resetKey, keyType: KEY_TYPE, find, listRange, jump, clear }),
+        [resetKey, seekFn, find, listRange, jump, clear],
     );
 
-    return { search, target, clearTarget };
+    return { search, target: snapshotChanged ? undefined : target, clearTarget };
 }

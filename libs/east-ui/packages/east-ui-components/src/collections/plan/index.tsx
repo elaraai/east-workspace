@@ -5,9 +5,17 @@
 
 /**
  * `EastChakraPlan` — the temporally-aligned composite canvas (`Plan Spec.md`
- * §6): decode, the one shared scale, the one pure state machine, shell
- * composition (toolbar / horizon brush / ruler / rows / footer) and the
- * effect runner.
+ * §6): decode, the one shared scale, the one controller, and the shell
+ * composition (toolbar / horizon brush / ruler / rows / footer).
+ *
+ * Everything the canvas remembers between renders lives in ONE framework-free
+ * controller (#815, `controller/`): the UI state machine, the paged source's
+ * residency, the key search, the open element overlay, the scroll anchor. It
+ * is created once per mount, the latest value reaches it through `setValue`
+ * in a layout effect, and every part of the canvas subscribes to the slice of
+ * its state it reads. Interactions are the controller's actions, and an action
+ * runs its own effects — slice writes, the author's callbacks, page requests —
+ * before it returns. What is left here is composition.
  *
  * Slice integration is the Table adopter pattern, chrome-only: the rows are
  * whatever the host fed (`Slice.rows` upstream) — the Plan never narrows its
@@ -16,81 +24,157 @@
  * as the WEEK/DAY segment, `summary` as the toolbar count line. Beyond Table
  * (the §3 contract), the slice's `range` / `resolution` STATE is the window /
  * resolution source of truth — the axis seeds the unbound case — and the
- * brush / segment write back through `setRange` / `setResolution`.
+ * brush / segment write back through the slice.
  *
  * The axis is one of three kinds (#631) — `time`, `number`, `ordinal` — and
  * every window read / write speaks the slice arm that kind maps to
  * (`axis.ts`): `datetime`, `float` / `integer`, or none (an ordinal list is
  * its own window). Every row's instants must ride the axis's arm; a row that
- * does not is a diagnostic, never a misplacement.
+ * does not is a diagnostic ROW, never a misplacement.
+ *
+ * A failure stays where it happened (#811): a row that cannot be placed
+ * renders in place as its diagnostic, a window whose read failed renders as
+ * an error band with a Retry, and a part that throws while rendering (a row's
+ * plot, an overlay body, the expand render, the links layer) shows its own
+ * one-line fallback. The toolbar counts what it can — skipped rows, a source
+ * or search failure, a truncated axis. Nothing a row or a source does
+ * replaces the canvas.
  *
  * All eight row kinds render (`rows/*`); review chrome, the drag-target
  * role, element clicks and the keyboard rungs are wired — the reducer's
- * events and the component's dispatches are a closed loop (#569).
+ * events and the component's dispatches are a closed loop (#569). Every
+ * element's popover, hover card and tooltip come from ONE overlay layer the
+ * body delegates to (#816, `root/overlays.tsx`).
+ *
+ * The body is a TREEGRID (#819): every row, group band, gap band and window
+ * band is a `row` at its `aria-rowindex` (`root/grid.ts`), with ONE tab stop
+ * roving between them, a keyboard map over rows and their elements
+ * (`root/keyboard.ts`), a polite live region (`root/announce.tsx`), and words
+ * for everything the canvas says only by shape or colour (`a11y.ts`).
+ *
+ * Every word the canvas says itself comes from ONE message table, and every
+ * number and date it prints is in the locale (#820, `messages.ts` /
+ * `words.ts`): react-aria's `I18nProvider` above the app sets the locale, and
+ * `PlanMessagesProvider` overrides the words for a subtree.
  */
 
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
-import { Box, useSlotRecipe } from "@chakra-ui/react";
-import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faEllipsis } from "@fortawesome/free-solid-svg-icons";
-import { equalFor, none, some, variant, type ValueTypeOf } from "@elaraai/east";
-import { Plan, Slice } from "@elaraai/east-ui/internal";
+import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent, type ReactNode } from "react";
+import { Box, VisuallyHidden, useSlotRecipe } from "@chakra-ui/react";
+import { equalFor, equivalentFor } from "@elaraai/east";
+import { Plan } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils.js";
 import { parseCssSize } from "../../style/parse-size.js";
 import { DensityProvider } from "../../contracts/density.js";
 import { useContainerBelow } from "../../contracts/adaptive.js";
-import { useSliceReactivity } from "../../slice/use-slice-reactivity.js";
-import { boundRangeDomain } from "../../platform/slice/index.js";
-import { VirtualRows } from "../virtual-rows.js";
-import { PlanScaleContext, PlanDispatchContext, PlanCursorContext, PlanResolversContext, type PlanCursor, type PlanResolvers, type PlanElementRefValue } from "./context.js";
-import { usePlanPaging } from "./use-plan-paging.js";
-import { usePlanSeek } from "./use-seek.js";
-import { useElementHeight } from "./use-element-height.js";
-import { WindowBand } from "./rows/WindowBand.js";
-import { resolutionInterval, type PlanResolution, type PlanScale } from "./scale.js";
-import { axisNow, axisResolutions, ordinalIndexOf, rangeArmOf, rangeOf, resolveScale, sliceWindowOf } from "./axis.js";
-import type { PlanInstantValue } from "./instant.js";
-import {
-    initialPlanStore, planStoreReducer,
-    type PlanEffect, type PlanEvent,
-} from "./plan-state.js";
-import {
-    GAP_H, axisKindMismatches, derivePlan, deriveLinkFamily, elideForFocus, indexRows, linkedRowKeys, pinnedRows, pxOf, rowHeight, visibleRows,
-    windowRestHeight,
-    type FocusGap, type PlanBodyItem, type PlanFocusCtx, type PlanRootValue, type PlanRowValue, type VisibleRow,
-} from "./model.js";
-import { EastChakraComponent } from "../../component.js";
-import { useDragTarget, type DragEventValue } from "../../dnd/drag-layer";
-import { type CanDropFn } from "../../dnd/ir-can-drop";
-import { type PlanRowDrop } from "./rows/RowShell.js";
-import { PlanBodyRow } from "./rows/BodyRow.js";
-import { PlanNarrow, PLAN_NARROW_BELOW } from "./narrow/index.js";
-import { PlanToolbar } from "./shell/Toolbar.js";
-import { HorizonBrush } from "./shell/HorizonBrush.js";
-import { FocusBar } from "./shell/FocusBar.js";
-import { LinksOverlay } from "./shell/LinksOverlay.js";
-import { PlanRuler, chipAnchor } from "./shell/Ruler.js";
-import { PlanFooter } from "./shell/Footer.js";
-import {
-    usePlanReview, PlanDecisionHeader, DECISION_WIDTH,
-} from "./shell/Review.js";
+import { useDataStable } from "../../hooks/useDataStable.js";
+import { usePersistedState } from "../../hooks/usePersistedState.js";
+import { VirtualRows, VIRTUALIZE_UNBOUNDED_AT } from "../virtual-rows.js";
 import { ReviewFoot } from "../shared/review.js";
-import { type PlanTransport } from "./shell/transport.js";
+import {
+    PlanScaleContext, PlanDispatchContext, PlanCursorContext, PlanResolversContext, PlanGeometryContext,
+    type PlanResolvers,
+} from "./context.js";
+import { planGeometry, planGeometryStyle } from "./geometry.js";
+import { WindowBand, WindowFailureBand } from "./rows/WindowBand.js";
+import { PlanPartBoundary } from "./rows/PartBoundary.js";
+import { axisNow, axisResolutions, ordinalIndexOf } from "./axis.js";
+import type { PlanInstantValue } from "./instant.js";
+import type { PlanEvent } from "./plan-state.js";
+import type { PlanPart } from "./messages.js";
+import {
+    bodyItemKey, canvasRowsOf, derivePlan, indexRows, linkedRowKeys, pinnedRows, pxOf, rowHeight, rowItemKey, rowKeyOf,
+    rowKeyWords, visibleRows,
+    type PlanRootValue, type PlanRowIndex, type PlanRowValue, type VisibleRow,
+} from "./model.js";
+import type { RowKey } from "./plan-state.js";
+import { entryOf, usePlanEditing } from "./use-plan-editing.js";
+import { HistoryBar } from "../../editing/HistoryBar.js";
+import type { EditIssue } from "../../editing/session.js";
+import { PlanNarrow, PLAN_NARROW_BELOW } from "./narrow/index.js";
+import type { PlanNarrowPaging } from "./narrow/demand.js";
+import { LinksOverlay } from "./shell/LinksOverlay.js";
+import { ribbonBody, type RibbonBeyond } from "./shell/ribbon-layout.js";
+import { PlanFooter } from "./shell/Footer.js";
+import type { PlanDiagnostics } from "./shell/Diagnostics.js";
+import { planReviewModel, DECISION_WIDTH } from "./shell/Review.js";
+import type { PlanTransport } from "./shell/transport.js";
+import {
+    createPlanController, declaredCollapsedOf, declaredGrainOf, denseOf,
+    type PlanReconcileModel, type PlanSnapshot,
+} from "./controller/index.js";
+import { PlanControllerContext, useControllerSelector } from "./controller/react.js";
+import { NOT_PERSISTED, persistedOf, type PlanPersisted } from "./persisted.js";
+import { sameUiView, uiViewOf, useStableDerived, useStableVisible } from "./root/view.js";
+import { usePlanWindow } from "./root/window.js";
+import { usePlanExpand, usePlanFocus } from "./root/focus.js";
+import { usePlanBody, usePlanRangeReport, usePlanScrollTarget } from "./root/body.js";
+import { PlanGapBand, PlanStickyParent, renderPlanRow, type PlanRowContext } from "./root/rows.js";
+import { PlanHeader } from "./root/Header.js";
+import { usePlanCursorController } from "./root/cursor.js";
+import { usePlanDropTarget } from "./root/drop.js";
+import { PLAN_ELEMENT_SELECTOR, PlanOverlays, createOverlayAnchors, refOfElement, usePlanOverlayHandlers } from "./root/overlays.js";
+import { PlanGridContext, createRowPositions, type PlanGridContextValue } from "./root/grid.js";
+import {
+    gridItemOf, planNavItems, planNavKey, plotElements, resolveNavIntent, rowWidgets,
+    type PlanNavEdges, type PlanNavIntent, type PlanNavMove,
+} from "./root/keyboard.js";
+import { PlanAnnouncer } from "./root/announce.js";
+import { PlanWordsContext, useResolvedPlanWords } from "./words.js";
+import type { PlanSearch } from "./use-seek.js";
+import { getStore } from "../../platform/state-runtime.js";
+import type { DragEventValue } from "../../dnd/drag-layer";
+import { DROPPABLE_KINDS } from "./rows/BodyRow.js";
+import { PlanEditContext, PlanEditStore, type PlanEditContextValue } from "./edit/store.js";
+import { originOf, unmoved, usePlanCarry } from "./edit/use-carry.js";
+import { PlanCarryAnnouncer } from "./edit/announce.js";
 
 type Styles = Record<string, Record<string, unknown>>;
-type SliceBindValue = ValueTypeOf<typeof Slice.Types.Bind>;
 
 export { type PlanRootValue, type PlanRowValue } from "./model.js";
 
-const planRootEqual = equalFor(Plan.Types.Root);
+// The memo compares CLOSURES too (#809). A Plan root is function-heavy — the
+// resolvers, the element callbacks, a paged source's `page` wrapping its
+// series — and `equalFor` calls every pair of functions equal, so a root that
+// differed only inside one (a resolver over new data, a series `match` over a
+// new threshold) was dropped and the canvas rendered the old closures.
+const planRootEqual = equivalentFor(Plan.Types.Root);
+// ...while the pure-data derivations key on the value's DATA identity, so the
+// root a closure-only change lets through swaps the callbacks without
+// rebuilding the row model, the scale or the link graph.
+const planRootDataEqual = equalFor(Plan.Types.Root);
 
 /** Default gutter width (px, desktop — the §8 sheet). */
 const GUTTER_W = 168;
-/** Default height of the R2 developer-render region when a row declares none. */
-const EXPAND_DEFAULT_PX = 240;
-/** The render never clamps below this — a region too short to hold anything
- *  is worse than one that scrolls. */
-const EXPAND_FLOOR_PX = 88;
+
+/** The canvas-wide keys (§11) — esc runs the one-rung ladder, `n` / `[` / `]`
+ *  move the window, `g` cycles the grain. They work from anywhere in the
+ *  canvas; the grid's own keys (`root/keyboard.ts`) come first. */
+const KEYS: Readonly<Record<string, PlanEvent>> = {
+    Escape: { t: "key", key: "esc" },
+    n: { t: "key", key: "n" },
+    "[": { t: "key", key: "[" },
+    "]": { t: "key", key: "]" },
+    g: { t: "key", key: "g" },
+};
+
+/** The links layer, as its render-failure line names it (#811). */
+const LINKS_LAYER: PlanPart = { kind: "linksLayer" };
+
+const selectPaging = (s: PlanSnapshot) => s.paging;
+const selectSeek = (s: PlanSnapshot) => s.seek;
+const selectAnchor = (s: PlanSnapshot) => s.anchor;
+const selectScroll = (s: PlanSnapshot) => s.scroll;
+
+/**
+ * Test-only render probe — lets "the canvas root did not render" be asserted
+ * deterministically (#815): a selection renders the rows it moved and never
+ * the root. `undefined` outside tests.
+ */
+let planRootRenderProbe: (() => void) | undefined;
+/** Install (or clear) the test root render probe. Test use only. */
+export function setPlanRootRenderProbe(fn: (() => void) | undefined): void {
+    planRootRenderProbe = fn;
+}
 
 export interface EastChakraPlanProps {
     /** The Plan root value. */
@@ -100,873 +184,914 @@ export interface EastChakraPlanProps {
 }
 
 /** Renders an East Plan value — the composite temporal canvas. */
-export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey }: EastChakraPlanProps) {
-    // ── The rows channel: inline rows, or the derived paged source (§3.8)
-    //    streamed in as a contiguous prefix by the loader hook. ──────────────
-    const pagedSource = value.rows.type === "paged" ? value.rows.value : undefined;
-    // Declared style facts, hoisted above the paging hook because the window
-    // measure consumes them (the recipe section below reads them too). Both
-    // are value-derived and UI-state-independent — which is exactly what makes
-    // the measure canonical.
-    const dense = getSomeorUndefined(getSomeorUndefined(value.style)?.density)?.type === "compact";
-    const initGrain = getSomeorUndefined(value.grain)?.type ?? "resource";
-    // The ledger's window height (#613): the height the window renders AT
-    // REST — declared collapse applied, chart expansion at its declared
-    // state, no focus context, pinned rows excluded. The ledger freezes a
-    // window's first measurement and seeds its frozen slot rate from the
-    // very first one, so the recorded number must not depend on transient
-    // UI state — a window landing during an expand focus must not record
-    // strip-compressed rows.
-    const heightOf = useCallback(
-        (rows: readonly PlanRowValue[]) => windowRestHeight(rows, initGrain, dense),
-        [initGrain, dense]);
-    const paging = usePlanPaging(pagedSource, { heightOf });
-    // The inline arm is the canvas's KEYED collection (#568) — decoded as a
-    // SortedMap, so its values are already in canonical key order.
+export const EastChakraPlan = memo(function EastChakraPlan({ value: hostValue, storageKey }: EastChakraPlanProps) {
+    planRootRenderProbe?.();
+    // Changes identity on a DATA change only — read data fields through it,
+    // callbacks through `value` (#809).
+    const hostData = useDataStable(hostValue, planRootDataEqual);
+    // The canvas's words (#820) — its locale and message table, resolved once
+    // per change and handed to every part beneath it.
+    const words = useResolvedPlanWords();
+
+    // ── What survives a remount (#813) ────────────────────────────────────
+    // Under the canvas's `storageKey`: the user's collapse toggles, the charts
+    // they expanded, and where a bounded frame's scroll rests. Never the
+    // selection — a transient act, and restoring it would re-fire `onSelect`.
+    // Nor the resolution: only a bound slice can change it (the segment has
+    // nowhere to write without one — #615), and the slice keeps its own. The
+    // controller restores from it once and writes through the latest setter.
+    const { state: stored, setState: setStored } = usePersistedState<PlanPersisted>(storageKey, NOT_PERSISTED);
+    const persistTo = useRef(setStored);
+    useLayoutEffect(() => { persistTo.current = setStored; });
+
+    // ── The controller — once per mount (#815) ────────────────────────────
+    const [controller] = useState(() => createPlanController({
+        grain: declaredGrainOf(hostValue),
+        collapsed: hostValue.rows.type === "inline" ? declaredCollapsedOf(canvasRowsOf(hostValue.rows.value)) : [],
+        restored: persistedOf(stored),
+        persist: (next) => persistTo.current(next),
+        // A bound interaction state (#824) — the host's from the first frame,
+        // and written from outside through the state store.
+        ui: getSomeorUndefined(hostValue.ui),
+        subscribeUi: (listener) => getStore().subscribe(listener),
+    }));
+    // What the live region speaks in (#820) — handed over before anything can
+    // be said.
+    useLayoutEffect(() => { controller.setWords(words); }, [controller, words]);
+    const paging = useControllerSelector(controller, selectPaging);
+
+    // ── The editing session (#880) ────────────────────────────────────────
+    // Every verdict and dropped card is a DRAFT of the entry its row came
+    // from, and the canvas draws the ROOT WITH THE DRAFTS IN PLACE — derived
+    // again, so a draft looks exactly as Apply will leave it. Everything
+    // below reads that root: `value` and `data` are the drafted pair.
+    // A row's name, for a transaction's label — read off the canvas below.
+    const indexRef = useRef<PlanRowIndex | undefined>(undefined);
+    const labelOf = useCallback(
+        (key: RowKey) => indexRef.current?.byKey.get(key)?.gutter.label ?? rowKeyWords(key), []);
+    const sourceRows = useMemo(
+        () => (hostData.rows.type === "inline" ? canvasRowsOf(hostData.rows.value) : paging.rows),
+        [hostData.rows, paging.rows]);
+    const editing = usePlanEditing({
+        value: hostValue, data: hostData, rows: sourceRows, origin: paging.origin, storageKey, labelOf,
+    });
+    const value = editing.value;
+    const data = editing.data;
+    // Props sync. A new DATA identity reconciles the UI state (#610); the
+    // render below already drew the reconciled view, so this commits what is
+    // on screen and renders nothing more.
+    useLayoutEffect(() => { controller.setValue(value, data); }, [controller, value, data]);
+    // A paged canvas's drafts moved under the same source: its windows are
+    // read again, the rows it has standing in until they land (#821).
+    const draftsVersion = editing.draftsVersion;
+    useLayoutEffect(() => { if (draftsVersion > 0) controller.refreshSource(); }, [controller, draftsVersion]);
+    // The source's channels are listened to while the canvas is mounted.
+    useEffect(() => controller.connect(), [controller]);
+
+    // ── The rows: inline, or the paged source's resident ones (§3.8) ──────
+    const paged = data.rows.type === "paged";
+    // The inline arm is the canvas's BLOCKS (#823), one after another — the
+    // stream's order is the render order (#822) — keyed for the canvas once
+    // per decoded array.
     const rows = useMemo(
-        () => (value.rows.type === "inline" ? [...value.rows.value.values()] : paging.rows),
-        [value.rows, paging.rows],
+        () => (data.rows.type === "inline" ? canvasRowsOf(data.rows.value) : paging.rows),
+        [data.rows, paging.rows],
     );
-    // What the chrome tells the truth with (#567 D9). Counted in ELEMENTS —
-    // the number `total()` reports — never canvas rows, since a series can emit
-    // any number of rows per element. `partial` is what every derived number
-    // (rollup bands, group counts, strip summaries) is qualified by: they are
-    // computed over the loaded prefix until the source is exhausted.
-    const transport = useMemo<PlanTransport | undefined>(() => {
-        if (pagedSource === undefined) return undefined;
-        const from = paging.resident?.from ?? 0;
-        const to = paging.resident?.to ?? 0;
-        return {
-            loaded: paging.resident?.elements ?? 0,
-            from,
-            to,
-            total: paging.total,
-            loading: paging.loading,
-            partial: paging.total === undefined || (paging.resident?.elements ?? 0) < paging.total,
-        };
-    }, [pagedSource, paging.resident, paging.total, paging.loading]);
-    // Key search over the source (`search` becomes seek — #567 D9's affordance
-    // table). A jump asks the driver to rebase on the matched ELEMENT; the
-    // canvas then positions by key, since a leaf row's key IS its data key.
-    const { search, targetKey } = usePlanSeek(pagedSource, rows, paging.jumpToElement, paging.clearJump);
-
-    // ── Review chrome (#569) — ACTIONS only. The verdict is not held here:
-    //    it lives wherever the author's callback wrote it and arrives back as
-    //    each row's `approval`, so the buttons and the canvas cannot disagree.
-    const review = usePlanReview(useMemo(() => getSomeorUndefined(value.review), [value.review]));
-
-    // ── Slice chrome (the Table adopter pattern; chrome-only) ─────────────
-    const chrome = useMemo(() => getSomeorUndefined(value.slice), [value.slice]);
-    const slice = chrome !== undefined ? (chrome.slice as SliceBindValue) : undefined;
-    useSliceReactivity(slice?.key);
-    const affordances = useMemo(
-        () => (chrome !== undefined ? chrome.affordances.map((a: { type: string }) => a.type) : []),
-        [chrome],
-    );
-    const sliceState = slice !== undefined ? slice.read() : undefined;
-
-    // ── The series library (#590) — chrome, like the slice rail. The Plan
-    //    feeds ITSELF the picked series (the factory swapped `series` for
-    //    `Pick.active`), so all that is left here is mounting the panel. The
-    //    noun is not configurable: a Plan's pickable things are series.
-    const pick = useMemo(() => getSomeorUndefined(value.pick), [value.pick]);
-
-    // ── Window + resolution: slice state ▸ axis ▸ fit-to-data (§3/§8) ─────
-    // The axis KIND (#631) — every window read below speaks its slice arm.
-    const axisKind = value.axis.type;
-    // Keyed on the DOMAIN NUMBERS, never on the range object. `slice.read()`
-    // decodes fresh state on every render, so `sliceState.range` has a new
-    // identity each time even when the window has not moved. Keying the memo
-    // on that identity rebuilt the scale (up to MAX_PLAN_BUCKETS buckets, each
-    // with a formatted label), which published a new PlanScale to every row —
-    // busting `edges`, `resolveCoord`, `dropVeto` and so the drop cell's own
-    // ref callback, so React detached and re-attached every registered cell
-    // on every render of a slice-bound canvas.
-    const sliceWin = sliceWindowOf(sliceState, axisKind);
-    const sliceFromN = sliceWin?.[0];
-    const sliceToN = sliceWin?.[1];
-    const sliceResolution = sliceState !== undefined
-        ? getSomeorUndefined(sliceState.resolution)?.type
-        : undefined;
-    // `resolveScale` owns the ladder: the slice's range ▸ the declared window
-    // ▸ fit-to-data (a PAGED canvas must declare — #567 D8), per axis kind.
-    const scale: PlanScale | undefined = useMemo(() => resolveScale({
-        axis: value.axis,
-        sliceWindow: sliceFromN === undefined || sliceToN === undefined ? undefined : [sliceFromN, sliceToN],
-        sliceResolution,
-        rows,
-        paged: pagedSource !== undefined,
-    }), [value.axis, sliceFromN, sliceToN, sliceResolution, rows, pagedSource]);
-
-    // ── The one state machine ─────────────────────────────────────────────
     const index = useMemo(() => indexRows(rows), [rows]);
-    // An ordinal axis orders its instants by the declared list — the
-    // derivations sort cells by it (nothing else needs it).
-    const ordinalIndex = useMemo(() => ordinalIndexOf(value.axis), [value.axis]);
+    indexRef.current = index;
+
+    // ── The UI state the body lays out from ───────────────────────────────
+    // Reconciled against the rows rendered NOW: a new value's first render
+    // already has its vanished rows' focus / collapse gone and its fresh
+    // declared collapse applied — no flash frame — and `setValue` commits the
+    // same transition (#815). A paged source's resident rows are not all its
+    // rows, so its key set says nothing is gone (#813). Selection is not in
+    // the view: each row reads its own, so a click renders two rows and never
+    // this.
+    const reconcileModel = useMemo<PlanReconcileModel>(() => ({
+        alive: new Set(index.byKey.keys()),
+        complete: !paged,
+        declaredCollapsed: index.initiallyCollapsed,
+        declaredGrain: declaredGrainOf(data),
+    }), [index, paged, data]);
+    const selectView = useCallback((s: PlanSnapshot) => uiViewOf(s, reconcileModel), [reconcileModel]);
+    const view = useControllerSelector(controller, selectView, sameUiView);
+    const seek = useControllerSelector(controller, selectSeek);
+    const anchor = useControllerSelector(controller, selectAnchor);
+    const scroll = useControllerSelector(controller, selectScroll);
+
+    // ── The model ─────────────────────────────────────────────────────────
+    const dense = denseOf(data);
+    // The axis KIND (#631) — every window read speaks its slice arm, and a
+    // row whose instants ride another arm is a diagnostic row (#811).
+    const axisKind = data.axis.type;
+    // An ordinal axis orders its instants by the declared list.
+    const ordinalIndex = useMemo(() => ordinalIndexOf(data.axis), [data.axis]);
+    // The slice, the scale and the toolbar chrome — the scale's period is what
+    // the derivations fold to.
+    const { chrome, slice, affordances, scale } = usePlanWindow(value, data, words);
+    const period = scale?.period;
     // Renderer-side derivations (§4.2 — the Table idiom): the IR declares
-    // rollups / aggregates / summaries; the numbers are computed here.
-    const derived = useMemo(() => derivePlan(index, ordinalIndex), [index, ordinalIndex]);
-    // The Planner's single-axis-kind rule (#631): every instant on the canvas
-    // must ride the axis's arm. A row that does not is diagnosed below —
-    // named, with the arm it carries — instead of being drawn somewhere wrong.
-    const mismatches = useMemo(() => axisKindMismatches(index, axisKind), [index, axisKind]);
+    // rollups / aggregates / summaries / folds; the numbers are computed here,
+    // each row's entries kept by identity while they hold (#815). Every row's
+    // values fold to the scale's period first (#824) — a resolution change
+    // re-derives, a pan does not. A row whose instants ride another arm
+    // renders in place as a DIAGNOSTIC row and derives nothing (#811). A
+    // derived number prints in the locale (#820).
+    const fresh = useMemo(
+        () => derivePlan(index, ordinalIndex, axisKind, words, period),
+        [index, ordinalIndex, axisKind, words, period]);
+    const derived = useStableDerived(fresh);
     // The R1 link graph — rows an edge touches grow the `links` control.
-    const linkedKeys = useMemo(() => linkedRowKeys(value.links), [value.links]);
-    // A run's instants by (row, run) — the overlay's off-window resolution.
+    const linkedKeys = useMemo(() => linkedRowKeys(data.links), [data.links]);
+    // A run's instants by (row, run) — the ribbons' off-window resolution.
     const runDates = useCallback((rowKey: string, runKey: string): { start: PlanInstantValue; end: PlanInstantValue } | undefined => {
         const row = index.byKey.get(rowKey);
         if (row === undefined || row.kind.type !== "span") return undefined;
         const r = row.kind.value.runs.find((x) => x.key === runKey);
         return r !== undefined ? { start: r.start, end: r.end } : undefined;
     }, [index]);
-    // THE state machine — one `useReducer(planStoreReducer)` (#610). The
-    // reducer needs no scale context: the hover cursor — its one former
-    // consumer — is DOM chrome now (#609), so the machine is scale-free.
-    const [store, dispatchStore] = useReducer(
-        planStoreReducer, undefined,
-        () => initialPlanStore(initGrain, index.initiallyCollapsed));
-    const ui = store.ui;
-    // A host data commit RECONCILES the ephemeral UI state instead of
-    // resetting it (#610): entries whose rows vanished drop, never-seen
-    // declared collapse seeds once, and everything the user set survives —
-    // an Approve click changes the verdict presentation and nothing else.
-    useEffect(() => {
-        dispatchStore({
-            t: "reconcile",
-            alive: new Set(index.byKey.keys()),
-            declaredCollapsed: index.initiallyCollapsed,
-            declaredGrain: initGrain,
-        });
-        // eslint-disable-next-line react-hooks/exhaustive-deps -- reconcile fires on the VALUE identity; the index it prunes against is read fresh
-    }, [value]);
 
-    // Rows that arrive WITHOUT a data change — a paged canvas streams its
-    // windows in against an unchanging `value` — carry their own declared
-    // collapse. Seed each declared key ONCE, the first time its row appears,
-    // and drop nothing: eviction must not erase state the user still owns,
-    // and a group the user has since opened stays open when the next window
-    // lands.
-    useEffect(() => {
-        dispatchStore({ t: "seed", declaredCollapsed: index.initiallyCollapsed });
-    }, [index]);
-
-    // Row focus (R1 links / R2 expand) — family closure + height context.
-    const linkFamily = useMemo(
-        () => (ui.focus?.kind === "links" ? deriveLinkFamily(value.links, ui.focus.key) : undefined),
-        [ui.focus, value.links],
-    );
-    const focusVisibleKeys = useMemo(
-        () => (ui.focus !== null && linkFamily !== undefined
-            ? new Set([...linkFamily.all, ui.focus.key])
-            : undefined),
-        [ui.focus, linkFamily],
-    );
-    const focusCtx = useMemo<PlanFocusCtx | undefined>(() => {
-        if (ui.focus === null) return undefined;
-        return ui.focus.kind === "links"
-            ? { kind: "links", key: ui.focus.key, family: linkFamily?.all }
-            : { kind: "expand", key: ui.focus.key };
-    }, [ui.focus, linkFamily]);
-    // The focused expand row's developer render — the ROOT's `expandRender`
-    // resolver called with the row ref (rows only DECLARE `{ height, axis }`),
-    // evaluated once per focus.
-    const expandRenderFn = useMemo(() => getSomeorUndefined(value.expandRender), [value.expandRender]);
-    const expandGutterFn = useMemo(() => getSomeorUndefined(value.expandGutter), [value.expandGutter]);
-    const expandBody = useMemo(() => {
-        if (ui.focus?.kind !== "expand" || expandRenderFn === undefined) return null;
-        try {
-            return expandRenderFn({ key: ui.focus.key });
-        } catch (err) {
-            console.error("[Plan] expandRender resolver failed:", err);
-            return null;
-        }
-    }, [ui.focus, expandRenderFn]);
-    const expandGutterBody = useMemo(() => {
-        if (ui.focus?.kind !== "expand" || expandGutterFn === undefined) return null;
-        try {
-            return expandGutterFn({ key: ui.focus.key });
-        } catch (err) {
-            console.error("[Plan] expandGutter resolver failed:", err);
-            return null;
-        }
-    }, [ui.focus, expandGutterFn]);
-    // Entering / leaving / moving a row focus rewrites EVERY row's height
-    // while the row COUNT holds — precisely the case TanStack's measurement
-    // memo does not watch (see `VirtualRows.sizeVersion`). Bump on each
-    // distinct focus so the offsets are recomputed instead of the strips
-    // painting at their old full heights.
-    const [focusVersion, setFocusVersion] = useState(0);
-    useEffect(() => { setFocusVersion((n) => n + 1); }, [ui.focus]);
-    // The element-click callbacks (#569) — one funnel, routed by the clicked
-    // ref's own tag. The click payloads ARE the element-ref arms (types.ts),
-    // so nothing is re-encoded; `queueMicrotask` per the mandatory pattern.
-    const onRunClickFn = useMemo(() => getSomeorUndefined(value.onRunClick), [value.onRunClick]);
-    const onEventClickFn = useMemo(() => getSomeorUndefined(value.onEventClick), [value.onEventClick]);
-    const onMarkClickFn = useMemo(() => getSomeorUndefined(value.onMarkClick), [value.onMarkClick]);
-    const onChipClickFn = useMemo(() => getSomeorUndefined(value.onChipClick), [value.onChipClick]);
-    const onCellClickFn = useMemo(() => getSomeorUndefined(value.onCellClick), [value.onCellClick]);
-    const onElementClick = useMemo(() => {
-        if (onRunClickFn === undefined && onEventClickFn === undefined && onMarkClickFn === undefined
-            && onChipClickFn === undefined && onCellClickFn === undefined) return undefined;
-        return (ref: PlanElementRefValue) => {
-            switch (ref.type) {
-                case "run": if (onRunClickFn) queueMicrotask(() => onRunClickFn(ref.value)); break;
-                case "event": if (onEventClickFn) queueMicrotask(() => onEventClickFn(ref.value)); break;
-                case "mark": if (onMarkClickFn) queueMicrotask(() => onMarkClickFn(ref.value)); break;
-                case "chip": if (onChipClickFn) queueMicrotask(() => onChipClickFn(ref.value)); break;
-                case "cell": if (onCellClickFn) queueMicrotask(() => onCellClickFn(ref.value)); break;
-            }
+    // ── Chrome: series library, review, transport, search ─────────────────
+    // The series library (#590) — chrome, like the slice rail: the Plan feeds
+    // ITSELF the picked series, so all that is left here is the panel.
+    const pick = useMemo(() => getSomeorUndefined(value.pick), [value.pick]);
+    // Review chrome (#569) — a verdict is a DRAFT of the editing session
+    // (#880): Approve / Reject draft the row's entry with the field its series
+    // names, and Approve all / Reject all every row the canvas holds that
+    // takes one — on a paged canvas, the loaded rows. The canvas draws the
+    // draft, so the buttons and the canvas cannot disagree. Rerun changes no
+    // data: it is the controller's, which fires the LATEST root's callback.
+    const verdictRows = useMemo(() => index.rows.filter((r) => r.edits.verdict), [index]);
+    const verdictRowsRef = useRef(verdictRows);
+    verdictRowsRef.current = verdictRows;
+    const takesVerdicts = editing.enabled && verdictRows.length > 0;
+    const { verdict: draftVerdict, verdictAll: draftVerdictAll } = editing;
+    const review = useMemo(
+        () => planReviewModel(getSomeorUndefined(data.review), {
+            verdict: draftVerdict,
+            verdictAll: (v) => draftVerdictAll(v, verdictRowsRef.current),
+            rerun: controller.rerun,
+        }, { writable: editing.available, verdictRows: takesVerdicts }),
+        [data.review, draftVerdict, draftVerdictAll, controller, editing.available, takesVerdicts]);
+    // What the chrome tells the truth with (#567 D9). Counted in ELEMENTS —
+    // the number `total()` reports — never canvas rows, since a series can
+    // emit any number of rows per element; the count is the block the
+    // viewport is in (#823: each block pages on its own). `partial` says some
+    // block does not hold every element: counts across the canvas cover the
+    // loaded windows, and so does a top-level section's member count and
+    // strip. Every other parent derives from one entry's subtree, which a
+    // window holds whole, so its numbers are exact (`spansWindows`, #822).
+    const transport = useMemo<PlanTransport | undefined>(() => {
+        if (!paged) return undefined;
+        return {
+            loaded: paging.resident?.elements ?? 0,
+            from: paging.resident?.from ?? 0,
+            to: paging.resident?.to ?? 0,
+            total: paging.total,
+            loading: paging.loading,
+            partial: !paging.complete,
         };
-    }, [onRunClickFn, onEventClickFn, onMarkClickFn, onChipClickFn, onCellClickFn]);
-    // The generalized element resolvers (popover / hover) + the click funnel —
-    // threaded to the row renderers; elements invoke them lazily at
-    // interaction time.
-    const resolvers = useMemo<PlanResolvers>(() => ({
-        popover: getSomeorUndefined(value.popover),
-        hover: getSomeorUndefined(value.hover),
-        onElementClick,
-    }), [value.popover, value.hover, onElementClick]);
+    }, [paged, paging.resident, paging.total, paging.loading, paging.complete]);
+    // Key search is a capability of the SOURCE (`search` becomes seek — #567
+    // D9): a jump rebases residency on the matched ELEMENT, and the canvas
+    // positions on the first row that element placed, since a row's id starts
+    // with its element's key (#822). The control is keyed on the search's
+    // epoch: a new source revision drops the matches it holds, which index the
+    // previous snapshot (#821).
+    const seekable = data.rows.type === "paged" && data.rows.value.seek.type === "some";
+    const search = useMemo<PlanSearch | undefined>(
+        () => (seekable ? { ...controller.search, resetKey: String(seek.epoch) } : undefined),
+        [seekable, controller, seek.epoch]);
 
-    // Host callbacks (behavior props — queueMicrotask per the mandatory pattern).
-    const onSelect = useMemo(() => getSomeorUndefined(value.onSelect), [value.onSelect]);
-    const onGroupToggle = useMemo(() => getSomeorUndefined(value.onGroupToggle), [value.onGroupToggle]);
-    const onGrainChange = useMemo(() => getSomeorUndefined(value.onGrainChange), [value.onGrainChange]);
+    // ── Row focus and the visible rows ────────────────────────────────────
+    const { linkFamily, focusVisibleKeys, focusCtx } = usePlanFocus(view.focus, data.links);
+    // Keyed on the view FIELDS the walk reads (`grain`, `collapsed`), and each
+    // row object kept while it holds, so a row's memo survives both a store
+    // change that did not move it and a window landing (#616, #815).
+    const { grain, collapsed, chartsExpanded } = view;
+    const walked = useMemo(
+        () => visibleRows(index, { grain, collapsed }, focusVisibleKeys),
+        [index, grain, collapsed, focusVisibleKeys]);
+    const visible = useStableVisible(walked);
+    const pinned = useMemo(
+        () => pinnedRows(index).map((row): VisibleRow => ({ row, depth: 0, collapsed: false })),
+        [index]);
+    // The grain folds ROOT groups to their strips (`visibleRows`), so the
+    // toolbar's GROUP · RESOURCE segment mounts only where it folds one (#632).
+    const hasRootGroup = useMemo(() => index.roots.some((r) => r.kind.type === "group"), [index]);
 
-    // ── DnD target role ───────────────────────────────────────────────────
-    // The canvas is a drag TARGET: library cards land on a row at an instant.
-    // Rows register their own cells (`RowShell`); this registers the surface
-    // those cells name and funnels every completed drag to the host.
-    //
-    // A target needs BOTH an `id` (cells are addressed `surface × row × slot`,
-    // and an unnamed surface cannot be addressed) and an `onDrag` (a drop with
-    // nowhere to report is a gesture that silently loses work). Missing either
-    // ⇒ no registration at all, so no row lights up and no drag can complete
-    // against a canvas that cannot act on it.
-    const onDragFn = useMemo(() => getSomeorUndefined(value.onDrag), [value.onDrag]);
-    const canDropFn = useMemo(
-        () => getSomeorUndefined(value.canDrop) as CanDropFn | undefined,
-        [value.canDrop],
-    );
-    const dropEligible = onDragFn !== undefined && value.id !== "";
-    const handleDrop = useCallback((event: DragEventValue) => {
-        // No optimistic row is synthesized. The Gantt can invent a proposed
-        // bar because its rows ARE its tasks; a Plan's rows are derived from
-        // `data` through the series pipeline, so the honest flow is the one
-        // the grammar documents — the host commits, the data changes, the
-        // rows re-derive. Painting a speculative run here would put a row on
-        // screen that no series produced.
-        if (onDragFn !== undefined) queueMicrotask(() => onDragFn(event));
-    }, [onDragFn]);
-    const targetConfig = useMemo(() => (dropEligible ? {
-        id: value.id,
-        sources: [...value.sources],
-        // `add` only. `move` / `resize` need a drag to START on the canvas —
-        // a draggable run bar or chip — and nothing here begins one, so
-        // declaring them would advertise a capability with no gesture behind it.
-        kinds: { add: true },
-        onDrag: handleDrop,
-    } : null), [dropEligible, value.id, value.sources, handleDrop]);
-    useDragTarget(targetConfig);
-    // One config shared by every droppable row — the per-row part of the
-    // coordinate is the row itself, which `RowShell` already knows.
-    const rowDrop = useMemo<PlanRowDrop | undefined>(
-        () => (dropEligible ? { surface: value.id, canDrop: canDropFn } : undefined),
-        [dropEligible, value.id, canDropFn],
-    );
-
-    // Every window WRITE goes through here (#631): the instants land on the
-    // slice as the arm the axis speaks — `datetime` on a time axis, the
-    // field's `float` / `integer` on a number axis, and nothing at all on an
-    // ordinal one, whose list is its window (the keys and the pan idle there
-    // exactly as they idle on an unbound canvas).
-    const writeWindow = useCallback((min: PlanInstantValue, max: PlanInstantValue) => {
-        if (slice === undefined || scale === undefined) return;
-        const arm = rangeArmOf(scale.kind, slice.read(), boundRangeDomain(slice.key)?.kind);
-        if (arm === undefined) return;
-        slice.setRange(some(rangeOf(arm, min, max)));
-    }, [slice, scale]);
-    const runEffects = useCallback((effects: readonly PlanEffect[]) => {
-        for (const eff of effects) {
-            switch (eff.t) {
-                case "slice.setRange":
-                    writeWindow(eff.min, eff.max);
-                    break;
-                case "slice.clearRange":
-                    if (slice !== undefined) slice.setRange(none);
-                    break;
-                case "slice.setResolution":
-                    // A resolution is a TIME-axis fact — the segment only mounts
-                    // there (a number axis has `step`; an ordinal list no unit).
-                    if (slice !== undefined && scale !== undefined && scale.kind === "time"
-                        && scale.window.min.type === "time") {
-                        slice.setResolution(some(variant(eff.resolution, null) as never));
-                        // Zoom to the new resolution: preserve the CURRENT
-                        // column count (12 weeks showing → DAY shows 12 days),
-                        // anchored at the window start on the new period edges
-                        // — a same-width window would cram unusable columns.
-                        const interval = resolutionInterval(eff.resolution as PlanResolution);
-                        const min = interval.floor(scale.window.min.value);
-                        const max = interval.offset(min, scale.n);
-                        slice.setRange(some(variant("datetime", { from: min, to: max })));
-                    }
-                    break;
-                case "emit.select":
-                    if (onSelect) queueMicrotask(() => onSelect({ key: eff.key }));
-                    break;
-                case "emit.groupToggle":
-                    if (onGroupToggle) queueMicrotask(() => onGroupToggle({ row: eff.key, expanded: eff.expanded }));
-                    break;
-                case "emit.grainChange":
-                    if (onGrainChange) queueMicrotask(() => onGrainChange(variant(eff.grain, null)));
-                    break;
-                case "scroll.toNow": {
-                    // The now instant is an AXIS fact, so reaching it means
-                    // moving the WINDOW — which is slice state (the #567
-                    // sweep's call: these are `slice.setRange` writes, not
-                    // virtualizer calls). An unbound canvas has no writable
-                    // window, so the rung idles there, exactly like the
-                    // resolution segment (#615).
-                    if (slice === undefined || scale === undefined) break;
-                    const nowInstant = axisNow(value.axis);
-                    if (nowInstant === undefined) break;
-                    // Re-derive the window on period edges with the SAME
-                    // column count, now a third of the way in (ahead is where
-                    // the plan lives) — the resolution-zoom precedent above:
-                    // snap + `n` periods on the scale's own domain, never ms
-                    // arithmetic.
-                    const from = scale.offset(scale.floor(nowInstant), -Math.floor(scale.n / 3));
-                    writeWindow(from, scale.offset(from, scale.n));
-                    break;
-                }
-                case "pan": {
-                    if (slice === undefined || scale === undefined) break;
-                    writeWindow(scale.offset(scale.window.min, eff.buckets), scale.offset(scale.window.max, eff.buckets));
-                    break;
-                }
-            }
-        }
-    }, [slice, scale, value.axis, writeWindow, onSelect, onGroupToggle, onGrainChange]);
-
-    const dispatch = useCallback((e: PlanEvent) => dispatchStore({ t: "event", e }), []);
-    // The store's effect batch, drained EXACTLY ONCE per bump — post-commit
-    // but before paint, so a slice write lands in the same visual frame its
-    // event did. (Brush PREVIEWS no longer ride this: they change no machine
-    // state, so the HorizonBrush writes them directly, frame-coalesced —
-    // #609.) The seq gate is a ref so a re-created `runEffects` (new slice /
-    // scale identity) cannot re-fire an already-drained batch.
-    const drainedFx = useRef(0);
-    useLayoutEffect(() => {
-        if (store.fxSeq === drainedFx.current) return;
-        drainedFx.current = store.fxSeq;
-        runEffects(store.fx);
-    }, [store.fxSeq, store.fx, runEffects]);
-
-    // The focus overlay's positioning parent (the canvas body wrapper).
+    // ── The frame ─────────────────────────────────────────────────────────
+    // The canvas body: the ribbons' positioning parent, the keyboard surface,
+    // and what the narrow layout measures (§10, #570 — below the adaptive
+    // contract's compact width the Plan is a review tool, cards and tabs; the
+    // signal is the CONTAINER the body renders in, never the viewport).
     const focusBodyRef = useRef<HTMLDivElement | null>(null);
-    // The narrow layout (§10, #570): below the adaptive contract's compact
-    // width the Plan is a review tool — cards and tabs, not a canvas. The
-    // signal is the CONTAINER the body renders in (a splitter pane, a task
-    // preview, a phone all qualify), never the viewport.
     const narrow = useContainerBelow(focusBodyRef, PLAN_NARROW_BELOW);
-    // The virtualizer's scroll viewport — the only element that knows how much
-    // canvas there actually is, which the R2 clamp measures.
+    // The virtualizer's scroll viewport and the sticky chrome inside it —
+    // what the R2 clamp measures, watched rather than measured once (#812).
     const scrollElRef = useRef<HTMLDivElement | null>(null);
-    // The sticky chrome's measured height (toolbar / brush / ruler / pinned
-    // rows / focus bar). It sits INSIDE the scroll viewport, so the clamp has
-    // to take it off the top. Measured rather than summed from constants: the
-    // chrome is conditional in five places and a hand-kept total would drift.
-    const headerPxRef = useRef(0);
-    const headerElRef = useCallback((el: HTMLDivElement | null) => {
-        headerPxRef.current = el?.offsetHeight ?? 0;
-    }, []);
+    const headerRef = useRef<HTMLDivElement | null>(null);
+    const { canExpand, expandBody, expandGutterBody, heightCtx } = usePlanExpand(
+        value, view.focus, focusCtx, { index, visible, derived }, dense, chartsExpanded,
+        { scrollElRef, headerRef }, !narrow);
     // Entering a row focus can swap the body tree (R2 unmounts the clicked
     // control), dropping browser focus to <body> and killing the esc rung —
-    // re-anchor keyboard focus on the canvas surface.
+    // re-anchor keyboard focus on the focused ROW (#819: it holds the tab
+    // stop from then on), or on the canvas surface in the narrow layout,
+    // which has no grid. Focus that stayed in the canvas is left where it is.
     useEffect(() => {
-        if (ui.focus !== null) focusBodyRef.current?.focus();
-    }, [ui.focus]);
-
-    // ── The hover cursor: DIRECT DOM writes, zero renders (#609) ──────────
-    // The hairline + ruler chip are display-only chrome, driven the way the
-    // landing band is driven: `move` sets ONE CSS variable on the body — every
-    // row's hairline positions from `--plan-cursor-x` and shows only under
-    // `[data-plan-cursor]` — and writes the chip's label/position directly.
-    // Routing this through the reducer committed the ENTIRE canvas once per
-    // pointermove, O(mounted rows), unthrottled; now a pointermove renders
-    // nothing at all.
+        if (view.focus === null) return;
+        const bodyEl = focusBodyRef.current;
+        const at = document.activeElement;
+        if (bodyEl === null || (at !== null && at !== document.body && bodyEl.contains(at))) return;
+        if (narrow) bodyEl.focus();
+        else controller.focusItem(rowItemKey(view.focus.key));
+    }, [view.focus, narrow, controller]);
+    // The hover cursor: direct DOM writes, zero renders (#609).
     const cursorChipRef = useRef<HTMLDivElement | null>(null);
-    const cursor = useMemo<PlanCursor>(() => ({
-        move: (frac: number) => {
-            const body = focusBodyRef.current;
-            if (body === null || scale === undefined) return;
-            body.style.setProperty("--plan-cursor-x", String(frac));
-            body.setAttribute("data-plan-cursor", "");
-            const chip = cursorChipRef.current;
-            if (chip !== null) {
-                const bi = scale.bucketAtFrac(frac);
-                if (bi >= 0) {
-                    chip.textContent = scale.buckets[bi]!.label;
-                    chip.style.left = `${frac * 100}%`;
-                    chip.style.transform = `translate(${chipAnchor(frac)}, -50%)`;
-                    chip.style.display = "";
-                } else {
-                    // A truncated axis's uncovered remainder has no bucket to
-                    // name — the hairline still tracks, the readout hides.
-                    chip.style.display = "none";
-                }
-            }
-        },
-        leave: () => {
-            focusBodyRef.current?.removeAttribute("data-plan-cursor");
-            const chip = cursorChipRef.current;
-            if (chip !== null) chip.style.display = "none";
-        },
-    }), [scale]);
+    const cursor = usePlanCursorController(focusBodyRef, cursorChipRef, scale);
+    // The overlay layer (#816): the body listens for every element, and one
+    // popover / hover card / tooltip opens where it is asked.
+    const [anchors] = useState(createOverlayAnchors);
+    const hasPopover = data.popover.type === "some";
+    const hasHover = data.hover.type === "some";
+    const overlayHandlers = usePlanOverlayHandlers(focusBodyRef, controller, anchors,
+        useMemo(() => ({ popover: hasPopover, hover: hasHover }), [hasPopover, hasHover]));
 
     // ── Recipe + layout ───────────────────────────────────────────────────
+    // Density is GEOMETRY, not a recipe variant (#817): one table of every
+    // row and slot height, written below as the CSS variables the recipe
+    // reads — the same numbers `rowHeight` lays the body out from.
     const recipe = useSlotRecipe({ key: "plan" });
-    const styles = useMemo(
-        () => recipe({ density: dense ? "dense" : "default" } as Record<string, unknown>) as unknown as Styles,
-        [recipe, dense],
-    );
-    const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);
-    // gutterWidth is a CSS px size string (the shared component-height type).
-    // `pxOf`, not `parseFloat`: a percentage must fall back to the default,
-    // never silently become that many pixels (#615).
-    const gutterWDeclared = style !== undefined && style.gutterWidth.type === "some" ? pxOf(style.gutterWidth.value) : undefined;
-    const gutterW = gutterWDeclared ?? GUTTER_W;
+    const styles = useMemo(() => recipe() as unknown as Styles, [recipe]);
+    const geometry = planGeometry(dense);
+    const geometryStyle = useMemo(() => planGeometryStyle(geometry), [geometry]);
+    const style = useMemo(() => getSomeorUndefined(data.style), [data.style]);
+    // gutterWidth is a CSS px size string. `pxOf`, not `parseFloat`: a
+    // percentage must fall back to the default, never silently become that
+    // many pixels (#615).
+    const gutterW = (style !== undefined && style.gutterWidth.type === "some" ? pxOf(style.gutterWidth.value) : undefined) ?? GUTTER_W;
     const gridTemplate = `${gutterW}px 1fr${review !== undefined ? ` ${DECISION_WIDTH}` : ""}`;
     const height = parseCssSize(style !== undefined ? getSomeorUndefined(style.height) : undefined);
     const maxHeight = parseCssSize(style !== undefined ? getSomeorUndefined(style.maxHeight) : undefined);
     // A declared bound goes on the WRAPPER and the frame fills the remainder
     // (`fillParent`) — the Board / Roster / Planner / ValueTree discipline.
-    // Passing it inward instead leaves a percentage (`"fill"` → `"100%"`)
-    // resolving against the auto-height wrapper, which computes to `auto`: the
-    // frame reports bounded, renders the spacer, and never scrolls.
+    // Passing it inward leaves a percentage (`"fill"` → `"100%"`) resolving
+    // against the auto-height wrapper, which computes to `auto`: the frame
+    // reports bounded, renders the spacer, and never scrolls.
     const frameFills = height !== undefined || maxHeight !== undefined;
-    const barHeight = dense ? 16 : 20;
 
-    // ── Rows ──────────────────────────────────────────────────────────────
-    // Keyed on the ui FIELDS the derivation reads (`grain`, `collapsed`) —
-    // never the whole `ui` — so the `VisibleRow` identities hold across
-    // selection / chart-toggle / focus-control store changes, which is what
-    // lets `PlanBodyRow`'s memo skip unmoved rows (#616).
-    const visible = useMemo(
-        () => visibleRows(index, ui, focusVisibleKeys),
-        // eslint-disable-next-line react-hooks/exhaustive-deps -- visibleRows reads ui.grain + ui.collapsed only; keying on the whole ui would bust every row identity per store change
-        [index, ui.grain, ui.collapsed, focusVisibleKeys],
-    );
-    const pinned = useMemo(() => pinnedRows(index), [index]);
-    // R2 — the focused row's own declaration. The row keeps its NORMAL
-    // anatomy and height; what grows is the render region BELOW it, which is
-    // its own body item (see `bodyItems`) so the whole gesture stays inside
-    // the virtualizer and the strips above and below keep their order.
-    const expandDecl = focusCtx?.kind === "expand"
-        ? getSomeorUndefined(index.byKey.get(focusCtx.key)?.expand)
-        : undefined;
-    // The v2 clamp — `min(renderHeight, canvas − strips − ruler)`. The canvas
-    // is MEASURED, not parsed: `height: "fill"` is `"100%"`, which has no
-    // pixel value until layout runs. Unbounded frames have no scroll element
-    // and grow to content, so there is nothing to clamp against and the
-    // declared height stands.
-    const viewportPx = useElementHeight(scrollElRef, ui.focus?.kind === "expand");
-    // The clamp feeds `focusCtx.renderPx`, which `rowHeight` adds to the focal
-    // row — so it must be computed WITHOUT `focusCtx` (which would be
-    // circular). Strip heights are constant per row, so summing them needs no
-    // focus context: every row but the focus is `STRIP_H`, groups aside.
-    const expandRenderPx = useMemo(() => {
-        if (expandDecl === undefined) return 0;
-        // `pxOf`, not `parseFloat` — a percentage must fall back to the
-        // default, never silently become that many pixels (the #615 rule).
-        const declared = expandDecl.height.type === "some" ? pxOf(expandDecl.height.value) : undefined;
-        const want = declared ?? EXPAND_DEFAULT_PX;
-        if (viewportPx === undefined) return want;
-        // Everything the render must NOT push out: the strips, the focal row's
-        // own band, and the chrome pinned above them.
-        const bare = { kind: "expand" as const, key: ui.focus?.key ?? "" };
-        const rowsPx = visible.reduce(
-            (sum, v) => sum + rowHeight(v, dense, ui.chartsExpanded, bare, derived), 0);
-        return Math.max(EXPAND_FLOOR_PX, Math.min(want, viewportPx - rowsPx - headerPxRef.current));
-    }, [expandDecl, viewportPx, visible, dense, ui.chartsExpanded, ui.focus, derived]);
-    // The height context every `rowHeight` call uses. `focusCtx` says WHICH
-    // row is focused (that is all `renderVisible` needs); this adds how tall
-    // its render is, which only the measurements need — keeping them separate
-    // is what lets the clamp be computed after `focusCtx` without the two
-    // depending on each other.
-    const heightCtx = useMemo<PlanFocusCtx | undefined>(
-        () => (focusCtx?.kind === "expand" ? { ...focusCtx, renderPx: expandRenderPx } : focusCtx),
-        [focusCtx, expandRenderPx]);
-    // R1 at scale — the links-focus body elides runs of unrelated rows into
-    // gap bands (a lone straggler keeps its rail; see `elideForFocus`).
-    const bodyItems = useMemo<PlanBodyItem[]>(() => {
-        const core: PlanBodyItem[] = focusCtx?.kind === "links"
-            ? elideForFocus(visible, index, focusCtx)
-            : visible.map((row) => ({ kind: "row", row }));
-        // The unloaded remainder of a paged source, above and below (#577). Each
-        // band is sized by the ledger, so the rows that replace it occupy the
-        // same space and nothing below moves.
-        if (paging.head === undefined && paging.tail === undefined) return core;
-        const out: PlanBodyItem[] = [];
-        if (paging.head !== undefined) out.push({ kind: "band", band: paging.head });
-        out.push(...core);
-        if (paging.tail !== undefined) out.push({ kind: "band", band: paging.tail });
-        return out;
-    }, [focusCtx, visible, index, paging.head, paging.tail]);
+    // ── The drag-target role ──────────────────────────────────────────────
+    // A drop is a draft of the editing session (#880): the canvas is a target
+    // only while the session can take one. A card lands; the canvas's own
+    // runs, chips, tiles and marks move and resize (#825) — where one lands is
+    // what its rows proposed at the drop point, from the press it began with
+    // (`edit/store.ts`). The drag layer is told whether the gesture was
+    // drafted: a drop the row's write refused, or a move back to where it
+    // began, is announced as not dropped.
+    const [editStore] = useState(() => new PlanEditStore());
+    const { drop: draftDrop, move: draftMove } = editing;
+    const onDrag = useCallback((event: DragEventValue): boolean => {
+        if (event.type === "add") return draftDrop(event);
+        if (event.type !== "move" && event.type !== "resize") return false;
+        const { grab, proposal } = editStore;
+        editStore.disarm();
+        const row = event.type === "move" ? event.value.to.row : event.value.event.row;
+        if (grab === null || proposal === null || proposal.rowKey !== row || unmoved(grab.movable, proposal)) return false;
+        return draftMove({
+            key: grab.movable.key, from: grab.movable.rowKey, to: proposal.rowKey, span: proposal.span,
+            origin: event.type === "resize" ? "resize" : originOf(grab.movable, proposal).kind,
+            label: grab.movable.label,
+        });
+    }, [draftDrop, draftMove, editStore]);
+    const rowDrop = usePlanDropTarget(value, data.sources, onDrag, editing.available);
 
-    // The viewport, in the driver's terms — which ROW (or which band) it sits
-    // on. The item under the viewport CENTER when the frame can resolve one
-    // (the live scroll offset; inside one huge band item the mounted range
-    // cannot say where the thumb is — the center pixel can, #612), else the
-    // middle of the mounted range. The driver maps it back to a window; no
-    // body-layout knowledge crosses that boundary.
-    // Depends on the STABLE `reportViewport` callback, never the whole
-    // `paging` object — the hook returns a fresh literal every render, so
-    // keying on it re-fired the virtualizer's range effect after every
-    // commit rather than on real range changes (#609).
-    const reportViewport = paging.reportViewport;
-    const reportRange = useCallback((
-        range: { startIndex: number; endIndex: number },
-        isScrolling: boolean,
-        center?: { index: number; withinPx: number },
-    ) => {
-        const mid = Math.floor((range.startIndex + range.endIndex) / 2);
-        const item = bodyItems[center?.index ?? mid] ?? bodyItems[range.startIndex];
-        if (item === undefined) return;
-        if (item.kind === "band") {
-            // `withinPx` is measured from the band's own top — the one origin
-            // the ledger can place exactly, whatever the resident rows above
-            // it rendered at.
-            reportViewport(
-                { kind: "band", at: item.band.at, px: center?.withinPx },
-                isScrolling);
+    // ── The body ──────────────────────────────────────────────────────────
+    const body = usePlanBody(visible, index, derived, paging, focusCtx, heightCtx, dense, chartsExpanded);
+    const target = usePlanScrollTarget(body.items, index, derived, scroll);
+    // ── The links layer (R1, #818) ────────────────────────────────────────
+    // Its ribbons are laid out from THIS body — the heights the frame lays the
+    // rows out at — and drawn in the rows' own coordinates, so they follow a
+    // collapse or a landing window in the same render as the rows do.
+    const linksFocus = view.focus?.kind === "links";
+    const ribbonRows = useMemo(
+        () => (linksFocus ? ribbonBody(body.items, body.heights, index, geometry) : undefined),
+        [linksFocus, body.items, body.heights, index, geometry]);
+    // A pinned row renders in the header, above every body row; a row of an
+    // evicted paged window sits where its window does in its block's band
+    // (#823) — a row never seen has no place, and its edges are not drawn.
+    const pinnedKeys = useMemo(() => new Set(pinned.map((v) => v.row.key)), [pinned]);
+    // (A band moves only with the body, so the ribbons' body is what renews it.)
+    const beyond = useCallback((key: string): RibbonBeyond | undefined => {
+        if (pinnedKeys.has(key)) return { off: "above" };
+        const place = paged ? controller.placeOf(key) : undefined;
+        const top = place !== undefined ? ribbonRows?.bands.get(`${place.block}:${place.at}`) : undefined;
+        return place !== undefined && top !== undefined ? { y: top + place.px } : undefined;
+    }, [pinnedKeys, paged, controller, ribbonRows]);
+    // What a bounded frame's view is read from — its scroll element and the
+    // sticky chrome above its rows.
+    const frameRefs = useMemo(() => ({ scrollElRef, headerRef }), [scrollElRef, headerRef]);
+    const reportRange = usePlanRangeReport(body.items, controller);
+    // Scroll anchoring (#878): the row at the top of the view keeps its place
+    // when rows above it change height or count — a window landing above at a
+    // height its estimate missed. An unloaded band never anchors: rows landing
+    // below it move its top, and after a rebase the same band stands for other
+    // elements.
+    const anchorable = useCallback((i: number) => body.items[i]?.kind !== "band", [body.items]);
+    // The sticky parent (#823): while the row at the top of the view nests
+    // under a parent whose own row has scrolled off, that parent — and, on a
+    // deep tree, the path to it — is pinned under the header. The same inline
+    // and paged: a paged window holds its entries whole, and a section's
+    // header is a fixed block, so a row's parent is always on the canvas.
+    const itemIndex = useMemo(() => {
+        const m = new Map<string, number>();
+        body.items.forEach((it, i) => m.set(bodyItemKey(it), i));
+        return m;
+    }, [body.items]);
+    const stickyParent = useCallback((top: number): ReactNode => {
+        const item = body.items[top];
+        if (item?.kind !== "row" || item.row.row.parent.type !== "some") return null;
+        const parent = index.byKey.get(item.row.row.parent.value);
+        // Its own row still in view (or below): nothing to pin.
+        const at = parent !== undefined ? itemIndex.get(rowItemKey(parent.key)) : undefined;
+        if (parent === undefined || (at !== undefined && at >= top)) return null;
+        const path: PlanRowValue[] = [];
+        for (let up = parent.parent; up.type === "some";) {
+            const row = index.byKey.get(up.value);
+            if (row === undefined) break;
+            path.unshift(row);
+            up = row.parent;
         }
-        else if (item.kind === "row") reportViewport({ kind: "row", key: item.row.row.key }, isScrolling);
-        // A links-focus gap band names no window — leave the demand where it is.
-    }, [bodyItems, reportViewport]);
-    // Where a key search has positioned the canvas. Resolved against the
-    // VISIBLE body (a match inside a collapsed group has no row to scroll to),
-    // and only once that row has actually loaded.
-    const scrollToIndex = useMemo(() => {
-        if (targetKey === undefined) return undefined;
-        // `it.row` is the VisibleRow envelope; the row value is `it.row.row`.
-        const i = bodyItems.findIndex((it) => it.kind === "row" && it.row.row.key === targetKey);
-        return i >= 0 ? i : undefined;
-    }, [bodyItems, targetKey]);
-
-    // The thin per-row adapter: compute this row's PRIMITIVE facts and hand
-    // them to the memoized `PlanBodyRow` (#616). The canvas still renders on
-    // every store change — cheaply — and each row's memo skips its subtree
-    // unless ITS facts moved, so a selection click re-renders two rows and a
-    // chart toggle one. (`visible` keys on `grain`/`collapsed`, not the whole
-    // `ui`, which is what keeps the `v` identities stable across those
-    // changes.) Scale changes still repaint every row: the row content
-    // consumes `PlanScaleContext`, and context pierces the memo by design.
-    const renderVisible = useCallback((v: VisibleRow): React.ReactNode => {
-        if (scale === undefined) return null;
-        const kind = v.row.kind;
-        const h = rowHeight(v, dense, ui.chartsExpanded, heightCtx, derived);
-        // R1 rails — unrelated data rows under a links focus collapse to 11px.
-        const isRail = focusCtx?.kind === "links" && kind.type !== "group"
-            && v.row.key !== focusCtx.key && !(focusCtx.family?.has(v.row.key) ?? false);
-        // ── R2 context strip (#591) ── Under an expand focus every DATA row
-        // but the focused one compresses to 16px. Group bands are exempt:
-        // they are wayfinding, and a wall of strips with no structure between
-        // them is unreadable.
-        const isCtx = focusCtx?.kind === "expand" && v.row.key !== focusCtx.key
-            && kind.type !== "group";
-        // The FOCUSED row carries the render inside itself, which is what
-        // makes it (and its gutter) tall — see `PlanFocusCtx.renderPx`.
-        const isFocal = focusCtx?.kind === "expand" && v.row.key === focusCtx.key
-            && kind.type !== "group" && expandBody !== null;
-        const up = linkFamily?.upstream.has(v.row.key) ?? false;
-        const down = linkFamily?.downstream.has(v.row.key) ?? false;
-        const focusTag = up && down ? "LINKED" as const : up ? "UPSTREAM" as const : down ? "DOWNSTREAM" as const : undefined;
-        // R2 — the focused row keeps its NORMAL anatomy; `axis` washes /
-        // suppresses the shared lines inside its plot.
-        const rowExpand = v.row.expand.type === "some" ? v.row.expand.value : undefined;
-        const axisMode = isFocal && rowExpand !== undefined && rowExpand.axis.type !== "keep"
-            ? rowExpand.axis.type
-            : undefined;
-        const activeControl = ui.focus !== null && ui.focus.key === v.row.key ? ui.focus.kind : undefined;
         return (
-            <PlanBodyRow
-                v={v}
-                h={h}
-                styles={styles}
-                gridTemplate={gridTemplate}
-                barHeight={barHeight}
-                storageKey={storageKey}
-                index={index}
-                derived={derived}
-                dispatch={dispatch}
-                selected={ui.selected === v.row.key}
-                chartExpanded={ui.chartsExpanded.has(v.row.key)}
-                focusRole={isRail ? "rail" : isFocal ? "focal" : isCtx ? "ctx" : "none"}
-                focusTag={focusTag}
-                axisMode={axisMode}
-                showLinksControl={linkedKeys.has(v.row.key)}
-                showExpandControl={v.row.expand.type === "some" && expandRenderFn !== undefined}
-                activeControl={activeControl}
-                partial={transport?.partial}
-                review={review}
-                rowDrop={rowDrop}
-                {...(isFocal ? {
-                    expandBody: <EastChakraComponent value={expandBody}
-                        storageKey={`${storageKey}.${v.row.key}.expand`} />,
-                    bandHeight: rowHeight(v, dense, ui.chartsExpanded, undefined, derived),
-                    ...(expandGutterBody !== null ? {
-                        expandGutter: <EastChakraComponent value={expandGutterBody}
-                            storageKey={`${storageKey}.${v.row.key}.expandgutter`} />,
-                    } : {}),
-                } : {})}
-            />
+            <PlanStickyParent parent={parent} path={path} styles={styles} gridTemplate={gridTemplate}
+                onGo={() => controller.focusItem(rowItemKey(parent.key), "start")} />
         );
-    }, [scale, styles, gridTemplate, dense, ui, index, derived, dispatch, barHeight, storageKey,
-        focusCtx, heightCtx, linkedKeys, linkFamily, expandRenderFn, expandBody, expandGutterBody,
-        transport, review, rowDrop]);
+    }, [body.items, index, itemIndex, styles, gridTemplate, controller]);
+    // After EVERY commit: what the canvas now shows. A jump keeps the viewport
+    // until its landed target has been on screen for a commit — the one in
+    // which the frame scrolled to it — so the reports that commit's render made
+    // from the OLD position cannot rebase the run back (#812).
+    useEffect(() => { controller.committed(paging); });
+    // The scroll anchor (#813): placed against the body once it can be — a
+    // paged canvas may first jump to the window its row came from.
+    useEffect(() => {
+        if (anchor.phase !== "settled") controller.placeAnchor(body.items, frameFills && !narrow);
+    }, [controller, anchor.phase, body.items, frameFills, narrow]);
+    const onAnchorChange = useCallback(
+        (at: { index: number; offset: number }) => controller.anchorChanged(at, body.items),
+        [controller, body.items]);
+    // The narrow list's side of the paging loop (#812): it has no virtualizer,
+    // so it reports the last row card on screen, and its load-more asks every
+    // block with more for the window past its resident run (#823) — the list
+    // ends with the last block's unloaded run.
+    const narrowPaging = useMemo<PlanNarrowPaging | undefined>(() => {
+        if (!paged) return undefined;
+        const more = paging.blocks.filter((b) => b.tail !== undefined);
+        return {
+            tail: more[more.length - 1]?.tail,
+            loading: paging.loading,
+            onViewport: (key: string) => controller.reportViewport({ kind: "row", key }, false),
+            onLoadMore: () => {
+                for (const b of more) controller.reportViewport({ kind: "band", block: b.index, at: "tail" }, false);
+            },
+        };
+    }, [paged, paging.blocks, paging.loading, controller]);
+    // What the toolbar reports (#811) — everything the canvas carried on past.
+    const diagnostics = useMemo<PlanDiagnostics>(() => ({
+        skipped: derived.diagnostics.size,
+        onSeekSkipped: target.firstSkipped !== undefined ? controller.seekSkipped : undefined,
+        sourceError: paging.sourceError,
+        searchError: seek.searchError,
+        truncatedAt: scale?.truncated?.shown,
+    }), [derived.diagnostics, target.firstSkipped, controller, paging.sourceError, seek.searchError, scale]);
 
-    // R1 gap band — ONE double-height ⋯ band replacing a run of unrelated
-    // rows (their count rides beside the icon, worst hidden tone at right);
-    // click returns to all rows, like a rail.
-    const renderGap = useCallback((gap: FocusGap): React.ReactNode => (
-        <Box css={styles.focusGap} gridTemplateColumns={gridTemplate}
-            data-plan-gap={gap.rows + gap.groups}
-            onClick={() => dispatch({ t: "focus.clear" })}>
-            <Box css={styles.focusGapInner}>
-                <FontAwesomeIcon icon={faEllipsis} />
-                <Box as="span">{gap.rows > 0 ? gap.rows : gap.groups}</Box>
-            </Box>
-            <Box position="relative">
-                {gap.tone !== undefined && (
-                    <Box as="span" css={styles.statusDot} data-tone={gap.tone}
-                        position="absolute" right="12px" top="50%" transform="translateY(-50%)" />
-                )}
-            </Box>
-        </Box>
-    ), [styles, gridTemplate, dispatch]);
+    // The element-click funnel, when the root declares `onElementClick` (#824)
+    // — the controller reports a click to the LATEST root's.
+    const clickable = data.onElementClick.type === "some";
+    const resolvers = useMemo<PlanResolvers>(
+        () => ({ onElementClick: clickable ? controller.elementClick : undefined }),
+        [clickable, controller]);
+    // What every row of this render shares (#616: per-row facts are computed
+    // from it, and each row's memo skips unless ITS facts moved).
+    const marks = editing.marks;
+    const rowCtx = useMemo<PlanRowContext>(() => ({
+        styles, gridTemplate, dense, storageKey, index, derived,
+        dispatch: controller.dispatch, chartsExpanded, focusCtx, heightCtx, linkFamily, linkedKeys,
+        canExpand, expandBody, expandGutterBody, partial: transport?.partial, review, rowDrop, marks,
+    }), [styles, gridTemplate, dense, storageKey, index, derived, controller, chartsExpanded,
+        focusCtx, heightCtx, linkFamily, linkedKeys, canExpand, expandBody, expandGutterBody, transport, review, rowDrop, marks]);
 
-    // ── Shell composition ─────────────────────────────────────────────────
     // The resolution segment is a TIME-axis affordance; the now instant rides
     // whichever arm the axis declares.
-    const resolutions = useMemo(() => axisResolutions(value.axis), [value.axis]);
-    const now = useMemo(() => axisNow(value.axis), [value.axis]);
+    const resolutions = useMemo(() => axisResolutions(data.axis), [data.axis]);
+    const now = useMemo(() => axisNow(data.axis), [data.axis]);
+    // The batch foot's buttons, in the canvas's words (#820) — on a paged
+    // canvas they cover the loaded rows, and say how many (#880).
+    const loadedVerdicts = verdictRows.length;
+    const footLabels = useMemo(
+        () => (paged
+            ? {
+                approveAll: words.m.approveLoaded({ n: loadedVerdicts, count: words.number(loadedVerdicts) }),
+                rejectAll: words.m.rejectLoaded({ n: loadedVerdicts, count: words.number(loadedVerdicts) }),
+            }
+            : { approveAll: words.m.approveAll(), rejectAll: words.m.rejectAll() }),
+        [words, paged, loadedVerdicts]);
+    // The history bar (#880) — in the toolbar, and the narrow layout's chips.
+    // An issue takes the reader to its entry's first row on the canvas.
+    const onIssue = useCallback((issue: EditIssue) => {
+        const row = index.rows.find((r) => entryOf(r.id) === issue.entry);
+        if (row !== undefined) controller.focusItem(rowItemKey(row.key), "auto");
+    }, [index, controller]);
+    const history = editing.enabled
+        ? <HistoryBar session={editing.session} words={words} editing={false} onAction={editing.action} onIssue={onIssue} />
+        : undefined;
 
-    // A paged source that could not be READ outranks every other diagnostic:
-    // there is no offline stand-in for `Data.bindPaged` (paging is a server
-    // capability), so this is what a bound canvas shows outside a workspace —
-    // the reason, not a blank axis that reads as an empty dataset (#567 D10).
-    if (paging.error !== undefined) {
-        return (
-            <Box css={styles.diagnostic} data-plan-empty data-plan-error>
-                {`NO ROWS — the paged source could not be read. ${paging.error}`}
-            </Box>
-        );
-    }
+    // ── The treegrid (#819) ───────────────────────────────────────────────
+    // Every item's place in the grid — the pinned rows first — published to
+    // the rows, which write it onto themselves: a collapse or a landing at
+    // the head renumbers every row below it without rendering one
+    // (`root/grid.ts`).
+    const gridRef = useRef<HTMLElement | null>(null);
+    const [positions] = useState(createRowPositions);
+    const gridCtx = useMemo<PlanGridContextValue>(() => ({ positions, gridRef }), [positions]);
+    const positionMap = useMemo(() => {
+        const m = new Map<string, number>();
+        pinned.forEach((v, i) => m.set(rowItemKey(v.row.key), i + 1));
+        body.items.forEach((it, i) => m.set(bodyItemKey(it), pinned.length + i + 1));
+        return m;
+    }, [pinned, body.items]);
+    useLayoutEffect(() => { positions.set(positionMap); }, [positions, positionMap]);
+    const uid = useId();
+    const pinnedId = `${uid}-pinned`;
+    // The grid's items as the keyboard walks them.
+    const pinnedHeights = useMemo(
+        () => pinned.map((v) => rowHeight(v, dense, chartsExpanded, heightCtx, derived)),
+        [pinned, dense, chartsExpanded, heightCtx, derived]);
+    const navItems = useMemo(() => planNavItems({
+        pinned, pinnedHeights, items: body.items, heights: body.heights, index, chartsExpanded, focusCtx,
+    }), [pinned, pinnedHeights, body.items, body.heights, index, chartsExpanded, focusCtx]);
+    // What the grid knows of its source's ends — a pending band move waits
+    // while a window is in flight, and Home / End until the first block's
+    // first element / the last block's last element is resident (#823).
+    const navEdges = useMemo<PlanNavEdges>(() => {
+        const pagedBlocks = paging.blocks.filter((b) => !b.fixed);
+        const first = pagedBlocks[0];
+        const last = pagedBlocks[pagedBlocks.length - 1];
+        return {
+            loading: paging.loading,
+            atStart: !paged || first === undefined || (first.head === undefined && first.resident?.from === 0),
+            atEnd: !paged || last === undefined || (last.tail === undefined && last.resident !== undefined
+                && paging.total !== undefined && last.resident.to >= paging.total),
+        };
+    }, [paged, paging.loading, paging.blocks, paging.total]);
+    // A keyboard move onto a band waits — on the band, or on the item it set
+    // out from when the demand took the band away — for the rows, then goes
+    // on to the row it was headed for (`resolveNavIntent`).
+    const navIntent = useRef<{ holder: string; intent: PlanNavIntent } | null>(null);
+    useEffect(() => {
+        const pending = navIntent.current;
+        if (pending !== null) {
+            // Moved on meanwhile: the move is theirs now.
+            if (controller.getSnapshot().nav.active !== pending.holder) {
+                navIntent.current = null;
+            } else {
+                const r = resolveNavIntent(navItems, pending.intent, navEdges);
+                if (r.t !== "pending") {
+                    navIntent.current = null;
+                    if (r.t === "resolved") controller.focusItem(r.key, "auto");
+                    return;
+                }
+            }
+        }
+        const snap = controller.getSnapshot();
+        // A keyboard move whose item the grid no longer holds — a grain change
+        // folded the row away — is dropped (left standing, it would take
+        // focus if the item ever came back), and the grid takes focus
+        // instead, handing it on to a row. A host data change that takes a
+        // row away asks for no move, and moves nothing.
+        const req = snap.nav.request;
+        if (req !== null && !navItems.some((it) => it.key === req.key)) {
+            controller.focusDone(req.seq);
+            if (!narrow) gridRef.current?.focus();
+        }
+    }, [navItems, navEdges, controller, narrow]);
 
-    // A row whose instants ride another arm than the axis is refused with
-    // the row named (#631) — the canvas cannot position it truthfully, and
-    // drawing everything else would hide that it is missing.
-    if (mismatches.length > 0) {
-        const first = mismatches[0]!;
-        const more = mismatches.length > 1 ? ` (and ${mismatches.length - 1} more)` : "";
-        return (
-            <Box css={styles.diagnostic} data-plan-empty data-plan-mismatch={first.row}>
-                {`AXIS MISMATCH — the axis is ${axisKind}, but row "${first.row}" carries ${first.found} instants${more}. ` +
-                    "Every instant on a canvas must ride its axis's arm (Plan.at.* / a field of the matching type)."}
-            </Box>
-        );
-    }
+    // ── Moves (#825) ──────────────────────────────────────────────────────
+    // What the rows and elements move with: the store, the drag surface — none
+    // in the narrow layout, a review tool — and the words a keyboard reader is
+    // told how to move one with.
+    const helpId = `${uid}-move-help`;
+    const moveSurface = !narrow ? rowDrop?.surface : undefined;
+    const editCtx = useMemo<PlanEditContextValue | null>(() => (scale !== undefined
+        ? { store: editStore, surface: moveSurface, helpId, styles, words, scale }
+        : null), [editStore, moveSurface, helpId, styles, words, scale]);
+    /** Focus an element where it is now — else its row. */
+    const focusElement = useCallback((rowKey: string, key: string) => {
+        const bodyEl = focusBodyRef.current;
+        if (bodyEl === null) return;
+        const rowEl = Array.from(bodyEl.querySelectorAll<HTMLElement>("[data-plan-row]"))
+            .find((el) => el.getAttribute("data-plan-row") === rowKey);
+        const el = rowEl === undefined ? undefined : Array.from(rowEl.querySelectorAll<HTMLElement>(PLAN_ELEMENT_SELECTOR))
+            .find((e) => e.hasAttribute("tabindex")
+                && ["data-run", "data-chip", "data-event", "data-mark"].some((a) => e.getAttribute(a) === key));
+        if (el !== undefined) el.focus({ preventScroll: true });
+        else controller.focusItem(rowItemKey(rowKey), "auto");
+    }, [controller]);
+    // The keyboard's move: Space on an element picks it up (`edit/use-carry.ts`).
+    const carry = usePlanCarry({
+        store: editStore, scale, words, surface: moveSurface, veto: rowDrop?.canDrop, rows: visible,
+        takes: (row, items) => DROPPABLE_KINDS.has(row.kind.type) && row.edits.move.type === "some"
+            && row.edits.move.value.items === items && !derived.diagnostics.has(row.key),
+        labelOf,
+        move: draftMove,
+        reveal: (key) => controller.focusItem(rowItemKey(key), "auto"),
+        focus: focusElement,
+    });
+    // A keyboard drop is drawn with its draft — focus the element there.
+    useLayoutEffect(() => {
+        const at = editStore.takeFocus();
+        if (at !== null) focusElement(at.rowKey, at.key);
+    });
 
+    // A source that cannot be READ no longer replaces the canvas (#811): its
+    // windows fail one by one, each as its own band with the reason and a
+    // Retry. A missing WINDOW is the one thing no row can be placed without —
+    // and it is never the rows' to supply (#822), inline or paged.
     if (scale === undefined) {
         return (
             <Box css={styles.diagnostic} data-plan-empty>
-                {pagedSource !== undefined
-                    ? "NO WINDOW — a paged plan must declare an axis window or bind a slice range"
-                    : axisKind === "number"
-                        ? "NO WINDOW — give the plan an axis window, a bound slice range, or numbered rows"
-                        : axisKind === "ordinal"
-                            ? "NO WINDOW — an ordinal axis needs at least one declared value"
-                            : "NO WINDOW — give the plan an axis window, a bound slice range, or dated rows"}
+                {axisKind === "ordinal" ? words.m.noWindowOrdinal() : words.m.noWindow()}
             </Box>
         );
     }
 
-    // The ruler's gutter caption is the active grain's name (the §1 mock).
-    const rulerCaption = ui.grain.toUpperCase();
-
     const header = (
-        <Box background="bg.surface" ref={headerElRef}>
-            {/* The toolbar is SLICE chrome (§2) — the grain / resolution
-                segments ride the slice rail; an unbound canvas has no rail.
-                It ALSO carries the key search, and that is a capability of the
-                SOURCE, not of the slice: a keyed paged source declares `seek`
-                whether or not a slice was ever bound. Gating the whole bar on
-                the slice left such a canvas with a working seek and no way to
-                reach it — no search box, so no jump, so no random access at
-                all. So the bar mounts for either reason; `PlanToolbar` is
-                already slice-safe (every cluster is guarded, `railKinds` is
-                empty without one), and no slice is fabricated to get it.
-
-                The series library (#590) is the same argument a third time: a
-                pickable canvas needs its trigger whether or not a slice was
-                ever bound. */}
-            {(chrome !== undefined || search !== undefined || pick !== undefined) && (
-                <PlanToolbar styles={styles} slice={slice} affordances={affordances}
-                    resolution={scale.resolution ?? ""} resolutions={resolutions}
-                    transport={transport} search={search} pick={pick} />
-            )}
-            {/* The brush mounts only where the slice's range domain speaks
-                the axis's arm — the band decides that itself (#631). */}
-            {slice !== undefined && affordances.includes("brush") && (
-                <HorizonBrush styles={styles} gridTemplate={gridTemplate} slice={slice} now={now} />
-            )}
-            <PlanRuler styles={styles} gridTemplate={gridTemplate} caption={rulerCaption}
-                cursorChipRef={cursorChipRef}
-                trailing={review !== undefined
-                    ? <PlanDecisionHeader label={review.columnLabel} />
-                    : undefined} />
-            {/* Pinned rows collapse like every other row under a focus —
-                they are not exempt from "collapse, never remove", and
-                dropping them would lose exactly the context they are pinned
-                for. `renderVisible` reads `focusCtx`, so they strip. */}
-            {pinned.map((row) => (
-                <Box key={row.key} background="bg.surface">
-                    {renderVisible({ row, depth: 0, collapsed: false })}
-                </Box>
+        <PlanHeader styles={styles} gridTemplate={gridTemplate} headerRef={headerRef} chrome={chrome}
+            slice={slice} affordances={affordances} resolution={scale.resolution ?? ""} resolutions={resolutions}
+            grain={hasRootGroup ? grain : undefined}
+            transport={transport} search={search} pick={pick} diagnostics={diagnostics} now={now}
+            // The ruler's gutter caption is the active grain's name (the §1 mock).
+            rulerCaption={words.m.grainName({ grain })} cursorChipRef={cursorChipRef}
+            reviewLabel={review?.columnLabel}
+            pinned={pinned.map((v) => (
+                <Box key={v.row.key} background="bg.surface">{renderPlanRow(v, rowCtx)}</Box>
             ))}
-            {/* The R1/R2 focus band — a SECTION row between the header and
-                the body (`← ALL ROWS` + caption); the ruler never moves. */}
-            {ui.focus !== null && (
-                <FocusBar styles={styles} focus={ui.focus}
-                    counts={linkFamily !== undefined
-                        ? { upstream: linkFamily.upstream.size, downstream: linkFamily.downstream.size }
-                        : undefined} />
-            )}
-        </Box>
+            pinnedId={pinned.length > 0 ? pinnedId : undefined}
+            focus={view.focus}
+            // The focused row by name — its label, or its key's words while a
+            // paged row is not resident (#822: a key is an id's text).
+            focusLabel={view.focus !== null
+                ? index.byKey.get(view.focus.key)?.gutter.label ?? rowKeyWords(view.focus.key)
+                : undefined}
+            linkCounts={linkFamily !== undefined
+                ? { upstream: linkFamily.upstream.size, downstream: linkFamily.downstream.size }
+                : undefined}
+            history={history} />
     );
 
-    const body = (
+    // ── The grid's keys (#819, `root/keyboard.ts`) ────────────────────────
+    // How far a page moves: the frame's viewport less its pinned header, or
+    // the window's on an unbounded canvas.
+    const pageHeight = (): number => {
+        const el = scrollElRef.current;
+        if (frameFills && el !== null) return Math.max(0, el.clientHeight - (headerRef.current?.offsetHeight ?? 0));
+        return typeof window !== "undefined" ? window.innerHeight : 0;
+    };
+    const runMove = (move: PlanNavMove, from: string) => {
+        switch (move.t) {
+            case "focus":
+                controller.focusItem(move.key, move.align);
+                break;
+            case "band": {
+                // The window beside the run, asked for now — whatever the
+                // scroll reports after. The demand may take the band away (its
+                // windows in flight now, with no band standing for them):
+                // focus then stays where it is until the rows land.
+                controller.reportViewport(move.demand, false);
+                const p = controller.getSnapshot().paging;
+                const demand = move.demand;
+                const block = demand.kind === "band" ? p.blocks.find((b) => b.index === demand.block) : undefined;
+                const stays = demand.kind === "band" && (demand.at === "head" ? block?.head : block?.tail) !== undefined;
+                navIntent.current = { holder: stays ? move.key : from, intent: move.intent };
+                if (stays) controller.focusItem(move.key, move.align);
+                break;
+            }
+            case "event":
+                controller.dispatch(move.event);
+                // Focus stays on (or lands on) its item: the event may have
+                // re-rendered it as another element — a rail becoming a row.
+                controller.focusItem(move.focus);
+                break;
+            case "none":
+                break;
+        }
+    };
+    // An element's activation from the keyboard does what its click does:
+    // the popover, the row's selection, the author's element callback.
+    const activateElement = (el: HTMLElement) => {
+        const ref = refOfElement(el);
+        if (ref === undefined) return;
+        overlayHandlers.openAt(el);
+        // A link belongs to no one row — it selects none.
+        if (ref.type !== "link") controller.dispatch({ t: "row.select", key: rowKeyOf(ref.value.row) });
+        controller.elementClick(ref);
+    };
+    /** A key in the grid — `true` when it was the grid's. */
+    const gridKeys = (e: KeyboardEvent<HTMLDivElement>, bodyEl: HTMLElement): boolean => {
+        const item = gridItemOf(e.target, bodyEl);
+        if (item === null || e.altKey || e.ctrlKey || e.metaKey) return false;
+        const itemKey = item.getAttribute("data-plan-item") ?? "";
+        if (e.target === item) {
+            // The row itself: Tab walks into its widgets; the rest is the map.
+            if (e.key === "Tab") {
+                if (e.shiftKey) return false;
+                const ring = rowWidgets(item, bodyEl);
+                if (ring.length === 0) return false;
+                e.preventDefault();
+                ring[0]!.focus();
+                return true;
+            }
+            const move = planNavKey(navItems, itemKey, e.key, pageHeight());
+            if (move === undefined) return false;
+            e.preventDefault();
+            runMove(move, itemKey);
+            return true;
+        }
+        // A widget of the row: an element, a control, a review button.
+        const widget = e.target as HTMLElement;
+        const isElement = widget.matches(PLAN_ELEMENT_SELECTOR);
+        switch (e.key) {
+            case "Escape":
+                // Back to the row — one rung; the next Escape is the ladder's.
+                e.preventDefault();
+                item.focus({ preventScroll: true });
+                return true;
+            case "Tab": {
+                const ring = rowWidgets(item, bodyEl);
+                const i = ring.indexOf(widget);
+                if (e.shiftKey) {
+                    e.preventDefault();
+                    (i > 0 ? ring[i - 1]! : item).focus();
+                    return true;
+                }
+                // Past the last widget, Tab leaves the canvas as it would.
+                if (i < 0 || i >= ring.length - 1) return false;
+                e.preventDefault();
+                ring[i + 1]!.focus();
+                return true;
+            }
+            case "ArrowLeft": case "ArrowRight": case "Home": case "End": {
+                if (!isElement) return false;
+                const els = plotElements(item, bodyEl);
+                const i = els.indexOf(widget);
+                if (i < 0) return false;
+                const j = e.key === "Home" ? 0 : e.key === "End" ? els.length - 1
+                    : Math.max(0, Math.min(els.length - 1, i + (e.key === "ArrowRight" ? 1 : -1)));
+                e.preventDefault();
+                els[j]!.focus();
+                return true;
+            }
+            case "ArrowUp": case "ArrowDown": {
+                // Up and down leave the row's widgets for the next row.
+                const move = planNavKey(navItems, itemKey, e.key, pageHeight());
+                if (move === undefined) return false;
+                e.preventDefault();
+                runMove(move, itemKey);
+                return true;
+            }
+            case "Enter": case " ":
+                // A button's own key activates it; an element is the canvas's to.
+                if (!isElement) return false;
+                e.preventDefault();
+                // Space picks up an element that moves (#825); Enter keeps
+                // doing what its click does.
+                if (e.key === " " && carry.start(widget)) return true;
+                activateElement(widget);
+                return true;
+            default:
+                return false;
+        }
+    };
+
+    const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+        const bodyEl = focusBodyRef.current;
+        const t = e.target as HTMLElement;
+        // Keys typed in portalled content — an open popover's body, a toolbar
+        // menu — bubble here through the React tree; they are not the canvas's.
+        if (bodyEl === null || !(t instanceof Node) || !bodyEl.contains(t)) return;
+        if (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable) return;
+        // Nor is a key something nearer already handled — an open overlay's
+        // Escape (its layer listens on the document, ahead of the canvas), a
+        // widget in an expand render, a nested canvas's own ladder.
+        if (e.defaultPrevented) return;
+        // An element carried by the keyboard takes the keys while it lasts (#825).
+        if (editStore.carry !== null && carry.keys(e)) return;
+        // The history keys (#880), as on the Sheet: ⌘Z / Ctrl+Z undo;
+        // ⌘⇧Z / Ctrl+Shift+Z and Ctrl+Y redo.
+        const letter = e.key.toLowerCase();
+        if (editing.enabled && (e.metaKey || e.ctrlKey) && !e.altKey && (letter === "z" || letter === "y")) {
+            e.preventDefault();
+            editing.action(e.shiftKey || letter === "y" ? "redo" : "undo");
+            return;
+        }
+        // An open popover is the ladder's top rung.
+        if (e.key === "Escape" && overlayHandlers.onKeyDown(e)) return;
+        if (gridKeys(e, bodyEl)) return;
+        // Enter on an element outside the grid — a narrow card's.
+        if (overlayHandlers.onKeyDown(e)) return;
+        const ev = KEYS[e.key];
+        if (ev === undefined) return;
+        e.preventDefault();
+        controller.dispatch(ev);
+        // A key pressed on a row keeps focus on it: the ladder may re-render
+        // it as another element (a rail returning to a row).
+        const item = gridItemOf(t, bodyEl);
+        if (item !== null && item === t) controller.focusItem(item.getAttribute("data-plan-item") ?? "");
+    };
+
+    // Focus landing on the grid itself (it is the tab stop while no mounted
+    // row holds it) goes on to a row: the one that held it, else the
+    // selection, else the first — scrolled into view first if it must be.
+    const onGridFocus = (e: FocusEvent<HTMLDivElement>) => {
+        if (e.target !== e.currentTarget) return;
+        const snap = controller.getSnapshot();
+        const keys = new Set(navItems.map((it) => it.key));
+        const selected = snap.store.ui.selected !== null ? rowItemKey(snap.store.ui.selected) : undefined;
+        const target = snap.nav.active !== null && keys.has(snap.nav.active) ? snap.nav.active
+            : selected !== undefined && keys.has(selected) ? selected
+                : navItems[0]?.key;
+        if (target !== undefined) controller.focusItem(target, "auto");
+    };
+
+    // A carry whose reader left the canvas ends where it began (#825).
+    const onBodyBlur = (e: FocusEvent<HTMLDivElement>) => {
+        if (editStore.carry === null) return;
+        const next = e.relatedTarget;
+        if (next instanceof Node && e.currentTarget.contains(next)) return;
+        carry.cancel();
+    };
+
+    const canvas = (
+        <PlanWordsContext.Provider value={words}>
+        <PlanControllerContext.Provider value={controller}>
+        <PlanGeometryContext.Provider value={geometry}>
         <PlanScaleContext.Provider value={scale}>
-            <PlanDispatchContext.Provider value={dispatch}>
-            <PlanCursorContext.Provider value={cursor}>
-            <PlanResolversContext.Provider value={resolvers}>
-                <Box
-                    ref={focusBodyRef}
-                    tabIndex={0}
-                    outline="none"
-                    position="relative"
-                    width="100%"
-                    minWidth={0}
-                    data-plan-body
-                    // The bound lives HERE, not on the frame — the attribute is
-                    // the contract (jsdom resolves no Chakra classes).
-                    data-plan-bounded={frameFills ? "" : undefined}
-                    // The narrow layout is in charge (the footer wraps, etc.).
-                    data-plan-narrow={narrow ? "" : undefined}
-                    // Every derived number in this body is over a prefix.
-                    data-plan-partial={transport?.partial === true ? "" : undefined}
-                    {...(frameFills && {
-                        display: "flex",
-                        flexDirection: "column",
-                        minHeight: 0,
-                        height,
-                        maxHeight,
-                    })}
-                    onKeyDown={(e) => {
-                        const target = e.target as HTMLElement;
-                        if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) return;
-                        const map: Record<string, PlanEvent> = {
-                            Escape: { t: "key", key: "esc" },
-                            n: { t: "key", key: "n" },
-                            "[": { t: "key", key: "[" },
-                            "]": { t: "key", key: "]" },
-                            g: { t: "key", key: "g" },
-                        };
-                        const ev = map[e.key];
-                        if (ev !== undefined) {
-                            e.preventDefault();
-                            dispatch(ev);
-                        }
-                    }}
-                >
-                    {narrow ? (
-                        <PlanNarrow
-                            styles={styles} index={index} derived={derived} ui={ui}
-                            dense={dense} barHeight={barHeight} storageKey={storageKey}
-                            slice={slice} affordances={affordances}
-                            resolution={scale.resolution ?? ""} resolutions={resolutions}
-                            transport={transport} footer={value.footer} review={review}
-                            expandBody={expandBody} expandGutterBody={expandGutterBody}
-                            canExpand={expandRenderFn !== undefined}
-                            partial={transport?.partial} fill={frameFills}
-                        />
-                    ) : (
-                        <VirtualRows
-                            height={frameFills ? undefined : height}
-                            maxHeight={frameFills ? undefined : maxHeight}
-                            fillParent={frameFills}
-                            // Every body item pins an exact height matching
-                            // `estimateSize` — `RowShell` sets `height: {h}px`
-                            // from the same `rowHeight()`, the rail / gap bands
-                            // pin 11px / 22px in the recipe, and the R2 render
-                            // pins its clamped `px`. Measuring fixed-height rows
-                            // drifts under fractional zoom and paints hairline
-                            // seams (#533).
-                            measureRows={false}
-                            scrollToIndex={scrollToIndex}
-                            onRangeChange={pagedSource !== undefined ? reportRange : undefined}
-                            // A band becoming rows changes heights without
-                            // changing the count, which TanStack's measurement
-                            // memo does not watch (see `sizeVersion`). A row focus
-                            // does exactly the same thing — every unfocused row
-                            // drops to a strip while the count holds — so the
-                            // focus identity rides the same bust.
-                            sizeVersion={paging.sizeVersion + focusVersion}
-                            scrollElRef={scrollElRef}
-                            header={header}
-                            footer={<PlanFooter styles={styles} items={value.footer} transport={transport} />}
-                            count={bodyItems.length}
-                            estimateSize={(i) => {
-                                const item = bodyItems[i];
-                                if (item === undefined) return 32;
-                                if (item.kind === "gap") return GAP_H;
-                                if (item.kind === "band") return Math.max(1, item.band.px);
-                                return rowHeight(item.row, dense, ui.chartsExpanded, heightCtx, derived);
-                            }}
-                            renderRow={(i) => {
-                                const item = bodyItems[i];
-                                if (item === undefined) return null;
-                                if (item.kind === "gap") return renderGap(item.gap);
-                                if (item.kind === "band") {
+        <PlanDispatchContext.Provider value={controller.dispatch}>
+        <PlanCursorContext.Provider value={cursor}>
+        <PlanResolversContext.Provider value={resolvers}>
+        <PlanGridContext.Provider value={gridCtx}>
+        <PlanEditContext.Provider value={editCtx}>
+            <Box
+                ref={focusBodyRef}
+                // The keyboard surface and the focus anchor, but not a tab
+                // stop: the grid's one stop is its active row (#819).
+                tabIndex={-1}
+                outline="none"
+                position="relative"
+                width="100%"
+                minWidth={0}
+                data-plan-body
+                onBlur={onBodyBlur}
+                // The bound lives HERE, not on the frame — the attribute is
+                // the contract (jsdom resolves no Chakra classes).
+                data-plan-bounded={frameFills ? "" : undefined}
+                // The narrow layout is in charge (the footer wraps, etc.).
+                data-plan-narrow={narrow ? "" : undefined}
+                // The source is not exhausted: the counts across this body
+                // cover the loaded windows (`PlanTransport.partial`).
+                data-plan-partial={transport?.partial === true ? "" : undefined}
+                // The geometry as CSS variables — every height the recipe
+                // draws that the model also computes reads one of these.
+                style={geometryStyle}
+                {...(frameFills && { display: "flex", flexDirection: "column", minHeight: 0, height, maxHeight })}
+                onKeyDown={onKeyDown}
+                onClickCapture={overlayHandlers.onClickCapture}
+                onPointerOver={overlayHandlers.onPointerOver}
+                onPointerOut={overlayHandlers.onPointerOut}
+            >
+                {narrow ? (
+                    <PlanNarrow
+                        styles={styles} index={index} derived={derived} view={view}
+                        dense={dense} storageKey={storageKey}
+                        slice={slice} affordances={affordances}
+                        resolution={scale.resolution ?? ""} resolutions={resolutions}
+                        transport={transport} footer={data.footer} review={review}
+                        expandBody={expandBody} expandGutterBody={expandGutterBody}
+                        canExpand={canExpand} partial={transport?.partial} fill={frameFills}
+                        diagnostics={diagnostics} failures={paging.failures} onRetry={controller.retry}
+                        paging={narrowPaging} history={history} marks={marks}
+                    />
+                ) : (
+                    <VirtualRows
+                        height={frameFills ? undefined : height}
+                        maxHeight={frameFills ? undefined : maxHeight}
+                        fillParent={frameFills}
+                        // Every body item pins the exact height it gives the
+                        // frame in `sizes` — `RowShell` sets `height: {h}px`
+                        // from the same `rowHeight()`, the rail / gap bands
+                        // read the same geometry table's variables in the
+                        // recipe (#817), and the R2 render pins its clamped
+                        // `px`. Measuring fixed-height rows drifts under
+                        // fractional zoom and paints hairline seams (#533).
+                        measureRows={false}
+                        scrollToIndex={target.toIndex}
+                        scrollNonce={target.nonce}
+                        scrollAlign={target.align}
+                        // The rows' container IS the treegrid (#819): every
+                        // body item is a row of it, the pinned rows join by
+                        // `aria-owns`, and its count is exact — an unloaded
+                        // run is one row, the band that stands for it.
+                        rowsRef={gridRef}
+                        rowsProps={{
+                            role: "treegrid",
+                            "aria-label": words.m.gridLabel(),
+                            "aria-rowcount": pinned.length + body.items.length,
+                            ...(pinned.length > 0 ? { "aria-owns": pinnedId } : {}),
+                            // The tab stop while no mounted row holds it.
+                            tabIndex: 0,
+                            onFocus: onGridFocus,
+                        }}
+                        onRangeChange={paged ? reportRange : undefined}
+                        // Unbounded, a large canvas mounts only what its
+                        // scrolling ancestor shows (#812) — the same threshold
+                        // whatever the source. A smaller paged canvas mounts
+                        // every row and still reports which are on screen.
+                        virtualizeUnboundedAt={VIRTUALIZE_UNBOUNDED_AT}
+                        scrollElRef={scrollElRef}
+                        header={header}
+                        sticky={stickyParent}
+                        footer={<PlanFooter styles={styles} items={data.footer} transport={transport} />}
+                        // R1 ribbons — the K8 vocabulary over the gathered
+                        // family (ribbons need width — never on the narrow
+                        // layout). They are their own part (#811): a throw
+                        // while laying them out loses the ribbons, not the
+                        // canvas. `null` without a links focus, never
+                        // omitted: the rows' box stays put, so no row
+                        // remounts as the ribbons come and go.
+                        overlay={ribbonRows !== undefined && focusVisibleKeys !== undefined ? (
+                            <PlanPartBoundary part={LINKS_LAYER} resetKey={focusVisibleKeys} styles={styles}>
+                                <LinksOverlay styles={styles} links={data.links} visibleKeys={focusVisibleKeys}
+                                    body={ribbonRows} beyond={beyond} scale={scale} runDates={runDates}
+                                    gutterPx={gutterW}
+                                    trailingPx={review !== undefined ? pxOf(DECISION_WIDTH) ?? 0 : 0}
+                                    frame={frameFills ? frameRefs : undefined} />
+                            </PlanPartBoundary>
+                        ) : null}
+                        count={body.items.length}
+                        // Heights move at a constant count — a chart toggle, a
+                        // focus stripping every other row, a band landing as
+                        // rows — and the frame re-measures from these alone.
+                        sizes={body.heights}
+                        getItemKey={body.itemKey}
+                        anchorable={anchorable}
+                        // Where the scroll rests, persisted and restored as a
+                        // row (#813).
+                        onAnchorChange={onAnchorChange}
+                        restoreAnchor={anchor.restore}
+                        renderRow={(i) => {
+                            const item = body.items[i];
+                            switch (item?.kind) {
+                                case undefined: return null;
+                                case "gap":
+                                    return <PlanGapBand gap={item.gap} h={body.heights[i] ?? 0} styles={styles}
+                                        gridTemplate={gridTemplate} dispatch={controller.dispatch} />;
+                                case "band":
                                     return <WindowBand band={item.band} styles={styles} loading={paging.loading} />;
-                                }
-                                return renderVisible(item.row);
-                            }}
-                            headerZIndex={5}
-                            rootCss={styles.root}
-                        />
-                    )}
-                    {/* The batch foot sits OUTSIDE the scrolling grid so it stays
-                        full-width under the canvas (the shared convention). */}
-                    {review !== undefined && (
-                        <ReviewFoot controller={review} storageKey={storageKey} />
-                    )}
-                    {/* R1 ribbons — the K8 vocabulary at the current row set
-                        (ribbons need width — never on the narrow layout). */}
-                    {!narrow && ui.focus?.kind === "links" && focusVisibleKeys !== undefined && (
-                        <LinksOverlay container={focusBodyRef.current}
-                            links={value.links} visibleKeys={focusVisibleKeys}
-                            scale={scale} runDates={runDates} />
-                    )}
-                </Box>
-            </PlanResolversContext.Provider>
-            </PlanCursorContext.Provider>
-            </PlanDispatchContext.Provider>
+                                case "failed":
+                                    return <WindowFailureBand failure={item.failure} styles={styles} onRetry={controller.retry} />;
+                                case "row":
+                                    return renderPlanRow(item.row, rowCtx);
+                            }
+                        }}
+                        headerZIndex={5}
+                        rootCss={styles.root}
+                    />
+                )}
+                {/* The batch foot sits OUTSIDE the scrolling grid so it stays
+                    full-width under the canvas (the shared convention). */}
+                {review !== undefined && <ReviewFoot controller={review} storageKey={storageKey} labels={footLabels} />}
+                <PlanOverlays anchors={anchors} styles={styles} storageKey={storageKey} />
+                <PlanAnnouncer />
+                {/* The keyboard's move (#825): what a carry does, said as it
+                    happens, and how to begin one — every element that moves
+                    is described by it. */}
+                <PlanCarryAnnouncer store={editStore} />
+                {moveSurface !== undefined && <VisuallyHidden id={helpId}>{words.m.moveHelp()}</VisuallyHidden>}
+            </Box>
+        </PlanEditContext.Provider>
+        </PlanGridContext.Provider>
+        </PlanResolversContext.Provider>
+        </PlanCursorContext.Provider>
+        </PlanDispatchContext.Provider>
         </PlanScaleContext.Provider>
+        </PlanGeometryContext.Provider>
+        </PlanControllerContext.Provider>
+        </PlanWordsContext.Provider>
     );
 
     const densityTag = style !== undefined ? getSomeorUndefined(style.density)?.type : undefined;
     return densityTag !== undefined
-        ? <DensityProvider value={densityTag}>{body}</DensityProvider>
-        : body;
+        ? <DensityProvider value={densityTag}>{canvas}</DensityProvider>
+        : canvas;
 }, (prev, next) => planRootEqual(prev.value, next.value) && prev.storageKey === next.storageKey);

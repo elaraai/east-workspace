@@ -16,7 +16,6 @@
  * Group bands are not a plot: they have their own band component.
  */
 
-import { variant } from "@elaraai/east";
 import { SpanRow } from "./SpanRow.js";
 import { ChartRowPlot } from "./ChartRow.js";
 import { HeatCells } from "./HeatRow.js";
@@ -25,6 +24,7 @@ import { CardsRow } from "./CardsRow.js";
 import { EventsRow } from "./EventsRow.js";
 import { TableRowCells } from "./TableRow.js";
 import { getSomeorUndefined } from "../../../utils.js";
+import { usePlanGeometry } from "../context.js";
 import type { PlanDerived, VisibleRow } from "../model.js";
 
 type Styles = Record<string, Record<string, unknown>>;
@@ -34,10 +34,7 @@ export interface KindPlotProps {
     styles: Styles;
     /** The renderer-side derivations (rollup bands, derived cells / series). */
     derived: PlanDerived;
-    storageKey: string;
-    /** Span bar height (20 default / 16 dense). */
-    barHeight: number;
-    /** Whether this row nests children (a collapsed parent draws 12px bars). */
+    /** Whether this row nests children (a collapsed parent draws rollup-height bars). */
     hasChildren: boolean;
     /** R2 context strip — marks at strip size. */
     ctx: boolean;
@@ -45,64 +42,61 @@ export interface KindPlotProps {
     plotHeight: number;
     /** Chart rows: render at expanded density (breach rectangles, ref labels). */
     chartExpanded: boolean;
-    /** Whether derived numbers cover an incomplete paged prefix (#567 D9). */
-    partial: boolean | undefined;
 }
 
 /** The plot content for a data row kind (`null` for a group band). */
-export function KindPlot({ v, styles, derived, storageKey, barHeight, hasChildren, ctx, plotHeight, chartExpanded, partial }: KindPlotProps) {
+export function KindPlot({ v, styles, derived, hasChildren, ctx, plotHeight, chartExpanded }: KindPlotProps) {
+    // Bar heights are the canvas's geometry (#817) — the density's bar, or
+    // the rollup band's height for a collapsed parent.
+    const geometry = usePlanGeometry();
     const kind = v.row.kind;
     const rowKey = v.row.key;
+    const rowId = v.row.id;
+    // How the row's elements move (#825) — never inside a context strip,
+    // whose one action is the way back.
+    const move = !ctx && v.row.edits.move.type === "some" ? v.row.edits.move.value : undefined;
     switch (kind.type) {
         case "span":
             return (
-                <SpanRow rowKey={rowKey} kind={kind.value} styles={styles} ctx={ctx}
+                <SpanRow rowKey={rowKey} rowId={rowId} kind={kind.value} styles={styles} ctx={ctx} move={move}
                     bands={derived.bands.get(rowKey) ?? []}
-                    barHeight={v.collapsed && hasChildren ? 12 : barHeight}
-                    storageKey={`${storageKey}.${rowKey}`}
-                    partial={partial} />
+                    barHeight={v.collapsed && hasChildren ? geometry.rollBar : geometry.bar} />
             );
         case "chart":
+            // What the row DRAWS (#824) — its layers folded to the period
+            // where a bucket holds several of their points.
             return (
-                <ChartRowPlot kind={kind.value} styles={styles} height={plotHeight}
+                <ChartRowPlot kind={derived.charts.get(rowKey) ?? kind.value} styles={styles} height={plotHeight}
                     expanded={chartExpanded} rowKey={rowKey} ctx={ctx} />
             );
-        case "heat": {
-            // A declared-aggregate parent renders its derived cells inside
-            // the empty scale-bearing heat arm — rebuilt with `variant`, so
-            // the wrap is a real East value like the arm it replaces (#617).
-            const derivedCells = derived.heatCells.get(rowKey);
-            const cells = derivedCells !== undefined && kind.value.cells.type === "heat"
-                ? variant("heat", { ...kind.value.cells.value, cells: derivedCells })
-                : kind.value.cells;
-            return <HeatCells rowKey={rowKey} cells={cells} styles={styles} ctx={ctx} />;
-        }
+        case "heat":
+            // A declared-aggregate parent draws its derived cells, and any row
+            // its cells folded to the period (#824); else its own arm.
+            return (
+                <HeatCells rowKey={rowKey} rowId={rowId} cells={derived.heatArms.get(rowKey) ?? kind.value.cells}
+                    styles={styles} ctx={ctx} />
+            );
         case "buckets":
             return (
-                <BucketsRow rowKey={rowKey} kind={kind.value} styles={styles} ctx={ctx}
-                    storageKey={`${storageKey}.${rowKey}`} />
+                <BucketsRow rowKey={rowKey} rowId={rowId} kind={kind.value} styles={styles} ctx={ctx} move={move} />
             );
-        case "table": {
-            // A declared-aggregate parent renders its derived subtotal
-            // cells as ONE plain series; leaf rows render their declared
-            // series (per-position style, raw cells).
-            const derivedSeries = derived.tableSeries.get(rowKey);
+        case "table":
+            // A declared-aggregate parent draws its derived subtotal
+            // positions, and any row its series folded to the period (#824);
+            // else its declared series (per-position style, raw cells).
             return (
-                <TableRowCells rowKey={rowKey}
-                    series={derivedSeries ?? kind.value.series}
+                <TableRowCells rowKey={rowKey} rowId={rowId}
+                    series={derived.tableSeries.get(rowKey) ?? kind.value.series}
                     split={kind.value.split.type} ctx={ctx}
                     format={getSomeorUndefined(kind.value.format)} styles={styles} />
             );
-        }
         case "cards":
             return (
-                <CardsRow rowKey={rowKey} kind={kind.value} styles={styles} ctx={ctx}
-                    storageKey={`${storageKey}.${rowKey}`} />
+                <CardsRow rowKey={rowKey} rowId={rowId} kind={kind.value} styles={styles} ctx={ctx} move={move} />
             );
         case "events":
             return (
-                <EventsRow rowKey={rowKey} kind={kind.value} styles={styles} ctx={ctx}
-                    storageKey={`${storageKey}.${rowKey}`} />
+                <EventsRow rowKey={rowKey} rowId={rowId} kind={kind.value} styles={styles} ctx={ctx} move={move} />
             );
         case "group":
             return null;

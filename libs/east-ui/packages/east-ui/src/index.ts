@@ -59,6 +59,12 @@ export {
     deriveApproval,
 } from "./contracts/review.js";
 
+// Editing contract (#879) — the one transaction session every editable
+// collection speaks: drafts, a patch event per gesture, and Apply as one
+// checked, idempotent batch (`Editing.apply`). The Sheet keeps its names for
+// it (`Sheet.Types.ChangeSet` is `Editing.Types.ChangeSet`).
+export { Editing, type EditingNamespace } from "./contracts/editing.js";
+
 // Event lifecycle contract — the estimated → proposed → confirmed →
 // in-progress → actual audit vocabulary scheduled-event surfaces speak
 export {
@@ -181,7 +187,7 @@ export {
 
 // Platform (state management - signatures only)
 // For e3 dataset bindings, use Data.bind from @elaraai/e3-ui
-export { State, SliceApplyImpl, sliceDimensions, sliceFields, sliceFieldText, sliceMatches, sliceBreakdown, sliceSeries, SLICE_SERIES_PALETTE, Clipboard, Download, Share } from "./platform/index.js";
+export { State, SliceApplyImpl, sliceDimensions, sliceFields, sliceFieldText, sliceMatches, sliceBreakdown, sliceSeries, cohortGroupOf, SLICE_SERIES_PALETTE, Clipboard, Download, Share } from "./platform/index.js";
 export { Slice } from "./runtime/slice.js";
 export {
     SliceSummaryType, SliceRangePickerType, SliceFilterType,
@@ -190,3 +196,4 @@ export {
     SliceCohortModeType, SliceCohortPickerType,
 } from "./slice/index.js";
 export { type SliceCohortOptions, type SlicePresetsOptions } from "./slice/cohort/index.js";
+export { type SliceCohortInput, type SliceStateOptions } from "./platform/slice/index.js";

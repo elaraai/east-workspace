@@ -11,8 +11,9 @@
  * evidence weights, and the footer's planned / observed split.
  */
 
-import type { ValueTypeOf } from "@elaraai/east";
+import { variant, some, none, type ValueTypeOf } from "@elaraai/east";
 import type { Flowchart } from "@elaraai/east-ui/internal";
+import type { Formatters, TickFormatOpt } from "../../format/index.js";
 
 /** The decoded Flowchart root value. */
 export type FlowchartValue = ValueTypeOf<typeof Flowchart.Types.Flowchart>;
@@ -103,14 +104,19 @@ export function evidenceWeight(volume: number | undefined, minVolume: number, ma
     return 1.6;
 }
 
-/** Compact volume formatting for badges. */
-export function fmtVolume(v: number): string {
-    return v >= 1000 ? v.toLocaleString(undefined, { maximumFractionDigits: 0 }) : v.toLocaleString(undefined, { maximumFractionDigits: 1 });
+/** A badge volume at or past a thousand: whole units. */
+const VOLUME_WHOLE: TickFormatOpt = variant("number", { minimumFractionDigits: none, maximumFractionDigits: some(0n), signDisplay: none });
+/** A badge volume under a thousand: one decimal at most. */
+const VOLUME_TENTH: TickFormatOpt = variant("number", { minimumFractionDigits: none, maximumFractionDigits: some(1n), signDisplay: none });
+
+/** Compact volume formatting for badges, in the app's locale (#850). */
+export function fmtVolume(v: number, words: Formatters): string {
+    return words.value(v, v >= 1000 ? VOLUME_WHOLE : VOLUME_TENTH);
 }
 
-/** Grouped count formatting for badges. */
-export function fmtCount(n: bigint): string {
-    return Number(n).toLocaleString();
+/** Grouped count formatting for badges, in the app's locale (#850). */
+export function fmtCount(n: bigint, words: Formatters): string {
+    return words.number(n);
 }
 
 /** Default link key when none is authored. */
@@ -120,13 +126,17 @@ export function linkKey(from: string, to: string, index: number): string {
 
 /**
  * Builds the view model. Pure; unit-testable.
+ *
+ * @param value - The flowchart's tables
+ * @param words - The formatters the evidence badges print with (the app's locale)
+ * @returns The view model
  */
 export function buildModel(value: {
     states: ReadonlyArray<FlowchartStateValue>,
     links: ReadonlyArray<FlowchartLinkValue>,
     lanes: ReadonlyArray<FlowchartLaneValue>,
     triggers: ReadonlyArray<FlowchartTriggerValue>,
-}): FlowchartModel {
+}, words: Formatters): FlowchartModel {
     const lanes: ModelLane[] = value.lanes.map(l => ({
         key: l.key,
         label: unwrap(l.label) ?? l.key.toUpperCase(),
@@ -216,7 +226,7 @@ export function buildModel(value: {
             evidence: ev,
             weight: cls === "unresolved" ? 1.4 : evidenceWeight(vol, minVolume, maxVolume),
             badgeText: vol !== undefined
-                ? `${fmtVolume(vol)}${unit !== undefined ? ` ${unit}` : ""}${cnt !== undefined ? ` · ${fmtCount(cnt)}` : ""}`
+                ? `${fmtVolume(vol, words)}${unit !== undefined ? ` ${unit}` : ""}${cnt !== undefined ? ` · ${fmtCount(cnt, words)}` : ""}`
                 : undefined,
         });
     });

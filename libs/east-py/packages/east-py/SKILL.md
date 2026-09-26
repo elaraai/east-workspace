@@ -528,7 +528,10 @@ mismatch at `East.compile` names the offending call the same way. The map
 rides the function's beast2 encoding, so the error reads the same after
 export to east-c or east-node. Paths are relative to the working directory;
 `set_location_base_path(dir)` (from `east`) pins the base for reproducible
-fixtures. An error raised inside a callback that a *builtin* invokes
+fixtures, and `set_location_capture(False)` builds without recording any.
+There is then no stack walk per node, and an error raised by such a function
+carries no location. Binding names are read separately and keep working. The
+TypeScript twin is `setLocationCapture`. An error raised inside a callback that a *builtin* invokes
 (`arr.map(...)` and friends) resolves to the builtin's call site, on every
 runner.
 

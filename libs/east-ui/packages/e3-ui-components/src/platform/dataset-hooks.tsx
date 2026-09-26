@@ -55,6 +55,10 @@ import { useE3Config } from "./e3-config.js";
 
 const ReactiveDatasetCacheContext = createContext<ReactiveDatasetCacheInterface | null>(null);
 
+/** How often a bound paged source's dataset hash is polled (#821) — the
+ *  workspace status poll `UITaskPreview`'s bound datasets share by default. */
+const PAGED_REVISION_POLL_MS = 1000;
+
 /**
  * Props for {@link ReactiveDatasetProvider}.
  *
@@ -130,15 +134,18 @@ export function ReactiveDatasetProvider({
 
     // Same wiring for `Data.bindPaged` — the paged runtime shares the workspace
     // scope and server identity, but reads windows through its own endpoint
-    // rather than the whole-value dataset cache.
+    // rather than the whole-value dataset cache. It follows each bound
+    // dataset's content hash through this cache's status poll, which fetches
+    // no content for it (#821).
     useMemo(() => {
         if (e3.workspace !== undefined) {
-            initializePagedApi(
-                createDefaultPagedApi(e3.apiUrl, e3.repo ?? "default", () => tokenRef.current),
-                e3.workspace,
-            );
+            initializePagedApi({
+                ...createDefaultPagedApi(e3.apiUrl, e3.repo ?? "default", () => tokenRef.current),
+                watchRevision: (workspace, path, onRevision) =>
+                    cache.watchHash(workspace, path, PAGED_REVISION_POLL_MS, onRevision),
+            }, e3.workspace);
         }
-    }, [e3.apiUrl, e3.repo, e3.workspace]);
+    }, [e3.apiUrl, e3.repo, e3.workspace, cache]);
 
     // Same wiring for `Record.bind` — the record runtime reads current values
     // through the SAME dataset cache (a record is a dataset), and writes via the

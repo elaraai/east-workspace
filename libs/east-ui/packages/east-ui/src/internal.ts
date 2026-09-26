@@ -46,6 +46,10 @@ export {
     deriveApproval,
 } from "./contracts/review.js";
 
+// Editing contract (#879) — the shared transaction session's types, `Editing`,
+// its closed wire and the inline adapter.
+export * from "./contracts/editing.js";
+
 // Format helpers
 export { Format } from "./format/index.js";
 export type {
@@ -88,13 +92,13 @@ export type {
     PlanTableSeriesInput, PlanExpandInput, PlanLinkInput,
     PlanIconInput, PlanLayerChannels,
     PlanChartLayerInput, PlanChartAxisInput, PlanHeatCellsOptions,
-    PlanSpanOfConfig, PlanHeatOfConfig, PlanTableOfConfig,
-    PlanReviewConfig, PlanRowsInput,
+    PlanReviewConfig, PlanEditingConfig, PlanBindHandle, PlanReviewInput, PlanEditInput, PlanRowsInput,
     PlanRowsValue,
-    PlanSeriesValue, PlanSeriesInput, PlanSeriesEnvelopeConfig,
+    PlanSeriesArm, PlanSeriesValue, PlanSeriesInput, PlanSeriesIdentity,
+    PlanEntryExpr, PlanAccessor, PlanChildren, PlanChildrenInput, PlanSeriesRowConfig,
     PlanSpanSeriesConfig, PlanHeatSeriesConfig, PlanTableSeriesOfConfig,
     PlanBucketsSeriesConfig, PlanCardsSeriesConfig, PlanEventsSeriesConfig,
-    PlanChartSeriesConfig, PlanGroupSeriesChrome,
+    PlanChartSeriesConfig, PlanGroupSeriesConfig, PlanSectionSeriesConfig, PlanViewsSeriesConfig,
 } from "./collections/index.js";
 export { Chart } from "./charts/chart/index.js";
 export { Sparkline } from "./charts/index.js";
@@ -112,7 +116,7 @@ export {
     type UIComponentDef,
     type UIComponentOptions,
 } from "./extension.js";
-export { State, StateBindPrimitives, SliceApplyImpl, sliceDimensions, sliceFields, sliceFieldText, sliceMatches, sliceBreakdown, sliceSeries, SLICE_SERIES_PALETTE, Clipboard, Download, Share } from "./platform/index.js";
+export { State, StateBindPrimitives, SliceApplyImpl, sliceDimensions, sliceFields, sliceFieldText, sliceMatches, sliceBreakdown, sliceSeries, cohortGroupOf, SLICE_SERIES_PALETTE, Clipboard, Download, Share } from "./platform/index.js";
 export { SliceConfigType, sliceConfigTypeFor, SliceChromeType, SliceStateType, SliceBindType, SliceBindPrimitives } from "./platform/slice/index.js";
 export { SliceAffordanceType, type SliceAffordanceLiteral } from "./contracts/slice-affordances.js";
 // Row-source contract (#567) — `Paged.of` for the paged-arm specs.
@@ -163,6 +167,11 @@ export * from "./collections/value-tree/flatten.js";
 export * from "./collections/value-tree/key-search.js";
 export * from "./collections/table/types.js";
 export * from "./collections/sheet/types.js";
+export * from "./collections/sheet/transactions.js";
+export * from "./collections/sheet/drafts.js";
+export * from "./collections/sheet/editing-types.js";
+// The Plan's editing wire (#880) — what the renderer's session is handed.
+export { PlanEditingType, PlanWriteRequestType, PlanReadyEntryType, PLAN_PAGE_SIZE } from "./collections/plan/types.js";
 export * from "./collections/tree-view/types.js";
 export * from "./format/types.js";
 export * from "./charts/sparkline/types.js";

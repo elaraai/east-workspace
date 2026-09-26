@@ -29,8 +29,8 @@ import {
     type ColumnDef,
     type RowSelectionState,
 } from "@tanstack/react-table";
-import { compareFor, equalFor, printFor, variant, type ValueTypeOf } from "@elaraai/east";
-import { Table, type UIComponentType } from "@elaraai/east-ui/internal";
+import { compareFor, equalFor, equivalentFor, printFor, variant, some, none, OptionType, type ValueTypeOf } from "@elaraai/east";
+import { Table, ApprovalStateType, type UIComponentType } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 import { Slice as SliceInternal } from "@elaraai/east-ui/internal";
@@ -40,19 +40,42 @@ import { virtualScrollbarCss } from "../../style/scrollbar.js";
 import { coarseHitArea } from "../../style/hit-area.js";
 import { railAffordanceKinds } from "../../slice/rail-kinds.js";
 import { useSliceReactivity } from "../../slice/use-slice-reactivity";
+import { useDataStable } from "../../hooks/useDataStable";
 import { RowStateManager, type RowKey, type RowState } from "../../utils/RowStateManager";
 import { useRowStatusBg, useDensityHeights } from "../shared/helpers";
 import { useReviewController, DecisionButtons, ReviewFoot, DECISION_WIDTH, type ApprovalOptionValue } from "../shared/review";
 import { DensityProvider } from "../../contracts/density";
 import { usePlotGutter, gutterPx } from "../../contracts/plot-gutter.js";
 import { useTablePagedRows, type TablePagedSourceValue } from "./use-paged-rows.js";
+import { useFormatters, type Formatters, type TickFormatOpt } from "../../format/index.js";
 
 /* Touch (#351): 36px tap halo on the 24px pin/sort/expander controls (36,
  * not 44 — the controls sit adjacent; full halos would swallow each other). */
 const coarseControlHalo = coarseHitArea({ position: true, size: 36 });
 
-// Pre-define equality function at module level
-const tableRootEqual = equalFor(Table.Types.Root);
+// The memo compares closures too (#809) — a column `render` or a click
+// callback over new data must reach the cells; the row space keys on the
+// value's DATA, so such a change never rebuilds it.
+const tableRootEqual = equivalentFor(Table.Types.Root);
+const tableRootDataEqual = equalFor(Table.Types.Root);
+const approvalEqual = equalFor(OptionType(ApprovalStateType));
+
+/** The review controller's re-seed key: the same row space and the same
+ *  verdicts (#809). */
+interface ReviewVerdicts {
+    rows: readonly TableRowValue[];
+    verdicts: readonly (ApprovalOptionValue | undefined)[];
+}
+
+/** Whether two {@link ReviewVerdicts} would seed the same decisions. */
+function sameVerdicts(a: ReviewVerdicts, b: ReviewVerdicts): boolean {
+    return a.rows === b.rows
+        && a.verdicts.length === b.verdicts.length
+        && a.verdicts.every((x, i) => {
+            const y = b.verdicts[i];
+            return x === y || (x !== undefined && y !== undefined && approvalEqual(x, y));
+        });
+}
 
 // Parse CSS size values to pixels (simple numeric extraction)
 const parseSize = (val: string | undefined, defaultVal: number): number => {
@@ -96,6 +119,8 @@ declare module '@tanstack/react-table' {
         minWidth?: string | undefined;
         maxWidth?: string | undefined;
         renderFn?: ColumnRenderFn | undefined;
+        /** The column's declared number format (#874). */
+        format?: TickFormatOpt;
     }
     /* eslint-enable @typescript-eslint/no-unused-vars */
 }
@@ -185,15 +210,41 @@ function computeAggregate(tag: string, cells: TableCellVariant[]): TableCellVari
     return best;
 }
 
-/** Row grouping (#317): default text for an aggregated value (no `aggregateRender`). */
-function formatAggregate(cell: TableCellVariant): string {
+/** A Float aggregate's default: at most two decimals. */
+const AGGREGATE_FLOAT: TickFormatOpt = variant("number", { minimumFractionDigits: none, maximumFractionDigits: some(2n), signDisplay: none });
+
+/** Row grouping (#317): default text for an aggregated value (no
+ *  `aggregateRender`) — a number through the column's declared `format`
+ *  (#874), else grouped in the app's locale (#850); a date as its UTC ISO
+ *  day. The caller passes no format for a `count`, which counts rows. */
+function formatAggregate(cell: TableCellVariant, words: Formatters, format: TickFormatOpt): string {
     switch (cell.type) {
-        case "Integer": return (cell.value as bigint).toLocaleString("en-US");
-        case "Float": return (cell.value as number).toLocaleString("en-US", { maximumFractionDigits: 2 });
+        case "Integer": return format !== undefined
+            ? words.value(Number(cell.value as bigint), format)
+            : words.number(cell.value as bigint);
+        case "Float": return words.value(cell.value as number, format ?? AGGREGATE_FLOAT);
         case "DateTime": return (cell.value as Date).toISOString().slice(0, 10);
         case "Boolean": return String(cell.value);
         case "String": return cell.value as string;
         default: return "\u2014";
+    }
+}
+
+/** A cell's text when its column has no `render` (#874): a number through the
+ *  column's declared `format`, else every digit, never grouped, with the
+ *  viewer's decimal separator (`1234.5`, `1234,5` in German; a year stays
+ *  `2026`); a string as it is; anything else as East prints it (`print`, the
+ *  column's East printer) \u2014 what East's own string interpolation shows. */
+function cellText(cell: TableCellVariant, format: TickFormatOpt, words: Formatters, print: ((value: unknown) => string) | undefined): string {
+    switch (cell.type) {
+        case "Integer": return format !== undefined
+            ? words.value(Number(cell.value as bigint), format)
+            : words.bare(cell.value as bigint);
+        case "Float": return format !== undefined
+            ? words.value(cell.value as number, format)
+            : words.float(cell.value as number);
+        case "String": return cell.value as string;
+        default: return print?.(cell.value) ?? "";
     }
 }
 
@@ -242,6 +293,8 @@ const TableCore = function TableCore({
 }) {
     const props = useMemo(() => toChakraTableRoot(value), [value]);
     const tableContainerRef = useRef<HTMLDivElement>(null);
+    // Aggregates and pager counts, in the app's locale (#850).
+    const words = useFormatters();
 
     // Extract East-side callbacks from style
     const style = getSomeorUndefined(value.style);
@@ -320,7 +373,8 @@ const TableCore = function TableCore({
     // come from the theme rather than per-site inline literals.
     const tableSlotStyles = useSlotRecipe({ key: "table" })({ size: tableSize });
     // Chakra generates the "table" slot union from ITS built-in table recipe,
-    // so our custom groupHead slots (#317) need a wider view of the result.
+    // so our custom slots — the groupHead family (#317) and the printed
+    // cell's `cellText` (#874) — need a wider view of the result.
     const tableGroupSlotStyles = tableSlotStyles as unknown as Record<string, React.CSSProperties>;
 
     // Expandable rows — `value.expandedContent` is a `(rowIndex) =>
@@ -372,10 +426,15 @@ const TableCore = function TableCore({
         ((rowIndex: bigint) => { type: "some" | "none"; value: unknown }) | undefined, [value.reviewStatus]);
     const reviewApprovalFn = useMemo(() => getSomeorUndefined(value.reviewApproval) as
         ((rowIndex: bigint) => ApprovalOptionValue) | undefined, [value.reviewApproval]);
-    const reviewApprovals = useMemo(
-        () => sourceRows.map((_row: TableRowValue, i: number) => reviewApprovalFn?.(BigInt(i))),
+    const reviewVerdicts = useMemo<ReviewVerdicts>(
+        () => ({ rows: sourceRows, verdicts: sourceRows.map((_row: TableRowValue, i: number) => reviewApprovalFn?.(BigInt(i))) }),
         [sourceRows, reviewApprovalFn],
     );
+    // The controller re-seeds its optimistic decisions whenever `approvals`
+    // changes identity, so hold the identity while the rows and the verdicts
+    // are unchanged: a closure-only change re-evaluates `reviewApproval`, but
+    // only verdicts that actually moved re-seed (#809).
+    const reviewApprovals = useDataStable(reviewVerdicts, sameVerdicts).verdicts;
     const reviewController = useReviewController(review, reviewApprovals);
     const reviewChromeRecipe = useSlotRecipe({ key: "reviewChrome" });
     const reviewChrome = useMemo(() => reviewChromeRecipe({}) as Record<string, Record<string, unknown>>, [reviewChromeRecipe]);
@@ -398,9 +457,10 @@ const TableCore = function TableCore({
             const width = getSomeorUndefined(col.width);
             const minWidth = getSomeorUndefined(col.minWidth);
             const maxWidth = getSomeorUndefined(col.maxWidth);
-            // `render` is required on the IR column (the factory synthesizes a
-            // text default when the author omits it) — no Option to unwrap.
-            const renderFn = col.render as unknown as ColumnRenderFn;
+            // Without a `render`, the cell prints itself — through the
+            // column's `format` for a number (#874).
+            const renderFn = getSomeorUndefined(col.render) as ColumnRenderFn | undefined;
+            const format = getSomeorUndefined(col.format) as TickFormatOpt;
 
             return columnHelper.accessor(
                 (row) => row.get(col.key),
@@ -431,6 +491,7 @@ const TableCore = function TableCore({
                         minWidth,
                         maxWidth,
                         renderFn,
+                        format,
                     },
                 }
             );
@@ -725,11 +786,16 @@ const TableCore = function TableCore({
     // the per-column aggregates, so a collapsed group reads as its subtotal.
     const groupLevels = useMemo(() => getSomeorUndefined(value.groupBy), [value.groupBy]);
     const groupAggByKey = useMemo(() => {
-        const out = new Map<string, { tag: string; renderFn: ((v: TableCellVariant) => unknown) | undefined }>();
+        const out = new Map<string, { tag: string; renderFn: ((v: TableCellVariant) => unknown) | undefined; format: TickFormatOpt }>();
         for (const col of value.columns) {
             const agg = getSomeorUndefined(col.aggregate);
             if (agg === undefined) continue;
-            out.set(col.key, { tag: agg.type, renderFn: getSomeorUndefined(col.aggregateRender) as ((v: TableCellVariant) => unknown) | undefined });
+            out.set(col.key, {
+                tag: agg.type,
+                renderFn: getSomeorUndefined(col.aggregateRender) as ((v: TableCellVariant) => unknown) | undefined,
+                // A count counts rows — it never wears the column's format.
+                format: agg.type === "count" ? undefined : getSomeorUndefined(col.format) as TickFormatOpt,
+            });
         }
         return out;
     }, [value.columns]);
@@ -789,7 +855,6 @@ const TableCore = function TableCore({
         };
         emit(root);
         return out;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [groupLevels, rows, groupAggByKey, groupCollapse, currentPage, pageSize]);
     const toggleGroup = useCallback((path: string, current: boolean) => {
         setPersistedState(prev => ({ ...prev, groupCollapse: { ...(prev.groupCollapse ?? {}), [path]: !current } }));
@@ -1344,7 +1409,7 @@ const TableCore = function TableCore({
                                                 <ChakraTable.Cell key={col.id} css={tableGroupSlotStyles.groupHeadAggregate} data-slot="groupHeadAggregate" style={cellStyle}>
                                                     {aggSpec.renderFn !== undefined
                                                         ? <EastChakraComponent value={aggSpec.renderFn(agg) as Parameters<typeof EastChakraComponent>[0]["value"]} storageKey={`${storageKey ?? "table"}.group.${g.path}.${col.id}`} />
-                                                        : formatAggregate(agg)}
+                                                        : formatAggregate(agg, words, aggSpec.format)}
                                                 </ChakraTable.Cell>
                                             );
                                         })}
@@ -1357,7 +1422,13 @@ const TableCore = function TableCore({
 
                         const rowKey = virtualRow.index;
                         const rowState = rowStates.get(rowKey) || { status: 'unloaded' };
-                        const isRowLoading = !rowStateManager.isRowLoaded(rowKey) || rowState.status === 'loading';
+                        // The skeleton stands for a DELAYED load. Rows with nothing
+                        // to wait for (`loadingDelay` 0, an in-memory value) render
+                        // at once: a skeleton row for a frame is taller than a text
+                        // row, so every mount would change the table's height, and a
+                        // virtualized host that remounts it would chase that.
+                        const isRowLoading = loadingDelay > 0
+                            && (!rowStateManager.isRowLoaded(rowKey) || rowState.status === 'loading');
                         const rowIndex = BigInt(row.index);
                         const isSelected = !!row.getIsSelected?.();
                         const isOdd = virtualRow.index % 2 === 1;
@@ -1603,8 +1674,7 @@ const TableCore = function TableCore({
                                         );
                                     }
 
-                                    // Column render function — always present (the factory
-                                    // synthesizes a text default when the author omits it).
+                                    // The column's render function draws the cell;
                                     // ctx.cellValue is the LiteralValueType variant itself.
                                     if (meta?.renderFn) {
                                         const rendered = meta.renderFn({
@@ -1624,7 +1694,8 @@ const TableCore = function TableCore({
                                         );
                                     }
 
-                                    // Defensive fallback (the IR requires render): print the payload.
+                                    // No render: the cell prints itself, in the
+                                    // viewer's language (#874).
                                     return (
                                         <ChakraTable.Cell
                                             key={cell.id}
@@ -1632,7 +1703,7 @@ const TableCore = function TableCore({
                                             onClick={cellClickHandler}
                                             onDoubleClick={cellDoubleClickHandler}
                                         >
-                                            <Text>{meta?.print?.(cellValue.value) ?? null}</Text>
+                                            <Text css={tableGroupSlotStyles.cellText}>{cellText(cellValue, meta?.format, words, meta?.print)}</Text>
                                         </ChakraTable.Cell>
                                     );
                                 })}
@@ -1755,7 +1826,7 @@ const TableCore = function TableCore({
             {paginationConfig && !hidePaginationBand && (
                 <HStack gap="2" justify="flex-end" px="3" py="2" borderTop="1px solid" borderColor="border.subtle">
                     <Text fontSize="sm" color="fg.muted">
-                        Page {currentPage + 1} of {totalPages} ({sourceRows.length} total)
+                        Page {words.number(currentPage + 1)} of {words.number(totalPages)} ({words.number(sourceRows.length)} total)
                     </Text>
                     <button
                         type="button"
@@ -1829,6 +1900,8 @@ export const EastChakraTable = memo(function EastChakraTable(props: EastChakraTa
     const slice = chrome?.slice as ValueTypeOf<typeof SliceInternal.Types.Bind> | undefined;
     useSliceReactivity(slice?.key);
     const frameStyles = useSlotRecipe({ key: "sliceFrame" })();
+    // The footer's counts, in the app's locale (#850).
+    const words = useFormatters();
 
     // ── The row source (#576) ─────────────────────────────────────────────
     // Resolved HERE, once, so `TableCore` sees one row space whichever arm the
@@ -1839,9 +1912,13 @@ export const EastChakraTable = memo(function EastChakraTable(props: EastChakraTa
     const pagedSource: TablePagedSourceValue | undefined =
         rowsArm.type === "paged" ? rowsArm.value : undefined;
     const paged = useTablePagedRows(pagedSource);
+    // Inline rows are pure data: key them on the value's DATA identity, so a
+    // closure-only change keeps the row space — and every state keyed on it —
+    // intact (#809). A paged source keeps its fresh closures above.
+    const dataRows = useDataStable(props.value, tableRootDataEqual).rows;
     const rows = useMemo(
-        () => (rowsArm.type === "inline" ? (rowsArm.value as TableRowValue[]) : paged.rows),
-        [rowsArm, paged.rows],
+        () => (dataRows.type === "inline" ? (dataRows.value as TableRowValue[]) : paged.rows),
+        [dataRows, paged.rows],
     );
     const transport = useMemo<TableTransport | undefined>(() => (pagedSource === undefined ? undefined : {
         loaded: paged.loadedElements,
@@ -1896,11 +1973,11 @@ export const EastChakraTable = memo(function EastChakraTable(props: EastChakraTa
                 {transport !== undefined ? (
                     <>
                         <Box as="span" css={frameStyles.frameFooterStat} data-slot="tableTransport">
-                            {transport.loaded.toLocaleString()}
+                            {words.number(transport.loaded)}
                         </Box>
                         <Box as="span">
                             {transport.total !== undefined
-                                ? `loaded · of ${transport.total.toLocaleString()}`
+                                ? `loaded · of ${words.number(transport.total)}`
                                 : "loaded"}
                         </Box>
                         {transport.loading && <Box as="span">· Loading…</Box>}
@@ -1909,14 +1986,14 @@ export const EastChakraTable = memo(function EastChakraTable(props: EastChakraTa
                     </>
                 ) : (
                     <>
-                        <Box as="span" css={frameStyles.frameFooterStat}>{result.toLocaleString()}</Box>
-                        <Box as="span">{`rows · of ${total.toLocaleString()}`}</Box>
-                        {pct > 0 && <Box as="span" css={frameStyles.frameFooterDelta}>{`· −${pct}%`}</Box>}
+                        <Box as="span" css={frameStyles.frameFooterStat}>{words.number(result)}</Box>
+                        <Box as="span">{`rows · of ${words.number(total)}`}</Box>
+                        {pct > 0 && <Box as="span" css={frameStyles.frameFooterDelta}>{`· −${words.percent(pct / 100)}`}</Box>}
                     </>
                 )}
                 {paginationConfig && (
                     <Box display="inline-flex" alignItems="center" gap="{spacing.1.5}" marginLeft="auto">
-                        <Box as="span">{`page ${currentPage + 1} of ${totalPages}`}</Box>
+                        <Box as="span">{`page ${words.number(currentPage + 1)} of ${words.number(totalPages)}`}</Box>
                         <chakra.button
                             type="button"
                             aria-label="Previous page"
@@ -1948,4 +2025,4 @@ export const EastChakraTable = memo(function EastChakraTable(props: EastChakraTa
             </Box>
         </Box>
     );
-}, (prev, next) => tableRootEqual(prev.value, next.value));
+}, (prev, next) => tableRootEqual(prev.value, next.value) && prev.storageKey === next.storageKey);

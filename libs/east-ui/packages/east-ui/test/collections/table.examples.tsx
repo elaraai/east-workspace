@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/east-ui */
 import { East, ArrayType, BooleanType, IntegerType, NullType, OptionType, StringType, example, none, some, variant } from "@elaraai/east";
 import { State, Style, UIComponentType } from "@elaraai/east-ui";
-import { Badge, Box, Configurator, HStack, Input, Reactive, SegmentGroup, Status, Switch, Table, Tag, Text, VStack } from "@elaraai/east-ui";
+import { Badge, Box, Configurator, Format, HStack, Input, Reactive, SegmentGroup, Status, Switch, Table, Tag, Text, VStack } from "@elaraai/east-ui";
 
 // ============================================================================
 // Module-scope fixtures (consolidation epic #455, pass 5 — one live instance
@@ -237,6 +237,38 @@ export const tablePnl = example({
             />
         );
     }),
+    inputs: [],
+});
+
+/**
+ * Number cells in the viewer's language (#874) — with no `render`, a cell
+ * prints itself. An undeclared number keeps every digit, never grouped, with
+ * the viewer's decimal separator (`1234.5`, `1234,5` in German), so a year
+ * or a SKU prints as stored; a column that declares a `Format.*` spec prints
+ * its cells and its group totals through it.
+ */
+export const tableNumberFormats = example({
+    keywords: ["Table", "Root", "format", "Format", "Currency", "Percent", "number", "decimal", "locale", "language", "viewer", "I18nProvider", "aggregate", "sum", "mean", "groupBy", "#874"],
+    description: "Number cells in the viewer's language — undeclared numbers keep every digit; Format.* columns format their cells and group totals",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Table
+            variant="line"
+            data={[
+                { region: "North", year: 2026n, sku: 100245n, qty: 1234.5, revenue: 18250.75, margin: 0.2125 },
+                { region: "North", year: 2026n, sku: 100246n, qty: 88.25, revenue: 9400.0, margin: 0.184 },
+                { region: "South", year: 2025n, sku: 200112n, qty: 410.0, revenue: 26125.5, margin: 0.231 },
+            ]}
+            columns={{
+                region: { header: "Region" },
+                year: { header: "Year" },
+                sku: { header: "SKU" },
+                qty: { header: "Qty" },
+                revenue: { header: "Revenue", format: Format.Currency({ currency: "EUR" }), aggregate: "sum" },
+                margin: { header: "Margin", format: Format.Percent({ maximumFractionDigits: 1n }), aggregate: "mean" },
+            }}
+            groupBy={[r => r.region]}
+        />
+    )),
     inputs: [],
 });
 

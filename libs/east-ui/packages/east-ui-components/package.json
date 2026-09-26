@@ -45,10 +45,10 @@
   ],
   "scripts": {
     "prebuild": "pnpm chakra:typegen",
-    "build": "vite build",
+    "build": "pnpm run typecheck && vite build",
     "chakra:typegen": "chakra typegen src/theme/index.ts --strict",
     "chakra:typegen:watch": "chakra typegen src/theme/index.ts --strict --watch src/theme",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc -p tsconfig.typecheck.json",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "test": "node --import tsx --test-reporter=spec --test test/**/*.spec.ts && vitest run",
@@ -65,6 +65,8 @@
   "dependencies": {
     "@chakra-ui/charts": "^3.30.0",
     "@chakra-ui/react": "^3.0.0",
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/modifiers": "^9.0.0",
     "@emotion/react": "^11.14.0",
     "@fontsource-variable/dm-sans": "^5.2.0",
     "@fontsource-variable/inter-tight": "^5.2.0",

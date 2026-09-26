@@ -7,9 +7,10 @@ import { memo, useState } from "react";
 import { Box, chakra, useRecipe, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPlus, faChevronDown } from "@fortawesome/free-solid-svg-icons";
-import { type ValueTypeOf } from "@elaraai/east";
+import { none, type ValueTypeOf } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
+import { useFormatters } from "../../format/index.js";
 import { useOverflowCount } from "../../hooks/useOverflowCount";
 import { formatPredicate } from "../predicate-format";
 import { SlicePredicateBuilder } from "../predicate-builder";
@@ -44,6 +45,8 @@ export const EastChakraSliceFilter = memo(function EastChakraSliceFilter({ value
     useSliceReactivity(slice.key);
     const density = useSliceDensity(getSomeorUndefined(value.density)?.type as ("compact" | "focused" | undefined));
     const compact = density === "compact";
+    // Counts and clause dates, in the app's locale (#850).
+    const words = useFormatters();
 
     const state = slice.read();
     const filters = state.filters;
@@ -72,7 +75,8 @@ export const EastChakraSliceFilter = memo(function EastChakraSliceFilter({ value
         const name = cohortName.trim();
         if (name === "") return;
         const id = uniqueSlug(name, state.cohorts.map(c => c.id));
-        slice.defineCohort({ id, name, filters: [...filters] });
+        // A saved filter set is a standalone cohort — it ANDs with everything.
+        slice.defineCohort({ id, name, filters: [...filters], group: none });
         slice.toggleCohort(id);
         setCohortName("");
         setOpen(null);
@@ -88,7 +92,7 @@ export const EastChakraSliceFilter = memo(function EastChakraSliceFilter({ value
             footActions={<chakra.button type="button" css={btn({ variant: "outline", size: "xs" })} onClick={() => setOpen(null)}>Cancel</chakra.button>}
             trigger={
                 <Box css={chip({ tone: "brand", numeric: true, shape: compact ? "pill" : "rounded" })} cursor="pointer" flexShrink={0}>
-                    <Box as="span" whiteSpace="nowrap">{formatPredicate(pred)}</Box>
+                    <Box as="span" whiteSpace="nowrap">{formatPredicate(pred, words)}</Box>
                     <chakra.button type="button" cursor="pointer" color="link" flexShrink="0" onClick={e => { e.stopPropagation(); slice.removeFilter(BigInt(i)); }} aria-label="Remove filter">×</chakra.button>
                 </Box>
             }
@@ -185,7 +189,7 @@ export const EastChakraSliceFilter = memo(function EastChakraSliceFilter({ value
                             )}
                             {(open === "more" || open === "save") && filters.map((pred, i) => (
                                 <Box key={i} css={edit.moreRow}>
-                                    <Box as="span">{formatPredicate(pred)}</Box>
+                                    <Box as="span">{formatPredicate(pred, words)}</Box>
                                     {open === "more" && (
                                         <chakra.button type="button" css={edit.moreRowRemove} onClick={() => slice.removeFilter(BigInt(i))} aria-label="Remove filter">×</chakra.button>
                                     )}
@@ -214,7 +218,7 @@ export const EastChakraSliceFilter = memo(function EastChakraSliceFilter({ value
                 {/* Result OF total (#169) — "1,284 of 50,000 events" gives the
                     denominator context a bare count lacks. */}
                 <Box as="span" css={frame.footerLabel}>
-                    {`SHOWING ${Number(slice.resultCount()).toLocaleString()}${Number(slice.totalCount()) > 0 ? ` OF ${Number(slice.totalCount()).toLocaleString()}` : ""}${unit !== undefined ? ` ${unit}` : ""}`}
+                    {`SHOWING ${words.number(Number(slice.resultCount()))}${Number(slice.totalCount()) > 0 ? ` OF ${words.number(Number(slice.totalCount()))}` : ""}${unit !== undefined ? ` ${unit}` : ""}`}
                 </Box>
             </Box>
         </Box>

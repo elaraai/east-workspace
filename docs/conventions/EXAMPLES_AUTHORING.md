@@ -241,7 +241,7 @@ These rules layer on top of the above for east-ui examples:
 ## 8. Consolidation: the five example slots (east-ui / e3-ui)
 
 Examples serve three masters — the plugin search index, visual
-demonstration (showcase / rendered captures / goldens), and the
+demonstration (showcase / rendered captures), and the
 examples↔tests contract — and none of them require one-prop-per-example
 granularity. UI example files stay small by construction: a component's
 examples file may contain ONLY the following slots, each at most once
@@ -338,12 +338,14 @@ rendered, always captured) or keeps its own example.
 
 1. Rewrite the sibling `*.spec.ts` (it imports every example by name —
    the examples↔tests contract).
-2. Update any probe/golden references (probe/golden-coupled export
-   names are frozen or explicitly retargeted — never silently broken).
+2. Update any probe / responsive-spec references (export names that a
+   probe or a responsive spec names are frozen or explicitly retargeted —
+   never silently broken).
 3. `make test && make lint` in `libs/east-ui` (East diagnostics live —
    no TS helper calls inside East bodies, east#990020).
-4. Re-bank responsive goldens if the component is in the catalog
-   (`make test-responsive-bank`, review diff).
+4. `make build && make test-responsive` in `libs/east-ui` — the
+   showcase's responsive suite, which CI also runs: every catalog page
+   loads with no error and never scrolls sideways, at desktop and mobile.
 5. Regenerate the plugin search index (`plugin-artifacts` workflow) —
    **coordinate before touching** per root CLAUDE.md (skills/index are
    plugin-facing).

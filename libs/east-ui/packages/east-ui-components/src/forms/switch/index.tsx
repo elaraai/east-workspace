@@ -3,14 +3,16 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { memo, useMemo, useCallback, useState, useEffect } from "react";
+import { memo, useMemo, useCallback, useState } from "react";
 import { Switch as ChakraSwitch, type SwitchCheckedChangeDetails, type SwitchRootProps } from "@chakra-ui/react";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equalFor, equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Switch } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
+import { useValueSync } from "../../hooks/useValueSync";
 
 // Pre-define equality function at module level
-const switchEqual = equalFor(Switch.Types.Switch);
+const switchEqual = equivalentFor(Switch.Types.Switch);
+const switchDataEqual = equalFor(Switch.Types.Switch);
 
 /** East Switch value type */
 export type SwitchValue = ValueTypeOf<typeof Switch.Types.Switch>;
@@ -44,9 +46,7 @@ export const EastChakraSwitch = memo(function EastChakraSwitch({ value }: EastCh
     const label = useMemo(() => getSomeorUndefined(value.label), [value.label]);
     const onChangeFn = useMemo(() => getSomeorUndefined(value.onChange), [value.onChange]);
 
-    useEffect(() => {
-        setProps(() => toChakraSwitch(value));
-    }, [value]);
+    useValueSync(value, switchDataEqual, () => setProps(toChakraSwitch(value)));
 
     const handleCheckedChange = useCallback((e: SwitchCheckedChangeDetails) => {
         setProps(prev => ({ ...prev, checked: e.checked }));

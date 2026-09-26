@@ -15,7 +15,7 @@
  * covered separately by `test/platform/slice.spec.ts`.
  */
 
-import { describe, test, expect, afterEach } from "vitest";
+import { describe, test, expect, afterEach, beforeEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ChakraProvider } from "@chakra-ui/react";
@@ -406,7 +406,7 @@ describe("Slice.Cohort — chips toggle on/off; authoring demoted to the pencil 
 
         const toggle = screen.getByRole("button", { name: "Toggle cohort EU" });
         expect(toggle.getAttribute("aria-pressed")).toBe("false");
-        expect(screen.getByText(/1\.2k/)).toBeTruthy();          // live count on the chip
+        expect(screen.getByText(/1\.2K/)).toBeTruthy();          // live count on the chip, compact in the locale (#850)
 
         fireEvent.click(toggle);
         expect(slice.read().activeCohorts.has("eu")).toBe(true);  // ON
@@ -444,6 +444,98 @@ describe("Slice.Cohort — chips toggle on/off; authoring demoted to the pencil 
         fireEvent.change(screen.getByLabelText("Cohort name"), { target: { value: "Big EU" } });
         expect(screen.getByText("Add at least one clause.")).toBeTruthy();
         expect((screen.getByText("Apply") as HTMLButtonElement).disabled).toBe(true);
+    });
+});
+
+describe("Slice.Cohort — families (`group`): captioned runs of alternatives", () => {
+    const familyCohorts = () => [
+        { id: "mine",      name: "Mine",      group: none,           filters: [variant("string", { fieldId: "owner",  op: variant("eq", "me") })] },
+        { id: "proposed",  name: "PROPOSED",  group: some("state"),  filters: [variant("string", { fieldId: "state",  op: variant("eq", "PROPOSED") })] },
+        { id: "scheduled", name: "SCHEDULED", group: some("state"),  filters: [variant("string", { fieldId: "state",  op: variant("eq", "SCHEDULED") })] },
+        { id: "ready",     name: "READY",     group: some("status"), filters: [variant("string", { fieldId: "status", op: variant("eq", "READY") })] },
+    ];
+    const familyValue = (slice: unknown, extra: Record<string, unknown> = {}): any =>
+        ({ slice, createdBy: none, lastEdited: none, reevaluateEvery: none, density: none, editOpen: none, mode: some(variant("toggle", null)), group: none, ...extra });
+
+    test("the standalone cohort leads the plain run; each family renders under its own caption, in first-seen order", () => {
+        const slice = fakeSlice({ cohorts: familyCohorts() });
+        ui(<EastChakraSliceCohort value={familyValue(slice)} />);
+        const families = screen.getAllByRole("group").map(g => g.getAttribute("aria-label"));
+        expect(families).toEqual(["state cohorts", "status cohorts"]);
+        expect(screen.getByText("state")).toBeTruthy();       // the caption
+        expect(screen.getByText("status")).toBeTruthy();
+        // Mine sits outside every family; SCHEDULED sits inside the state family.
+        expect(screen.getByRole("button", { name: "Toggle cohort Mine" }).closest("[role=group]")).toBeNull();
+        expect(screen.getByRole("button", { name: "Toggle cohort SCHEDULED" }).closest("[role=group]")?.getAttribute("aria-label")).toBe("state cohorts");
+    });
+
+    test("the preset bar hides an empty family member unless it is on; standalone and manage-mode cohorts always show", () => {
+        const counts = () => new Map([["mine", 0n], ["proposed", 0n], ["scheduled", 4n], ["ready", 0n]]);
+        const first = ui(<EastChakraSliceCohort value={familyValue(fakeSlice({ cohorts: familyCohorts(), activeCohorts: new Set(["ready"]) }, { cohortCounts: counts }))} />);
+        expect(screen.queryByRole("button", { name: "Toggle cohort PROPOSED" })).toBeNull();     // empty, off → hidden
+        expect(screen.getByRole("button", { name: "Toggle cohort SCHEDULED" })).toBeTruthy();   // has rows
+        expect(screen.getByRole("button", { name: "Toggle cohort READY" })).toBeTruthy();       // empty but ON → shown, so it can be turned off
+        expect(screen.getByRole("button", { name: "Toggle cohort Mine" })).toBeTruthy();        // standalone → always shown
+        first.unmount();
+        // The authoring surface shows every member — an empty one is still editable.
+        ui(<EastChakraSliceCohort value={familyValue(fakeSlice({ cohorts: familyCohorts() }, { cohortCounts: counts }), { mode: none })} />);
+        expect(screen.getByRole("button", { name: "Toggle cohort PROPOSED" })).toBeTruthy();
+    });
+
+    test("group=<family> shows that family alone, uncaptioned — one surface per family", () => {
+        const slice = fakeSlice({ cohorts: familyCohorts() });
+        ui(<EastChakraSliceCohort value={familyValue(slice, { group: some("status") })} />);
+        expect(screen.getByRole("button", { name: "Toggle cohort READY" })).toBeTruthy();
+        expect(screen.queryByRole("button", { name: "Toggle cohort SCHEDULED" })).toBeNull();
+        expect(screen.queryByRole("button", { name: "Toggle cohort Mine" })).toBeNull();
+        expect(screen.queryByText("status")).toBeNull();      // the host names the family
+    });
+
+    test("authoring in manage mode stores the typed family as group: some(...) and a blank one as none", async () => {
+        const slice = fakeSlice();
+        ui(<EastChakraSliceCohort value={familyValue(slice, { mode: none, editOpen: some(true) })} />);
+        const user = userEvent.setup();
+        fireEvent.change(screen.getByLabelText("Cohort name"), { target: { value: "Late" } });
+        fireEvent.change(screen.getByLabelText("Cohort family"), { target: { value: "risk" } });
+        await pickOption(user, "Field", "Sessions");
+        await pickOption(user, "Operator", "≥");
+        await user.click(screen.getByRole("spinbutton"));
+        await user.paste("30");
+        fireEvent.click(screen.getByText("Add"));
+        fireEvent.click(screen.getByText("Apply"));
+        const cohorts = slice.read().cohorts;
+        expect(cohorts.length).toBe(1);
+        expect(cohorts[0].group).toEqual(some("risk"));
+    });
+
+    test("against the REAL store: members of one family OR; families AND with each other and with a standalone cohort", () => {
+        initializeStore(new UIStore());
+        const cfg = {
+            fields: new Map<string, unknown>([
+                ["state",  { type: "string", value: { label: "State",  accessor: (r: { state: string }) => r.state } }],
+                ["status", { type: "string", value: { label: "Status", accessor: (r: { status: string }) => r.status } }],
+                ["owner",  { type: "string", value: { label: "Owner",  accessor: (r: { owner: string }) => r.owner } }],
+            ]),
+            rangeFieldId: none, searchFieldIds: [], breakdownFieldIds: [],
+        };
+        const initial = {
+            range: none, compare: none, filters: [], cohorts: familyCohorts(), activeCohorts: new Set(["proposed", "scheduled"]),
+            breakdown: none, search: none, visible: none, selectedIndex: none, resolution: none,
+        };
+        const rows = [
+            { state: "PROPOSED",  status: "READY", owner: "me" },
+            { state: "SCHEDULED", status: "READY", owner: "me" },
+            { state: "SCHEDULED", status: "HELD",  owner: "you" },
+            { state: "DONE",      status: "READY", owner: "me" },
+        ];
+        const handle: any = buildSliceHandle("real.families", cfg, initial, rows, none);
+        expect(handle.resultCount()).toBe(3n);                  // PROPOSED or SCHEDULED
+        act(() => { handle.toggleCohort("ready"); });
+        expect(handle.resultCount()).toBe(2n);                  // … and READY
+        act(() => { handle.toggleCohort("mine"); });
+        expect(handle.resultCount()).toBe(2n);                  // … and mine (both READY rows are mine)
+        act(() => { handle.toggleCohort("proposed"); });
+        expect(handle.resultCount()).toBe(1n);                  // SCHEDULED ∧ READY ∧ mine
     });
 });
 
@@ -739,8 +831,8 @@ describe("Slice.Range — presets anchor to the DATA's date range; All clears (#
         expect(applied.value.type).toBe("datetime");                     // pinned, not a rolling preset tag
         const { from, to } = applied.value.value;
         expect(to.getTime()).toBe(new Date("2025-03-28").getTime());    // anchored to the data max
-        // ~7 days (setDate keeps wall time; allow a DST hour either way).
-        expect(Math.abs(to.getTime() - from.getTime() - 7 * 86_400_000)).toBeLessThanOrEqual(3_600_000);
+        // Exactly 7 days: presets step UTC days, so no timezone's DST moves them (#850).
+        expect(to.getTime() - from.getTime()).toBe(7 * 86_400_000);
         // The window lands ON the data: [Mar 21, Mar 28] holds exactly the Mar 28 row.
         expect(Number(handle.resultCount())).toBe(1);
     });
@@ -759,6 +851,47 @@ describe("Slice.Range — presets anchor to the DATA's date range; All clears (#
         expect((handle.read().range as { type: string }).type).toBe("none");
         expect(Number(handle.resultCount())).toBe(4);
         expect(screen.getByText(/All data ·/)).toBeTruthy();
+    });
+
+    // #850 — a preset's window is whole UTC days, and the pill names those
+    // days, in any timezone. In Los Angeles the data's last instant (01:30 UTC
+    // on 29 June) is still the 28th: read locally, "Last day" would start at
+    // the 28th's midnight and keep the row from the evening before.
+    describe("in a timezone west of UTC, a preset is whole UTC days (#850)", () => {
+        const last = new Date("2026-06-29T01:30:00Z");
+        beforeEach(() => { vi.stubEnv("TZ", "America/Los_Angeles"); });
+        afterEach(() => { vi.unstubAllEnvs(); });
+        const mountOver = (key: string, days: ReadonlyArray<Date>) => {
+            initializeStore(new UIStore());
+            const handle: any = buildSliceHandle(key, cfg, initial, days.map(day => ({ day })), none);
+            ui(<EastChakraSliceRange value={{ slice: handle, editOpen: some(true) } as any} />);
+            return handle;
+        };
+
+        test("the process really is in Los Angeles (a local reading says the 28th)", () => {
+            expect(new Intl.DateTimeFormat("en-US", { day: "numeric" }).format(last)).toBe("28");
+        });
+
+        test("'Last day' pins the data's last UTC day, and the pill and the resolve line name it", async () => {
+            const handle = mountOver("range.utc.day", [new Date("2026-06-28T23:00:00Z"), last]);
+            await userEvent.setup().click(screen.getByText("Last day"));
+            const { from, to } = handle.read().range.value.value as { from: Date; to: Date };
+            expect(from.toISOString()).toBe("2026-06-29T00:00:00.000Z");
+            expect(to.getTime()).toBe(last.getTime());
+            expect(Number(handle.resultCount())).toBe(1);            // the 23:00Z row is the day before
+            expect(screen.getByText("JUN 29 → JUN 29")).toBeTruthy();
+            expect(screen.getByText("Resolves to JUN 29, 2026")).toBeTruthy();
+        });
+
+        test("'YTD' starts on 1 January UTC, while it is still the old year in Los Angeles", async () => {
+            const newYear = new Date("2026-01-01T01:30:00Z");
+            const handle = mountOver("range.utc.ytd", [new Date("2025-12-31T23:00:00Z"), newYear]);
+            await userEvent.setup().click(screen.getByText("YTD"));
+            const { from } = handle.read().range.value.value as { from: Date; to: Date };
+            expect(from.toISOString()).toBe("2026-01-01T00:00:00.000Z");
+            expect(Number(handle.resultCount())).toBe(1);
+            expect(screen.getByText("Resolves to JAN 1, 2026")).toBeTruthy();
+        });
     });
 });
 
@@ -965,6 +1098,15 @@ describe("rail summary descriptors — capability when idle, active when narrowi
         expect(affordanceDescriptor("cohort", avail, dims)).toMatchObject({ text: "2 cohorts", active: false });
         const active = { ...(avail as object), activeCohorts: new Set(["eu", "bulk"]) } as never;
         expect(affordanceDescriptor("cohort", active, dims)).toMatchObject({ text: "EU +1", active: true });
+    });
+    test("cohort with families: the idle chip names the families, not the size of the bag", () => {
+        const families = { ...base, cohorts: [
+            { id: "p", name: "PROPOSED", group: some("state"), filters: [] },
+            { id: "s", name: "SCHEDULED", group: some("state"), filters: [] },
+            { id: "r", name: "READY", group: some("status"), filters: [] },
+            { id: "mine", name: "Mine", group: none, filters: [] },
+        ] } as never;
+        expect(affordanceDescriptor("presets", families, dims)).toMatchObject({ text: "state · status", active: false });
     });
     test("search: 'Search' idle, quoted query active", () => {
         expect(affordanceDescriptor("search", base as never, dims)).toMatchObject({ text: "Search", active: false });

@@ -73,3 +73,69 @@ jobs:
           # server over a repository seeded at test time (e3 is built above).
           E3_UI_INTEGRATION: "1"
         run: make test
+
+  # The showcase's Playwright suite (#833): every catalog page at desktop and
+  # mobile, the shell, the code reference, the Plan's geometry and the load.
+  # Each shard runs the same `make test-responsive` a developer runs; four
+  # shards keep the job beside `test`.
+  responsive:
+    name: responsive (${{ matrix.shard }}/4)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    env:
+      NODE_OPTIONS: --max-old-space-size=4096
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build east (dependency)
+        working-directory: libs/east
+        run: make build
+
+      - name: Build east-node (dependency)
+        working-directory: libs/east-node
+        run: make build
+
+      - name: Build e3 (dependency)
+        working-directory: libs/e3
+        run: make build
+
+      - name: Build east-py-datascience TypeScript (dependency)
+        working-directory: libs/east-py/packages/east-py-datascience
+        run: pnpm run build
+
+      - name: Build east-ui packages
+        working-directory: libs/east-ui
+        run: make build
+
+      - name: Install Chromium
+        working-directory: libs/east-ui
+        run: pnpm --filter @elaraai/east-ui-showcase exec playwright install --with-deps chromium
+
+      - name: Responsive suite
+        working-directory: libs/east-ui
+        run: make test-responsive SHARD=${{ matrix.shard }}/4
+
+      # A failing spec's screenshot and trace (open the trace with
+      # `pnpm exec playwright show-trace <trace.zip>`).
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: responsive-test-results-${{ matrix.shard }}
+          path: libs/east-ui/packages/east-ui-showcase/test-results/
+          retention-days: 14

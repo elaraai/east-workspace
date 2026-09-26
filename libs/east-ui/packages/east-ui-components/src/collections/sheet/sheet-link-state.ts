@@ -17,7 +17,7 @@ import { memberLabel } from "./model.js";
 import { ARROW } from "./link/grammar.js";
 import type { LinkHalves } from "./link/sides.js";
 import type {
-    CommitDir, EditBuffer, LinkEdit, LinkEditCtx, LinkGroups, SheetEffect, SheetEvent, SheetMachineCtx, SheetUiState, Transition,
+    CommitDir, EditBuffer, LinkEdit, LinkEditCtx, LinkGroups, SheetEffect, SheetEvent, SheetMachineCtx, SheetNotice, SheetUiState, Transition,
 } from "./sheet-types.js";
 
 /** The core's commit, injected. */
@@ -71,7 +71,7 @@ export function linkChange(s: SheetUiState, val: string, ctx: SheetMachineCtx): 
     const groups: LinkGroups = [[...link.groups[0]], [...link.groups[1]]];
     let side = link.side;
     let buf = "";
-    let warn = "";
+    let warn: SheetNotice | undefined;
     const push = (b: string) => {
         const t = b.trim().replace(/-+$/, "").trim();
         if (t === "") return;
@@ -85,7 +85,7 @@ export function linkChange(s: SheetUiState, val: string, ctx: SheetMachineCtx): 
         buf = "";
         if (side === 0) {
             side = 1;
-            if (!linkCtx.halves.to.live) warn = `${linkCtx.driverName} has no destination — kept, but flagged`;
+            if (!linkCtx.halves.to.live) warn = { id: "lockedHalf", driver: linkCtx.driverName };
         }
     };
     for (let i = 0; i < val.length; i++) {
@@ -103,7 +103,7 @@ export function linkChange(s: SheetUiState, val: string, ctx: SheetMachineCtx): 
     return {
         state: {
             ...s,
-            msg: warn !== "" ? warn : s.msg,
+            msg: warn ?? s.msg,
             edit: { ...edit, val: rest, err: false, hi: rest.trim() === "" ? -1 : 0, link: { ...link, side, groups, chipSel: null, hop: hopped ? link.hop + 1 : link.hop } },
         },
         effects,
@@ -178,7 +178,7 @@ export function linkKey(s: SheetUiState, e: Extract<SheetEvent, { t: "editor.key
         const { lo, hi } = chipRange(link);
         let i = 0;
         const groups = link.groups.map((g) => g.filter(() => { const n = i++; return n < lo || n > hi; })) as LinkGroups;
-        return { state: { ...s, msg: `${hi - lo + 1} member${hi - lo === 0 ? "" : "s"} removed`, edit: { ...edit, link: { ...link, groups, chipSel: null } } }, effects: [] };
+        return { state: { ...s, msg: { id: "membersRemoved", n: hi - lo + 1 }, edit: { ...edit, link: { ...link, groups, chipSel: null } } }, effects: [] };
     }
     if (link.chipSel !== null && (e.key === "ArrowLeft" || e.key === "ArrowRight")) return setLink({ chipSel: null });
     if (e.key === "Backspace" && edit.val === "") {
@@ -205,7 +205,7 @@ export function linkKey(s: SheetUiState, e: Extract<SheetEvent, { t: "editor.key
         if (rest.length > 0) {
             const groups: LinkGroups = [[...link.groups[0]], [...link.groups[1]]];
             groups[link.side] = groups[link.side].concat(rest);
-            return { state: { ...s, msg: `Took ${rest.length} predicted member${rest.length === 1 ? "" : "s"}`, edit: { ...edit, link: { ...link, groups } } }, effects: [{ t: "schedule.suggest", latency: "instant" }] };
+            return { state: { ...s, msg: { id: "predictedTaken", n: rest.length }, edit: { ...edit, link: { ...link, groups } } }, effects: [{ t: "schedule.suggest", latency: "instant" }] };
         }
     }
     // Plain arrows at the edge of an empty buffer cross the divider.

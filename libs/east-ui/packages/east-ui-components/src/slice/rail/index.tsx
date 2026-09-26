@@ -26,6 +26,15 @@
  * caption), floating over whatever sits below — the host never changes height.
  * The editor is the terminal surface: nothing folds inside it and nothing opens
  * a further popover.
+ *
+ * While the editor is open the ladder never RELAXES back to rung 0: the
+ * popover is anchored to the folded chip, so a relax unmounts it — and the
+ * popover is itself a cause of width change (anchored to a chip that a wide
+ * live affordance has pushed past the row's clip, it briefly widens the
+ * document; the scrollbar that raises shrinks the row, the fold that follows
+ * brings the chip back and the scrollbar goes, and that growth would relax
+ * the ladder again — a loop that flashed the popover a few times a second).
+ * A growth seen while the editor is open is held and applied when it closes.
  */
 
 import { useEffect, useLayoutEffect, useRef, useState, memo, type ReactNode } from "react";
@@ -41,6 +50,7 @@ import { railAffordanceKinds } from "../rail-kinds.js";
 // Function-declaration import across the rail ↔ charts module cycle is safe
 // (hoisted; charts/spec imports SliceRailCluster from here the same way).
 import { tickFormatter, type TickFormat } from "../../charts/spec/index.js";
+import { useFormatters } from "../../format/index.js";
 import { SliceDensityContext } from "../density";
 import { BrushStrip } from "../brush-strip.js";
 import { useSliceReactivity } from "../use-slice-reactivity";
@@ -49,7 +59,7 @@ import { EastChakraSliceFilter } from "../filter";
 import { EastChakraSliceSearch } from "../search";
 import { EastChakraSliceBreakdown } from "../breakdown";
 import { EastChakraSliceRange } from "../range";
-import { EastChakraSliceCohort } from "../cohort";
+import { EastChakraSliceCohort, cohortGroupOf } from "../cohort";
 import { EastChakraSliceLegend } from "../legend";
 
 /** Per-affordance icon + label — section headers in the editor, count chips on the ladder. */
@@ -110,6 +120,11 @@ export function affordanceDescriptor(
             if (active.length > 0) {
                 const name = (id: string) => state.cohorts.find(c => c.id === id)?.name ?? id;
                 return { kind, icon, text: active.length === 1 ? name(active[0]!) : `${name(active[0]!)} +${active.length - 1}`, active: true };
+            }
+            // Idle, with families: name them (`state · status`) rather than count the whole registry.
+            const families = [...new Set(state.cohorts.map(c => cohortGroupOf(c)).filter((g): g is string => g !== undefined))];
+            if (families.length > 0) {
+                return { kind, icon, text: families.length <= 2 ? families.join(" · ") : `${families.slice(0, 2).join(" · ")} +${families.length - 2}`, active: false };
             }
             const avail = state.cohorts.length;
             return { kind, icon, text: avail === 1 ? "1 cohort" : `${avail} cohorts`, active: false };
@@ -199,6 +214,17 @@ export function SliceRailCluster({ slice, affordanceKinds, align = "start" }: Sl
     // escalation effect below re-measures after every resize (without this a
     // shrink at rung 0 would clip instead of folding).
     const [, bumpMeasure] = useState(0);
+    // The sectioned editor — one Slice.Edit popover holding every affordance
+    // flat in `editor` density, complete regardless of how far the ladder
+    // compressed. The editor is terminal: affordances show everything and
+    // edit inline (no nested popovers, no nested cards). Declared here because
+    // the ladder reads it: the popover hangs off the folded chip, so the
+    // ladder must not relax to rung 0 (and unmount it) while it is open.
+    const [editorOpen, setEditorOpen] = useState(false);
+    const editorOpenRef = useRef(false);
+    editorOpenRef.current = editorOpen;
+    // A relax the ladder owed while the editor was open — applied when it closes.
+    const relaxHeld = useRef(false);
     useLayoutEffect(() => {
         const el = rowRef.current;
         if (!el || rung >= maxRung) return;
@@ -231,6 +257,10 @@ export function SliceRailCluster({ slice, affordanceKinds, align = "start" }: Sl
             if (settle !== undefined) window.clearTimeout(settle);
             settle = window.setTimeout(() => {
                 settle = undefined;
+                // The editor's popover is anchored to the folded chip a relax
+                // would remove — and a growth seen now may be that popover's own
+                // doing (see the header). Hold it until the editor closes.
+                if (editorOpenRef.current) { relaxHeld.current = true; return; }
                 setRung(0);
                 bumpMeasure(n => n + 1);
             }, 200);
@@ -242,11 +272,13 @@ export function SliceRailCluster({ slice, affordanceKinds, align = "start" }: Sl
         };
     }, []);
 
-    // The sectioned editor — one Slice.Edit popover holding every affordance
-    // flat in `editor` density, complete regardless of how far the ladder
-    // compressed. The editor is terminal: affordances show everything and
-    // edit inline (no nested popovers, no nested cards).
-    const [editorOpen, setEditorOpen] = useState(false);
+    // The editor closed with a relax owed: re-measure from rung 0 now.
+    useEffect(() => {
+        if (editorOpen || !relaxHeld.current) return;
+        relaxHeld.current = false;
+        setRung(0);
+        bumpMeasure(n => n + 1);
+    }, [editorOpen]);
 
     const state = slice.read();
     const dimensions = typeof slice.dimensions === "function" ? slice.dimensions() : [];
@@ -406,6 +438,8 @@ const BRUSH_BUCKETS = 32;
  */
 function RailBrushStrip({ slice, style }: { slice: ValueTypeOf<typeof Slice.Types.Bind>; style: BrushStyle }) {
     const frameStyles = useSlotRecipe({ key: "sliceFrame" })();
+    // The axis labels, in the app's locale (#850).
+    const { locale } = useFormatters();
     const domain = boundRangeDomain(slice.key);
     if (domain === undefined || domain.max <= domain.min) return null;
 
@@ -425,12 +459,12 @@ function RailBrushStrip({ slice, style }: { slice: ValueTypeOf<typeof Slice.Type
     const counts = style.count ? boundRangeHistogram(slice.key, style.buckets) : undefined;
 
     // Formatted axis labels (#190) — the range field's declared `format`
-    // wins; else the kind default (datetime → locale date, numeric → number).
+    // wins; else the kind default (datetime → a UTC date, numeric → number).
     const rangeFieldId = (getSomeorUndefined(slice.rangeFieldId() as never) ?? undefined) as string | undefined;
     const fieldFormat = rangeFieldId !== undefined
         ? getSomeorUndefined((slice.fields().find(f => f.fieldId === rangeFieldId) as { format?: never } | undefined)?.format as never) as TickFormat | undefined
         : undefined;
-    const fmt = tickFormatter(fieldFormat, domain.kind === "datetime" ? "time" : "linear");
+    const fmt = tickFormatter(fieldFormat, domain.kind === "datetime" ? "time" : "linear", locale);
     const axisLabel = (f: number) => {
         const v = fromFraction(f);
         return fmt(domain.kind === "datetime" ? new Date(v) : v);

@@ -10,6 +10,7 @@ import {
     StructType, IntegerType, FloatType, StringType,
     ArrayType, DictType, VariantType, NullType,
     diffFor,
+    toEastTypeValue,
 } from "@elaraai/east";
 import { variant } from "@elaraai/east";
 
@@ -24,7 +25,7 @@ describe("walkPatchToTree: subtreeLeafPaths", () => {
     test("struct with three changed primitives → root has all three paths", () => {
         const T = StructType({ a: IntegerType, b: IntegerType, c: StringType });
         const patch = diffFor(T)({ a: 1n, b: 2n, c: "x" }, { a: 9n, b: 9n, c: "y" });
-        const tree = walkPatchToTree(T, patch, "binding") as GroupNode;
+        const tree = walkPatchToTree(toEastTypeValue(T), patch, "binding") as GroupNode;
         assert.equal(tree.kind, "group");
         assert.deepEqual([...tree.subtreeLeafPaths].sort(), ["a", "b", "c"]);
     });
@@ -36,7 +37,7 @@ describe("walkPatchToTree: subtreeLeafPaths", () => {
             { name: "a", inner: { x: 1n, y: 1n } },
             { name: "b", inner: { x: 2n, y: 2n } },
         );
-        const tree = walkPatchToTree(Outer, patch, "binding") as GroupNode;
+        const tree = walkPatchToTree(toEastTypeValue(Outer), patch, "binding") as GroupNode;
         assert.deepEqual([...tree.subtreeLeafPaths].sort(), ["inner.x", "inner.y", "name"]);
 
         const innerGroup = tree.children.find(c => c.kind === "group" && c.label === "inner") as GroupNode;
@@ -51,14 +52,14 @@ describe("walkPatchToTree: subtreeLeafPaths", () => {
             [{ rate: 1.0 }, { rate: 2.0 }],
             [{ rate: 1.5 }, { rate: 2.5 }],
         );
-        const tree = walkPatchToTree(T, patch, "binding") as GroupNode;
+        const tree = walkPatchToTree(toEastTypeValue(T), patch, "binding") as GroupNode;
         assert.deepEqual([...tree.subtreeLeafPaths].sort(), ["[0].rate", "[1].rate"]);
     });
 
     test("subtreeLeafPaths matches collectLeaves(node).map(l => l.path) for the root", () => {
         const T = StructType({ a: IntegerType, b: ArrayType(IntegerType) });
         const patch = diffFor(T)({ a: 1n, b: [1n, 2n] }, { a: 9n, b: [1n, 9n] });
-        const tree = walkPatchToTree(T, patch, "binding") as GroupNode;
+        const tree = walkPatchToTree(toEastTypeValue(T), patch, "binding") as GroupNode;
         assert.deepEqual(
             [...tree.subtreeLeafPaths].sort(),
             collectLeaves(tree).map(l => l.path).sort(),
@@ -72,13 +73,13 @@ describe("walkPatchToTree: subtreeLeafPaths", () => {
 
 describe("walkPatchToTree: structural invariants", () => {
     test("unchanged patch → null tree, no callbacks, stack zeroed", () => {
-        const result = walkPatchToTree(IntegerType, variant("unchanged", null), "binding");
+        const result = walkPatchToTree(toEastTypeValue(IntegerType), variant("unchanged", null), "binding");
         assert.equal(result, null);
     });
 
     test("primitive replace at root → single leaf, label = rootLabel", () => {
         const patch = diffFor(IntegerType)(1n, 2n);
-        const result = walkPatchToTree(IntegerType, patch, "myBinding") as LeafNode;
+        const result = walkPatchToTree(toEastTypeValue(IntegerType), patch, "myBinding") as LeafNode;
         assert.equal(result.kind, "leaf");
         assert.equal(result.label, "myBinding");
         assert.equal(result.path, "");
@@ -90,7 +91,7 @@ describe("walkPatchToTree: structural invariants", () => {
             new Map([["AU", 1n]]),
             new Map([["AU", 2n]]),
         );
-        const tree = walkPatchToTree(T, patch, "binding") as GroupNode;
+        const tree = walkPatchToTree(toEastTypeValue(T), patch, "binding") as GroupNode;
         assert.equal(tree.subtreeLeafPaths.length, 1);
         assert.equal(tree.subtreeLeafPaths[0], '{"AU"}');
     });
@@ -98,7 +99,7 @@ describe("walkPatchToTree: structural invariants", () => {
     test("variant tag change → leaf with op=update", () => {
         const T = VariantType({ on: NullType, off: NullType });
         const patch = diffFor(T)(variant("on", null), variant("off", null));
-        const tree = walkPatchToTree(T, patch, "binding") as LeafNode;
+        const tree = walkPatchToTree(toEastTypeValue(T), patch, "binding") as LeafNode;
         assert.equal(tree.kind, "leaf");
         assert.equal(tree.op, "update");
     });

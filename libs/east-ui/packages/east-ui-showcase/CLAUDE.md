@@ -51,6 +51,7 @@ where the snapshots land — they exist specifically so an agent can
 | `make east-ui-examples-html-all` | Snapshots every example to standalone HTML. |
 | `make east-ui-examples-html-<pathKey>` | Snapshots one example (e.g. `disclosure/tabs`). |
 | `make design` | Serves `app_design_system/` (incl. `components/rendered/`) on :5174 for visual review. |
+| `make test-responsive` | The Playwright suite in `tests/responsive/` (DOM specs over every catalog page, the shell, the code reference, the Plan's geometry, the Sheet's ring under the keyboard and the load, at desktop + mobile) against the built showcase, exactly as CI runs it; `SHARD=n/4` runs one CI shard. Each spec waits for the page to be at rest (`settle.ts`), never for a fixed time, and nothing retries. |
 
 ## See also
 

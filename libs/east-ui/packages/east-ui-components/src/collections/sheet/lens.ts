@@ -19,16 +19,23 @@
  * comes back wrapped. A field with no column is absent from the record and
  * reads as blank to the lens.
  *
+ * On a grouped sheet (#740) a group is a hit when its title matches or any
+ * of its lines does; the lens then works on the lines, and a search also
+ * matches a line through its sub rows' printed text (#844).
+ *
  * Pure: no React, no DOM. Reveals are ROW POSITIONS (the source offset), so
  * they survive paging and persist into a view.
  *
  * @packageDocumentation
  */
 
+import { none, some } from "@elaraai/east";
 import { sliceMatches } from "@elaraai/east-ui/internal";
-import { printLinkText, type SheetColumnMeta } from "./model.js";
+import { sheetMessages } from "./messages.js";
+import type { SheetWords } from "./words.js";
+import { TITLE_KEY, printLinkText, subRowText, type SheetColumnMeta } from "./model.js";
 import type { LensContext, SliceStateValue } from "./sheet-types.js";
-import type { SheetCellValue, SheetLinkValue, SheetRowValue } from "./values.js";
+import type { SheetCellValue, SheetLineValue, SheetRowValue } from "./values.js";
 
 /** The slice engine's config — the bound slice's, live (`boundSliceConfig`). */
 export type LensConfig = Parameters<typeof sliceMatches>[1];
@@ -48,7 +55,7 @@ export function narrowingActive(state: SliceStateValue | undefined): boolean {
     if (state.range.type === "some") return true;
     if (state.filters.length > 0) return true;
     if (state.activeCohorts.size > 0) return true;
-    return state.search.type === "some" && (state.search.value as string).trim() !== "";
+    return state.search.type === "some" && state.search.value.trim() !== "";
 }
 
 /** The `.east` type value's tag, or `undefined` for an untyped test column. */
@@ -72,15 +79,15 @@ function isOptionType(t: unknown): boolean {
 function fieldValue(cell: SheetCellValue | undefined, dataType: unknown): unknown {
     const option = isOptionType(dataType);
     const inner = option ? (dataType as { value: { name: string; type: unknown }[] }).value.find((c) => c.name === "some")?.type : dataType;
-    if (cell === undefined || cell.type === "Null") return option ? { type: "none", value: null } : undefined;
+    if (cell === undefined || cell.type === "Null") return option ? none : undefined;
     let v: unknown = cell.value;
     if (cell.type === "Link") {
         const tag = typeTag(inner);
-        const link = cell.value as SheetLinkValue;
+        const link = cell.value;
         if (tag === "String") v = printLinkText(link);
         else if (tag === "Array") v = link.from.length > 0 ? link.from : link.to;
     }
-    return option ? { type: "some", value: v } : v;
+    return option ? some(v) : v;
 }
 
 /**
@@ -92,9 +99,95 @@ function fieldValue(cell: SheetCellValue | undefined, dataType: unknown): unknow
  * @returns The record `sliceMatches` narrows
  */
 export function matchRecord(row: SheetRowValue, columns: readonly SheetColumnMeta[]): Record<string, unknown> {
+    return matchCells(row.cells, columns);
+}
+
+/**
+ * The host-shaped record over a set of cells — a row's, or one line's. A
+ * date column's instant also rides BARE under `<key>At`: the slice's range
+ * and its datetime predicates read the record raw, and the column's own
+ * field may be an `Option`.
+ */
+function matchCells(cells: ReadonlyMap<string, SheetCellValue>, columns: readonly SheetColumnMeta[]): Record<string, unknown> {
     const out: Record<string, unknown> = {};
-    for (const meta of columns) out[meta.key] = fieldValue(row.cells.get(meta.key), meta.raw.dataType);
+    for (const meta of columns) {
+        out[meta.key] = fieldValue(cells.get(meta.key), meta.raw.dataType);
+        if (meta.kind === "date") {
+            const c = cells.get(meta.key);
+            out[`${meta.key}At`] = c !== undefined && c.type === "DateTime" ? c.value : undefined;
+        }
+    }
     return out;
+}
+
+/** Whether a wire row is a group (#740): it carries lines, or the band's title cell. */
+function isGroupRow(row: SheetRowValue): boolean {
+    return row.lines.length > 0 || row.cells.has(TITLE_KEY);
+}
+
+/** The String cells under no column — a group's band facts, a line's rule cells (its detail) — which the search reads too. */
+function extraFacts(cells: ReadonlyMap<string, SheetCellValue>, columns: readonly SheetColumnMeta[]): Record<string, unknown> {
+    const out: Record<string, unknown> = {};
+    for (const [k, c] of cells) {
+        if (k === TITLE_KEY || c.type !== "String" || columns.some((m) => m.key === k)) continue;
+        out[k] = c.value;
+    }
+    return out;
+}
+
+/** One line's record: its group's facts, its own facts and its cells. */
+function lineRecord(group: SheetRowValue, line: SheetLineValue, columns: readonly SheetColumnMeta[]): Record<string, unknown> {
+    return { ...extraFacts(group.cells, columns), ...extraFacts(line.cells, columns), ...matchCells(line.cells, columns) };
+}
+
+/** The search query, lower-cased; `""` when there is none. */
+function queryOf(state: SliceStateValue): string {
+    return state.search.type === "some" ? state.search.value.trim().toLowerCase() : "";
+}
+
+/** Whether a line's sub rows answer the query — the query in one sub row's printed text. */
+function subRowsMatch(line: SheetLineValue, q: string): boolean {
+    return q !== "" && line.subRows.some((s) => subRowText(s).toLowerCase().includes(q));
+}
+
+/** A line with no value in the range field never answers a date window (the engine lets a record without the field through). */
+function lineCanHit(state: SliceStateValue, config: LensConfig, record: Record<string, unknown>): boolean {
+    if (state.range.type !== "some") return true;
+    const field = (config as unknown as { rangeFieldId: { type: string; value?: string } }).rangeFieldId;
+    return field.type !== "some" || field.value === undefined || record[field.value] !== undefined;
+}
+
+/**
+ * A line's hit: its record matches — or, when the search matches its sub
+ * rows, its record matches everything else the narrowing asks — and a
+ * window has a date to answer it with.
+ */
+function lineHitOf(state: SliceStateValue, config: LensConfig, group: SheetRowValue, line: SheetLineValue, columns: readonly SheetColumnMeta[], now: Date): boolean {
+    const record = lineRecord(group, line, columns);
+    if (!lineCanHit(state, config, record)) return false;
+    if (hitOf(state, config, record, now)) return true;
+    return subRowsMatch(line, queryOf(state)) && hitOf({ ...state, search: none } as SliceStateValue, config, record, now);
+}
+
+/** The record a group's TITLE matches through: the title under its own key and the group's facts, every line field absent. */
+function titleRecord(row: SheetRowValue, columns: readonly SheetColumnMeta[]): Record<string, unknown> {
+    const title = row.cells.get(TITLE_KEY);
+    return { ...extraFacts(row.cells, columns), [TITLE_KEY]: title !== undefined && title.type === "String" ? title.value : "" };
+}
+
+/** A title never answers a date range: a range narrows LINES. */
+function titleCanHit(state: SliceStateValue): boolean {
+    return state.range.type !== "some";
+}
+
+/** One record's hit, fail-closed. */
+function hitOf(state: SliceStateValue, config: LensConfig, record: Record<string, unknown>, now: Date): boolean {
+    try {
+        return sliceMatches(state as never, config, record, now);
+    } catch (err) {
+        console.error("[Sheet] the lens could not match a row:", err);
+        return false;
+    }
 }
 
 /**
@@ -109,13 +202,57 @@ export function matchRecord(row: SheetRowValue, columns: readonly SheetColumnMet
  */
 export function lensHits(state: SliceStateValue, config: LensConfig, rows: readonly SheetRowValue[], columns: readonly SheetColumnMeta[], now: Date = new Date()): boolean[] {
     return rows.map((row) => {
-        try {
-            return sliceMatches(state as never, config, matchRecord(row, columns), now);
-        } catch (err) {
-            console.error("[Sheet] the lens could not match a row:", err);
-            return false;
+        // A group is a hit when its title matches, or any of its lines does.
+        if (isGroupRow(row)) {
+            if (titleCanHit(state) && hitOf(state, config, titleRecord(row, columns), now)) return true;
+            return row.lines.some((line) => lineHitOf(state, config, row, line, columns, now));
         }
+        return hitOf(state, config, matchRecord(row, columns), now);
     });
+}
+
+/**
+ * Whether a group's TITLE matches on its own — every line then shows.
+ *
+ * @param state - The slice state
+ * @param config - The bound slice's config
+ * @param group - The group row
+ * @param columns - The declared line columns
+ * @param now - The clock a datetime preset resolves against
+ * @returns `true` when the title matches
+ */
+export function lensTitleHit(state: SliceStateValue, config: LensConfig, group: SheetRowValue, columns: readonly SheetColumnMeta[] = [], now: Date = new Date()): boolean {
+    return isGroupRow(group) && titleCanHit(state) && hitOf(state, config, titleRecord(group, columns), now);
+}
+
+/**
+ * Whether the narrowing matches each LINE of a group (#740) — the brand line
+ * numbers under a matched band.
+ *
+ * @param state - The slice state
+ * @param config - The bound slice's config
+ * @param group - The group row
+ * @param columns - The declared line columns
+ * @param now - The clock a datetime preset resolves against
+ * @returns One flag per line
+ */
+export function lensLineHits(state: SliceStateValue, config: LensConfig, group: SheetRowValue, columns: readonly SheetColumnMeta[], now: Date = new Date()): boolean[] {
+    return group.lines.map((line) => lineHitOf(state, config, group, line, columns, now));
+}
+
+/**
+ * Which of a hit line's SUB ROWS the search answers through (#844): the
+ * query in the sub row's printed text, case-insensitive. A filter, a cohort
+ * or a range never picks a sub row.
+ *
+ * @param state - The slice state
+ * @param group - The group row
+ * @param lineHits - The group's line hits ({@link lensLineHits})
+ * @returns Per line, one flag per sub row
+ */
+export function lensSubRowHits(state: SliceStateValue, group: SheetRowValue, lineHits: readonly boolean[]): boolean[][] {
+    const q = queryOf(state);
+    return group.lines.map((line, j) => line.subRows.map((s) => q !== "" && lineHits[j] === true && subRowText(s).toLowerCase().includes(q)));
 }
 
 /**
@@ -238,18 +375,35 @@ export function revealStep(
     return { positions: [...range(from, from + half - 1), ...range(to - half + 1, to)], steps: next };
 }
 
-/** The `n matches · m context` line, empty without a lens. */
-export function lensCount(hits: readonly boolean[], visible: readonly boolean[]): string {
+/**
+ * The `n matches · m context` line, in the sheet's words — its counts in the
+ * app's locale (#850, #861).
+ *
+ * @param hits - One flag per row: a match
+ * @param visible - One flag per row: shown (a match, its context, a reveal)
+ * @param words - The sheet's words
+ * @returns The line
+ */
+export function lensCount(hits: readonly boolean[], visible: readonly boolean[], words: SheetWords): string {
     const n = hits.filter(Boolean).length;
     const shown = visible.filter(Boolean).length;
     const ctx = shown - n;
-    return `${n} match${n === 1 ? "" : "es"}${ctx > 0 ? ` · ${ctx} context` : ""}`;
+    return words.m.lensCount({ n, count: words.number(n), context: ctx > 0 ? words.number(ctx) : undefined });
 }
 
-/** A view's name from its query (B§8): the query to 16 characters, else `view n`. */
-export function viewName(query: string, seq: number): string {
+/**
+ * A view's name from its query (B§8): the query to 16 characters, else the
+ * sheet's words for an unnamed view — `view n` in English (#861). The name is
+ * stored with the view.
+ *
+ * @param query - The query the view saves
+ * @param seq - The view's number
+ * @param unnamed - The sheet's name for a view with no query; English when omitted
+ * @returns The name
+ */
+export function viewName(query: string, seq: number, unnamed?: ((seq: number) => string) | undefined): string {
     const q = query.trim();
-    if (q === "") return `view ${seq}`;
+    if (q === "") return unnamed !== undefined ? unnamed(seq) : sheetMessages.viewName({ seq: String(seq) });
     return q.length > 16 ? `${q.slice(0, 15)}…` : q;
 }
 

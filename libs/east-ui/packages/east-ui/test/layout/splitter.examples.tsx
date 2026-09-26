@@ -164,7 +164,9 @@ export const splitterVariants = example({
 });
 
 // ============================================================================
-// Behavioral isolates — golden-coupled responsive contract, name and body frozen
+// Behavioral isolates — the responsive suite's collapseBelow contract
+// (east-ui-showcase tests/responsive/shell.spec.ts): name frozen; it must
+// stack in a phone-width frame and split at desktop width
 // ============================================================================
 
 export const splitterCollapseBelow = example({

@@ -106,6 +106,13 @@ interface EastErrorBoundaryProps {
     resetKey: unknown;
     /** The component-tree region (storage key) surfaced on the error display. */
     context?: string | undefined;
+    /**
+     * Render the failure compactly instead of the full error alert — for a
+     * boundary around ONE part of a component (a row, an overlay body), where
+     * an alert the size of a page would bury the part's neighbours. Receives
+     * the caught error's message and stack.
+     */
+    fallback?: ((error: { message: string; stack: string | undefined }) => ReactNode) | undefined;
     children: ReactNode;
 }
 
@@ -133,6 +140,7 @@ export class EastErrorBoundary extends Component<EastErrorBoundaryProps, EastErr
     override render() {
         if (this.state.error !== null) {
             const { message, stack } = toEastErrorInfo(this.state.error);
+            if (this.props.fallback !== undefined) return this.props.fallback({ message, stack });
             return <EastErrorDisplay title={this.props.title} message={message} stack={stack} context={this.props.context} />;
         }
         return this.props.children;

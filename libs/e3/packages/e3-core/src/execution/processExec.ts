@@ -398,6 +398,71 @@ function killProcessTree(child: ChildProcess): void {
 }
 
 /**
+ * Reads one of a child's output streams as whole characters, handing each
+ * chunk to `record` and then to `callback`, with backpressure: while more
+ * than `maxPendingBytes` handed to the callback have not settled, the stream
+ * is not read — its buffer fills and the child blocks on its pipe — until
+ * they fall to half.
+ *
+ * @remarks
+ * The stream is pulled with `read()` from its `'readable'` event and never
+ * flows. A flowing stream paused for backpressure flows again for whoever
+ * resumes it, and Node resumes every stdio stream of a child that exits
+ * (child_process's `flushStdio`): a runner that exited while its output was
+ * held back had the rest of it delivered past the cap, and all that a
+ * process it left running wrote after it. `resume()` never sets a stream
+ * with a `'readable'` listener flowing. Nothing more is read once the stream
+ * is destroyed — a stop's drain closing the pipes from this side — though
+ * its buffer may still hold bytes.
+ *
+ * @param stream - The child's stdout or stderr
+ * @param maxPendingBytes - The unsettled bytes above which the stream is not read
+ * @param record - Called with every chunk, before the callback
+ * @param callback - Called with every chunk; a returned promise keeps the
+ *   chunk's bytes pending until it settles
+ * @internal
+ */
+export function captureOutput(
+  stream: Readable,
+  maxPendingBytes: number,
+  record: (data: string) => void,
+  callback: ((data: string) => void | Promise<void>) | undefined,
+): void {
+  const decoder = new StringDecoder('utf8');
+  let pending = 0;
+  let held = false;
+  const deliver = (data: string): void => {
+    if (data === '') return;
+    record(data);
+    const settled = callback?.(data);
+    if (!settled) return;
+    const bytes = Buffer.byteLength(data, 'utf8');
+    pending += bytes;
+    const release = (): void => {
+      pending -= bytes;
+      if (held && pending <= maxPendingBytes / 2) {
+        held = false;
+        pull();
+      }
+    };
+    void settled.then(release, release);
+  };
+  const pull = (): void => {
+    while (!held && !stream.destroyed) {
+      if (pending > maxPendingBytes) {
+        held = true;
+        return;
+      }
+      const chunk = stream.read() as Buffer | null;
+      if (chunk === null) return;
+      deliver(decoder.write(chunk));
+    }
+  };
+  stream.on('readable', pull);
+  stream.on('end', () => deliver(decoder.end()));
+}
+
+/**
  * Options for {@link spawnAndCapture}.
  */
 export interface SpawnAndCaptureOptions {
@@ -415,9 +480,10 @@ export interface SpawnAndCaptureOptions {
   /** Per-stream in-memory tail cap in bytes (default 64 KiB). */
   maxLogBytes?: number;
   /** Per stream, the bytes handed to its callback whose promises have not
-   *  settled above which the stream is paused (default 1 MiB); it resumes once
-   *  they fall to half. A child writing faster than the callback settles then
-   *  blocks on its pipe. */
+   *  settled above which the stream is not read (default 1 MiB); reading
+   *  resumes once they fall to half. A child writing faster than the callback
+   *  settles then blocks on its pipe, and what it leaves there when it exits
+   *  stays unread until they do (see {@link captureOutput}). */
   maxPendingBytes?: number;
   /** Gives the child a stdin pipe this process never writes to — the
    *  lifeline a stock runner spawned with `--exit-with-parent` (spliced into
@@ -631,53 +697,24 @@ export async function spawnAndCapture(
     });
   });
 
-  // Each stream is decoded as whole characters and handed to its callback;
-  // while more than `maxPendingBytes` handed over have not settled, the
-  // stream is paused, so the child blocks on its pipe.
-  const capture = (
-    stream: Readable | null,
-    record: (data: string) => void,
-    callback: ((data: string) => void | Promise<void>) | undefined,
-  ): void => {
-    if (!stream) return;
-    const decoder = new StringDecoder('utf8');
-    let pending = 0;
-    let paused = false;
-    const deliver = (data: string): void => {
-      if (data === '') return;
-      record(data);
-      const settled = callback?.(data);
-      if (!settled) return;
-      const bytes = Buffer.byteLength(data, 'utf8');
-      pending += bytes;
-      if (!paused && pending > maxPendingBytes) {
-        paused = true;
-        stream.pause();
-      }
-      const release = (): void => {
-        pending -= bytes;
-        if (paused && pending <= maxPendingBytes / 2) {
-          paused = false;
-          stream.resume();
-        }
-      };
-      void settled.then(release, release);
-    };
-    stream.on('data', (chunk: Buffer) => deliver(decoder.write(chunk)));
-    stream.on('end', () => deliver(decoder.end()));
-  };
+  // Each stream is decoded as whole characters, kept in its tail and handed to
+  // its callback; while more than `maxPendingBytes` handed over have not
+  // settled, the stream is not read, so the child blocks on its pipe.
+  if (child.stdout) {
+    captureOutput(child.stdout, maxPendingBytes, (str) => {
+      const combined = stdoutTail + str;
+      if (combined.length > tailBytes) stdoutTruncated = true;
+      stdoutTail = combined.slice(-tailBytes);
+    }, options.onStdout);
+  }
 
-  capture(child.stdout, (str) => {
-    const combined = stdoutTail + str;
-    if (combined.length > tailBytes) stdoutTruncated = true;
-    stdoutTail = combined.slice(-tailBytes);
-  }, options.onStdout);
-
-  capture(child.stderr, (str) => {
-    const combined = stderrTail + str;
-    if (combined.length > tailBytes) stderrTruncated = true;
-    stderrTail = combined.slice(-tailBytes);
-  }, options.onStderr);
+  if (child.stderr) {
+    captureOutput(child.stderr, maxPendingBytes, (str) => {
+      const combined = stderrTail + str;
+      if (combined.length > tailBytes) stderrTruncated = true;
+      stderrTail = combined.slice(-tailBytes);
+    }, options.onStderr);
+  }
 
   // Helper to kill the entire process tree (child and all its descendants),
   // once. POSIX: detached, child.pid is the process group leader, so killing

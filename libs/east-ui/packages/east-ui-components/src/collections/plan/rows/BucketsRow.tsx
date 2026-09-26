@@ -11,11 +11,19 @@
  * looks are the Planner's — a solid ink ✓ chip for confirmed/actual, the
  * grip-prefixed dashed `plan` chip for proposals; labelled tiles keep the
  * lifecycle axis. A marker rings its CELL (`data-over`) and pins the corner
- * status icon with the message tooltip.
+ * status icon, whose message is its accessible name and the canvas's one
+ * tooltip (#816).
+ *
+ * A tile is a button named by its label, bucket, lane and state (#819) — the
+ * ✓ and dashed `plan` chips say their state only by look.
+ *
+ * On a row whose series declares a move's fields (#825) a tile moves to
+ * another bucket, or another row of its item type; it has one instant, so no
+ * end to drag.
  */
 
-import type { ReactNode } from "react";
-import { Box, Portal, Tooltip } from "@chakra-ui/react";
+import { useMemo, type ReactNode } from "react";
+import { Box, useChakraContext } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
     faCheck, faCircle, faCircleCheck, faCircleInfo, faCircleXmark, faGripVertical, faTriangleExclamation,
@@ -24,11 +32,17 @@ import {
 import type { IconName, IconPrefix } from "@fortawesome/fontawesome-svg-core";
 import { variant, type ValueTypeOf } from "@elaraai/east";
 import { Plan } from "@elaraai/east-ui/internal";
+import { resolveColor } from "../../shared/helpers.js";
 import { usePlanDispatch, usePlanResolvers, usePlanScale, type PlanElementRefValue } from "../context.js";
-import { runStateKey } from "./SpanRow.js";
-import { ElementOverlays } from "./ElementOverlays.js";
+import { runStateKey, type PlanRowMove } from "./SpanRow.js";
+import { usePlanMovable } from "../edit/movable.js";
+import type { PlanMovable } from "../edit/store.js";
 import type { PlanBucket } from "../scale.js";
 import type { PlanInstantValue } from "../instant.js";
+import { appendAll } from "../reductions.js";
+import { tileName } from "../a11y.js";
+import type { PlanRowId } from "../model.js";
+import { usePlanWords } from "../words.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 type BucketsKindValue = Extract<ValueTypeOf<typeof Plan.Types.Row>["kind"], { type: "buckets" }>["value"];
@@ -51,19 +65,36 @@ export interface BucketsRowProps {
     ctx?: boolean | undefined;
 
     rowKey: string;
+    /** The row's id — what an element click names the row by (#822). */
+    rowId: PlanRowId;
     kind: BucketsKindValue;
     styles: Styles;
-    storageKey: string;
+    /** How its tiles move (#825) — `undefined` when they do not. */
+    move?: PlanRowMove | undefined;
 }
 
 /** One event chip — the `.chk` / `.pchip` resting looks + labelled tiles. */
-function EventChip({ ev, styles, rowKey, storageKey, ctx }: {
-    ev: BucketEventValue; styles: Styles; rowKey: string; storageKey: string; ctx?: boolean | undefined;
+function EventChip({ ev, styles, rowKey, rowId, ctx, bucket, lane, move }: {
+    ev: BucketEventValue; styles: Styles; rowKey: string; rowId: PlanRowId; ctx?: boolean | undefined;
+    /** The bucket the tile renders in — its place in the row's time order (#819). */
+    bucket: PlanBucket;
+    /** Its lane's caption, when the lane has one. */
+    lane: string | undefined;
+    /** How it moves (#825). */
+    move: PlanRowMove | undefined;
 }) {
     const dispatch = usePlanDispatch();
     const { onElementClick } = usePlanResolvers();
-    const ref = variant("event", { row: rowKey, event: ev.key }) as PlanElementRefValue;
+    const system = useChakraContext();
+    const scale = usePlanScale();
+    const words = usePlanWords();
+    const ref = variant("event", { row: rowId, event: ev.key }) as PlanElementRefValue;
     const label = ev.label.type === "some" ? ev.label.value : undefined;
+    // A tile has one instant — its extent is that instant twice.
+    const movable = useMemo<PlanMovable | undefined>(() => (move !== undefined
+        ? { rowKey, key: ev.key, label: label ?? ev.key, kind: "tile", span: { start: ev.at, end: ev.at }, items: move.items, resize: false }
+        : undefined), [move, rowKey, ev, label]);
+    const { handle, carried } = usePlanMovable(movable);
     const icon = ev.icon.type === "some" ? ev.icon.value : undefined;
     const stateKey = runStateKey(ev.state);
     const stretch = ev.stretch.type === "some" ? ev.stretch.value.type : undefined;
@@ -72,9 +103,15 @@ function EventChip({ ev, styles, rowKey, storageKey, ctx }: {
     const justify = ev.content.type === "some" && ev.content.value.horizontal.type === "some"
         ? ev.content.value.horizontal.value.type : undefined;
     const color = ev.color.type === "some" ? ev.color.value : undefined;
-    const chip = (
+    return (
         <Box css={styles.tile}
             data-event={ev.key}
+            data-plan-frac={bucket.x0.toFixed(4)}
+            // Focusable: Enter opens its popover (#816), and the row's Tab
+            // walk reaches it (#819).
+            tabIndex={-1}
+            role="button"
+            aria-label={tileName(ev, bucket, lane, scale, words)}
             data-ctx={ctx === true ? "" : undefined}
             data-state={stateKey}
             data-tone={ev.tone.type === "some" ? ev.tone.value.type : undefined}
@@ -86,8 +123,11 @@ function EventChip({ ev, styles, rowKey, storageKey, ctx }: {
             alignSelf={vFill && ctx !== true ? "stretch" : undefined}
             height={vFill && ctx !== true ? "auto" : undefined}
             justifyContent={justify}
-            background={color !== undefined && !color.includes(".") ? color : undefined}
-            backgroundColor={color !== undefined && color.includes(".") ? color : undefined}
+            // A theme token or raw CSS — the system says which (#817).
+            background={color !== undefined ? resolveColor(system, color) : undefined}
+            {...handle}
+            // Carried by the keyboard (#825) — dimmed as a dragged origin is.
+            data-dragging={carried ? "" : undefined}
             onClick={(e) => {
                 e.stopPropagation();
                 dispatch({ t: "row.select", key: rowKey });
@@ -97,20 +137,14 @@ function EventChip({ ev, styles, rowKey, storageKey, ctx }: {
             {icon !== undefined && <FontAwesomeIcon icon={[icon.prefix as IconPrefix, icon.name as IconName]} />}
             {label !== undefined ? <Box as="span" css={styles.tileLabel}>{label}</Box>
                 : icon !== undefined ? null
-                : stateKey === "prop" ? (<><FontAwesomeIcon icon={faGripVertical} />plan</>)
+                : stateKey === "prop" ? (<><FontAwesomeIcon icon={faGripVertical} />{words.m.planChip()}</>)
                 : <FontAwesomeIcon icon={faCheck} />}
         </Box>
-    );
-    return (
-        <ElementOverlays elementRef={ref} styles={styles}
-            storageKey={`${storageKey}.${ev.key}`}>
-            {chip}
-        </ElementOverlays>
     );
 }
 
 /** The bucket-row plot content — the washed bucket × lane cell grid. */
-export function BucketsRow({ rowKey, kind, styles, storageKey, ctx }: BucketsRowProps) {
+export function BucketsRow({ rowKey, rowId, kind, styles, ctx, move }: BucketsRowProps) {
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
     const lanes = kind.lanes;
@@ -120,6 +154,13 @@ export function BucketsRow({ rowKey, kind, styles, storageKey, ctx }: BucketsRow
         if (lanes.length === 0 || lane.type === "none") return undefined;
         const i = lanes.findIndex((l) => l.key === lane.value);
         return i >= 0 ? i : undefined;
+    };
+    // A tile's own lane caption — what its accessible name says (#819), even
+    // in a spanned bucket where its lane has no row of its own.
+    const laneCaption = (lane: LaneRef): string | undefined => {
+        const li = laneIndex(lane);
+        const l = li !== undefined ? lanes[li] : undefined;
+        return l !== undefined && l.label.type === "some" ? l.label.value : undefined;
     };
 
     // Group events + markers by (bucket, lane); lane: none ⇒ the full cell
@@ -171,7 +212,7 @@ export function BucketsRow({ rowKey, kind, styles, storageKey, ctx }: BucketsRow
     // event taking the cell must not hide a lane's marker with it (#615).
     const bucketMarkers = (bi: number): MarkerValue[] => {
         const out: MarkerValue[] = [];
-        for (let li = 0; li < laneCount; li++) out.push(...(cellMarkers.get(`${bi}:${li}`) ?? []));
+        for (let li = 0; li < laneCount; li++) appendAll(out, cellMarkers.get(`${bi}:${li}`) ?? []);
         return out;
     };
 
@@ -200,21 +241,14 @@ export function BucketsRow({ rowKey, kind, styles, storageKey, ctx }: BucketsRow
             >
                 {caption !== undefined && ctx !== true && <Box css={styles.laneLabel}>{caption}</Box>}
                 {events.map((ev) => (
-                    <EventChip key={ev.key} ev={ev} styles={styles} rowKey={rowKey} storageKey={storageKey} ctx={ctx} />
+                    <EventChip key={ev.key} ev={ev} styles={styles} rowKey={rowKey} rowId={rowId} ctx={ctx}
+                        bucket={b} lane={laneCaption(ev.lane)} move={move} />
                 ))}
                 {marker !== undefined && (
-                    <Tooltip.Root openDelay={150}>
-                        <Tooltip.Trigger asChild>
-                            <Box css={styles.markerIcon} data-status={marker.status.type}>
-                                <FontAwesomeIcon icon={STATUS_ICON[marker.status.type] ?? faCircleInfo} />
-                            </Box>
-                        </Tooltip.Trigger>
-                        <Portal>
-                            <Tooltip.Positioner>
-                                <Tooltip.Content>{marker.message}</Tooltip.Content>
-                            </Tooltip.Positioner>
-                        </Portal>
-                    </Tooltip.Root>
+                    <Box css={styles.markerIcon} data-status={marker.status.type}
+                        data-marker={`${bi}:${li ?? "full"}`} role="img" aria-label={marker.message}>
+                        <FontAwesomeIcon icon={STATUS_ICON[marker.status.type] ?? faCircleInfo} />
+                    </Box>
                 )}
             </Box>
         );
@@ -259,7 +293,7 @@ export function BucketsRow({ rowKey, kind, styles, storageKey, ctx }: BucketsRow
             // spanned bucket, but a dropped event is worse than a
             // repositioned one (#615).
             const laned: BucketEventValue[] = [];
-            for (let li = 0; li < laneCount; li++) laned.push(...(cellEvents.get(`${bi}:${li}`) ?? []));
+            for (let li = 0; li < laneCount; li++) appendAll(laned, cellEvents.get(`${bi}:${li}`) ?? []);
             cells.push(renderCell(b, undefined, [...full, ...laned]));
             return;
         }

@@ -8,7 +8,7 @@ import { Box as ChakraBox, IconButton, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { library, type IconName } from "@fortawesome/fontawesome-svg-core";
 import { fas, faChevronLeft, faChevronRight, faChevronUp, faChevronDown } from "@fortawesome/free-solid-svg-icons";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Dock } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
@@ -17,7 +17,7 @@ import { EastChakraComponent } from "../../component";
 // the free-solid set so it resolves by name (idempotent — safe if already added).
 library.add(fas);
 
-const dockEqual = equalFor(Dock.Types.Dock);
+const dockEqual = equivalentFor(Dock.Types.Dock);
 
 /** East Dock value type. */
 export type DockValue = ValueTypeOf<typeof Dock.Types.Dock>;

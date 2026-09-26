@@ -10,7 +10,7 @@
 import { memo, useMemo } from "react";
 import { parseCssSize } from "../../style/parse-size.js";
 import { Box as ChakraBox, type BoxProps } from "@chakra-ui/react";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Box } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
@@ -21,7 +21,7 @@ import { usePrefersReducedMotion } from "../../contracts/reduced-motion.js";
 import { DensityProvider } from "../../contracts/density.js";
 
 // Pre-define the equality function at module level
-const boxEqual = equalFor(Box.Types.Box);
+const boxEqual = equivalentFor(Box.Types.Box);
 
 /** East Box value type */
 export type BoxValue = ValueTypeOf<typeof Box.Types.Box>;

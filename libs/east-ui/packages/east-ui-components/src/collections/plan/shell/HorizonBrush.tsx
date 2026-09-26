@@ -26,25 +26,25 @@ import { Slice } from "@elaraai/east-ui/internal";
 import { BrushStrip } from "../../../slice/brush-strip.js";
 import { boundRangeDomain, boundRangeHistogram } from "../../../platform/slice/index.js";
 import { useSliceReactivity } from "../../../slice/use-slice-reactivity.js";
-import { usePlanDispatch, usePlanScale } from "../context.js";
+import { usePlanDispatch, usePlanGeometry, usePlanScale } from "../context.js";
 import { rangeArmOf, rangeOf } from "../axis.js";
 import type { PlanInstantValue } from "../instant.js";
+import type { PlanResolution } from "../scale.js";
+import type { PlanHorizonUnit } from "../messages.js";
+import { usePlanWords } from "../words.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 type SliceBindValue = ValueTypeOf<typeof Slice.Types.Bind>;
 
-/** Strip height / max bar height (the §7 sheet: 32px, bars 5px+4px inset). */
-const STRIP_H = 32;
-const BAR_H = 23;
-
-/** Time resolution → the caption unit + its span in ms (for `HORIZON · 26 WK`). */
-const CAPTION_UNIT: Record<string, { label: string; ms: number }> = {
-    hour: { label: "HR", ms: 3_600_000 },
-    day: { label: "D", ms: 86_400_000 },
-    week: { label: "WK", ms: 7 * 86_400_000 },
-    month: { label: "MO", ms: 30 * 86_400_000 },
-    quarter: { label: "Q", ms: 91 * 86_400_000 },
-    year: { label: "YR", ms: 365 * 86_400_000 },
+/** A time resolution's span in ms — what the caption counts the horizon in
+ *  (`HORIZON · 26 WK`; the words are the message table's, #820). */
+const UNIT_MS: Record<PlanResolution, number> = {
+    hour: 3_600_000,
+    day: 86_400_000,
+    week: 7 * 86_400_000,
+    month: 30 * 86_400_000,
+    quarter: 91 * 86_400_000,
+    year: 365 * 86_400_000,
 };
 
 export interface HorizonBrushProps {
@@ -58,6 +58,8 @@ export interface HorizonBrushProps {
 /** The 32px horizon band — caption gutter cell + the shared brush strip. */
 export function HorizonBrush({ styles, gridTemplate, slice, now }: HorizonBrushProps) {
     const dispatch = usePlanDispatch();
+    const geometry = usePlanGeometry();
+    const words = usePlanWords();
     // The scale IS the applied window (slice range ▸ axis ▸ fit), on its
     // own numeric domain — epoch ms, or the value on a number axis.
     const scale = usePlanScale();
@@ -133,10 +135,9 @@ export function HorizonBrush({ styles, gridTemplate, slice, now }: HorizonBrushP
     // The caption spans the DOMAIN (the whole brushable horizon), not the
     // applied window — `HORIZON · 26 WK` over a 12-week window; on a number
     // axis the count is in steps.
-    const unit = scale.kind === "time" ? (CAPTION_UNIT[scale.resolution ?? "week"] ?? CAPTION_UNIT.week!) : undefined;
-    const caption = unit !== undefined
-        ? `HORIZON · ${Math.max(1, Math.round(span / unit.ms))} ${unit.label}`
-        : `HORIZON · ${Math.max(1, Math.round(span / periodN))} STEPS`;
+    const unit: PlanHorizonUnit = scale.kind === "time" ? (scale.resolution ?? "week") : "step";
+    const periods = Math.max(1, Math.round(span / (unit === "step" ? periodN : UNIT_MS[unit])));
+    const caption = words.m.horizon({ n: periods, count: words.number(periods), unit });
     // Every write speaks the slice field's arm (#631): `datetime` on a time
     // axis; `float` / `integer` per the field on a number axis — an Integer
     // field needs bigint bounds or the range is inert (#167).
@@ -177,8 +178,10 @@ export function HorizonBrush({ styles, gridTemplate, slice, now }: HorizonBrushP
                     counts={counts}
                     window={winTo > winFrom ? { from: winFrom, to: winTo } : undefined}
                     nowFrac={nowFrac !== undefined && nowFrac >= 0 && nowFrac <= 1 ? nowFrac : undefined}
-                    height={STRIP_H}
-                    barHeight={BAR_H}
+                    // The strip and its tallest bar are the canvas geometry
+                    // (#817) — the §7 sheet's 32px band, bars inset within it.
+                    height={geometry.brush}
+                    barHeight={geometry.brushBar}
                     snapWindow={snapWindow}
                     // Snap AGAIN on the instants themselves so float round-trips
                     // can never land the committed window off an edge. The

@@ -5,15 +5,16 @@
 
 import { memo, useCallback, useMemo, useState, type ReactNode } from "react";
 import { Box, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Calendar } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { parseCssSize } from "../../style/parse-size.js";
 import { VirtualRows } from "../virtual-rows.js";
 import { useDensity } from "../../contracts/density";
 import { usePlotGutter } from "../../contracts/plot-gutter.js";
+import { useFormatters } from "../../format/index.js";
 
-const calendarEqual = equalFor(Calendar.Types.Calendar);
+const calendarEqual = equivalentFor(Calendar.Types.Calendar);
 
 /** East Calendar value type. */
 export type CalendarValue = ValueTypeOf<typeof Calendar.Types.Calendar>;
@@ -56,11 +57,6 @@ function reduce(values: number[], agg: string): number | null {
     }
 }
 
-/** Thousands-separated integer print (matches the design's `toLocaleString`). */
-function printAgg(n: number): string {
-    return Math.round(n).toLocaleString("en-US");
-}
-
 /**
  * Renders an East UI Calendar value — the day-of-week × week heatmap per the
  * `Calendar Heatmap` design: an eight-step teal ramp, hover cross-highlight,
@@ -74,6 +70,9 @@ export const EastChakraCalendar = memo(function EastChakraCalendar({ value }: Ea
     const density = (getSomeorUndefined(value.density)?.type ?? inheritedDensity ?? "comfortable") as DensityKey;
     const D = DENS[density] ?? DENS.comfortable;
     const styles = useSlotRecipe({ key: "calendar" })({ density }) as SlotStyles;
+    // An aggregate prints as a whole number, grouped in the app's locale (#850).
+    const words = useFormatters();
+    const printAgg = (n: number): string => words.number(Math.round(n));
 
     // Shared plot gutter (#147) — pins the 7 day columns to [left, W−right] so
     // a Calendar stacked under a Chart lines up. Under a gutter the totals rail

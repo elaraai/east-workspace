@@ -11,6 +11,8 @@
 
 import {
     East,
+    none,
+    some,
     StringType,
     NullType,
     BooleanType,
@@ -20,7 +22,7 @@ import {
     decodeBeast2For,
 } from "@elaraai/east";
 import { type PlatformFunction } from "@elaraai/east/internal";
-import { State, StateBindPrimitives } from "@elaraai/east-ui/internal";
+import { State, StateBindPrimitives, EditingRequestStore } from "@elaraai/east-ui/internal";
 import { UIStore, type UIStoreInterface } from "./state-store.js";
 import { registerReactiveTracker } from "../reactive/tracker.js";
 import { registerPlatformImplementation, getRegisteredPlatformImplementations } from "./registry.js";
@@ -79,6 +81,10 @@ export function trackKey(key: string): void {
 // fixed by construction), and the methods resolve getStore() LIVE, so a cached
 // handle still re-binds across store swaps. Module-level (State has no runtime
 // instance — getStore() is a singleton).
+// The editing contract's inline requests (#879): they outlive render-key
+// garbage collection, but not the UI store.
+const editingRequests = new WeakMap<UIStoreInterface, Map<string, Uint8Array>>();
+
 const stateHandleCache = new Map<string, Record<string, unknown>>();
 
 /**
@@ -94,6 +100,17 @@ const stateHandleCache = new Map<string, Record<string, unknown>>();
  * The primitives carry the host side-effects (store I/O + reactive tracking).
  */
 export const StateImpl: PlatformFunction[] = [
+    EditingRequestStore.read.implement((key) => {
+        const payload = editingRequests.get(getStore())?.get(key);
+        return payload === undefined ? none : some(payload.slice());
+    }),
+    EditingRequestStore.write.implement((key, payload) => {
+        const store = getStore();
+        let records = editingRequests.get(store);
+        if (!records) { records = new Map(); editingRequests.set(store, records); }
+        records.set(key, payload.slice());
+        return null;
+    }),
     // Primitive: read the key (registering the reactive dependency), falling back
     // to the captured default when the key is absent — e.g. after decode, where
     // `bind` did not re-run to eager-init it.

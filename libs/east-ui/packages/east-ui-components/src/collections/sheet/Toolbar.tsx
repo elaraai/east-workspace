@@ -33,14 +33,16 @@
  */
 
 import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
-import { Box } from "@chakra-ui/react";
+import { Box, chakra } from "@chakra-ui/react";
 import type { ValueTypeOf } from "@elaraai/east";
 import type { Slice } from "@elaraai/east-ui/internal";
+import { radioGroupKey } from "../../primitives/radio-group.js";
 import { SliceRailCluster } from "../../slice/rail/index.js";
 import { DatasetKeySearch } from "../key-search/index.js";
 import { SheetTabsFoldContext, type SheetTabsFold } from "./fold-context.js";
 import type { LensContext } from "./sheet-types.js";
 import type { SheetSearch } from "./use-seek.js";
+import { useSheetWords } from "./words.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 type SliceBindValue = ValueTypeOf<typeof Slice.Types.Bind>;
@@ -69,10 +71,15 @@ export interface SheetToolbarProps {
     search?: SheetSearch | undefined;
     /** A key in the rail's search box the tabs claim (⏎ · esc); returns `true` when claimed. */
     onSearchKey?: ((key: string) => boolean) | undefined;
+    /** Controls at the rail group's end, right of the search — the history controls (undo · redo · discard · apply). */
+    trailing?: ReactNode | undefined;
 }
 
 /** Renders the toolbar. */
-export const SheetToolbar = memo(function SheetToolbar({ styles, slice, affordances, count, partial, tabs, context, search, onSearchKey }: SheetToolbarProps) {
+export const SheetToolbar = memo(function SheetToolbar({ styles, slice, affordances, count, partial, tabs, context, search, onSearchKey, trailing }: SheetToolbarProps) {
+    // The toolbar's own words (#861).
+    const words = useSheetWords();
+    const { m } = words;
     // A seek-capable source replaces `search` outright (the Plan's rule):
     // filtering the loaded prefix and seeking the whole source are different
     // operations, and one word for both would mislead.
@@ -130,36 +137,45 @@ export const SheetToolbar = memo(function SheetToolbar({ styles, slice, affordan
         <Box ref={rootRef} css={styles.toolbar} data-slot="toolbar" data-tight={tight > 0 ? tight : undefined}>
             <SheetTabsFoldContext.Provider value={fold}>{tabs}</SheetTabsFoldContext.Provider>
             {context !== undefined && (
-                <Box css={styles.contextSwitch} data-slot="contextSwitch" role="radiogroup" aria-label="Context rows either side of a hit">
-                    {tight < 2 && <Box as="span" css={styles.contextLabel}>context</Box>}
+                // A radio group (#860, the Plan's #632 segment): one tab stop on the
+                // checked option; ←/→ and Home/End move and pick; a press picks.
+                <Box css={styles.contextSwitch} data-slot="contextSwitch" role="radiogroup" aria-label={m.contextSwitch()}
+                    onKeyDown={(e: KeyboardEvent<HTMLDivElement>) => {
+                        radioGroupKey(e, (j) => { const n = CONTEXTS[j]; if (n !== undefined && n !== context.value) context.onChange(n); });
+                    }}>
+                    {tight < 2 && <Box as="span" css={styles.contextLabel} aria-hidden="true">{m.contextLabel()}</Box>}
                     {CONTEXTS.map((n) => (
-                        <Box
+                        <chakra.button
                             key={n}
-                            as="button"
+                            type="button"
                             css={styles.contextOption}
                             data-slot="contextOption"
                             data-context={n}
                             data-on={context.value === n ? "" : undefined}
                             role="radio"
                             aria-checked={context.value === n}
+                            tabIndex={context.value === n ? 0 : -1}
                             onMouseDown={(e: MouseEvent) => { e.preventDefault(); context.onChange(n); }}
+                            // Enter or Space on the focused option: a click with no pointer behind it.
+                            onClick={(e: MouseEvent) => { if (e.detail === 0) context.onChange(n); }}
                         >
-                            {n === 0 ? "none" : `±${n}`}
-                        </Box>
+                            {m.contextOption({ n, count: words.number(n) })}
+                        </chakra.button>
                     ))}
                 </Box>
             )}
             {hasCount && tight < 1 && <Box as="span" css={styles.toolbarCount} data-slot="toolbarCount">{count}</Box>}
             <Box css={styles.toolbarRailGroup} data-slot="toolbarRailGroup">
                 {search !== undefined && (
-                    <DatasetKeySearch keyType={search.keyType} onFind={search.find} onListRange={search.listRange} onJump={search.jump} onClear={search.clear} />
+                    <DatasetKeySearch key={search.resetKey} keyType={search.keyType} onFind={search.find} onListRange={search.listRange} onJump={search.jump} onClear={search.clear} />
                 )}
                 {slice !== undefined && kinds.length > 0 && (
                     <Box css={styles.toolbarCluster} onKeyDownCapture={onKeyDownCapture} data-slot="toolbarRail">
                         <SliceRailCluster slice={slice} affordanceKinds={kinds} align="end" />
                     </Box>
                 )}
-                {partial && <Box as="span" css={styles.toolbarBadge} data-slot="toolbarBadge">loaded rows only</Box>}
+                {partial && <Box as="span" css={styles.toolbarBadge} data-slot="toolbarBadge">{m.scopeBadge()}</Box>}
+                {trailing}
             </Box>
         </Box>
     );

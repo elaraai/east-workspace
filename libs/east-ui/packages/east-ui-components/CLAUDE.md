@@ -43,6 +43,11 @@ look up tokens via Chakra semantic tokens (`bg.primary`, `text.muted`,
 `make build`, `make test`, `make lint` from this directory. See
 [`../../../../docs/conventions/MAKEFILE_TARGETS.md`](../../../../docs/conventions/MAKEFILE_TARGETS.md).
 
+`build` type-checks before vite bundles: `pnpm typecheck` runs `tsc` over
+`tsconfig.typecheck.json`, which covers `src` (tests included), `test`,
+`scripts` and the configs — vite and vitest strip types without checking
+them, so this is the only gate that sees a type error (#589).
+
 ## Architecture
 
 ### Rendering pipeline
@@ -189,24 +194,44 @@ React 19 conventions and the patterns established in this codebase.
 ### Memoization
 
 Every component MUST be wrapped in `memo()` with a custom equality
-function using East's `equalFor`:
+function using East's `equivalentFor`:
 
 ```tsx
-const fooEqual = equalFor(Foo.Types.Foo);
+const fooEqual = equivalentFor(Foo.Types.Foo);
 
 export const EastChakraFoo = memo(function EastChakraFoo({ value }: Props) {
     // ...
 }, (prev, next) => fooEqual(prev.value, next.value));
 ```
 
-**Why:** East values are immutable. Structural equality (`equalFor`)
-prevents re-renders when the value hasn't semantically changed.
+**Why:** East values are immutable, so a structural comparison prevents
+re-renders when nothing changed. It must be `equivalentFor`, not
+`equalFor` (#809): `equalFor` treats every pair of functions as equal, so
+a value whose only change is a callback that captured new data — an
+`onClick` over a new selection, a Plan resolver over a new lookup — would
+bail here, and the renderer would keep calling the stale closure.
+`equivalentFor` compares a function by its IR and its captured values.
 
 Include additional props (e.g. `storageKey`) in the comparator:
 
 ```tsx
 (prev, next) => fooEqual(prev.value, next.value) && prev.storageKey === next.storageKey
 ```
+
+#### Data changes vs closure changes
+
+Because the memo lets a closure-only change through, a new `value` does
+not mean new data. Anything that RESETS local state or re-derives from the
+value's data keys on the DATA, never on `value`'s identity:
+
+- `useValueSync(value, fooDataEqual, sync)` — the interactive-state
+  re-sync (below): runs `sync` only when `fooDataEqual` (the type's
+  `equalFor`) says the data changed.
+- `useDataStable(value, fooDataEqual)` — a value whose identity changes
+  only with its data. Key memos, effects and overlay resets on it (read
+  only data through it — its closures may be stale).
+
+Callbacks are always taken from `value` itself, so the latest closure runs.
 
 ### useMemo
 
@@ -266,16 +291,20 @@ const onFooFn = useMemo(() => style ? getSomeorUndefined(style.onFoo) : undefine
 
 Per `[UI controlled components]` memory. Canonical reference:
 `src/forms/input/index.tsx` — every interactive renderer must mirror its
-structure (local `useState` + `useEffect` sync + `queueMicrotask` for
-callbacks).
+structure (local `useState` + `useValueSync` re-sync + `queueMicrotask`
+for callbacks).
 
 ```tsx
+const fooEqual = equivalentFor(Foo.Types.Foo);   // the memo
+const fooDataEqual = equalFor(Foo.Types.Foo);    // the re-sync gate
+
 export const EastChakraFoo = memo(function EastChakraFoo({ value }: EastChakraFooProps) {
     // 1. Local state, initialised from the East value prop.
     const [state, setState] = useState(toInitial(value));
 
-    // 2. External prop changes push into local state.
-    useEffect(() => { setState(toInitial(value)); }, [value]);
+    // 2. External DATA changes push into local state — a closure-only
+    //    change never resets it (#809).
+    useValueSync(value, fooDataEqual, () => setState(toInitial(value)));
 
     // 3. Callbacks extracted + memoised.
     const onChangeFn = useMemo(() => getSomeorUndefined(value.onChange), [value.onChange]);
@@ -295,8 +324,9 @@ export const EastChakraFoo = memo(function EastChakraFoo({ value }: EastChakraFo
 
 1. `onXxx` callback exists but no local `useState` for the state it
    drives.
-2. `useState` exists but no `useEffect([value])` sync — stale when
-   parent prop changes.
+2. `useState` exists but no `useValueSync` re-sync — stale when the
+   parent's data changes. (A bare `useEffect(..., [value])` is wrong too:
+   it resets on a closure-only change, #809.)
 3. Callback fired synchronously (no `queueMicrotask`).
 4. `queueMicrotask` (or any side effect) placed **inside** a
    `setState(prev => ...)` updater — StrictMode invokes updaters twice
@@ -356,7 +386,8 @@ Do **not** persist a pixel offset.
 Pre-define equality functions at module scope (outside the component):
 
 ```tsx
-const fooEqual = equalFor(Foo.Types.Foo);
+const fooEqual = equivalentFor(Foo.Types.Foo);   // the memo
+const fooDataEqual = equalFor(Foo.Types.Foo);    // a data gate, when one is needed
 ```
 
 Also define pure conversion functions (`toChakra*`) at module scope.

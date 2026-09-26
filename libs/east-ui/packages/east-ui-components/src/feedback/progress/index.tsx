@@ -5,11 +5,11 @@
 
 import { memo, useMemo, useEffect, useState } from "react";
 import { Progress as ChakraProgress, type ProgressRootProps } from "@chakra-ui/react";
-import { equalFor, type ValueTypeOf } from "@elaraai/east";
+import { equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { Progress } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 
-const progressEqual = equalFor(Progress.Types.Progress);
+const progressEqual = equivalentFor(Progress.Types.Progress);
 
 export type ProgressValue = ValueTypeOf<typeof Progress.Types.Progress>;
 
