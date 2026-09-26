@@ -153,6 +153,23 @@ export class WorkspaceLockError extends E3Error {
   }
 }
 
+/**
+ * Thrown when a deploy refuses to carry one or more of a workspace's records
+ * into the package it deploys. It is thrown before the deploy writes anything.
+ *
+ * @remarks
+ * A record is refused when it changed type with no migration, when the
+ * package no longer declares in order the migrations the workspace applied,
+ * when the deploy's policy leaves its migrations to their own change control,
+ * or when the package no longer declares it at all. Every refusal is named at
+ * once, each with its fix.
+ */
+export class RecordDeployRefusedError extends E3Error {
+  constructor(public readonly refusals: ReadonlyArray<{ record: string; reason: string }>) {
+    super(`the deploy was refused, and wrote nothing:\n${refusals.map((r) => `  record '${r.record}' ${r.reason}`).join('\n')}`);
+  }
+}
+
 // =============================================================================
 // Package Errors
 // =============================================================================

@@ -83,6 +83,34 @@ const IDEM_SLOT = '$idem';
  *  which stops being the head once a reindex commits; a retry returns it. */
 const IDEM_COMMIT_SLOT = '$idem.commit';
 
+/** Reserved slot naming the migrations a record's state has had applied, in
+ *  order, separated by commas, and absent when none has. Only a deploy writes
+ *  it. A step is known by its name, an identifier, and never by its object's
+ *  hash, which changes with the SDK that exported it. */
+const SCHEMA_SLOT = '$schema';
+
+/** A record's ref once it holds a state: the state object and the version
+ *  vector. */
+export interface RecordRef {
+  /** The state object's hash. */
+  hash: string;
+  /** The version vector: the record's own keypath names its head commit, and
+   *  `$` slots hold the commit protocol's bookkeeping. */
+  versions: ReadonlyMap<string, string>;
+}
+
+/**
+ * The migrations a record's state has had applied, in order.
+ *
+ * @param versions - the record ref's version vector
+ * @returns the steps' names; none when the ref names none, as for every record
+ *   deployed before a migration could be declared
+ */
+export function appliedMigrations(versions: ReadonlyMap<string, string>): string[] {
+  const slot = versions.get(SCHEMA_SLOT);
+  return slot === undefined || slot === '' ? [] : slot.split(',');
+}
+
 /**
  * The outcome of a mutation attempt. Only `committed` writes anything durable;
  * every other outcome leaves the repo byte-identical (bar unreferenced objects
@@ -468,7 +496,7 @@ export async function recordMutate(
  * @returns the vector to write
  */
 function nextVersions(
-  previous: Map<string, string> | undefined,
+  previous: ReadonlyMap<string, string> | undefined,
   selfKeypath: string,
   commitHash: string,
   owned: Record<string, string | undefined> = {},
@@ -867,7 +895,8 @@ export interface DeployIndexBuild {
  *   written its refs, by the record's ref path; `undefined` when it holds none
  * @param runner - Task runner for the build programs
  * @param onPlan - told what the deploy decided for each index
- * @returns one build per record whose indexes change
+ * @param planOnly - decide and tell, and build nothing: a deploy's `--plan`
+ * @returns one build per record whose indexes change; none when `planOnly`
  * @throws {Error} When a build is owed and no runner was given, or a build
  *   program fails.
  */
@@ -878,6 +907,7 @@ export async function buildDeployIndexes(
   stateOf: (path: string) => string | undefined,
   runner?: TaskRunner,
   onPlan?: (plan: RecordIndexPlan) => void,
+  planOnly = false,
 ): Promise<DeployIndexBuild[]> {
   const builds: DeployIndexBuild[] = [];
   for (const recHash of pkg.records.values()) {
@@ -897,7 +927,7 @@ export async function buildDeployIndexes(
       }
       for (const name of dropped) onPlan({ record: recObj.path, index: name, action: 'drop' });
     }
-    if (build.size === 0 && dropped.length === 0) continue;
+    if (planOnly || (build.size === 0 && dropped.length === 0)) continue;
 
     if (build.size > 0 && runner === undefined) {
       throw new Error(
@@ -971,6 +1001,112 @@ export async function commitDeployIndexes(
         hash: stateHash,
         versions: nextVersions(existing.value.versions, selfKeypath, commitHash),
       }));
+  }
+}
+
+/**
+ * What a deploy commits to one record once its refs are written.
+ */
+export type DeployRecordCommit =
+  /** Minted from the package's initial value: a `$init` root commit, and the
+   *  whole chain counted applied, since the value is at the package's type. */
+  | { kind: 'mint'; path: string; state: string; applied: readonly string[] }
+  /** Kept as the workspace holds it: its ref restored, and a `$deploy` commit
+   *  when the package under it changed, so its history says so. */
+  | { kind: 'keep'; path: string; prior: RecordRef; deployed: boolean }
+  /** Migrated: a `$migrate:<name>` commit per step over that step's state,
+   *  chained onto the ref's head, and the whole chain counted applied. */
+  | { kind: 'migrate'; path: string; prior: RecordRef; steps: readonly { name: string; state: string }[]; applied: readonly string[] }
+  /** Reset to the package's initial value: a `$reset` root commit, and the
+   *  whole chain counted applied. */
+  | { kind: 'reset'; path: string; prior: RecordRef; state: string; applied: readonly string[] };
+
+/**
+ * Commit what a deploy decided for each record, on the refs it has just
+ * written.
+ *
+ * @remarks
+ * What each commit does to the reserved slots is the commit protocol's, and it
+ * decides whether a keyed retry is answered or applied again:
+ * - `$init` writes `$schema`, and there is no key to answer;
+ * - `$deploy` carries every slot, since it changes no row;
+ * - `$migrate` points `$idem.commit` at itself, since its state holds the
+ *   keyed write in the type the record now has, and the last one writes
+ *   `$schema`;
+ * - `$reset` drops the idempotency slots, since the keyed write went with the
+ *   state, and writes `$schema`.
+ *
+ * Deploy holds the workspace lock exclusively, so every ref write here is
+ * uncontended, and the tasks lock, since a migration's states are named by
+ * nothing until these commits.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param ws - Workspace name
+ * @param commits - what the deploy decided, one entry per record it keeps
+ */
+export async function commitDeployRecords(
+  storage: StorageBackend,
+  repo: string,
+  ws: string,
+  commits: readonly DeployRecordCommit[],
+): Promise<void> {
+  const at = new Date();
+  const system = (parent: string | undefined, state: string, mutation: string): Promise<string> =>
+    storage.objects.write(repo, encodeCommit({
+      parent: parent !== undefined ? some(parent) : none,
+      state,
+      mutation,
+      args: none,
+      actor: 'system:deploy',
+      at,
+      delta: none,
+    }));
+  for (const commit of commits) {
+    const selfKeypath = refPathToKeypath(commit.path);
+    const schema = commit.kind === 'keep' || commit.applied.length === 0 ? undefined : commit.applied.join(',');
+    switch (commit.kind) {
+      case 'mint': {
+        const head = await system(undefined, commit.state, '$init');
+        await storage.datasets.write(repo, ws, commit.path, variant('value', {
+          hash: commit.state,
+          versions: nextVersions(undefined, selfKeypath, head, { [SCHEMA_SLOT]: schema }),
+        }));
+        break;
+      }
+      case 'keep': {
+        const versions = commit.deployed
+          ? nextVersions(commit.prior.versions, selfKeypath,
+            await system(commit.prior.versions.get(selfKeypath), commit.prior.hash, '$deploy'))
+          : new Map(commit.prior.versions);
+        await storage.datasets.write(repo, ws, commit.path, variant('value', { hash: commit.prior.hash, versions }));
+        break;
+      }
+      case 'migrate': {
+        let head = commit.prior.versions.get(selfKeypath);
+        for (const step of commit.steps) head = await system(head, step.state, `$migrate:${step.name}`);
+        await storage.datasets.write(repo, ws, commit.path, variant('value', {
+          hash: commit.steps[commit.steps.length - 1]!.state,
+          versions: nextVersions(commit.prior.versions, selfKeypath, head!, {
+            [SCHEMA_SLOT]: schema,
+            ...(commit.prior.versions.has(IDEM_SLOT) && { [IDEM_COMMIT_SLOT]: head }),
+          }),
+        }));
+        break;
+      }
+      case 'reset': {
+        const head = await system(undefined, commit.state, '$reset');
+        await storage.datasets.write(repo, ws, commit.path, variant('value', {
+          hash: commit.state,
+          versions: nextVersions(commit.prior.versions, selfKeypath, head, {
+            [IDEM_SLOT]: undefined,
+            [IDEM_COMMIT_SLOT]: undefined,
+            [SCHEMA_SLOT]: schema,
+          }),
+        }));
+        break;
+      }
+    }
   }
 }
 
@@ -1122,14 +1258,16 @@ export async function recordCompact(
       };
       const commitHash = await storage.objects.write(repo, encodeCommit(commit));
       try {
-        // A compaction cuts the keyed commit out of the chain, so the key it
-        // answered goes with it.
+        // A compaction cuts the keyed commit out of the chain, and its state
+        // holds the keyed write, so it answers the key: a retry arriving after
+        // it is answered, not applied again.
+        const keyed = existing.ref.value.versions.has(IDEM_SLOT);
         await storage.datasets.writeIf(
           repo, ws, resolved.refPath,
           variant('value', {
             hash: stateHash,
             versions: nextVersions(existing.ref.value.versions, resolved.selfKeypath, commitHash,
-              { [IDEM_SLOT]: undefined, [IDEM_COMMIT_SLOT]: undefined }),
+              keyed ? { [IDEM_COMMIT_SLOT]: commitHash } : {}),
           }),
           existing.revision,
         );

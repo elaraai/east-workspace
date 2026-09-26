@@ -67,6 +67,9 @@ configureFramePool({ workers: DOOR_FRAME_WORKERS });
 const JOBS = ['-j, --jobs <n>', 'Cores: runner processes to keep in flight, a task or a unit each (local repositories; default: $E3_JOBS, else the CPUs available to e3)'] as const;
 const MEMORY = ['--memory <size>', 'Memory those runner processes may reserve between them, as 8G or 512M (local repositories; default: $E3_MEMORY, else the memory available to e3, less a reserve for e3 and the OS)'] as const;
 
+// What a deploy does with a record it cannot keep as it is.
+const SCHEMA = ['--schema <policy>', "What to do with a record the deploy cannot keep as it is: migrate (run the migrations the workspace has not applied; the default), fail (run none, and refuse) or reset (reset it to the package's initial value)"] as const;
+
 const program = new Command();
 
 program
@@ -177,6 +180,9 @@ program
       .option('--from-source <path>', 'Bundle a TypeScript source file into a package, then import and deploy (creates the workspace if needed)')
       .option('--functions <path...>', 'Function manifests (east-py / east-node export-functions) for East.importFunction packages built elsewhere; a package of this uv or npm workspace is exported and linked by itself')
       .option('--skip-file-sources', "Deploy without reading the package's file sources; those inputs stay unset until `e3 dataset set --from-file`")
+      .option(...SCHEMA)
+      .option('--allow-drop-records', 'Drop a record the package no longer declares, with its state and history')
+      .option('--plan', 'Say what the deploy would do to each record and index, and write nothing')
       .option('--quiet', 'Suppress progress and success output (errors only)')
       .option(...JOBS)
       .option(...MEMORY)
@@ -409,6 +415,7 @@ program
   .argument('<repo>', 'Repository path or URL')
   .argument('<workspace>', 'Workspace name')
   .option('--start', 'Execute dataflow after each deploy')
+  .option(...SCHEMA)
   .option(...JOBS)
   .option(...MEMORY)
   .option('--abort-on-change', 'Abort running execution when file changes')

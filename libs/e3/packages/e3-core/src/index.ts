@@ -105,6 +105,13 @@ export {
   type WorkspaceDeployOptions,
 } from './workspaces.js';
 
+// What a deploy does to a workspace's records: its plan, and the migrations
+// it runs
+export {
+  type SchemaPolicy,
+  type RecordPlan,
+} from './record-deploy.js';
+
 // Record mutations and history (the write half of the CQRS pair)
 export {
   recordMutate,
@@ -116,6 +123,8 @@ export {
   writeRecordState,
   resolveRecordIndex,
   recordIndexNames,
+  appliedMigrations,
+  type RecordRef,
   type RecordIndexPlan,
   type RecordStateRefs,
   type ResolvedRecordIndex,
@@ -378,6 +387,7 @@ export {
   WorkspaceNotDeployedError,
   WorkspaceExistsError,
   WorkspaceLockError,
+  RecordDeployRefusedError,
   type LockHolderInfo,
   // Package
   PackageNotFoundError,

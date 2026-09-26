@@ -20,10 +20,10 @@
 import { createWriteStream } from 'fs';
 import * as fs from 'fs/promises';
 import yazl from 'yazl';
-import { decodeBeast2For, encodeBeast2For, equalFor, variant, none, some, EastTypeType, StringType, type EastTypeValue } from '@elaraai/east';
+import { decodeBeast2For, encodeBeast2For, variant, none, some, StringType, type EastTypeValue } from '@elaraai/east';
 import { DatasetFileTypeMismatchError, readDatasetFileHeader } from '@elaraai/e3';
-import { PackageObjectType, WorkspaceRecordType, RecordCommitType, DataflowRunType, ExecutionStatusType, decodePackageObject, decodeRecordObject } from '@elaraai/e3-types';
-import type { PackageObject, WorkspaceState, DatasetRef, RecordCommit, Structure, TreePath } from '@elaraai/e3-types';
+import { PackageObjectType, WorkspaceRecordType, DataflowRunType, ExecutionStatusType, decodePackageObject, decodeRecordObject } from '@elaraai/e3-types';
+import type { PackageObject, RecordObject, WorkspaceState, DatasetRef, Structure, TreePath } from '@elaraai/e3-types';
 import { objectAdoptFile } from './dataset-adopt.js';
 import { packageResolve, packageRead, walkPackageObjects } from './packages.js';
 import { writeRefsFromPackage, refPathToKeypath } from './dataset-refs.js';
@@ -33,10 +33,15 @@ import {
   WorkspaceNotDeployedError,
   WorkspaceExistsError,
   WorkspaceLockError,
+  RecordDeployRefusedError,
 } from './errors.js';
 import type { StorageBackend, LockHandle } from './storage/interfaces.js';
 import type { TaskRunner } from './execution/interfaces.js';
-import { buildDeployIndexes, commitDeployIndexes, type RecordIndexPlan } from './records.js';
+import { buildDeployIndexes, commitDeployIndexes, commitDeployRecords, type RecordIndexPlan } from './records.js';
+import {
+  planRecordDeployments, recordDeployCommits, recordLeafType, runRecordMigrations,
+  type PriorDeployment, type RecordPlan, type SchemaPolicy,
+} from './record-deploy.js';
 import { withRunningWork } from './storage/local/gc.js';
 
 /**
@@ -240,6 +245,39 @@ export async function workspaceGetPackage(
  */
 export interface WorkspaceDeployOptions {
   /**
+   * What the deploy does with a record it cannot keep as it is: run the
+   * migrations the workspace has not applied (`migrate`), refuse to run any
+   * (`fail`), or reset it to the package's initial value (`reset`).
+   *
+   * @defaultValue 'migrate'
+   */
+  schema?: SchemaPolicy;
+  /**
+   * Whether a record the package no longer declares may be dropped, with its
+   * state and history. Without it the deploy is refused.
+   *
+   * @defaultValue false
+   */
+  allowDropRecords?: boolean;
+  /**
+   * Say what the deploy would do, through {@link onRecordPlan} and
+   * {@link onRecordIndex}, and write nothing. A plan with refusals reports
+   * them rather than throwing.
+   *
+   * @defaultValue false
+   */
+  plan?: boolean;
+  /**
+   * Called once per record the deploy touches, with what it decided: `mint`,
+   * `keep`, `migrate`, `reset`, `drop` or `refused`.
+   *
+   * @remarks
+   * Called before the deploy writes anything, and before it refuses: a
+   * migration over a large record is the part of a deploy that takes minutes,
+   * and a refusal is the part an operator acts on.
+   */
+  onRecordPlan?: (plan: RecordPlan) => void;
+  /**
    * Called once per declared or dropped index of every record the deploy
    * touches, with what the deploy decided: `build`, `drop` or `keep`.
    *
@@ -320,7 +358,12 @@ export interface WorkspaceDeployOptions {
  * @param pkgVersion - Package version
  * @param options - Optional settings including external lock
  * @throws {WorkspaceLockError} If workspace is locked by another process
- * @throws {Error} When a garbage collection is running in the repository
+ * @throws {RecordDeployRefusedError} When a record cannot be carried into the
+ *   package: it changed type with no migration, its applied migrations are not
+ *   the package's, the policy runs none, or the package drops it
+ * @throws {Error} When a garbage collection is running in the repository, the
+ *   workspace's deployment does not read, or a migration or an index build
+ *   fails
  */
 export async function workspaceDeploy(
   storage: StorageBackend,
@@ -348,16 +391,43 @@ export async function workspaceDeploy(
     const packageHash = await packageResolve(storage, repo, pkgName, pkgVersion);
     const pkg = await packageRead(storage, repo, pkgName, pkgVersion);
 
-    // Capture any existing record state BEFORE wiping, so a redeploy preserves
-    // operational record state + audit history rather than resetting it.
-    const priorRecords = await capturePriorRecords(storage, repo, name);
+    // Decide what happens to each record BEFORE any destructive write, so a
+    // refused redeploy leaves the workspace fully intact rather than
+    // half-wiped with a torn state/data-dir mismatch.
+    const prior = await readPriorDeployment(storage, repo, name);
+    const deployments = await planRecordDeployments(
+      storage, repo, pkg, packageHash, prior, options.schema ?? 'migrate', options.allowDropRecords ?? false,
+    );
+    for (const deployment of deployments) options.onRecordPlan?.(deployment.plan);
+    const refusals = deployments.flatMap(({ plan }) =>
+      plan.action === 'refused' ? [{ record: plan.record, reason: plan.reason }] : []);
+    if (refusals.length > 0 && options.plan !== true) throw new RecordDeployRefusedError(refusals);
 
-    // Reject an incompatible (type-changed) redeploy BEFORE any destructive
-    // write, so a doomed redeploy leaves the workspace fully intact rather than
-    // half-wiped with a torn state/data-dir mismatch. A path-initialised input
-    // whose delivery is missing or has drifted follows the same rule: every
-    // file source is validated here, before the wipe.
-    await assertRecordTypesCompatible(storage, repo, pkg, priorRecords);
+    // The state each record holds once the refs are written, which its
+    // indexes are built over: the package's initial value for a record minted
+    // or reset, the workspace's for one kept, and its last step's for one
+    // migrated. A plan migrates nothing, and plans a migrated record's
+    // indexes over the initial value, which names no index, as the migrated
+    // state will not.
+    const deploymentAt = new Map(deployments.map((deployment) => [deployment.path, deployment]));
+    const stateOf = (migrated: ReadonlyMap<string, ReadonlyArray<{ state: string }>>) => (path: string): string | undefined => {
+      const deployment = deploymentAt.get(path);
+      if (deployment === undefined) return undefined;
+      switch (deployment.plan.action) {
+        case 'keep': return deployment.prior!.hash;
+        case 'migrate': return migrated.get(path)?.at(-1)?.state ?? deployment.initial;
+        case 'mint': case 'reset': return deployment.initial;
+        default: return undefined;
+      }
+    };
+    if (options.plan === true) {
+      await buildDeployIndexes(storage, repo, pkg, stateOf(new Map()), undefined, options.onRecordIndex, true);
+      return;
+    }
+
+    // A path-initialised input whose delivery is missing or has drifted
+    // follows the same rule as a record: every file source is validated here,
+    // before the wipe.
     const sourceFiles = validateDatasetSources(
       pkg, options.sourceWarning, options.resolveFileSources ?? true,
     );
@@ -379,19 +449,17 @@ export async function workspaceDeploy(
         adoptedSources.set(refPath, hash);
       }
 
-      // An index is derived state a deploy owes: a record minted here has
-      // none, and one whose declaration changed has one built under the old
-      // declaration. Every build runs before the wipe below, because a build
-      // runs user East and is the step likeliest to fail; each lands as a
-      // `$reindex` commit once the new refs are in place. The state each
-      // record holds once the refs are written is the one writeRecordGenesis
-      // writes: its preserved prior state, else the package's initial value.
-      const indexBuilds = await buildDeployIndexes(storage, repo, pkg, (path) => {
-        const initial = pkg.data.refs.get(path);
-        if (initial?.type !== 'value') return undefined;
-        const prior = priorRecords?.get(path)?.ref;
-        return prior?.type === 'value' ? prior.value.hash : initial.value.hash;
-      }, options.runner, options.onRecordIndex);
+      // A migration and an index build both run user East, so they are the
+      // steps likeliest to fail, and both run before the wipe below: a deploy
+      // that fails leaves the workspace as it was. What they write is named
+      // by nothing until the commits after the new refs. A record migrated
+      // here has no index, and one minted here none either, so their indexes
+      // are built over the state the record will hold, as a changed
+      // declaration's are.
+      const migrated = await runRecordMigrations(storage, repo, deployments, options.runner);
+      const indexBuilds = await buildDeployIndexes(
+        storage, repo, pkg, stateOf(migrated), options.runner, options.onRecordIndex,
+      );
 
       // Remove any existing dataset refs
       await storage.datasets.removeAll(repo, name);
@@ -399,10 +467,12 @@ export async function workspaceDeploy(
       // Initialize per-dataset ref files from the package
       await writeRefsFromPackage(storage, repo, name, pkg.data.structure, pkg.data.refs);
 
-      // Mint each new record's genesis ($init) commit, and restore any existing
-      // record's committed state and history across a redeploy. A record is
-      // thus never unassigned and never silently reset.
-      await writeRecordGenesis(storage, repo, name, pkg, priorRecords);
+      // Commit what was decided for each record: a minted one's `$init`, a
+      // kept one's history with a `$deploy` commit when the package changed,
+      // a migrated one's `$migrate` commit per step, a reset one's `$reset`.
+      // A record is never unassigned, never silently reset, and its history
+      // says what each deploy did to it.
+      await commitDeployRecords(storage, repo, name, recordDeployCommits(deployments, migrated));
       await commitDeployIndexes(storage, repo, name, indexBuilds);
 
       await writeState(storage, repo, name, {
@@ -446,9 +516,8 @@ function treePathOfRefPath(refPath: string): TreePath {
  * adopt.
  *
  * @remarks
- * Called BEFORE `datasets.removeAll`, for the reason
- * {@link assertRecordTypesCompatible} is: a deploy that cannot succeed must
- * leave the workspace exactly as it found it. A path this process cannot read
+ * Called BEFORE `datasets.removeAll`, as the records' plan is: a deploy that
+ * cannot succeed must leave the workspace exactly as it found it. A path this process cannot read
  * is therefore a deploy error naming the input and the path — never a silently
  * unassigned input — unless the caller passes a `warn` sink, which turns it
  * into a warning and an unassigned input.
@@ -510,129 +579,50 @@ function datasetLeafType(structure: Structure, refPath: string): EastTypeValue |
   return recordLeafType(structure, refPath);
 }
 
-const encodeRecordCommit = encodeBeast2For(RecordCommitType);
-const recordTypesEqual = equalFor(EastTypeType);
-
-/** The East type of the record leaf at a refPath (e.g. `records/orders`). */
-function recordLeafType(structure: Structure, refPath: string): EastTypeValue | undefined {
-  let current: Structure = structure;
-  for (const segment of refPath.split('/')) {
-    if (current.type !== 'struct') return undefined;
-    const next = current.value.get(segment);
-    if (!next) return undefined;
-    current = next;
-  }
-  return current.type === 'value' ? current.value.type : undefined;
-}
-
-/** A prior deployment's record refs + types, captured before a redeploy wipes
- *  the data dir, so committed state can be preserved. Null when the workspace
- *  was not previously deployed (or had no records). */
-type PriorRecords = Map<string, { ref: DatasetRef; type: EastTypeValue }>;
-
-async function capturePriorRecords(
+/**
+ * The workspace's deployment as a deploy over it finds it: the package it has
+ * deployed, and each of that package's records with the ref the workspace
+ * holds and the type the package declares.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param ws - Workspace name
+ * @returns The deployment, or null when the workspace has none
+ * @throws {Error} When the deployed package or one of its record objects does
+ *   not read, so its records cannot be carried forward. A deploy used to take
+ *   such a workspace as never deployed, and reset every record silently.
+ */
+async function readPriorDeployment(
   storage: StorageBackend,
   repo: string,
   ws: string,
-): Promise<PriorRecords | null> {
+): Promise<PriorDeployment | null> {
   const stateBytes = await storage.refs.workspaceRead(repo, ws);
   if (stateBytes === null) return null; // no workspace yet
+  const record = decodeBeast2For(WorkspaceRecordType)(stateBytes);
+  if (record.type === 'none') return null; // not previously deployed
+
   let priorPkg: PackageObject;
+  const recordObjects: RecordObject[] = [];
   try {
-    const record = decodeBeast2For(WorkspaceRecordType)(stateBytes);
-    if (record.type === 'none') return null; // not previously deployed
     priorPkg = decodePackageObject(await storage.objects.read(repo, record.value.packageHash));
-  } catch {
-    return null; // unreadable prior deployment — treat as a fresh deploy
-  }
-  if (priorPkg.records.size === 0) return null;
-
-  const captured: PriorRecords = new Map();
-  for (const recHash of priorPkg.records.values()) {
-    const recObj = decodeRecordObject(await storage.objects.read(repo, recHash));
-    const ref = await storage.datasets.read(repo, ws, recObj.path);
-    const type = recordLeafType(priorPkg.data.structure, recObj.path);
-    if (ref && ref.type === 'value' && type) {
-      captured.set(recObj.path, { ref, type });
+    for (const recHash of priorPkg.records.values()) {
+      recordObjects.push(decodeRecordObject(await storage.objects.read(repo, recHash)));
     }
-  }
-  return captured.size > 0 ? captured : null;
-}
-
-/**
- * Reject a redeploy whose record changed East type, BEFORE any destructive
- * write — so the workspace is never left half-wiped. Throws on the first record
- * whose new type differs from its preserved prior type.
- */
-async function assertRecordTypesCompatible(
-  storage: StorageBackend,
-  repo: string,
-  pkg: PackageObject,
-  prior: PriorRecords | null,
-): Promise<void> {
-  if (!prior) return;
-  for (const recHash of pkg.records.values()) {
-    const recObj = decodeRecordObject(await storage.objects.read(repo, recHash));
-    const priorRecord = prior.get(recObj.path);
-    if (!priorRecord) continue;
-    const newType = recordLeafType(pkg.data.structure, recObj.path);
-    if (newType && !recordTypesEqual(priorRecord.type, newType)) {
-      throw new Error(
-        `Cannot redeploy: record '${recObj.path}' changed type, so its committed state ` +
-        `is incompatible. Remove the workspace to reset the record, or keep its type stable.`,
-      );
-    }
-  }
-}
-
-/**
- * For each record in a freshly-deployed package: restore its prior committed
- * state + history across a redeploy when the record already existed (types were
- * checked compatible before any wipe), otherwise mint the genesis ($init)
- * commit over the package's initial value.
- *
- * The initial-state value ref was already written by writeRefsFromPackage; this
- * either overwrites it with the preserved prior ref or adds the genesis commit
- * that makes the initial state the head of the record's history. Runs under the
- * deploy lock, so unconditional ref writes are safe.
- */
-async function writeRecordGenesis(
-  storage: StorageBackend,
-  repo: string,
-  ws: string,
-  pkg: PackageObject,
-  prior: PriorRecords | null,
-): Promise<void> {
-  const at = new Date();
-  for (const recHash of pkg.records.values()) {
-    const recObj = decodeRecordObject(await storage.objects.read(repo, recHash));
-    const stateRef = pkg.data.refs.get(recObj.path);
-    if (!stateRef || stateRef.type !== 'value') continue; // a record always has initial state
-
-    const priorRecord = prior?.get(recObj.path);
-    if (priorRecord) {
-      // Preserve the existing committed state and full commit chain (type was
-      // already checked compatible by assertRecordTypesCompatible).
-      await storage.datasets.write(repo, ws, recObj.path, priorRecord.ref);
-      continue;
-    }
-
-    const commit: RecordCommit = {
-      parent: none,
-      state: stateRef.value.hash,
-      mutation: '$init',
-      args: none,
-      actor: 'system:deploy',
-      at,
-      delta: none,
-    };
-    const commitHash = await storage.objects.write(repo, encodeRecordCommit(commit));
-    const selfKeypath = refPathToKeypath(recObj.path);
-    await storage.datasets.write(
-      repo, ws, recObj.path,
-      variant('value', { hash: stateRef.value.hash, versions: new Map([[selfKeypath, commitHash]]) }),
+  } catch (err) {
+    throw new Error(
+      `workspace '${ws}' has a deployment that does not read, so its records cannot be carried ` +
+      `forward (${err instanceof Error ? err.message : String(err)}) — remove the workspace and deploy again`,
     );
   }
+
+  const records: PriorDeployment['records'] = new Map();
+  for (const recObj of recordObjects) {
+    const ref = await storage.datasets.read(repo, ws, recObj.path);
+    const type = recordLeafType(priorPkg.data.structure, recObj.path);
+    if (ref && ref.type === 'value' && type) records.set(recObj.path, { ref: ref.value, type });
+  }
+  return { packageHash: record.value.packageHash, records };
 }
 
 /**

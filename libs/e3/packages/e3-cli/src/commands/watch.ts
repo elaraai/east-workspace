@@ -28,15 +28,19 @@ import {
   InMemoryStateStore,
   type TaskCompletedCallback,
   LocalTaskRunner,
+  RecordDeployRefusedError,
 } from '@elaraai/e3-core';
 import { resolveRepo, formatError, exitError } from '../utils.js';
 import { loadPackageFile } from './load-package.js';
 import { commandBudget, type BudgetFlags } from './budget.js';
+import { recordPlanLine, schemaPolicy } from './workspace.js';
 import { formatSize } from '../format.js';
 
 interface WatchOptions extends BudgetFlags {
   start?: boolean;
   abortOnChange?: boolean;
+  /** What each deploy does with a record it cannot keep as it is. */
+  schema?: string;
   /** Function manifests resolving `East.importFunction` references (#628). */
   functions?: string[];
 }
@@ -62,6 +66,7 @@ export async function watchCommand(
 ): Promise<void> {
   const repoPath = resolveRepo(repoArg);
   const absoluteSourcePath = path.resolve(sourceFile);
+  const schema = schemaPolicy(options.schema);
   // One budget for the watch: the runner processes of its runs and of each
   // deploy's index builds take from it.
   const budget = commandBudget(options);
@@ -152,8 +157,13 @@ export async function watchCommand(
     try {
       await workspaceDeploy(deployStorage, repoPath, workspace, pkg.name, pkg.version, {
         runner,
-        // A changed index declaration rebuilds the index on this save — the
-        // part of a redeploy that can take minutes, so it is said up front.
+        ...(schema !== undefined && { schema }),
+        // A migration, and a changed index declaration's rebuild, run on this
+        // save — the parts of a redeploy that can take minutes, so each is
+        // said up front.
+        onRecordPlan: (plan) => {
+          if (plan.action === 'migrate' || plan.action === 'reset') console.log(`[${timestamp()}] ${recordPlanLine(plan)}`);
+        },
         onRecordIndex: (plan) => {
           if (plan.action !== 'keep') console.log(`[${timestamp()}] ${plan.action} index ${plan.record}.${plan.index}`);
         },
@@ -162,6 +172,12 @@ export async function watchCommand(
     } catch (err) {
       console.log(`[${timestamp()}] Error deploying:`);
       console.log(`  ${formatError(err)}`);
+      // A record whose type changed on this save has no migration yet, which
+      // while developing is usually the point: the watch can reset it.
+      if (err instanceof RecordDeployRefusedError && schema !== 'reset') {
+        console.log(`  Restart the watch with --schema=reset to reset a record the deploy cannot keep:`);
+        console.log(`  e3 watch ${sourceFile} ${repoArg} ${workspace} --schema=reset`);
+      }
       return null;
     }
 

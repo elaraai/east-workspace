@@ -476,13 +476,16 @@ describe('records', () => {
     assert.strictEqual((await recordHistory(storage, repo, ws, 'counter')).length, lenBefore);
   });
 
-  it('redeploy without the record drops it (record removed)', async () => {
+  it('a redeploy without the record is refused, and drops it when allowed', async () => {
     await recordMutate(storage, successRunner(encodeInt(4n)), repo, ws, 'counter', 'increment', [encodeInt(4n)], { actor: 'x' });
     const noRecord = e3.package('counters', '3.0.0', e3.input('greeting', StringType, variant('value', 'hi')));
     const zip3 = join(tempDir, 'counters-norecord.zip');
     await e3.export(noRecord, zip3);
     await packageImport(storage, repo, zip3);
-    await workspaceDeploy(storage, repo, ws, 'counters', '3.0.0');
+    // Dropping a record drops its state and history, so it is never silent.
+    await assert.rejects(workspaceDeploy(storage, repo, ws, 'counters', '3.0.0'), /is not declared by the package/);
+    assert.strictEqual(await workspaceGetDataset(storage, repo, ws, counterPath), 4n);
+    await workspaceDeploy(storage, repo, ws, 'counters', '3.0.0', { allowDropRecords: true });
     await assert.rejects(workspaceGetDataset(storage, repo, ws, counterPath)); // path gone from the structure
   });
 
@@ -584,9 +587,10 @@ describe('records', () => {
     const afterCompact = await storage.datasets.read(repo, ws, 'records/counter');
     assert.ok(afterCompact && afterCompact.type === 'value');
     assert.strictEqual(afterCompact.value.versions.get('$schema'), 'frontier-hash');
-    assert.strictEqual(afterCompact.value.versions.get('$idem'), undefined,
-      'a compaction cuts the keyed commit out of the chain, so the key it answered goes with it');
-    assert.strictEqual(afterCompact.value.versions.get('$idem.commit'), undefined);
+    assert.strictEqual(afterCompact.value.versions.get('$idem'), 'k1',
+      'a compaction cuts the keyed commit out of the chain, but its state holds the keyed write');
+    assert.strictEqual(afterCompact.value.versions.get('$idem.commit'), (compacted as { commitHash: string }).commitHash,
+      'so the compaction answers the key, and a retry is not applied again');
   });
 
   it('history pages with a from cursor and ends gracefully on an unknown cursor', async () => {
@@ -1024,10 +1028,10 @@ describe('record indexes', () => {
     // Both reindexes build their version vector fresh, as every commit path
     // does, so a `$` slot either one fails to carry is erased — and the
     // writer that set it reads the record afterwards as one that never had it.
+    // The key's slot, since a deploy reads `$schema` for itself.
     const ref = await storage.datasets.read(repo, ws, 'records/plans');
     assert.ok(ref && ref.type === 'value');
     const versions = new Map(ref.value.versions);
-    versions.set('$schema', 'frontier-hash');
     versions.set('$idem', 'k1');
     await storage.datasets.write(repo, ws, 'records/plans',
       variant('value', { hash: ref.value.hash, versions }));
@@ -1036,7 +1040,6 @@ describe('record indexes', () => {
     assert.strictEqual(rebuilt.kind, 'committed', JSON.stringify(rebuilt));
     const afterReindex = await storage.datasets.read(repo, ws, 'records/plans');
     assert.ok(afterReindex && afterReindex.type === 'value');
-    assert.strictEqual(afterReindex.value.versions.get('$schema'), 'frontier-hash');
     assert.strictEqual(afterReindex.value.versions.get('$idem'), 'k1',
       'a reindex changes no row a retry could apply twice, so the key still answers');
 
@@ -1055,7 +1058,6 @@ describe('record indexes', () => {
     assert.strictEqual(head!.commit.actor, 'system:deploy', 'the deploy wrote the last commit');
     const afterDeploy = await storage.datasets.read(repo, ws, 'records/plans');
     assert.ok(afterDeploy && afterDeploy.type === 'value');
-    assert.strictEqual(afterDeploy.value.versions.get('$schema'), 'frontier-hash');
     assert.strictEqual(afterDeploy.value.versions.get('$idem'), 'k1');
   });
 
