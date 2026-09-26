@@ -7,9 +7,10 @@
  * Tests for LocalLockService - workspace locking mechanism
  */
 
-import { describe, it, beforeEach, afterEach } from 'node:test';
+import { describe, it, beforeEach, afterEach, mock } from 'node:test';
 import assert from 'node:assert';
 import * as fs from 'fs/promises';
+import { syncBuiltinESMExports } from 'module';
 import * as path from 'path';
 import * as os from 'os';
 import { variant, encodeBeast2For, none } from '@elaraai/east';
@@ -86,6 +87,33 @@ describe('LocalLockService', () => {
       // Lock file should be gone, and the directory with it
       await assert.rejects(fs.access(lockPath), { code: 'ENOENT' });
       await assert.rejects(fs.access(path.dirname(lockPath)), { code: 'ENOENT' });
+    });
+
+    it('makes its resource\'s directory again when a release removes it while it is made', async () => {
+      // A recursive mkdir that finds the directory there checks it with a
+      // stat, and fails ENOENT when a release removes the directory between
+      // the two. Each acquirer below meets that once.
+      const fsPromises = process.getBuiltinModule('node:fs/promises');
+      const mkdir = fsPromises.mkdir;
+      const raced = new Set<string>();
+      const mocked = mock.method(fsPromises, 'mkdir', async (dir: string, options: { recursive: true }) => {
+        if (!raced.has(dir)) {
+          raced.add(dir);
+          throw Object.assign(new Error(`ENOENT: no such file or directory, mkdir '${dir}'`), { code: 'ENOENT', syscall: 'mkdir', path: dir });
+        }
+        return mkdir(dir, options);
+      });
+      syncBuiltinESMExports();
+      try {
+        const exclusive = await acquireWorkspaceLock(repoPath, 'ws-remade', variant('deployment', null));
+        await exclusive.release();
+        const shared = await acquireWorkspaceLock(repoPath, 'ws-remade-shared', variant('dataset_write', null), { mode: 'shared' });
+        await shared.release();
+      } finally {
+        mocked.mock.restore();
+        syncBuiltinESMExports();
+      }
+      assert.strictEqual(raced.size, 2);
     });
 
     it('counts only its own resource\'s shared holders, not those of a resource its name begins', async () => {

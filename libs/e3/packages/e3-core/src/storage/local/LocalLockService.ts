@@ -86,12 +86,14 @@ async function removeIfEmpty(dir: string): Promise<void> {
 /**
  * Runs `write` into a resource's directory, making the directory first. A
  * release removes a directory once its last lock has gone, which can land
- * between the making and the write; the write is then made again.
+ * between the making and the write, or inside the making: a recursive `mkdir`
+ * that finds the directory there checks it with a `stat`, and fails `ENOENT`
+ * when the release lands between the two. Either way both are made again.
  */
 async function writeInto<T>(dir: string, write: () => Promise<T>): Promise<T> {
   for (let attempt = 0; ; attempt++) {
-    await fs.mkdir(dir, { recursive: true });
     try {
+      await fs.mkdir(dir, { recursive: true });
       return await write();
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== 'ENOENT' || attempt >= DIRECTORY_GONE_ATTEMPTS - 1) throw err;
