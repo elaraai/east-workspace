@@ -92,12 +92,9 @@ export const PackageObjectType = StructType({
   data: PackageDataType,
   /** Functions defined in this package: name -> FunctionObject hash. */
   functions: DictType(StringType, StringType),
-  /** Records defined in this package: name -> RecordObject hash.
-   *  BEAST2 encodes struct fields positionally in declaration order, so new
-   *  fields MUST be appended LAST — never inserted between existing fields. */
+  /** Records defined in this package: name -> RecordObject hash. */
   records: DictType(StringType, StringType),
-  /** Unresolved dataset sources: refPath (e.g. "inputs/table") -> descriptor.
-   *  Appended LAST, per the positional rule above. */
+  /** Unresolved dataset sources: refPath (e.g. "inputs/table") -> descriptor. */
   sources: DictType(StringType, DatasetSourceWireType),
 });
 export type PackageObjectType = typeof PackageObjectType;

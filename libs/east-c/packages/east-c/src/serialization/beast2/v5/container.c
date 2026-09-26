@@ -824,7 +824,9 @@ EastValue *east_beast2_v5_decode_full(const uint8_t *data, size_t len, EastType 
     if (!data || !type) return NULL;
     B2V5Header h;
     if (!b2v5_read_header(data, len, &h)) return NULL;
-    EastValue *result = b2v5_decode_stream(data, len, &h, type, frozen);
+    EastValue *result = b2_decode_type_matches(h.root_type, type)
+                            ? b2v5_decode_stream(data, len, &h, type, frozen)
+                            : NULL;
     b2v5_header_dispose(&h);
     return result;
 }
@@ -846,6 +848,10 @@ IRNode *east_beast2_v5_decode_ir(const uint8_t *data, size_t len, EastValue **ir
     B2V5Header h;
     if (!b2v5_read_header(data, len, &h)) return NULL;
     if (!east_ir_type) east_type_of_type_init();
+    if (!b2_decode_type_matches(h.root_type, east_ir_type)) {
+        b2v5_header_dispose(&h);
+        return NULL;
+    }
 
     EastValue *ir_value = b2v5_decode_stream(data, len, &h, east_ir_type, false);
     if (!ir_value) {

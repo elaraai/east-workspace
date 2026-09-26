@@ -54,7 +54,7 @@ import { EAST_IR_SYMBOL, EAST_CAPTURES_SYMBOL, EAST_SOURCE_MAP_SYMBOL, type Runt
 import { InternalError } from "../../../error.js";
 import type { FunctionIR, AsyncFunctionIR } from "../../../ir.js";
 import { SourceMap, type Location } from "../../../location.js";
-import { type Beast2DecodeOptions, type PlatformDecodeContext, buildPlatformContext, describeNoIrValue, finishDecodedFunction, irTypeValue } from "../shared.js";
+import { type Beast2DecodeOptions, type PlatformDecodeContext, buildPlatformContext, checkDecodeType, describeNoIrValue, finishDecodedFunction, irTypeValue } from "../shared.js";
 import { writeTypeSection, readTypeSection, asTypeValue } from "./type-section.js";
 import { type Beast2Codec, FrameReader, type FrameInflate, writeFrame, preInflateFrames } from "./frames.js";
 
@@ -1002,6 +1002,7 @@ function readHeader(data: Uint8Array): { rootType: EastTypeValue; sourceMap: Sou
  *  root type), enforcing whole-stream strictness. */
 function decodeV5(data: Uint8Array, decodeType: EastTypeValue | null, options: Beast2DecodeOptions | undefined, inflate?: FrameInflate): V5DecodeResult {
   const { rootType, sourceMap, frameOffset } = readHeader(data);
+  if (decodeType !== null) checkDecodeType(rootType, decodeType);
   const typeValue = decodeType ?? rootType;
   const ctx: V5DecodeContext = {
     containers: [],

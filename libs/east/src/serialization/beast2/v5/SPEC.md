@@ -667,7 +667,17 @@ re-cut's segments are exactly the canonical writer's for the whole value.
 ## Decoding algorithm
 
 1. Verify magic; read the type section (well-known: verify hash, take the
-   registered schema; structural: parse) and the source map section.
+   registered schema; structural: parse) and the source map section. A decode
+   asked for a type reads the stream by that type, positionally, so the type
+   section must name it or a subtype of it, as East's subtyping has it, whose
+   variant tags line up: each of its variants holds the first cases of the
+   asked one's, and `Never`, which no value has, stands for any type. A
+   collection's element types must be the asked ones, as East's subtyping
+   holds them, and so must a function's signature; recursive types compare up
+   to how they are named or repeated. So `none` reads as any `Option`, and a
+   blob of any other type is refused, `some` alone as an `Option` included,
+   in the same words in every runtime, `beast2: cannot decode a blob of type
+   <the section's> as <the asked>`, a v4 container as much as a v5 one.
 2. Read frames; decode the logical stream type-directed, registering every
    NEW container (create-then-fill) and resolving REF deltas from the tail
    of the definition list.

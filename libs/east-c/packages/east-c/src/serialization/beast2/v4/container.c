@@ -122,8 +122,12 @@ EastValue *east_beast2_v4_decode_full(const uint8_t *data, size_t len, EastType 
 
     size_t offset = 8;
 
-    /* 2. Read flat type table section */
+    /* 2. Read flat type table section; its root must be the type asked for */
     TypeTableResult tt = read_type_table_section(data, len, &offset);
+    if (tt.root_type && !b2_decode_type_matches(tt.root_type, type)) {
+        type_table_result_free(&tt);
+        return NULL;
+    }
 
     /* 3. Read string table section */
     Beast2StringTableDec st = read_string_table_section(data, len, &offset);
@@ -232,6 +236,10 @@ IRNode *east_beast2_v4_decode_ir(const uint8_t *data, size_t len, EastValue **ir
 
     size_t offset = 8;
     TypeTableResult tt = read_type_table_section(data, len, &offset);
+    if (tt.root_type && !b2_decode_type_matches(tt.root_type, east_ir_type)) {
+        type_table_result_free(&tt);
+        return NULL;
+    }
     Beast2StringTableDec st = read_string_table_section(data, len, &offset);
     EastSourceMap *sm = read_heap_source_map(data, len, &offset, &st);
 

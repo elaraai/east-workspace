@@ -309,11 +309,15 @@ export function encodeBeast2For(type: EastTypeValue | EastType, options?: Beast2
  * Builds a decoder closure for the given type.
  *
  * The returned function dispatches on the blob's magic version byte, so v4
- * blobs decode through the same entry point as newer container versions.
+ * blobs decode through the same entry point as newer container versions. It
+ * decodes a blob whose header names `type`, or a subtype of it whose variant
+ * tags line up — each of its variants holds the first cases of `type`'s, so a
+ * `none` reads as any `Option` — and refuses any other, naming both types.
  *
  * @param type - the expected root East type (as `EastType` or `EastTypeValue`)
  * @param options - decode options (platform functions for decoded functions)
- * @returns a reusable function decoding beast2 bytes to values of `type`
+ * @returns a reusable function decoding beast2 bytes to values of `type`,
+ *   which throws when the blob's header names a type that does not read as it
  */
 export function decodeBeast2For(type: EastTypeValue, options?: Beast2DecodeOptions): (data: Uint8Array) => any
 export function decodeBeast2For<T extends EastType>(type: T, options?: Beast2DecodeOptions): (data: Uint8Array) => ValueTypeOf<T>
@@ -344,7 +348,9 @@ export function decodeBeast2For(type: EastTypeValue | EastType, options?: Beast2
  *
  * @param type - the expected root East type (as `EastType` or `EastTypeValue`)
  * @param options - decode options (platform functions for decoded functions)
- * @returns a reusable async function decoding beast2 bytes to values of `type`
+ * @returns a reusable async function decoding beast2 bytes to values of
+ *   `type`, which rejects when the blob's header names a type that does not
+ *   read as it
  */
 export function decodeBeast2ForAsync(type: EastTypeValue, options?: Beast2DecodeOptions): (data: Uint8Array) => Promise<any>
 export function decodeBeast2ForAsync<T extends EastType>(type: T, options?: Beast2DecodeOptions): (data: Uint8Array) => Promise<ValueTypeOf<T>>

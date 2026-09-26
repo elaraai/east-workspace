@@ -104,8 +104,6 @@ export const ErrorType = VariantType({
   dataflow_aborted: NullType,
   permission_denied: PermissionDeniedErrorType,
   internal: InternalErrorType,
-  // Appended last: BEAST2 encodes a variant case by index, so a case added at
-  // the end leaves every existing payload decodable.
   dataset_type_mismatch: DatasetTypeMismatchErrorType,
   invalid_name: InvalidNameErrorType,
 });
@@ -765,8 +763,7 @@ export const DatasetStatusDetailType = StructType({
   size: OptionType(IntegerType),
   /** Segment and element counts of a stored collection, read from the blob's
    *  trailing index — so a re-pointed input is inspectable without decoding
-   *  it. `none` for a non-collection or an unset dataset. Appended LAST, per
-   *  the positional struct rule. */
+   *  it. `none` for a non-collection or an unset dataset. */
   segments: OptionType(IntegerType),
   rows: OptionType(IntegerType),
 });
@@ -888,7 +885,6 @@ export const MutationResultType = StructType({
     invalid:   StructType({ message: StringType }),
     failed:    StructType({ exitCode: IntegerType, stderr: StringType }),
     timed_out: StructType({ ms: IntegerType, stderr: StringType }),
-    // `detail` is appended LAST, per the positional struct rule.
     conflict:  StructType({ attempts: IntegerType, detail: OptionType(StringType) }),
   }),
 });
