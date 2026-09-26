@@ -836,8 +836,14 @@ A compaction cleared the slots, so a keyed retry arriving just after one applied
 - An export's IR carries the source locations of the stack it was built on, the call site's among them, so a package's hash, a generated program's and an index declaration's change whenever the code that builds them moves. A `$deploy` commit follows any change to a package's code. A deploy run again is served a finished step from the execution cache when that step's code, and the code that exports it, have not moved, as a re-export from the same source has not.
 - A prior deployment that does not read is refused, naming the fix: remove the workspace and deploy again. Such a deployment is an older e3's, whose repository is re-created (D1), so `--schema=reset` does not reach it.
 - A deploy names every record it refuses at once, each with its fix. `--plan` reports the refusals, and each index's build, drop or keep, without writing, and the CLI's `--plan` fails when the deploy would be refused.
-- Until part 3's job takes them, the CLI refuses `--schema`, `--allow-drop-records` and `--plan` against a server, and a server's deploy migrates and refuses a dropped record.
+- Until part 3's job took them, the CLI refused `--schema`, `--allow-drop-records` and `--plan` against a server.
 - The compaction's `$idem.commit` and the `$reset` commit's slots land with part 2, as the table has them.
+
+**Found while building part 3:**
+- The job answers what the deploy decided for each record and index, and the inputs it left unassigned, with why. The decisions are the wire's types (`RecordPlanType`, `RecordIndexPlanType`), which e3-core's `onRecordPlan` and `onRecordIndex` now take as their values, so a deploy reports one shape run locally or as a job.
+- The route resolves the package before it starts the job, so a package the repository does not hold is refused at once, as `package_not_found`. Anything else that stops a deploy, a refusal among them, is the job's `failed`, whose message names every record refused.
+- The job's store is the transfer backend's `workspaceDeploy`, beside package export's. The workspace routes take the backend, no longer optional, and no runner: the runner is the store's, which a local server gives `InMemoryTransferBackend` (`getRunner`), and a cloud's compute holds, running the job through `handleProcessDeploy`.
+- Against a server, the CLI says what the deploy decided once the job has finished, where a local deploy says each decision before the migration or build it names runs. A `--plan` against a server creates no workspace and reads no file source, as a local one does neither.
 
 **Surfaces.** e3-core's `workspaceDeploy` options (`schema`, `allowDropRecords`, `plan`, and an `onRecordPlan` callback beside `onRecordIndex`); the CLI's `workspace deploy` and `watch`; the API's deploy job and e3-api-client's `workspaceDeploy`; e3-ui's record history, which names the new commits.
 
@@ -938,7 +944,7 @@ What #786 guarantees holds through every stage. Each guarantee is pinned by a te
 | A keyed retry returns the commit its key answers, a reindex in between included, and runs nothing | `records.spec.ts` |
 | gc keeps every object a commit, its delta and an index name | `records.spec.ts`; `gc.spec.ts` |
 | A record write holds the tasks lock shared, so a gc sweep is refused until it commits | `records.spec.ts` |
-| A deploy builds a record's indexes on the runner the server injects, and with none refuses a deploy that owes a build | e3-api-server `workspaces.spec.ts` |
+| A deploy builds a record's indexes on the runner the server injects, which its job's store is given, and with none fails a deploy that owes a build, writing nothing | e3-api-server `workspaces.spec.ts` |
 | A deploy whose index build fails, or that has no runner for one, leaves the workspace as it was | `records.spec.ts` |
 | The generated programs: targets in canonical order; the reduce, edit and patch forms; index maintenance inside the delta; the index build | e3 `mutation-programs.spec.ts`, `record-index.spec.ts` |
 | Keyed records through the API at 10,000 rows (`E3_RECORD_ROWS` raises it) | e3-api-tests `records-keyed`, run by `api-compliance.spec.ts` |
