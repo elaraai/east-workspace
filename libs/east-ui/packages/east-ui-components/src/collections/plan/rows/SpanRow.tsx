@@ -18,6 +18,10 @@
  * Every bar and diamond is a button whose name says what its look encodes —
  * label, span and state (`a11y.ts`, #819); a labelled port is an image named
  * by its label.
+ *
+ * On a row whose series declares a move's fields (#825) a bar moves: the
+ * pointer drags it, or one of its two end handles, and Space picks it up for
+ * the keyboard (`edit/`).
  */
 
 import { useMemo } from "react";
@@ -28,11 +32,15 @@ import { usePlanDispatch, usePlanResolvers, usePlanScale, type PlanElementRefVal
 import { decisionName, runName } from "../a11y.js";
 import { quantityText } from "../quantity.js";
 import { usePlanWords } from "../words.js";
+import { usePlanMovable } from "../edit/movable.js";
+import type { PlanMovable } from "../edit/store.js";
 import type { DerivedBand, PlanRowId } from "../model.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 type SpanKindValue = Extract<ValueTypeOf<typeof Plan.Types.Row>["kind"], { type: "span" }>["value"];
 type RunValue = ValueTypeOf<typeof Plan.Types.Run>;
+/** How a row's elements move (#825) — its `edits.move`. */
+export type PlanRowMove = { items: string; resize: boolean };
 
 /** EventState → the recipe `data-state` key (the §4.3 truth table). */
 export function runStateKey(state: RunValue["state"]): "obs" | "appr" | "prop" | "propRemoved" | "estimated" | "rejected" {
@@ -62,10 +70,78 @@ export interface SpanRowProps {
     /** Bar height, px — the canvas geometry's `bar` (or `rollBar` for a
      *  collapsed parent; `KindPlot` decides). */
     barHeight: number;
+    /** How its runs move (#825) — `undefined` when they do not. */
+    move?: PlanRowMove | undefined;
+}
+
+/** One run bar — a button that moves, with its end handles, where its row takes moves (#825). */
+function RunBar({ run, left, width, runoff, rowKey, rowId, styles, barHeight, ctx, move }: {
+    run: RunValue; left: number; width: number; runoff: boolean;
+    rowKey: string; rowId: PlanRowId; styles: Styles; barHeight: number; ctx: boolean | undefined;
+    move: PlanRowMove | undefined;
+}) {
+    const scale = usePlanScale();
+    const dispatch = usePlanDispatch();
+    const words = usePlanWords();
+    const { onElementClick } = usePlanResolvers();
+    const movable = useMemo<PlanMovable | undefined>(() => (move !== undefined
+        ? { rowKey, key: run.key, label: run.label, kind: "run", span: { start: run.start, end: run.end }, items: move.items, resize: move.resize }
+        : undefined), [move, rowKey, run]);
+    const { handle, edges, carried } = usePlanMovable(movable);
+    const stateKey = runStateKey(run.state);
+    const stuck = run.status.type === "some" && run.status.value.type === "warning";
+    // ONE quantity (#824): its caption is its text, else its value
+    // through its format, then its unit.
+    const qty = run.quantity.type === "some" ? quantityText(run.quantity.value, words) : undefined;
+    const moved = run.moved.type === "some" ? Number(run.moved.value) : undefined;
+    const ref = variant("run", { row: rowId, run: run.key }) as PlanElementRefValue;
+    return (
+        <Box
+            css={styles.bar}
+            data-ctx={ctx === true ? "" : undefined}
+            data-state={stateKey}
+            data-stuck={stuck ? "" : undefined}
+            data-runoff={runoff ? "" : undefined}
+            data-run={run.key}
+            data-plan-frac={left.toFixed(4)}
+            // Focusable: Enter opens its popover (#816), and the
+            // row's Tab walk reaches it (#819).
+            tabIndex={-1}
+            role="button"
+            aria-label={runName(run, scale, words)}
+            left={`${left * 100}%`}
+            width={`${width * 100}%`}
+            // The bar height is a style PROP, and a style prop
+            // outranks the recipe — so in a strip it is not set at
+            // all, or the `bar[data-ctx]` 7px rule never wins and
+            // a 20px bar sits clipped inside a 16px strip (#591).
+            height={ctx === true ? undefined : `${barHeight}px`}
+            {...handle}
+            // Carried by the keyboard (#825) — dimmed as a dragged origin is.
+            data-dragging={carried ? "" : undefined}
+            onClick={(e) => {
+                e.stopPropagation();
+                dispatch({ t: "row.select", key: rowKey });
+                onElementClick?.(ref);
+            }}
+        >
+            <Box as="span" overflow="hidden" textOverflow="ellipsis" minW={0}>{run.label}</Box>
+            {qty !== undefined && <Box as="span" css={styles.barQty}>{qty}</Box>}
+            {moved !== undefined && moved > 0 && (
+                <Box as="span" css={styles.barQty}>{words.m.moved({ n: moved, count: words.number(moved) })}</Box>
+            )}
+            {edges !== undefined && (
+                <>
+                    <Box css={styles.moveEdge} {...edges.start} />
+                    <Box css={styles.moveEdge} {...edges.end} />
+                </>
+            )}
+        </Box>
+    );
 }
 
 /** The span-row plot content — bars, rollup bands, diamonds, ports. */
-export function SpanRow({ rowKey, rowId, kind, bands: rollBands, styles, barHeight, ctx }: SpanRowProps) {
+export function SpanRow({ rowKey, rowId, kind, bands: rollBands, styles, barHeight, ctx, move }: SpanRowProps) {
     const ctxAttr = ctx === true ? "" : undefined;
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
@@ -94,50 +170,10 @@ export function SpanRow({ rowKey, rowId, kind, bands: rollBands, styles, barHeig
 
     return (
         <>
-            {bars.map(({ run, left, width, runoff }) => {
-                const stateKey = runStateKey(run.state);
-                const stuck = run.status.type === "some" && run.status.value.type === "warning";
-                // ONE quantity (#824): its caption is its text, else its value
-                // through its format, then its unit.
-                const qty = run.quantity.type === "some" ? quantityText(run.quantity.value, words) : undefined;
-                const moved = run.moved.type === "some" ? Number(run.moved.value) : undefined;
-                const ref = variant("run", { row: rowId, run: run.key }) as PlanElementRefValue;
-                return (
-                    <Box
-                        key={run.key}
-                        css={styles.bar}
-                        data-ctx={ctxAttr}
-                        data-state={stateKey}
-                        data-stuck={stuck ? "" : undefined}
-                        data-runoff={runoff ? "" : undefined}
-                        data-run={run.key}
-                        data-plan-frac={left.toFixed(4)}
-                        // Focusable: Enter opens its popover (#816), and the
-                        // row's Tab walk reaches it (#819).
-                        tabIndex={-1}
-                        role="button"
-                        aria-label={runName(run, scale, words)}
-                        left={`${left * 100}%`}
-                        width={`${width * 100}%`}
-                        // The bar height is a style PROP, and a style prop
-                        // outranks the recipe — so in a strip it is not set at
-                        // all, or the `bar[data-ctx]` 7px rule never wins and
-                        // a 20px bar sits clipped inside a 16px strip (#591).
-                        height={ctx === true ? undefined : `${barHeight}px`}
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            dispatch({ t: "row.select", key: rowKey });
-                            onElementClick?.(ref);
-                        }}
-                    >
-                        <Box as="span" overflow="hidden" textOverflow="ellipsis" minW={0}>{run.label}</Box>
-                        {qty !== undefined && <Box as="span" css={styles.barQty}>{qty}</Box>}
-                        {moved !== undefined && moved > 0 && (
-                            <Box as="span" css={styles.barQty}>{words.m.moved({ n: moved, count: words.number(moved) })}</Box>
-                        )}
-                    </Box>
-                );
-            })}
+            {bars.map(({ run, left, width, runoff }) => (
+                <RunBar key={run.key} run={run} left={left} width={width} runoff={runoff}
+                    rowKey={rowKey} rowId={rowId} styles={styles} barHeight={barHeight} ctx={ctx} move={move} />
+            ))}
             {rollBands.map((band, i) => {
                 const f0 = scale.fracOf(band.from);
                 const f1 = scale.endFracOf(band.to);

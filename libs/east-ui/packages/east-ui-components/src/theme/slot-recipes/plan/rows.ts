@@ -19,7 +19,7 @@ import { planElementFocus, planRowFocus } from "./focus.js";
 
 /** The slots this part styles. */
 export const rowsSlots = [
-    "row", "gutterCell", "plot", "gridCol", "gridSep", "dropPreview", "gutterName", "gutterSub",
+    "row", "gutterCell", "plot", "gridCol", "gridSep", "dropPreview", "dropPreviewText", "gutterName", "gutterSub",
     "gutterValue", "gutterRight", "gutterMeta", "gutterSwatch", "caret", "statusDot",
     "rowControls", "rowControl", "focusTag", "rail", "focusGap", "focusGapInner", "ribbons", "expandRowBand",
     "expandRenderBody", "expandGutterBody", "toneCell", "groupBand", "groupName", "groupMeta",
@@ -160,6 +160,23 @@ export const rowsBase = {
         borderStyle: "dashed",
         borderColor: "{colors.brand.600}",
         "[data-drop-active] &": { display: "block" },
+    },
+    // A moved element's span, printed in its landing band (#825) — what the
+    // band stands for, in words. Empty for a card's bucket.
+    dropPreviewText: {
+        position: "absolute",
+        top: "50%",
+        left: "4px",
+        transform: "translateY(-50%)",
+        fontFamily: "mono",
+        fontSize: "8.5px",
+        fontWeight: "semibold",
+        color: "brand.fg",
+        background: "bg.surface",
+        borderRadius: "2px",
+        padding: "0 3px",
+        whiteSpace: "nowrap",
+        "&:empty": { display: "none" },
     },
     // ── Gutter vocabulary ──
     gutterName: {

@@ -13,6 +13,10 @@
  * - content scrolled under a still pointer is read again — the row under the
  *   pointer is the one the drag rests over, never the one that scrolled away.
  *
+ * And a move by touch (#825): on `planEditing`, a touch held on a run picks it
+ * up after the long press, and a drag moves it — touch input dispatched
+ * through Chromium's DevTools protocol, as a touchscreen delivers it.
+ *
  * Every wait is a poll on the page's state, never a fixed pause.
  *
  * Run: `make test-responsive` (libs/east-ui), or
@@ -160,5 +164,55 @@ test.describe("Plan drag and drop (#608)", () => {
         await page.keyboard.press("Escape");
         await expect(weld(entry)).not.toHaveAttribute("data-dragging", "");
         await page.mouse.up();
+    });
+});
+
+test.describe("Plan moves by touch (#825)", () => {
+    test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "elements move at the desktop width — the narrow layout takes no moves");
+
+    test("a touch held on a run picks it up, and a drag along its machine moves it two weeks — Chromium's own touch input", async ({ page }) => {
+        const entry = await openExample(page, "planEditing");
+        const row = entry.locator(rowSel("machines", "L1", "M03"));
+        const plot = row.locator("[data-plan-plot]");
+        const run = row.locator('[data-run="b214"]');
+        await row.scrollIntoViewIfNeeded();
+        await settled(page);
+        await expect(run).toHaveAttribute("data-draggable", "");
+        // B-214 spans W28–W31 of a twelve-week window: pressed inside its first week.
+        const bar = await boxOf(run);
+        const week = (await boxOf(plot)).width / 12;
+        const at = { x: bar.x + week / 2, y: bar.y + bar.height / 2 };
+        // Touch input as the browser delivers it — touch events, and the
+        // pointer events Chromium derives from them — through the DevTools
+        // protocol, since the desktop page has no touchscreen of its own.
+        const cdp = await page.context().newCDPSession(page);
+        const touch = (type: "touchStart" | "touchMove" | "touchEnd", x?: number) =>
+            cdp.send("Input.dispatchTouchEvent", { type, touchPoints: x === undefined ? [] : [{ x, y: at.y }] });
+        // When the run is picked up, as the page's clock has it.
+        await run.evaluate((el) => {
+            const w = window as { pickedUpAt?: number };
+            delete w.pickedUpAt;
+            new MutationObserver((_records, observer) => {
+                if (!el.hasAttribute("data-dragging")) return;
+                w.pickedUpAt = performance.now();
+                observer.disconnect();
+            }).observe(el, { attributes: true, attributeFilter: ["data-dragging"] });
+        });
+        const pressedAt = await page.evaluate(() => performance.now());
+        await touch("touchStart", at.x);
+        // Held still, the touch picks the run up once the long press has
+        // elapsed — on the sensor's own clock, polled here, never paused for.
+        await expect(run).toHaveAttribute("data-dragging", "");
+        // Never on contact: a touch picks up only after its 300ms hold (#608),
+        // so a drift first scrolls the page. The hold can only make this later.
+        const heldFor = await page.evaluate((t0) => (window as { pickedUpAt?: number }).pickedUpAt! - t0, pressedAt);
+        expect(heldFor).toBeGreaterThanOrEqual(299);
+        for (let i = 1; i <= 8; i++) await touch("touchMove", at.x + (2 * week * i) / 8);
+        await expect(plot).toHaveAttribute("data-drop-active", "");
+        await touch("touchEnd");
+        // A draft, drawn where it was made: two weeks on, marked pending.
+        await expect(row).toHaveAttribute("data-draft", "");
+        await expect(row.locator('[data-run="b214"]')).toHaveAttribute("aria-label", /Jul 20, 2026 – Aug 10, 2026/);
+        await expect(row.locator('[data-run="b214"]')).not.toHaveAttribute("data-dragging", "");
     });
 });

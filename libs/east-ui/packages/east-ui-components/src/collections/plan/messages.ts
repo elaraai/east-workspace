@@ -206,6 +206,22 @@ export interface PlanMessages extends EditingMessages {
     /** The batch foot's reject-all button on a paged canvas. */
     rejectLoaded: (p: { n: number; count: string }) => string;
 
+    // ── Moves (#825) ───────────────────────────────────────────────────────
+    /** How a keyboard reader moves an element — the description of every one that moves. */
+    moveHelp: () => string;
+    /** An element picked up with the keyboard — `target` its row's name, `span` where it is, in words. */
+    movePickedUp: (p: { item: string; target: string; span: string }) => string;
+    /** Where a carried element would land now. */
+    moveOver: (p: { item: string; target: string; span: string }) => string;
+    /** Where the canvas's `canDrop` refuses a carried element. */
+    moveRefused: (p: { item: string; target: string; span: string }) => string;
+    /** A carried element dropped. */
+    moveDropped: (p: { item: string; target: string; span: string }) => string;
+    /** A carried element whose move could not be written — nothing changed. */
+    moveFailed: (p: { item: string }) => string;
+    /** A carry cancelled — the element stays where it was. */
+    moveCancelled: (p: { item: string }) => string;
+
     // ── The narrow layout (§10) ────────────────────────────────────────────
     /** The Groups tab. */
     tabGroups: () => string;
@@ -425,6 +441,16 @@ export const planMessages: PlanMessages = {
     rejectAll: () => "Reject all",
     approveLoaded: ({ count }) => `Approve ${count} loaded`,
     rejectLoaded: ({ count }) => `Reject ${count} loaded`,
+
+    moveHelp: () =>
+        "Press Space to pick it up. The arrow keys then move it — Shift with left or right moves its end, Alt its start — " +
+        "Space drops it, and Escape cancels.",
+    movePickedUp: ({ item, target, span }) => `Picked up ${item}: ${target}, ${span}`,
+    moveOver: ({ item, target, span }) => `${item}: ${target}, ${span}`,
+    moveRefused: ({ item, target, span }) => `${item} cannot be dropped on ${target}, ${span}`,
+    moveDropped: ({ item, target, span }) => `Dropped ${item} on ${target}, ${span}`,
+    moveFailed: ({ item }) => `${item} could not be moved`,
+    moveCancelled: ({ item }) => `${item} was not moved`,
 
     tabGroups: () => "Groups",
     tabRows: () => "Rows",

@@ -986,31 +986,87 @@ export const PlanDropType = StructType({
 export type PlanDropType = typeof PlanDropType;
 
 /**
+ * A run, chip, tile or mark moved or resized (#825) — where its item goes and
+ * the instants it takes there, which the series write into the fields they
+ * declare (`edit: { key, start, end }`, or `at`).
+ *
+ * @remarks
+ * `key` is the element's key, which is its item's (`edit.key` names the item's
+ * key field). A move along its own row, or a resize, has `to` equal to `from`,
+ * and sets the item's instants where it is. A move to another row takes the
+ * item out of the list it was in and puts it, with its new instants, into the
+ * target row's list — even when the two rows come from different entries,
+ * which is then one gesture over both. A point element (a tile, a mark) moves
+ * to `start`, and `end` repeats it. A row's list keeps its keys unique, so a
+ * move onto a row whose list already holds the key is refused.
+ *
+ * @property key - The element's key — its item's key
+ * @property from - The row it was on
+ * @property to - The row it goes to — `from` itself for a resize, or a move along its row
+ * @property start - Its start after the gesture (a point element's instant)
+ * @property end - Its end after the gesture (a point element's instant again)
+ */
+export const PlanMoveType = StructType({
+    key:   StringType,
+    from:  PlanRowIdType,
+    to:    PlanRowIdType,
+    start: PlanInstantType,
+    end:   PlanInstantType,
+});
+export type PlanMoveType = typeof PlanMoveType;
+
+/**
  * A gesture on the canvas — what one draft is made by (#880). A series writes
  * it into the entry its row came from, through the fields it declares: a
- * verdict into its `review.verdict` field, a drop into its `edit.items`.
+ * verdict into its `review.verdict` field, a drop into its `edit.items`, a
+ * move into the item's instant fields (and, across rows, into another row's
+ * list — #825).
  *
  * @property verdict - Approve or Reject (their "all" forms are the same verdict on every row the canvas holds)
  * @property drop - A library card dropped on a row
+ * @property move - A run, chip, tile or mark moved or resized ({@link PlanMoveType}, #825)
  */
 export const PlanGestureType = VariantType({
     verdict: ApprovalStateType,
     drop:    PlanDropType,
+    move:    PlanMoveType,
 });
 export type PlanGestureType = typeof PlanGestureType;
 
 /**
+ * How a row's elements move (#825) — present when its series declares the
+ * instant fields a move writes (`edit: { key, start, end }`, or `at`).
+ *
+ * @remarks
+ * `items` is the East type of the row's items, as East prints it: a run, chip,
+ * tile or mark moves onto another row only when that row's items are the same
+ * type, since the item itself changes lists. `resize` says whether the
+ * elements have two ends to drag (a run, a chip) or one instant (a tile, a
+ * mark).
+ *
+ * @property items - The row's item type, printed — rows of one item type share it
+ * @property resize - Whether its elements have a start and an end to resize
+ */
+export const PlanMoveEditsType = StructType({
+    items:  StringType,
+    resize: BooleanType,
+});
+export type PlanMoveEditsType = typeof PlanMoveEditsType;
+
+/**
  * Which gestures a row takes (#880) — whether its series declares the field
  * each one writes, so the canvas offers only what a draft can hold: the
- * decision buttons act on a `verdict` row, and a card lands only on a `drop`
- * row.
+ * decision buttons act on a `verdict` row, a card lands only on a `drop` row,
+ * and an element is picked up only on a `move` row (#825).
  *
  * @property verdict - Its series names the field a verdict writes (`review.verdict`)
- * @property drop - Its series names where a dropped card lands and how it becomes an item (`edit`)
+ * @property drop - Its series names where a dropped card lands and how it becomes an item (`edit.create`)
+ * @property move - Its series names the item fields a move writes (`edit.key` and `start` / `end`, or `at`) — {@link PlanMoveEditsType}
  */
 export const PlanRowEditsType = StructType({
     verdict: BooleanType,
     drop:    BooleanType,
+    move:    OptionType(PlanMoveEditsType),
 });
 export type PlanRowEditsType = typeof PlanRowEditsType;
 
@@ -1522,12 +1578,14 @@ export function PlanPatchEventTypeFor<R extends EastType>(entryType: R) {
 /**
  * One entry's gesture, to be written (#880) — the entry's id (its key's text),
  * its bytes, the rows the gesture was made on, and the gesture. Approve all
- * writes every entry the canvas holds in one call.
+ * writes every entry the canvas holds in one call, and a move to another row
+ * writes the entry holding its source row, then the one holding its target
+ * (#825) — one request when both rows are the same entry's.
  *
  * @internal
  * @property id - The entry's id — its key, as a row path's first segment spells it
  * @property entry - The entry as it stands now (its draft, else the source's), encoded
- * @property rows - The rows the gesture was made on — one, or each of the entry's for a verdict on all
+ * @property rows - The rows the gesture was made on — one, each of the entry's for a verdict on all, or a move's source then target
  * @property gesture - The gesture
  */
 export const PlanWriteRequestType = StructType({
@@ -1580,7 +1638,7 @@ export interface PlanEditingType extends PlanEditingTypeImpl {}
  * @internal
  * @property derive - The canvas's blocks with drafted entries in place of the source's — `(offset, limit, drafts by id)`: inline the whole source (offset and limit unread), paged the window `(offset, limit)`, `none` while it is in flight. The series applied to the drafted entries, so a draft draws exactly as the applied batch would.
  * @property deriveEntry - One entry's blocks — `(id, entry)` — the rows a draft is compared by, where it was made
- * @property write - Gestures written into their entries — each request's entry, or `none` when no series takes it
+ * @property write - Gestures written into their entries — each request's entry, or `none` when no series takes it; a move carries its item from the request holding its source row to the one holding its target, and is refused whole (every result `none`) unless both take it — a target whose list already holds the item's key does not (#825)
  * @property entryIds - The ids of the source's entries `[offset, offset + limit)`, `none` while in flight — how the session reads an entry back after an Apply
  * @property ready - The author's readiness check over drafted entries, one result each, in order
  */

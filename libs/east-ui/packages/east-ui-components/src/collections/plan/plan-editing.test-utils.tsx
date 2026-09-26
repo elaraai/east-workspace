@@ -93,6 +93,14 @@ const TAKEN = [
 ];
 /** A second row per press that takes no gesture — its series names no field. */
 const LOADS = Plan.series.span(Press, { key: "loads", title: "Loads", label: (p) => p.label, runs: () => [] });
+/** The press's marks series' key. */
+export const MARKS = "press-marks";
+/** A row per press whose marks are its jobs, and move (#825) — a job's key and instant are a mark's. */
+const MOVING = Plan.series.events(Press, {
+    key: MARKS, title: "Marks", label: (p) => p.label,
+    marks: (p) => p.jobs.map((_$, j) => Plan.mark({ key: j.key, at: j.at, kind: "milestone" })),
+    edit: { items: "jobs", key: "key", at: "at" },
+});
 /** The presses as rows that only SHOW their verdict — no field a gesture writes. */
 const SHOWN = [
     Plan.series.span(Press, {
@@ -323,6 +331,8 @@ export interface CanvasOptions {
     verdicts?: "taken" | "shown";
     /** A second row per press beside the first, that takes no gesture. */
     alongside?: boolean;
+    /** A row per press whose marks are its jobs, and move (#825). */
+    moves?: boolean;
     /** Whether the canvas is a drop target — an `id` (default `true`). */
     target?: boolean;
     /** The libraries it takes jobs from (default `[JOBS]`). */
@@ -355,7 +365,7 @@ function chromeOf(o: Resolved) {
 
 /** The canvas's program — the factory's, compiled with the test's platform. */
 function compileCanvas(o: Resolved): () => ValueTypeOf<typeof UIComponentType> {
-    const series = [...(o.verdicts === "taken" ? TAKEN : SHOWN), ...(o.alongside ? [LOADS] : [])];
+    const series = [...(o.verdicts === "taken" ? TAKEN : SHOWN), ...(o.alongside ? [LOADS] : []), ...(o.moves ? [MOVING] : [])];
     const axis = AXES[o.axis];
     const chrome = chromeOf(o);
     const ready = o.ready ? { ready: READY } : {};
@@ -474,7 +484,7 @@ export async function settle(): Promise<void> {
  */
 export async function mountCanvas(options: CanvasOptions): Promise<EditingCanvas> {
     const o: Resolved = {
-        axis: "time", editing: true, review: true, rerun: false, verdicts: "taken", alongside: false, target: true, sources: [JOBS],
+        axis: "time", editing: true, review: true, rerun: false, verdicts: "taken", alongside: false, moves: false, target: true, sources: [JOBS],
         onlyPress1: false, ready: false, storageKey: `plan-880-${options.arm}`, wrap: (plan) => plan, ...options,
         seed: new Map(options.seed ?? SEED),
     };

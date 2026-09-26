@@ -3017,26 +3017,36 @@ export const planReview = example({
 });
 
 // ============================================================================
-// planEditing — every change a draft, one checked Apply (#880)
+// planEditing — every change a draft, one checked Apply (#880, #825)
 // ============================================================================
 
 /**
  * The Plan's editing session (#880) — the Sheet's, over the canvas's entries.
  *
  * The source holds LINES, each holding its machines. A machine is reviewed
- * (its `approval` field) and receives dropped jobs (its `jobs` list), and both
- * gestures land on the MACHINE rows, one level down — yet each drafts the
- * LINE, the source's top-level entry, which the whole subtree rides in:
+ * (its `approval` field), receives dropped jobs (its `jobs` list) and has its
+ * jobs moved and resized, and every gesture lands on the MACHINE rows, one
+ * level down — yet each drafts the LINE, the source's top-level entry, which
+ * the whole subtree rides in:
  *
  *  - Approve / Reject on a machine, and Approve all / Reject all at the foot,
  *    draft its `approval` (`review: { verdict: "approval" }` on the machines).
  *  - A job card dropped on a machine drafts a new job in its `jobs` at the
  *    bucket's instant (`edit: { items: "jobs", create }`).
+ *  - A job's run moves along its machine or onto another machine, and resizes
+ *    by either end (#825): the series names the job's key and the instant
+ *    fields a move writes (`key`, `start`, `end`). It moves in whole weeks, or
+ *    in days with Shift held. A move onto a machine of the other line takes
+ *    the job out of one line and puts it into the other, as one gesture over
+ *    both. From the keyboard, Space on a focused run picks it up: ←/→ move it
+ *    a week, Shift+←/→ its end, Alt+←/→ its start, ↑/↓ carry it to another
+ *    machine, and Space drops it.
  *
  * Every gesture is one transaction, drawn at once with the pending mark; the
  * toolbar's history bar undoes, redoes and discards it (so do ⌘Z and ⌘⇧Z).
  * `ready` is the author's check over a drafted line: a machine holding more
- * than four jobs is refused, by name, and Apply waits until it is fixed.
+ * than four jobs is refused, by name, and Apply waits until it is fixed — M11
+ * already holds four, so a job moved onto it holds Apply until one leaves.
  * Apply writes the batch back through the live handle (`onUpdate`), and
  * `onPatch` hears each gesture as it is made.
  */
@@ -3047,8 +3057,10 @@ export const planEditing = example({
         "Approve all", "Reject all", "edit", "items", "create", "drop", "Library", "DnD", "id", "sources",
         "undo", "redo", "discard", "Apply", "history bar", "pending", "nested", "children", "Plan.children",
         "top-level entry", "live handle", "Plan.Types.PatchEvent", "Reactive", "State", "bind", "#880",
+        "move", "resize", "drag", "run", "key", "start", "end", "Shift", "snap", "keyboard", "Space",
+        "cross-row", "Plan.Types.Move", "#825",
     ],
-    description: "The Plan's editing session — verdicts and dropped jobs on nested machine rows draft their line, the history bar undoes and applies them, and `ready` refuses a crowded machine",
+    description: "The Plan's editing session — verdicts, dropped jobs and moved or resized runs on nested machine rows draft their line (both lines when a job changes line), the history bar undoes and applies them, and `ready` refuses a crowded machine",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             // Monday of ISO week n, 2026 — window W27–W38 (half-open), now W31.
@@ -3155,8 +3167,16 @@ export const planEditing = example({
                                         })),
                                         edit: {
                                             items: "jobs",
+                                            // A run moves and resizes: the job is
+                                            // found by `key` — the run's own key —
+                                            // and a move writes `start` and `end`.
+                                            // Keys stay unique on a machine: a drop
+                                            // or a move that would repeat one is
+                                            // refused, so the new job's key names
+                                            // its card, bucket and place.
+                                            key: "key", start: "start", end: "end",
                                             create: (drop, m) => ({
-                                                key: East.str`${drop.from.key}-${East.print(m.jobs.size())}`,
+                                                key: East.str`${drop.from.key}-${East.print(drop.at.unwrap("time"))}-${East.print(m.jobs.size())}`,
                                                 label: cardName.get(drop.from.key),
                                                 start: drop.at.unwrap("time"), end: drop.at.unwrap("time").addWeeks(2n),
                                                 state: ADDED,

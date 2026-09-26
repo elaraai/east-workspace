@@ -177,6 +177,8 @@ export const cellsBase = {
             animation: "elara-pulse 1.6s ease-in-out infinite",
             "@media (prefers-reduced-motion: reduce)": { animation: "none" },
         },
+        // A tile that moves (#825) is picked up where it sits.
+        "&[data-draggable]": { cursor: "grab" },
         // ── R1 GEOMETRY SHRINKS — the bucket case ──
         // A tile is already quantised to its cell; collapsing keeps the
         // cell and flattens the tile inside it. `minWidth` has to go with
@@ -258,6 +260,8 @@ export const cellsBase = {
             prop: { background: "bg.surface" },
             propRemoved: { background: "bg.surface", color: "{colors.status.warn}" },
         }),
+        // A chip that moves (#825) is picked up anywhere but its ends.
+        "&[data-draggable]": { cursor: "grab" },
         // ── R1 GEOMETRY SHRINKS (#591) ──
         // The mark already owns a position and a width on the axis, so it
         // keeps both and drops to 7px. Ink goes `transparent` rather than

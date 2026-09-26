@@ -123,9 +123,9 @@ export function rowItem(key: string, series?: string): string {
  *  objects, and their memos). */
 const blocksOfRows = new WeakMap<readonly unknown[], PlanWireBlock[]>();
 
-/** The gestures a row takes when its series declares none (#880) — the IR's
- *  own default (`planRow`), which a hand-built row omits. */
-export const NO_EDITS = { verdict: false, drop: false } as const;
+/** The gestures a row takes when its series declares none (#880, #825) — the
+ *  IR's own default (`planRow`), which a hand-built row omits. */
+export const NO_EDITS = { verdict: false, drop: false, move: none } as const;
 
 /**
  * A test's rows as the canvas the IR carries (#823) — ONE paged block of them,

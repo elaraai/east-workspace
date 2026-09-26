@@ -2,23 +2,27 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  *
- * The canvas as a drag TARGET: library cards land on a row at an instant.
+ * The canvas as a drag TARGET: library cards land on a row at an instant, and
+ * the canvas's own runs, chips, tiles and marks move and resize on it (#825).
  * Rows register their own cells (`RowShell`); this registers the surface
  * those cells name and hands every completed drag to the editing session,
  * which drafts it into the entry its row came from (#880).
  *
- * A target needs an `id` (cells are addressed `surface × row × slot`, and an
- * unnamed surface cannot be addressed — the root's `id` is `none` then, #824)
- * and an editing session that can take the gesture: a drop with nowhere to
- * go is a gesture that silently loses work. Missing either ⇒ no registration
- * at all, so no row lights up and no drag can complete against a canvas that
- * cannot act on it. `canDrop` still vets every drop — at the pointer, and
+ * A target is a named surface (cells are addressed `surface × row × slot`). A
+ * Library's cards reach the canvas by the root's `id`, so a card lands only on
+ * a canvas that declares one (the root's `id` is `none` otherwise, #824). The
+ * canvas's own runs, chips, tiles and marks move with or without it (#825):
+ * with no `id` the canvas names a surface of its own, which no card can reach.
+ * Either way the editing session must be able to take the gesture — a drop
+ * with nowhere to go is a gesture that silently loses work — or nothing
+ * registers, so no row lights up and no drag can complete against a canvas
+ * that cannot act on it. `canDrop` still vets every drop — at the pointer, and
  * once more before it is delivered — before it becomes a draft.
  *
  * @packageDocumentation
  */
 
-import { useMemo } from "react";
+import { useId, useMemo } from "react";
 import { getSomeorUndefined } from "../../../utils.js";
 import { useDragTarget, type DragEventValue } from "../../../dnd/drag-layer";
 import { useIRCanDrop, type CanDropFn } from "../../../dnd/ir-can-drop";
@@ -26,11 +30,13 @@ import type { PlanRootValue } from "../model.js";
 import type { PlanRowDrop } from "../rows/RowShell.js";
 
 /**
- * Register the canvas as a drop target, when it declares one.
+ * Register the canvas as a drop target while its editing session takes a
+ * gesture — named by its `id`, or by a surface of its own for its elements'
+ * moves when it declares none.
  *
  * @param value - The latest root (its `id`, `canDrop`)
  * @param sources - The library ids accepted for `add` drags (data-stable)
- * @param onDrop - Where a completed drop goes — the editing session's gesture (stable)
+ * @param onDrop - Where a completed drag goes — a card's drop, an element's move or resize (stable)
  * @param enabled - Whether the editing session takes a gesture now
  * @returns The per-row drop registration every droppable row shares, or
  *   `undefined` when the canvas is not a target
@@ -41,7 +47,9 @@ export function usePlanDropTarget(
     onDrop: (event: DragEventValue) => void,
     enabled: boolean,
 ): PlanRowDrop | undefined {
-    const id = enabled ? getSomeorUndefined(value.id) : undefined;
+    const own = useId();
+    const declared = enabled ? getSomeorUndefined(value.id) : undefined;
+    const id = enabled ? declared ?? `plan-canvas${own}` : undefined;
     const canDropFn = useMemo(
         () => getSomeorUndefined(value.canDrop) as CanDropFn | undefined,
         [value.canDrop],
@@ -51,18 +59,18 @@ export function usePlanDropTarget(
     const veto = useIRCanDrop(canDropFn);
     const targetConfig = useMemo(() => (id !== undefined ? {
         id,
-        sources: [...sources],
-        // `add` only. `move` / `resize` need a drag to START on the canvas — a
-        // draggable run bar or chip — and nothing here begins one, so declaring
-        // them would advertise a capability with no gesture behind it.
-        kinds: { add: true },
+        // Cards reach a canvas by its declared id alone.
+        sources: declared !== undefined ? [...sources] : [],
+        // A card lands (`add`); the canvas's own elements move and resize on
+        // it (#825) — each row says which it takes (`RowShell`'s `accepts`).
+        kinds: { add: declared !== undefined, move: true, resize: true },
         onDrag: onDrop,
-    } : null), [id, sources, onDrop]);
+    } : null), [id, declared, sources, onDrop]);
     useDragTarget(targetConfig);
     // One registration shared by every droppable row — the per-row part of
     // the coordinate is the row itself, which `RowShell` already knows.
     return useMemo<PlanRowDrop | undefined>(
-        () => (id !== undefined ? { surface: id, canDrop: veto } : undefined),
-        [id, veto],
+        () => (id !== undefined ? { surface: id, cards: declared !== undefined, canDrop: veto } : undefined),
+        [id, declared, veto],
     );
 }

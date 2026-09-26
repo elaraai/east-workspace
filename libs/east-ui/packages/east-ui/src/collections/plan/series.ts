@@ -46,15 +46,22 @@ import {
     East,
     Expr,
     ArrayType,
+    BlobType,
     BooleanType,
+    DateTimeType,
     DictType,
+    EastTypeType,
+    FloatType,
     FunctionType,
     IntegerType,
     OptionType,
+    RefType,
     StringType,
     StructType,
     VariantType,
     isTypeEqual,
+    printFor,
+    toEastTypeValue,
     variant,
     some,
     none,
@@ -90,6 +97,7 @@ import {
     PlanBlocksType,
     PlanGestureType,
     PlanDropType,
+    PlanInstantType,
     type PlanBlocksValue,
     type PlanTableSeriesType,
     type PlanTableSplitType,
@@ -124,6 +132,18 @@ import {
 // The series type — a constructor, instantiated per row type
 // ============================================================================
 
+/**
+ * The item a move to another row carries between its two writes (#825) — its
+ * bytes, from the source row's write, which takes it out of its list, to the
+ * target row's, which puts it into its own; `none` while nothing is in
+ * transit. The canvas threads ONE through every row a gesture writes, in
+ * order, and an item still carried at the end is a move that landed nowhere.
+ *
+ * @internal
+ */
+export const PlanCarriedType = RefType(OptionType(BlobType));
+export type PlanCarriedType = typeof PlanCarriedType;
+
 /** The arms a series value takes — its kind, which the series library shows. */
 export type PlanSeriesArm =
     | "span" | "buckets" | "chart" | "heat" | "table" | "cards" | "events"
@@ -143,13 +163,16 @@ export type PlanSeriesArm =
  * header block, then its members'), reified once by its builder. The arm is
  * the series' kind, which is all the series library reads beyond the identity.
  *
- * It carries its writer too (#880), `write: Fn(R, K, RowId, Gesture) →
- * Option<R>` — a gesture on one of its rows written into the entry the row
- * came from, through the fields the series declares (`review.verdict`,
- * `edit`), at whatever depth the row sits; `none` when no series in its tree
- * takes the gesture on that row. A series list is an East value (a pick, a
- * stored list), so the writer travels with the series rather than being
- * rebuilt by the canvas.
+ * It carries its writer too (#880), `write: Fn(R, K, RowId, Gesture,
+ * Ref<Option<Blob>>) → Option<R>` — a gesture on one of its rows written into
+ * the entry the row came from, through the fields the series declares
+ * (`review.verdict`, `edit`), at whatever depth the row sits; `none` when no
+ * series in its tree takes the gesture on that row. The `Ref` is the item a
+ * move to another row carries (#825): the source row's write takes the item
+ * out of its list into it, as bytes, and the target row's write puts it into
+ * its own list — the two rows may be different series' and different
+ * entries'. A series list is an East value (a pick, a stored list), so the
+ * writer travels with the series rather than being rebuilt by the canvas.
  *
  * @param r - The entry type value
  * @param k - The entries' key type (default `StringType`)
@@ -162,7 +185,7 @@ const seriesShape = (r: EastType, k: EastType = StringType) => {
         subtitle: OptionType(StringType),
         icon:     OptionType(IconType),
         derive:   FunctionType([DictType(k, r)], PlanBlocksType),
-        write:    FunctionType([r, k, PlanRowIdType, PlanGestureType], OptionType(r)),
+        write:    FunctionType([r, k, PlanRowIdType, PlanGestureType, PlanCarriedType], OptionType(r)),
     });
     return VariantType({
         span: arm, buckets: arm, chart: arm, heat: arm, table: arm, cards: arm, events: arm,
@@ -388,6 +411,41 @@ export type PlanItemOf<R extends EastType, F extends string> =
     PlanEntryFields<R>[F] extends ArrayType<infer T extends EastType> ? T : never;
 
 /**
+ * The fields of an item — a struct item's own.
+ *
+ * @typeParam T - The item type
+ */
+export type PlanItemFields<T extends EastType> = T extends StructType<infer F> ? F : never;
+
+/**
+ * An item field that holds its key — a `String` field, what `edit.key` names
+ * (#825): an element's `key` must be its item's.
+ *
+ * @typeParam T - The item type
+ */
+export type PlanItemKeyField<T extends EastType> = {
+    [K in keyof PlanItemFields<T> & string]: PlanItemFields<T>[K] extends StringType ? K : never;
+}[keyof PlanItemFields<T> & string];
+
+/**
+ * The East types an item's instant field may be (#825) — a move writes the
+ * axis's instant into it on its own arm: a `DateTime` on a time axis, a
+ * `Float` or an `Integer` (rounded) on a number axis, a `String` on an ordinal
+ * one, or the {@link PlanInstantType} itself on any.
+ */
+export type PlanItemInstantType = DateTimeType | FloatType | IntegerType | StringType | PlanInstantType;
+
+/**
+ * An item field that holds an instant a move writes — what `edit.start`,
+ * `edit.end` and `edit.at` name (#825).
+ *
+ * @typeParam T - The item type
+ */
+export type PlanItemInstantField<T extends EastType> = {
+    [K in keyof PlanItemFields<T> & string]: PlanItemFields<T>[K] extends PlanItemInstantType ? K : never;
+}[keyof PlanItemFields<T> & string];
+
+/**
  * What a review verdict writes on a series' rows (#880).
  *
  * @typeParam R - The entry type
@@ -399,28 +457,82 @@ export interface PlanReviewInput<R extends EastType> {
 }
 
 /**
- * Where a library card dropped on a series' row lands, and how it becomes an
- * item (#880) — one arm per `Array` field of the entry, so `create` is typed
- * by the field `items` names.
+ * What the gestures on a run or chip series' rows write (#880, #825) — one arm
+ * per `Array` field of the entry, so every other field is typed by the field
+ * `items` names.
+ *
+ * @remarks
+ * `create` takes a library card dropped on the row (#880). `key`, `start` and
+ * `end` take a run or chip moved or resized (#825): the element names its item
+ * by its `key` — an element's key must be its item's — and the move writes the
+ * item's `start` and `end`; a move to another row takes the item out of this
+ * list into that row's, which must hold the same item type. Declare `create`,
+ * the move's fields, or both.
+ *
+ * With `key` declared, a row's list keeps its keys unique: a card whose item
+ * repeats a key the list holds, and a move onto a row whose list already holds
+ * the moved item's key, are refused. So `key` is the item's identity across
+ * every row it can move to — a job's own id, not its place in one machine's
+ * list.
  *
  * @typeParam R - The entry type
  * @typeParam KT - The entries' key type
- * @property items - The entry's `Array` field the row's elements come from — the dropped card's item joins it
- * @property create - The new item, built from the drop (the card, the row and the bucket's instant), the entry and its key
+ * @property items - The entry's `Array` field the row's elements come from — the list a gesture writes
+ * @property key - The item's `String` key field — an element's `key` is its item's
+ * @property start - The item's start field a move or a resize writes
+ * @property end - The item's end field a move or a resize writes
+ * @property create - The item a dropped card becomes, built from the drop (the card, the row and the bucket's instant), the entry and its key
  */
 export type PlanEditInput<R extends EastType, KT extends EastType = StringType> = {
     [F in PlanItemsField<R>]: {
-        /** The entry's `Array` field the row's elements come from — the dropped card's item joins it. */
+        /** The entry's `Array` field the row's elements come from — the list a gesture writes. */
         items: F;
-        /** The new item — from the drop (the card, the row, the bucket's instant), the entry and its key. */
-        create: (drop: ExprType<PlanDropType>, entry: PlanEntryExpr<R>, key: ExprType<KT>) => SubtypeExprOrValue<PlanItemOf<R, F>>;
+        /** The item's `String` key field — an element's `key` is its item's (#825). Required with `start` / `end`.
+         *  Unique across every row an item can move to: a drop or a move that would repeat one in a row's list is refused. */
+        key?: PlanItemKeyField<PlanItemOf<R, F>>;
+        /** The item's start field — a move or a resize writes the new start into it (#825). */
+        start?: PlanItemInstantField<PlanItemOf<R, F>>;
+        /** The item's end field — a move or a resize writes the new end into it (#825). */
+        end?: PlanItemInstantField<PlanItemOf<R, F>>;
+        /** The item a dropped card becomes — from the drop (the card, the row, the bucket's instant), the entry and its key. */
+        create?: (drop: ExprType<PlanDropType>, entry: PlanEntryExpr<R>, key: ExprType<KT>) => SubtypeExprOrValue<PlanItemOf<R, F>>;
+    };
+}[PlanItemsField<R>];
+
+/**
+ * What the gestures on a tile or mark series' rows write (#880, #825) — the
+ * {@link PlanEditInput} of an element with ONE instant: a move writes the
+ * item's `at`.
+ *
+ * @typeParam R - The entry type
+ * @typeParam KT - The entries' key type
+ * @property items - The entry's `Array` field the row's elements come from — the list a gesture writes
+ * @property key - The item's `String` key field — an element's `key` is its item's
+ * @property at - The item's instant field a move writes
+ * @property create - The item a dropped card becomes, built from the drop, the entry and its key
+ */
+export type PlanPointEditInput<R extends EastType, KT extends EastType = StringType> = {
+    [F in PlanItemsField<R>]: {
+        /** The entry's `Array` field the row's elements come from — the list a gesture writes. */
+        items: F;
+        /** The item's `String` key field — an element's `key` is its item's (#825). Required with `at`.
+         *  Unique across every row an item can move to: a drop or a move that would repeat one in a row's list is refused. */
+        key?: PlanItemKeyField<PlanItemOf<R, F>>;
+        /** The item's instant field — a move writes the new instant into it (#825). */
+        at?: PlanItemInstantField<PlanItemOf<R, F>>;
+        /** The item a dropped card becomes — from the drop (the card, the row, the bucket's instant), the entry and its key. */
+        create?: (drop: ExprType<PlanDropType>, entry: PlanEntryExpr<R>, key: ExprType<KT>) => SubtypeExprOrValue<PlanItemOf<R, F>>;
     };
 }[PlanItemsField<R>];
 
 /** An edit declaration with its entry type erased — what the build machinery reads. */
 interface AnyEditInput {
     items: string;
-    create: (drop: ExprType<PlanDropType>, entry: ExprType<EastType>, key: ExprType<EastType>) => unknown;
+    key?: string;
+    start?: string;
+    end?: string;
+    at?: string;
+    create?: (drop: ExprType<PlanDropType>, entry: ExprType<EastType>, key: ExprType<EastType>) => unknown;
 }
 
 // ============================================================================
@@ -502,7 +614,8 @@ export interface PlanSpanSeriesConfig<R extends EastType, K extends PlanAxisKind
     ports?: PlanElementsAccessor<R, typeof PlanPortType, K, KT>;
     /** How a row with children rolls its subtree's runs into its bands (default `"union"`). */
     rollup?: SubtypeExprOrValue<PlanRollupType> | PlanRollupLiteral;
-    /** What a library card dropped on a row writes (#880) — the `Array` field its runs come from, and the new item. */
+    /** What a gesture on a row writes — the `Array` field its runs come from; a dropped card's item (`create`,
+     *  #880); a moved or resized run's key, start and end fields (#825). */
     edit?: PlanEditInput<R, KT>;
 }
 
@@ -544,15 +657,17 @@ export interface PlanBucketsSeriesConfig<R extends EastType, K extends PlanAxisK
     events: PlanElementsAccessor<R, PlanBucketEventType, K, KT>;
     /** Per-row cell-marker accessor. */
     markers?: PlanElementsAccessor<R, PlanCellMarkerType, K, KT>;
-    /** What a library card dropped on a row writes (#880) — the `Array` field its tiles come from, and the new item. */
-    edit?: PlanEditInput<R, KT>;
+    /** What a gesture on a row writes — the `Array` field its tiles come from; a dropped card's item (`create`,
+     *  #880); a moved tile's key and instant fields (#825). */
+    edit?: PlanPointEditInput<R, KT>;
 }
 
 /** Config for {@link Plan.series.cards} — one cards row per entry. */
 export interface PlanCardsSeriesConfig<R extends EastType, K extends PlanAxisKindLiteral = never, KT extends EastType = StringType> extends PlanSeriesRowConfig<R, KT> {
     /** Per-row shift-chips accessor — the chips' axis kind brands the series. */
     chips: PlanElementsAccessor<R, PlanChipType, K, KT>;
-    /** What a library card dropped on a row writes (#880) — the `Array` field its chips come from, and the new item. */
+    /** What a gesture on a row writes — the `Array` field its chips come from; a dropped card's item (`create`,
+     *  #880); a moved or resized chip's key, start and end fields (#825). */
     edit?: PlanEditInput<R, KT>;
 }
 
@@ -560,8 +675,9 @@ export interface PlanCardsSeriesConfig<R extends EastType, K extends PlanAxisKin
 export interface PlanEventsSeriesConfig<R extends EastType, K extends PlanAxisKindLiteral = never, KT extends EastType = StringType> extends PlanSeriesRowConfig<R, KT> {
     /** Per-row instant-marks accessor — the marks' axis kind brands the series. */
     marks: PlanElementsAccessor<R, PlanEventMarkType, K, KT>;
-    /** What a library card dropped on a row writes (#880) — the `Array` field its marks come from, and the new item. */
-    edit?: PlanEditInput<R, KT>;
+    /** What a gesture on a row writes — the `Array` field its marks come from; a dropped card's item (`create`,
+     *  #880); a moved mark's key and instant fields (#825). */
+    edit?: PlanPointEditInput<R, KT>;
 }
 
 /** Config for {@link Plan.series.chart} — one chart row per entry, layers built from the entry's own data. */
@@ -667,17 +783,19 @@ type CollapsedFn = ExprType<FunctionType<[EastType, EastType], BooleanType>>;
 type ChildrenFn = ExprType<FunctionType<[EastType, EastType, PlanRowIdType, ArrayType<StringType>], PlanRowsCollectionType>>;
 /**
  * A series' writer for entries of a collection (#880): `(entry, key, path,
- * depth, series, gesture) → the entry written`. `path[0 … depth)` leads to the
- * entry, and the row is the entry's own when `depth = |path|`, else below it;
- * `none` when no series here takes the gesture on that row. The entry is a
- * DETACHED value — a nested entry is written in place in its collection, so
- * only the entry itself is ever rebuilt.
+ * depth, series, gesture, carried) → the entry written`. `path[0 … depth)`
+ * leads to the entry, and the row is the entry's own when `depth = |path|`,
+ * else below it; `none` when no series here takes the gesture on that row.
+ * The entry is a DETACHED value — a nested entry is written in place in its
+ * collection, so only the entry itself is ever rebuilt. `carried` is the item
+ * a move to another row carries between its writes (#825).
  */
-type WriteFn = ExprType<FunctionType<[EastType, EastType, ArrayType<StringType>, IntegerType, StringType, PlanGestureType], OptionType<EastType>>>;
-/** An entry's own edit: `(entry, key, gesture) → the entry written`, or `none` when its series declares no field for the gesture. */
-type OwnEditFn = ExprType<FunctionType<[EastType, EastType, PlanGestureType], OptionType<EastType>>>;
-/** A series' write at the top of a canvas — the series value's `write`: `(entry, key, row, gesture) → the entry written`. */
-type TopWriteFn = ExprType<FunctionType<[EastType, EastType, PlanRowIdType, PlanGestureType], OptionType<EastType>>>;
+type WriteFn = ExprType<FunctionType<[EastType, EastType, ArrayType<StringType>, IntegerType, StringType, PlanGestureType, PlanCarriedType], OptionType<EastType>>>;
+/** An entry's own edit: `(entry, key, path, gesture, carried) → the entry written` — the row at `path` is this
+ *  series' own — or `none` when its series declares no field for the gesture. */
+type OwnEditFn = ExprType<FunctionType<[EastType, EastType, ArrayType<StringType>, PlanGestureType, PlanCarriedType], OptionType<EastType>>>;
+/** A series' write at the top of a canvas — the series value's `write`: `(entry, key, row, gesture, carried) → the entry written`. */
+type TopWriteFn = ExprType<FunctionType<[EastType, EastType, PlanRowIdType, PlanGestureType, PlanCarriedType], OptionType<EastType>>>;
 
 /** One entry's row functions, built for one key type — what `views` calls per member. */
 interface EntryParts {
@@ -910,8 +1028,150 @@ interface KindRecipe {
     pinned?(value: ExprType<EastType>, key: ExprType<EastType>): SubtypeExprOrValue<BooleanType>;
     /** Gutter legend chips (chart). */
     swatches?: PlanGutterFields["swatches"];
-    /** Where a dropped card lands and how it becomes an item (#880) — the kinds holding discrete objects. */
+    /** What a gesture writes (#880, #825) — the kinds holding discrete objects: where a dropped card lands and how
+     *  it becomes an item, and the item fields a move writes. */
     edit?: AnyEditInput | undefined;
+}
+
+/** The instant fields a kind's elements have (#825): two ends (a run, a chip) or one instant (a tile, a mark). */
+function editShapeOf(arm: PlanSeriesArm): "span" | "point" {
+    return arm === "span" || arm === "cards" ? "span" : "point";
+}
+
+/** The item field types a move can write an instant into (#825). */
+const INSTANT_FIELD_TYPES: readonly EastType[] = [DateTimeType, FloatType, IntegerType, StringType, PlanInstantType];
+
+/** Print an item type as the text rows of one item type share (#825) — East's own printer over its type value. */
+const printType = printFor(EastTypeType);
+
+/**
+ * What a move writes on a series' rows (#825), checked: the item's key field
+ * and its instant fields, by name and type.
+ */
+interface MoveFields {
+    /** The item type. */
+    item: StructType;
+    /** The item's `String` key field. */
+    key: string;
+    /** The start field (a point element's one instant) and its type. */
+    start: { name: string; type: EastType };
+    /** The end field and its type — two-ended elements only. */
+    end: { name: string; type: EastType } | undefined;
+    /** The row facts: the item type's text, and whether its elements have two ends. */
+    edits: { items: string; resize: boolean };
+}
+
+/**
+ * Check what a series' `edit` declares for a move (#825), against its item
+ * type — `undefined` when it declares no move (only `create`).
+ *
+ * @param edit - The declaration
+ * @param itemType - The type of the items in `edit.items`
+ * @param arm - The series' kind
+ * @param where - The series, for the message
+ * @returns The move's fields
+ * @throws {Error} Naming the field and what is wrong with it
+ */
+function moveFieldsOf(edit: AnyEditInput, itemType: EastType, arm: PlanSeriesArm, where: string): MoveFields | undefined {
+    const shape = editShapeOf(arm);
+    if (shape === "span" && edit.at !== undefined) {
+        throw new Error(`${where}: \`edit.at\` is a tile's or a mark's instant — a ${arm} element has two ends: name them with \`start\` and \`end\``);
+    }
+    if (shape === "point" && (edit.start !== undefined || edit.end !== undefined)) {
+        throw new Error(`${where}: a ${arm} element has one instant — name it with \`edit.at\`, not \`start\` / \`end\``);
+    }
+    const start = shape === "span" ? edit.start : edit.at;
+    const end = shape === "span" ? edit.end : undefined;
+    if (shape === "span" && (start === undefined) !== (end === undefined)) {
+        throw new Error(`${where}: a move writes both ends of a ${arm} element — give \`edit.start\` and \`edit.end\` together`);
+    }
+    if (start === undefined) {
+        if (edit.create === undefined) {
+            throw new Error(
+                `${where}: \`edit\` declares neither \`create\` (what a dropped card becomes) nor the item fields a move ` +
+                `writes (\`key\` and ${shape === "span" ? "`start` / `end`" : "`at`"}) — declare one or both`);
+        }
+        return undefined;
+    }
+    const item = itemType as StructType & { type: string };
+    if (item.type !== "Struct") {
+        throw new Error(`${where}: a move writes fields of the item — the items in "${edit.items}" must be structs`);
+    }
+    if (edit.key === undefined) {
+        throw new Error(`${where}: a move finds its element's item by key — name the item's String key field with \`edit.key\``);
+    }
+    const keyType = item.fields[edit.key];
+    if (keyType === undefined || !isTypeEqual(keyType, StringType)) {
+        throw new Error(`${where}: \`edit.key\` names "${edit.key}", which is not a String field of the item`);
+    }
+    const instant = (name: string, what: string) => {
+        const type = item.fields[name];
+        if (type === undefined || !INSTANT_FIELD_TYPES.some((t) => isTypeEqual(t, type))) {
+            throw new Error(
+                `${where}: \`edit.${what}\` names "${name}", which is not an instant field of the item — a DateTime, a Float or ` +
+                "an Integer, a String, or a Plan.Types.Instant");
+        }
+        if (name === edit.key) {
+            throw new Error(`${where}: \`edit.${what}\` names the key field "${name}" — a move would change the item's identity; name its instant field`);
+        }
+        return { name, type };
+    };
+    if (end !== undefined && end === start) {
+        throw new Error(`${where}: \`edit.start\` and \`edit.end\` both name "${start}" — a move writes two different fields`);
+    }
+    return {
+        item,
+        key: edit.key,
+        start: instant(start, shape === "span" ? "start" : "at"),
+        end: end !== undefined ? instant(end, "end") : undefined,
+        edits: { items: printType(toEastTypeValue(itemType)), resize: shape === "span" },
+    };
+}
+
+/** Each instant field type's converter, built once (#825). */
+const instantConverters = new ByType<ExprType<FunctionType<[PlanInstantType], OptionType<EastType>>>>();
+
+/**
+ * The converter from an axis instant into an item field's type (#825): the
+ * instant on the arm the field holds — a time instant's DateTime, a number
+ * instant's Float (an Integer field takes it rounded, half away from zero), an
+ * ordinal instant's String, or the instant itself — else `none`.
+ *
+ * @param fieldType - The field's type (one of {@link INSTANT_FIELD_TYPES})
+ * @returns `(instant) → Option<field>`
+ */
+function instantInto(fieldType: EastType): ExprType<FunctionType<[PlanInstantType], OptionType<EastType>>> {
+    return instantConverters.get(fieldType, () => {
+        const out = OptionType(fieldType);
+        const kind = (fieldType as { type: string }).type;
+        const whole = isTypeEqual(fieldType, PlanInstantType);
+        return East.function([PlanInstantType], out, ($, t) => {
+            const result = $.let(none, out);
+            if (whole) {
+                $.assign(result, some(t));
+                return result;
+            }
+            $.match(t, {
+                time: ($2, d) => {
+                    if (kind === "DateTime") $2.assign(result, some(d));
+                },
+                number: ($2, n) => {
+                    if (kind === "Float") {
+                        $2.assign(result, some(n));
+                    } else if (kind === "Integer") {
+                        const rounded = $2.let(n.greaterEqual(0).ifElse(
+                            () => n.add(0.5).subtract(n.add(0.5).remainder(1)),
+                            () => n.subtract(0.5).subtract(n.subtract(0.5).remainder(1))), FloatType);
+                        $2.assign(result, some(rounded.toInteger()));
+                    }
+                },
+                ordinal: ($2, s) => {
+                    if (kind === "String") $2.assign(result, some(s));
+                },
+            });
+            return result;
+        }) as unknown as ExprType<FunctionType<[PlanInstantType], OptionType<EastType>>>;
+    });
 }
 
 /** Erase a config's entry type for the untyped build machinery. */
@@ -951,9 +1211,10 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
     const onEntry = (accessor: (v: ExprType<EastType>, k: ExprType<EastType>) => Expr) =>
         (v: ExprType<EastType>, k: ExprType<EastType>): Expr => accessor(nodeOf(v), k);
 
-    // What a gesture writes (#880) — a verdict into `review.verdict`, a
-    // dropped card into `edit.items` — each a FIELD of the entry (its node,
-    // when recursive), checked here so a misnamed field fails the build.
+    // What a gesture writes (#880, #825) — a verdict into `review.verdict`, a
+    // dropped card into `edit.items`, a moved element into its item's fields
+    // — each a FIELD of the entry (its node, when recursive) or of its items,
+    // checked here so a misnamed field fails the build.
     const review = cfg.review as { verdict: string } | undefined;
     const edit = recipe.edit;
     const nodeType = (recursive ? (rowType as RecursiveType<EastType>).node : rowType) as { type: string; fields?: Record<string, EastType> };
@@ -971,14 +1232,22 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
         }
     }
     let itemType: EastType | undefined;
+    let move: MoveFields | undefined;
     if (edit !== undefined) {
         const t = entryFields[edit.items] as { type: string; value?: EastType } | undefined;
         if (t === undefined || t.type !== "Array") {
-            throw new Error(`${where}: \`edit.items\` names "${edit.items}", which is not an Array field of the entry — a dropped card joins a list of items`);
+            throw new Error(`${where}: \`edit.items\` names "${edit.items}", which is not an Array field of the entry — a gesture writes a list of items`);
         }
         itemType = t.value;
+        move = moveFieldsOf(edit, itemType!, recipe.arm, where);
     }
-    const edits = review !== undefined || edit !== undefined ? { verdict: review !== undefined, drop: edit !== undefined } : undefined;
+    const edits = review !== undefined || edit !== undefined
+        ? {
+            verdict: review !== undefined,
+            drop: edit?.create !== undefined,
+            move: move !== undefined ? some(move.edits) : none,
+        }
+        : undefined;
 
     const rows = new ByType<EntryRowFn>();
     const matches = new ByType<MatchFn | undefined>();
@@ -1145,32 +1414,156 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
     });
 
     /** The item a dropped card becomes, for entries keyed by `kt`. */
-    const createFor = (kt: EastType) => building(where, kt, () => East.function(
+    const createFor = (kt: EastType, create: NonNullable<AnyEditInput["create"]>) => building(where, kt, () => East.function(
         [PlanDropType, rowType, kt], itemType!,
-        (_$, drop, value, key) => edit!.create(drop, nodeOf(value), key) as SubtypeExprOrValue<EastType>,
+        (_$, drop, value, key) => create(drop, nodeOf(value), key) as SubtypeExprOrValue<EastType>,
     ));
 
-    /** This series' own edit on one of its entries: a verdict into its field, a dropped card's item into its list. */
-    const ownFor = (kt: EastType): OwnEditFn | undefined => owns.get(kt, () => {
-        if (review === undefined && edit === undefined) return undefined;
-        const create = edit !== undefined ? createFor(kt) : undefined;
-        return East.function([rowType, kt, PlanGestureType], OptionType(rowType), ($, value, key, gesture) => {
-            const setVerdict = withVerdict === undefined ? undefined : $.const(withVerdict);
-            const make = create === undefined ? undefined : $.const(create);
-            const result = $.let(none, OptionType(rowType));
-            $.match(gesture, {
-                verdict: ($2, verdict) => {
-                    if (setVerdict !== undefined) $2.assign(result, some(setVerdict(value, verdict)));
-                },
-                drop: ($2, drop) => {
-                    if (make === undefined || edit === undefined) return;
-                    const list = $2.let(entryAccess(value)[edit.items]! as unknown as ExprType<ArrayType<EastType>>);
-                    $2(list.pushLast(make(drop, value, key)));
-                    $2.assign(result, some(value));
+    /**
+     * An item at a move's instants (#825) — its declared instant fields set
+     * from the axis's instants, each on its own arm, every other field as it
+     * was; `none` when an instant rides an arm the field cannot hold (a time
+     * instant into a Float field).
+     */
+    const placed = move === undefined ? undefined : (() => {
+        const m = move;
+        const startAs = instantInto(m.start.type);
+        const endAs = m.end !== undefined ? instantInto(m.end.type) : undefined;
+        return East.function([m.item, PlanInstantType, PlanInstantType], OptionType(m.item), ($, item, start, end) => {
+            const result = $.let(none, OptionType(m.item));
+            const asStart = $.const(startAs);
+            const s = $.let(asStart(start), OptionType(m.start.type));
+            const read = item as unknown as Record<string, ExprType<EastType>>;
+            const rebuild = (fields: Record<string, ExprType<EastType>>) => East.value(
+                Object.fromEntries(Object.keys(m.item.fields).map((f) => [f, fields[f] ?? read[f]!])) as unknown as SubtypeExprOrValue<EastType>,
+                m.item,
+            ) as ExprType<EastType>;
+            $.match(s, {
+                some: ($2, sv) => {
+                    if (endAs === undefined || m.end === undefined) {
+                        $2.assign(result, some(rebuild({ [m.start.name]: sv as ExprType<EastType> })));
+                        return;
+                    }
+                    const endName = m.end.name;
+                    const asEnd = $2.const(endAs);
+                    const e = $2.let(asEnd(end), OptionType(m.end.type));
+                    $2.match(e, {
+                        some: ($3, ev) => {
+                            $3.assign(result, some(rebuild({ [m.start.name]: sv as ExprType<EastType>, [endName]: ev as ExprType<EastType> })));
+                        },
+                    });
                 },
             });
             return result;
-        }) as unknown as OwnEditFn;
+        });
+    })();
+
+    /**
+     * Whether a list holds an item keyed `k` (#825) — the key a move finds its
+     * item by, so a row's list keeps its keys unique: a card whose item repeats
+     * one, or a move onto a row already holding the moved item's key, is
+     * refused rather than leaving two items one key names.
+     */
+    const holds = move === undefined ? undefined : (list: ExprType<ArrayType<EastType>>, k: ExprType<StringType>) =>
+        list.some((_$, item) => East.equal((item as unknown as Record<string, ExprType<StringType>>)[move.key]!, k));
+
+    /**
+     * This series' own edit on one of its entries — the row at `path` is its
+     * own: a verdict into its field, a dropped card's item into its list, and
+     * a moved element's item re-timed where it is, taken out of the list, or
+     * put into it (#825).
+     */
+    const ownFor = (kt: EastType): OwnEditFn | undefined => owns.get(kt, () => {
+        if (review === undefined && edit === undefined) return undefined;
+        const create = edit?.create !== undefined ? createFor(kt, edit.create) : undefined;
+        return East.function([rowType, kt, PathType, PlanGestureType, PlanCarriedType], OptionType(rowType),
+            ($, value, key, path, gesture, carried) => {
+                const setVerdict = withVerdict === undefined ? undefined : $.const(withVerdict);
+                const make = create === undefined ? undefined : $.const(create);
+                const place = placed === undefined ? undefined : $.const(placed);
+                const result = $.let(none, OptionType(rowType));
+                $.match(gesture, {
+                    verdict: ($2, verdict) => {
+                        if (setVerdict !== undefined) $2.assign(result, some(setVerdict(value, verdict)));
+                    },
+                    drop: ($2, drop) => {
+                        if (make === undefined || edit === undefined) return;
+                        const list = $2.let(entryAccess(value)[edit.items]! as unknown as ExprType<ArrayType<EastType>>);
+                        const item = $2.let(make(drop, value, key), itemType!);
+                        const add = ($3: typeof $2) => {
+                            $3(list.pushLast(item));
+                            $3.assign(result, some(value));
+                        };
+                        // With the item's key declared, a card whose item
+                        // repeats a key in the list is refused (#825).
+                        if (holds === undefined || move === undefined) add($2);
+                        else $2.if(holds(list, (item as unknown as Record<string, ExprType<StringType>>)[move.key]!).not(), add);
+                    },
+                    move: ($2, mv) => {
+                        if (place === undefined || move === undefined || edit === undefined) return;
+                        const keyField = move.key;
+                        const itemOf = move.item;
+                        const here = $2.let(East.value(variant("entry", { series: cfg.key, path }), PlanRowIdType), PlanRowIdType);
+                        const list = $2.let(entryAccess(value)[edit.items]! as unknown as ExprType<ArrayType<EastType>>);
+                        // The element's item, by its key.
+                        const at = $2.let(list.firstMap(($3, item, i) =>
+                            East.equal((item as unknown as Record<string, ExprType<StringType>>)[keyField]!, mv.key).ifElse(
+                                () => East.value(some(i), OptionType(IntegerType)),
+                                () => East.value(none, OptionType(IntegerType)))), OptionType(IntegerType));
+                        $2.if(East.equal(here, mv.from).and(() => East.equal(here, mv.to)), ($3) => {
+                            // Along its row, or resized: its instants set where it is.
+                            $3.match(at, {
+                                some: ($4, i) => {
+                                    const moved = $4.let(place(list.get(i), mv.start, mv.end), OptionType(itemOf));
+                                    $4.match(moved, {
+                                        some: ($5, item) => {
+                                            $5(list.update(i, item));
+                                            $5.assign(result, some(value));
+                                        },
+                                    });
+                                },
+                            });
+                        }).else(($3) => {
+                            // Its source: taken out of the list, and carried.
+                            $3.if(East.equal(here, mv.from), ($4) => {
+                                $4.match(at, {
+                                    some: ($5, i) => {
+                                        $5(carried.update(East.value(some(East.Blob.encodeBeast(list.get(i), "v2")), OptionType(BlobType))));
+                                        const before = $5.let(list.slice(0n, i));
+                                        const after = $5.let(list.slice(i.add(1n), list.size()));
+                                        $5(list.clear());
+                                        $5(list.append(before));
+                                        $5(list.append(after));
+                                        $5.assign(result, some(value));
+                                    },
+                                });
+                            });
+                            // Its target: the carried item put in, at its new
+                            // instants — unless the list already holds its key,
+                            // when it is put nowhere and the move lands nowhere.
+                            $3.if(East.equal(here, mv.to), ($4) => {
+                                const held = $4.let(carried.get(), OptionType(BlobType));
+                                $4.match(held, {
+                                    some: ($5, bytes) => {
+                                        $5.if(holds!(list, mv.key).not(), ($6) => {
+                                            const item = $6.let(bytes.decodeBeast(itemOf, "v2"), itemOf);
+                                            const moved = $6.let(place(item, mv.start, mv.end), OptionType(itemOf));
+                                            $6.match(moved, {
+                                                some: ($7, placedItem) => {
+                                                    $7(list.pushLast(placedItem));
+                                                    $7(carried.update(East.value(none, OptionType(BlobType))));
+                                                    $7.assign(result, some(value));
+                                                },
+                                            });
+                                        });
+                                    },
+                                });
+                            });
+                        });
+                    },
+                });
+                return result;
+            }) as unknown as OwnEditFn;
     });
 
     /** The walk's writer — a bare `children` accessor: the rows below an entry are this series' own. */
@@ -1189,8 +1582,8 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
         }
         const ops = collectionOps(cc);
         const collOf = (entry: ExprType<EastType>) => (ref.kind === "field" ? entryAccess(entry)[ref.field]! : nodeOf(entry));
-        return East.function([rowType, kt, PathType, IntegerType, StringType, PlanGestureType], OptionType(rowType),
-            ($, value, _key, path, depth, series, gesture) => {
+        return East.function([rowType, kt, PathType, IntegerType, StringType, PlanGestureType, PlanCarriedType], OptionType(rowType),
+            ($, value, _key, path, depth, series, gesture, carried) => {
                 const result = $.let(none, OptionType(rowType));
                 // The walk's rows are this series' own, at every depth.
                 $.if(series.equal(cfg.key), ($2) => {
@@ -1207,7 +1600,7 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
                     });
                     const coll = $2.let(collOf(cur), cc);
                     const k = $2.let(keyOf(path.get(last)), kc);
-                    const written = $2.let(write(ops.get(coll, k), k, gesture), OptionType(rowType));
+                    const written = $2.let(write(ops.get(coll, k), k, path, gesture, carried), OptionType(rowType));
                     $2.match(written, {
                         some: ($3, entry) => {
                             $3(ops.put(coll, k, entry));
@@ -1242,8 +1635,8 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
             return [{ ref, cc, kc, childType, writes }];
         });
         if (parts.length === 0) return undefined;
-        return East.function([rowType, kt, PathType, IntegerType, StringType, PlanGestureType], OptionType(rowType),
-            ($, value, _key, path, depth, series, gesture) => {
+        return East.function([rowType, kt, PathType, IntegerType, StringType, PlanGestureType, PlanCarriedType], OptionType(rowType),
+            ($, value, _key, path, depth, series, gesture, carried) => {
                 const result = $.let(none, OptionType(rowType));
                 for (const part of parts) {
                     const ops = collectionOps(part.cc);
@@ -1256,7 +1649,7 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
                             const child = $3.let(ops.get(coll, k), part.childType);
                             for (const write of writes) {
                                 $3.if(result.hasTag("none"), ($4) => {
-                                    const written = $4.let(write(child, k, path, depth.add(1n), series, gesture), OptionType(part.childType));
+                                    const written = $4.let(write(child, k, path, depth.add(1n), series, gesture, carried), OptionType(part.childType));
                                     $4.match(written, {
                                         some: ($5, entry) => {
                                             $5(ops.put(coll, k, entry));
@@ -1278,17 +1671,17 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
         const below = children === undefined ? undefined
             : typeof children === "function" ? walkWriterFor(kt) : stepsWriterFor(kt);
         if (own === undefined && below === undefined) return undefined;
-        return East.function([rowType, kt, PathType, IntegerType, StringType, PlanGestureType], OptionType(rowType),
-            ($, value, key, path, depth, series, gesture) => {
+        return East.function([rowType, kt, PathType, IntegerType, StringType, PlanGestureType, PlanCarriedType], OptionType(rowType),
+            ($, value, key, path, depth, series, gesture, carried) => {
                 const result = $.let(none, OptionType(rowType));
                 $.if(depth.equal(path.size()), ($2) => {
                     if (own === undefined) return;
                     const write = $2.const(own);
-                    $2.if(series.equal(cfg.key), ($3) => { $3.assign(result, write(value, key, gesture)); });
+                    $2.if(series.equal(cfg.key), ($3) => { $3.assign(result, write(value, key, path, gesture, carried)); });
                 }).else(($2) => {
                     if (below === undefined) return;
                     const write = $2.const(below);
-                    $2.assign(result, write(value, key, path, depth, series, gesture));
+                    $2.assign(result, write(value, key, path, depth, series, gesture, carried));
                 });
                 return result;
             }) as unknown as WriteFn;
@@ -1482,18 +1875,18 @@ function viewsSpec(rowType: EastType, cfg: PlanViewsSeriesConfig<EastType, EastT
                 });
                 const below = host.writer(collection, at);
                 if (owns.length === 0 && below === undefined) return undefined;
-                return East.function([rowType, kt, PathType, IntegerType, StringType, PlanGestureType], OptionType(rowType),
-                    ($, value, key, path, depth, series, gesture) => {
+                return East.function([rowType, kt, PathType, IntegerType, StringType, PlanGestureType, PlanCarriedType], OptionType(rowType),
+                    ($, value, key, path, depth, series, gesture, carried) => {
                         const result = $.let(none, OptionType(rowType));
                         $.if(depth.equal(path.size()), ($2) => {
                             for (const o of owns) {
                                 const write = $2.const(o.own);
-                                $2.if(series.equal(o.key), ($3) => { $3.assign(result, write(value, key, gesture)); });
+                                $2.if(series.equal(o.key), ($3) => { $3.assign(result, write(value, key, path, gesture, carried)); });
                             }
                         }).else(($2) => {
                             if (below === undefined) return;
                             const write = $2.const(below);
-                            $2.assign(result, write(value, key, path, depth, series, gesture));
+                            $2.assign(result, write(value, key, path, depth, series, gesture, carried));
                         });
                         return result;
                     }) as unknown as WriteFn;
@@ -1569,13 +1962,13 @@ function sectionSpec(cfg: PlanSectionSeriesConfig<PlanAxisKindLiteral>, members:
                     .filter((w): w is WriteFn => w !== undefined);
                 if (writes.length === 0) return undefined;
                 const { entry, key: kt } = shapeOf(collection, at);
-                return East.function([entry, kt, PathType, IntegerType, StringType, PlanGestureType], OptionType(entry),
-                    ($, value, key, path, depth, series, gesture) => {
+                return East.function([entry, kt, PathType, IntegerType, StringType, PlanGestureType, PlanCarriedType], OptionType(entry),
+                    ($, value, key, path, depth, series, gesture, carried) => {
                         const result = $.let(none, OptionType(entry));
                         for (const w of writes) {
                             const write = $.const(w);
                             $.if(result.hasTag("none"), ($2) => {
-                                $2.assign(result, write(value, key, path, depth, series, gesture));
+                                $2.assign(result, write(value, key, path, depth, series, gesture, carried));
                             });
                         }
                         return result;
@@ -1653,12 +2046,13 @@ const topWrites = new WeakMap<PlanSeriesSpec, ByType<TopWriteFn>>();
  * series value carries as `write`: a gesture on a row of one entry, written
  * into a DETACHED copy of the entry (a nested entry in place in its
  * collection); `none` when the row is not the entry's, or no series in the
- * tree takes the gesture on it.
+ * tree takes the gesture on it. A move to another row carries its item
+ * between its two writes in `carried` (#825).
  *
  * @param spec - The series' build spec
  * @param collection - The source's collection type
  * @param where - Who is asking, for messages
- * @returns `(entry, key, row, gesture) → the entry written`
+ * @returns `(entry, key, row, gesture, carried) → the entry written`
  */
 function topWrite(spec: PlanSeriesSpec, collection: EastType, where: string): TopWriteFn {
     let cache = topWrites.get(spec);
@@ -1670,7 +2064,7 @@ function topWrite(spec: PlanSeriesSpec, collection: EastType, where: string): To
         const { entry: rowType, key: kt } = shapeOf(collection, where);
         const writer = spec.writer(collection, where);
         const seg = segmentOf(kt);
-        return East.function([rowType, kt, PlanRowIdType, PlanGestureType], OptionType(rowType), ($, entry, key, row, gesture) => {
+        return East.function([rowType, kt, PlanRowIdType, PlanGestureType, PlanCarriedType], OptionType(rowType), ($, entry, key, row, gesture, carried) => {
             const result = $.let(none, OptionType(rowType));
             if (writer === undefined) return result;
             const write = $.const(writer);
@@ -1680,7 +2074,7 @@ function topWrite(spec: PlanSeriesSpec, collection: EastType, where: string): To
                     const mine = $2.let(id.path.size().greater(0n).and(() => id.path.get(0n).equal(seg(key))), BooleanType);
                     $2.if(mine, ($3) => {
                         const detached = $3.let(East.Blob.encodeBeast(entry, "v2").decodeBeast(rowType, "v2"), rowType);
-                        $3.assign(result, write(detached, key, id.path, 1n, id.series, gesture));
+                        $3.assign(result, write(detached, key, id.path, 1n, id.series, gesture, carried));
                     });
                 },
             });
@@ -1811,7 +2205,9 @@ function seriesValueWrite(s: PlanSeriesValue<PlanAxisKindLiteral>): TopWriteFn {
 /**
  * The canvas's write (#880) — a gesture on a row of one entry, written into
  * the entry by whichever series in the list made the row: `(entry, key, row,
- * gesture) → the entry written`, `none` when none takes it.
+ * gesture, carried) → the entry written`, `none` when none takes it. A move
+ * to another row carries its item between its two writes in `carried`
+ * (#825).
  *
  * @remarks
  * The `applySeries` rule: a TS array is built for the source's own collection
@@ -1824,28 +2220,28 @@ function seriesValueWrite(s: PlanSeriesValue<PlanAxisKindLiteral>): TopWriteFn {
  */
 export function seriesWriteFn(series: PlanSeriesInput, collection: EastType): TopWriteFn {
     const { entry: rowType, key: kt } = shapeOf(collection, "Plan");
-    const inputs = [rowType, kt, PlanRowIdType, PlanGestureType] as const;
+    const inputs = [rowType, kt, PlanRowIdType, PlanGestureType, PlanCarriedType] as const;
     if (Array.isArray(series)) {
         const built = series.map((s) => {
             const spec = specOf(s);
             return spec !== undefined ? topWrite(spec, collection, `Plan.series.${spec.arm} "${spec.key}"`) : undefined;
         });
-        return East.function([...inputs], OptionType(rowType), ($, entry, key, row, gesture) => {
+        return East.function([...inputs], OptionType(rowType), ($, entry, key, row, gesture, carried) => {
             const result = $.let(none, OptionType(rowType));
             series.forEach((s, i) => {
                 const own = built[i];
                 const write = $.const(own !== undefined ? own : seriesValueWrite(s));
-                $.if(result.hasTag("none"), ($2) => { $2.assign(result, write(entry, key, row, gesture)); });
+                $.if(result.hasTag("none"), ($2) => { $2.assign(result, write(entry, key, row, gesture, carried)); });
             });
             return result;
         }) as unknown as TopWriteFn;
     }
-    return East.function([...inputs], OptionType(rowType), ($, entry, key, row, gesture) => {
+    return East.function([...inputs], OptionType(rowType), ($, entry, key, row, gesture, carried) => {
         const result = $.let(none, OptionType(rowType));
         $.for(series, ($2, s) => {
             $2.if(result.hasTag("none"), ($3) => {
                 const write = $3.let(seriesValueWrite(s as PlanSeriesValue));
-                $3.assign(result, write(entry, key, row, gesture));
+                $3.assign(result, write(entry, key, row, gesture, carried));
             });
         });
         return result;

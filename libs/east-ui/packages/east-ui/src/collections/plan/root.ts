@@ -28,6 +28,7 @@ import {
     StringType,
     StructType,
     isTypeEqual,
+    ref,
     toEastTypeValue,
     variant,
     some,
@@ -71,7 +72,7 @@ import {
 } from "./types.js";
 import { PlanReviewType } from "./ir.js";
 import { resolveTag, WINDOWLESS_AXES } from "./builders.js";
-import { applySeries, checkSeries, seriesWriteFn, PlanSeriesType, type PlanSeriesInput } from "./series.js";
+import { applySeries, checkSeries, seriesWriteFn, PlanCarriedType, PlanSeriesType, type PlanSeriesInput } from "./series.js";
 import { pickActive, PickBindType, type PickHandle } from "../../contracts/pick.js";
 import {
     resolveRowSource, buildRowSource, buildPagedWindow,
@@ -115,9 +116,10 @@ export interface PlanReviewConfig {
 
 /**
  * The Plan's editing session (#880) — the Sheet's, over the canvas's entries:
- * every verdict and every dropped card is a DRAFT of the entry it was made on,
- * each gesture one undoable transaction, and Apply one checked, idempotent
- * batch against the base the drafts began from.
+ * every verdict, every dropped card and every moved or resized element (#825)
+ * is a DRAFT of the entry it was made on, each gesture one undoable
+ * transaction, and Apply one checked, idempotent batch against the base the
+ * drafts began from.
  *
  * @remarks
  * The entries are `data`'s top-level entries: a gesture on a row at any depth
@@ -191,7 +193,7 @@ export interface PlanBindHandle {
  * @property expandRender - The R2 developer render for rows declaring `expand` (called with the row's id)
  * @property expandGutter - The R2 gutter render — fills the expanded row's grown gutter cell (called with the row's id)
  * @property review - The review chrome (decision column + batch foot); a verdict is a gesture of `editing`
- * @property editing - The editing session (#880) — every verdict and dropped card a draft, applied as one checked batch
+ * @property editing - The editing session (#880) — every verdict, dropped card, move and resize a draft, applied as one checked batch
  * @property slice - Bound slice chrome (toolbar affordances)
  * @property footer - Status-footer items
  * @property id - DnD target identity (omit ⇒ the canvas is no drop target)
@@ -278,7 +280,7 @@ export interface PlanConfig<K extends PlanAxisKindLiteral = PlanAxisKindLiteral>
      *  the field the reviewed series names (`review: { verdict }` on the series). */
     review?: PlanReviewConfig;
     /** The editing session (#880) — see {@link PlanEditingConfig}. Without it the canvas takes no gesture: the
-     *  decision buttons are disabled and no card lands. */
+     *  decision buttons are disabled, no card lands and nothing moves. */
     editing?: PlanEditingConfig;
     /** Bound slice chrome — the handle + toolbar affordances (default `["cohort","filter","search","range","resolution","brush","summary"]`). */
     slice?: {
@@ -296,14 +298,17 @@ export interface PlanConfig<K extends PlanAxisKindLiteral = PlanAxisKindLiteral>
         /** Right-align the item. */
         end?: boolean;
     }[];
-    /** DnD target identity — names the Plan in drag-grammar cell refs. Omit ⇒ the canvas is no drop target.
-     *  A card lands only on a row whose series declares `edit` (where it lands and how it becomes an item),
-     *  as a draft of the root's `editing` session (#880). */
+    /** DnD target identity — names the Plan in drag-grammar cell refs, which is how a Library's cards reach it:
+     *  omit it and no card lands. A card lands only on a row whose series declares `edit.create` (where it
+     *  lands and how it becomes an item). The canvas's own elements move whether or not it has an `id` —
+     *  where their series declares a move's fields (`edit.key` and `start` / `end`, or `at`, #825). Each is a
+     *  draft of the root's `editing` session. */
     id?: string;
     /** Library ids accepted for `add` drags (omit = no adds). */
     sources?: string[];
-    /** IR-level drop veto — consulted with the candidate `add` (its `CellRef.row` the row id's canonical
-     *  text) before a drop becomes a draft; `false` ⇒ the ⊘ invalid stage; a throwing predicate fails open. */
+    /** IR-level drop veto — consulted with the candidate event (`add` for a card; `move` or `resize` for an
+     *  element moved, #825; a `CellRef.row` is the row id's canonical text) where the drag rests and again
+     *  before it becomes a draft; `false` ⇒ the ⊘ invalid stage; a throwing predicate fails open. */
     canDrop?: SubtypeExprOrValue<FunctionType<[DragEventType], BooleanType>>;
     /** Row click (selection) — the row's id. */
     onSelect?: SubtypeExprOrValue<FunctionType<[PlanRowIdType], NullType>>;
@@ -365,8 +370,8 @@ function seriesSourceOf(list: ExprType<EastType>): EastType | undefined {
  * @remarks
  * Window and resolution have no callbacks by design: they are slice writes
  * (`setRange` / `setResolution`) — hosts observe the slice. A change to the
- * data — a verdict, a dropped card — is a draft of the `editing` session,
- * applied as one checked batch (#880).
+ * data — a verdict, a dropped card, a moved or resized element — is a draft of
+ * the `editing` session, applied as one checked batch (#880, #825).
  */
 export function createPlanRoot<K extends PlanAxisKindLiteral = PlanAxisKindLiteral>(config: PlanConfig<K>): ExprType<UIComponentType> {
     // A canvas is DEFINED as data + series (+ the root resolvers) — there
@@ -682,22 +687,31 @@ function buildPlanEditing(resolved: ResolvedRowSource, series: PlanSeriesInput, 
     });
 
     // Gestures written into their entries, through the series that made each
-    // row; `none` for an entry no series took the gesture on.
+    // row; `none` for an entry no series took the gesture on. A move to
+    // another row carries its item from the row that gives it up to the row
+    // that takes it — the requests are in that order (#825) — and an item
+    // still carried at the end is a move that landed nowhere: the batch is
+    // refused whole, so an item is never taken without being put.
     const writeOne = seriesWriteFn(series, sourceType);
     const write = East.function([ArrayType(PlanWriteRequestType)], ArrayType(OptionType(BlobType)), ($, requests) => {
         const writeRow = $.const(writeOne);
         const parse = $.const(keyOf);
-        return requests.map(($2, request) => {
+        const carried = $.let(ref(East.value(none, OptionType(BlobType))), PlanCarriedType);
+        const written = $.let(requests.map(($2, request) => {
             const key = $2.let(parse(request.id));
             const entry = $2.let(request.entry.decodeBeast(entryType, "v2"), entryType);
             const out = $2.let(none, OptionType(BlobType));
             $2.for(request.rows, ($3, row) => {
-                const next = $3.let(writeRow(entry, key, row, request.gesture));
+                const next = $3.let(writeRow(entry, key, row, request.gesture, carried));
                 $3.match(next, { some: ($4, value) => { $4.assign(entry, value); } });
                 $3.if(next.hasTag("some"), ($4) => { $4.assign(out, some(East.Blob.encodeBeast(entry, "v2"))); });
             });
             return out;
-        });
+        }), ArrayType(OptionType(BlobType)));
+        const stranded = $.let(carried.get(), OptionType(BlobType));
+        return stranded.hasTag("some").ifElse(
+            () => written.map((_$2) => East.value(none, OptionType(BlobType))),
+            () => written);
     });
 
     // A window's entry ids, in the source's order.

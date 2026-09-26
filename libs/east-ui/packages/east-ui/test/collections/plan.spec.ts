@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { ArrayType, BooleanType, DateTimeType, DictType, East, EastTypeType, FloatType, FunctionType, IntegerType, NullType, OptionType, RecursiveType, StringType, StructType, VariantType, isTypeEqual, none, some, toEastTypeValue, variant } from "@elaraai/east";
+import { ArrayType, BooleanType, DateTimeType, DictType, East, EastTypeType, FloatType, FunctionType, IntegerType, NullType, OptionType, RecursiveType, StringType, StructType, VariantType, isTypeEqual, none, printFor, some, toEastTypeValue, variant } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { ApprovalStateType, CellRefType, Chart, Editing, Plan, Text, type PlanSeriesValue } from "@elaraai/east-ui/internal";
 import { EventStateType, Format, Paged, StatusValueType, UIComponentType } from "@elaraai/east-ui";
@@ -419,13 +419,75 @@ describeEast("Plan", (test) => {
         }));
         const rows = $.let(p.unwrap().unwrap("Plan").rows.unwrap("inline").flatMap((_$, b) => b.rows));
         $(Assert.equal(rows.get(0n).approval.unwrap("some").hasTag("rejected"), true));
-        $(Assert.equal(rows.get(0n).edits, { verdict: true, drop: false }));
+        $(Assert.equal(rows.get(0n).edits, { verdict: true, drop: false, move: none }));
         $(Assert.equal(rows.get(1n).approval.hasTag("none"), true));
-        $(Assert.equal(rows.get(1n).edits, { verdict: false, drop: true }));
+        $(Assert.equal(rows.get(1n).edits, { verdict: false, drop: true, move: none }));
         $(Assert.equal(rows.get(2n).approval.unwrap("some").hasTag("rejected"), true));
-        $(Assert.equal(rows.get(2n).edits, { verdict: false, drop: false }));
+        $(Assert.equal(rows.get(2n).edits, { verdict: false, drop: false, move: none }));
         // A hand-built row belongs to no entry, so it takes no gesture either.
-        $(Assert.equal(rows.get(3n).edits, { verdict: false, drop: false }));
+        $(Assert.equal(rows.get(3n).edits, { verdict: false, drop: false, move: none }));
+    });
+
+    test("a series declaring a move's fields flags its rows with its item type, and whether its elements resize (#825)", $ => {
+        const Job = StructType({ key: StringType, start: DateTimeType, end: DateTimeType });
+        const Alloc = StructType({ key: StringType, at: DateTimeType });
+        const Row = StructType({ jobs: ArrayType(Job), shifts: ArrayType(Job), allocs: ArrayType(Alloc) });
+        const data = $.const(new Map([["a", { jobs: [], shifts: [], allocs: [] }]]), DictType(StringType, Row));
+        const p = $.let(Plan.Root({
+            axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }),
+            data,
+            series: [
+                Plan.series.span(Row, { key: "jobs", title: "Jobs", label: (_r, k) => k, runs: _r => [],
+                    edit: { items: "jobs", key: "key", start: "start", end: "end" } }),
+                Plan.series.cards(Row, { key: "shifts", title: "Shifts", label: (_r, k) => k, chips: _r => [],
+                    edit: { items: "shifts", key: "key", start: "start", end: "end" } }),
+                Plan.series.buckets(Row, { key: "allocs", title: "Allocs", label: (_r, k) => k, events: _r => [],
+                    edit: { items: "allocs", key: "key", at: "at" } }),
+            ],
+        }));
+        const rows = $.let(p.unwrap().unwrap("Plan").rows.unwrap("inline").flatMap((_$, b) => b.rows));
+        // The item type as East prints it — no `create`, so no card lands.
+        const jobs = printFor(EastTypeType)(toEastTypeValue(Job));
+        $(Assert.equal(rows.get(0n).edits, { verdict: false, drop: false, move: some({ items: jobs, resize: true }) }));
+        // Two series over one item type say so alike: a job moves between their rows.
+        $(Assert.equal(rows.get(1n).edits.move, some({ items: jobs, resize: true })));
+        // A tile has one instant, and its items are another type.
+        const allocs = $.let(rows.get(2n).edits.move.unwrap("some"));
+        $(Assert.equal(allocs.resize, false));
+        $(Assert.equal(allocs.items, printFor(EastTypeType)(toEastTypeValue(Alloc))));
+    });
+
+    test("a move's fields are checked at build — the key, both ends or one instant, and each field's type (#825)", $ => {
+        const Job = StructType({ key: StringType, code: IntegerType, start: DateTimeType, end: DateTimeType, notes: ArrayType(StringType) });
+        const Row = StructType({ jobs: ArrayType(Job), names: ArrayType(StringType) });
+        const refusal = (build: () => unknown): string => {
+            try { build(); return ""; } catch (e) { return e instanceof Error ? e.message : String(e); }
+        };
+        const span = (edit: unknown) => refusal(() => Plan.series.span(Row, {
+            key: "s", title: "S", label: (_r, k) => k, runs: _r => [], edit: edit as never,
+        }));
+        const buckets = (edit: unknown) => refusal(() => Plan.series.buckets(Row, {
+            key: "b", title: "B", label: (_r, k) => k, events: _r => [], edit: edit as never,
+        }));
+        // Neither a dropped card's item nor a move's fields: nothing to write.
+        const empty = span({ items: "jobs" });
+        $(Assert.equal(East.value(empty.startsWith('Plan.series.span "s": `edit` declares neither `create`')), true));
+        // A run moves both its ends; a tile has one instant.
+        $(Assert.equal(East.value(span({ items: "jobs", key: "key", start: "start" }).includes("give `edit.start` and `edit.end` together")), true));
+        $(Assert.equal(East.value(span({ items: "jobs", key: "key", at: "start" }).includes("a span element has two ends")), true));
+        $(Assert.equal(East.value(buckets({ items: "jobs", key: "key", start: "start", end: "end" }).includes("a buckets element has one instant")), true));
+        // The key finds the element's item: required, and a String field.
+        $(Assert.equal(East.value(span({ items: "jobs", start: "start", end: "end" }).includes("name the item's String key field with `edit.key`")), true));
+        $(Assert.equal(East.value(span({ items: "jobs", key: "code", start: "start", end: "end" }).includes('`edit.key` names "code", which is not a String field')), true));
+        // An instant field holds an instant, is not the key, and the ends are two fields.
+        $(Assert.equal(East.value(span({ items: "jobs", key: "key", start: "notes", end: "end" }).includes('`edit.start` names "notes", which is not an instant field')), true));
+        $(Assert.equal(East.value(span({ items: "jobs", key: "key", start: "key", end: "end" }).includes('names the key field "key"')), true));
+        $(Assert.equal(East.value(span({ items: "jobs", key: "key", start: "start", end: "start" }).includes('both name "start"')), true));
+        // Items that are not structs have no fields to move.
+        $(Assert.equal(East.value(span({ items: "names", key: "key", start: "start", end: "end" }).includes("must be structs")), true));
+        // The right fields build.
+        $(Assert.equal(East.value(span({ items: "jobs", key: "key", start: "start", end: "end" })), ""));
+        $(Assert.equal(East.value(buckets({ items: "jobs", key: "key", at: "start" })), ""));
     });
 
     test("review and edit name fields of the entry — another field, or review beside approval, fails the build naming the series (#880)", $ => {
@@ -558,6 +620,13 @@ describeEast("Plan", (test) => {
         $(Assert.equal(East.value(isTypeEqual(Plan.Types.Gesture.cases.verdict, ApprovalStateType)), true));
         $(Assert.equal(East.value(isTypeEqual(Plan.Types.Drop.fields.row, Plan.Types.RowId)), true));
         $(Assert.equal(East.value(isTypeEqual(Plan.Types.Drop.fields.at, Plan.Types.Instant)), true));
+        // A move or a resize (#825) names its element, the rows it leaves and
+        // joins, and the instants it takes there.
+        $(Assert.equal(East.value(isTypeEqual(Plan.Types.Gesture.cases.move, Plan.Types.Move)), true));
+        $(Assert.equal(East.value(Object.keys(Plan.Types.Move.fields)), ["key", "from", "to", "start", "end"]));
+        $(Assert.equal(East.value(isTypeEqual(Plan.Types.Move.fields.from, Plan.Types.RowId)), true));
+        $(Assert.equal(East.value(isTypeEqual(Plan.Types.Move.fields.start, Plan.Types.Instant)), true));
+        $(Assert.equal(East.value(isTypeEqual(Plan.Types.RowEdits.fields.move, OptionType(Plan.Types.MoveEdits))), true));
     });
 
     // =========================================================================

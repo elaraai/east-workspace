@@ -22,7 +22,11 @@ import { planElementFocus } from "./focus.js";
 export const elementsSlots = [
     "bar", "barQty", "rollBand", "port", "diamond", "chartTickLeft", "chartTickRight", "refLabel",
     "chartReadout", "chartReadoutValue", "milestoneDot", "exceptionTri", "markIcon", "markLabel",
+    "moveEdge", "moveGhost", "moveGhostLabel", "moveGhostSpan",
 ] as const;
+
+/** An element that moves (#825) is picked up where it sits. */
+const grab = { "&[data-draggable]": { cursor: "grab" } } satisfies SystemStyleObject;
 
 /** Their base styles. */
 export const elementsBase = {
@@ -59,6 +63,7 @@ export const elementsBase = {
         "&[data-runoff]": {
             maskImage: "linear-gradient(to right, black 84%, transparent 99%)",
         },
+        ...grab,
         // ── R1 GEOMETRY SHRINKS (#591) ──
         // The mark already owns a position and a width on the axis, so it
         // keeps both and drops to 7px. Ink goes `transparent` rather than
@@ -151,6 +156,7 @@ export const elementsBase = {
         // the outline is the payload: shrink it, never make it
         // transparent — that would erase the row's whole meaning.
         "&[data-ctx]": { width: "6px", height: "6px", borderRadius: 0},
+        ...grab,
         ...planElementFocus,
     },
     // ── Chart rows — axis ticks + ref labels (marks are SVG, data-coloured) ──
@@ -236,6 +242,7 @@ export const elementsBase = {
         // the outline is the payload: shrink it, never make it
         // transparent — that would erase the row's whole meaning.
         "&[data-ctx]": { width: "5px", height: "5px"},
+        ...grab,
         ...planElementFocus,
     },
     exceptionTri: {
@@ -255,6 +262,7 @@ export const elementsBase = {
             borderRightWidth: "3.5px",
             borderBottomWidth: "6px",
         },
+        ...grab,
         ...planElementFocus,
     },
     // K7 icon swap — hosts choose the glyph, never the geometry
@@ -275,6 +283,7 @@ export const elementsBase = {
         // (see `EventsRow`) and this element never mounts collapsed. The
         // rule stays as a backstop for any path that does mount one.
         "&[data-ctx]": { display: "none" },
+        ...grab,
         ...planElementFocus,
     },
     markLabel: {
@@ -290,5 +299,58 @@ export const elementsBase = {
         zIndex: 3,
         pointerEvents: "none",
         "&[data-ctx]": { display: "none" },
+    },
+    // ── Moves (#825) ──
+    // A run's or a chip's end handle — the element's first / last 6px, where
+    // a press drags that end. A hairline grip shows on the element's hover;
+    // a touch gets a wider target.
+    moveEdge: {
+        position: "absolute",
+        top: 0,
+        bottom: 0,
+        width: "6px",
+        cursor: "ew-resize",
+        zIndex: 1,
+        "&[data-plan-edge='start']": { left: 0 },
+        "&[data-plan-edge='end']": { right: 0 },
+        "&::after": {
+            content: "''",
+            position: "absolute",
+            top: "3px",
+            bottom: "3px",
+            left: "2px",
+            width: "2px",
+            borderRadius: "1px",
+            background: "currentColor",
+            opacity: 0,
+            transition: "opacity 120ms",
+        },
+        "[data-draggable]:hover > &": { "&::after": { opacity: 0.55 } },
+        "@media (hover: none)": { width: "10px" },
+    },
+    // The ghost beside the pointer — the element's name over the span it
+    // would take, on paper in a brand ring.
+    moveGhost: {
+        display: "inline-flex",
+        flexDirection: "column",
+        alignItems: "flex-start",
+        gap: "1px",
+        padding: "3px 8px",
+        borderRadius: "3px",
+        background: "bg.surface",
+        boxShadow: "inset 0 0 0 1.5px {colors.brand.600}, 0 4px 12px -4px color-mix(in srgb, {colors.fg} 30%, transparent)",
+        fontFamily: "mono",
+        whiteSpace: "nowrap",
+        pointerEvents: "none",
+    },
+    moveGhostLabel: {
+        fontSize: "10px",
+        fontWeight: "semibold",
+        color: "fg.default",
+    },
+    moveGhostSpan: {
+        fontSize: "9px",
+        fontWeight: "medium",
+        color: "brand.fg",
     },
 } satisfies Record<(typeof elementsSlots)[number], SystemStyleObject>;

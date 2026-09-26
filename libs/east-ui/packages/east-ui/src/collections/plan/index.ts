@@ -103,7 +103,9 @@ import {
     PlanUiStateType,
     PlanUiBindType,
     PlanDropType,
+    PlanMoveType,
     PlanGestureType,
+    PlanMoveEditsType,
     PlanRowEditsType,
     PlanPatchEventTypeFor,
     PlanEditingType,
@@ -270,7 +272,9 @@ export {
     PlanUiStateType,
     PlanUiBindType,
     PlanDropType,
+    PlanMoveType,
     PlanGestureType,
+    PlanMoveEditsType,
     PlanRowEditsType,
     PlanPatchEventTypeFor,
     PlanEditingType,
@@ -355,8 +359,13 @@ export {
     type PlanVerdictField,
     type PlanItemsField,
     type PlanItemOf,
+    type PlanItemFields,
+    type PlanItemKeyField,
+    type PlanItemInstantType,
+    type PlanItemInstantField,
     type PlanReviewInput,
     type PlanEditInput,
+    type PlanPointEditInput,
 } from "./series.js";
 
 // ============================================================================
@@ -573,12 +582,16 @@ export interface PlanNamespace {
         ExpandAxis: typeof PlanExpandAxisType;
         /** The review chrome — the decision column's label, the foot's summary and Rerun (#880). */
         Review: typeof PlanReviewType;
-        /** A gesture a draft is made by — a verdict, or a card dropped on a row (#880). */
+        /** A gesture a draft is made by — a verdict, a card dropped on a row (#880), or an element moved or resized (#825). */
         Gesture: typeof PlanGestureType;
         /** A library card dropped on a row — what an editable series' `create` builds its item from (#880). */
         Drop: typeof PlanDropType;
+        /** A run, chip, tile or mark moved or resized — its item's new row and instants (#825). */
+        Move: typeof PlanMoveType;
         /** Which gestures a row takes (#880). */
         RowEdits: typeof PlanRowEditsType;
+        /** How a row's elements move — its item type, and whether they resize (#825). */
+        MoveEdits: typeof PlanMoveEditsType;
         /** `PatchEvent(R)` — what `editing.onPatch` receives for entries of `R` (#880). */
         PatchEvent: typeof PlanPatchEventTypeFor;
         /** The root's editing declaration on the wire — the shared session's fields and the canvas's own (#880). */
@@ -724,7 +737,9 @@ export const Plan: PlanNamespace = {
         Review: PlanReviewType,
         Gesture: PlanGestureType,
         Drop: PlanDropType,
+        Move: PlanMoveType,
         RowEdits: PlanRowEditsType,
+        MoveEdits: PlanMoveEditsType,
         PatchEvent: PlanPatchEventTypeFor,
         Editing: PlanEditingType,
         Series: PlanSeriesType,

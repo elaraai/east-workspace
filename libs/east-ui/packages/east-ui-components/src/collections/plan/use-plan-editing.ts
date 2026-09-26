@@ -41,6 +41,7 @@ import { kindOfIssue, raiseIssue, type BatchReadiness } from "../../editing/draf
 import type { HistoryAction } from "../../editing/HistoryBar.js";
 import type { DragEventValue } from "../../dnd/drag-layer";
 import { fromPlanSlot } from "./slot.js";
+import type { PlanMoveRequest } from "./edit/use-carry.js";
 import { PLAN_PAGE_SIZE, type PlanPagedSourceValue } from "./use-plan-paging.js";
 import { rowIdOfKey, rowKeyOf, type PlanRootValue, type PlanRowId, type PlanRowValue, type PlanWireBlock } from "./model.js";
 import type { RowKey } from "./plan-state.js";
@@ -88,6 +89,15 @@ export interface PlanEditing {
     verdictAll(verdict: PlanDraftVerdict, rows: readonly PlanRowValue[]): void;
     /** A card dropped on a row — drafted into its entry. Stable. */
     drop(event: DragEventValue): void;
+    /**
+     * A run, chip, tile or mark moved or resized (#825) — drafted into the
+     * entry its row came from, and, when it lands on a row of another entry,
+     * that entry too, as ONE gesture. Stable.
+     *
+     * @returns Whether it was drafted — `false` when the session cannot take
+     *   it or no series wrote it (the item is never taken without being put)
+     */
+    move(request: PlanMoveRequest): boolean;
     /** A history bar action. Stable. */
     action(action: HistoryAction): void;
 }
@@ -451,6 +461,24 @@ export function usePlanEditing(args: PlanEditingArgs): PlanEditing {
             record([{ id: entry, rows: [id] }], variant("drop", { from, row: id, at, duplicate }), "drop",
                 `Drop ${from.key} on ${args.labelOf(into.row)}`);
         },
+        move(request: PlanMoveRequest): boolean {
+            const from = rowIdOfKey(request.from);
+            const to = rowIdOfKey(request.to);
+            const source = from !== undefined ? entryOf(from) : undefined;
+            const target = to !== undefined ? entryOf(to) : undefined;
+            if (from === undefined || to === undefined || source === undefined || target === undefined) return false;
+            // The row it leaves is written first: its write takes the item,
+            // the target's puts it (#825). One entry holding both rows is one
+            // request over both, in that order.
+            const requests = source === target
+                ? [{ id: source, rows: request.from === request.to ? [from] : [from, to] }]
+                : [{ id: source, rows: [from] }, { id: target, rows: [to] }];
+            const gesture = variant("move", { key: request.key, from, to, start: request.span.start, end: request.span.end });
+            const label = request.origin === "resize"
+                ? `Resize ${request.label}`
+                : request.from === request.to ? `Move ${request.label}` : `Move ${request.label} to ${args.labelOf(request.to)}`;
+            return record(requests, gesture, request.origin, label);
+        },
         action(action: HistoryAction): void {
             if (action === "apply") void session.apply();
             else if (action === "refresh") session.refresh();
@@ -463,6 +491,7 @@ export function usePlanEditing(args: PlanEditingArgs): PlanEditing {
     const verdict = useCallback((key: RowKey, v: PlanDraftVerdict) => current.current.verdict(key, v), []);
     const verdictAll = useCallback((v: PlanDraftVerdict, all: readonly PlanRowValue[]) => current.current.verdictAll(v, all), []);
     const drop = useCallback((event: DragEventValue) => current.current.drop(event), []);
+    const move = useCallback((request: PlanMoveRequest) => current.current.move(request), []);
     const action = useCallback((a: HistoryAction) => current.current.action(a), []);
 
     return {
@@ -477,6 +506,7 @@ export function usePlanEditing(args: PlanEditingArgs): PlanEditing {
         verdict,
         verdictAll,
         drop,
+        move,
         action,
     };
 }

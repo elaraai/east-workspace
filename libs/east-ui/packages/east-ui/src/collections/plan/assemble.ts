@@ -86,8 +86,8 @@ export interface PlanRowFields {
     edits?: SubtypeExprOrValue<PlanRowEditsType>;
 }
 
-/** A row that takes no gesture — every row but an editable series' (#880). */
-const NO_EDITS = { verdict: false, drop: false };
+/** A row that takes no gesture — every row but an editable series' (#880, #825). */
+const NO_EDITS = { verdict: false, drop: false, move: none };
 
 /**
  * THE row envelope (#822) — an entry's row, a derived parent, a section header,

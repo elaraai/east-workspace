@@ -109,15 +109,16 @@ export const PlanRootType = StructType({
     // canvas. Same shape as `expandRender`, over the same row id.
     expandGutter: OptionType(FunctionType([PlanRowIdType], UIComponentType)),
     review: OptionType(PlanReviewType),
-    // The editing session (#880) — every verdict and every dropped card is a
-    // draft, applied as one checked batch.
+    // The editing session (#880) — every verdict, every dropped card and every
+    // moved or resized element (#825) is a draft, applied as one checked batch.
     editing: OptionType(PlanEditingType),
     pick: OptionType(PickBindType),
     slice: OptionType(SliceChromeType),
     footer: ArrayType(PlanFooterItemType),
     // DnD target role — the shared grammar (contracts/drag.ts); no id, no
-    // drop target (#824 — it used to be `""`). A drop is a gesture of the
-    // editing session (#880); `canDrop` vets it first.
+    // library card lands (#824 — it used to be `""`), though the canvas's own
+    // elements still move (#825). A drop or a move is a gesture of the editing
+    // session (#880); `canDrop` vets it first.
     id: OptionType(StringType),
     sources: ArrayType(StringType),
     canDrop: OptionType(CanDropFnType),

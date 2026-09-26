@@ -22,6 +22,8 @@ const W27 = new Date("2026-06-29T00:00:00Z");
 const W28 = new Date("2026-07-06T00:00:00Z");
 const W29 = new Date("2026-07-13T00:00:00Z");
 const W31 = new Date("2026-07-27T00:00:00Z");
+const W32 = new Date("2026-08-03T00:00:00Z");
+const W33 = new Date("2026-08-10T00:00:00Z");
 const END = new Date("2026-09-21T00:00:00Z");
 
 // ── The canvas: lines holding machines — a gesture on a machine drafts its line ──
@@ -55,7 +57,7 @@ const SEED: Map<string, LineValue> = new Map([["L1", line1()], ["L2", line2()]])
 
 const axis = Plan.axis({ window: { min: W27, max: END }, resolution: "week" });
 
-/** The lines, their machines stepped down into through a plain field — reviewed, and taking dropped jobs. */
+/** The lines, their machines stepped down into through a plain field — reviewed, taking dropped jobs, and moving them (#825). */
 const SERIES = [
     Plan.series.span(Line, {
         key: "lines", title: "Lines", label: (l) => l.name, runs: (_l) => [],
@@ -66,6 +68,9 @@ const SERIES = [
                 runs: (m) => m.jobs.map((_$, j) => Plan.run({ key: j.key, start: j.start, end: j.end, label: j.key, state: "confirmed" })),
                 edit: {
                     items: "jobs",
+                    key: "key",
+                    start: "start",
+                    end: "end",
                     create: (drop, m) => ({
                         key: East.str`${drop.from.key}-${East.print(m.jobs.size())}`,
                         start: drop.at.unwrap("time"),
@@ -82,6 +87,8 @@ const lineRow = (line: string): RowId => variant("entry", { series: "lines", pat
 const verdict = (v: Verdict): Gesture => variant("verdict", v);
 const dropOf = (card: string, row: RowId, at: Date): Gesture =>
     variant("drop", { from: { library: "jobs", key: card }, row, at: variant("time", at), duplicate: false });
+const moveOf = (key: string, from: RowId, to: RowId, start: Date, end: Date): Gesture =>
+    variant("move", { key, from, to, start: variant("time", start), end: variant("time", end) });
 
 const encodeLine = encodeBeast2For(Line);
 const decodeLine = decodeBeast2For(Line);
@@ -149,6 +156,173 @@ test("a row no series takes the gesture on writes nothing — the line's own row
         { id: "L1", entry, rows: [lineRow("L1")], gesture: dropOf("weld", lineRow("L1"), W29) },
     ]);
     assert.deepEqual(outs.map((o) => o.type), ["none", "none", "none", "none"]);
+});
+
+// ── Moves and resizes (#825) — the item's instants, and the list it is in ───
+
+const M03 = machine("L1", "M03");
+const M04 = machine("L1", "M04");
+const M11 = machine("L2", "M11");
+/** B-214 a week later, whole. */
+const B214_LATER: JobValue = { key: "b214", start: W29, end: W32 };
+
+test("a move along its row sets the job's instants where it is — every other job and field as they were", () => {
+    const moved = writeOne(inline, "L1", line1(PENDING, [B214, WELD]), [M03], moveOf("b214", M03, M03, W29, W32));
+    assert.ok(moved !== undefined && sameLine(moved, line1(PENDING, [B214_LATER, WELD])));
+    // A resize is the same gesture with one end moved.
+    const resized = writeOne(inline, "L1", line1(), [M03], moveOf("b214", M03, M03, W28, W33));
+    assert.ok(resized !== undefined && sameLine(resized, line1(PENDING, [{ key: "b214", start: W28, end: W33 }])));
+});
+
+test("a move to another machine of the same line is ONE request, source row first: the job leaves M03 and joins M04", () => {
+    const moved = writeOne(inline, "L1", line1(), [M03, M04], moveOf("b214", M03, M04, W29, W32));
+    const expected: LineValue = {
+        name: "Line 1",
+        machines: new Map([["M03", { approval: PENDING, jobs: [] }], ["M04", { approval: APPROVED, jobs: [B214_LATER] }]]),
+    };
+    assert.ok(moved !== undefined && sameLine(moved, expected));
+});
+
+test("a move to a machine of another line is two requests in order — the job leaves one line and joins the other", () => {
+    const gesture = moveOf("b214", M03, M11, W29, W32);
+    const outs = inline.write([
+        { id: "L1", entry: encodeLine(line1()), rows: [M03], gesture },
+        { id: "L2", entry: encodeLine(line2()), rows: [M11], gesture },
+    ]);
+    const [one, two] = outs.map((o) => (o.type === "some" ? decodeLine(o.value) : undefined));
+    assert.ok(one !== undefined && sameLine(one, line1(PENDING, [])));
+    const joined: LineValue = { name: "Line 2", machines: new Map([["M11", { approval: PENDING, jobs: [B214_LATER] }]]) };
+    assert.ok(two !== undefined && sameLine(two, joined));
+});
+
+test("a move that lands nowhere is refused whole — a job is never taken without being put", () => {
+    const entry = encodeLine(line1());
+    // Onto the line's own row, whose series takes no move: taken from M03, put nowhere.
+    const ontoLine = inline.write([{ id: "L1", entry, rows: [M03, lineRow("L1")], gesture: moveOf("b214", M03, lineRow("L1"), W29, W32) }]);
+    assert.deepEqual(ontoLine.map((o) => o.type), ["none"]);
+    // Its target's request missing: the source alone is refused too.
+    const alone = inline.write([{ id: "L1", entry, rows: [M03], gesture: moveOf("b214", M03, M11, W29, W32) }]);
+    assert.deepEqual(alone.map((o) => o.type), ["none"]);
+    // The target first: nothing is carried yet when it is written, so nothing lands.
+    const reversed = inline.write([
+        { id: "L2", entry: encodeLine(line2()), rows: [M11], gesture: moveOf("b214", M03, M11, W29, W32) },
+        { id: "L1", entry, rows: [M03], gesture: moveOf("b214", M03, M11, W29, W32) },
+    ]);
+    assert.deepEqual(reversed.map((o) => o.type), ["none", "none"]);
+    // A key no job has: nothing to take, nothing written.
+    assert.equal(writeOne(inline, "L1", line1(), [M03], moveOf("b999", M03, M03, W29, W32)), undefined);
+    // An instant on another arm than the field holds (a number into a DateTime).
+    const [numeric] = inline.write([{ id: "L1", entry, rows: [M03], gesture: variant("move", {
+        key: "b214", from: M03, to: M03, start: variant("number", 3), end: variant("number", 5),
+    }) }]);
+    assert.equal(numeric?.type, "none");
+});
+
+test("a machine's jobs keep their keys unique — a move onto a machine already holding the key, or a card whose job repeats one, is refused", () => {
+    // M04 already holds a job keyed b214 — another job, the same key. The move
+    // would leave M04 two jobs one key names, so it puts the job nowhere, and
+    // the move is refused whole.
+    const B214_ELSEWHERE: JobValue = { key: "b214", start: W31, end: W33 };
+    const clash: LineValue = {
+        name: "Line 1",
+        machines: new Map([["M03", { approval: PENDING, jobs: [B214] }], ["M04", { approval: APPROVED, jobs: [B214_ELSEWHERE] }]]),
+    };
+    const [sameLineMove] = inline.write([{ id: "L1", entry: encodeLine(clash), rows: [M03, M04], gesture: moveOf("b214", M03, M04, W29, W32) }]);
+    assert.equal(sameLineMove?.type, "none");
+    // Across lines: the target line refuses it, so the source line gives nothing up.
+    const l2Clash: LineValue = { name: "Line 2", machines: new Map([["M11", { approval: PENDING, jobs: [B214_ELSEWHERE] }]]) };
+    const across = inline.write([
+        { id: "L1", entry: encodeLine(line1()), rows: [M03], gesture: moveOf("b214", M03, M11, W29, W32) },
+        { id: "L2", entry: encodeLine(l2Clash), rows: [M11], gesture: moveOf("b214", M03, M11, W29, W32) },
+    ]);
+    assert.deepEqual(across.map((o) => o.type), ["none", "none"]);
+    // `create` keys a card by the card and the list's size: on a machine holding
+    // one weld job already, a second weld card mints "weld-1" again — refused.
+    assert.equal(writeOne(inline, "L1", line1(PENDING, [WELD]), [M03], dropOf("weld", M03, W29)), undefined);
+    // Along its own row the key is its own, so a move there is untouched by the rule.
+    const along = writeOne(inline, "L1", clash, [M04], moveOf("b214", M04, M04, W29, W32));
+    assert.ok(along !== undefined && sameLine(along, {
+        name: "Line 1",
+        machines: new Map([["M03", { approval: PENDING, jobs: [B214] }], ["M04", { approval: APPROVED, jobs: [B214_LATER] }]]),
+    }));
+});
+
+// Every instant field type (#825): a number axis's Integer field and a Plan.Types.Instant field, and an ordinal
+// axis's String fields.
+const Slot = StructType({ key: StringType, at: IntegerType });
+const Board = StructType({ slots: ArrayType(Slot), marks: ArrayType(Plan.Types.EventMark) });
+type BoardValue = ValueTypeOf<typeof Board>;
+type InstantValue = ValueTypeOf<typeof Plan.Types.Instant>;
+const boardOf = (at: bigint, mark: InstantValue): BoardValue => ({
+    slots: [{ key: "s1", at }],
+    marks: [{ key: "k", at: mark, kind: variant("milestone", null), icon: none, label: none }],
+});
+const BOARD = boardOf(2n, variant("number", 2));
+const numberWire = editingOf(planOf(East.function([], UIComponentType, ($) => {
+    const data = $.const(new Map([["b", BOARD]]), DictType(StringType, Board));
+    return Plan.Root({
+        axis: Plan.axis.number({ window: { min: 0, max: 10 }, step: 1 }),
+        data,
+        series: [
+            Plan.series.buckets(Board, {
+                key: "slots", title: "Slots", label: (_b, k) => k,
+                events: (b) => b.slots.map((_$, s) => Plan.event({ key: s.key, at: s.at, state: "confirmed" })),
+                edit: { items: "slots", key: "key", at: "at" },
+            }),
+            Plan.series.events(Board, {
+                key: "marks", title: "Marks", label: (_b, k) => k, marks: (b) => b.marks,
+                edit: { items: "marks", key: "key", at: "at" },
+            }),
+        ],
+        editing: {},
+    });
+}).toIR().compile([])()));
+
+test("a move writes the axis instant into the item's field on its arm — an Integer rounded half away from zero, an instant as it is", () => {
+    const encode = encodeBeast2For(Board);
+    const decode = decodeBeast2For(Board);
+    const same = equalFor(Board);
+    const slots: RowId = variant("entry", { series: "slots", path: ["b"] });
+    const marks: RowId = variant("entry", { series: "marks", path: ["b"] });
+    const place = (row: RowId, key: string, at: number): BoardValue | undefined => {
+        const [out] = numberWire.write([{
+            id: "b", entry: encode(BOARD), rows: [row],
+            gesture: variant("move", { key, from: row, to: row, start: variant("number", at), end: variant("number", at) }),
+        }]);
+        return out?.type === "some" ? decode(out.value) : undefined;
+    };
+    const at36 = place(slots, "s1", 3.6);
+    assert.ok(at36 !== undefined && same(at36, boardOf(4n, variant("number", 2))));
+    const at25 = place(slots, "s1", 2.5);
+    assert.ok(at25 !== undefined && same(at25, boardOf(3n, variant("number", 2))));
+    const mark = place(marks, "k", 5.5);
+    assert.ok(mark !== undefined && same(mark, boardOf(2n, variant("number", 5.5))));
+});
+
+const Phase = StructType({ key: StringType, from: StringType, to: StringType });
+const Flow = StructType({ phases: ArrayType(Phase) });
+const FLOW: ValueTypeOf<typeof Flow> = { phases: [{ key: "p1", from: "PREP", to: "BUILD" }] };
+const ordinalWire = editingOf(planOf(East.function([], UIComponentType, ($) => {
+    const data = $.const(new Map([["f", FLOW]]), DictType(StringType, Flow));
+    return Plan.Root({
+        axis: Plan.axis.ordinal({ values: ["INTAKE", "PREP", "BUILD", "QC"] }),
+        data,
+        series: [Plan.series.cards(Flow, {
+            key: "phases", title: "Phases", label: (_f, k) => k,
+            chips: (f) => f.phases.map((_$, p) => Plan.chip({ key: p.key, from: p.from, to: p.to, label: p.key, state: "confirmed" })),
+            edit: { items: "phases", key: "key", start: "from", end: "to" },
+        })],
+        editing: {},
+    });
+}).toIR().compile([])()));
+
+test("an ordinal axis's move writes its values into String fields", () => {
+    const row: RowId = variant("entry", { series: "phases", path: ["f"] });
+    const [out] = ordinalWire.write([{
+        id: "f", entry: encodeBeast2For(Flow)(FLOW), rows: [row],
+        gesture: variant("move", { key: "p1", from: row, to: row, start: variant("ordinal", "BUILD"), end: variant("ordinal", "QC") }),
+    }]);
+    assert.ok(out?.type === "some" && equalFor(Flow)(decodeBeast2For(Flow)(out.value), { phases: [{ key: "p1", from: "BUILD", to: "QC" }] }));
 });
 
 test("derive draws each draft in its entry's place — with none it is the canvas's own blocks, and a draft derives like data", () => {

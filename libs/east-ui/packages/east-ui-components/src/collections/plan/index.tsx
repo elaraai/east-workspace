@@ -59,7 +59,7 @@
  */
 
 import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent, type ReactNode } from "react";
-import { Box, useSlotRecipe } from "@chakra-ui/react";
+import { Box, VisuallyHidden, useSlotRecipe } from "@chakra-ui/react";
 import { equalFor, equivalentFor } from "@elaraai/east";
 import { Plan } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils.js";
@@ -122,6 +122,11 @@ import { PlanAnnouncer } from "./root/announce.js";
 import { PlanWordsContext, useResolvedPlanWords } from "./words.js";
 import type { PlanSearch } from "./use-seek.js";
 import { getStore } from "../../platform/state-runtime.js";
+import type { DragEventValue } from "../../dnd/drag-layer";
+import { DROPPABLE_KINDS } from "./rows/BodyRow.js";
+import { PlanEditContext, PlanEditStore, type PlanEditContextValue } from "./edit/store.js";
+import { originOf, unmoved, usePlanCarry } from "./edit/use-carry.js";
+import { PlanCarryAnnouncer } from "./edit/announce.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
@@ -439,8 +444,29 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value: hostValue, s
 
     // ── The drag-target role ──────────────────────────────────────────────
     // A drop is a draft of the editing session (#880): the canvas is a target
-    // only while the session can take one.
-    const rowDrop = usePlanDropTarget(value, data.sources, editing.drop, editing.available);
+    // only while the session can take one. A card lands; the canvas's own
+    // runs, chips, tiles and marks move and resize (#825) — where one lands is
+    // what its rows proposed at the drop point, from the press it began with
+    // (`edit/store.ts`).
+    const [editStore] = useState(() => new PlanEditStore());
+    const { drop: draftDrop, move: draftMove } = editing;
+    const onDrag = useCallback((event: DragEventValue) => {
+        if (event.type === "add") {
+            draftDrop(event);
+            return;
+        }
+        if (event.type !== "move" && event.type !== "resize") return;
+        const { grab, proposal } = editStore;
+        editStore.disarm();
+        const row = event.type === "move" ? event.value.to.row : event.value.event.row;
+        if (grab === null || proposal === null || proposal.rowKey !== row || unmoved(grab.movable, proposal)) return;
+        draftMove({
+            key: grab.movable.key, from: grab.movable.rowKey, to: proposal.rowKey, span: proposal.span,
+            origin: event.type === "resize" ? "resize" : originOf(grab.movable, proposal).kind,
+            label: grab.movable.label,
+        });
+    }, [draftDrop, draftMove, editStore]);
+    const rowDrop = usePlanDropTarget(value, data.sources, onDrag, editing.available);
 
     // ── The body ──────────────────────────────────────────────────────────
     const body = usePlanBody(visible, index, derived, paging, focusCtx, heightCtx, dense, chartsExpanded);
@@ -652,6 +678,43 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value: hostValue, s
         }
     }, [navItems, navEdges, controller, narrow]);
 
+    // ── Moves (#825) ──────────────────────────────────────────────────────
+    // What the rows and elements move with: the store, the drag surface — none
+    // in the narrow layout, a review tool — and the words a keyboard reader is
+    // told how to move one with.
+    const helpId = `${uid}-move-help`;
+    const moveSurface = !narrow ? rowDrop?.surface : undefined;
+    const editCtx = useMemo<PlanEditContextValue | null>(() => (scale !== undefined
+        ? { store: editStore, surface: moveSurface, helpId, styles, words, scale }
+        : null), [editStore, moveSurface, helpId, styles, words, scale]);
+    /** Focus an element where it is now — else its row. */
+    const focusElement = useCallback((rowKey: string, key: string) => {
+        const bodyEl = focusBodyRef.current;
+        if (bodyEl === null) return;
+        const rowEl = Array.from(bodyEl.querySelectorAll<HTMLElement>("[data-plan-row]"))
+            .find((el) => el.getAttribute("data-plan-row") === rowKey);
+        const el = rowEl === undefined ? undefined : Array.from(rowEl.querySelectorAll<HTMLElement>(PLAN_ELEMENT_SELECTOR))
+            .find((e) => e.hasAttribute("tabindex")
+                && ["data-run", "data-chip", "data-event", "data-mark"].some((a) => e.getAttribute(a) === key));
+        if (el !== undefined) el.focus({ preventScroll: true });
+        else controller.focusItem(rowItemKey(rowKey), "auto");
+    }, [controller]);
+    // The keyboard's move: Space on an element picks it up (`edit/use-carry.ts`).
+    const carry = usePlanCarry({
+        store: editStore, scale, words, surface: moveSurface, veto: rowDrop?.canDrop, rows: visible,
+        takes: (row, items) => DROPPABLE_KINDS.has(row.kind.type) && row.edits.move.type === "some"
+            && row.edits.move.value.items === items && !derived.diagnostics.has(row.key),
+        labelOf,
+        move: draftMove,
+        reveal: (key) => controller.focusItem(rowItemKey(key), "auto"),
+        focus: focusElement,
+    });
+    // A keyboard drop is drawn with its draft — focus the element there.
+    useLayoutEffect(() => {
+        const at = editStore.takeFocus();
+        if (at !== null) focusElement(at.rowKey, at.key);
+    });
+
     // A source that cannot be READ no longer replaces the canvas (#811): its
     // windows fail one by one, each as its own band with the reason and a
     // Retry. A missing WINDOW is the one thing no row can be placed without —
@@ -802,6 +865,9 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value: hostValue, s
                 // A button's own key activates it; an element is the canvas's to.
                 if (!isElement) return false;
                 e.preventDefault();
+                // Space picks up an element that moves (#825); Enter keeps
+                // doing what its click does.
+                if (e.key === " " && carry.start(widget)) return true;
                 activateElement(widget);
                 return true;
             default:
@@ -820,6 +886,8 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value: hostValue, s
         // Escape (its layer listens on the document, ahead of the canvas), a
         // widget in an expand render, a nested canvas's own ladder.
         if (e.defaultPrevented) return;
+        // An element carried by the keyboard takes the keys while it lasts (#825).
+        if (editStore.carry !== null && carry.keys(e)) return;
         // The history keys (#880), as on the Sheet: ⌘Z / Ctrl+Z undo;
         // ⌘⇧Z / Ctrl+Shift+Z and Ctrl+Y redo.
         const letter = e.key.toLowerCase();
@@ -857,6 +925,14 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value: hostValue, s
         if (target !== undefined) controller.focusItem(target, "auto");
     };
 
+    // A carry whose reader left the canvas ends where it began (#825).
+    const onBodyBlur = (e: FocusEvent<HTMLDivElement>) => {
+        if (editStore.carry === null) return;
+        const next = e.relatedTarget;
+        if (next instanceof Node && e.currentTarget.contains(next)) return;
+        carry.cancel();
+    };
+
     const canvas = (
         <PlanWordsContext.Provider value={words}>
         <PlanControllerContext.Provider value={controller}>
@@ -866,6 +942,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value: hostValue, s
         <PlanCursorContext.Provider value={cursor}>
         <PlanResolversContext.Provider value={resolvers}>
         <PlanGridContext.Provider value={gridCtx}>
+        <PlanEditContext.Provider value={editCtx}>
             <Box
                 ref={focusBodyRef}
                 // The keyboard surface and the focus anchor, but not a tab
@@ -876,6 +953,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value: hostValue, s
                 width="100%"
                 minWidth={0}
                 data-plan-body
+                onBlur={onBodyBlur}
                 // The bound lives HERE, not on the frame — the attribute is
                 // the contract (jsdom resolves no Chakra classes).
                 data-plan-bounded={frameFills ? "" : undefined}
@@ -996,7 +1074,13 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value: hostValue, s
                 {review !== undefined && <ReviewFoot controller={review} storageKey={storageKey} labels={footLabels} />}
                 <PlanOverlays anchors={anchors} styles={styles} storageKey={storageKey} />
                 <PlanAnnouncer />
+                {/* The keyboard's move (#825): what a carry does, said as it
+                    happens, and how to begin one — every element that moves
+                    is described by it. */}
+                <PlanCarryAnnouncer store={editStore} />
+                {moveSurface !== undefined && <VisuallyHidden id={helpId}>{words.m.moveHelp()}</VisuallyHidden>}
             </Box>
+        </PlanEditContext.Provider>
         </PlanGridContext.Provider>
         </PlanResolversContext.Provider>
         </PlanCursorContext.Provider>

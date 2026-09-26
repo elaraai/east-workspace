@@ -16,12 +16,19 @@
  * with its share of the canvas's one tab stop (`root/grid.ts`).
  */
 
-import { useCallback, useMemo, useRef, type ReactNode } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useSyncExternalStore, type ReactNode } from "react";
 import { Box, useChakraContext } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCaretDown, faLink, faUpRightAndDownLeftFromCenter } from "@fortawesome/free-solid-svg-icons";
-import { useDropCell, useDragLayerOptional, type CellCoord, type DragEventValue, type DropCellOptions, type DropVeto } from "../../../dnd/drag-layer";
+import {
+    useDropCell, useDragLayerOptional,
+    type CellCoord, type DragEventValue, type DragPayload, type DropCellOptions, type DropVeto,
+} from "../../../dnd/drag-layer";
 import { toPlanSlot } from "../slot.js";
+import { proposeAt, slotOfEnd, slotOfInstant, spanFracs } from "../edit/move-math.js";
+import { spanWords } from "../edit/movable.js";
+import { usePlanEdit } from "../edit/store.js";
+import { holdsKey } from "../edit/use-carry.js";
 import { resolveColor } from "../../shared/helpers.js";
 import { usePlanCursor, usePlanDispatch, usePlanGeometry, usePlanScale } from "../context.js";
 import { rowItemKey, type PlanRowValue } from "../model.js";
@@ -74,11 +81,17 @@ export function GridSeparators({ styles }: { styles: Styles }) {
 
 /**
  * A row's DnD drop registration — present only when the canvas is a drag
- * target AND this row's KIND accepts drops (see `DROPPABLE_KINDS`).
+ * target AND this row's KIND accepts drops (see `DROPPABLE_KINDS`): a library
+ * card, where the row's series declares `edit.create`, and a moved run, chip,
+ * tile or mark of the row's item type, where it declares a move's fields
+ * (#825).
  */
 export interface PlanRowDrop {
-    /** The canvas's declared DnD id — the cell ref's `surface`. */
+    /** The canvas's DnD surface — its declared id, or one of its own for its elements' moves (#825). */
     surface: string;
+    /** Whether a library card reaches the canvas — it declares an `id`; without one the surface serves its own
+     *  elements' moves alone, and a row that only takes cards registers no cell. */
+    cards: boolean;
     /** The canvas's veto over its IR `canDrop` (`useIRCanDrop`), asked of the
      *  candidate event the drag's CURRENT bucket would produce — its duplicate
      *  flag included. */
@@ -197,24 +210,56 @@ export function RowShell({
     // reports the same bucket instant, not an index), spelled per the axis
     // arm by the shared encoding (`toPlanSlot`, #631): a Z-less ISO instant,
     // a decimal, or the ordinal value.
+    //
+    // A MOVED element (#825) lands by where it was grabbed: its drag moves it
+    // by the buckets the pointer crossed since the press (the canvas's edit
+    // store holds the press), so the slot is the bucket of its NEW start — or,
+    // for an end dragged, of that end — and the landing band spans the extent
+    // it would take. A row takes one only when its items are the element's
+    // item type (`accepts`); any other row is no destination at all.
+    const edit = usePlanEdit();
+    const store = edit?.store;
+    const moves = row.edits.move.type === "some" ? row.edits.move.value : undefined;
     const plotElRef = useRef<HTMLElement | null>(null);
-    const resolveCoord = useCallback((clientX: number, _clientY: number): CellCoord => {
+    /** The pointer as a window fraction of this row's plot. */
+    const fracAt = useCallback((clientX: number): number => {
         const rect = plotElRef.current?.getBoundingClientRect();
-        const frac = rect !== undefined && rect.width > 0
-            ? Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
-            : 0;
+        return rect !== undefined && rect.width > 0 ? Math.max(0, Math.min(1, (clientX - rect.left) / rect.width)) : 0;
+    }, []);
+    /** Where a moved element lands on this row, with the pointer at `clientX` — told to the store. */
+    const landing = useCallback((clientX: number) => {
+        const grab = store?.grab;
+        if (store === undefined || grab === null || grab === undefined) return undefined;
+        const span = proposeAt(scale, grab.movable.span, grab.mode, grab.grabFrac, fracAt(clientX), store.shift);
+        store.propose({ rowKey: row.key, span });
+        return { grab, span };
+    }, [store, scale, fracAt, row.key]);
+    const resolveCoord = useCallback((clientX: number, _clientY: number, payload: DragPayload): CellCoord => {
+        const surface = drop?.surface ?? "";
+        if (payload.kind !== "item") {
+            const at = landing(clientX);
+            if (at === undefined) return { surface, row: row.key, slot: "" };
+            const slot = at.grab.mode === "end" ? slotOfEnd(scale, at.span.end) : slotOfInstant(scale, at.span.start);
+            return { surface, row: row.key, slot };
+        }
         // The shared frac→bucket resolver (#617): the exact right edge closes
         // into the last bucket; a truncated axis's uncovered remainder is NO
         // bucket (#618) — the slot stays empty and `dropVeto` refuses it, so a
         // drop past the truncation point can never land at a wrong instant.
-        const bi = scale.bucketAtFrac(frac);
+        const bi = scale.bucketAtFrac(fracAt(clientX));
         const bucket = bi >= 0 ? scale.buckets[bi] : undefined;
-        return {
-            surface: drop?.surface ?? "",
-            row: row.key,
-            slot: bucket !== undefined ? toPlanSlot(bucket.start) : "",
-        };
-    }, [scale, drop?.surface, row.key]);
+        return { surface, row: row.key, slot: bucket !== undefined ? toPlanSlot(bucket.start) : "" };
+    }, [scale, drop?.surface, row.key, landing, fracAt]);
+    /** Whether this row takes what is dragged at all — a card where its series makes one, an element of its item type. */
+    const accepts = useCallback((payload: DragPayload): boolean => {
+        if (payload.kind === "item") return row.edits.drop && drop?.cards === true;
+        const grab = store?.grab;
+        if (moves === undefined || grab === null || grab === undefined) return false;
+        // The press armed what is dragged: the same element, from its row.
+        if (payload.from.event !== grab.movable.key || payload.from.row !== grab.movable.rowKey) return false;
+        // An end moves along its own row only (the layer holds an edge there too).
+        return payload.kind === "edge" ? row.key === grab.movable.rowKey : moves.items === grab.movable.items;
+    }, [store, moves, row.edits.drop, row.key, drop]);
     // The registered coord is the row at its FIRST bucket: it is what the
     // drag-start sweep asks about, before the drag rests anywhere. A row the
     // predicate can only ever refuse never lights up as a candidate, instead of
@@ -229,11 +274,19 @@ export function RowShell({
     );
     const dropVeto = useCallback((candidate: DragEventValue): boolean => {
         if (drop === undefined) return true;
-        // No bucket under the drag (past a truncated axis's coverage) —
-        // structurally not a destination, before any predicate is asked.
-        if (candidate.type === "add" && candidate.value.into.slot === "") return false;
+        // No bucket under the drag (past a truncated axis's coverage), or a
+        // moved element with no press to land by — structurally not a
+        // destination, before any predicate is asked.
+        const slot = candidate.type === "add" ? candidate.value.into.slot
+            : candidate.type === "move" ? candidate.value.to.slot
+                : candidate.type === "resize" ? candidate.value.event.slot : "-";
+        if (slot === "") return false;
+        // A row's items keep their keys unique (#825): an element from another
+        // row lands here only when none of this row's elements has its key.
+        if (candidate.type === "move" && candidate.value.from.row !== row.key
+            && candidate.value.from.event.type === "some" && holdsKey(row, candidate.value.from.event.value)) return false;
         return drop.canDrop?.(candidate) ?? true;
-    }, [drop]);
+    }, [drop, row]);
 
     // ── The landing band ──────────────────────────────────────────────────
     // While a card is over this row, show WHERE it would come to rest. The
@@ -250,38 +303,68 @@ export function RowShell({
     // vetoed row shows no landing band for free.
     const dragActive = useDragLayerOptional()?.active === true;
     const previewRef = useRef<HTMLDivElement | null>(null);
-    const positionPreview = useCallback((clientX: number) => {
+    const previewTextRef = useRef<HTMLSpanElement | null>(null);
+    const positionPreview = useCallback((clientX: number, _clientY: number, payload: DragPayload) => {
         const el = previewRef.current;
-        const rect = plotElRef.current?.getBoundingClientRect();
-        if (el === null || rect === undefined || rect.width <= 0) return;
-        const frac = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+        if (el === null) return;
+        if (payload.kind !== "item") {
+            // A moved element: the extent it would take, labelled with it.
+            const at = landing(clientX);
+            if (at === undefined || edit === null) return;
+            const { left, right } = spanFracs(scale, at.span);
+            el.style.left = `${left * 100}%`;
+            el.style.width = `${(right - left) * 100}%`;
+            if (previewTextRef.current !== null) previewTextRef.current.textContent = spanWords(scale, at.grab.movable, at.span, words);
+            return;
+        }
+        if (previewTextRef.current !== null) previewTextRef.current.textContent = "";
         // The same resolver the drop coordinate reads (#617) — the preview and
         // the drop cannot disagree. No bucket ⇒ the band stays where it was
         // (the cell is not active there anyway — `dropVeto` refused it).
-        const bi = scale.bucketAtFrac(frac);
+        const bi = scale.bucketAtFrac(fracAt(clientX));
         const bucket = bi >= 0 ? scale.buckets[bi] : undefined;
         if (bucket === undefined) return;
         el.style.left = `${bucket.x0 * 100}%`;
         el.style.width = `${(bucket.x1 - bucket.x0) * 100}%`;
-    }, [scale]);
+    }, [scale, landing, fracAt, edit, words]);
 
     // A keyboard drag rests at bucket centres, the announcements name the row
-    // and its bucket in the canvas's words, and wherever the drag rests over
-    // the row, its landing band follows.
+    // and its bucket — or, for a moved element, the span it would take — in
+    // the canvas's words, and wherever the drag rests over the row, its
+    // landing band follows.
     const dropOptions = useMemo<DropCellOptions>(() => ({
         stops: () => {
             const rect = plotElRef.current?.getBoundingClientRect();
             if (rect === undefined || rect.width <= 0) return [];
             return scale.buckets.map((b) => rect.left + ((b.x0 + b.x1) / 2) * rect.width);
         },
-        name: (coord) => {
+        name: (coord, payload) => {
+            const proposal = store?.proposal;
+            if (payload.kind !== "item" && store?.grab != null && proposal != null && proposal.rowKey === row.key) {
+                return words.m.list({ parts: [gutter.label, spanWords(scale, store.grab.movable, proposal.span, words)] });
+            }
             const bucket = scale.buckets.find((b) => toPlanSlot(b.start) === coord.slot);
             return bucket !== undefined
                 ? words.m.list({ parts: [gutter.label, scale.bucketText(bucket)] })
                 : gutter.label;
         },
         onHover: positionPreview,
-    }), [scale, words, gutter.label, positionPreview]);
+        accepts,
+    }), [scale, words, gutter.label, positionPreview, accepts, store, row.key]);
+    // The keyboard carry (#825) lands here: the landing band at the extent it
+    // would take, lit — or refused — as a drag's destination is.
+    const noSubscribe = useCallback(() => () => undefined, []);
+    const carry = useSyncExternalStore(store?.subscribe ?? noSubscribe, () => store?.carryOn(row.key) ?? null);
+    // Placed the way a pointer drag places it — written, not rendered — so the
+    // two never fight over the band.
+    useLayoutEffect(() => {
+        const el = previewRef.current;
+        if (carry === null || el === null) return;
+        const { left, right } = spanFracs(scale, carry.to.span);
+        el.style.left = `${left * 100}%`;
+        el.style.width = `${(right - left) * 100}%`;
+        if (previewTextRef.current !== null) previewTextRef.current.textContent = spanWords(scale, carry.movable, carry.to.span, words);
+    }, [carry, scale, words]);
     const dropRef = useDropCell(dropCoord, false, dropVeto, resolveCoord, dropOptions);
     // One ref doing two jobs: the layer's registration, and the rect
     // `resolveCoord` measures the pointer against.
@@ -401,7 +484,12 @@ export function RowShell({
                 ref={plotRef}
                 css={styles.plot}
                 role="gridcell"
+                // What a pressed element measures its grab against (#825).
+                data-plan-plot
                 data-axis={axisMode}
+                // The keyboard carry's destination (#825), staged as a drag's is.
+                data-drop-active={carry !== null && !carry.refused ? "" : undefined}
+                data-drop-invalid={carry !== null && carry.refused ? "" : undefined}
                 onPointerMove={(e) => {
                     // While a drag is in flight the landing band IS the readout
                     // (the layer positions it), so the hairline would only add a
@@ -418,7 +506,10 @@ export function RowShell({
             >
                 {noGrid !== true && <GridSeparators styles={styles} />}
                 {drop !== undefined && (
-                    <Box ref={previewRef} css={styles.dropPreview} data-plan-drop-preview />
+                    <Box ref={previewRef} css={styles.dropPreview} data-plan-drop-preview>
+                        {/* A moved element's span, where the band draws it (#825). */}
+                        <Box as="span" ref={previewTextRef} css={styles.dropPreviewText} data-plan-drop-preview-text />
+                    </Box>
                 )}
                 {/* Expanded: the row's own marks hold a band at the top (they
                     position against it, so a 20px bar in a 200px row does not

@@ -74,6 +74,13 @@ Sheet author changes a line. See
 [Every change is a draft (#880)](#every-change-is-a-draft-880) below. Stored
 `UIComponentType` values re-emit.
 
+**#825 breaks it again**: a run, chip, tile or mark moves and resizes as a
+gesture of that session. The gesture gains a `move` arm, a row says whether
+its elements move, and every series writer takes the item a cross-row move
+carries. See [Moves and resizes (#825)](#moves-and-resizes-825) below. Stored
+`UIComponentType` values re-emit; a series that declares no move changes no
+line.
+
 The public API break alongside it: the `Gantt` / `Planner` / `AlignedStack`
 exports (tags, factories, `*.Types`) are gone from `@elaraai/east-ui` and
 `@elaraai/east-ui/internal`, as are `EastChakraGantt` / `EastChakraPlanner`
@@ -427,6 +434,115 @@ Each removed callback throws at build, naming its replacement.
 - `src/editing/draft.ts` gains `raiseIssue` / `kindOfIssue`: an issue raised
   with a kind is marked for that kind, whatever its batch's.
 
+## Moves and resizes (#825)
+
+Before #825 nothing on the canvas moved. The Plan took library cards and
+nothing else, so a run's dates changed only in the host. Now an element on an
+editable row can be picked up with the pointer, a touch or the keyboard:
+
+- A run, chip, tile or mark moves along its row, or onto another row of the
+  same item type.
+- A run or chip resizes by either end.
+
+Each move and each resize is one draft of the editing session (#880). It is
+drawn where it was made, undone from the history bar, and applied in the same
+checked batch as verdicts and drops.
+
+### The wire
+
+| Type | Before | After |
+|---|---|---|
+| `PlanGestureType` (`Plan.Types.Gesture`) | `verdict(ApprovalState) \| drop(PlanDrop)` | adds `move(PlanMove)` |
+| `PlanMoveType` (`Plan.Types.Move`) | — | `{ key: String, from: RowId, to: RowId, start: Instant, end: Instant }`. `key` is the element's item key; `from` is the row it left and `to` the row it lands on (`from` again for a resize or a move along the row); `start` / `end` are its instants after the gesture. A tile's or a mark's `end` repeats `start` |
+| `PlanRowEditsType` (`Plan.Types.RowEdits`) | `{ verdict: Boolean, drop: Boolean }` | adds `move: Option<PlanMoveEdits>` |
+| `PlanMoveEditsType` (`Plan.Types.MoveEdits`) | — | `{ items: String, resize: Boolean }`. `items` is the row's item type as East prints it: an element changes rows only between rows whose items print the same. `resize` says whether its elements have two ends |
+| `Plan.Types.Series(R, K)`, every arm's `write` | `Fn(R, K, RowId, Gesture) → Option<R>` | `Fn(R, K, RowId, Gesture, Ref<Option<Blob>>) → Option<R>`. The ref carries a moved item from the source row's write to the target row's, within one batch |
+| `edit.create` | required | optional: a series may take moves and no cards |
+
+### Authoring
+
+A series whose elements move names, beside `items`, the item's key field and
+the instant fields a gesture writes:
+
+```ts
+Plan.series.span(Machine, {
+    key: "machines", title: "Machines", label: (m) => m.name,
+    runs: (m) => m.jobs.map(($, j) => Plan.run({ key: j.key, start: j.start, end: j.end, label: j.name, state: j.state })),
+    edit: { items: "jobs", key: "key", start: "start", end: "end", create },
+})
+```
+
+- `key` names the item's `String` key field. An element's key must be its
+  item's key, since the write finds the item by it. A move whose key names
+  no item refuses the batch.
+- With `key` declared, a row's list keeps its keys unique. A card whose item
+  repeats a key the list holds is refused, and so is a move onto a row whose
+  list already holds the moved item's key; the drag shows the ⊘ stage there.
+  So `key` is the item's identity across every row it can move to: a job's
+  own id, not its place in one machine's list.
+- `start` and `end` (span, cards), or `at` (buckets, events), name the
+  instant fields the move writes. A field may be one of:
+  - a `DateTime`;
+  - a `Float` or an `Integer` on a number axis (an `Integer` rounds half
+    away from zero);
+  - a `String` on an ordinal axis;
+  - a `Plan.Types.Instant`.
+- The build refuses a declaration a move could not write, naming the field:
+  - `at` on a span or cards series, or `start` / `end` on buckets or events;
+  - one of `start` / `end` without the other, or both naming one field;
+  - no `key`, or a `key` that is not a `String` field;
+  - an instant field of another type, or one naming the key field;
+  - items that are not structs;
+  - neither `create` nor instant fields.
+
+### Behaviour
+
+- **Snapping.** A drag moves in whole buckets of the axis's resolution. With
+  Shift held it moves by one finer unit: a day under a week, month, quarter
+  or year; an hour under a day; 15 minutes under an hour. A number or
+  ordinal axis has no finer unit. A resize keeps at least one unit.
+- **Pointer and touch.** Drag an element's body to move it, or a run's or a
+  chip's start or end handle to resize it. A touch drag starts on a long
+  press (#608's sensor).
+- **Where it lands.** The row under the pointer draws a landing band across
+  the proposed span, with the span printed in it. The ghost under the pointer
+  carries the element's label and the span.
+- **The veto.** `canDrop` vets the candidate before it becomes a draft. The
+  candidate is a `DragEvent` `move` (the element's cell and the target cell)
+  or `resize` (the moved edge's slot). A refusal is announced, and no draft
+  is made.
+- **Keyboard.** Focus an element and press Space to pick it up. Then:
+  - ←/→ move it one bucket;
+  - Shift+←/→ move its end, and Alt+←/→ its start;
+  - ↑/↓ carry it to the nearest row above or below that takes it;
+  - Space or Enter drops it, and Esc or Tab cancels.
+
+  Every step is announced in the canvas's own live region. A refused place is
+  announced, and the carry goes on.
+- **One gesture.** A move along its row, or a resize, drafts the item's
+  instants in place. A move to another row takes the item out of its list and
+  appends it, with its new instants, to the target row's list. That is one
+  gesture and one undo step, over two entries when the rows come from two. A
+  batch that takes an item and places it nowhere, because the target refuses
+  it, is refused whole.
+- **Discard.** Discard drops every draft and clears the history, as on the
+  Sheet; it is not itself undone.
+- **No `id` needed.** The canvas's own elements move whether or not the root
+  declares an `id`; a Library's card still lands only on a canvas that does.
+- **Narrow layout.** The card layout takes no moves. Drops and verdicts are
+  unchanged.
+
+### Renderer (`@elaraai/east-ui-components`)
+
+- `PlanMessages` gains `moveHelp`, `movePickedUp`, `moveOver`,
+  `moveRefused`, `moveDropped`, `moveFailed` and `moveCancelled`.
+- A movable element carries `data-draggable`, and `data-dragging` while it
+  is carried. The landing band's text is `data-plan-drop-preview-text`, and
+  the carry's live region is `data-plan-carry-announce`.
+- The shared drag layer (#608) takes a payload-aware drop cell:
+  `useDropCell`'s options gain `accepts(payload)`, and `resolveCoord`,
+  `onHover` and `name` receive the payload.
+
 ## Extracted contracts (do this first when migrating imports)
 
 The shared audit vocabulary outlived the Planner and moved to `contracts/`:
@@ -484,8 +600,10 @@ domain id, never an index.
   divider (omit for none); striping is not part of the Plan language.
 - **Task move/resize drags**: Library `add` drops (snapped bucket instants)
   are drafts of the editing session: the series declares
-  `edit: { items, create }` (#880). In-canvas move/resize of runs is #825, on
-  the same declaration. `onTaskProgressChange` has no equivalent.
+  `edit: { items, create }` (#880). A run moves and resizes on the same
+  declaration once it names the item's key and instant fields
+  (`edit: { items, key, start, end }`, #825). `onTaskProgressChange` has no
+  equivalent.
 - **Review**: the same chrome, but a verdict is a draft (#880). Name the
   entry's `ApprovalStateType` field on the series
   (`review: { verdict: "approval" }`) and give the root `editing`. There are
@@ -565,7 +683,7 @@ gutter-imposing stack container any more.
 |---|---|
 | `ganttBasic` | `planSeriesData`, `planSpanRows` |
 | `ganttVariants` (presets/axis/fill/stress/callbacks) | `planVariants` (configurator + aside), `planSpanRows` (lifecycle flavours), `planFill` (fill + 200-row stress), `planTargetState` |
-| `ganttReactiveDrag` | `planRowDrop` (a drop is a draft; Apply writes the State handle; move/resize is #825) |
+| `ganttReactiveDrag` | `planRowDrop` (a drop is a draft; Apply writes the State handle); `planEditing` (runs move and resize, #825) |
 | `ganttReview` | `planReview` |
 | `ganttLibraryDnd` | `planRowDrop` |
 | `plannerPoint` | `planBucketRows`; its `number` axis → `planNumberAxis` (#631) |

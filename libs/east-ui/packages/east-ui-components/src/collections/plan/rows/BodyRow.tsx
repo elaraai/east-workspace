@@ -256,9 +256,12 @@ export const PlanBodyRow = memo(function PlanBodyRow({
         // Only the kinds that hold droppable objects register a cell —
         // a chart / heat / table row is inert to a drag by construction,
         // not by predicate (see `DROPPABLE_KINDS`) — and of those, only a
-        // row whose series declares where a card lands (#880). A diagnostic
+        // row whose series declares where a card lands (#880), on a canvas a
+        // card can reach, or what a moved element writes (#825). A diagnostic
         // row places nothing, so nothing can land on it either.
-        drop: DROPPABLE_KINDS.has(kind.type) && v.row.edits.drop && diagnostic === undefined ? rowDrop : undefined,
+        drop: DROPPABLE_KINDS.has(kind.type) && diagnostic === undefined
+            && ((v.row.edits.drop && rowDrop?.cards === true) || v.row.edits.move.type === "some")
+            ? rowDrop : undefined,
         draft,
         grid,
     } as const;

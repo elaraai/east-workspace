@@ -52,10 +52,13 @@ export function KindPlot({ v, styles, derived, hasChildren, ctx, plotHeight, cha
     const kind = v.row.kind;
     const rowKey = v.row.key;
     const rowId = v.row.id;
+    // How the row's elements move (#825) — never inside a context strip,
+    // whose one action is the way back.
+    const move = !ctx && v.row.edits.move.type === "some" ? v.row.edits.move.value : undefined;
     switch (kind.type) {
         case "span":
             return (
-                <SpanRow rowKey={rowKey} rowId={rowId} kind={kind.value} styles={styles} ctx={ctx}
+                <SpanRow rowKey={rowKey} rowId={rowId} kind={kind.value} styles={styles} ctx={ctx} move={move}
                     bands={derived.bands.get(rowKey) ?? []}
                     barHeight={v.collapsed && hasChildren ? geometry.rollBar : geometry.bar} />
             );
@@ -75,7 +78,7 @@ export function KindPlot({ v, styles, derived, hasChildren, ctx, plotHeight, cha
             );
         case "buckets":
             return (
-                <BucketsRow rowKey={rowKey} rowId={rowId} kind={kind.value} styles={styles} ctx={ctx} />
+                <BucketsRow rowKey={rowKey} rowId={rowId} kind={kind.value} styles={styles} ctx={ctx} move={move} />
             );
         case "table":
             // A declared-aggregate parent draws its derived subtotal
@@ -89,11 +92,11 @@ export function KindPlot({ v, styles, derived, hasChildren, ctx, plotHeight, cha
             );
         case "cards":
             return (
-                <CardsRow rowKey={rowKey} rowId={rowId} kind={kind.value} styles={styles} ctx={ctx} />
+                <CardsRow rowKey={rowKey} rowId={rowId} kind={kind.value} styles={styles} ctx={ctx} move={move} />
             );
         case "events":
             return (
-                <EventsRow rowKey={rowKey} rowId={rowId} kind={kind.value} styles={styles} ctx={ctx} />
+                <EventsRow rowKey={rowKey} rowId={rowId} kind={kind.value} styles={styles} ctx={ctx} move={move} />
             );
         case "group":
             return null;

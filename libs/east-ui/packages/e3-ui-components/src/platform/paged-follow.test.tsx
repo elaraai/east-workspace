@@ -106,7 +106,7 @@ const machineId = (key: string) => variant("entry", { series: "machines", path: 
 const machineRow = (key: string) => `[data-plan-row=${JSON.stringify(printFor(Plan.Types.RowId)(machineId(key)))}]`;
 
 /** A canvas row per machine — what the series pipeline would derive; its
- *  series declares no gesture (#880). */
+ *  series declares no gesture (#880, #825). */
 function rowOf(key: string, label: string): ValueTypeOf<typeof Plan.Types.Row> {
     return {
         id: machineId(key),
@@ -120,7 +120,7 @@ function rowOf(key: string, label: string): ValueTypeOf<typeof Plan.Types.Row> {
             decisions: [], ports: [], rollup: none,
         }),
         collapsed: false, pinned: false, height: none, status: none, approval: none, expand: none,
-        edits: { verdict: false, drop: false },
+        edits: { verdict: false, drop: false, move: none },
     } as unknown as ValueTypeOf<typeof Plan.Types.Row>;
 }
 
