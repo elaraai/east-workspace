@@ -43,6 +43,7 @@ import {
   manifestByteSize,
   type CollectionManifest,
 } from '@elaraai/e3-types';
+import { readInOrder } from './concurrency.js';
 import type { StorageBackend } from './storage/interfaces.js';
 
 /** The head read the manifest probe starts with — a manifest's own type
@@ -291,15 +292,19 @@ export class DatasetSegments {
    *
    * @remarks
    * What a download, an export, or a runner without a manifest-aware opener
-   * gets. Peak memory is one segment, never the value.
+   * gets. Peak memory is the segments read, never the value: by default one,
+   * read only when the consumer asks for it, so a response streamed to a
+   * client holds one segment at a time.
    *
+   * @param options - `readAhead`, how many segments may be read at once ahead
+   *   of the consumer: a remote store answers each read after a round trip,
+   *   which a splice written to a file need not wait on one at a time
    * @returns the spliced blob's bytes, in order
    */
-  async *splice(): AsyncIterable<Uint8Array> {
+  async *splice(options: { readAhead?: number } = {}): AsyncIterable<Uint8Array> {
     const { storage, repo, manifest } = this;
-    yield* spliceBeast2Segments(await this.head(), (async function* () {
-      for (const entry of manifest.entries) yield await storage.objects.read(repo, entry.hash);
-    })());
+    yield* spliceBeast2Segments(await this.head(), readInOrder(manifest.entries.length, options.readAhead ?? 1,
+      (i) => storage.objects.read(repo, manifest.entries[i]!.hash)));
   }
 }
 

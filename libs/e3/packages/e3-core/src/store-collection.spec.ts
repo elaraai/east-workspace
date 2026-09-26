@@ -16,10 +16,10 @@
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import {
-  ArrayType, DictType, IntegerType, SEGMENT_RULE_KEYED, SortedMap, StringType, StructType,
+  ArrayType, Beast2ManifestWriter, DictType, IntegerType, SEGMENT_RULE_KEYED, SortedMap, StringType, StructType,
   carveBeast2, compareFor, decodeBeast2For, encodeBeast2For, encodeBeast2PagedFor,
   readBeast2Extents, type ValueTypeOf,
 } from '@elaraai/east';
@@ -83,6 +83,52 @@ describe("the store's door", () => {
     const whole = join(dir, 'whole.beast2');
     writeFileSync(whole, encodeBeast2For(TableType)(value));
     assert.equal(await storeDatasetFile(storage, repo, whole, { canonical: true }), expected);
+  });
+
+  it("adopts a runner directory's segments sixteen at a time, and writes the manifest once they have settled", async () => {
+    const value = new SortedMap<string, Row>(
+      Array.from({ length: 40_000 }, (_, i): [string, Row] => [`k${String(i).padStart(7, '0')}`, { id: BigInt(i), name: `row-${i}` }]),
+      compareFor(StringType));
+    // The directory a stock runner writes a collection as: the manifest, and
+    // each object it names in a sibling directory, named by its SHA-256.
+    const manifestFile = join(dir, 'output.beast2');
+    mkdirSync(`${manifestFile}.segments`);
+    const writer = new Beast2ManifestWriter(TableType, {
+      object: (hash, bytes) => writeFileSync(join(`${manifestFile}.segments`, `${hash}.beast2`), bytes),
+      manifest: (bytes) => writeFileSync(manifestFile, bytes),
+    });
+    for (const entry of value.entries()) writer.add(entry);
+    writer.finish();
+    assert.ok(writer.segments > 16, `more segments than are adopted at once: ${writer.segments}`);
+
+    // Each adoption held a moment, as a remote store's request is.
+    const objects = storage.objects;
+    const adoptFile = objects.adoptFile.bind(objects);
+    const write = objects.write.bind(objects);
+    let adopting = 0;
+    let peak = 0;
+    let writesWhileAdopting = 0;
+    objects.adoptFile = async (r: string, file: string, hash?: string) => {
+      adopting++;
+      peak = Math.max(peak, adopting);
+      await new Promise((resolve) => setTimeout(resolve, 2));
+      try {
+        return await adoptFile(r, file, hash);
+      } finally {
+        adopting--;
+      }
+    };
+    objects.write = (r: string, bytes: Uint8Array) => {
+      if (adopting > 0) writesWhileAdopting++;
+      return write(r, bytes);
+    };
+    const stored = await storeDatasetFile(storage, repo, manifestFile, { canonical: true });
+    objects.adoptFile = adoptFile;
+    objects.write = write;
+
+    assert.equal(stored, await datasetWrite(storage, repo, value, TableType));
+    assert.equal(peak, 16, 'sixteen segments adopted at once, never more');
+    assert.equal(writesWhileAdopting, 0, 'the manifest is written once every segment has settled');
   });
 
   it('re-cuts foreign bytes, whatever layout they came in and however they arrive', async () => {

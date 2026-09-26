@@ -22,6 +22,7 @@ import crossSpawn from 'cross-spawn';
 import { spawn as nodeSpawn, type ChildProcess, type SpawnOptions } from 'child_process';
 import { createRequire } from 'module';
 import { DatasetSegments, openDatasetObject } from '../dataset-open.js';
+import { OBJECT_CONCURRENCY, eachAtMost } from '../concurrency.js';
 import type { StorageBackend } from '../storage/interfaces.js';
 
 // On Windows, pnpm's workspace bins are `.cmd` / `.ps1` files, not real
@@ -110,6 +111,53 @@ export interface MarshalInputsOptions {
   link?: boolean;
 }
 
+/** One object staged at a path, for a runner to read. */
+interface Placement {
+  hash: string;
+  dest: string;
+}
+
+/**
+ * What staging one stored dataset at `inputPath` places: its manifest and each
+ * segment beside it for a runner that opens the layout, or its one object.
+ *
+ * @remarks
+ * A runner that does not open manifests is given the value instead: the
+ * segments are spliced into the file here, under their shared header, read
+ * {@link OBJECT_CONCURRENCY} ahead of the write, and nothing is left to place.
+ * An Array that holds two equal segments names one object twice, which is
+ * placed once: a second link onto the first would fail.
+ */
+async function inputPlacements(
+  storage: StorageBackend,
+  repo: string,
+  dataset: string,
+  inputPath: string,
+  manifests: boolean,
+): Promise<Placement[]> {
+  const { hash, manifest } = await openDatasetObject(storage, repo, dataset);
+  if (manifest === null) return [{ hash, dest: inputPath }];
+  if (manifests) {
+    // The manifest itself, then its segments as sibling files named by
+    // hash — the convention every runtime's opener reads.
+    const segmentDir = `${inputPath}.segments`;
+    await fs.mkdir(segmentDir, { recursive: true });
+    const segments = [...new Set(manifest.entries.map((entry) => entry.hash))];
+    return [
+      { hash, dest: inputPath },
+      ...segments.map((segment) => ({ hash: segment, dest: path.join(segmentDir, `${segment}.beast2`) })),
+    ];
+  }
+  const segments = await DatasetSegments.open(storage, repo, hash);
+  const handle = await fs.open(inputPath, 'w');
+  try {
+    for await (const chunk of segments.splice({ readAhead: OBJECT_CONCURRENCY })) await handle.write(chunk);
+  } finally {
+    await handle.close();
+  }
+  return [];
+}
+
 /**
  * Stages one stored dataset at `inputPath`, for a runner to read.
  *
@@ -122,9 +170,11 @@ export interface MarshalInputsOptions {
  *
  * A dataset stored as a segment manifest is staged as the manifest plus one
  * linked file per segment for a runner that opens the layout, and spliced
- * into one file for a runner that does not. Peak memory is one segment
- * either way; for the first, no segment's bytes move at all. An indexed
- * record's `$record` state is never staged: its primary is, the rows.
+ * into one file for a runner that does not. Peak memory is a few segments
+ * either way; for the first, no segment's bytes move at all. Objects are
+ * placed {@link OBJECT_CONCURRENCY} at a time: a link each locally, but a
+ * request each on a remote store. An indexed record's `$record` state is never
+ * staged: its primary is, the rows.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
@@ -140,36 +190,19 @@ export async function stageInput(
   inputPath: string,
   options: MarshalInputsOptions = {}
 ): Promise<void> {
-  const link = options.link !== false;
-  const { hash, manifest } = await openDatasetObject(storage, repo, dataset);
-  if (manifest !== null && options.manifests === true) {
-    // The manifest itself, then its segments as sibling files named by
-    // hash — the convention every runtime's opener reads. Each segment is a
-    // link (or one kernel copy), so the bytes never move.
-    await storage.objects.materialize(repo, hash, inputPath, { link });
-    const segmentDir = `${inputPath}.segments`;
-    await fs.mkdir(segmentDir, { recursive: true });
-    for (const entry of manifest.entries) {
-      await storage.objects.materialize(repo, entry.hash, path.join(segmentDir, `${entry.hash}.beast2`), { link });
-    }
-  } else if (manifest !== null) {
-    // A runner that does not open manifests gets the value: the segments
-    // splice back under their shared header, one chunk at a time.
-    const segments = await DatasetSegments.open(storage, repo, hash);
-    const handle = await fs.open(inputPath, 'w');
-    try {
-      for await (const chunk of segments.splice()) await handle.write(chunk);
-    } finally {
-      await handle.close();
-    }
-  } else {
-    await storage.objects.materialize(repo, hash, inputPath, { link });
-  }
+  const placements = await inputPlacements(storage, repo, dataset, inputPath, options.manifests === true);
+  await eachAtMost(placements, OBJECT_CONCURRENCY, ({ hash, dest }) =>
+    storage.objects.materialize(repo, hash, dest, { link: options.link !== false }));
 }
 
 /**
  * Marshal input objects to staged `.beast2` files in a scratch directory, each
  * as {@link stageInput} stages it.
+ *
+ * @remarks
+ * Every input's objects are placed in one pool, so a unit's staging places at
+ * most {@link OBJECT_CONCURRENCY} objects at once however its inputs divide
+ * them.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
@@ -186,11 +219,14 @@ export async function marshalInputsToDir(
   options: MarshalInputsOptions = {}
 ): Promise<string[]> {
   const inputPaths: string[] = [];
+  const placements: Placement[] = [];
   for (let i = 0; i < inputHashes.length; i++) {
     const inputPath = path.join(scratchDir, `input-${i}.beast2`);
-    await stageInput(storage, repo, inputHashes[i]!, inputPath, options);
+    placements.push(...await inputPlacements(storage, repo, inputHashes[i]!, inputPath, options.manifests === true));
     inputPaths.push(inputPath);
   }
+  await eachAtMost(placements, OBJECT_CONCURRENCY, ({ hash, dest }) =>
+    storage.objects.materialize(repo, hash, dest, { link: options.link !== false }));
   return inputPaths;
 }
 
@@ -397,6 +433,11 @@ export interface SpawnAndCaptureOptions {
   /** Directories whose ancestor `node_modules/.bin` dirs are prepended to
    *  PATH so runner CLIs resolve (deduped, nearest first). */
   searchDirs?: string[];
+  /** Variables the child's environment gains after `process.env`'s: the
+   *  secrets a runner's platform functions read, say. Runtime-only, so never
+   *  hashed and never logged. They may not set a variable e3 sets itself,
+   *  `PATH` or `E3_RUNNER_SEARCH_DIRS`: the spawn refuses one that does. */
+  extraEnv?: Readonly<Record<string, string>>;
   /** Called once the child has spawned, with its pid (or null). The tracked
    *  path uses this to write the `running` execution status. When it throws,
    *  the child is stopped and waited for, and the spawn rejects with its
@@ -538,8 +579,17 @@ export async function spawnAndCapture(
     windowsHide: true,
   };
   const pathSep = process.platform === 'win32' ? ';' : ':';
+  // The caller's variables come after the process's own, and may not set the
+  // ones e3 sets for the runner. Windows compares names case-insensitively.
+  for (const name of Object.keys(options.extraEnv ?? {})) {
+    const key = process.platform === 'win32' ? name.toUpperCase() : name;
+    if (key === 'PATH' || key === 'E3_RUNNER_SEARCH_DIRS') {
+      throw new Error(`a runner's environment may not set ${name}, which e3 sets itself`);
+    }
+  }
   spawnOpts.env = {
     ...process.env,
+    ...options.extraEnv,
     PATH: [...(options.extraBins ?? []), ...venvBins, ...projectBins, path.dirname(process.execPath), process.env.PATH ?? '']
       .filter(Boolean)
       .join(pathSep),

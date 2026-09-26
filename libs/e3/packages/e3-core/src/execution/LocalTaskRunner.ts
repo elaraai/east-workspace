@@ -67,6 +67,12 @@ export interface ExecuteOptions {
   /** Called as each unit of a split task (a piece, or a merge of their
    *  outputs) starts, and as it succeeds. Runtime-only progress reporting. */
   onPartitionProgress?: (progress: PartitionProgress) => void;
+  /** Variables every runner process of the execution gets in its environment,
+   *  after this process's own: a unit's run and its output merge, and every
+   *  unit of a split task. Runtime-only: never hashed and never logged. One
+   *  that sets a variable e3 sets itself (`PATH`, `E3_RUNNER_SEARCH_DIRS`) is
+   *  refused. */
+  extraEnv?: Readonly<Record<string, string>>;
 }
 
 /**
@@ -130,6 +136,7 @@ export class LocalTaskRunner implements TaskRunner {
       budget: this.budget,
       expectedPeakBytes: options?.expectedPeakBytes,
       onPartitionProgress: options?.onPartitionProgress,
+      extraEnv: options?.extraEnv,
     }));
   }
 
@@ -147,6 +154,7 @@ export class LocalTaskRunner implements TaskRunner {
       onStderr: options?.onStderr,
       budget: this.budget,
       expectedPeakBytes: options?.expectedPeakBytes,
+      extraEnv: options?.extraEnv,
     }));
   }
 
@@ -169,6 +177,7 @@ export class LocalTaskRunner implements TaskRunner {
       // and a dataset argument is staged from the repository.
       storage: options?.storage,
       repo: this.repo,
+      extraEnv: options?.extraEnv,
     }, this.budget);
   }
 }
@@ -771,6 +780,7 @@ async function runCommand(
       // (it's hoisted to the workspace root).
       extraBins,
       searchDirs: [path.dirname(repo), process.cwd()],
+      extraEnv: options.extraEnv,
       // Tee stdout - use storage.logs.append for log persistence
       onStdout: (str) => {
         const appended = stdoutLog.push(str);

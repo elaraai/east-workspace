@@ -73,6 +73,7 @@ import {
 import { readDatasetFileType } from '@elaraai/e3';
 import { computeHash } from './objects.js';
 import { openDatasetObject } from './dataset-open.js';
+import { OBJECT_CONCURRENCY, eachAtMost } from './concurrency.js';
 import type { StorageBackend } from './storage/interfaces.js';
 
 /** Bytes a stored blob or a file is read in when it is read front to back:
@@ -226,14 +227,17 @@ export async function storeCollection(
   /** A manifest directory. A stock runner's, cut by the current rule under
    *  the canonical header, is the Writer's: each segment file is linked into
    *  the store under the hash that names it and carried by its entry, never
-   *  read. Any other has its elements read a segment file at a time and
-   *  written again. */
+   *  read. The segments are adopted OBJECT_CONCURRENCY at a time — a link each
+   *  locally, but a request each on a remote store — and one an Array's
+   *  manifest names twice is adopted once. Any other has its elements read a
+   *  segment file at a time and written again. */
   const directoryPiece = async (file: string, canonical: boolean): Promise<CollectionPiece> => {
     const manifest = decodeCollectionManifest(await readFile(file));
     checkType(file, manifest.type);
     const segmentFile = (hash: string): string => join(`${file}.segments`, `${hash}.beast2`);
     if (canonical && manifest.rule === rule && manifest.header === headerHash) {
-      for (const entry of manifest.entries) await storage.objects.adoptFile(repo, segmentFile(entry.hash), entry.hash);
+      await eachAtMost([...new Set(manifest.entries.map((entry) => entry.hash))], OBJECT_CONCURRENCY,
+        (hash) => storage.objects.adoptFile(repo, segmentFile(hash), hash));
       return { segments: manifestRefs(manifest, 0, manifest.entries.length) };
     }
     async function* elements(): AsyncGenerator<unknown> {

@@ -103,6 +103,11 @@ export interface DetachedRunOptions {
   /** Pass `-v` to a stock runner's `exec`, so it prints where the time went
    *  and its peak memory to stderr. */
   verbose?: boolean;
+  /** Variables the runner gets in its environment, after this process's own:
+   *  the secrets a platform function reads, say. Runtime-only: never logged.
+   *  One that sets a variable e3 sets itself (`PATH`,
+   *  `E3_RUNNER_SEARCH_DIRS`) is refused. */
+  extraEnv?: Readonly<Record<string, string>>;
 }
 
 /**
@@ -189,6 +194,7 @@ export async function runDetached(
         searchDirs,
         extraBins: options.extraBins,
         stdinLifeline: stock,
+        extraEnv: options.extraEnv,
       });
     } finally {
       release?.();

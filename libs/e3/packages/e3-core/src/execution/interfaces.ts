@@ -43,6 +43,13 @@ export interface TaskExecuteOptions {
   /** Called as each unit of a split task (a piece, or a merge of their
    *  outputs) starts, and as it succeeds. Runtime-only progress reporting. */
   onPartitionProgress?: (progress: PartitionProgress) => void;
+  /** Variables every runner process of the execution gets in its environment,
+   *  after the orchestrator's own: the secrets a platform function reads, say,
+   *  which the caller holds for this execution alone. Runtime-only: never
+   *  hashed, so the execution's identity does not depend on them, and never
+   *  logged. A local runner refuses one that sets a variable e3 sets itself
+   *  (`PATH`, `E3_RUNNER_SEARCH_DIRS`). */
+  extraEnv?: Readonly<Record<string, string>>;
 }
 
 /**

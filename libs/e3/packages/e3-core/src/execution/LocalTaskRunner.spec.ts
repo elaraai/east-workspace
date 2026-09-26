@@ -16,6 +16,7 @@ import { collectNodeModulesBins } from './processExec.js';
 import { Budget } from './budget.js';
 import { getBootId, getPidStartTime } from './processHelpers.js';
 import { uuidv7 } from '../uuid.js';
+import { inputsHash } from '../executions.js';
 import { objectWrite } from '../storage/local/LocalObjectStore.js';
 import { LocalStorage } from '../storage/local/index.js';
 import { createTestRepo, deadPid, removeTestRepo } from '../test-helpers.js';
@@ -488,5 +489,87 @@ describe('the budget', () => {
     assert.deepEqual(await call, { kind: 'failed', exitCode: -1, stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false });
     release();
     assert.equal(budget.inFlight, 0);
+  });
+});
+
+describe('the caller\'s environment', () => {
+  let repo: string;
+  let storage: StorageBackend;
+
+  beforeEach(() => {
+    repo = createTestRepo();
+    storage = new LocalStorage();
+  });
+
+  afterEach(() => {
+    removeTestRepo(repo);
+  });
+
+  /** What a runner prints: the variable the tests set, then it copies its
+   *  input to its output. */
+  const printSecret = 'process.stdout.write(process.env.E3_TEST_SECRET ?? "unset");';
+
+  /** A custom task whose runner prints the variable and copies its input to
+   *  its output. */
+  async function printingTask(): Promise<{ taskHash: string; inputHashes: string[] }> {
+    const commandFn = East.function(
+      [ArrayType(StringType), StringType],
+      ArrayType(StringType),
+      ($, inputs, output) => ['node', '-e', `${printSecret} require("node:fs").copyFileSync(process.argv[1], process.argv[2])`, inputs.get(0n), output],
+    );
+    const task: TaskObject = {
+      kind: TASK_OBJECT_KIND,
+      body: variant('command', { commandIr: await objectWrite(repo, encodeBeast2For(IRType)(commandFn.toIR().ir)) }),
+      runner: variant('custom', { command: [] }),
+      inputs: [],
+      output: { path: [], kind: variant('value', null) },
+      role: variant('data', null),
+      environment: none,
+    };
+    return {
+      taskHash: await objectWrite(repo, encodeBeast2For(TaskObjectType)(task)),
+      inputHashes: [await storage.objects.write(repo, new Uint8Array([1, 2, 3]))],
+    };
+  }
+
+  it('reaches a task\'s runner and a unit\'s, and is no part of the execution\'s identity', async () => {
+    const runner = new LocalTaskRunner(repo);
+    const { taskHash, inputHashes } = await printingTask();
+    const printed = async (executionId: string): Promise<string> =>
+      (await storage.logs.read(repo, taskHash, inputsHash(inputHashes), executionId, 'stdout')).data;
+
+    const task = await runner.execute(storage, taskHash, inputHashes, { extraEnv: { E3_TEST_SECRET: 'the task\'s' } });
+    assert.equal(task.state, 'success', task.error ?? '');
+    assert.equal(await printed(task.executionId), 'the task\'s');
+
+    const unit = await runner.executeUnit(storage, taskHash, { inputs: inputHashes, merge: null },
+      { force: true, extraEnv: { E3_TEST_SECRET: 'the unit\'s' } });
+    assert.equal(unit.state, 'success', unit.error ?? '');
+    assert.equal(await printed(unit.executionId), 'the unit\'s');
+
+    const again = await runner.execute(storage, taskHash, inputHashes, { extraEnv: { E3_TEST_SECRET: 'another' } });
+    assert.equal(again.cached, true, 'a different environment is the same execution');
+  });
+
+  it('reaches a function call\'s runner', async () => {
+    const result = await new LocalTaskRunner(repo).runDetached({
+      bodyIr: new Uint8Array([1]),
+      args: [encodeBeast2For(StringType)('the value')],
+      runner: variant('custom', { command: [process.execPath, '-e',
+        `${printSecret} const a = process.argv; require("node:fs").copyFileSync(a[a.indexOf("-i") + 1], a[a.indexOf("-o") + 1])`, '--'] }),
+      limits: { timeoutMs: 30_000, maxResultBytes: 1024, maxLogBytes: 1024 },
+    }, { extraEnv: { E3_TEST_SECRET: 'the call\'s' } });
+    assert.equal(result.kind, 'success', result.stderr);
+    assert.equal(result.stdout, 'the call\'s');
+  });
+
+  it('refuses a variable e3 sets itself', async () => {
+    const { taskHash, inputHashes } = await printingTask();
+    for (const name of ['PATH', 'E3_RUNNER_SEARCH_DIRS']) {
+      await assert.rejects(
+        new LocalTaskRunner(repo).execute(storage, taskHash, inputHashes, { extraEnv: { [name]: '/nowhere' } }),
+        { message: `a runner's environment may not set ${name}, which e3 sets itself` },
+      );
+    }
   });
 });

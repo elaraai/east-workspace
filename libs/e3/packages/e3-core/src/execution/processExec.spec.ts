@@ -27,11 +27,12 @@ import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, sep } from 'node:path';
 import crossSpawn from 'cross-spawn';
-import { DictType, East, FunctionType, IntegerType, NullType, SortedMap, StringType, UnitType, compareFor, decodeBeast2For, encodeBeast2For, encodeEastIR, variant } from '@elaraai/east';
+import { ArrayType, DictType, East, FunctionType, IntegerType, NullType, SortedMap, StringType, UnitType, compareFor, decodeBeast2For, encodeBeast2For, encodeEastIR, variant } from '@elaraai/east';
 import { decodeCollectionManifest } from '@elaraai/e3-types';
 import { jobLauncher, marshalInputsToDir, quoteWindowsArgument, spawnAndCapture } from './processExec.js';
 import { unitArgv } from './units.js';
 import { storeDatasetFile } from '../store-collection.js';
+import { DatasetSegments } from '../dataset-open.js';
 import { datasetWrite } from '../trees.js';
 import { writeRecordState } from '../records.js';
 import { createTestRepo, removeTestRepo, createTempDir, removeTempDir, processTree } from '../test-helpers.js';
@@ -207,6 +208,80 @@ describe('staging by link or kernel copy', () => {
         }
       }
     }
+  });
+
+  /** `n` rows of a Dict whose keys start with `prefix`. */
+  const rowsOf = (prefix: string, n: number): SortedMap<string, bigint> => new SortedMap<string, bigint>(
+    Array.from({ length: n }, (_, i) => [`${prefix}${String(i).padStart(7, '0')}`, BigInt(i)] as [string, bigint]),
+    compareFor(StringType),
+  );
+
+  /** Counts how many of an object store's calls are in flight at once, each
+   *  held a moment as a remote store's request is. */
+  function countInFlight<A extends unknown[], R>(call: (...args: A) => Promise<R>, counts: (...args: A) => boolean = () => true) {
+    let inFlight = 0;
+    let peak = 0;
+    const counted = async (...args: A): Promise<R> => {
+      if (!counts(...args)) return call(...args);
+      inFlight++;
+      peak = Math.max(peak, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 2));
+      try {
+        return await call(...args);
+      } finally {
+        inFlight--;
+      }
+    };
+    return { counted, peak: () => peak, reset: () => { peak = 0; } };
+  }
+
+  it('places a unit\'s objects sixteen at a time, its inputs\' together', async () => {
+    const type = DictType(StringType, IntegerType);
+    const a = await datasetWrite(storage, testRepo, rowsOf('a', 20_000), type);
+    const b = await datasetWrite(storage, testRepo, rowsOf('b', 20_000), type);
+    const objects = storage.objects as ObjectStore;
+    const counter = countInFlight(objects.materialize.bind(objects));
+    objects.materialize = counter.counted;
+
+    const staged = await marshalInputsToDir(storage, testRepo, scratch, [a, b], { manifests: true });
+
+    for (const input of staged) {
+      const manifest = decodeCollectionManifest(readFileSync(input));
+      assert.deepEqual(readdirSync(`${input}.segments`).sort(), manifest.entries.map((e) => `${e.hash}.beast2`).sort());
+    }
+    assert.equal(counter.peak(), 16, 'sixteen objects placed at once, never more');
+  });
+
+  it('stages a segment an Array names twice once', async () => {
+    // Equal rows cut into equal segments, which one object holds. Linking it
+    // into the segments directory a second time would fail.
+    const hash = await datasetWrite(storage, testRepo, Array.from({ length: 20_000 }, () => 'the same row'), ArrayType(StringType));
+    const manifest = decodeCollectionManifest(await storage.objects.read(testRepo, hash));
+    const distinct = new Set(manifest.entries.map((e) => e.hash));
+    assert.ok(distinct.size < manifest.entries.length, `a segment is named twice: ${manifest.entries.length} entries, ${distinct.size} objects`);
+
+    const [staged] = await marshalInputsToDir(storage, testRepo, scratch, [hash], { manifests: true });
+    assert.deepEqual(readdirSync(`${staged!}.segments`).sort(), [...distinct].map((h) => `${h}.beast2`).sort());
+  });
+
+  it('reads a spliced input\'s segments sixteen ahead of its write, and a download\'s one at a time', async () => {
+    const type = DictType(StringType, IntegerType);
+    const hash = await datasetWrite(storage, testRepo, rowsOf('k', 40_000), type);
+    const manifest = decodeCollectionManifest(await storage.objects.read(testRepo, hash));
+    assert.ok(manifest.entries.length > 16, `more segments than are read at once: ${manifest.entries.length}`);
+    const segmentHashes = new Set(manifest.entries.map((e) => e.hash));
+    const objects = storage.objects as ObjectStore;
+    const counter = countInFlight(objects.read.bind(objects), (_repo, read) => segmentHashes.has(read));
+    objects.read = counter.counted;
+
+    const [staged] = await marshalInputsToDir(storage, testRepo, scratch, [hash]);
+    const decoded = decodeBeast2For(type)(readFileSync(staged!)) as Map<string, bigint>;
+    assert.equal(decoded.size, 40_000);
+    assert.equal(counter.peak(), 16, 'a custom runner\'s splice reads sixteen segments at once');
+
+    counter.reset();
+    for await (const chunk of (await DatasetSegments.open(storage, testRepo, hash)).splice()) void chunk;
+    assert.equal(counter.peak(), 1, 'a splice reads one segment at a time unless asked to read ahead');
   });
 
   it('adopts an output onto the hash objects.write would have produced', async () => {
@@ -403,6 +478,21 @@ describe('a runner\'s command line', () => {
     assert.equal(result.exitCode, 7);
     assert.equal(result.signal, null);
     assert.equal(result.stoppedByE3, false);
+  });
+
+  it('gives the runner the caller\'s variables, after the process\'s own', async () => {
+    const previous = process.env.E3_TEST_OVERRIDDEN;
+    process.env.E3_TEST_OVERRIDDEN = 'the process\'s';
+    try {
+      const result = await spawnAndCapture([process.execPath, '-e',
+        'process.stdout.write(JSON.stringify([process.env.E3_TEST_OVERRIDDEN, process.env.E3_TEST_ADDED]))'], dir,
+        { extraEnv: { E3_TEST_OVERRIDDEN: 'the caller\'s', E3_TEST_ADDED: 'added' } });
+      assert.equal(result.exitCode, 0, result.stderrTail);
+      assert.deepEqual(JSON.parse(result.stdoutTail), ['the caller\'s', 'added']);
+    } finally {
+      if (previous === undefined) delete process.env.E3_TEST_OVERRIDDEN;
+      else process.env.E3_TEST_OVERRIDDEN = previous;
+    }
   });
 });
 
