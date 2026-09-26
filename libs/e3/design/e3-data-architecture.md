@@ -21,7 +21,7 @@
 | D10 | **Automatic parallelism lands after this PR,** in a PR of its own from main (Stage 6); until then, `e3.streamTask` with `e3.partition` is how work splits. It adds no field to the task object, so it is no second cutover: a task it rewrites re-runs once, when its package is re-exported. |
 | D11 | **Runner protocol:** one machine-facing command, `exec <unit>`, with a typed result. |
 | D12 | **Scheduling:** one budget of cores and memory. |
-| D13 | **SDK namespaces for closed families only:** `e3.output.*` and `e3.mutation.*`. |
+| D13 | **SDK namespaces for closed families only:** `e3.output.*`, `e3.mutation.*` and `e3.migration.*`. |
 | D14 | **External deliveries are split into segment objects when adopted.** It costs one streaming pass and a copy; in exchange, successive deliveries share their unchanged segments and their unchanged pieces stay cached. |
 | D15 | **Every parameter that decides how work is grouped is a platform constant.** Only settings that decide when work runs belong to the machine (§3.10). |
 | D16 | **The cloud is designed for throughout and built after east-workspace** (Stage 8). |
@@ -68,6 +68,9 @@ e3.mutation.edit(name, record, fn)               // was e3.editMutation
 e3.mutation.patch(record, name?)                 // was e3.patchMutation
 e3.mutation.editType(recordType)                 // was e3.editTypeOf
 e3.recordIndex(name, record, spec)               // unchanged
+e3.migration.value(name, record, fn, config?)    // (Old) => New; config: { after?, runner? }
+e3.migration.rows(name, record, fn, config?)     // a Dict's rows (K, V1) => V2, or an Array's elements (T1) => T2
+e3.migration.rekey(name, record, fn, config?)    // a Dict's (K1, V1) => { key, value }, or a Set's elements (T1) => T2
 e3.package(...), e3.export(...)                  // unchanged
 ```
 
@@ -771,7 +774,7 @@ A record's type is fixed for its life today. A redeploy whose record changed typ
 - a prior deployment that does not read is taken as a fresh deploy, so every record is reset, silently;
 - a redeploy that keeps a record appends no commit, so nothing in its history says the package under it changed.
 
-`e3-records-schema.md` §5–§7 proposed the mechanism. Records now run on the engine, which settles its open questions about where a migration runs. Decided with the user: whole-value and streamed migrations, including a change of key; a `$deploy` commit only when the package changed; a dropped record refused unless flagged; `e3 watch` failing on a type change, naming `--schema=reset`; a record deployed before this lands counted as having applied no migration; and a Set's `rekey` that maps two elements to one keeping one, as a Set does.
+`e3-records-schema.md` §5–§7 proposed the mechanism. Records now run on the engine, which settles its open questions about where a migration runs. Decided with the user: whole-value and streamed migrations, including a change of key; a `$deploy` commit only when the package changed; a dropped record refused unless flagged; `e3 watch` failing on a type change, naming `--schema=reset`; a record deployed before this lands counted as having applied no migration; a Set's `rekey` that maps two elements to one keeping one, as a Set does; and an applied step identified by its name.
 
 **Authoring.** The migration forms are a closed family, like the mutation forms (D13):
 
@@ -789,11 +792,11 @@ const pkg = e3.package('planning', '3.0.0', roster, plans, m1, m2, m3, …);
 - `value`: `(Old) => New`, any record. It runs as one unit, whose runner opens the state lazily, so it costs what the body reads.
 - `rows`: a Dict record's rows, `(K, V1) => V2` with the keys unchanged, or an Array record's elements, `(T1) => T2` in order. It runs as a task split over the stored state, into a `dict` or `array` output, so a record of any size migrates a piece at a time, in parallel, each piece cached.
 - `rekey`: a Dict record's keys and rows, `(K1, V1) => { key: K2, value: V2 }`, or a Set record's elements, `(T1) => T2`. It is the same split task into a `dict` or `set` output, whose pieces' outputs merge by key range. Two old rows landing on one new key fail the deploy, naming it, since their values may differ and neither can be chosen. Two old elements landing on one new element are one element, as in any Set: nothing is lost.
-- The guards of a mutation: synchronous, and no platform call. The types are read off the function. `after` links the chain: exactly one migration of a record has none, and each `after` names a migration of the same record. Each step's input type is its predecessor's output type, and the last step's output type is the record's declared type. Each is an error at definition, naming both types.
+- The guards of a mutation: synchronous, and no platform call. The types are read off the function. A step's name is an identifier, unique on its record, and identifies the step once it is applied (below). `after` links the chain: exactly one migration of a record has none, each `after` names a migration of the same record, and no two name the same one. `e3.package` takes a step's predecessors from its `after`, so passing the last step passes the chain. Each step's input type is its predecessor's output type, and the last step's output type is the record's declared type. Each is an error at definition, naming the two steps or the two types that conflict.
 
 **Wire.** `MigrationObjectType`: `form`, `from` and `to` (the record's type before and after), `bodyIr`, `programIr` (the generated program a `rows` or `rekey` step runs, empty for `value`) and `runner`. `RecordObjectType` gains `migrations`, the declared chain in order: each step's name and object hash. Both are package-borne, so they change by hard cutover.
 
-**What a workspace has applied.** The record ref's reserved `$schema` slot holds a rolling hash of the applied steps' object hashes, `sha256(previous ‖ step)`. None applied is the slot's absence, which is exactly true of every record deployed before this lands, since no migration could exist. Only deploy writes it.
+**What a workspace has applied.** The record ref's reserved `$schema` slot holds the names of the steps applied, in order, separated by commas. A step is identified by its name, not by its object's hash (decided 2026-09-27: the plan had a rolling hash of the object hashes). An object's hash covers its IR, which carries its source locations, and changes with the SDK that exported it and with any function it imports, so a step moved in its file, or re-exported by a newer e3, would read as edited and every later deploy would be refused. So an edit to an applied step's body is not detected, as a Rails, Django or Alembic migration's is not; the stored state's type is still checked against the step that runs next. None applied is the slot's absence, which is exactly true of every record deployed before this lands, since no migration could exist. Only deploy writes it.
 
 **Deploy plans before it writes.** For each record, from the stored `$schema` and the stored state's type:
 
@@ -803,7 +806,7 @@ const pkg = e3.package('planning', '3.0.0', roster, plans, m1, m2, m3, …);
 | present | the whole chain, the type unchanged | `keep`, with a `$deploy` commit when the package changed |
 | present | the whole chain, the type changed | refused: the type changed with no migration. The message renders the type diff and names the fixes, a migration after the last or `--schema=reset` |
 | present | a proper prefix | `migrate`: the remaining steps, in order |
-| present | no prefix, or longer than the chain | refused: an applied migration was edited, reordered or removed, or the package is older than the workspace. The message names the steps the history shows |
+| present | no prefix, or longer than the chain | refused: an applied migration was renamed, reordered or removed, or the package is older than the workspace. The message names the steps applied and the steps the package declares |
 | present, not in the package | — | `drop`: refused unless `--allow-drop-records` |
 
 A prior deployment that does not read is refused, naming it, where it was a silent reset. The stored state's type must be the first remaining step's input type, so a chain that does not start where the workspace is fails before anything runs.
@@ -843,6 +846,7 @@ Acceptance:
 - A `rows` or `rekey` step over many pieces (`E3_TEST_PIECE_BYTES`) writes the manifest the `value` step writes for the same change, and a `rekey` that lands two rows on one key is refused, naming it, while one that lands two elements of a Set on one keeps one.
 - `$schema` survives a mutation, a compaction, a reindex and a system commit; a keyed retry is answered, not applied, after each of those, a rollback and a migration.
 - A `$deploy` commit only when the package changed; a dropped record refused, then allowed.
+- An applied step whose object changed under the same name, its code moved or its package re-exported, is kept, not run again.
 - A deploy that takes minutes completes as a job through the API.
 - gc keeps a migrated record's history, and a state reads at an older commit under the type it was written with.
 
