@@ -54,6 +54,12 @@ my-repo/                      # e3 repository directory
 └── executions/               # Execution cache and logs
 ```
 
+## Documentation
+
+- [User guide](USAGE.md): the SDK, the CLI and setting up a project.
+- [How runs work](docs/HOW_RUNS_WORK.md): how a run stores and moves large collections, splits and schedules its work, and where records and functions fit.
+- [Design documents](design/): each part of e3 in depth.
+
 ## Claude Code plugin
 
 The East ecosystem also ships a [Claude Code](https://claude.com/claude-code) plugin — East language skills, example search, and preemptive diagnostics for East code — installed separately from the `elaraai` marketplace:

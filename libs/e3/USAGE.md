@@ -105,6 +105,8 @@ A computation that reads input datasets and produces an output dataset. Tasks ar
 
 The DAG of tasks and their dependencies. When you run `e3 dataflow run`, tasks execute in dependency order. Cached results are reused when inputs haven't changed.
 
+[How runs work](docs/HOW_RUNS_WORK.md) follows one run over very large collections from start to finish: how its data moves, how its work is split and scheduled, and where records and functions fit.
+
 ### Content Addressing
 
 All objects (IR, data, results) are stored by SHA256 hash. This enables:
